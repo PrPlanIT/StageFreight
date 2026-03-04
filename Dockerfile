@@ -44,7 +44,7 @@ RUN apk add --no-cache \
 ENV LANG=C.UTF-8
 
 # Pinned tool versions — bump these for updates.
-ENV BUILDX_VERSION=v0.31.1 \
+ENV BUILDX_VERSION=v0.32.0 \
     TRIVY_VERSION=0.69.3 \
     SYFT_VERSION=1.42.1 \
     GRYPE_VERSION=0.109.0 \
