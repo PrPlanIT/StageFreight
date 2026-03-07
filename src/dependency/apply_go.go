@@ -584,8 +584,12 @@ func moduleGoModPath(moduleDir string) string {
 }
 
 // isGolangImage returns true if the image name is a golang builder.
+// Handles names with or without tags (e.g. "docker.io/library/golang:1.26.1-alpine3.23").
 func isGolangImage(name string) bool {
 	n := strings.ToLower(name)
+	if idx := strings.LastIndex(n, ":"); idx > 0 {
+		n = n[:idx]
+	}
 	return n == "golang" || n == "library/golang" ||
 		strings.HasSuffix(n, "/golang") || strings.HasSuffix(n, "/library/golang")
 }
