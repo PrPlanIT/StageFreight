@@ -80,9 +80,14 @@ generate-docs:
     BUILD_STATUS: "passing"
     BUILD_DATE: "$CI_COMMIT_TIMESTAMP"
   script:
+    - echo "PWD=$(pwd)"
     - stagefreight badge generate
     - stagefreight docs generate
+    - echo "=== after docs generate ==="
+    - find docs -maxdepth 3 -type f | sort || true
     - stagefreight narrator run
+    - echo "=== after narrator run ==="
+    - find docs -maxdepth 3 -type f | sort || true
     - stagefreight docker readme
     - stagefreight component docs --commit
   rules:
