@@ -378,7 +378,7 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 		pushElapsed = time.Since(pushStart)
 		pushSec := output.NewSection(w, "Push", pushElapsed, color)
 		for _, tag := range remoteTags {
-			pushSec.Row("%-50s %s", tag, output.StatusIcon("success", color))
+			pushSec.Row("%s  %s", output.StatusIcon("success", color), tag)
 		}
 		pushSec.Close()
 
@@ -780,11 +780,11 @@ func runCrucibleMode(cmd *cobra.Command, args []string) error {
 		verifySec := output.NewSection(w, "Crucible Verification", 0, color)
 		for _, c := range verification.ArtifactChecks {
 			icon := checkStatusIcon(c.Status, color)
-			verifySec.Row("%-8s/ %-18s %s  %s", "artifact", c.Name, icon, c.Detail)
+			verifySec.Row("%-10s/ %-18s %s  %s", "artifact", c.Name, icon, c.Detail)
 		}
 		for _, c := range verification.ExecutionChecks {
 			icon := checkStatusIcon(c.Status, color)
-			verifySec.Row("%-8s/ %-18s %s  %s", "execution", c.Name, icon, c.Detail)
+			verifySec.Row("%-10s/ %-18s %s  %s", "execution", c.Name, icon, c.Detail)
 		}
 		verifySec.Separator()
 		verifySec.Row("%-16s%s", "trust level", build.TrustLevelLabel(verification.TrustLevel))

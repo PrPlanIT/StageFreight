@@ -69,24 +69,24 @@ func StatusIcon(status string, color bool) string {
 	if !color {
 		switch status {
 		case "success":
-			return "✅"
+			return "✓"
 		case "failed":
-			return "❌"
-		case "warning":
-			return "⚠️"
+			return "✗"
+		case "warning", "info":
+			return "⚠"
 		default:
-			return "⏭️"
+			return "⊘"
 		}
 	}
 	switch status {
 	case "success":
-		return "\033[32m✅\033[0m"
+		return "\033[32m✓\033[0m"
 	case "failed":
-		return "\033[31m❌\033[0m"
-	case "warning":
-		return "\033[33m⚠️\033[0m"
+		return "\033[31m✗\033[0m"
+	case "warning", "info":
+		return "\033[33m⚠\033[0m"
 	default:
-		return "\033[33m⏭️\033[0m"
+		return "\033[33m⊘\033[0m"
 	}
 }
 
@@ -141,11 +141,11 @@ func formatElapsed(d time.Duration) string {
 // SummaryRow writes a summary line with status icon.
 func SummaryRow(w io.Writer, name, status, detail string, color bool) {
 	icon := StatusIcon(status, color)
-	fmt.Fprintf(w, "    │ %-12s%s  %s\n", name, icon, detail)
+	fmt.Fprintf(w, "    │ %-14s%s  %s\n", name, icon, detail)
 }
 
 // SummaryTotal writes the final total line.
 func SummaryTotal(w io.Writer, elapsed time.Duration, status string, color bool) {
 	icon := StatusIcon(status, color)
-	fmt.Fprintf(w, "    │ %-12s%40s   %s\n", "total", formatElapsed(elapsed), icon)
+	fmt.Fprintf(w, "    │ %-14s%s  %s\n", "total", icon, formatElapsed(elapsed))
 }
