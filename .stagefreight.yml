@@ -172,23 +172,24 @@ narrator:
           mode: replace
         spec: "templates/stagefreight.yml"
 
-  - file: "docs/reference/CLI.md"
-    items:
-      - id: cli-reference
-        kind: include
-        path: docs/modules/cli-reference.md
-        placement:
-          between: ["<!-- sf:cli-reference:start -->", "<!-- sf:cli-reference:end -->"]
-          mode: replace
-
-  - file: "docs/reference/Config.md"
-    items:
-      - id: config-reference
-        kind: include
-        path: docs/modules/config-reference.md
-        placement:
-          between: ["<!-- sf:config-reference:start -->", "<!-- sf:config-reference:end -->"]
-          mode: replace
+  # TODO: re-enable after latest-dev has kind: include support
+  # - file: "docs/reference/CLI.md"
+  #   items:
+  #     - id: cli-reference
+  #       kind: include
+  #       path: docs/modules/cli-reference.md
+  #       placement:
+  #         between: ["<!-- sf:cli-reference:start -->", "<!-- sf:cli-reference:end -->"]
+  #         mode: replace
+  #
+  # - file: "docs/reference/Config.md"
+  #   items:
+  #     - id: config-reference
+  #       kind: include
+  #       path: docs/modules/config-reference.md
+  #       placement:
+  #         between: ["<!-- sf:config-reference:start -->", "<!-- sf:config-reference:end -->"]
+  #         mode: replace
 
 lint:
   level: full
