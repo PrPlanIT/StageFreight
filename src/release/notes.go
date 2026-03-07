@@ -53,18 +53,18 @@ var categoryOrder = []struct {
 	{"hotfix", "Hotfixes"},
 }
 
-// ResolvedTag is a single tag with an optional hyperlink to its tag page.
+// ResolvedTag is a single tag with its deterministic UI URL.
 type ResolvedTag struct {
 	Name string // e.g., "1.0.0"
-	URL  string // vendor-specific tag page URL, empty if not linkable
+	URL  string // provider-derived tag page URL
 }
 
 // ImageRow is a single registry/image row for the Image Availability table.
 type ImageRow struct {
 	RegistryLabel string        // human label (e.g., "Docker Hub")
-	RegistryURL   string        // link to repo root on the registry
+	RegistryURL   string        // provider-derived repo page URL
 	ImageRef      string        // full image ref (e.g., "docker.io/prplanit/stagefreight")
-	Tags          []ResolvedTag // resolved tags in config order
+	Tags          []ResolvedTag // resolved tags with URLs
 }
 
 // NotesInput holds all data needed to render release notes.
@@ -340,7 +340,7 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 				regCell = img.RegistryLabel
 			}
 
-			// Tags cell: each tag individually linked or plain code
+			// Tags cell: linked code spans or plain code
 			tagParts := make([]string, 0, len(img.Tags))
 			for _, t := range img.Tags {
 				if t.URL != "" {

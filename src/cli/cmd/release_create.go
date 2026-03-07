@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -118,9 +119,19 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build image availability rows from matched registry targets
+	// Build image availability rows from matched registry targets.
+	// Each target is resolved into a ResolvedRegistryTarget, then targets
+	// sharing the same host+path are merged into one row (tags deduped).
+	// Rows are sorted by provider, then by domain.
 	currentTag := os.Getenv("CI_COMMIT_TAG")
-	var imageRows []release.ImageRow
+	type imageKey struct{ host, path string }
+	type pendingTarget struct {
+		resolved registry.ResolvedRegistryTarget
+		seen     map[string]bool
+	}
+	targetIndex := make(map[imageKey]*pendingTarget)
+	var targetOrder []imageKey
+
 	for _, t := range collectTargetsByKind(cfg, "registry") {
 		if !targetWhenMatches(t, currentTag) {
 			continue
@@ -138,18 +149,52 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 		resolvedPath := gitver.ResolveVars(t.Path, cfg.Vars)
 		resolvedTags := gitver.ResolveTags(t.Tags, versionInfo)
 
-		tags := make([]release.ResolvedTag, 0, len(resolvedTags))
+		host := registry.NormalizeHost(t.URL)
+		k := imageKey{host: host, path: resolvedPath}
+		pt, exists := targetIndex[k]
+		if !exists {
+			pt = &pendingTarget{
+				resolved: registry.ResolvedRegistryTarget{
+					Provider: regProvider,
+					Host:     host,
+					Path:     resolvedPath,
+				},
+				seen: make(map[string]bool),
+			}
+			targetIndex[k] = pt
+			targetOrder = append(targetOrder, k)
+		}
 		for _, rt := range resolvedTags {
+			if !pt.seen[rt] {
+				pt.seen[rt] = true
+				pt.resolved.Tags = append(pt.resolved.Tags, rt)
+			}
+		}
+	}
+
+	// Sort: by provider name, then by domain
+	sort.SliceStable(targetOrder, func(i, j int) bool {
+		ri, rj := targetIndex[targetOrder[i]], targetIndex[targetOrder[j]]
+		if ri.resolved.Provider != rj.resolved.Provider {
+			return ri.resolved.Provider < rj.resolved.Provider
+		}
+		return ri.resolved.Host < rj.resolved.Host
+	})
+
+	imageRows := make([]release.ImageRow, 0, len(targetOrder))
+	for _, k := range targetOrder {
+		rt := targetIndex[k].resolved
+		tags := make([]release.ResolvedTag, 0, len(rt.Tags))
+		for _, t := range rt.Tags {
 			tags = append(tags, release.ResolvedTag{
-				Name: rt,
-				URL:  registryTagURL(t.URL, resolvedPath, rt, regProvider),
+				Name: t,
+				URL:  rt.TagURL(t),
 			})
 		}
-
 		imageRows = append(imageRows, release.ImageRow{
-			RegistryLabel: vendorDisplayName(regProvider),
-			RegistryURL:   registryRepoURL(t.URL, resolvedPath, regProvider),
-			ImageRef:      fmt.Sprintf("%s/%s", t.URL, resolvedPath),
+			RegistryLabel: rt.DisplayName(),
+			RegistryURL:   rt.RepoURL(),
+			ImageRef:      rt.ImageRef(),
 			Tags:          tags,
 		})
 	}
@@ -574,116 +619,37 @@ func hasActionFailures(results []actionResult) bool {
 	return false
 }
 
-// registryRepoURL returns the web URL for a registry image's root page.
-func registryRepoURL(url, path, provider string) string {
-	switch provider {
-	case "docker":
-		return fmt.Sprintf("https://hub.docker.com/r/%s", path)
-	case "github":
-		return fmt.Sprintf("https://github.com/%s/pkgs/container/%s", ownerFromPath(path), repoFromPath(path))
-	case "quay":
-		return fmt.Sprintf("https://quay.io/repository/%s", path)
-	case "gitlab":
-		return fmt.Sprintf("%s/%s/container_registry", url, path)
-	case "jfrog":
-		return fmt.Sprintf("https://%s/ui/repos/tree/General/%s", url, path)
-	default:
-		return ""
-	}
-}
-
-// registryTagURL returns the web URL for a specific tag on a registry.
-// Returns empty string if the vendor doesn't support clean tag page URLs.
-func registryTagURL(url, path, tag, provider string) string {
-	switch provider {
-	case "docker":
-		return fmt.Sprintf("https://hub.docker.com/r/%s/tags?name=%s", path, tag)
-	case "github":
-		return fmt.Sprintf("https://github.com/%s/pkgs/container/%s", ownerFromPath(path), repoFromPath(path))
-	case "quay":
-		return fmt.Sprintf("https://quay.io/repository/%s?tag=%s", path, tag)
-	case "gitlab":
-		return fmt.Sprintf("%s/%s/container_registry", url, path)
-	case "jfrog":
-		return fmt.Sprintf("https://%s/ui/repos/tree/General/%s", url, path)
-	default:
-		return ""
-	}
-}
-
 // buildRegistryLinkFromTarget creates a forge release link for a registry target.
-// Constructs vendor-aware URLs (e.g., Docker Hub web URL vs generic registry).
+// Uses ResolvedRegistryTarget for deterministic URL generation.
 func buildRegistryLinkFromTarget(url, path, tag, provider string) forge.ReleaseLink {
-	imageRef := fmt.Sprintf("%s/%s:%s", url, path, tag)
-
-	var webURL string
-	switch provider {
-	case "docker":
-		// Docker Hub web URL: hub.docker.com/r/org/repo/tags
-		webURL = fmt.Sprintf("https://hub.docker.com/r/%s/tags?name=%s", path, tag)
-	case "github":
-		// GitHub Container Registry: ghcr.io/org/repo
-		webURL = fmt.Sprintf("https://github.com/%s/pkgs/container/%s", ownerFromPath(path), repoFromPath(path))
-	case "quay":
-		webURL = fmt.Sprintf("https://quay.io/repository/%s?tag=%s", path, tag)
-	case "gitlab":
-		webURL = fmt.Sprintf("%s/%s/container_registry", url, path)
-	case "jfrog":
-		webURL = fmt.Sprintf("https://%s/ui/repos/tree/General/%s", url, path)
-	default:
-		webURL = imageRef
+	rt := registry.ResolvedRegistryTarget{
+		Provider: provider,
+		Host:     registry.NormalizeHost(url),
+		Path:     path,
 	}
-
 	return forge.ReleaseLink{
-		Name:     fmt.Sprintf("%s %s", vendorDisplayName(provider), tag),
-		URL:      webURL,
+		Name:     fmt.Sprintf("%s %s", rt.DisplayName(), tag),
+		URL:      rt.TagURL(tag),
 		LinkType: "image",
-	}
-}
-
-// vendorDisplayName returns a human-friendly name for a registry provider.
-func vendorDisplayName(provider string) string {
-	switch provider {
-	case "docker":
-		return "Docker Hub"
-	case "github":
-		return "GitHub Container Registry"
-	case "quay":
-		return "Quay.io"
-	case "gitlab":
-		return "GitLab Registry"
-	case "jfrog":
-		return "JFrog Artifactory"
-	case "harbor":
-		return "Harbor"
-	default:
-		return "Container Image"
 	}
 }
 
 // ownerFromPath extracts the owner/org from "owner/repo" or "owner/repo/sub".
 func ownerFromPath(path string) string {
-	for i := 0; i < len(path); i++ {
-		if path[i] == '/' {
-			return path[:i]
-		}
+	if idx := strings.IndexByte(path, '/'); idx >= 0 {
+		return path[:idx]
 	}
 	return path
 }
 
 // repoFromPath extracts the repo name from "owner/repo".
 func repoFromPath(path string) string {
-	for i := 0; i < len(path); i++ {
-		if path[i] == '/' {
-			rest := path[i+1:]
-			// Strip any further path components
-			for j := 0; j < len(rest); j++ {
-				if rest[j] == '/' {
-					return rest[:j]
-				}
-			}
-			return rest
+	if idx := strings.IndexByte(path, '/'); idx >= 0 {
+		rest := path[idx+1:]
+		if idx2 := strings.IndexByte(rest, '/'); idx2 >= 0 {
+			return rest[:idx2]
 		}
+		return rest
 	}
 	return path
 }

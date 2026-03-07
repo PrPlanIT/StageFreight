@@ -33,6 +33,7 @@ var knownProviders = map[string]bool{
 	"jfrog":     true,
 	"harbor":    true,
 	"gitea":     true,
+	"forgejo":   true,
 	"generic":   true,
 	"":          true, // empty = auto-detect
 }
@@ -174,7 +175,7 @@ func ValidateProvider(provider string) error {
 func CanonicalProvider(provider string) (string, error) {
 	canonical := NormalizeProvider(provider)
 	if !knownProviders[canonical] {
-		return "", fmt.Errorf("unknown provider %q (valid: docker, github, gitlab, quay, jfrog, harbor, gitea, local, generic)", provider)
+		return "", fmt.Errorf("unknown provider %q (valid: docker, github, gitlab, quay, jfrog, harbor, gitea, forgejo, local, generic)", provider)
 	}
 	return canonical, nil
 }

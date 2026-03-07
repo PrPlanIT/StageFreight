@@ -83,10 +83,10 @@ func NewRegistry(provider, registryURL, credentialPrefix string) (Registry, erro
 		return NewJFrog(registryURL, user, pass), nil
 	case "harbor":
 		return NewHarbor(registryURL, user, pass), nil
-	case "gitea":
+	case "gitea", "forgejo":
 		return NewGitea(registryURL, user, pass), nil
 	default:
-		return nil, fmt.Errorf("registry: unsupported provider %q (valid: docker, github, gitlab, quay, jfrog, harbor, gitea)", provider)
+		return nil, fmt.Errorf("registry: unsupported provider %q (valid: docker, github, gitlab, quay, jfrog, harbor, gitea, forgejo)", provider)
 	}
 }
 

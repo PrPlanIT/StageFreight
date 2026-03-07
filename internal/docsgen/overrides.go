@@ -218,7 +218,7 @@ var fieldOverrides = map[string]FieldOverride{
 	},
 	"targets.provider": {
 		Description:   "Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets.",
-		AllowedValues: []string{"docker", "ghcr", "gitlab", "jfrog", "harbor", "quay", "gitea", "generic", "github"},
+		AllowedValues: []string{"docker", "ghcr", "gitlab", "jfrog", "harbor", "quay", "gitea", "forgejo", "generic", "github"},
 	},
 	"targets.path": {
 		Description: "Image path within the registry.",
