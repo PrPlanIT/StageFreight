@@ -21,6 +21,7 @@ policies:
 builds:
   - id: stagefreight
     kind: docker
+    build_mode: crucible
     platforms: [linux/amd64]
 
 targets:
