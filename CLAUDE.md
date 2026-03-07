@@ -34,6 +34,14 @@
   - Config accepts integer shorthand (`retention: 10` = keep_last: 10) or full policy map
   - Tag patterns (from `tags:` field) are converted to regex for matching which remote tags are retention candidates
 
+- Dependency Update (`stagefreight dependency update`):
+  - Resolves outdated deps, applies updates, verifies, generates artifacts
+  - Go modules: `go get` + `go mod tidy` via multi-strategy toolchain resolver (native → toolcache → container runtime)
+  - Dockerfile: FROM image tag replacement with hash-guarded line edits
+  - **Go directive sync**: When a golang builder image is bumped, the `go` directive in the owning `go.mod` is synced automatically via `go mod edit -go=<version>`. Module-aware — maps each Dockerfile to its nearest `go.mod`. Conflicting builder versions within a module are skipped with detailed reporting.
+  - **Toolchain metadata**: Resolved build toolchains are recorded as first-class `ToolchainDependency` entries on `UpdateResult` for SBOM enrichment, release security output, and catalog provenance.
+  - **Design philosophy**: StageFreight is the sole steward of the build/update process. It standardizes dependency management end-to-end so projects don't need ad-hoc scripts. Features are built generically — useful universally, never hardcoded to one project.
+
 - Input Validation:
   - Registry URLs, image paths, tags, credentials, provider names, and regex patterns are all validated at plan time
   - Resolved tags are validated against OCI spec before any push
