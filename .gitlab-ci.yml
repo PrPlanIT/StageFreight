@@ -80,7 +80,6 @@ generate-docs:
     - stagefreight docs generate
     - stagefreight narrator run
     - stagefreight docker readme
-    - stagefreight component docs
     - >
       stagefreight commit
       -t docs
