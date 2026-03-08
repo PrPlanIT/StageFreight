@@ -112,7 +112,6 @@ create-release:
       optional: true
   script:
     - stagefreight release create --tag "$CI_COMMIT_TAG" --security-summary .stagefreight/security/ --registry-links --catalog-links
-    - stagefreight release badge
   rules:
     - if: '$CI_COMMIT_TAG'
       when: on_success

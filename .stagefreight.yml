@@ -93,7 +93,7 @@ targets:
   # ── Primary release (rolling git tag aliases) ────────────────────
   - id: primary-release
     kind: release
-    aliases: ["{version}", "{major}.{minor}", "latest"]
+    aliases: ["v{version}", "latest"]
     when: { git_tags: [stable], events: [tag] }
 
 narrator:
@@ -107,6 +107,7 @@ narrator:
           mode: replace
           inline: true
         text: release
+        value: "v{version}"
         color: "#74ecbe"
         font: dejavu-sans
         font_size: 11
