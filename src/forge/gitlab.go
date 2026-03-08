@@ -76,7 +76,7 @@ func (g *GitLabForge) doJSON(ctx context.Context, method, url string, body inter
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("GitLab API %s %s: %d %s", method, url, resp.StatusCode, string(respBody))
+		return &APIError{Method: method, URL: url, StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	if result != nil {
@@ -190,6 +190,98 @@ func (g *GitLabForge) CommitFile(ctx context.Context, opts CommitFileOptions) er
 		return g.doJSON(ctx, "POST", fileURL, payload, nil)
 	}
 	return nil
+}
+
+func (g *GitLabForge) CommitFiles(ctx context.Context, opts CommitFilesOptions) (*CommitResult, error) {
+	if len(opts.Files) == 0 {
+		return nil, nil
+	}
+
+	// ExpectedSHA preflight: best-effort stale-head check
+	if opts.ExpectedSHA != "" {
+		head, err := g.BranchHeadSHA(ctx, opts.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("reading branch head: %w", err)
+		}
+		if head != opts.ExpectedSHA {
+			return nil, fmt.Errorf("%w: expected %s, got %s", ErrBranchMoved, opts.ExpectedSHA, head)
+		}
+	}
+
+	// Determine action per file: "delete", "update" if exists, "create" if not.
+	type glAction struct {
+		Action   string `json:"action"`
+		FilePath string `json:"file_path"`
+		Content  string `json:"content,omitempty"`
+		Encoding string `json:"encoding,omitempty"`
+	}
+
+	actions := make([]glAction, 0, len(opts.Files))
+	for _, f := range opts.Files {
+		if f.Delete {
+			actions = append(actions, glAction{
+				Action:   "delete",
+				FilePath: f.Path,
+			})
+			continue
+		}
+		action := "update"
+		if !g.fileExists(ctx, f.Path, opts.Branch) {
+			action = "create"
+		}
+		actions = append(actions, glAction{
+			Action:   action,
+			FilePath: f.Path,
+			Content:  base64.StdEncoding.EncodeToString(f.Content),
+			Encoding: "base64",
+		})
+	}
+
+	payload := map[string]interface{}{
+		"branch":         opts.Branch,
+		"commit_message": opts.Message,
+		"actions":        actions,
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := g.doJSON(ctx, "POST", g.apiURL("/repository/commits"), payload, &resp); err != nil {
+		return nil, err
+	}
+	return &CommitResult{SHA: resp.ID}, nil
+}
+
+func (g *GitLabForge) BranchHeadSHA(ctx context.Context, branch string) (string, error) {
+	var resp struct {
+		Commit struct {
+			ID string `json:"id"`
+		} `json:"commit"`
+	}
+	branchURL := g.apiURL(fmt.Sprintf("/repository/branches/%s", url.PathEscape(branch)))
+	if err := g.doJSON(ctx, "GET", branchURL, nil, &resp); err != nil {
+		return "", fmt.Errorf("reading branch %s: %w", branch, err)
+	}
+	return resp.Commit.ID, nil
+}
+
+// fileExists checks whether a file exists on a branch via the repository files API.
+func (g *GitLabForge) fileExists(ctx context.Context, path, branch string) bool {
+	encodedPath := url.PathEscape(path)
+	fileURL := g.apiURL(fmt.Sprintf("/repository/files/%s?ref=%s", encodedPath, url.QueryEscape(branch)))
+
+	req, err := http.NewRequestWithContext(ctx, "HEAD", fileURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (g *GitLabForge) CreateMR(ctx context.Context, opts MROptions) (*MR, error) {

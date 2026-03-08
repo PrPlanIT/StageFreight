@@ -6,8 +6,39 @@ package forge
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 )
+
+// ErrBranchMoved is returned when the target branch has moved since the expected SHA.
+var ErrBranchMoved = errors.New("target branch moved during commit")
+
+// CommitResult holds the result of a forge commit operation.
+type CommitResult struct {
+	SHA string
+}
+
+// APIError is returned by doJSON when the API returns a non-2xx status.
+type APIError struct {
+	Method     string
+	URL        string
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("%s %s: %d %s", e.Method, e.URL, e.StatusCode, e.Body)
+}
+
+// isConflict checks whether an error is an API conflict (409) or validation error (422).
+func isConflict(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 409 || apiErr.StatusCode == 422
+	}
+	return false
+}
 
 // Provider identifies a git forge platform.
 type Provider string
@@ -36,6 +67,13 @@ type Forge interface {
 	// CommitFile creates or updates a file in the repo via the forge API.
 	// Used for badge SVG updates without a local clone.
 	CommitFile(ctx context.Context, opts CommitFileOptions) error
+
+	// CommitFiles creates or updates multiple files in a single atomic commit
+	// via the forge API. Used by the commit subsystem for CI push.
+	CommitFiles(ctx context.Context, opts CommitFilesOptions) (*CommitResult, error)
+
+	// BranchHeadSHA returns the current HEAD SHA of a branch via the forge API.
+	BranchHeadSHA(ctx context.Context, branch string) (string, error)
 
 	// CreateMR opens a merge/pull request.
 	CreateMR(ctx context.Context, opts MROptions) (*MR, error)
@@ -82,6 +120,21 @@ type CommitFileOptions struct {
 	Path    string // file path in repo
 	Content []byte
 	Message string
+}
+
+// CommitFilesOptions configures a multi-file atomic commit via forge API.
+type CommitFilesOptions struct {
+	Branch      string
+	Message     string
+	Files       []FileAction
+	ExpectedSHA string // optional: fail if branch head != this SHA
+}
+
+// FileAction describes a single file operation within a multi-file commit.
+type FileAction struct {
+	Path    string
+	Content []byte // nil for deletes
+	Delete  bool   // true = delete this file
 }
 
 // MROptions configures a merge/pull request.

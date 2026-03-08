@@ -97,7 +97,7 @@ func (g *GitHubForge) doJSON(ctx context.Context, method, url string, body inter
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("GitHub API %s %s: %d %s", method, url, resp.StatusCode, string(respBody))
+		return &APIError{Method: method, URL: url, StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	if result != nil {
@@ -215,6 +215,107 @@ func (g *GitHubForge) CommitFile(ctx context.Context, opts CommitFileOptions) er
 	}
 
 	return g.doJSON(ctx, "PUT", fileURL, payload, nil)
+}
+
+func (g *GitHubForge) CommitFiles(ctx context.Context, opts CommitFilesOptions) (*CommitResult, error) {
+	if len(opts.Files) == 0 {
+		return nil, nil
+	}
+
+	// 1. Get current branch ref → commit SHA
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/git/ref/heads/"+opts.Branch), nil, &ref); err != nil {
+		return nil, fmt.Errorf("getting branch ref: %w", err)
+	}
+
+	// ExpectedSHA guard: compare against ref we just read (no extra API call)
+	if opts.ExpectedSHA != "" && ref.Object.SHA != opts.ExpectedSHA {
+		return nil, fmt.Errorf("%w: expected %s, got %s", ErrBranchMoved, opts.ExpectedSHA, ref.Object.SHA)
+	}
+
+	// 2. Get commit → base tree SHA
+	var commit struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/git/commits/"+ref.Object.SHA), nil, &commit); err != nil {
+		return nil, fmt.Errorf("getting commit: %w", err)
+	}
+
+	// 3. Create new tree with file changes
+	// Use map[string]interface{} entries to support JSON null for delete (sha: null)
+	entries := make([]map[string]interface{}, 0, len(opts.Files))
+	for _, f := range opts.Files {
+		if f.Delete {
+			entries = append(entries, map[string]interface{}{
+				"path": f.Path,
+				"mode": "100644",
+				"type": "blob",
+				"sha":  nil, // JSON null = delete
+			})
+		} else {
+			entries = append(entries, map[string]interface{}{
+				"path":    f.Path,
+				"mode":    "100644",
+				"type":    "blob",
+				"content": string(f.Content),
+			})
+		}
+	}
+
+	var newTree struct {
+		SHA string `json:"sha"`
+	}
+	treePayload := map[string]interface{}{
+		"base_tree": commit.Tree.SHA,
+		"tree":      entries,
+	}
+	if err := g.doJSON(ctx, "POST", g.apiURL("/git/trees"), treePayload, &newTree); err != nil {
+		return nil, fmt.Errorf("creating tree: %w", err)
+	}
+
+	// 4. Create commit
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	commitPayload := map[string]interface{}{
+		"message": opts.Message,
+		"tree":    newTree.SHA,
+		"parents": []string{ref.Object.SHA},
+	}
+	if err := g.doJSON(ctx, "POST", g.apiURL("/git/commits"), commitPayload, &newCommit); err != nil {
+		return nil, fmt.Errorf("creating commit: %w", err)
+	}
+
+	// 5. Update branch ref
+	refPayload := map[string]interface{}{
+		"sha": newCommit.SHA,
+	}
+	if err := g.doJSON(ctx, "PATCH", g.apiURL("/git/refs/heads/"+opts.Branch), refPayload, nil); err != nil {
+		if isConflict(err) {
+			return nil, fmt.Errorf("%w: ref update rejected", ErrBranchMoved)
+		}
+		return nil, fmt.Errorf("updating branch ref: %w", err)
+	}
+
+	return &CommitResult{SHA: newCommit.SHA}, nil
+}
+
+func (g *GitHubForge) BranchHeadSHA(ctx context.Context, branch string) (string, error) {
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/git/ref/heads/"+branch), nil, &ref); err != nil {
+		return "", fmt.Errorf("reading branch %s: %w", branch, err)
+	}
+	return ref.Object.SHA, nil
 }
 
 func (g *GitHubForge) CreateMR(ctx context.Context, opts MROptions) (*MR, error) {

@@ -12,7 +12,7 @@ type GitBackend struct {
 	RootDir string
 }
 
-// Execute stages files, creates a commit, and optionally pushes.
+// Execute stages files, creates a commit, and optionally pushes via git.
 func (g *GitBackend) Execute(_ context.Context, plan *Plan, conventional bool) (*Result, error) {
 	// 1. Stage files
 	switch plan.StageMode {
@@ -83,6 +83,14 @@ func (g *GitBackend) Execute(_ context.Context, plan *Plan, conventional bool) (
 	}
 
 	return result, nil
+}
+
+// BranchFromRefspec extracts the branch name from a refspec like "HEAD:refs/heads/main".
+func BranchFromRefspec(refspec string) string {
+	if idx := strings.LastIndex(refspec, "refs/heads/"); idx >= 0 {
+		return refspec[idx+len("refs/heads/"):]
+	}
+	return ""
 }
 
 // ensureAuthorIdentity sets repo-local git user.name and user.email if not already configured.

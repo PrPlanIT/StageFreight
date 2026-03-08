@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/sofmeright/stagefreight/src/commit"
+	"github.com/sofmeright/stagefreight/src/forge"
 	"github.com/sofmeright/stagefreight/src/output"
 )
 
@@ -113,11 +114,37 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Validate backend config
+	switch cfg.Commit.Backend {
+	case "", "git", "forge":
+		// valid
+	default:
+		return fmt.Errorf("invalid commit backend %q (valid: git, forge)", cfg.Commit.Backend)
+	}
+
 	// Select backend
 	var backend commit.Backend
-	if commitDryRun {
+	switch {
+	case commitDryRun:
 		backend = &commit.DryRunBackend{RootDir: rootDir}
-	} else {
+	case shouldUseForge(plan, cfg.Commit.Backend):
+		fc, branch, err := detectForgeForPush(rootDir, plan)
+		if err != nil {
+			if cfg.Commit.Backend == "forge" {
+				return fmt.Errorf("forge backend requested but detection failed: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "commit: forge detection failed: %s\n", err)
+			fmt.Fprintf(os.Stderr, "commit: falling back to git push\n")
+			backend = &commit.GitBackend{RootDir: rootDir}
+		} else {
+			fmt.Fprintf(os.Stderr, "commit: using %s forge API for push to %s\n", fc.Provider(), branch)
+			backend = &commit.ForgeBackend{
+				RootDir:     rootDir,
+				ForgeClient: fc,
+				Branch:      branch,
+			}
+		}
+	default:
 		backend = &commit.GitBackend{RootDir: rootDir}
 	}
 
@@ -178,4 +205,49 @@ func runCommit(cmd *cobra.Command, args []string) error {
 
 	sec.Close()
 	return nil
+}
+
+// shouldUseForge returns true when the forge backend should be used for push.
+func shouldUseForge(plan *commit.Plan, configBackend string) bool {
+	if !plan.Push.Enabled {
+		return false
+	}
+	if configBackend == "forge" {
+		return true
+	}
+	return output.IsCI()
+}
+
+// detectForgeForPush detects the forge platform and resolves the target branch
+// for forge-based push.
+func detectForgeForPush(rootDir string, plan *commit.Plan) (forge.Forge, string, error) {
+	remoteURL, err := detectRemoteURL(rootDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("no git remote URL found: %w", err)
+	}
+
+	provider := forge.DetectProvider(remoteURL)
+	if provider == forge.Unknown {
+		return nil, "", fmt.Errorf("unknown forge provider for remote %s", remoteURL)
+	}
+
+	fc, err := newForgeClient(provider, remoteURL)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s forge client init failed: %w", provider, err)
+	}
+
+	branch := commit.BranchFromRefspec(plan.Push.Refspec)
+	if branch == "" {
+		for _, env := range []string{"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME", "GITHUB_REF_NAME"} {
+			if v := os.Getenv(env); v != "" {
+				branch = v
+				break
+			}
+		}
+	}
+	if branch == "" {
+		return nil, "", fmt.Errorf("could not resolve target branch (checked refspec + CI_COMMIT_BRANCH/CI_COMMIT_REF_NAME/GITHUB_REF_NAME)")
+	}
+
+	return fc, branch, nil
 }
