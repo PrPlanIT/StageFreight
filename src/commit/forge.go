@@ -159,7 +159,7 @@ func parsePorcelainStatus(out []byte) []FileChange {
 
 // gitChangedFiles returns all changed files with delete status.
 func gitChangedFiles(rootDir string) ([]FileChange, error) {
-	cmd := exec.Command("git", "status", "--porcelain=v1", "-z")
+	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "-uall")
 	cmd.Dir = rootDir
 	out, err := cmd.Output()
 	if err != nil {
@@ -170,7 +170,7 @@ func gitChangedFiles(rootDir string) ([]FileChange, error) {
 
 // gitChangedFilesInDir returns changed files within a specific directory.
 func gitChangedFilesInDir(rootDir, dir string) ([]FileChange, error) {
-	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "--", dir)
+	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "-uall", "--", dir)
 	cmd.Dir = rootDir
 	out, err := cmd.Output()
 	if err != nil {
