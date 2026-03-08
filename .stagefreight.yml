@@ -36,9 +36,7 @@ targets:
     provider: docker
     path: "{var:org}/{var:repo}"
     tags:
-      - "{version}"          # 0.2.0
-      - "{major}.{minor}"    # 0.2
-      - "{major}"            # 0
+      - "v{version}"         # v0.2.0
       - "latest"
     when: { git_tags: [stable], events: [tag] }
     credentials: DOCKER
@@ -52,7 +50,7 @@ targets:
     provider: docker
     path: "{var:org}/{var:repo}"
     tags:
-      - "{version}"          # 0.2.0-alpha.1
+      - "v{version}"         # v0.2.0-alpha.1
     when: { git_tags: [prerelease], events: [tag] }
     credentials: DOCKER
 
