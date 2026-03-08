@@ -59,15 +59,11 @@ security-scan:
     - docker context create tls-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem"
     - docker buildx create --name security-scanner --use tls-context
   script:
-    - stagefreight security scan --image "$SCAN_IMAGE" --output .stagefreight/security/
+    - stagefreight security scan --output .stagefreight/security/
   rules:
     - if: '$CI_COMMIT_TAG'
-      variables:
-        SCAN_IMAGE: "docker.io/prplanit/stagefreight:$CI_COMMIT_TAG"
       when: on_success
     - if: '$CI_COMMIT_BRANCH == "main"'
-      variables:
-        SCAN_IMAGE: "docker.io/prplanit/stagefreight:latest-dev"
       when: on_success
   allow_failure: true
 

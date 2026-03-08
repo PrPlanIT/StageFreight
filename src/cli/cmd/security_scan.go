@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/sofmeright/stagefreight/src/build"
 	"github.com/sofmeright/stagefreight/src/output"
 	"github.com/sofmeright/stagefreight/src/security"
 )
@@ -56,7 +57,15 @@ func runSecurityScan(cmd *cobra.Command, args []string) error {
 		imageRef = args[0]
 	}
 	if imageRef == "" {
-		return fmt.Errorf("--image is required (or pass image ref as argument)")
+		// Auto-resolve from publish manifest (written by docker build)
+		rootDir, _ := os.Getwd()
+		if manifest, err := build.ReadPublishManifest(rootDir); err == nil && len(manifest.Published) > 0 {
+			imageRef = manifest.Published[0].Ref
+			fmt.Fprintf(os.Stderr, "security: resolved scan target from publish manifest: %s\n", imageRef)
+		}
+	}
+	if imageRef == "" {
+		return fmt.Errorf("--image is required (or pass image ref as argument, or run after docker build)")
 	}
 
 	// Merge CLI flags with config defaults
