@@ -26,11 +26,24 @@ func (f *ForgeBackend) Execute(ctx context.Context, plan *Plan, conventional boo
 	switch plan.StageMode {
 	case StageExplicit:
 		for _, p := range plan.Paths {
-			fc := FileChange{Path: p}
-			if _, statErr := os.Stat(filepath.Join(f.RootDir, p)); os.IsNotExist(statErr) {
-				fc.Deleted = true
+			absPath := filepath.Join(f.RootDir, p)
+			info, statErr := os.Stat(absPath)
+			if os.IsNotExist(statErr) {
+				changes = append(changes, FileChange{Path: p, Deleted: true})
+				continue
 			}
-			changes = append(changes, fc)
+			if statErr != nil {
+				return nil, fmt.Errorf("stat %s: %w", p, statErr)
+			}
+			if info.IsDir() {
+				dirChanges, dirErr := gitChangedFilesInDir(f.RootDir, p)
+				if dirErr != nil {
+					return nil, fmt.Errorf("expanding directory %s: %w", p, dirErr)
+				}
+				changes = append(changes, dirChanges...)
+			} else {
+				changes = append(changes, FileChange{Path: p})
+			}
 		}
 	case StageAll:
 		changes, err = gitChangedFiles(f.RootDir)
@@ -101,8 +114,7 @@ type FileChange struct {
 	Deleted bool
 }
 
-// gitChangedFiles returns all changed files with delete status.
-// Uses -z for NUL-delimited machine-safe output.
+// parsePorcelainStatus parses NUL-delimited `git status --porcelain=v1 -z` output.
 //
 // Format: each record is "XY path\0" where XY is the two-column status.
 // For renames/copies (X or Y is R/C), the record is "XY oldpath\0newpath\0"
@@ -111,15 +123,9 @@ type FileChange struct {
 // We use the new path since that's the file that exists in the working tree.
 //
 // Deduplicates by final path to handle rename+edit combos.
-func gitChangedFiles(rootDir string) ([]FileChange, error) {
-	cmd := exec.Command("git", "status", "--porcelain=v1", "-z")
-	cmd.Dir = rootDir
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
+func parsePorcelainStatus(out []byte) []FileChange {
 	if len(out) == 0 {
-		return nil, nil
+		return nil
 	}
 	seen := make(map[string]FileChange)
 	var order []string
@@ -148,7 +154,29 @@ func gitChangedFiles(rootDir string) ([]FileChange, error) {
 	for _, p := range order {
 		changes = append(changes, seen[p])
 	}
-	return changes, nil
+	return changes
+}
+
+// gitChangedFiles returns all changed files with delete status.
+func gitChangedFiles(rootDir string) ([]FileChange, error) {
+	cmd := exec.Command("git", "status", "--porcelain=v1", "-z")
+	cmd.Dir = rootDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	return parsePorcelainStatus(out), nil
+}
+
+// gitChangedFilesInDir returns changed files within a specific directory.
+func gitChangedFilesInDir(rootDir, dir string) ([]FileChange, error) {
+	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "--", dir)
+	cmd.Dir = rootDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	return parsePorcelainStatus(out), nil
 }
 
 // gitStagedChanges returns staged files with delete status.
