@@ -108,9 +108,11 @@ func BuildPlan(opts PlannerOptions, cfg config.CommitConfig, registry *TypeRegis
 	// 11. CI refspec auto-detection when push is enabled and no explicit refspec
 	if push && refspec == "" {
 		if os.Getenv("CI_COMMIT_TAG") != "" {
-			return nil, fmt.Errorf("refusing to push from tag pipeline without explicit --refspec")
-		}
-		if ref := os.Getenv("CI_COMMIT_REF_NAME"); ref != "" {
+			// Tag pipeline: push docs to the default branch, not the tag ref
+			if defaultBranch := os.Getenv("CI_DEFAULT_BRANCH"); defaultBranch != "" {
+				refspec = "HEAD:refs/heads/" + defaultBranch
+			}
+		} else if ref := os.Getenv("CI_COMMIT_REF_NAME"); ref != "" {
 			refspec = "HEAD:refs/heads/" + ref
 		} else if branch := os.Getenv("CI_COMMIT_BRANCH"); branch != "" {
 			refspec = "HEAD:refs/heads/" + branch
