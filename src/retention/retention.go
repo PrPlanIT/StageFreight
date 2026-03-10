@@ -76,6 +76,19 @@ func Apply(ctx context.Context, store Store, patterns []string, policy config.Re
 	// Apply retention policies — mark which items to keep
 	keepSet := ApplyPolicies(candidates, policy)
 
+	// Protect is a deletion veto, not a retention policy. After the retention
+	// policies have marked keep/delete candidates, force-keep anything matching
+	// a protect pattern. Values are run through TemplatesToPatterns so plain
+	// values like "latest-dev" become anchored regexes (^latest-dev$).
+	protectPatterns := TemplatesToPatterns(policy.Protect)
+	if len(protectPatterns) > 0 {
+		for i, item := range candidates {
+			if !keepSet[i] && config.MatchPatterns(protectPatterns, item.Name) {
+				keepSet[i] = true
+			}
+		}
+	}
+
 	// Count kept
 	for _, keep := range keepSet {
 		if keep {

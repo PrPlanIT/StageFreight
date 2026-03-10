@@ -1128,14 +1128,20 @@ func runRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 
 			client, err := registry.NewRegistry(reg.Provider, reg.URL, reg.Credentials)
 			if err != nil {
+				fmt.Fprintf(w, "  ERROR: %s/%s: %v\n", reg.URL, reg.Path, err)
 				totalErrors++
 				continue
 			}
 
 			result, err := registry.ApplyRetention(ctx, client, reg.Path, reg.TagPatterns, reg.Retention)
 			if err != nil {
+				fmt.Fprintf(w, "  ERROR: %s/%s: %v\n", reg.URL, reg.Path, err)
 				totalErrors++
 				continue
+			}
+
+			for _, e := range result.Errors {
+				fmt.Fprintf(w, "  ERROR: %v\n", e)
 			}
 
 			totalKept += result.Kept
