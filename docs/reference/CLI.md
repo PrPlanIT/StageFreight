@@ -42,6 +42,11 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
 - [`stagefreight narrator`](#cli-stagefreight-narrator) — Compose and inject content into markdown files
 - [`stagefreight narrator compose`](#cli-stagefreight-narrator-compose) — Compose modules into a file section from the shell
 - [`stagefreight narrator run`](#cli-stagefreight-narrator-run) — Run narrator items from config
+- [`stagefreight props`](#cli-stagefreight-props) — Typed presentation items (badges, etc.)
+- [`stagefreight props categories`](#cli-stagefreight-props-categories) — List prop categories with type counts
+- [`stagefreight props list`](#cli-stagefreight-props-list) — List all available prop types
+- [`stagefreight props render`](#cli-stagefreight-props-render) — Resolve and render a prop as markdown
+- [`stagefreight props show`](#cli-stagefreight-props-show) — Show details for a prop type
 - [`stagefreight release`](#cli-stagefreight-release) — Release management commands
 - [`stagefreight release create`](#cli-stagefreight-release-create) — Create a release on the forge and sync to targets
 - [`stagefreight release notes`](#cli-stagefreight-release-notes) — Generate release notes from conventional commits
@@ -79,11 +84,12 @@ StageFreight — cache-aware, delta-only code quality and CI/CD automation.
 - [`lint`](#cli-stagefreight-lint) — Run code quality checks
 - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
 - [`narrator`](#cli-stagefreight-narrator) — Compose and inject content into markdown files
+- [`props`](#cli-stagefreight-props) — Typed presentation items (badges, etc.)
 - [`release`](#cli-stagefreight-release) — Release management commands
 - [`security`](#cli-stagefreight-security) — Security scanning commands
 - [`version`](#cli-stagefreight-version) — Print the version
 
-**See also:** [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
+**See also:** [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
 
 ---
 
@@ -185,7 +191,7 @@ Examples:
 | `--config` | string | — | config file (default: .stagefreight.yml) |
 | `-v, --verbose` | bool | — | verbose output |
 
-**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
+**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
 
 ---
 
@@ -642,7 +648,7 @@ Simply type stagefreight help [path to command] for full details.
 | `--config` | string | — | config file (default: .stagefreight.yml) |
 | `-v, --verbose` | bool | — | verbose output |
 
-**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
+**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
 
 ---
 
@@ -675,7 +681,7 @@ Modules run in parallel and results are cached by content hash.
 | `--config` | string | — | config file (default: .stagefreight.yml) |
 | `-v, --verbose` | bool | — | verbose output |
 
-**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
+**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
 
 ---
 
@@ -709,7 +715,7 @@ by this migration tool — it was an unversioned alpha that must be rewritten.
 | `--config` | string | — | config file (default: .stagefreight.yml) |
 | `-v, --verbose` | bool | — | verbose output |
 
-**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
+**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight version`](#cli-stagefreight-version)
 
 ---
 
@@ -816,6 +822,124 @@ inline items are joined with spaces, block items with newlines.
 | `-v, --verbose` | bool | — | verbose output |
 
 **See also:** [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight narrator compose`](#cli-stagefreight-narrator-compose)
+
+---
+
+<a id="cli-stagefreight-props" name="cli-stagefreight-props"></a>
+### stagefreight props
+
+**Usage:** `stagefreight props props`
+
+Props is StageFreight's composable presentation subsystem.
+
+Declarative, discoverable, validated, schema-aware presentation items.
+Badges are the first prop format. Use 'props list' to see all available types.
+
+**Inherited flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--config` | string | — | config file (default: .stagefreight.yml) |
+| `-v, --verbose` | bool | — | verbose output |
+
+**Subcommands:**
+
+- [`categories`](#cli-stagefreight-props-categories) — List prop categories with type counts
+- [`list`](#cli-stagefreight-props-list) — List all available prop types
+- [`render`](#cli-stagefreight-props-render) — Resolve and render a prop as markdown
+- [`show`](#cli-stagefreight-props-show) — Show details for a prop type
+
+**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight props categories`](#cli-stagefreight-props-categories) · [`stagefreight props list`](#cli-stagefreight-props-list) · [`stagefreight props render`](#cli-stagefreight-props-render) · [`stagefreight props show`](#cli-stagefreight-props-show)
+
+---
+
+<a id="cli-stagefreight-props-categories" name="cli-stagefreight-props-categories"></a>
+### stagefreight props categories
+
+**Usage:** `stagefreight props categories categories`
+
+List prop categories with type counts
+
+**Inherited flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--config` | string | — | config file (default: .stagefreight.yml) |
+| `-v, --verbose` | bool | — | verbose output |
+
+**See also:** [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight props list`](#cli-stagefreight-props-list) · [`stagefreight props render`](#cli-stagefreight-props-render) · [`stagefreight props show`](#cli-stagefreight-props-show)
+
+---
+
+<a id="cli-stagefreight-props-list" name="cli-stagefreight-props-list"></a>
+### stagefreight props list
+
+**Usage:** `stagefreight props list list`
+
+List all registered prop types, grouped by category.
+
+Use --category to filter to a specific category.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--category` | string | — | filter by category |
+
+**Inherited flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--config` | string | — | config file (default: .stagefreight.yml) |
+| `-v, --verbose` | bool | — | verbose output |
+
+**See also:** [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight props categories`](#cli-stagefreight-props-categories) · [`stagefreight props render`](#cli-stagefreight-props-render) · [`stagefreight props show`](#cli-stagefreight-props-show)
+
+---
+
+<a id="cli-stagefreight-props-render" name="cli-stagefreight-props-render"></a>
+### stagefreight props render
+
+**Usage:** `stagefreight props render render`
+
+Resolve a prop type with the given parameters and print the resulting markdown.
+
+Example:
+  stagefreight props render --type docker-pulls --param image=prplanit/stagefreight
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--param` | stringArray | — | param in key=value format (repeatable) |
+| `--type` | string | — | prop type ID (required) |
+
+**Inherited flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--config` | string | — | config file (default: .stagefreight.yml) |
+| `-v, --verbose` | bool | — | verbose output |
+
+**See also:** [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight props categories`](#cli-stagefreight-props-categories) · [`stagefreight props list`](#cli-stagefreight-props-list) · [`stagefreight props show`](#cli-stagefreight-props-show)
+
+---
+
+<a id="cli-stagefreight-props-show" name="cli-stagefreight-props-show"></a>
+### stagefreight props show
+
+**Usage:** `stagefreight props show <type>`
+
+Show description, parameters, and example config for a prop type.
+
+**Inherited flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--config` | string | — | config file (default: .stagefreight.yml) |
+| `-v, --verbose` | bool | — | verbose output |
+
+**See also:** [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight props categories`](#cli-stagefreight-props-categories) · [`stagefreight props list`](#cli-stagefreight-props-list) · [`stagefreight props render`](#cli-stagefreight-props-render)
 
 ---
 
@@ -1015,7 +1139,7 @@ Print the version
 | `--config` | string | — | config file (default: .stagefreight.yml) |
 | `-v, --verbose` | bool | — | verbose output |
 
-**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security)
+**See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security)
 
 ---
 <!-- sf:cli-reference:end -->
