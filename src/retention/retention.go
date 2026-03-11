@@ -5,6 +5,7 @@ package retention
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -23,6 +24,7 @@ type Result struct {
 	Matched int      // items matching the pattern set
 	Kept    int      // items kept by policy
 	Deleted []string // items successfully deleted
+	Skipped []string // items skipped (digest shared with protected item)
 	Errors  []error  // errors from individual deletes
 }
 
@@ -31,6 +33,14 @@ type Result struct {
 type Store interface {
 	List(ctx context.Context) ([]Item, error)
 	Delete(ctx context.Context, name string) error
+}
+
+// IsSkipped checks whether an error from Store.Delete indicates the item
+// was intentionally skipped (e.g., digest shared with a protected tag).
+// Store implementations return an error satisfying this interface to signal
+// a skip rather than a failure.
+type skipper interface {
+	IsSkipped() bool
 }
 
 // Apply lists all items from the store, filters them by patterns (using
@@ -102,7 +112,12 @@ func Apply(ctx context.Context, store Store, patterns []string, policy config.Re
 			continue
 		}
 		if err := store.Delete(ctx, item.Name); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("deleting %s: %w", item.Name, err))
+			var skip skipper
+			if errors.As(err, &skip) && skip.IsSkipped() {
+				result.Skipped = append(result.Skipped, item.Name)
+			} else {
+				result.Errors = append(result.Errors, fmt.Errorf("deleting %s: %w", item.Name, err))
+			}
 		} else {
 			result.Deleted = append(result.Deleted, item.Name)
 		}

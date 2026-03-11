@@ -1094,7 +1094,7 @@ func runPreBuildLint(ctx context.Context, rootDir string, ci bool, color bool, w
 // hasRetention returns true if any step has a registry with retention configured.
 func hasRetention(plan *build.BuildPlan) bool {
 	for _, step := range plan.Steps {
-		if !step.Push {
+		if len(step.Registries) == 0 {
 			continue
 		}
 		for _, reg := range step.Registries {
@@ -1114,11 +1114,13 @@ func runRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 
 	var totalDeleted int
 	var totalKept int
+	var totalSkipped int
 	var totalErrors int
 	var deletedNames []string
+	var skippedNames []string
 
 	for _, step := range plan.Steps {
-		if !step.Push {
+		if len(step.Registries) == 0 {
 			continue
 		}
 		for _, reg := range step.Registries {
@@ -1133,7 +1135,14 @@ func runRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 				continue
 			}
 
-			result, err := registry.ApplyRetention(ctx, client, reg.Path, reg.TagPatterns, reg.Retention)
+			// Copy policy and protect produced tags from deletion.
+			policy := reg.Retention
+			policy.Protect = append([]string{}, policy.Protect...)
+			for _, t := range reg.Tags {
+				policy.Protect = append(policy.Protect, t)
+			}
+
+			result, err := registry.ApplyRetention(ctx, client, reg.Path, reg.TagPatterns, policy)
 			if err != nil {
 				fmt.Fprintf(w, "  ERROR: %s/%s: %v\n", reg.URL, reg.Path, err)
 				totalErrors++
@@ -1146,8 +1155,10 @@ func runRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 
 			totalKept += result.Kept
 			totalDeleted += len(result.Deleted)
+			totalSkipped += len(result.Skipped)
 			totalErrors += len(result.Errors)
 			deletedNames = append(deletedNames, result.Deleted...)
+			skippedNames = append(skippedNames, result.Skipped...)
 		}
 	}
 
@@ -1165,10 +1176,16 @@ func runRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 	for _, d := range deletedNames {
 		sec.Row("  - %s", d)
 	}
+	for _, s := range skippedNames {
+		sec.Row("  ~ %s (digest shared with protected tag)", s)
+	}
 	sec.Close()
 	output.SectionEnd(w, "sf_retention")
 
 	summary := fmt.Sprintf("kept %d, pruned %d", totalKept, totalDeleted)
+	if totalSkipped > 0 {
+		summary += fmt.Sprintf(", %d skipped", totalSkipped)
+	}
 	if totalErrors > 0 {
 		summary += fmt.Sprintf(", %d error(s)", totalErrors)
 	}
