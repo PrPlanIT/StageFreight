@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/moby/patternmatcher"
 	"github.com/prplanit/stagefreight/src/lint"
 )
 
@@ -361,20 +362,17 @@ func parseDockerignore(path string) ([]string, error) {
 	return lines, scanner.Err()
 }
 
-// isCovered checks whether all test paths are matched by at least one ignore pattern.
+// isCovered checks whether all test paths are matched by the .dockerignore
+// rule set using Docker's own pattern semantics (directory coverage, globs,
+// negation, root anchoring).
 func isCovered(ignorePatterns []string, testPaths []string) bool {
+	pm, err := patternmatcher.New(ignorePatterns)
+	if err != nil {
+		return false
+	}
 	for _, tp := range testPaths {
-		matched := false
-		for _, pat := range ignorePatterns {
-			if strings.HasPrefix(pat, "!") {
-				continue
-			}
-			if lint.MatchGlob(pat, tp) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		matched, err := pm.MatchesOrParentMatches(tp)
+		if err != nil || !matched {
 			return false
 		}
 	}
