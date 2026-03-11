@@ -2,6 +2,28 @@
 
 Props is StageFreight's typed, discoverable, validated, schema-aware presentation subsystem. Users declare presentation items in config; StageFreight resolves them through typed, validated resolvers to produce normalized structured output.
 
+## Two Badge Systems
+
+StageFreight has two distinct badge mechanisms that serve different purposes:
+
+### Local badge generation (`kind: badge`)
+
+StageFreight's **owned asset pipeline**. Generates SVG badge files locally using the `badge` package with full control over fonts, colors, and rendering. Good for branded, version-stamped, or build-status artifacts where you own the image.
+
+- Powered by `badge` package (local SVG renderer)
+- Output: committed `.svg` files referenced via raw URLs
+- CLI: `stagefreight badge generate`
+
+### External badge composition (`kind: props`)
+
+StageFreight's **presentation registry**. Typed, validated resolvers that compose URLs from external badge providers (shields.io, codecov, Go Report Card, etc.). Good for ecosystem-standard badges that pull live data from GitHub, Docker Hub, and other services.
+
+- Powered by `props` package (resolver/composer)
+- Output: markdown image references to external URLs
+- CLI: `stagefreight props list`, `stagefreight props render`
+
+Both compose through narrator — they can coexist in the same README, on the same or separate lines. Use local badges when you control the data and want branded assets. Use props when you want live external data in a standardized format.
+
 ## Architecture
 
 Props uses two-level dispatch:

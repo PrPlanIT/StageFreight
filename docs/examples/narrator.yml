@@ -1,4 +1,7 @@
 # Badge generation + README embedding via Narrator.
+# Demonstrates both badge systems:
+#   kind: badge  — local SVG generation (branded assets)
+#   kind: props  — external badge composition (ecosystem badges)
 version: 1
 
 vars:
@@ -55,3 +58,24 @@ narrator:
           inline: true
         shield: "docker/pulls/{var:org}/{var:repo}"
         link: "https://hub.docker.com/r/{var:org}/{var:repo}"
+
+      # External ecosystem badges (props) — separate section marker
+      - id: prop.github-release
+        kind: props
+        type: github-release
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          repo: "{var:org}/{var:repo}"
+
+      - id: prop.docker-size
+        kind: props
+        type: docker-image-size
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          image: "{var:org}/{var:repo}"

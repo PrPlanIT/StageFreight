@@ -11,6 +11,8 @@ A declarative CI/CD automation CLI that detects, builds, scans, and releases con
 <!-- sf:badges:start -->
 [![release](https://raw.githubusercontent.com/sofmeright/stagefreight/main/.stagefreight/badges/release.svg)](https://github.com/sofmeright/stagefreight/releases) [![build](https://raw.githubusercontent.com/sofmeright/stagefreight/main/.stagefreight/badges/build.svg)](https://github.com/sofmeright/stagefreight/actions) [![license](https://raw.githubusercontent.com/sofmeright/stagefreight/main/.stagefreight/badges/license.svg)](https://github.com/sofmeright/stagefreight/blob/main/LICENSE) ![updated](https://raw.githubusercontent.com/sofmeright/stagefreight/main/.stagefreight/badges/updated.svg) [![docker/pulls/prplanit/stagefreight](https://img.shields.io/docker/pulls/prplanit/stagefreight)](https://hub.docker.com/r/prplanit/stagefreight)
 <!-- sf:badges:end -->
+<!-- sf:props:start -->
+<!-- sf:props:end -->
 
 ### Features:
 

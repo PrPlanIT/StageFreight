@@ -162,6 +162,58 @@ narrator:
         shield: "docker/pulls/{var:org}/{var:repo}"
         link: "https://hub.docker.com/r/{var:org}/{var:repo}"
 
+      # ── External ecosystem badges (props) ────────────────────────
+      - id: prop.go-report
+        kind: props
+        type: go-report-card
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          module: "github.com/{var:github_org}/{var:repo}"
+
+      - id: prop.go-reference
+        kind: props
+        type: go-reference
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          module: "github.com/{var:github_org}/{var:repo}"
+
+      - id: prop.github-release
+        kind: props
+        type: github-release
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          repo: "{var:github_org}/{var:repo}"
+        style: flat-square
+
+      - id: prop.docker-size
+        kind: props
+        type: docker-image-size
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          image: "{var:org}/{var:repo}"
+
+      - id: prop.last-commit
+        kind: props
+        type: github-last-commit
+        placement:
+          between: ["<!-- sf:props:start -->", "<!-- sf:props:end -->"]
+          mode: replace
+          inline: true
+        params:
+          repo: "{var:github_org}/{var:repo}"
+
   - file: "docs/Component.md"
     items:
       - id: component-docs
