@@ -14,6 +14,7 @@ import (
 	"github.com/sofmeright/stagefreight/src/gitver"
 	"github.com/sofmeright/stagefreight/src/narrator"
 	"github.com/sofmeright/stagefreight/src/output"
+	"github.com/sofmeright/stagefreight/src/props"
 	"github.com/sofmeright/stagefreight/src/registry"
 )
 
@@ -292,6 +293,29 @@ func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *g
 				continue
 			}
 			modules = append(modules, narrator.IncludeModule{Content: strings.TrimSpace(string(data))})
+
+		case "props":
+			def, ok := props.Get(item.Type)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "narrator: props type %q not found\n", item.Type)
+				continue
+			}
+			opts := props.RenderOptions{
+				Label:   item.Label,
+				Link:    item.Link,
+				Style:   item.Style,
+				Logo:    item.Logo,
+				Variant: props.VariantClassic,
+			}
+			resolved, err := props.ResolveDefinition(def, item.Params, opts)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "narrator: props %s: %v\n", item.Type, err)
+				continue
+			}
+			modules = append(modules, narrator.PropsModule{
+				Resolved: resolved,
+				Variant:  props.VariantClassic,
+			})
 		}
 	}
 

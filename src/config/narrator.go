@@ -68,6 +68,23 @@ type NarratorItem struct {
 
 	// Path is the file path to include verbatim (kind: include).
 	Path string `yaml:"path,omitempty"`
+
+	// ── kind: props ──────────────────────────────────────────────────────
+
+	// Type is the props resolver type ID (kind: props).
+	Type string `yaml:"type,omitempty"`
+
+	// Params are provider-semantic inputs for the props resolver.
+	Params map[string]string `yaml:"params,omitempty"`
+
+	// Label overrides the auto-derived alt text for props.
+	Label string `yaml:"label,omitempty"`
+
+	// Style is a presentation override for shields.io badge style.
+	Style string `yaml:"style,omitempty"`
+
+	// Logo is a presentation override for shields.io logo name.
+	Logo string `yaml:"logo,omitempty"`
 }
 
 // HasGeneration returns true if this badge item should trigger SVG generation.
@@ -120,6 +137,7 @@ var validNarratorItemKinds = map[string]bool{
 	"component": true,
 	"break":     true,
 	"include":   true,
+	"props":     true,
 }
 
 // validPlacementModes enumerates all recognized placement modes.

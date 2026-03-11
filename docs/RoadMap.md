@@ -44,6 +44,7 @@ start tracking there.
 
 ### Completed
 
+- [x] Props — composable presentation subsystem ([docs/Props.md](Props.md)) — 37 Tier 1 badge types, CLI commands, narrator integration
 - [x] Tag classification overhaul — multi-stage pipeline, family grouping, pre-release ranking (2026-02-24)
 - [x] Configuration API design — extends/adherence/repository schema (2026-02-24)
 - [x] Cache TTL for external-state lint modules — CacheTTLModule interface (2026-02-25)
