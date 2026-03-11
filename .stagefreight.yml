@@ -214,54 +214,117 @@ narrator:
         params:
           repo: "{var:github_org}/{var:repo}"
 
-      # ── Image section (local generated badges) ───────────────────
-      - id: badge.latest
-        kind: badge
+      # ── Image section (multi-row with breaks) ─────────────────────
+      # Row 1: Docker Images header
+      - id: image.label
+        kind: text
         placement:
           between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
           mode: replace
-          inline: true
-        text: latest
-        value: "v{version}"
-        color: "#74ecbe"
-        output: ".stagefreight/badges/latest.svg"
-        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
+        content: "**Docker Images:** [`docker.io/{var:org}/{var:repo}`](https://hub.docker.com/r/{var:org}/{var:repo})"
 
-      - id: badge.latest-dev
+      - id: image.pulls
         kind: badge
         placement:
           between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
           mode: replace
-          inline: true
-        text: latest-dev
-        value: "dev-{sha:8}"
-        color: "#3b82f6"
-        output: ".stagefreight/badges/latest-dev.svg"
-        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
-
-      - id: badge.pulls
-        kind: badge
-        placement:
-          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
-          mode: replace
-          inline: true
         text: pulls
         value: "{docker.pulls}"
         color: "#1d63ed"
         output: ".stagefreight/badges/pulls.svg"
         link: "https://hub.docker.com/r/{var:org}/{var:repo}"
 
-      - id: badge.size
+      - id: image.break1
+        kind: break
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+
+      # Row 2: Latest Release
+      - id: image.release-label
+        kind: text
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+        content: "**Latest Release:**"
+
+      - id: image.release-latest
         kind: badge
         placement:
           between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
           mode: replace
-          inline: true
+        text: latest
+        value: "v{version}"
+        color: "#74ecbe"
+        output: ".stagefreight/badges/latest.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
+
+      - id: image.release-updated
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+        text: updated
+        value: "{env:BUILD_DATE}"
+        color: "#236144"
+        output: ".stagefreight/badges/release-updated.svg"
+
+      - id: image.release-size
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
         text: size
         value: "{docker.size}"
         color: "#555"
-        output: ".stagefreight/badges/size.svg"
-        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags"
+        output: ".stagefreight/badges/release-size.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
+
+      - id: image.break2
+        kind: break
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+
+      # Row 3: Latest Dev Build
+      - id: image.dev-label
+        kind: text
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+        content: "**Latest Dev Build:**"
+
+      - id: image.dev-latest
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+        text: latest-dev
+        value: "dev-{sha:8}"
+        color: "#3b82f6"
+        output: ".stagefreight/badges/latest-dev.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
+
+      - id: image.dev-updated
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+        text: updated
+        value: "{env:BUILD_DATE}"
+        color: "#236144"
+        output: ".stagefreight/badges/dev-updated.svg"
+
+      - id: image.dev-size
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+        text: size
+        value: "{docker.size}"
+        color: "#555"
+        output: ".stagefreight/badges/dev-size.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
 
   - file: "docs/Component.md"
     items:

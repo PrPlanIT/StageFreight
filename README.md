@@ -32,8 +32,6 @@ A declarative CI/CD automation CLI that detects, builds, scans, and releases con
 <!-- sf:image:start -->
 <!-- sf:image:end -->
 
-[`docker.io/prplanit/stagefreight`](https://hub.docker.com/r/prplanit/stagefreight)
-
 ### Public Resources:
 
 |                  |                                                                                          |
