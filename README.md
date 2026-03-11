@@ -142,14 +142,6 @@ Starting from **0.2.0**, `prplanit/stagefreight` includes the Go CLI binary and 
 - Submit Pull Requests / Merge Requests
 - Open issues with ideas, bugs, or feature requests
 
-## Support / Sponsorship
-
-If you'd like to help support this project and others like it, I have this donation link:
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/T6T41IT163)
-
----
-
 ## Disclaimer
 
 The Software provided hereunder is licensed "as-is," without warranties of any kind. The developer makes no promises about functionality, performance, or availability. Not responsible if StageFreight replaces your entire CI pipeline and you find yourself with free time you didn't expect, your retention policies work so well your registry bill drops and finance gets confused, or your release notes become more detailed than the actual features they describe.
