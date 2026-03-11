@@ -107,7 +107,7 @@ narrator:
           mode: replace
           inline: true
         text: release
-        value: "v{version}"
+        value: "v{base}"
         color: "#74ecbe"
         font: dejavu-sans
         font_size: 11
@@ -152,15 +152,6 @@ narrator:
         font: dejavu-sans
         font_size: 11
         output: ".stagefreight/badges/updated.svg"
-
-      - id: shield.pulls
-        kind: shield
-        placement:
-          between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
-          mode: replace
-          inline: true
-        shield: "docker/pulls/{var:org}/{var:repo}"
-        link: "https://hub.docker.com/r/{var:org}/{var:repo}"
 
       # ── Project section (repo health & sources) ─────────────────
       - id: project.github
@@ -240,13 +231,14 @@ narrator:
           repo: "{var:github_org}/{var:repo}"
 
       # ── Image section (multi-row with breaks) ─────────────────────
-      # Row 1: Docker Images header
-      - id: image.label
-        kind: text
+      # Row 1: Docker image + pulls
+      - id: image.docker
+        kind: shield
         placement:
           between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
           mode: replace
-        content: "**Docker Images:** [`docker.io/{var:org}/{var:repo}`](https://hub.docker.com/r/{var:org}/{var:repo})"
+        shield: "badge/Docker-{var:org}%2F{var:repo}-2496ED?logo=docker&logoColor=white"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}"
 
       - id: image.pulls
         kind: badge
