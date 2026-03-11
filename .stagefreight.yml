@@ -214,6 +214,55 @@ narrator:
         params:
           repo: "{var:github_org}/{var:repo}"
 
+      # ── Image section (local generated badges) ───────────────────
+      - id: badge.latest
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+          inline: true
+        text: latest
+        value: "v{version}"
+        color: "#74ecbe"
+        output: ".stagefreight/badges/latest.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
+
+      - id: badge.latest-dev
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+          inline: true
+        text: latest-dev
+        value: "dev-{sha:8}"
+        color: "#3b82f6"
+        output: ".stagefreight/badges/latest-dev.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
+
+      - id: badge.pulls
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+          inline: true
+        text: pulls
+        value: "{docker.pulls}"
+        color: "#1d63ed"
+        output: ".stagefreight/badges/pulls.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}"
+
+      - id: badge.size
+        kind: badge
+        placement:
+          between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+          mode: replace
+          inline: true
+        text: size
+        value: "{docker.size}"
+        color: "#555"
+        output: ".stagefreight/badges/size.svg"
+        link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags"
+
   - file: "docs/Component.md"
     items:
       - id: component-docs

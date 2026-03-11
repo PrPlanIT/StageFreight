@@ -27,6 +27,13 @@ A declarative CI/CD automation CLI that detects, builds, scans, and releases con
 | **Retention Policies**         | Restic-style tag retention (keep_last, daily, weekly, monthly, yearly) across all registry providers       |
 | **Self-Building**              | StageFreight builds itself — this image is produced by `stagefreight docker build`                        |
 
+### Image:
+
+<!-- sf:image:start -->
+<!-- sf:image:end -->
+
+[`docker.io/prplanit/stagefreight`](https://hub.docker.com/r/prplanit/stagefreight)
+
 ### Public Resources:
 
 |                  |                                                                                          |
