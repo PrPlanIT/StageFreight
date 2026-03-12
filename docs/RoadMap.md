@@ -336,7 +336,7 @@ metadata:
   motto: "Hello World's a Stage"              # slogan/tagline (optional)
   license: AGPL-3.0-only                      # SPDX identifier
   homepage: https://stagefreight.dev          # project URL
-  repository: https://github.com/prplanit/stagefreight
+  repository: https://github.com/PrPlanIT/StageFreight
   author: "SoFMeRight <sofmeright@gmail.com>"
 
   # Version source — where the version number comes from
@@ -351,7 +351,7 @@ metadata:
   stamp:
     # Go: injects via -ldflags at build time (no file modification needed)
     - type: go
-      package: github.com/prplanit/stagefreight/src/version
+      package: github.com/PrPlanIT/StageFreight/src/version
       vars:
         Version: "{version}"
         Description: "{description}"
