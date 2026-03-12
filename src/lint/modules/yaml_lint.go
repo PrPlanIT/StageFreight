@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 func init() {

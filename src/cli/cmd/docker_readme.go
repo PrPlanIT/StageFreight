@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/prplanit/stagefreight/src/build"
-	"github.com/prplanit/stagefreight/src/gitver"
-	"github.com/prplanit/stagefreight/src/output"
-	"github.com/prplanit/stagefreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
 var drDryRun bool

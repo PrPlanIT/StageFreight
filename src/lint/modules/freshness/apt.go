@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // checkAPT resolves Debian/Ubuntu APT package freshness by parsing Packages.gz.

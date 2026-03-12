@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/prplanit/stagefreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 var (

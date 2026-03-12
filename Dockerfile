@@ -19,20 +19,22 @@ ARG BUILD_DATE=unknown
 
 RUN CGO_ENABLED=0 go build -tags banner_art \
       -ldflags "-s -w \
-        -X github.com/prplanit/stagefreight/src/version.Version=${VERSION} \
-        -X github.com/prplanit/stagefreight/src/version.Commit=${COMMIT} \
-        -X github.com/prplanit/stagefreight/src/version.BuildDate=${BUILD_DATE}" \
+        -X github.com/PrPlanIT/StageFreight/src/version.Version=${VERSION} \
+        -X github.com/PrPlanIT/StageFreight/src/version.Commit=${COMMIT} \
+        -X github.com/PrPlanIT/StageFreight/src/version.BuildDate=${BUILD_DATE}" \
       -o /out/stagefreight ./src/cli
 
 # ---- Runtime image ----
 FROM docker.io/library/alpine:3.23.3
 
-LABEL maintainer="SoFMeRight <sofmeright@gmail.com>" \
+LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
       org.opencontainers.image.title="StageFreight" \
-      description="Declarative CI/CD automation CLI — detect, build, scan, and release container images from a single manifest." \
       org.opencontainers.image.description="Declarative CI/CD automation CLI — detect, build, scan, and release container images from a single manifest." \
-      org.opencontainers.image.source="https://github.com/prplanit/stagefreight.git" \
-      org.opencontainers.image.licenses="AGPL-3.0-only"
+      org.opencontainers.image.source="https://github.com/PrPlanIT/StageFreight" \
+      org.opencontainers.image.url="https://hub.docker.com/r/prplanit/stagefreight" \
+      org.opencontainers.image.documentation="https://github.com/PrPlanIT/StageFreight#readme" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="PrPlanIT"
 
 # Runtime dependencies — only what stagefreight actually shells out to.
 RUN apk add --no-cache \

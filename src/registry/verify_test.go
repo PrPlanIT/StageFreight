@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/prplanit/stagefreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/build"
 )
 
 func TestVerifyImageSuccess(t *testing.T) {

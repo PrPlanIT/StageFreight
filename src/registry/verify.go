@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prplanit/stagefreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/build"
 )
 
 // VerificationResult tracks the outcome of verifying a single published image.

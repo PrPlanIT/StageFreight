@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/build"
-	"github.com/prplanit/stagefreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
 )
 
 // CommitCategory represents a group of commits by type.

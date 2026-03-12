@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // CI environment detection.

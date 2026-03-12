@@ -3,7 +3,7 @@
 // if not present in PATH the module silently produces no findings.
 package osv
 
-import "github.com/prplanit/stagefreight/src/lint"
+import "github.com/PrPlanIT/StageFreight/src/lint"
 
 func init() {
 	lint.Register("osv", func() lint.Module { return newModule() })

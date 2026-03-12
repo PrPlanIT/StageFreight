@@ -1,4 +1,4 @@
-module github.com/prplanit/stagefreight
+module github.com/PrPlanIT/StageFreight
 
 go 1.26.1
 

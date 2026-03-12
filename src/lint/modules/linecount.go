@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 const defaultMaxLines = 1000

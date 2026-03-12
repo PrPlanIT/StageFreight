@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/prplanit/stagefreight/src/dependency"
-	"github.com/prplanit/stagefreight/src/lint"
-	"github.com/prplanit/stagefreight/src/lint/modules/freshness"
-	"github.com/prplanit/stagefreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/dependency"
+	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 // ExitError wraps an error with a process exit code.

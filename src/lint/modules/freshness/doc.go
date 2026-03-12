@@ -8,7 +8,7 @@
 // feed a future "stagefreight update" command for automated MR creation.
 package freshness
 
-import "github.com/prplanit/stagefreight/src/lint"
+import "github.com/PrPlanIT/StageFreight/src/lint"
 
 func init() {
 	lint.Register("freshness", func() lint.Module { return newModule() })

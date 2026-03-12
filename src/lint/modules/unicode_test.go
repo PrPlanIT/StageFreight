@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 func writeTempFile(t *testing.T, name string, content []byte) string {

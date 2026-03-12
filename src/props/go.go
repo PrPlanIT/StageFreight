@@ -55,9 +55,9 @@ func (r *goReportCardResolver) Resolve(params map[string]string, opts RenderOpti
 func (r *goReportCardResolver) Schema() PropSchema {
 	return PropSchema{
 		Params: []ParamSpec{
-			{Name: "module", Required: true, Help: "Full Go module path (e.g. github.com/prplanit/stagefreight)"},
+			{Name: "module", Required: true, Help: "Full Go module path (e.g. github.com/PrPlanIT/StageFreight)"},
 		},
-		Example: map[string]string{"module": "github.com/prplanit/stagefreight"},
+		Example: map[string]string{"module": "github.com/PrPlanIT/StageFreight"},
 	}
 }
 
@@ -74,8 +74,8 @@ func (r *goReferenceResolver) Resolve(params map[string]string, opts RenderOptio
 func (r *goReferenceResolver) Schema() PropSchema {
 	return PropSchema{
 		Params: []ParamSpec{
-			{Name: "module", Required: true, Help: "Full Go module path (e.g. github.com/prplanit/stagefreight)"},
+			{Name: "module", Required: true, Help: "Full Go module path (e.g. github.com/PrPlanIT/StageFreight)"},
 		},
-		Example: map[string]string{"module": "github.com/prplanit/stagefreight"},
+		Example: map[string]string{"module": "github.com/PrPlanIT/StageFreight"},
 	}
 }

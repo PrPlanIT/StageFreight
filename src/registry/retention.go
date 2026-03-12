@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/prplanit/stagefreight/src/config"
-	"github.com/prplanit/stagefreight/src/retention"
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/retention"
 )
 
 // RetentionResult captures what the retention engine did.

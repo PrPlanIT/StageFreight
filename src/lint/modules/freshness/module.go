@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // freshnessModule implements lint.Module and lint.ConfigurableModule.

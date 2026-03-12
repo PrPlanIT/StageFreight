@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 )
 
 // UpdateResult holds the outcome of a dependency update run.

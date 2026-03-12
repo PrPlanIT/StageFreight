@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/prplanit/stagefreight/src/commit"
-	"github.com/prplanit/stagefreight/src/forge"
-	"github.com/prplanit/stagefreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/commit"
+	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 var (

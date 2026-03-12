@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prplanit/stagefreight/src/config"
-	"github.com/prplanit/stagefreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"golang.org/x/sync/semaphore"
 )
 

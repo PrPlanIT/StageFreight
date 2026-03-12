@@ -8,7 +8,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 func init() {

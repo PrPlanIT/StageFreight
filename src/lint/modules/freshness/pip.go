@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // pypiResponse matches the PyPI JSON API response.

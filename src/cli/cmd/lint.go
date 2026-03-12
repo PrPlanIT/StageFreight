@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/prplanit/stagefreight/src/lint"
-	"github.com/prplanit/stagefreight/src/lint/modules"
-	"github.com/prplanit/stagefreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint/modules"
+	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 var (

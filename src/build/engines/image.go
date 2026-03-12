@@ -7,10 +7,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/prplanit/stagefreight/src/build"
-	"github.com/prplanit/stagefreight/src/config"
-	"github.com/prplanit/stagefreight/src/gitver"
-	"github.com/prplanit/stagefreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
 func init() {

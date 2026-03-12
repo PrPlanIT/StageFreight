@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/forge"
 )
 
 // ForgeBackend creates commits purely via forge API (no local git commit).

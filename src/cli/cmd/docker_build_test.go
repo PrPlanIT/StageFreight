@@ -3,8 +3,8 @@ package cmd
 import (
 	"testing"
 
-	"github.com/prplanit/stagefreight/src/build"
-	"github.com/prplanit/stagefreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 func TestHasRetention_LoadOnlyWithRegistries(t *testing.T) {

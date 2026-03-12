@@ -1,6 +1,6 @@
 package build
 
-import "github.com/prplanit/stagefreight/src/gitver"
+import "github.com/PrPlanIT/StageFreight/src/gitver"
 
 // VersionInfo is an alias for backward compatibility.
 type VersionInfo = gitver.VersionInfo

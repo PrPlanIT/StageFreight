@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // checkAPK resolves Alpine APK package freshness by parsing APKINDEX.

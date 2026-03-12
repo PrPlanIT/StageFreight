@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/prplanit/stagefreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // Validation regexes based on OCI Distribution Spec.

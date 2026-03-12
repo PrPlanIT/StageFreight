@@ -3,7 +3,7 @@ package freshness
 import (
 	"fmt"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // mapSeverity converts a VersionDelta into a lint.Severity using the

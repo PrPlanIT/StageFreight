@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/prplanit/stagefreight/src/cli/cmd"
+	"github.com/PrPlanIT/StageFreight/src/cli/cmd"
 )
 
 func main() {

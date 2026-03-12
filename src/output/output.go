@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // Colors for terminal output.

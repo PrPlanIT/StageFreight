@@ -1,6 +1,6 @@
 package build
 
-import "github.com/prplanit/stagefreight/src/config"
+import "github.com/PrPlanIT/StageFreight/src/config"
 
 // OutputMode describes what the build produces.
 type OutputMode string

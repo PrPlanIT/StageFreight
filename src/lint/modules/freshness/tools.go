@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // githubReleaseLatest is the response from GitHub's releases/latest endpoint.

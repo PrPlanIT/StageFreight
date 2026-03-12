@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prplanit/stagefreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // fakeRegistry implements Registry for testing.

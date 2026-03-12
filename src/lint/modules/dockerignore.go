@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/moby/patternmatcher"
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 func init() {

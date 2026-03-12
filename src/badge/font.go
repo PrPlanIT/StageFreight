@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/fonts"
+	"github.com/PrPlanIT/StageFreight/src/fonts"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/font/sfnt"

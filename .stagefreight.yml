@@ -2,14 +2,16 @@ version: 1
 
 vars:
   org: prplanit
-  github_org: prplanit
+  github_org: PrPlanIT
+  gitlab_group: PrPlanIT
   repo: stagefreight
+  github_repo: StageFreight
 
 sources:
   primary:
     kind: git
     worktree: "."
-    url: "https://github.com/{var:github_org}/{var:repo}"
+    url: "https://github.com/{var:github_org}/{var:github_repo}"
     default_branch: "main"
 
 policies:
@@ -81,7 +83,7 @@ targets:
     when: { branches: [main], events: [push, tag] }
     file: "README.md"
     description: "Declarative CI/CD CLI — detect, build, scan, and release container images from one manifest"
-    link_base: "https://github.com/{var:github_org}/{var:repo}/blob/main"
+    link_base: "https://github.com/{var:github_org}/{var:github_repo}/blob/main"
 
   # ── GitLab component catalog ─────────────────────────────────────
   - id: gitlab-catalog
@@ -98,7 +100,7 @@ targets:
 
 narrator:
   - file: "README.md"
-    link_base: "https://github.com/{var:github_org}/{var:repo}/blob/main"
+    link_base: "https://github.com/{var:github_org}/{var:github_repo}/blob/main"
     items:
       - id: badge.build
         kind: badge
@@ -111,7 +113,7 @@ narrator:
         color: auto
         font: monofur
         output: ".stagefreight/badges/build.svg"
-        link: "https://gitlab.prplanit.com/precisionplanit/{var:repo}/-/pipelines"
+        link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
 
       - id: badge.license
         kind: badge
@@ -138,7 +140,7 @@ narrator:
         font: dejavu-sans
         font_size: 11
         output: ".stagefreight/badges/release.svg"
-        link: "https://github.com/{var:github_org}/{var:repo}/releases"
+        link: "https://github.com/{var:github_org}/{var:github_repo}/releases"
 
       - id: badge.updated
         kind: badge
@@ -179,7 +181,7 @@ narrator:
           mode: replace
           inline: true
         shield: "badge/GitHub-source-181717?logo=github"
-        link: "https://github.com/{var:github_org}/{var:repo}"
+        link: "https://github.com/{var:github_org}/{var:github_repo}"
 
       - id: project.gitlab
         kind: shield
@@ -188,7 +190,7 @@ narrator:
           mode: replace
           inline: true
         shield: "badge/GitLab-source-FC6D26?logo=gitlab"
-        link: "https://gitlab.prplanit.com/precisionplanit/{var:repo}"
+        link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}"
 
       - id: project.go-report
         kind: props
@@ -198,7 +200,7 @@ narrator:
           mode: replace
           inline: true
         params:
-          module: "github.com/{var:github_org}/{var:repo}"
+          module: "github.com/{var:github_org}/{var:github_repo}"
 
       - id: project.go-reference
         kind: props
@@ -208,7 +210,7 @@ narrator:
           mode: replace
           inline: true
         params:
-          module: "github.com/{var:github_org}/{var:repo}"
+          module: "github.com/{var:github_org}/{var:github_repo}"
 
       - id: project.last-commit
         kind: props
@@ -218,7 +220,7 @@ narrator:
           mode: replace
           inline: true
         params:
-          repo: "{var:github_org}/{var:repo}"
+          repo: "{var:github_org}/{var:github_repo}"
 
       - id: project.issues-open
         kind: props
@@ -228,7 +230,7 @@ narrator:
           mode: replace
           inline: true
         params:
-          repo: "{var:github_org}/{var:repo}"
+          repo: "{var:github_org}/{var:github_repo}"
 
       - id: project.prs-open
         kind: shield
@@ -236,7 +238,7 @@ narrator:
           between: ["<!-- sf:project:start -->", "<!-- sf:project:end -->"]
           mode: replace
           inline: true
-        shield: "github/issues-pr/{var:github_org}/{var:repo}"
+        shield: "github/issues-pr/{var:github_org}/{var:github_repo}"
 
       - id: project.contributors
         kind: props
@@ -246,7 +248,7 @@ narrator:
           mode: replace
           inline: true
         params:
-          repo: "{var:github_org}/{var:repo}"
+          repo: "{var:github_org}/{var:github_repo}"
 
       # ── Image section (multi-row with breaks) ─────────────────────
       # Row 1: Docker image + pulls

@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/prplanit/stagefreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 )
 
 // goRunner executes a go subcommand in the given directory.

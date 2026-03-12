@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/prplanit/stagefreight/src/build"
-	"github.com/prplanit/stagefreight/src/config"
-	"github.com/prplanit/stagefreight/src/forge"
-	"github.com/prplanit/stagefreight/src/gitver"
-	"github.com/prplanit/stagefreight/src/output"
-	"github.com/prplanit/stagefreight/src/registry"
-	"github.com/prplanit/stagefreight/src/release"
-	"github.com/prplanit/stagefreight/src/retention"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/release"
+	"github.com/PrPlanIT/StageFreight/src/retention"
 )
 
 var (

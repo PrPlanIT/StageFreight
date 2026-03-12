@@ -3,7 +3,7 @@ package freshness
 import (
 	"context"
 
-	"github.com/prplanit/stagefreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // checkDockerfile is the top-level dispatcher for Dockerfile freshness.
