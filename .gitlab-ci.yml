@@ -54,10 +54,19 @@ build-image:
 
 dependency-update:
   stage: deps
+  services:
+    - name: docker.jcr.pcfae.com/docker:27-dind
+      alias: docker
   variables:
     GIT_DEPTH: 0
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    DOCKER_TLS_CERTDIR: "/certs"
   before_script:
     - *sf-context
+    - docker context create tls-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem"
+    - docker buildx create --name deps-builder --use tls-context
   script:
     - stagefreight ci run deps
   artifacts:
