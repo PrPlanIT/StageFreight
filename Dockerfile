@@ -82,7 +82,7 @@ RUN wget -qO /usr/local/bin/osv-scanner \
       "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" && \
     chmod +x /usr/local/bin/osv-scanner
 
-ENV COSIGN_VERSION=2.4.3
+ENV COSIGN_VERSION=3.0.5
 
 # Install cosign (container signing and verification)
 RUN wget -qO /usr/local/bin/cosign \
