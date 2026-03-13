@@ -324,10 +324,21 @@ func ResolveDigest(ctx context.Context, ref string) (string, error) {
 	if digest == "" || digest == "null" {
 		return "", fmt.Errorf("no digest returned for %s (schema-1 registry?)", ref)
 	}
-	if !strings.HasPrefix(digest, "sha256:") {
-		return "", fmt.Errorf("unexpected digest format for %s: %s", ref, digest)
+	if strings.HasPrefix(digest, "sha256:") {
+		return digest, nil
 	}
-	return digest, nil
+	// Fallback: buildx may return multi-line inspect output instead of
+	// honoring --format. Scan for a "Digest:" field.
+	for _, line := range strings.Split(digest, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Digest:") {
+			d := strings.TrimSpace(strings.TrimPrefix(line, "Digest:"))
+			if strings.HasPrefix(d, "sha256:") {
+				return d, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("unexpected digest format for %s: %s", ref, digest)
 }
 
 // ResolveLocalDigest extracts the pushed digest from a locally loaded image
