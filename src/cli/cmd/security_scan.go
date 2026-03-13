@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -83,8 +84,17 @@ func resolveTarget(explicitImage string, positionalArgs []string) (security.Scan
 	// Priority 3: auto-resolve from publish manifest
 	rootDir, _ := os.Getwd()
 	manifest, err := build.ReadPublishManifest(rootDir)
-	if err != nil || len(manifest.Published) == 0 {
-		return security.ScanTarget{}, fmt.Errorf("--image is required (or pass image ref as argument, or run after docker build)")
+	if err != nil {
+		if errors.Is(err, build.ErrPublishManifestNotFound) {
+			return security.ScanTarget{}, fmt.Errorf(
+				"--image is required: no publish manifest at %s (build may not have produced images for this ref)",
+				build.PublishManifestPath)
+		}
+		return security.ScanTarget{}, fmt.Errorf("--image is required: publish manifest unreadable: %w", err)
+	}
+	if len(manifest.Published) == 0 {
+		return security.ScanTarget{}, fmt.Errorf(
+			"--image is required: publish manifest exists but contains no published images")
 	}
 
 	// Build candidate list

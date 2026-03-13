@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -13,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/pipeline"
 )
 
 // buildCIRegistry returns a registry of all CI subsystem runners.
@@ -42,9 +45,70 @@ func resolveWorkspace(ciCtx *ci.CIContext) string {
 func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	_ = appCfg // build reads its own config via Cobra pre-run
 
+	rootDir := resolveWorkspace(ciCtx)
+
+	// Initialize pipeline state with CI context
+	if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		st.CI = pipeline.InitFromCI(ciCtx)
+		st.Build.Attempted = true
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
+
 	if err := runDockerBuild(dockerBuildCmd, nil); err != nil {
+		if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Build.Reason = err.Error()
+		}); stErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+		}
 		return fmt.Errorf("build subsystem: %w", err)
 	}
+
+	// Read publish manifest to determine what was produced.
+	// Distinguish "not found" (no targets matched) from "unreadable" (real error).
+	// Unreadable manifest is NOT treated as "completed with no images" — that would
+	// cause security to skip silently. Instead, Completed stays false so downstream
+	// stages proceed and fail with diagnostic errors.
+	manifest, manifestErr := build.ReadPublishManifest(rootDir)
+
+	switch {
+	case manifestErr == nil:
+		count := len(manifest.Published)
+		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Build.Completed = true
+			st.Build.ProducedImages = count > 0
+			st.Build.PublishedCount = count
+			if count > 0 {
+				st.Build.ManifestPath = build.PublishManifestPath
+			}
+			if count == 0 {
+				st.Build.Reason = "publish manifest exists but contains no images"
+			}
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+
+	case errors.Is(manifestErr, build.ErrPublishManifestNotFound):
+		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Build.Completed = true
+			st.Build.ProducedImages = false
+			st.Build.Reason = "no targets matched current ref"
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+
+	default:
+		// Manifest exists but is unreadable — do NOT mark Completed.
+		// Security will proceed (not skip) and fail with a diagnostic from resolveTarget.
+		reason := fmt.Sprintf("publish manifest unreadable: %v", manifestErr)
+		fmt.Fprintf(os.Stderr, "warning: %s\n", reason)
+		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Build.Reason = reason
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+	}
+
 	return nil
 }
 
@@ -197,6 +261,39 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 		return nil
 	}
 
+	rootDir := resolveWorkspace(ciCtx)
+
+	// Pre-flight: check pipeline state for build output.
+	// Only skip when build explicitly COMPLETED and produced nothing.
+	// Missing state = proceed (local dev, or state not written yet).
+	// Build failed (Attempted && !Completed) = proceed (let scan fail naturally with good error).
+	if ciCtx.IsCI() {
+		st, _ := pipeline.ReadState(rootDir)
+		if st.Build.Attempted && st.Build.Completed && !st.Build.ProducedImages {
+			reason := "build completed but produced no images"
+			if st.Build.Reason != "" {
+				reason += " (" + st.Build.Reason + ")"
+			}
+			fmt.Printf("  security: skipping — %s\n", reason)
+			if err := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+				s.Security.Skipped = true
+				s.Security.Reason = reason
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+			}
+			return nil
+		}
+	}
+
+	// Mark attempted before running scan
+	if ciCtx.IsCI() {
+		if err := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+			s.Security.Attempted = true
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+	}
+
 	// Set config defaults on package-level vars and invoke the scan function directly.
 	// This avoids os/exec while reusing the full scan pipeline.
 	if appCfg.Security.OutputDir != "" {
@@ -204,8 +301,24 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	}
 
 	if err := runSecurityScan(securityScanCmd, nil); err != nil {
+		if ciCtx.IsCI() {
+			if stErr := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+				s.Security.Reason = err.Error()
+			}); stErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+			}
+		}
 		return fmt.Errorf("security subsystem: %w", err)
 	}
+
+	if ciCtx.IsCI() {
+		if err := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+			s.Security.Completed = true
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+	}
+
 	return nil
 }
 
@@ -268,13 +381,27 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 // ── release runner ───────────────────────────────────────────────────────────
 func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	rootDir := resolveWorkspace(ciCtx)
+
 	if !appCfg.Release.Enabled {
 		fmt.Println("  release disabled in config")
+		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Release.Skipped = true
+			st.Release.Reason = "release disabled in config"
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
 		return nil
 	}
 
 	if !ci.IsBranchHeadFresh(ciCtx) {
 		fmt.Println("  release: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
+		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Release.Skipped = true
+			st.Release.Reason = "pipeline SHA is not branch HEAD"
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
 		return nil
 	}
 
@@ -286,6 +413,28 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		return fmt.Errorf("release subsystem: no tag available (set SF_CI_TAG or pass --tag)")
 	}
 
+	// Policy gate: check if tag matches ANY release target's when conditions.
+	// Uses the same target enumeration as runReleaseCreate (collectTargetsByKind + targetWhenMatches).
+	if !releaseTagMatchesAnyTarget(appCfg, tag) {
+		reason := fmt.Sprintf("tag %q does not match any release policy", tag)
+		fmt.Printf("  release: skipping — %s\n", reason)
+		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Release.Skipped = true
+			st.Release.Reason = reason
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+		return nil
+	}
+
+	// Tag matches — mark eligible and attempted before running
+	if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		st.Release.Eligible = true
+		st.Release.Attempted = true
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
+
 	// Set config defaults on package-level vars and invoke release create directly.
 	rcTag = tag
 	if appCfg.Release.SecuritySummary != "" {
@@ -295,9 +444,45 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	rcCatalogLinks = appCfg.Release.CatalogLinks
 
 	if err := runReleaseCreate(releaseCreateCmd, nil); err != nil {
+		if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			st.Release.Reason = err.Error()
+		}); stErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+		}
 		return fmt.Errorf("release subsystem: %w", err)
 	}
+
+	if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		st.Release.Completed = true
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
+
 	return nil
+}
+
+// releaseTagMatchesAnyTarget returns true if the tag matches at least one
+// release target's when conditions. Uses the same target enumeration as
+// runReleaseCreate (collectTargetsByKind + targetWhenMatches).
+// Returns true if no release targets have when constraints (backward compat).
+func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
+	releaseTargets := collectTargetsByKind(appCfg, "release")
+	if len(releaseTargets) == 0 {
+		return true // no release targets configured
+	}
+
+	hasConstraints := false
+	for _, t := range releaseTargets {
+		if len(t.When.GitTags) == 0 && len(t.When.Branches) == 0 {
+			continue
+		}
+		hasConstraints = true
+		if targetWhenMatches(t, tag) {
+			return true
+		}
+	}
+
+	return !hasConstraints
 }
 
 // ── commit helpers ───────────────────────────────────────────────────────────
