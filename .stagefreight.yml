@@ -415,8 +415,6 @@ lint:
 
 security:
   enabled: true
-  # Bootstrap: old binary uses output_dir; new binary uses output.
-  # Switch to `output:` after this build produces latest-dev with the new schema.
   output_dir: ".stagefreight/security"
   sbom: true
   release_detail: full
