@@ -21,6 +21,9 @@ build-image:
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: "/certs/client"
     DOCKER_TLS_CERTDIR: "/certs"
+    # Bootstrap: old latest-dev binary has lowercase module constant, new go.mod is mixed case.
+    # Remove after this build succeeds and latest-dev has the correct constant.
+    STAGEFREIGHT_ALLOW_CRUCIBLE: "1"
   artifacts:
     paths:
       - .stagefreight/
