@@ -30,6 +30,9 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`lint`](#config-lint)
 - [`security`](#config-security)
 - [`commit`](#config-commit)
+- [`dependency`](#config-dependency)
+- [`docs`](#config-docs)
+- [`release`](#config-release)
 
 ---
 
@@ -322,7 +325,7 @@ Security scanning configuration. Controls vulnerability scanning (Trivy, Grype),
 | `grype` | `scanners.grype` | bool | No | true | Run Grype image scan. |
 | `sbom` | `sbom` | bool | Yes | true | Generate SBOM artifacts via Syft. |
 | `fail_on_critical` | `fail_on_critical` | bool | Yes | false | Fail the pipeline if critical vulnerabilities are found. |
-| `output_dir` | `output_dir` | string | Yes | .stagefreight/security | Directory for scan artifacts (JSON, SARIF, SBOM, summary). |
+| `output` | `output` | string | Yes | .stagefreight/security | Directory for scan artifacts (JSON, SARIF, SBOM, summary). |
 | `release_detail` | `release_detail` | string | Yes | counts | Default detail level for security info in release notes. |
 | `tag` | `release_detail_rules.tag` | string | No | — | Git tag pattern to match. Prefix with `!` to negate. |
 | `branch` | `release_detail_rules.branch` | string | No | — | Branch pattern to match. Prefix with `!` to negate. |
@@ -384,6 +387,55 @@ commit:
       label: Breaking
       force_bang: true
 ```
+
+---
+
+<a id="config-dependency" name="config-dependency"></a>
+### dependency
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `enabled` | `enabled` | bool | Yes | — | bool value |
+| `output` | `output` | string | Yes | — | string value |
+| `go_modules` | `scope.go_modules` | bool | Yes | — | bool value |
+| `dockerfile_env` | `scope.dockerfile_env` | bool | Yes | — | bool value |
+| `enabled` | `commit.enabled` | bool | Yes | — | bool value |
+| `type` | `commit.type` | string | Yes | — | string value |
+| `message` | `commit.message` | string | Yes | — | string value |
+| `push` | `commit.push` | bool | Yes | — | bool value |
+| `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
+| `handoff` | `ci.handoff` | string | Yes | — | string value |
+
+---
+
+<a id="config-docs" name="config-docs"></a>
+### docs
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `enabled` | `enabled` | bool | Yes | — | bool value |
+| `badges` | `generators.badges` | bool | Yes | — | bool value |
+| `reference_docs` | `generators.reference_docs` | bool | Yes | — | bool value |
+| `narrator` | `generators.narrator` | bool | Yes | — | bool value |
+| `docker_readme` | `generators.docker_readme` | bool | Yes | — | bool value |
+| `enabled` | `commit.enabled` | bool | Yes | — | bool value |
+| `type` | `commit.type` | string | Yes | — | string value |
+| `message` | `commit.message` | string | Yes | — | string value |
+| `add` | `commit.add` | []string | Yes | — | []string value |
+| `push` | `commit.push` | bool | Yes | — | bool value |
+| `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
+
+---
+
+<a id="config-release" name="config-release"></a>
+### release
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `enabled` | `enabled` | bool | Yes | — | bool value |
+| `security_summary` | `security_summary` | string | Yes | — | string value |
+| `registry_links` | `registry_links` | bool | Yes | — | bool value |
+| `catalog_links` | `catalog_links` | bool | Yes | — | bool value |
 
 ---
 <!-- sf:config-reference:end -->
