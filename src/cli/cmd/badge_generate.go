@@ -111,11 +111,29 @@ func generateAdHocBadge(eng *badge.Engine) error {
 	return nil
 }
 
+// RunConfigBadges generates SVG badges from narrator config items.
+// Extracted for reuse by both Cobra command and CI runners.
+func RunConfigBadges(appCfg *config.Config, rootDir string, names []string, status string) error {
+	eng, err := buildDefaultBadgeEngine()
+	if err != nil {
+		return err
+	}
+	return generateConfigBadgesImpl(eng, appCfg, rootDir, names, status)
+}
+
 func generateConfigBadges(eng *badge.Engine, names []string) error {
+	rootDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	return generateConfigBadgesImpl(eng, cfg, rootDir, names, bgStatus)
+}
+
+func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir string, names []string, status string) error {
 	start := time.Now()
 
 	// Collect all narrator items that have badge generation capability (kind: badge + output set)
-	items := collectNarratorBadgeItems()
+	items := collectNarratorBadgeItemsFrom(appCfg)
 
 	if len(items) == 0 {
 		return fmt.Errorf("no badge items with generation configured in narrator")
@@ -140,20 +158,14 @@ func generateConfigBadges(eng *badge.Engine, names []string) error {
 		items = filtered
 	}
 
-	rootDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
-	}
-
 	// Detect version for template resolution
-	var versionInfo *gitver.VersionInfo
-	versionInfo, err = build.DetectVersion(rootDir)
+	versionInfo, err := build.DetectVersion(rootDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
 
 	// Inject project description from docker-readme targets
-	if desc := firstDockerReadmeDescription(cfg); desc != "" {
+	if desc := firstDockerReadmeDescription(appCfg); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}
 
@@ -164,7 +176,7 @@ func generateConfigBadges(eng *badge.Engine, names []string) error {
 		specs[i] = item.ToBadgeSpec()
 		value := specs[i].Value
 		if versionInfo != nil && value != "" {
-			value = gitver.ResolveTemplateWithDirAndVars(value, versionInfo, rootDir, cfg.Vars)
+			value = gitver.ResolveTemplateWithDirAndVars(value, versionInfo, rootDir, appCfg.Vars)
 		}
 		resolvedValues[i] = value
 	}
@@ -184,7 +196,7 @@ func generateConfigBadges(eng *badge.Engine, names []string) error {
 		}
 	}
 	if needsDocker {
-		ns, repo := dockerHubFromConfig()
+		ns, repo := dockerHubFromCfg(appCfg)
 		if ns != "" && repo != "" {
 			dockerInfo, _ = gitver.FetchDockerHubInfo(ns, repo)
 			if dockerInfo != nil && len(tagNames) > 0 {
@@ -222,7 +234,7 @@ func generateConfigBadges(eng *badge.Engine, names []string) error {
 		// Resolve color
 		badgeColor := spec.Color
 		if badgeColor == "" || badgeColor == "auto" {
-			badgeColor = badge.StatusColor(bgStatus)
+			badgeColor = badge.StatusColor(status)
 		}
 
 		svg := itemEng.Generate(badge.Badge{
@@ -278,6 +290,35 @@ func generateConfigBadges(eng *badge.Engine, names []string) error {
 	sec.Close()
 
 	return nil
+}
+
+// collectNarratorBadgeItemsFrom returns all narrator items with badge generation configured.
+// Parameterized version of collectNarratorBadgeItems for use outside Cobra context.
+func collectNarratorBadgeItemsFrom(appCfg *config.Config) []config.NarratorItem {
+	var items []config.NarratorItem
+	for _, f := range appCfg.Narrator {
+		for _, item := range f.Items {
+			if item.HasGeneration() {
+				items = append(items, item)
+			}
+		}
+	}
+	return items
+}
+
+// dockerHubFromCfg extracts Docker Hub namespace/repo from config targets.
+// Parameterized version of dockerHubFromConfig for use outside Cobra context.
+func dockerHubFromCfg(appCfg *config.Config) (string, string) {
+	for _, t := range appCfg.Targets {
+		if t.Kind == "registry" && t.URL == "docker.io" && t.Path != "" {
+			resolved := gitver.ResolveVars(t.Path, appCfg.Vars)
+			parts := strings.SplitN(resolved, "/", 2)
+			if len(parts) == 2 {
+				return parts[0], parts[1]
+			}
+		}
+	}
+	return "", ""
 }
 
 // buildItemEngine creates a badge engine for a BadgeSpec with font overrides.

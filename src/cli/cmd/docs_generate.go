@@ -35,18 +35,11 @@ func init() {
 	docsCmd.AddCommand(docsGenerateCmd)
 }
 
-func runDocsGenerate(cmd *cobra.Command, args []string) error {
-	rootDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
-	}
-
-	outDir := dgOutputDir
-	if !filepath.IsAbs(outDir) {
-		outDir = filepath.Join(rootDir, outDir)
-	}
-
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+// RunDocsGenerate generates reference documentation from the Cobra command tree.
+// Extracted for reuse by both Cobra command and CI runners.
+// Requires rootCmd for CLI reference generation — pass it explicitly.
+func RunDocsGenerate(rootCommand *cobra.Command, outputDir string) error {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
 
@@ -55,15 +48,15 @@ func runDocsGenerate(cmd *cobra.Command, args []string) error {
 	w := os.Stdout
 
 	// Generate CLI reference from Cobra command tree.
-	cliRef := docsgen.GenerateCLIReference(rootCmd)
-	cliPath := filepath.Join(outDir, "cli-reference.md")
+	cliRef := docsgen.GenerateCLIReference(rootCommand)
+	cliPath := filepath.Join(outputDir, "cli-reference.md")
 	if err := os.WriteFile(cliPath, []byte(cliRef), 0o644); err != nil {
 		return fmt.Errorf("writing CLI reference: %w", err)
 	}
 
 	// Generate config reference from struct metadata + overrides.
 	configRef := docsgen.GenerateConfigReference()
-	configPath := filepath.Join(outDir, "config-reference.md")
+	configPath := filepath.Join(outputDir, "config-reference.md")
 	if err := os.WriteFile(configPath, []byte(configRef), 0o644); err != nil {
 		return fmt.Errorf("writing config reference: %w", err)
 	}
@@ -75,4 +68,18 @@ func runDocsGenerate(cmd *cobra.Command, args []string) error {
 	sec.Close()
 
 	return nil
+}
+
+func runDocsGenerate(cmd *cobra.Command, args []string) error {
+	rootDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	outDir := dgOutputDir
+	if !filepath.IsAbs(outDir) {
+		outDir = filepath.Join(rootDir, outDir)
+	}
+
+	return RunDocsGenerate(rootCmd, outDir)
 }

@@ -30,7 +30,7 @@ type SecurityConfig struct {
 	Scanners       ScannersConfig `yaml:"scanners"`         // per-scanner toggles
 	SBOMEnabled    bool           `yaml:"sbom"`             // generate SBOM artifacts (default: true)
 	FailOnCritical bool           `yaml:"fail_on_critical"` // fail the pipeline if critical vulns found
-	OutputDir      string         `yaml:"output_dir"`       // directory for scan artifacts (default: .stagefreight/security)
+	OutputDir      string         `yaml:"output"`            // directory for scan artifacts (default: .stagefreight/security)
 
 	// ReleaseDetail is the default detail level for security info in release notes.
 	// Values: "none", "counts", "detailed", "full" (default: "counts").

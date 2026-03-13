@@ -49,19 +49,15 @@ type narratorFileResult struct {
 	Detail string // "updated" | "would update" | "unchanged"
 }
 
-func runNarratorRun(cmd *cobra.Command, args []string) error {
-	if len(cfg.Narrator) == 0 {
+// RunNarrator runs narrator items from config.
+// Extracted for reuse by both Cobra command and CI runners.
+func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose bool) error {
+	if len(appCfg.Narrator) == 0 {
 		return fmt.Errorf("no narrator files configured")
 	}
 
-	rootDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
-	}
-
 	// Detect version for template resolution.
-	var versionInfo *gitver.VersionInfo
-	versionInfo, err = build.DetectVersion(rootDir)
+	versionInfo, err := build.DetectVersion(rootDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
@@ -70,13 +66,18 @@ func runNarratorRun(cmd *cobra.Command, args []string) error {
 	color := output.UseColor()
 	w := os.Stdout
 
+	// Temporarily set package-level cfg for processNarratorFile (which uses cfg.Vars etc.)
+	savedCfg := cfg
+	cfg = appCfg
+	defer func() { cfg = savedCfg }()
+
 	var results []narratorFileResult
-	for _, fileCfg := range cfg.Narrator {
+	for _, fileCfg := range appCfg.Narrator {
 		result, content, err := processNarratorFile(fileCfg, rootDir, versionInfo)
 		if err != nil {
 			return err
 		}
-		if nrDryRun && content != "" {
+		if dryRun && content != "" {
 			fmt.Fprintln(w, content)
 		}
 		results = append(results, result)
@@ -97,7 +98,7 @@ func runNarratorRun(cmd *cobra.Command, args []string) error {
 	}
 
 	sec.Separator()
-	if nrDryRun {
+	if dryRun {
 		sec.Row("%d would update, %d unchanged", changed, unchanged)
 	} else {
 		sec.Row("%d updated, %d unchanged", changed, unchanged)
@@ -105,6 +106,14 @@ func runNarratorRun(cmd *cobra.Command, args []string) error {
 	sec.Close()
 
 	return nil
+}
+
+func runNarratorRun(cmd *cobra.Command, args []string) error {
+	rootDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	return RunNarrator(cfg, rootDir, nrDryRun, verbose)
 }
 
 // placementKey is the grouping key for items sharing the same placement.

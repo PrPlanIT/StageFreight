@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
@@ -29,7 +30,8 @@ type dockerfileEdit struct {
 }
 
 // applyDockerfileUpdates applies Dockerfile dependency updates.
-func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, error) {
+// Returns touchedFiles (repo-root-relative Dockerfile paths) as the 3rd value.
+func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
 	var applied []AppliedUpdate
 	var skipped []SkippedDep
 
@@ -84,14 +86,17 @@ func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]App
 		applied = append(applied, update)
 	}
 
-	// Apply edits file by file
+	// Apply edits file by file, track touched files
+	var touchedFiles []string
 	for file, fe := range byFile {
 		if err := applyFileEdits(fe.absPath, fe.edits); err != nil {
-			return applied, skipped, fmt.Errorf("editing %s: %w", file, err)
+			return applied, skipped, nil, fmt.Errorf("editing %s: %w", file, err)
 		}
+		touchedFiles = append(touchedFiles, file)
 	}
+	sort.Strings(touchedFiles)
 
-	return applied, skipped, nil
+	return applied, skipped, touchedFiles, nil
 }
 
 // buildReplacement constructs the replacement line for a Dockerfile dependency.

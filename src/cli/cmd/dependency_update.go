@@ -66,6 +66,23 @@ func init() {
 }
 
 func runDependencyUpdate(cmd *cobra.Command, args []string) error {
+	// Config-first: disabled = clean no-op
+	if !cfg.Dependency.Enabled {
+		fmt.Println("  dependency update disabled in config")
+		return nil
+	}
+
+	// Apply config defaults when CLI flags are not explicitly set
+	if !cmd.Flags().Changed("output") && cfg.Dependency.Output != "" {
+		depOutputDir = cfg.Dependency.Output
+	}
+	if !cmd.Flags().Changed("ecosystem") {
+		ecosystems := cfg.Dependency.Scope.ScopeToEcosystems()
+		if len(ecosystems) > 0 {
+			depEcosystems = ecosystems
+		}
+	}
+
 	// Validate policy
 	if depPolicy != "all" && depPolicy != "security" {
 		return &ExitError{

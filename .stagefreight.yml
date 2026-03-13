@@ -415,5 +415,45 @@ lint:
 
 security:
   enabled: true
+  output: ".stagefreight/security"
   sbom: true
   release_detail: full
+
+dependency:
+  enabled: true
+  output: ".stagefreight/deps"
+  scope:
+    go_modules: true
+    dockerfile_env: true
+  commit:
+    enabled: true
+    type: chore
+    message: "update managed dependencies"
+    push: true
+    skip_ci: true
+
+docs:
+  enabled: true
+  generators:
+    badges: true
+    reference_docs: true
+    narrator: true
+    docker_readme: true
+  commit:
+    enabled: true
+    type: docs
+    message: "refresh generated docs and badges"
+    add:
+      - "README.md"
+      - "docs/modules"
+      - "docs/reference"
+      - "docs/Component.md"
+      - ".stagefreight/badges"
+    push: true
+    skip_ci: true
+
+release:
+  enabled: true
+  security_summary: ".stagefreight/security"
+  registry_links: true
+  catalog_links: true

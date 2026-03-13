@@ -39,6 +39,18 @@ type readmeSyncResult struct {
 	Err      error
 }
 
+// RunDockerReadme syncs README content to container registries.
+// Extracted for reuse by both Cobra command and CI runners.
+func RunDockerReadme(ctx context.Context, appCfg *config.Config, rootDir string, dryRun bool) error {
+	// Collect docker-readme targets
+	targets := collectTargetsByKind(appCfg, "docker-readme")
+	if len(targets) == 0 {
+		return fmt.Errorf("no docker-readme targets configured")
+	}
+
+	return runDockerReadmeImpl(ctx, appCfg, rootDir, dryRun, targets)
+}
+
 func runDockerReadme(cmd *cobra.Command, args []string) error {
 	rootDir, err := os.Getwd()
 	if err != nil {
@@ -47,23 +59,20 @@ func runDockerReadme(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		rootDir = args[0]
 	}
-
-	// Collect docker-readme targets
-	targets := collectTargetsByKind(cfg, "docker-readme")
-	if len(targets) == 0 {
-		return fmt.Errorf("no docker-readme targets configured")
-	}
-
 	ctx := context.Background()
+	return RunDockerReadme(ctx, cfg, rootDir, drDryRun)
+}
+
+func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir string, dryRun bool, targets []config.TargetConfig) error {
 	color := output.UseColor()
 	w := os.Stdout
 
 	// For dry-run, show content from the first target's file
-	if drDryRun {
+	if dryRun {
 		t := targets[0]
 		// Resolve {var:...} templates in target fields
-		resolvedDesc := gitver.ResolveVars(t.Description, cfg.Vars)
-		resolvedLinkBase := gitver.ResolveVars(t.LinkBase, cfg.Vars)
+		resolvedDesc := gitver.ResolveVars(t.Description, appCfg.Vars)
+		resolvedLinkBase := gitver.ResolveVars(t.LinkBase, appCfg.Vars)
 
 		file := t.File
 		if file == "" {
@@ -83,9 +92,9 @@ func runDockerReadme(cmd *cobra.Command, args []string) error {
 
 	for _, t := range targets {
 		// Resolve {var:...} templates in target fields
-		resolvedPath := gitver.ResolveVars(t.Path, cfg.Vars)
-		resolvedDesc := gitver.ResolveVars(t.Description, cfg.Vars)
-		resolvedLinkBase := gitver.ResolveVars(t.LinkBase, cfg.Vars)
+		resolvedPath := gitver.ResolveVars(t.Path, appCfg.Vars)
+		resolvedDesc := gitver.ResolveVars(t.Description, appCfg.Vars)
+		resolvedLinkBase := gitver.ResolveVars(t.LinkBase, appCfg.Vars)
 
 		file := t.File
 		if file == "" {

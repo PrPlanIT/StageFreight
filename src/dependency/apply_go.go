@@ -184,12 +184,13 @@ func parseGoDirectiveFromFile(path string) string {
 }
 
 // applyGoUpdates applies Go module dependency updates.
-// Returns touched module dirs (repoRoot-relative) as the 3rd value —
-// only dirs where go get + go mod tidy both succeeded.
-func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
+// Returns touched module dirs (repoRoot-relative) as the 3rd value,
+// and touched files (go.mod, go.sum per module) as the 4th —
+// only dirs/files where go get + go mod tidy both succeeded.
+func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
 	runGo, err := resolveGoRunner(repoRoot)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Check for go.work — workspace mode uses -C with relative paths
@@ -220,7 +221,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 	for _, group := range groupMap {
 		// Guard: module dir must be safely under repo root
 		if strings.HasPrefix(group.dir, "..") || filepath.IsAbs(group.dir) {
-			return applied, skipped, nil, fmt.Errorf("module dir %q escapes repo root", group.dir)
+			return applied, skipped, nil, nil, fmt.Errorf("module dir %q escapes repo root", group.dir)
 		}
 		modulePath := filepath.Join(repoRoot, group.dir)
 
@@ -273,7 +274,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 
 		out, err := runGo(ctx, goDir, goGetArgs...)
 		if err != nil {
-			return applied, skipped, nil, fmt.Errorf("go get in %s: %s\n%w", group.dir, string(out), err)
+			return applied, skipped, nil, nil, fmt.Errorf("go get in %s: %s\n%w", group.dir, string(out), err)
 		}
 
 		// go mod tidy
@@ -285,7 +286,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 		}
 		out, err = runGo(ctx, goDir, tidyArgs...)
 		if err != nil {
-			return applied, skipped, nil, fmt.Errorf("go mod tidy in %s: %s\n%w", group.dir, string(out), err)
+			return applied, skipped, nil, nil, fmt.Errorf("go mod tidy in %s: %s\n%w", group.dir, string(out), err)
 		}
 
 		// Both go get and go mod tidy succeeded — mark this dir as touched
@@ -293,11 +294,15 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 	}
 
 	touchedDirs := make([]string, 0, len(touchedSet))
+	var touchedFiles []string
 	for d := range touchedSet {
 		touchedDirs = append(touchedDirs, d)
+		touchedFiles = append(touchedFiles, filepath.Join(d, "go.mod"))
+		touchedFiles = append(touchedFiles, filepath.Join(d, "go.sum"))
 	}
 	sort.Strings(touchedDirs)
-	return applied, skipped, touchedDirs, nil
+	sort.Strings(touchedFiles)
+	return applied, skipped, touchedDirs, touchedFiles, nil
 }
 
 // goDirectiveSyncTarget maps a Dockerfile golang builder update to its owning module.

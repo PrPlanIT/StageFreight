@@ -162,6 +162,67 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
+	// ── Dependency ───────────────────────────────────────────────────────
+
+	if cfg.Dependency.Output != "" {
+		if pathErrs := validateOutputPath(cfg.Dependency.Output, "dependency.output"); len(pathErrs) > 0 {
+			errs = append(errs, pathErrs...)
+		}
+	}
+	if cfg.Dependency.Commit.Type != "" {
+		commitTypeKeyRe2 := regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+		if !commitTypeKeyRe2.MatchString(cfg.Dependency.Commit.Type) {
+			errs = append(errs, fmt.Sprintf("dependency.commit.type: %q must match ^[a-z][a-z0-9_-]*$", cfg.Dependency.Commit.Type))
+		}
+	}
+	if cfg.Dependency.Enabled {
+		if !cfg.Dependency.Scope.GoModules && !cfg.Dependency.Scope.DockerfileEnv {
+			errs = append(errs, "dependency: at least one scope must be true when enabled")
+		}
+		if cfg.Dependency.Commit.Enabled && cfg.Dependency.Commit.Message == "" {
+			errs = append(errs, "dependency.commit: message is required when commit enabled")
+		}
+	}
+
+	// ── Docs ─────────────────────────────────────────────────────────────
+
+	if cfg.Docs.Commit.Type != "" {
+		commitTypeKeyRe3 := regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+		if !commitTypeKeyRe3.MatchString(cfg.Docs.Commit.Type) {
+			errs = append(errs, fmt.Sprintf("docs.commit.type: %q must match ^[a-z][a-z0-9_-]*$", cfg.Docs.Commit.Type))
+		}
+	}
+	for i, p := range cfg.Docs.Commit.Add {
+		if pathErrs := validateOutputPath(p, fmt.Sprintf("docs.commit.add[%d]", i)); len(pathErrs) > 0 {
+			errs = append(errs, pathErrs...)
+		}
+	}
+	if cfg.Docs.Enabled {
+		g := cfg.Docs.Generators
+		if !g.Badges && !g.ReferenceDocs && !g.Narrator && !g.DockerReadme {
+			errs = append(errs, "docs: at least one generator must be true when enabled")
+		}
+		if cfg.Docs.Commit.Enabled && cfg.Docs.Commit.Message == "" {
+			errs = append(errs, "docs.commit: message is required when commit enabled")
+		}
+	}
+
+	// ── Security ─────────────────────────────────────────────────────────
+
+	if cfg.Security.OutputDir != "" {
+		if pathErrs := validateOutputPath(cfg.Security.OutputDir, "security.output"); len(pathErrs) > 0 {
+			errs = append(errs, pathErrs...)
+		}
+	}
+
+	// ── Release ──────────────────────────────────────────────────────────
+
+	if cfg.Release.SecuritySummary != "" {
+		if pathErrs := validateOutputPath(cfg.Release.SecuritySummary, "release.security_summary"); len(pathErrs) > 0 {
+			errs = append(errs, pathErrs...)
+		}
+	}
+
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}

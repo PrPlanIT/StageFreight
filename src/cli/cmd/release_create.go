@@ -85,6 +85,17 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	color := output.UseColor()
 	w := os.Stdout
 
+	// Apply config defaults when CLI flags are not explicitly set
+	if !cmd.Flags().Changed("security-summary") && cfg.Release.SecuritySummary != "" {
+		rcSecuritySummary = cfg.Release.SecuritySummary
+	}
+	if !cmd.Flags().Changed("registry-links") {
+		rcRegistryLinks = cfg.Release.RegistryLinks
+	}
+	if !cmd.Flags().Changed("catalog-links") {
+		rcCatalogLinks = cfg.Release.CatalogLinks
+	}
+
 	// Detect version for tag
 	versionInfo, err := build.DetectVersion(rootDir)
 	if err != nil {

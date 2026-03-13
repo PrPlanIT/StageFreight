@@ -1,0 +1,29 @@
+version: 1
+stagefreight_image: docker.jcr.pcfae.com/prplanit/stagefreight:latest-dev
+subsystems: [build, deps, security, docs, release]
+
+normalized_env:
+  - SF_CI_PROVIDER
+  - SF_CI_EVENT
+  - SF_CI_BRANCH
+  - SF_CI_TAG
+  - SF_CI_SHA
+  - SF_CI_DEFAULT_BRANCH
+  - SF_CI_REPO_URL
+  - SF_CI_WORKSPACE
+
+artifacts:
+  build: { paths: [".stagefreight/"] }
+  deps: { paths: [".stagefreight/deps/"] }
+  security: { paths: [".stagefreight/security/"] }
+
+runtime_profiles:
+  docker_buildx: { needs_dind: true, buildx: true }
+  simple: { needs_dind: false }
+
+jobs:
+  build: { runtime: docker_buildx, command: "stagefreight ci run build" }
+  deps: { runtime: simple, command: "stagefreight ci run deps" }
+  security: { runtime: docker_buildx, command: "stagefreight ci run security" }
+  docs: { runtime: simple, command: "stagefreight ci run docs" }
+  release: { runtime: simple, command: "stagefreight ci run release" }

@@ -434,7 +434,7 @@ var fieldOverrides = map[string]FieldOverride{
 		Description: "Fail the pipeline if critical vulnerabilities are found.",
 		Default:     "false",
 	},
-	"security.output_dir": {
+	"security.output": {
 		Description: "Directory for scan artifacts (JSON, SARIF, SBOM, summary).",
 		Default:     ".stagefreight/security",
 	},

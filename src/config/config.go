@@ -49,6 +49,15 @@ type Config struct {
 
 	// Commit holds configuration for the commit subsystem.
 	Commit CommitConfig `yaml:"commit"`
+
+	// Dependency holds configuration for the dependency update subsystem.
+	Dependency DependencyConfig `yaml:"dependency"`
+
+	// Docs holds configuration for the docs generation subsystem.
+	Docs DocsConfig `yaml:"docs"`
+
+	// Release holds configuration for the release subsystem.
+	Release ReleaseConfig `yaml:"release"`
 }
 
 // Load reads configuration from a YAML file.
@@ -92,12 +101,15 @@ func LoadWithWarnings(path string) (*Config, []string, error) {
 
 func defaults() *Config {
 	return &Config{
-		Version:  1,
-		Vars:     map[string]string{},
-		Sources:  DefaultSourcesConfig(),
-		Policies: DefaultPoliciesConfig(),
-		Lint:     DefaultLintConfig(),
-		Security: DefaultSecurityConfig(),
-		Commit:   DefaultCommitConfig(),
+		Version:    1,
+		Vars:       map[string]string{},
+		Sources:    DefaultSourcesConfig(),
+		Policies:   DefaultPoliciesConfig(),
+		Lint:       DefaultLintConfig(),
+		Security:   DefaultSecurityConfig(),
+		Commit:     DefaultCommitConfig(),
+		Dependency: DefaultDependencyConfig(),
+		Docs:       DefaultDocsConfig(),
+		Release:    DefaultReleaseConfig(),
 	}
 }

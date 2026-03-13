@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
@@ -21,6 +22,7 @@ type UpdateResult struct {
 	Artifacts         []string
 	ArtifactErr       error    // non-nil if artifact generation failed (non-fatal)
 	TouchedModuleDirs []string // repoRoot-relative Go module dirs that were updated
+	FilesChanged      []string // files modified by updates (go.mod, go.sum, Dockerfiles)
 }
 
 // AppliedUpdate records a single dependency that was successfully updated.
@@ -65,23 +67,28 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	gomodDeps, dockerDeps := groupByEcosystem(candidates)
 
 	if len(gomodDeps) > 0 {
-		applied, goSkipped, touchedDirs, err := applyGoUpdates(ctx, gomodDeps, repoRoot)
+		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, repoRoot)
 		if err != nil {
 			return result, fmt.Errorf("applying Go updates: %w", err)
 		}
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, goSkipped...)
 		result.TouchedModuleDirs = touchedDirs
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
 	if len(dockerDeps) > 0 {
-		applied, dkSkipped, err := applyDockerfileUpdates(dockerDeps, repoRoot)
+		applied, dkSkipped, touchedFiles, err := applyDockerfileUpdates(dockerDeps, repoRoot)
 		if err != nil {
 			return result, fmt.Errorf("applying Dockerfile updates: %w", err)
 		}
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, dkSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
+
+	// 5a. Normalize, deduplicate, and sort FilesChanged
+	result.FilesChanged = deduplicateAndSort(result.FilesChanged)
 
 	// 5b. Sync go directives to match golang builder versions.
 	// Two sources of sync targets, merged and deduped:
@@ -188,6 +195,24 @@ func gitDirtyPaths(ctx context.Context, repoRoot string, cached bool) ([]string,
 		}
 	}
 	return paths, nil
+}
+
+// deduplicateAndSort normalizes, deduplicates, and sorts a string slice.
+func deduplicateAndSort(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(paths))
+	var out []string
+	for _, p := range paths {
+		normalized := filepath.Clean(p)
+		if !seen[normalized] {
+			seen[normalized] = true
+			out = append(out, normalized)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // gitTrackedFiles returns a set of repo-root-relative paths for all tracked files.
