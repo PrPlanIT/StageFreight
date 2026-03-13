@@ -439,7 +439,7 @@ func runTrivy(ctx context.Context, imageRef, format, output string) error {
 }
 
 func runSyft(ctx context.Context, imageRef, format, output string) error {
-	cmd := exec.CommandContext(ctx, "syft", imageRef, "-o", format)
+	cmd := exec.CommandContext(ctx, "syft", imageRef, "-o", format, "-v")
 	outFile, err := os.Create(output)
 	if err != nil {
 		return err
@@ -529,7 +529,7 @@ func parseTrivyVulnerabilities(jsonPath string, result *ScanResult) error {
 }
 
 func runGrype(ctx context.Context, imageRef, format, output string) error {
-	args := []string{imageRef, "-o", format, "--file", output}
+	args := []string{imageRef, "-o", format, "--file", output, "-v"}
 	cmd := exec.CommandContext(ctx, "grype", args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
