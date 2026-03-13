@@ -82,6 +82,13 @@ RUN wget -qO /usr/local/bin/osv-scanner \
       "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" && \
     chmod +x /usr/local/bin/osv-scanner
 
+ENV COSIGN_VERSION=2.4.3
+
+# Install cosign (container signing and verification)
+RUN wget -qO /usr/local/bin/cosign \
+      "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64" && \
+    chmod +x /usr/local/bin/cosign
+
 # Copy the Go binary from builder stage.
 COPY --from=builder /out/stagefreight /usr/local/bin/stagefreight
 

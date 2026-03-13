@@ -35,6 +35,56 @@ type Vulnerability struct {
 	Description string // one-line description
 }
 
+// RefStability classifies how stable/immutable a reference is.
+type RefStability string
+
+const (
+	StabilityDigest        RefStability = "digest"          // @sha256: — content-addressed, immutable
+	StabilityTagWithDigest RefStability = "tag_with_digest" // tag + known digest — resolved instance
+	StabilityTag           RefStability = "tag"             // bare tag — always mutable, even semver
+)
+
+// TargetSource describes how the scan target was selected.
+type TargetSource string
+
+const (
+	TargetExplicit        TargetSource = "explicit"
+	TargetPositionalArg   TargetSource = "positional_arg"
+	TargetPublishManifest TargetSource = "publish_manifest"
+)
+
+// CandidateInfo describes a potential scan target candidate.
+type CandidateInfo struct {
+	Ref               string       `json:"ref"`
+	Digest            string       `json:"digest,omitempty"`
+	ObservedDigest    string       `json:"observed_digest,omitempty"`
+	ObservedDigestAlt string       `json:"observed_digest_alt,omitempty"`
+	Stability         RefStability `json:"stability"`
+}
+
+// ScanTarget describes the resolved scan target with full provenance.
+type ScanTarget struct {
+	Ref               string          `json:"ref"`
+	DiscoveredTag     string          `json:"discovered_tag,omitempty"`     // original tag before digest resolution
+	Digest            string          `json:"digest,omitempty"`
+	ObservedDigest    string          `json:"observed_digest,omitempty"`
+	ObservedDigestAlt string          `json:"observed_digest_alt,omitempty"`
+	DigestMatch       *bool           `json:"digest_match,omitempty"`
+	Source            TargetSource    `json:"source"`
+	SelectionReason   string          `json:"selection_reason"`
+	Stability         RefStability    `json:"stability"`
+	Candidates        []CandidateInfo `json:"candidates,omitempty"`
+	ExpectedTags      []string        `json:"expected_tags,omitempty"`
+	ExpectedCommit    string          `json:"expected_commit,omitempty"`
+	SigningAttempted   bool            `json:"signing_attempted,omitempty"`
+}
+
+// ScannerInfo describes a scanner that was run or attempted.
+type ScannerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+}
+
 // ScanResult holds the outcome of a security scan.
 type ScanResult struct {
 	Critical        int             // count of critical vulnerabilities
@@ -47,6 +97,21 @@ type ScanResult struct {
 	Summary         string          // markdown summary for embedding in release notes
 	EngineVersion   string          // best-effort: from `trivy --version` or empty
 	OS              string          // "alpine 3.21.3" (from Trivy JSON Metadata.OS)
+	Target          ScanTarget      // resolved scan target with provenance
+	ScannersRun     []ScannerInfo   // scanners that completed successfully
+	ScannersFailed  []ScannerInfo   // scanners that failed or were unavailable
+	Partial         bool            // true if any enabled scanner failed
+}
+
+// ClassifyRefStability determines the stability classification of an image reference.
+func ClassifyRefStability(ref string, knownDigest string) RefStability {
+	if strings.Contains(ref, "@sha256:") {
+		return StabilityDigest
+	}
+	if knownDigest != "" {
+		return StabilityTagWithDigest
+	}
+	return StabilityTag
 }
 
 // Scan runs vulnerability scans (Trivy + Grype when available),
@@ -68,36 +133,48 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Run Trivy if enabled and available.
 	if cfg.TrivyEnabled {
 		if _, lookErr := exec.LookPath("trivy"); lookErr == nil {
+			trivyVer := trivyVersion()
 			// Trivy JSON scan
 			jsonPath := cfg.OutputDir + "/security-scan.json"
 			if err := runTrivy(ctx, cfg.ImageRef, "json", jsonPath); err != nil {
-				return nil, fmt.Errorf("trivy scan: %w", err)
-			}
-			result.Artifacts = append(result.Artifacts, jsonPath)
+				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy", Version: trivyVer})
+				result.Partial = true
+				diag.Warn("trivy scan failed: %v", err)
+			} else {
+				// Trivy SARIF scan
+				sarifPath := cfg.OutputDir + "/vulnerability-report.sarif"
+				if err := runTrivy(ctx, cfg.ImageRef, "sarif", sarifPath); err != nil {
+					diag.Warn("trivy SARIF generation failed (continuing): %v", err)
+				} else {
+					result.Artifacts = append(result.Artifacts, sarifPath)
+				}
+				result.Artifacts = append(result.Artifacts, jsonPath)
+				result.ScannersRun = append(result.ScannersRun, ScannerInfo{Name: "trivy", Version: trivyVer})
 
-			// Trivy SARIF scan
-			sarifPath := cfg.OutputDir + "/vulnerability-report.sarif"
-			if err := runTrivy(ctx, cfg.ImageRef, "sarif", sarifPath); err != nil {
-				return nil, fmt.Errorf("trivy sarif: %w", err)
+				// Parse Trivy vulnerabilities
+				if err := parseTrivyVulnerabilities(jsonPath, result); err != nil {
+					diag.Warn("parsing trivy results: %v", err)
+				}
 			}
-			result.Artifacts = append(result.Artifacts, sarifPath)
-
-			// Parse Trivy vulnerabilities
-			if err := parseTrivyVulnerabilities(jsonPath, result); err != nil {
-				return nil, fmt.Errorf("parsing trivy results: %w", err)
-			}
+		} else {
+			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy"})
+			result.Partial = true
+			diag.Warn("trivy not found on PATH — skipping Trivy scan")
 		}
 	}
 
 	// Run Grype if enabled and available.
 	if cfg.GrypeEnabled {
 		if _, lookErr := exec.LookPath("grype"); lookErr == nil {
+			grypeVer := grypeVersion()
 			grypeJSON := cfg.OutputDir + "/security-scan-grype.json"
 			if err := runGrype(ctx, cfg.ImageRef, "json", grypeJSON); err != nil {
-				// Non-fatal — log and continue with available results.
+				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype", Version: grypeVer})
+				result.Partial = true
 				diag.Warn("grype scan failed (continuing without Grype): %v", err)
 			} else {
 				result.Artifacts = append(result.Artifacts, grypeJSON)
+				result.ScannersRun = append(result.ScannersRun, ScannerInfo{Name: "grype", Version: grypeVer})
 				grypeVulns, parseErr := parseGrypeVulnerabilities(grypeJSON)
 				if parseErr != nil {
 					diag.Warn("grype parse failed (continuing without Grype): %v", parseErr)
@@ -105,6 +182,10 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 					result.Vulnerabilities = append(result.Vulnerabilities, grypeVulns...)
 				}
 			}
+		} else {
+			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype"})
+			result.Partial = true
+			diag.Warn("grype not found on PATH — skipping Grype scan")
 		}
 	}
 
@@ -539,32 +620,51 @@ func countSeverities(vulns []Vulnerability) (critical, high, medium, low int) {
 	return
 }
 
+// trivyVersion returns the Trivy version string, or empty if unavailable.
+func trivyVersion() string {
+	out, err := exec.Command("trivy", "--version").Output()
+	if err != nil {
+		return ""
+	}
+	for _, ln := range strings.Split(string(out), "\n") {
+		ln = strings.TrimSpace(strings.TrimRight(ln, "\r"))
+		if ln == "" {
+			continue
+		}
+		for _, tok := range strings.Fields(ln) {
+			t := strings.TrimPrefix(tok, "v")
+			if strings.Count(t, ".") >= 2 && len(t) >= 5 {
+				return t
+			}
+		}
+		break
+	}
+	return ""
+}
+
+// grypeVersion returns the Grype version string, or empty if unavailable.
+func grypeVersion() string {
+	out, err := exec.Command("grype", "version", "-o", "json").Output()
+	if err != nil {
+		return ""
+	}
+	var ver struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(out, &ver) == nil {
+		return ver.Version
+	}
+	return ""
+}
+
 // buildEngineVersion returns a version string listing available scanners.
 func buildEngineVersion() string {
 	var parts []string
-	if out, err := exec.Command("trivy", "--version").Output(); err == nil {
-		for _, ln := range strings.Split(string(out), "\n") {
-			ln = strings.TrimSpace(strings.TrimRight(ln, "\r"))
-			if ln == "" {
-				continue
-			}
-			for _, tok := range strings.Fields(ln) {
-				t := strings.TrimPrefix(tok, "v")
-				if strings.Count(t, ".") >= 2 && len(t) >= 5 {
-					parts = append(parts, "Trivy "+t)
-					break
-				}
-			}
-			break
-		}
+	if v := trivyVersion(); v != "" {
+		parts = append(parts, "Trivy "+v)
 	}
-	if out, err := exec.Command("grype", "version", "-o", "json").Output(); err == nil {
-		var ver struct {
-			Version string `json:"version"`
-		}
-		if json.Unmarshal(out, &ver) == nil && ver.Version != "" {
-			parts = append(parts, "Grype "+ver.Version)
-		}
+	if v := grypeVersion(); v != "" {
+		parts = append(parts, "Grype "+v)
 	}
 	return strings.Join(parts, " + ")
 }

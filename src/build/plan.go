@@ -29,9 +29,10 @@ type BuildStep struct {
 	Output     OutputMode
 	Extract    []ExtractRule    // artifact mode only
 	Registries []RegistryTarget // image mode only
-	Load       bool             // --load into daemon
-	Push       bool             // --push to registries
-	SavePath   string           // save image tarball here after build (for security scanning)
+	Load         bool             // --load into daemon
+	Push         bool             // --push to registries
+	SavePath     string           // save image tarball here after build (for security scanning)
+	MetadataFile string           // temp file for buildx --metadata-file (digest capture)
 }
 
 // ExtractRule defines a file to extract from a build container.

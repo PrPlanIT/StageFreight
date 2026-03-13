@@ -1,6 +1,7 @@
 package build
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -67,6 +68,49 @@ func WriteProvenance(path string, stmt ProvenanceStatement) error {
 	data, err := json.MarshalIndent(stmt, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling provenance: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
+}
+
+// DSSEEnvelope is a Dead Simple Signing Envelope for wrapping provenance statements.
+type DSSEEnvelope struct {
+	PayloadType string          `json:"payloadType"`
+	Payload     string          `json:"payload"`    // base64-encoded ProvenanceStatement
+	Signatures  []DSSESignature `json:"signatures"`
+}
+
+// DSSESignature is a single signature within a DSSE envelope.
+type DSSESignature struct {
+	KeyID string `json:"keyid,omitempty"`
+	Sig   string `json:"sig"`
+}
+
+// WrapDSSE wraps a ProvenanceStatement in a DSSE envelope (unsigned).
+// The caller can sign the payload externally (cosign) and attach the signature.
+func WrapDSSE(stmt ProvenanceStatement) (DSSEEnvelope, error) {
+	payload, err := json.Marshal(stmt)
+	if err != nil {
+		return DSSEEnvelope{}, err
+	}
+	return DSSEEnvelope{
+		PayloadType: "application/vnd.in-toto+json",
+		Payload:     base64.StdEncoding.EncodeToString(payload),
+	}, nil
+}
+
+// WriteDSSEProvenance writes a DSSE-wrapped provenance statement as indented JSON.
+func WriteDSSEProvenance(path string, stmt ProvenanceStatement) error {
+	envelope, err := WrapDSSE(stmt)
+	if err != nil {
+		return fmt.Errorf("wrapping provenance in DSSE: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating DSSE provenance dir: %w", err)
+	}
+	data, err := json.MarshalIndent(envelope, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling DSSE provenance: %w", err)
 	}
 	data = append(data, '\n')
 	return os.WriteFile(path, data, 0o644)

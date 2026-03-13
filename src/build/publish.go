@@ -16,15 +16,51 @@ import (
 var ErrPublishManifestNotFound = errors.New("publish manifest not found")
 var ErrPublishManifestInvalid = errors.New("publish manifest invalid")
 
+// BuildInstance captures CI/build environment metadata for provenance.
+type BuildInstance struct {
+	Commit     string `json:"commit,omitempty"`
+	PipelineID string `json:"pipeline_id,omitempty"`
+	JobID      string `json:"job_id,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+}
+
+// AttestationType identifies the signing/attestation mechanism.
+type AttestationType string
+
+const (
+	AttestationCosign AttestationType = "cosign"
+	AttestationInToto AttestationType = "in-toto"
+	AttestationSLSA   AttestationType = "slsa"
+)
+
+// AttestationRecord captures signing and attestation metadata for a published image.
+type AttestationRecord struct {
+	Type           AttestationType `json:"type,omitempty"`
+	SignatureRef   string          `json:"signature_ref,omitempty"`   // cosign signature digest ref
+	AttestationRef string          `json:"attestation_ref,omitempty"` // DSSE provenance digest ref
+	SignerIdentity string          `json:"signer_identity,omitempty"` // workload identity / key fingerprint
+	VerifiedDigest string          `json:"verified_digest,omitempty"` // digest the signature covers
+}
+
 // PublishedImage records a single image that was successfully pushed.
 type PublishedImage struct {
-	Host          string `json:"host"`                      // normalized registry host
-	Path          string `json:"path"`                      // image path
-	Tag           string `json:"tag"`                       // resolved tag
-	Provider      string `json:"provider"`                  // canonical provider name
-	Ref           string `json:"ref"`                       // full image ref (host/path:tag)
-	Digest        string `json:"digest,omitempty"`          // image digest (immutable truth)
-	CredentialRef string `json:"credential_ref,omitempty"` // non-secret env var prefix for OCI auth resolution
+	Host             string             `json:"host"`                                // normalized registry host
+	Path             string             `json:"path"`                                // image path
+	Tag              string             `json:"tag"`                                 // resolved tag
+	Provider         string             `json:"provider"`                            // canonical provider name
+	Ref              string             `json:"ref"`                                 // full image ref (host/path:tag)
+	Digest           string             `json:"digest,omitempty"`                    // image digest (immutable truth)
+	CredentialRef    string             `json:"credential_ref,omitempty"`            // non-secret env var prefix for OCI auth resolution
+	BuildInstance    BuildInstance       `json:"build_instance,omitempty"`            // CI/build metadata
+	Registry         string             `json:"registry,omitempty"`                  // registry hostname
+	ObservedDigest   string             `json:"observed_digest,omitempty"`           // what the registry returned post-push
+	ObservedDigestAlt string            `json:"observed_digest_alt,omitempty"`       // second observation via registry API
+	ObservedBy       string             `json:"observed_by,omitempty"`               // primary observation method (e.g., "buildx")
+	ObservedByAlt    string             `json:"observed_by_alt,omitempty"`           // alternate observation method (e.g., "registry_api")
+	ExpectedTags     []string           `json:"expected_tags,omitempty"`             // all tags this digest was published under
+	ExpectedCommit   string             `json:"expected_commit,omitempty"`           // commit this digest was built from
+	Attestation      *AttestationRecord `json:"attestation,omitempty"`               // signing/attestation record (nil = absent)
+	SigningAttempted bool               `json:"signing_attempted,omitempty"`         // true if signing was attempted but failed
 }
 
 // PublishManifest records all images successfully pushed during a build.

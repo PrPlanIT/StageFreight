@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/engines"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
@@ -276,6 +278,14 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 	var publishManifest build.PublishManifest
 	var publishModeUsed bool
 
+	// Build shared BuildInstance for provenance tracking
+	buildInst := build.BuildInstance{
+		Commit:     os.Getenv("CI_COMMIT_SHA"),
+		PipelineID: os.Getenv("CI_PIPELINE_ID"),
+		JobID:      os.Getenv("CI_JOB_ID"),
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+	}
+
 	// --- Execute ---
 	output.SectionStart(w, "sf_build", "Build")
 	buildStart := time.Now()
@@ -301,6 +311,18 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			break
+		}
+	}
+
+	// Set up metadata files for digest capture on push builds
+	for i := range plan.Steps {
+		if plan.Steps[i].Push {
+			metaFile, tmpErr := os.CreateTemp("", "buildx-metadata-*.json")
+			if tmpErr == nil {
+				plan.Steps[i].MetadataFile = metaFile.Name()
+				metaFile.Close()
+				defer os.Remove(plan.Steps[i].MetadataFile)
+			}
 		}
 	}
 
@@ -342,6 +364,21 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		publishModeUsed = true
+
+		// Capture digest from metadata file (retry for buildx flush race)
+		var capturedDigest string
+		if step.MetadataFile != "" {
+			for attempt := 0; attempt < 3; attempt++ {
+				if d, mErr := build.ParseMetadataDigest(step.MetadataFile); mErr == nil {
+					capturedDigest = d
+					break
+				} else if attempt == 2 {
+					diag.Warn("could not parse buildx metadata digest: %v", mErr)
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+
 		for _, reg := range step.Registries {
 			if reg.Provider == "local" {
 				continue
@@ -351,13 +388,55 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 			if p, err := registry.CanonicalProvider(provider); err == nil {
 				provider = p
 			}
+
+			// Collect all tags for this registry (replay binding)
+			allTags := make([]string, len(reg.Tags))
+			copy(allTags, reg.Tags)
+
 			for _, tag := range reg.Tags {
+				ref := host + "/" + reg.Path + ":" + tag
+
+				// Verify registry-observed digest with retry
+				var observedBuildx string
+				for i := 0; i < 3; i++ {
+					d, rErr := build.ResolveDigest(ctx, ref)
+					if rErr == nil {
+						observedBuildx = d
+						break
+					}
+					time.Sleep(time.Second)
+				}
+
+				// Cross-client shadow write check
+				var observedAPI string
+				apiDigest, apiErr := registry.CheckManifestDigest(ctx, host, reg.Path, tag, nil, reg.Credentials)
+				if apiErr == nil {
+					observedAPI = apiDigest
+				}
+
+				if observedBuildx != "" && observedAPI != "" && observedBuildx != observedAPI {
+					diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", observedBuildx, observedAPI)
+				}
+
+				if capturedDigest != "" && observedBuildx != "" && capturedDigest != observedBuildx {
+					diag.Warn("registry propagation lag: expected %s, registry served %s", capturedDigest, observedBuildx)
+				}
+
 				publishManifest.Published = append(publishManifest.Published, build.PublishedImage{
-					Host:          host,
-					Path:          reg.Path,
-					Tag:           tag,
-					Provider:      provider,
-					CredentialRef: reg.Credentials,
+					Host:              host,
+					Path:              reg.Path,
+					Tag:               tag,
+					Provider:          provider,
+					CredentialRef:     reg.Credentials,
+					BuildInstance:     buildInst,
+					Digest:            capturedDigest,
+					Registry:          host,
+					ObservedDigest:    observedBuildx,
+					ObservedDigestAlt: observedAPI,
+					ObservedBy:        "buildx",
+					ObservedByAlt:     "registry_api",
+					ExpectedTags:      allTags,
+					ExpectedCommit:    buildInst.Commit,
 				})
 			}
 		}
@@ -440,16 +519,114 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 				if p, err := registry.CanonicalProvider(provider); err == nil {
 					provider = p
 				}
+
+				// Collect all tags for this registry (replay binding)
+				allTags := make([]string, len(reg.Tags))
+				copy(allTags, reg.Tags)
+
 				for _, tag := range reg.Tags {
+					ref := host + "/" + reg.Path + ":" + tag
+
+					// Resolve digest after push with retry
+					var capturedDigest string
+					for i := 0; i < 3; i++ {
+						d, rErr := build.ResolveDigest(ctx, ref)
+						if rErr == nil {
+							capturedDigest = d
+							break
+						}
+						time.Sleep(time.Second)
+					}
+
+					// Cross-client shadow write check
+					var observedAPI string
+					apiDigest, apiErr := registry.CheckManifestDigest(ctx, host, reg.Path, tag, nil, reg.Credentials)
+					if apiErr == nil {
+						observedAPI = apiDigest
+					}
+
+					if capturedDigest != "" && observedAPI != "" && capturedDigest != observedAPI {
+						diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", capturedDigest, observedAPI)
+					}
+
 					publishManifest.Published = append(publishManifest.Published, build.PublishedImage{
-						Host:          host,
-						Path:          reg.Path,
-						Tag:           tag,
-						Provider:      provider,
-						CredentialRef: reg.Credentials,
+						Host:              host,
+						Path:              reg.Path,
+						Tag:               tag,
+						Provider:          provider,
+						CredentialRef:     reg.Credentials,
+						BuildInstance:     buildInst,
+						Digest:            capturedDigest,
+						Registry:          host,
+						ObservedDigest:    capturedDigest, // same source for single-platform
+						ObservedDigestAlt: observedAPI,
+						ObservedBy:        "buildx",
+						ObservedByAlt:     "registry_api",
+						ExpectedTags:      allTags,
+						ExpectedCommit:    buildInst.Commit,
 					})
 				}
 			}
+		}
+	}
+
+	// --- Cosign signing (best-effort) ---
+	if publishModeUsed {
+		cosignKey := build.ResolveCosignKey()
+		cosignOnPath := build.CosignAvailable()
+		signingAttempted := cosignOnPath && cosignKey != ""
+
+		if signingAttempted {
+			for i, img := range publishManifest.Published {
+				if img.Digest == "" {
+					continue
+				}
+				digestRef := img.Host + "/" + img.Path + "@" + img.Digest
+				multiArch := false
+				for _, step := range plan.Steps {
+					if step.Push && len(step.Platforms) > 1 {
+						multiArch = true
+						break
+					}
+				}
+
+				// Write DSSE provenance for attestation
+				dssePath := filepath.Join(rootDir, ".stagefreight", "provenance.dsse.json")
+				// Use existing provenance if already written, otherwise create minimal one
+				if _, statErr := os.Stat(filepath.Join(rootDir, ".stagefreight", "provenance.json")); statErr == nil {
+					// Read and wrap existing provenance
+					provenanceData, readErr := os.ReadFile(filepath.Join(rootDir, ".stagefreight", "provenance.json"))
+					if readErr == nil {
+						var stmt build.ProvenanceStatement
+						if jsonErr := json.Unmarshal(provenanceData, &stmt); jsonErr == nil {
+							_ = build.WriteDSSEProvenance(dssePath, stmt)
+						}
+					}
+				}
+
+				// Sign
+				signErr := build.CosignSign(ctx, digestRef, cosignKey, multiArch)
+
+				// Attest (only if DSSE file exists)
+				if _, statErr := os.Stat(dssePath); statErr == nil {
+					_ = build.CosignAttest(ctx, digestRef, dssePath, cosignKey)
+				}
+
+				if signErr != nil {
+					publishManifest.Published[i].SigningAttempted = true
+				} else {
+					// Discover the signature/attestation refs
+					artifacts, _ := registry.DiscoverArtifacts(ctx, img, nil)
+					publishManifest.Published[i].Attestation = &build.AttestationRecord{
+						Type:           build.AttestationCosign,
+						SignatureRef:   artifacts.Signature,
+						AttestationRef: artifacts.Provenance,
+						VerifiedDigest: img.Digest,
+					}
+				}
+			}
+		} else {
+			diag.Debug(verbose, "cosign: not configured, skipping signing (cosign on PATH: %v, key available: %v)", cosignOnPath, cosignKey != "")
 		}
 	}
 

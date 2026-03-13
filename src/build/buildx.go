@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -160,6 +161,11 @@ func (bx *Buildx) buildArgs(step BuildStep) []string {
 		args = append(args, "--tag", tag)
 	}
 
+	// Metadata file for digest capture
+	if step.MetadataFile != "" && step.Push {
+		args = append(args, "--metadata-file", step.MetadataFile)
+	}
+
 	// Output mode
 	switch {
 	case step.Push:
@@ -305,6 +311,41 @@ func (bx *Buildx) Save(ctx context.Context, imageRef string, outputPath string) 
 		return fmt.Errorf("docker save %s: %w", imageRef, err)
 	}
 	return nil
+}
+
+// ResolveDigest queries the registry for the manifest digest of a pushed image.
+func ResolveDigest(ctx context.Context, ref string) (string, error) {
+	out, err := exec.CommandContext(ctx, "docker", "buildx", "imagetools",
+		"inspect", ref, "--format", "{{.Manifest.Digest}}").Output()
+	if err != nil {
+		return "", fmt.Errorf("resolving digest for %s: %w", ref, err)
+	}
+	digest := strings.TrimSpace(string(out))
+	if digest == "" || digest == "null" {
+		return "", fmt.Errorf("no digest returned for %s (schema-1 registry?)", ref)
+	}
+	if !strings.HasPrefix(digest, "sha256:") {
+		return "", fmt.Errorf("unexpected digest format for %s: %s", ref, digest)
+	}
+	return digest, nil
+}
+
+// ParseMetadataDigest parses the digest from a buildx --metadata-file JSON output.
+func ParseMetadataDigest(metadataFile string) (string, error) {
+	data, err := os.ReadFile(metadataFile)
+	if err != nil {
+		return "", err
+	}
+	var meta struct {
+		Digest string `json:"containerimage.digest"`
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return "", err
+	}
+	if meta.Digest == "" {
+		return "", fmt.Errorf("no digest in metadata file")
+	}
+	return meta.Digest, nil
 }
 
 // EnsureBuilder checks that a buildx builder is available and creates one if needed.

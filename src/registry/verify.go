@@ -88,6 +88,13 @@ func verifyImage(ctx context.Context, img build.PublishedImage, credResolver fun
 	return VerificationResult{Image: img, Err: fmt.Errorf("verification failed after retries: %w", lastErr)}
 }
 
+// CheckManifestDigest performs a HEAD (fallback GET) on the OCI manifest endpoint.
+// Returns the Docker-Content-Digest header value if available.
+// Exported for cross-client digest verification (shadow write detection).
+func CheckManifestDigest(ctx context.Context, host, path, tag string, credResolver func(string) (string, string), credRef string) (string, error) {
+	return checkManifest(ctx, host, path, tag, credResolver, credRef)
+}
+
 // checkManifest performs a HEAD (fallback GET) on the OCI manifest endpoint.
 // Returns the Docker-Content-Digest header value if available.
 func checkManifest(ctx context.Context, host, path, tag string, credResolver func(string) (string, string), credRef string) (string, error) {
