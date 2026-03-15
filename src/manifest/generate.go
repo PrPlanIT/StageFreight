@@ -104,6 +104,7 @@ func generateForBuild(cfg *config.Config, bc config.BuildConfig, opts GenerateOp
 		},
 		Inventories: Invs{
 			Versions: []InvItem{},
+			Lineage:  []InvItem{},
 			Apk:      []InvItem{},
 			Apt:      []InvItem{},
 			Pip:      []InvItem{},
@@ -224,6 +225,7 @@ func buildBuild(cfg *config.Config, bc config.BuildConfig) Build {
 func convertInventory(inv *build.InventoryResult) Invs {
 	result := Invs{
 		Versions: []InvItem{},
+		Lineage:  []InvItem{},
 		Apk:      []InvItem{},
 		Apt:      []InvItem{},
 		Pip:      []InvItem{},
@@ -234,8 +236,13 @@ func convertInventory(inv *build.InventoryResult) Invs {
 	}
 
 	// Convert base image versions
-	for _, p := range inv.Versions {
+	for _, p := range inv.BaseImages {
 		result.Versions = append(result.Versions, convertPackage(p))
+	}
+
+	// Convert lineage entries
+	for _, p := range inv.Lineage {
+		result.Lineage = append(result.Lineage, convertPackage(p))
 	}
 
 	// Route packages to the correct group
@@ -270,6 +277,8 @@ func convertPackage(p build.PackageInfo) InvItem {
 		Source:    p.Source,
 		SourceRef: p.SourceRef,
 		Manager:   p.Manager,
+		Stage:     p.Stage,
+		Final:     p.Final,
 	}
 
 	if p.Confidence != "" {

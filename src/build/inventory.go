@@ -20,6 +20,8 @@ type PackageInfo struct {
 	Manager    string // package manager name: "apk", "pip", "npm", "go", "galaxy", "binary", "base", "apt"
 	Confidence string // "inferred" for heuristic-derived items, empty for authoritative
 	URL        string // download URL for binary installs
+	Stage      string // stage name from "AS <name>", empty for unnamed stages
+	Final      bool   // true if this is from the last FROM stage (the shipped image)
 }
 
 // ArgDecl holds a parsed Dockerfile ARG with its default value.
@@ -31,9 +33,10 @@ type ArgDecl struct {
 
 // InventoryResult holds all extracted packages grouped by manager.
 type InventoryResult struct {
-	Versions []PackageInfo // base image version components
-	Packages []PackageInfo // all discovered packages
-	Args     []ArgDecl     // ARG declarations with defaults
+	BaseImages []PackageInfo // normalized primary base image versions from FROM refs
+	Lineage    []PackageInfo // inferred distro lineage from tag suffixes
+	Packages   []PackageInfo // all discovered packages
+	Args       []ArgDecl     // ARG declarations with defaults
 }
 
 // ExtractInventory parses a Dockerfile and extracts package inventory.
@@ -93,19 +96,66 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 		}
 	}
 
-	// Second pass: extract FROM stages and RUN instructions
+	// Second pass: collect ENV declarations
+	envMap := make(map[string]ArgDecl)
 	for _, line := range lines {
-		upper := strings.ToUpper(strings.Fields(line)[0])
+		for _, decl := range parseEnvDecl(line) {
+			envMap[decl.Name] = decl
+		}
+	}
+
+	// Merge into combined vars map for extractors (ARG takes precedence over ENV
+	// since ARG is build-time and more specific)
+	varsMap := make(map[string]ArgDecl, len(argMap)+len(envMap))
+	for k, v := range envMap {
+		varsMap[k] = v
+	}
+	for k, v := range argMap {
+		varsMap[k] = v
+	}
+
+	// Pre-scan FROM lines to determine stage count and names
+	var fromStages []string
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if strings.ToUpper(fields[0]) == "FROM" {
+			stage := ""
+			if m := stageNameRe.FindStringSubmatch(line); m != nil {
+				stage = m[1]
+			}
+			fromStages = append(fromStages, stage)
+		}
+	}
+
+	// Extract FROM stages and RUN instructions
+	fromIdx := 0
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		upper := strings.ToUpper(fields[0])
 
 		switch upper {
 		case "FROM":
-			versions := parseBaseImageVersions(line)
-			result.Versions = append(result.Versions, versions...)
+			stage := ""
+			isFinal := false
+			if fromIdx < len(fromStages) {
+				stage = fromStages[fromIdx]
+				isFinal = fromIdx == len(fromStages)-1
+				fromIdx++
+			}
+			base, lineage := parseBaseImageVersions(line, stage, isFinal)
+			result.BaseImages = append(result.BaseImages, base...)
+			result.Lineage = append(result.Lineage, lineage...)
 
 		case "RUN":
-			body := strings.TrimPrefix(line, strings.Fields(line)[0])
+			body := strings.TrimPrefix(line, fields[0])
 			body = strings.TrimSpace(body)
-			pkgs := extractRunPackages(body, argMap)
+			pkgs := extractRunPackages(body, varsMap)
 			result.Packages = append(result.Packages, pkgs...)
 		}
 	}
@@ -113,7 +163,8 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 	// Deduplicate packages: keep the most informative entry per (manager, name).
 	// Prefer versioned over unversioned, pinned over unpinned.
 	result.Packages = deduplicatePackages(result.Packages)
-	result.Versions = deduplicateVersions(result.Versions)
+	result.BaseImages = deduplicateVersions(result.BaseImages)
+	result.Lineage = deduplicateLineage(result.Lineage)
 
 	// Sort packages deterministically: by manager, then name, then version
 	sort.Slice(result.Packages, func(i, j int) bool {
@@ -126,11 +177,21 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 		return result.Packages[i].Version < result.Packages[j].Version
 	})
 
-	sort.Slice(result.Versions, func(i, j int) bool {
-		if result.Versions[i].Name != result.Versions[j].Name {
-			return result.Versions[i].Name < result.Versions[j].Name
+	sort.Slice(result.BaseImages, func(i, j int) bool {
+		if result.BaseImages[i].Name != result.BaseImages[j].Name {
+			return result.BaseImages[i].Name < result.BaseImages[j].Name
 		}
-		return result.Versions[i].Version < result.Versions[j].Version
+		return result.BaseImages[i].Version < result.BaseImages[j].Version
+	})
+
+	sort.Slice(result.Lineage, func(i, j int) bool {
+		if result.Lineage[i].Name != result.Lineage[j].Name {
+			return result.Lineage[i].Name < result.Lineage[j].Name
+		}
+		if result.Lineage[i].Version != result.Lineage[j].Version {
+			return result.Lineage[i].Version < result.Lineage[j].Version
+		}
+		return result.Lineage[i].Stage < result.Lineage[j].Stage
 	})
 
 	return result, nil
@@ -183,9 +244,63 @@ func deduplicateVersions(vers []PackageInfo) []PackageInfo {
 	return result
 }
 
+// deduplicateLineage merges entries with the same (name, version, stage).
+func deduplicateLineage(lin []PackageInfo) []PackageInfo {
+	type key struct{ name, version, stage string }
+	seen := make(map[key]bool)
+	var result []PackageInfo
+	for _, v := range lin {
+		k := key{v.Name, v.Version, v.Stage}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		result = append(result, v)
+	}
+	return result
+}
+
 // ── ARG parsing ──────────────────────────────────────────────────────────────
 
 var argDeclRe = regexp.MustCompile(`(?i)^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$`)
+
+// ── ENV parsing ──────────────────────────────────────────────────────────────
+
+// parseEnvDecl parses ENV declarations into ArgDecl (reuses the same type —
+// name+default+line is semantically identical for variable resolution).
+// Handles single-assign: ENV KEY=VALUE or ENV KEY VALUE
+// Handles multi-assign: ENV K1=V1 K2=V2
+func parseEnvDecl(line string) []ArgDecl {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return nil
+	}
+	if !strings.EqualFold(fields[0], "ENV") {
+		return nil
+	}
+
+	// Single-assign with space separator: ENV KEY VALUE (exactly 3 fields, no = in field[1])
+	if len(fields) == 3 && !strings.Contains(fields[1], "=") {
+		return []ArgDecl{{
+			Name:    fields[1],
+			Default: fields[2],
+			Line:    line,
+		}}
+	}
+
+	// Parse KEY=VALUE pairs (single or multi-assign)
+	var decls []ArgDecl
+	for _, f := range fields[1:] {
+		if idx := strings.Index(f, "="); idx > 0 {
+			decls = append(decls, ArgDecl{
+				Name:    f[:idx],
+				Default: f[idx+1:],
+				Line:    line,
+			})
+		}
+	}
+	return decls
+}
 
 func parseArgDecl(line string) (ArgDecl, bool) {
 	m := argDeclRe.FindStringSubmatch(line)
@@ -202,24 +317,29 @@ func parseArgDecl(line string) (ArgDecl, bool) {
 // ── Base image version parsing ───────────────────────────────────────────────
 
 var baseImageRe = regexp.MustCompile(`(?i)^FROM\s+(?:--platform=\S+\s+)?(\S+)`)
+var stageNameRe = regexp.MustCompile(`(?i)\bAS\s+(\S+)\s*$`)
 
 // parseBaseImageVersions extracts version components from a FROM instruction.
-// e.g., "FROM python:3.14.3-alpine3.23" → [python 3.14.3, alpine 3.23]
-func parseBaseImageVersions(line string) []PackageInfo {
+// Returns two slices: base (primary image version) and lineage (inferred distro from suffix).
+// e.g., "FROM golang:1.26.1-alpine3.23 AS builder" →
+//
+//	base:    [golang 1.26.1]
+//	lineage: [alpine 3.23]
+func parseBaseImageVersions(line, stage string, final bool) (base []PackageInfo, lineage []PackageInfo) {
 	m := baseImageRe.FindStringSubmatch(line)
 	if m == nil {
-		return nil
+		return nil, nil
 	}
 
 	image := m[1]
 	// Skip scratch, build stage references
 	if image == "scratch" || !strings.Contains(image, ":") {
-		return nil
+		return nil, nil
 	}
 
 	parts := strings.SplitN(image, ":", 2)
 	if len(parts) != 2 {
-		return nil
+		return nil, nil
 	}
 
 	imageName := parts[0]
@@ -230,32 +350,31 @@ func parseBaseImageVersions(line string) []PackageInfo {
 	nameParts := strings.Split(imageName, "/")
 	primaryName := nameParts[len(nameParts)-1]
 
-	var results []PackageInfo
-
-	// Try to parse version from tag: "3.14.3-alpine3.23" → primary=3.14.3, suffix=alpine3.23
-	// Pattern: version[-variant[version]]
-	tagParts := strings.SplitN(tag, "-", 2)
-	primaryVersion := tagParts[0]
-
-	// Only add if looks like a version (starts with digit)
-	if len(primaryVersion) > 0 && primaryVersion[0] >= '0' && primaryVersion[0] <= '9' {
-		results = append(results, PackageInfo{
-			Name:       primaryName,
-			Version:    primaryVersion,
-			Pinned:     false,
-			Source:     "base_image",
-			SourceRef:  sourceRef,
-			Manager:    "base",
-			Confidence: "inferred",
-		})
+	// Split tag on first "-" to separate version from variant suffix.
+	// e.g., "1.26.1-alpine3.23" → version "1.26.1", suffix "alpine3.23"
+	version := tag
+	var suffix string
+	if idx := strings.Index(tag, "-"); idx >= 0 {
+		version = tag[:idx]
+		suffix = tag[idx+1:]
 	}
 
-	// Parse suffix for known distro names
-	if len(tagParts) > 1 {
-		suffix := tagParts[1]
-		distroVersions := parseDistroFromSuffix(suffix)
-		for _, dv := range distroVersions {
-			results = append(results, PackageInfo{
+	base = append(base, PackageInfo{
+		Name:       primaryName,
+		Version:    version,
+		Pinned:     false,
+		Source:     "base_image",
+		SourceRef:  sourceRef,
+		Manager:    "base",
+		Confidence: "inferred",
+		Stage:      stage,
+		Final:      final,
+	})
+
+	// Extract distro lineage from suffix
+	if suffix != "" {
+		for _, dv := range parseDistroFromSuffix(suffix) {
+			lineage = append(lineage, PackageInfo{
 				Name:       dv.name,
 				Version:    dv.version,
 				Pinned:     false,
@@ -263,11 +382,13 @@ func parseBaseImageVersions(line string) []PackageInfo {
 				SourceRef:  sourceRef,
 				Manager:    "base",
 				Confidence: "inferred",
+				Stage:      stage,
+				Final:      final,
 			})
 		}
 	}
 
-	return results
+	return base, lineage
 }
 
 type distroVersion struct {
@@ -648,15 +769,14 @@ func extractGo(cmd string, args map[string]ArgDecl) []PackageInfo {
 
 // ── binary extractor ─────────────────────────────────────────────────────────
 
-var curlOutputRe = regexp.MustCompile(`curl\s+.*?(\S+)`)
-
-func extractBinary(cmd string, args map[string]ArgDecl) []PackageInfo {
-	// Look for curl/wget with a URL containing ARG variable references
+func extractBinary(cmd string, vars map[string]ArgDecl) []PackageInfo {
+	// Look for curl/wget with a URL containing variable references (ARG or ENV)
 	if !strings.Contains(cmd, "curl") && !strings.Contains(cmd, "wget") {
 		return nil
 	}
 
 	var results []PackageInfo
+	sourceRef := "RUN " + strings.TrimSpace(cmd)
 
 	// Find URLs in the command (anything starting with http)
 	tokens := strings.Fields(cmd)
@@ -668,9 +788,9 @@ func extractBinary(cmd string, args map[string]ArgDecl) []PackageInfo {
 		}
 
 		url := tok
-		// Check if URL references any ARG variables
-		for argName, argDecl := range args {
-			placeholder := "${" + argName + "}"
+		// Check if URL references any variables (ARG or ENV)
+		for varName, varDecl := range vars {
+			placeholder := "${" + varName + "}"
 			if strings.Contains(url, placeholder) {
 				// Extract binary name from URL path
 				binaryName := guessBinaryName(url)
@@ -680,10 +800,10 @@ func extractBinary(cmd string, args map[string]ArgDecl) []PackageInfo {
 
 				results = append(results, PackageInfo{
 					Name:      binaryName,
-					Version:   argDecl.Default,
-					Pinned:    argDecl.Default != "",
-					Source:    "dockerfile_arg",
-					SourceRef: argDecl.Line,
+					Version:   varDecl.Default,
+					Pinned:    varDecl.Default != "",
+					Source:    "dockerfile",
+					SourceRef: sourceRef,
 					Manager:   "binary",
 					URL:       url,
 				})

@@ -188,8 +188,8 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 	appliedDeps := toOutputApplied(result.Applied)
 	output.SectionApplied(updateSec, "Applied", appliedDeps, color)
 
-	skippedGroups := aggregateSkipped(result.Skipped)
-	output.SectionSkipped(updateSec, "Skipped", skippedGroups, color)
+	skippedGroups := aggregateSkippedItemized(result.Skipped)
+	output.SectionSkippedItemized(updateSec, "Skipped", skippedGroups, color)
 
 	cves := collectCVEsFixed(result.Applied)
 	output.SectionCVEs(updateSec, cves, color)
@@ -276,8 +276,8 @@ func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.Updat
 	appliedDeps := toOutputApplied(result.Applied)
 	output.SectionApplied(sec, "Would update", appliedDeps, color)
 
-	skippedGroups := aggregateSkipped(result.Skipped)
-	output.SectionSkipped(sec, "Would skip", skippedGroups, color)
+	skippedGroups := aggregateSkippedItemized(result.Skipped)
+	output.SectionSkippedItemized(sec, "Would skip", skippedGroups, color)
 
 	cves := collectCVEsFixed(result.Applied)
 	output.SectionCVEs(sec, cves, color)
@@ -356,15 +356,37 @@ func toOutputApplied(updates []dependency.AppliedUpdate) []output.AppliedDep {
 	return out
 }
 
-// aggregateSkipped groups skipped deps by reason and returns sorted groups.
-func aggregateSkipped(skipped []dependency.SkippedDep) []output.SkippedGroup {
-	counts := make(map[string]int)
-	for _, s := range skipped {
-		counts[s.Reason]++
+// aggregateSkippedItemized groups skipped deps by reason, preserving item details.
+func aggregateSkippedItemized(skipped []dependency.SkippedDep) []output.SkippedItemGroup {
+	type groupAcc struct {
+		items []output.SkippedItem
 	}
-	groups := make([]output.SkippedGroup, 0, len(counts))
-	for reason, count := range counts {
-		groups = append(groups, output.SkippedGroup{Reason: reason, Count: count})
+	acc := make(map[string]*groupAcc)
+	for _, s := range skipped {
+		reason := dependency.NormalizeSkipReason(s.Reason)
+		g, ok := acc[reason]
+		if !ok {
+			g = &groupAcc{}
+			acc[reason] = g
+		}
+		g.items = append(g.items, output.SkippedItem{
+			Name:      s.Dep.Name,
+			Version:   s.Dep.Current,
+			Ecosystem: s.Dep.Ecosystem,
+		})
+	}
+
+	groups := make([]output.SkippedItemGroup, 0, len(acc))
+	for reason, g := range acc {
+		// Sort items alphabetically by name
+		sort.Slice(g.items, func(i, j int) bool {
+			return g.items[i].Name < g.items[j].Name
+		})
+		groups = append(groups, output.SkippedItemGroup{
+			Reason: reason,
+			Count:  len(g.items),
+			Items:  g.items,
+		})
 	}
 	return groups
 }

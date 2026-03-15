@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/forge"
@@ -48,13 +49,21 @@ func FetchAdvisories(ctx context.Context, fc forge.Forge, ref, rootDir string) (
 	return LoadAdvisories(rootDir)
 }
 
+// EnrichmentDetail describes a single dependency that was enriched with advisories.
+type EnrichmentDetail struct {
+	Name       string
+	Version    string
+	Ecosystem  string
+	Advisories int
+}
+
 // EnrichDependencies merges scanner advisories into resolved dependencies.
 // Conservative matching: requires both ecosystem AND normalized package name match.
 // Skips advisories with ecosystem "unknown" — no guessing.
-// Returns count of enrichments added.
-func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advisory) int {
+// Returns details for each enriched dependency, sorted by advisory count desc then name asc.
+func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advisory) []EnrichmentDetail {
 	if len(advisories) == 0 {
-		return 0
+		return nil
 	}
 
 	// Build lookup: (normalized-name, ecosystem) → advisories
@@ -80,7 +89,7 @@ func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advis
 	}
 
 	if len(lookup) == 0 {
-		return 0
+		return nil
 	}
 
 	// Deduplicate on (advisory ID + package + ecosystem + fixed_in).
@@ -88,7 +97,7 @@ func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advis
 		id, pkg, eco, fix string
 	}
 
-	count := 0
+	var details []EnrichmentDetail
 	for i := range deps {
 		dep := &deps[i]
 		k := key{
@@ -106,6 +115,7 @@ func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advis
 			seen[dedup{v.ID, dep.Name, dep.Ecosystem, v.FixedIn}] = true
 		}
 
+		added := 0
 		for _, adv := range matches {
 			dk := dedup{adv.ID, adv.Package, adv.Ecosystem, adv.FixedIn}
 			if seen[dk] {
@@ -120,11 +130,28 @@ func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advis
 				FixedIn:  adv.FixedIn,
 				Source:   adv.Source,
 			})
-			count++
+			added++
+		}
+
+		if added > 0 {
+			details = append(details, EnrichmentDetail{
+				Name:       dep.Name,
+				Version:    dep.Current,
+				Ecosystem:  dep.Ecosystem,
+				Advisories: added,
+			})
 		}
 	}
 
-	return count
+	// Sort: most advisories first, then alphabetically by name.
+	sort.Slice(details, func(i, j int) bool {
+		if details[i].Advisories != details[j].Advisories {
+			return details[i].Advisories > details[j].Advisories
+		}
+		return details[i].Name < details[j].Name
+	})
+
+	return details
 }
 
 // mapAdvisoryEcosystem maps advisory ecosystem strings to freshness ecosystem constants.

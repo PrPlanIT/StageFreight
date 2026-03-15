@@ -12,6 +12,23 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 )
 
+// NormalizeSkipReason maps internal parser-detail skip reasons to operator-facing language.
+// Reasons that are already operator-friendly pass through unchanged.
+func NormalizeSkipReason(reason string) string {
+	switch {
+	case reason == "line does not match ENV VERSION pattern":
+		return "version not resolvable from source"
+	case reason == "line does not match FROM pattern":
+		return "version not resolvable from source"
+	case strings.HasPrefix(reason, "ENV value "):
+		return "source value mismatch"
+	case reason == "current version not found in image token":
+		return "source value mismatch"
+	default:
+		return reason
+	}
+}
+
 // Dockerfile regexes: capture prefix/token/suffix groups for minimal diffs.
 var (
 	// FROM prefix(group1) image-token(group2) suffix(group3)

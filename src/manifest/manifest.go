@@ -100,6 +100,7 @@ type Complete struct {
 // Invs groups inventory items by manager.
 type Invs struct {
 	Versions []InvItem `json:"versions"`
+	Lineage  []InvItem `json:"lineage,omitempty"`
 	Apk      []InvItem `json:"apk"`
 	Apt      []InvItem `json:"apt"`
 	Pip      []InvItem `json:"pip"`
@@ -119,6 +120,8 @@ type InvItem struct {
 	Manager    string `json:"manager"`
 	Confidence string `json:"confidence,omitempty"`
 	URL        string `json:"url,omitempty"`
+	Stage      string `json:"stage,omitempty"`
+	Final      bool   `json:"final,omitempty"`
 }
 
 // Security holds security-related metadata.
@@ -158,6 +161,7 @@ func MarshalDeterministic(m *Manifest) ([]byte, error) {
 
 	// Sort inventory arrays
 	sortInvItems(m.Inventories.Versions)
+	sortInvItems(m.Inventories.Lineage)
 	sortInvItems(m.Inventories.Apk)
 	sortInvItems(m.Inventories.Apt)
 	sortInvItems(m.Inventories.Pip)
@@ -215,6 +219,9 @@ func ensureArrays(m *Manifest) {
 	}
 	if m.Inventories.Versions == nil {
 		m.Inventories.Versions = []InvItem{}
+	}
+	if m.Inventories.Lineage == nil {
+		m.Inventories.Lineage = []InvItem{}
 	}
 	if m.Inventories.Apk == nil {
 		m.Inventories.Apk = []InvItem{}

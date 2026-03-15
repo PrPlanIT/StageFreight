@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	MaxApplied = 20
-	MaxCVEs    = 12
+	MaxApplied         = 20
+	MaxCVEs            = 12
+	MaxSkippedPerGroup = 5
 )
 
 // AppliedDep is the view model for a single applied update.
@@ -67,6 +68,71 @@ func SectionApplied(sec *Section, header string, updates []AppliedDep, color boo
 	if len(updates) > MaxApplied {
 		remaining := len(updates) - MaxApplied
 		sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more (see resolve.json)", remaining), color))
+	}
+
+	sec.Row("")
+}
+
+// SkippedItem is the view model for a single skipped dependency.
+type SkippedItem struct {
+	Name      string
+	Version   string
+	Ecosystem string
+}
+
+// SkippedItemGroup is a skip summary with itemized dependency details.
+type SkippedItemGroup struct {
+	Reason string
+	Count  int
+	Items  []SkippedItem
+}
+
+// SectionSkippedItemized renders the "Skipped (N)" block with per-item detail.
+func SectionSkippedItemized(sec *Section, header string, groups []SkippedItemGroup, color bool) {
+	if len(groups) == 0 {
+		return
+	}
+
+	total := 0
+	for _, g := range groups {
+		total += g.Count
+	}
+
+	sec.Row("")
+	sec.Row("%s", bold(color, fmt.Sprintf("%s (%d)", header, total)))
+
+	// Sort by count desc, then reason asc.
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].Count != groups[j].Count {
+			return groups[i].Count > groups[j].Count
+		}
+		return groups[i].Reason < groups[j].Reason
+	})
+
+	for _, g := range groups {
+		sec.Row("  %-22s %d", g.Reason, g.Count)
+
+		show := len(g.Items)
+		if show > MaxSkippedPerGroup {
+			show = MaxSkippedPerGroup
+		}
+
+		for i := 0; i < show; i++ {
+			item := g.Items[i]
+			detail := item.Name
+			if item.Version != "" {
+				detail += " " + item.Version
+			}
+			if item.Ecosystem != "" {
+				detail += " (" + item.Ecosystem + ")"
+			}
+			sec.Row("%s", Dimmed("    "+detail, color))
+		}
+
+		if len(g.Items) > MaxSkippedPerGroup {
+			remaining := len(g.Items) - MaxSkippedPerGroup
+			sec.Row("%s", Dimmed(fmt.Sprintf("    … and %d more (see resolve.json)", remaining), color))
+		}
 	}
 
 	sec.Row("")

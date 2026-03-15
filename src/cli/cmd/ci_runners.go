@@ -152,8 +152,8 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	appliedDeps := toOutputApplied(result.Applied)
 	output.SectionApplied(updateSec, "Applied", appliedDeps, color)
 
-	skippedGroups := aggregateSkipped(result.Skipped)
-	output.SectionSkipped(updateSec, "Skipped", skippedGroups, color)
+	skippedGroups := aggregateSkippedItemized(result.Skipped)
+	output.SectionSkippedItemized(updateSec, "Skipped", skippedGroups, color)
 
 	cves := collectCVEsFixed(result.Applied)
 	output.SectionCVEs(updateSec, cves, color)
@@ -247,9 +247,16 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 	// Enrich dependencies with security scanner advisories from prior pipeline run.
 	advisories, advErr := dependency.LoadAdvisories(rootDir)
 	if advErr == nil && len(advisories) > 0 {
-		enriched := dependency.EnrichDependencies(deps, advisories)
-		if enriched > 0 {
-			fmt.Printf("  deps: enriched %d dependencies with security advisories\n", enriched)
+		details := dependency.EnrichDependencies(deps, advisories)
+		if len(details) > 0 {
+			fmt.Printf("  deps: enriched %d dependencies with security advisories\n", len(details))
+			for _, d := range details {
+				plural := "advisory"
+				if d.Advisories != 1 {
+					plural = "advisories"
+				}
+				fmt.Printf("    %-30s %-12s %d %s\n", d.Name, d.Version, d.Advisories, plural)
+			}
 		}
 	}
 
