@@ -343,6 +343,23 @@ narrator:
         output: ".stagefreight/badges/dev-size.svg"
         link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
 
+      # ── Image contents (from manifest inventory) ──────────────────
+      - id: contents.base
+        kind: build-contents
+        section: inventories.versions
+        renderer: badges
+        placement:
+          between: ["<!-- sf:contents-base:start -->", "<!-- sf:contents-base:end -->"]
+          mode: replace
+
+      - id: contents.apk
+        kind: build-contents
+        section: inventories.apk
+        renderer: badges
+        placement:
+          between: ["<!-- sf:contents-apk:start -->", "<!-- sf:contents-apk:end -->"]
+          mode: replace
+
   - file: "docs/Component.md"
     items:
       - id: component-docs

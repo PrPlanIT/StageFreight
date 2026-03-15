@@ -115,15 +115,10 @@ See [CLI Reference](docs/reference/CLI.md) for full flag documentation.
 
 ## Image Contents
 
-Based on **Alpine 3.23** with a statically compiled Go binary:
-
-| Category | Tools |
-|----------|-------|
-| **CLI** | `stagefreight` (Go binary) |
-| **Container** | `docker-cli`, `docker-buildx` |
-| **Security** | `trivy`, `syft`, `grype`, `osv-scanner` |
-| **SCM** | `git` |
-| **Utilities** | `tree`, `chafa` |
+<!-- sf:contents-base:start -->
+<!-- sf:contents-base:end -->
+<!-- sf:contents-apk:start -->
+<!-- sf:contents-apk:end -->
 
 ### Looking for a minimal image?
 
