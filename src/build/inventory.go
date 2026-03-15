@@ -110,6 +110,11 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 		}
 	}
 
+	// Deduplicate packages: keep the most informative entry per (manager, name).
+	// Prefer versioned over unversioned, pinned over unpinned.
+	result.Packages = deduplicatePackages(result.Packages)
+	result.Versions = deduplicateVersions(result.Versions)
+
 	// Sort packages deterministically: by manager, then name, then version
 	sort.Slice(result.Packages, func(i, j int) bool {
 		if result.Packages[i].Manager != result.Packages[j].Manager {
@@ -122,10 +127,60 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 	})
 
 	sort.Slice(result.Versions, func(i, j int) bool {
-		return result.Versions[i].Name < result.Versions[j].Name
+		if result.Versions[i].Name != result.Versions[j].Name {
+			return result.Versions[i].Name < result.Versions[j].Name
+		}
+		return result.Versions[i].Version < result.Versions[j].Version
 	})
 
 	return result, nil
+}
+
+// ── Deduplication ────────────────────────────────────────────────────────────
+
+// deduplicatePackages merges entries with the same (manager, name), keeping
+// the most informative: versioned beats unversioned, pinned beats unpinned.
+func deduplicatePackages(pkgs []PackageInfo) []PackageInfo {
+	type key struct{ manager, name string }
+	best := make(map[key]PackageInfo)
+	order := make([]key, 0, len(pkgs))
+	for _, p := range pkgs {
+		k := key{p.Manager, p.Name}
+		existing, seen := best[k]
+		if !seen {
+			order = append(order, k)
+			best[k] = p
+			continue
+		}
+		// Prefer versioned over unversioned
+		if existing.Version == "" && p.Version != "" {
+			best[k] = p
+		} else if existing.Version != "" && p.Version != "" && !existing.Pinned && p.Pinned {
+			// Both versioned: prefer pinned
+			best[k] = p
+		}
+	}
+	result := make([]PackageInfo, 0, len(best))
+	for _, k := range order {
+		result = append(result, best[k])
+	}
+	return result
+}
+
+// deduplicateVersions merges entries with the same (name, version).
+func deduplicateVersions(vers []PackageInfo) []PackageInfo {
+	type key struct{ name, version string }
+	seen := make(map[key]bool)
+	var result []PackageInfo
+	for _, v := range vers {
+		k := key{v.Name, v.Version}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		result = append(result, v)
+	}
+	return result
 }
 
 // ── ARG parsing ──────────────────────────────────────────────────────────────
