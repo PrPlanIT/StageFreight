@@ -33,6 +33,7 @@ func (m *freshnessModule) checkTools(ctx context.Context, file lint.FileInfo, to
 			Ecosystem: EcosystemGitHubRelease,
 			File:      file.Path,
 			Line:      tool.Line,
+			Binding:   tool.EnvName,
 		}
 
 		ep := m.cfg.Registries.GitHub

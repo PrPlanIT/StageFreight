@@ -12,6 +12,7 @@ type Dependency struct {
 	Line      int    // line number of the pinned version
 	Indirect  bool   // e.g. go.mod // indirect
 	SourceURL string // registry/API URL that was queried
+	Binding   string // editable anchor used by source-specific updaters (e.g. ENV var name)
 
 	// Vulnerability info populated by the OSV correlation pass.
 	Vulnerabilities []VulnInfo // known CVEs affecting the current version

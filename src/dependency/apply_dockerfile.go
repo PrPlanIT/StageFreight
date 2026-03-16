@@ -34,7 +34,7 @@ var (
 	// FROM prefix(group1) image-token(group2) suffix(group3)
 	fromRe = regexp.MustCompile(`^(FROM\s+(?:--platform=\S+\s+)?)(\S+)(.*)$`)
 
-	// ENV prefix(group1) version-value(group2) suffix(group3)
+	// ENV prefix(group1) version-value(group2) suffix(group3) — single-var fallback
 	envVersionRe = regexp.MustCompile(`^(ENV\s+[A-Z0-9_]+_VERSION[= ])(\S+)(.*)$`)
 )
 
@@ -158,17 +158,34 @@ func buildFromReplacement(dep freshness.Dependency, origLine string) (string, st
 }
 
 // buildEnvReplacement handles ENV VERSION line replacement.
+// Supports both single-var (ENV KEY=VALUE) and multi-var (ENV K1=V1 K2=V2) lines.
+// Uses dep.Binding (the ENV var name) to locate the specific key=value pair.
 func buildEnvReplacement(dep freshness.Dependency, origLine string) (string, string) {
+	// If Binding is set, use it for targeted replacement within multi-var lines.
+	if dep.Binding != "" {
+		// Build a regex that finds this specific binding anywhere in the line:
+		// (prefix...BINDING[= ])(value)(suffix...)
+		pattern := regexp.MustCompile(`((?:^|\s)` + regexp.QuoteMeta(dep.Binding) + `[= ])(\S+)`)
+		m := pattern.FindStringSubmatchIndex(origLine)
+		if m == nil {
+			return origLine, "version not resolvable from source"
+		}
+		// m[4]:m[5] is the value capture group
+		foundValue := origLine[m[4]:m[5]]
+		if foundValue != dep.Current {
+			return origLine, "source value mismatch"
+		}
+		return origLine[:m[4]] + dep.Latest + origLine[m[5]:], ""
+	}
+
+	// Fallback: single-var ENV line via anchored regex.
 	m := envVersionRe.FindStringSubmatch(origLine)
 	if m == nil {
-		return origLine, "line does not match ENV VERSION pattern"
+		return origLine, "version not resolvable from source"
 	}
-
-	// Group 2 is the current value — replace with latest
 	if m[2] != dep.Current {
-		return origLine, fmt.Sprintf("ENV value %q does not match expected %q", m[2], dep.Current)
+		return origLine, "source value mismatch"
 	}
-
 	return m[1] + dep.Latest + m[3], ""
 }
 
