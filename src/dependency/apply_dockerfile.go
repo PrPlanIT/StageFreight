@@ -62,10 +62,24 @@ func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]App
 	for _, dep := range deps {
 		absPath := filepath.Join(repoRoot, dep.File)
 
+		// Resolve the actual physical line to edit. For deps with a Binding
+		// (e.g. ENV var name), find the physical line containing the binding
+		// key. Multi-var ENV lines with continuations share the same dep.Line
+		// (endLine of the block), but each var is on its own physical line.
+		lineNum := dep.Line
+		if dep.Binding != "" {
+			found, err := findBindingLine(absPath, dep.Binding)
+			if err != nil {
+				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "version not resolvable from source"})
+				continue
+			}
+			lineNum = found
+		}
+
 		// Read the specific line to compute hash and build replacement
-		origLine, err := readLineAt(absPath, dep.Line)
+		origLine, err := readLineAt(absPath, lineNum)
 		if err != nil {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: fmt.Sprintf("cannot read line %d: %v", dep.Line, err)})
+			skipped = append(skipped, SkippedDep{Dep: dep, Reason: fmt.Sprintf("cannot read line %d: %v", lineNum, err)})
 			continue
 		}
 
@@ -86,7 +100,7 @@ func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]App
 		}
 		fe.edits = append(fe.edits, dockerfileEdit{
 			dep:      dep,
-			line:     dep.Line,
+			line:     lineNum,
 			origHash: sha256.Sum256([]byte(origLine)),
 			newLine:  newLine,
 		})
@@ -235,4 +249,20 @@ func readLineAt(absPath string, lineNum int) (string, error) {
 	}
 
 	return lines[lineNum-1], nil
+}
+
+// findBindingLine scans a file for the physical line containing a binding key
+// (e.g. "BUILDX_VERSION"). Returns 1-based line number.
+func findBindingLine(absPath, binding string) (int, error) {
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return 0, err
+	}
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		if strings.Contains(line, binding) {
+			return i + 1, nil
+		}
+	}
+	return 0, fmt.Errorf("binding %q not found in %s", binding, absPath)
 }
