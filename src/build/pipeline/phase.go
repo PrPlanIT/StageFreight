@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -149,7 +149,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	if ci {
 		moduleNames := lintEngine.ModuleNames()
 		if jErr := output.WriteLintJUnit(".stagefreight/reports", findings, files, moduleNames, elapsed); jErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write junit report: %v\n", jErr)
+			diag.Warn("failed to write junit report: %v", jErr)
 		}
 	}
 
@@ -180,7 +180,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	}
 
 	if runErr != nil && isVerbose {
-		fmt.Fprintf(os.Stderr, "lint warning: %v\n", runErr)
+		diag.Warn("lint: %v", runErr)
 	}
 
 	return summary, nil
