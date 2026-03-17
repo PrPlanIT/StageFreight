@@ -89,6 +89,30 @@ type TargetConfig struct {
 
 	// SyncAssets syncs scan artifacts to a remote forge (kind: release, remote only).
 	SyncAssets bool `yaml:"sync_assets,omitempty"`
+
+	// ── kind: binary-archive ──────────────────────────────────────────────
+
+	// Archives references a binary-archive target ID (kind: release only).
+	Archives string `yaml:"archives,omitempty"`
+
+	// BinaryName overrides the binary name inside the archive (kind: binary-archive).
+	// Auto-detected from referenced build if omitted.
+	BinaryName string `yaml:"binary_name,omitempty"`
+
+	// Format is the archive format: "tar.gz", "zip", or "auto" (kind: binary-archive).
+	// "auto" picks zip for windows, tar.gz for everything else. Default: "auto".
+	Format string `yaml:"format,omitempty"`
+
+	// Name is the archive filename template (kind: binary-archive).
+	// Supports: {id}, {version}, {os}, {arch}. e.g., "{id}-{version}-{os}-{arch}".
+	Name string `yaml:"name,omitempty"`
+
+	// Include lists extra files to bundle into the archive (kind: binary-archive).
+	// e.g., ["README.md", "LICENSE"]
+	Include []string `yaml:"include,omitempty"`
+
+	// Checksums generates a SHA256SUMS file alongside archives (kind: binary-archive).
+	Checksums bool `yaml:"checksums,omitempty"`
 }
 
 // IsRemoteRelease returns true if this release target has all remote forge fields set.
@@ -119,6 +143,15 @@ var validTargetKinds = map[string]bool{
 	"docker-readme":    true,
 	"gitlab-component": true,
 	"release":          true,
+	"binary-archive":   true,
+}
+
+// validArchiveFormats enumerates all recognized archive formats.
+var validArchiveFormats = map[string]bool{
+	"":       true, // default → "auto"
+	"auto":   true,
+	"tar.gz": true,
+	"zip":    true,
 }
 
 // validEvents enumerates all recognized event types.

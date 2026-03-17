@@ -17,11 +17,10 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/badge"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/engines"
+	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
-	"github.com/PrPlanIT/StageFreight/src/lint"
-	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
 	"github.com/PrPlanIT/StageFreight/src/version"
@@ -74,661 +73,740 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 		rootDir = args[0]
 	}
 
-	ctx := context.Background()
-	ci := output.IsCI()
-	color := output.UseColor()
-	w := os.Stdout
-	pipelineStart := time.Now()
-
 	// Inject project description from docker-readme targets for {project.description} templates
 	if desc := firstDockerReadmeDescription(cfg); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}
 
-	// Banner — StageFreight's own identity from build-time ldflags
-	output.Banner(w, output.NewBannerInfo(version.Version, version.Commit, ""), color)
+	pc := &pipeline.PipelineContext{
+		Ctx:           context.Background(),
+		RootDir:       rootDir,
+		Config:        cfg,
+		Writer:        os.Stdout,
+		Color:         output.UseColor(),
+		CI:            output.IsCI(),
+		Verbose:       verbose,
+		SkipLint:      dbSkipLint,
+		DryRun:        dbDryRun,
+		Local:         dbLocal,
+		PipelineStart: time.Now(),
+		Scratch:       make(map[string]any),
+	}
 
-	// Pipeline context block
-	output.ContextBlock(w, buildContextKV())
+	// Register badge runner for BadgeHook
+	pc.Scratch["badge.run"] = runBadgeSection
 
-	// --- Pre-build lint gate ---
-	var lintSummary string
-	if !dbSkipLint {
-		output.SectionStart(w, "sf_lint", "Lint")
-		var lintErr error
-		lintSummary, lintErr = runPreBuildLint(ctx, rootDir, ci, color, w)
-		output.SectionEnd(w, "sf_lint")
-		if lintErr != nil {
-			return lintErr
+	p := &pipeline.Pipeline{
+		Phases: []pipeline.Phase{
+			pipeline.BannerPhase(dockerContextKV),
+			pipeline.LintPhase(),
+			dockerDetectPhase(),
+			dockerPlanPhase(),
+			pipeline.DryRunGate(renderDockerPlan),
+			dockerExecutePhase(),   // build + push + sign
+			dockerPublishPhase(),   // write publish manifest (docker-specific, handles its own merge)
+		},
+		Hooks: []pipeline.PostBuildHook{
+			pipeline.BadgeHook(cfg),
+			dockerReadmeHook(),
+			dockerRetentionHook(),
+		},
+	}
+	return p.Run(pc)
+}
+
+// dockerContextKV returns docker-specific KV pairs for the banner context block.
+func dockerContextKV(pc *pipeline.PipelineContext) []output.KV {
+	var kv []output.KV
+
+	// Count configured registry targets
+	regTargets := pipeline.CollectTargetsByKind(pc.Config, "registry")
+	if len(regTargets) > 0 {
+		var regNames []string
+		seen := make(map[string]bool)
+		for _, t := range regTargets {
+			if !seen[t.URL] {
+				regNames = append(regNames, t.URL)
+				seen[t.URL] = true
+			}
 		}
-	} else {
-		lintSummary = "--skip-lint"
+		kv = append(kv, output.KV{Key: "Registries", Value: fmt.Sprintf("%d (%s)", len(regTargets), strings.Join(regNames, ", "))})
 	}
 
-	// --- Detect ---
-	output.SectionStartCollapsed(w, "sf_detect", "Detect")
-	detectStart := time.Now()
+	return kv
+}
 
-	engine, err := build.Get("image")
-	if err != nil {
-		output.SectionEnd(w, "sf_detect")
-		return err
-	}
+// dockerDetectPhase discovers Dockerfiles and the repo language.
+func dockerDetectPhase() pipeline.Phase {
+	return pipeline.Phase{
+		Name: "detect",
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			output.SectionStartCollapsed(pc.Writer, "sf_detect", "Detect")
+			detectStart := time.Now()
 
-	det, err := engine.Detect(ctx, rootDir)
-	if err != nil {
-		output.SectionEnd(w, "sf_detect")
-		return fmt.Errorf("detection: %w", err)
-	}
-	detectElapsed := time.Since(detectStart)
-
-	detectSec := output.NewSection(w, "Detect", detectElapsed, color)
-	for _, df := range det.Dockerfiles {
-		detectSec.Row("%-16s→ %s", "Dockerfile", df.Path)
-	}
-	detectSec.Row("%-16s→ %s (auto-detected)", "language", det.Language)
-	detectSec.Row("%-16s→ %s", "context", ".")
-	if dbTarget != "" {
-		detectSec.Row("%-16s→ %s", "target", dbTarget)
-	} else {
-		detectSec.Row("%-16s→ %s", "target", "(default)")
-	}
-	detectSec.Close()
-	output.SectionEnd(w, "sf_detect")
-
-	detectSummary := fmt.Sprintf("%d Dockerfile(s), %s", len(det.Dockerfiles), det.Language)
-
-	// --- Plan ---
-	output.SectionStartCollapsed(w, "sf_plan", "Plan")
-	planStart := time.Now()
-
-	// Apply CLI overrides to builds
-	planCfg := *cfg
-	if dbTarget != "" || len(dbPlatforms) > 0 || dbLocal {
-		builds := make([]config.BuildConfig, len(planCfg.Builds))
-		copy(builds, planCfg.Builds)
-		for i := range builds {
-			if builds[i].Kind != "docker" {
-				continue
+			engine, err := build.Get("image")
+			if err != nil {
+				output.SectionEnd(pc.Writer, "sf_detect")
+				return nil, err
 			}
-			if dbBuildID != "" && builds[i].ID != dbBuildID {
-				continue
+			pc.Scratch["docker.engine"] = engine
+
+			det, err := engine.Detect(pc.Ctx, pc.RootDir)
+			if err != nil {
+				output.SectionEnd(pc.Writer, "sf_detect")
+				return nil, fmt.Errorf("detection: %w", err)
 			}
+			pc.Scratch["docker.det"] = det
+
+			detectElapsed := time.Since(detectStart)
+
+			detectSec := output.NewSection(pc.Writer, "Detect", detectElapsed, pc.Color)
+			for _, df := range det.Dockerfiles {
+				detectSec.Row("%-16s→ %s", "Dockerfile", df.Path)
+			}
+			detectSec.Row("%-16s→ %s (auto-detected)", "language", det.Language)
+			detectSec.Row("%-16s→ %s", "context", ".")
 			if dbTarget != "" {
-				builds[i].Target = dbTarget
+				detectSec.Row("%-16s→ %s", "target", dbTarget)
+			} else {
+				detectSec.Row("%-16s→ %s", "target", "(default)")
 			}
-			if len(dbPlatforms) > 0 {
-				builds[i].Platforms = dbPlatforms
-			}
-			if dbLocal && len(builds[i].Platforms) == 0 {
-				builds[i].Platforms = []string{fmt.Sprintf("linux/%s", runtime.GOARCH)}
-			}
-		}
-		planCfg.Builds = builds
+			detectSec.Close()
+			output.SectionEnd(pc.Writer, "sf_detect")
+
+			summary := fmt.Sprintf("%d Dockerfile(s), %s", len(det.Dockerfiles), det.Language)
+			return &pipeline.PhaseResult{
+				Name:    "detect",
+				Status:  "success",
+				Summary: summary,
+				Elapsed: detectElapsed,
+			}, nil
+		},
 	}
+}
 
-	plan, err := engine.Plan(ctx, &engines.ImagePlanInput{Cfg: &planCfg, BuildID: dbBuildID}, det)
-	if err != nil {
-		output.SectionEnd(w, "sf_plan")
-		return fmt.Errorf("planning: %w", err)
-	}
+// dockerPlanPhase resolves registry targets, tags, platforms, and build strategy.
+func dockerPlanPhase() pipeline.Phase {
+	return pipeline.Phase{
+		Name: "plan",
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			output.SectionStartCollapsed(pc.Writer, "sf_plan", "Plan")
+			planStart := time.Now()
 
-	// Apply CLI tag overrides
-	if len(dbTags) > 0 {
-		for i := range plan.Steps {
-			plan.Steps[i].Tags = append(plan.Steps[i].Tags, dbTags...)
-		}
-	}
+			engine := pc.Scratch["docker.engine"].(build.Engine)
+			det := pc.Scratch["docker.det"].(*build.Detection)
 
-	// Build strategy:
-	//   Single-platform: --load into daemon, then docker push each remote tag.
-	//     Image exists locally (for retention, scanning, re-tagging) AND remotely.
-	//   Multi-platform:  --push directly (can't --load multi-platform in buildx).
-	//     No local copy. Remote retention still works.
-	//   --local flag:    force --load, no push regardless.
-	for i := range plan.Steps {
-		step := &plan.Steps[i]
-		if dbLocal {
-			step.Load = true
-			step.Push = false
-			if len(step.Tags) == 0 {
-				step.Tags = []string{"stagefreight:dev"}
-			}
-		} else if len(step.Registries) == 0 {
-			// No registries configured — load locally
-			step.Load = true
-			if len(step.Tags) == 0 {
-				step.Tags = []string{"stagefreight:dev"}
-			}
-		} else if build.IsMultiPlatform(*step) {
-			// Multi-platform: must --push, can't --load
-			step.Push = true
-		} else {
-			// Single-platform with registries: --load, then push explicitly
-			step.Load = true
-		}
-	}
-
-	planElapsed := time.Since(planStart)
-
-	// Plan summary
-	tagCount := 0
-	var tagNames []string
-	for _, s := range plan.Steps {
-		tagCount += len(s.Tags)
-		tagNames = append(tagNames, s.Tags...)
-	}
-	step0 := plan.Steps[0]
-	var strategy string
-	switch {
-	case step0.Push:
-		strategy = "multi-platform push"
-	case step0.Load && hasRemoteRegistries(step0.Registries):
-		strategy = "load + push"
-	default:
-		strategy = "local"
-	}
-
-	planSec := output.NewSection(w, "Plan", planElapsed, color)
-	planSec.Row("%-16s%s", "builds", fmt.Sprintf("%d", len(plan.Steps)))
-	planSec.Row("%-16s%s", "platforms", formatPlatforms(plan.Steps))
-	planSec.Row("%-16s%s", "tags", strings.Join(tagNames, ", "))
-	planSec.Row("%-16s%s", "strategy", strategy)
-	planSec.Close()
-	output.SectionEnd(w, "sf_plan")
-
-	planSummary := fmt.Sprintf("%d build(s), %s, %d tag(s), %s", len(plan.Steps), formatPlatforms(plan.Steps), tagCount, strategy)
-
-	// Inject standard OCI labels into every image. These are global build
-	// infrastructure — plan hash, version, commit, build mode — emitted
-	// regardless of build mode. Crucible verification uses the plan hash
-	// label to compare build graphs via docker inspect.
-	buildMode := "standard"
-	if build.IsCrucibleChild() {
-		buildMode = "crucible-child"
-	}
-	stdLabels := build.StandardLabels(
-		build.NormalizeBuildPlan(plan),
-		version.Version,
-		version.Commit,
-		buildMode,
-		"",
-	)
-	build.InjectLabels(plan, stdLabels)
-
-	// --- Dry run ---
-	if dbDryRun {
-		for _, step := range plan.Steps {
-			fmt.Printf("step: %s\n", step.Name)
-			fmt.Printf("  dockerfile: %s\n", step.Dockerfile)
-			fmt.Printf("  context:    %s\n", step.Context)
-			fmt.Printf("  target:     %s\n", step.Target)
-			fmt.Printf("  platforms:  %v\n", step.Platforms)
-			fmt.Printf("  tags:       %v\n", step.Tags)
-			fmt.Printf("  load:       %v\n", step.Load)
-			fmt.Printf("  push:       %v\n", step.Push)
-			if len(step.BuildArgs) > 0 {
-				fmt.Printf("  build_args: %v\n", step.BuildArgs)
-			}
-		}
-		return nil
-	}
-
-	// --- Publish manifest tracking ---
-	var publishManifest build.PublishManifest
-	var publishModeUsed bool
-
-	// Build shared BuildInstance for provenance tracking
-	buildInst := build.BuildInstance{
-		Commit:     os.Getenv("CI_COMMIT_SHA"),
-		PipelineID: os.Getenv("CI_PIPELINE_ID"),
-		JobID:      os.Getenv("CI_JOB_ID"),
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
-	}
-
-	// --- Execute ---
-	output.SectionStart(w, "sf_build", "Build")
-	buildStart := time.Now()
-
-	// Always capture output for structured display; verbose forwards stderr in real-time
-	bx := build.NewBuildx(verbose)
-	var stderrBuf bytes.Buffer
-	bx.Stdout = io.Discard
-	if verbose {
-		bx.Stderr = os.Stderr // BuildWithLayers MultiWriters this + its parse buffer
-	} else {
-		bx.Stderr = &stderrBuf
-	}
-
-	// Login to remote registries (suppress raw output — structured section handles display)
-	for _, step := range plan.Steps {
-		if hasRemoteRegistries(step.Registries) {
-			loginBx := *bx
-			loginBx.Stdout = io.Discard
-			loginBx.Stderr = io.Discard
-			if err := loginBx.Login(ctx, step.Registries); err != nil {
-				output.SectionEnd(w, "sf_build")
-				return err
-			}
-			break
-		}
-	}
-
-	// Set up metadata files for digest capture on push builds
-	for i := range plan.Steps {
-		if plan.Steps[i].Push {
-			metaFile, tmpErr := os.CreateTemp("", "buildx-metadata-*.json")
-			if tmpErr == nil {
-				plan.Steps[i].MetadataFile = metaFile.Name()
-				metaFile.Close()
-				defer os.Remove(plan.Steps[i].MetadataFile)
-			}
-		}
-	}
-
-	// Build each step — always use BuildWithLayers for structured layer output
-	var result build.BuildResult
-	for _, step := range plan.Steps {
-		stepResult, layers, err := bx.BuildWithLayers(ctx, step)
-		if stepResult != nil {
-			stepResult.Layers = layers
-		}
-
-		result.Steps = append(result.Steps, *stepResult)
-		if err != nil {
-			// Structured failure: render whatever layers completed
-			buildElapsed := time.Since(buildStart)
-			failSec := output.NewSection(w, "Build", buildElapsed, color)
-			renderBuildLayers(failSec, result.Steps, color)
-			output.RowStatus(failSec, "status", "build failed", "failed", color)
-			failSec.Close()
-
-			// Raw output: collapsed in CI, shown only if verbose locally
-			if ci {
-				output.SectionStartCollapsed(w, "sf_build_raw", "Build Output (raw)")
-				fmt.Fprint(w, stderrBuf.String())
-				output.SectionEnd(w, "sf_build_raw")
-			} else if verbose {
-				fmt.Fprint(os.Stderr, stderrBuf.String())
-			}
-
-			output.SectionEnd(w, "sf_build")
-			return err
-		}
-	}
-	buildElapsed := time.Since(buildStart)
-
-	// Record multi-platform pushes (step.Push = true → buildx --push)
-	for _, step := range plan.Steps {
-		if !step.Push {
-			continue
-		}
-		publishModeUsed = true
-
-		// Capture digest from metadata file (retry for buildx flush race)
-		var capturedDigest string
-		if step.MetadataFile != "" {
-			for attempt := 0; attempt < 3; attempt++ {
-				if d, mErr := build.ParseMetadataDigest(step.MetadataFile); mErr == nil {
-					capturedDigest = d
-					break
-				} else if attempt == 2 {
-					diag.Warn("could not parse buildx metadata digest: %v", mErr)
-				}
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-
-		for _, reg := range step.Registries {
-			if reg.Provider == "local" {
-				continue
-			}
-			host := registry.NormalizeHost(reg.URL)
-			provider := reg.Provider
-			if p, err := registry.CanonicalProvider(provider); err == nil {
-				provider = p
-			}
-
-			// Collect all tags for this registry (replay binding)
-			allTags := make([]string, len(reg.Tags))
-			copy(allTags, reg.Tags)
-
-			for _, tag := range reg.Tags {
-				ref := host + "/" + reg.Path + ":" + tag
-
-				// Verify registry-observed digest with retry
-				var observedBuildx string
-				for i := 0; i < 3; i++ {
-					d, rErr := build.ResolveDigest(ctx, ref)
-					if rErr == nil {
-						observedBuildx = d
-						break
+			// Apply CLI overrides to builds
+			planCfg := *pc.Config
+			if dbTarget != "" || len(dbPlatforms) > 0 || pc.Local {
+				builds := make([]config.BuildConfig, len(planCfg.Builds))
+				copy(builds, planCfg.Builds)
+				for i := range builds {
+					if builds[i].Kind != "docker" {
+						continue
 					}
-					time.Sleep(time.Second)
+					if dbBuildID != "" && builds[i].ID != dbBuildID {
+						continue
+					}
+					if dbTarget != "" {
+						builds[i].Target = dbTarget
+					}
+					if len(dbPlatforms) > 0 {
+						builds[i].Platforms = dbPlatforms
+					}
+					if pc.Local && len(builds[i].Platforms) == 0 {
+						builds[i].Platforms = []string{fmt.Sprintf("linux/%s", runtime.GOARCH)}
+					}
 				}
-
-				// Cross-client shadow write check
-				var observedAPI string
-				apiDigest, apiErr := registry.CheckManifestDigest(ctx, host, reg.Path, tag, nil, reg.Credentials)
-				if apiErr == nil {
-					observedAPI = apiDigest
-				}
-
-				if observedBuildx != "" && observedAPI != "" && observedBuildx != observedAPI {
-					diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", observedBuildx, observedAPI)
-				}
-
-				if capturedDigest != "" && observedBuildx != "" && capturedDigest != observedBuildx {
-					diag.Warn("registry propagation lag: expected %s, registry served %s", capturedDigest, observedBuildx)
-				}
-
-				publishManifest.Published = append(publishManifest.Published, build.PublishedImage{
-					Host:              host,
-					Path:              reg.Path,
-					Tag:               tag,
-					Ref:               ref,
-					Provider:          provider,
-					CredentialRef:     reg.Credentials,
-					BuildInstance:     buildInst,
-					Digest:            capturedDigest,
-					Registry:          host,
-					ObservedDigest:    observedBuildx,
-					ObservedDigestAlt: observedAPI,
-					ObservedBy:        "buildx",
-					ObservedByAlt:     "registry_api",
-					ExpectedTags:      allTags,
-					ExpectedCommit:    buildInst.Commit,
-				})
+				planCfg.Builds = builds
 			}
+
+			// Fail-fast guardrail: reject non-docker builds in plan input
+			for _, b := range planCfg.Builds {
+				if b.Kind != "" && b.Kind != "docker" {
+					// Non-docker builds are fine — engine.Plan filters to docker only.
+					// But if someone explicitly passes a non-docker build ID, catch it.
+					if dbBuildID != "" && b.ID == dbBuildID && b.Kind != "docker" {
+						output.SectionEnd(pc.Writer, "sf_plan")
+						return nil, fmt.Errorf("docker plan received non-docker build %q (kind=%s)", b.ID, b.Kind)
+					}
+				}
+			}
+
+			plan, err := engine.Plan(pc.Ctx, &engines.ImagePlanInput{Cfg: &planCfg, BuildID: dbBuildID}, det)
+			if err != nil {
+				output.SectionEnd(pc.Writer, "sf_plan")
+				return nil, fmt.Errorf("planning: %w", err)
+			}
+
+			// Apply CLI tag overrides
+			if len(dbTags) > 0 {
+				for i := range plan.Steps {
+					plan.Steps[i].Tags = append(plan.Steps[i].Tags, dbTags...)
+				}
+			}
+
+			// Build strategy:
+			//   Single-platform: --load into daemon, then docker push each remote tag.
+			//   Multi-platform:  --push directly (can't --load multi-platform in buildx).
+			//   --local flag:    force --load, no push regardless.
+			for i := range plan.Steps {
+				step := &plan.Steps[i]
+				if pc.Local {
+					step.Load = true
+					step.Push = false
+					if len(step.Tags) == 0 {
+						step.Tags = []string{"stagefreight:dev"}
+					}
+				} else if len(step.Registries) == 0 {
+					step.Load = true
+					if len(step.Tags) == 0 {
+						step.Tags = []string{"stagefreight:dev"}
+					}
+				} else if build.IsMultiPlatform(*step) {
+					step.Push = true
+				} else {
+					step.Load = true
+				}
+			}
+
+			planElapsed := time.Since(planStart)
+
+			// Plan summary
+			tagCount := 0
+			var tagNames []string
+			for _, s := range plan.Steps {
+				tagCount += len(s.Tags)
+				tagNames = append(tagNames, s.Tags...)
+			}
+			step0 := plan.Steps[0]
+			var strategy string
+			switch {
+			case step0.Push:
+				strategy = "multi-platform push"
+			case step0.Load && hasRemoteRegistries(step0.Registries):
+				strategy = "load + push"
+			default:
+				strategy = "local"
+			}
+
+			planSec := output.NewSection(pc.Writer, "Plan", planElapsed, pc.Color)
+			planSec.Row("%-16s%s", "builds", fmt.Sprintf("%d", len(plan.Steps)))
+			planSec.Row("%-16s%s", "platforms", formatPlatforms(plan.Steps))
+			planSec.Row("%-16s%s", "tags", strings.Join(tagNames, ", "))
+			planSec.Row("%-16s%s", "strategy", strategy)
+			planSec.Close()
+			output.SectionEnd(pc.Writer, "sf_plan")
+
+			// Inject standard OCI labels
+			buildMode := "standard"
+			if build.IsCrucibleChild() {
+				buildMode = "crucible-child"
+			}
+			stdLabels := build.StandardLabels(
+				build.NormalizeBuildPlan(plan),
+				version.Version,
+				version.Commit,
+				buildMode,
+				"",
+			)
+			build.InjectLabels(plan, stdLabels)
+
+			pc.Scratch["docker.plan"] = plan
+
+			summary := fmt.Sprintf("%d build(s), %s, %d tag(s), %s", len(plan.Steps), formatPlatforms(plan.Steps), tagCount, strategy)
+			return &pipeline.PhaseResult{
+				Name:    "plan",
+				Status:  "success",
+				Summary: summary,
+				Elapsed: planElapsed,
+			}, nil
+		},
+	}
+}
+
+// renderDockerPlan renders the dry-run plan output for docker builds.
+func renderDockerPlan(pc *pipeline.PipelineContext) {
+	plan := pc.Scratch["docker.plan"].(*build.BuildPlan)
+	for _, step := range plan.Steps {
+		fmt.Fprintf(pc.Writer, "step: %s\n", step.Name)
+		fmt.Fprintf(pc.Writer, "  dockerfile: %s\n", step.Dockerfile)
+		fmt.Fprintf(pc.Writer, "  context:    %s\n", step.Context)
+		fmt.Fprintf(pc.Writer, "  target:     %s\n", step.Target)
+		fmt.Fprintf(pc.Writer, "  platforms:  %v\n", step.Platforms)
+		fmt.Fprintf(pc.Writer, "  tags:       %v\n", step.Tags)
+		fmt.Fprintf(pc.Writer, "  load:       %v\n", step.Load)
+		fmt.Fprintf(pc.Writer, "  push:       %v\n", step.Push)
+		if len(step.BuildArgs) > 0 {
+			fmt.Fprintf(pc.Writer, "  build_args: %v\n", step.BuildArgs)
 		}
 	}
+}
 
-	// Build section output
-	buildSec := output.NewSection(w, "Build", buildElapsed, color)
+// dockerExecutePhase builds images via buildx, pushes, and signs.
+// Build + push + sign are kept in one phase because they share buildx state,
+// publish manifest accumulation, and deferred metadata file cleanup.
+func dockerExecutePhase() pipeline.Phase {
+	return pipeline.Phase{
+		Name: "build",
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			plan := pc.Scratch["docker.plan"].(*build.BuildPlan)
 
-	// Render layer events if available
-	if renderBuildLayers(buildSec, result.Steps, color) {
-		buildSec.Separator()
-	}
+			// Publish manifest tracking
+			var publishManifest build.PublishManifest
+			var publishModeUsed bool
 
-	var buildImageCount int
-	var buildSummaryParts []string
-	for _, sr := range result.Steps {
-		for _, img := range sr.Images {
-			buildSec.Row("result  %-40s", img)
-			buildImageCount++
-		}
-	}
-	buildSec.Close()
-
-	buildSummaryParts = append(buildSummaryParts, fmt.Sprintf("%d image(s)", buildImageCount))
-	buildSummary := strings.Join(buildSummaryParts, ", ")
-	output.SectionEnd(w, "sf_build")
-
-	// --- Push (single-platform load-then-push) ---
-	// For single-platform builds that loaded into the daemon, push remote tags now.
-	remoteTags := collectRemoteTags(plan)
-	var pushSummary string
-	var pushElapsed time.Duration
-	if len(remoteTags) > 0 {
-		output.SectionStart(w, "sf_push", "Push")
-		pushStart := time.Now()
-
-		pushBx := *bx
-		pushBx.Stdout = io.Discard
-		if verbose {
-			pushBx.Stderr = os.Stderr
-		} else {
-			pushBx.Stderr = io.Discard
-		}
-		if err := pushBx.PushTags(ctx, remoteTags); err != nil {
-			pushElapsed = time.Since(pushStart)
-			output.SectionEnd(w, "sf_push")
-			return err
-		}
-
-		pushElapsed = time.Since(pushStart)
-		pushSec := output.NewSection(w, "Push", pushElapsed, color)
-		for _, tag := range remoteTags {
-			pushSec.Row("%s  %s", output.StatusIcon("success", color), tag)
-		}
-		pushSec.Close()
-
-		// Count unique registries
-		regSet := make(map[string]bool)
-		for _, tag := range remoteTags {
-			parts := strings.SplitN(tag, "/", 2)
-			if len(parts) > 0 {
-				regSet[parts[0]] = true
+			buildInst := build.BuildInstance{
+				Commit:     os.Getenv("CI_COMMIT_SHA"),
+				PipelineID: os.Getenv("CI_PIPELINE_ID"),
+				JobID:      os.Getenv("CI_JOB_ID"),
+				CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 			}
-		}
-		pushSummary = fmt.Sprintf("%d tag(s) → %d registry", len(remoteTags), len(regSet))
-		output.SectionEnd(w, "sf_push")
 
-		// Record single-platform pushes
-		publishModeUsed = true
-		for _, step := range plan.Steps {
-			if !step.Load || step.Push {
-				continue
+			output.SectionStart(pc.Writer, "sf_build", "Build")
+			buildStart := time.Now()
+
+			// Always capture output for structured display; verbose forwards stderr in real-time
+			bx := build.NewBuildx(pc.Verbose)
+			var stderrBuf bytes.Buffer
+			bx.Stdout = io.Discard
+			if pc.Verbose {
+				bx.Stderr = os.Stderr
+			} else {
+				bx.Stderr = &stderrBuf
 			}
-			for _, reg := range step.Registries {
-				if reg.Provider == "local" {
+
+			// Login to remote registries
+			for _, step := range plan.Steps {
+				if hasRemoteRegistries(step.Registries) {
+					loginBx := *bx
+					loginBx.Stdout = io.Discard
+					loginBx.Stderr = io.Discard
+					if err := loginBx.Login(pc.Ctx, step.Registries); err != nil {
+						output.SectionEnd(pc.Writer, "sf_build")
+						return nil, err
+					}
+					break
+				}
+			}
+
+			// Set up metadata files for digest capture on push builds
+			var metadataCleanup []string
+			for i := range plan.Steps {
+				if plan.Steps[i].Push {
+					metaFile, tmpErr := os.CreateTemp("", "buildx-metadata-*.json")
+					if tmpErr == nil {
+						plan.Steps[i].MetadataFile = metaFile.Name()
+						metaFile.Close()
+						metadataCleanup = append(metadataCleanup, metaFile.Name())
+					}
+				}
+			}
+			defer func() {
+				for _, f := range metadataCleanup {
+					os.Remove(f)
+				}
+			}()
+
+			// Build each step
+			var result build.BuildResult
+			for _, step := range plan.Steps {
+				stepResult, layers, err := bx.BuildWithLayers(pc.Ctx, step)
+				if stepResult == nil {
+					stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
+				}
+				stepResult.Layers = layers
+
+				result.Steps = append(result.Steps, *stepResult)
+				if err != nil {
+					buildElapsed := time.Since(buildStart)
+					failSec := output.NewSection(pc.Writer, "Build", buildElapsed, pc.Color)
+					renderBuildLayers(failSec, result.Steps, pc.Color)
+					output.RowStatus(failSec, "status", "build failed", "failed", pc.Color)
+					failSec.Close()
+
+					if pc.CI {
+						output.SectionStartCollapsed(pc.Writer, "sf_build_raw", "Build Output (raw)")
+						fmt.Fprint(pc.Writer, stderrBuf.String())
+						output.SectionEnd(pc.Writer, "sf_build_raw")
+					} else if pc.Verbose {
+						fmt.Fprint(os.Stderr, stderrBuf.String())
+					}
+
+					output.SectionEnd(pc.Writer, "sf_build")
+					return &pipeline.PhaseResult{
+						Name:    "build",
+						Status:  "failed",
+						Summary: "build failed",
+						Elapsed: buildElapsed,
+					}, err
+				}
+			}
+			buildElapsed := time.Since(buildStart)
+
+			// Record multi-platform pushes (step.Push = true → buildx --push)
+			for _, step := range plan.Steps {
+				if !step.Push {
 					continue
 				}
-				host := registry.NormalizeHost(reg.URL)
-				provider := reg.Provider
-				if p, err := registry.CanonicalProvider(provider); err == nil {
-					provider = p
-				}
+				publishModeUsed = true
 
-				// Collect all tags for this registry (replay binding)
-				allTags := make([]string, len(reg.Tags))
-				copy(allTags, reg.Tags)
-
-				for _, tag := range reg.Tags {
-					ref := host + "/" + reg.Path + ":" + tag
-
-					// Resolve digest after push with retry and backoff
-					var capturedDigest string
-					for i := 0; i < 6; i++ {
-						d, rErr := build.ResolveDigest(ctx, ref)
-						if rErr == nil {
+				var capturedDigest string
+				if step.MetadataFile != "" {
+					for attempt := 0; attempt < 3; attempt++ {
+						if d, mErr := build.ParseMetadataDigest(step.MetadataFile); mErr == nil {
 							capturedDigest = d
 							break
+						} else if attempt == 2 {
+							diag.Warn("could not parse buildx metadata digest: %v", mErr)
 						}
-						if i == 5 {
-							diag.Warn("could not resolve digest for %s via registry after push: %v", ref, rErr)
+						time.Sleep(200 * time.Millisecond)
+					}
+				}
+
+				for _, reg := range step.Registries {
+					if reg.Provider == "local" {
+						continue
+					}
+					host := registry.NormalizeHost(reg.URL)
+					provider := reg.Provider
+					if p, err := registry.CanonicalProvider(provider); err == nil {
+						provider = p
+					}
+
+					allTags := make([]string, len(reg.Tags))
+					copy(allTags, reg.Tags)
+
+					for _, tag := range reg.Tags {
+						ref := host + "/" + reg.Path + ":" + tag
+
+						var observedBuildx string
+						for i := 0; i < 3; i++ {
+							d, rErr := build.ResolveDigest(pc.Ctx, ref)
+							if rErr == nil {
+								observedBuildx = d
+								break
+							}
+							time.Sleep(time.Second)
 						}
-						time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
-					}
 
-					// Fallback to local RepoDigests if registry resolution failed
-					if capturedDigest == "" {
-						if d, lErr := build.ResolveLocalDigest(ctx, ref); lErr == nil {
-							capturedDigest = d
-							diag.Info("publish: resolved digest via local RepoDigests fallback for %s", ref)
+						var observedAPI string
+						apiDigest, apiErr := registry.CheckManifestDigest(pc.Ctx, host, reg.Path, tag, nil, reg.Credentials)
+						if apiErr == nil {
+							observedAPI = apiDigest
 						}
-					}
 
-					if capturedDigest == "" {
-						diag.Warn("published %s with no immutable digest — security will fall back to tag-based scanning", ref)
-					}
+						if observedBuildx != "" && observedAPI != "" && observedBuildx != observedAPI {
+							diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", observedBuildx, observedAPI)
+						}
+						if capturedDigest != "" && observedBuildx != "" && capturedDigest != observedBuildx {
+							diag.Warn("registry propagation lag: expected %s, registry served %s", capturedDigest, observedBuildx)
+						}
 
-					// Cross-client shadow write check
-					var observedAPI string
-					apiDigest, apiErr := registry.CheckManifestDigest(ctx, host, reg.Path, tag, nil, reg.Credentials)
-					if apiErr == nil {
-						observedAPI = apiDigest
+						publishManifest.Published = append(publishManifest.Published, build.PublishedImage{
+							Host:              host,
+							Path:              reg.Path,
+							Tag:               tag,
+							Ref:               ref,
+							Provider:          provider,
+							CredentialRef:     reg.Credentials,
+							BuildInstance:     buildInst,
+							Digest:            capturedDigest,
+							Registry:          host,
+							ObservedDigest:    observedBuildx,
+							ObservedDigestAlt: observedAPI,
+							ObservedBy:        "buildx",
+							ObservedByAlt:     "registry_api",
+							ExpectedTags:      allTags,
+							ExpectedCommit:    buildInst.Commit,
+						})
 					}
-
-					if capturedDigest != "" && observedAPI != "" && capturedDigest != observedAPI {
-						diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", capturedDigest, observedAPI)
-					}
-
-					publishManifest.Published = append(publishManifest.Published, build.PublishedImage{
-						Host:              host,
-						Path:              reg.Path,
-						Tag:               tag,
-						Ref:               ref,
-						Provider:          provider,
-						CredentialRef:     reg.Credentials,
-						BuildInstance:     buildInst,
-						Digest:            capturedDigest,
-						Registry:          host,
-						ObservedDigest:    capturedDigest, // same source for single-platform
-						ObservedDigestAlt: observedAPI,
-						ObservedBy:        "buildx",
-						ObservedByAlt:     "registry_api",
-						ExpectedTags:      allTags,
-						ExpectedCommit:    buildInst.Commit,
-					})
 				}
 			}
-		}
-	}
 
-	// --- Cosign signing (best-effort) ---
-	if publishModeUsed {
-		cosignKey := build.ResolveCosignKey()
-		cosignOnPath := build.CosignAvailable()
-		signingAttempted := cosignOnPath && cosignKey != ""
+			// Build section output
+			buildSec := output.NewSection(pc.Writer, "Build", buildElapsed, pc.Color)
+			if renderBuildLayers(buildSec, result.Steps, pc.Color) {
+				buildSec.Separator()
+			}
 
-		if signingAttempted {
-			for i, img := range publishManifest.Published {
-				if img.Digest == "" {
-					continue
+			var buildImageCount int
+			for _, sr := range result.Steps {
+				for _, img := range sr.Images {
+					buildSec.Row("result  %-40s", img)
+					buildImageCount++
 				}
-				digestRef := img.Host + "/" + img.Path + "@" + img.Digest
-				multiArch := false
-				for _, step := range plan.Steps {
-					if step.Push && len(step.Platforms) > 1 {
-						multiArch = true
-						break
-					}
-				}
+			}
+			buildSec.Close()
+			output.SectionEnd(pc.Writer, "sf_build")
 
-				// Write DSSE provenance for attestation
-				dssePath := filepath.Join(rootDir, ".stagefreight", "provenance.dsse.json")
-				// Use existing provenance if already written, otherwise create minimal one
-				if _, statErr := os.Stat(filepath.Join(rootDir, ".stagefreight", "provenance.json")); statErr == nil {
-					// Read and wrap existing provenance
-					provenanceData, readErr := os.ReadFile(filepath.Join(rootDir, ".stagefreight", "provenance.json"))
-					if readErr == nil {
-						var stmt build.ProvenanceStatement
-						if jsonErr := json.Unmarshal(provenanceData, &stmt); jsonErr == nil {
-							_ = build.WriteDSSEProvenance(dssePath, stmt)
-						}
-					}
-				}
+			// --- Push (single-platform load-then-push) ---
+			remoteTags := collectRemoteTags(plan)
+			var pushSummary string
+			if len(remoteTags) > 0 {
+				output.SectionStart(pc.Writer, "sf_push", "Push")
+				pushStart := time.Now()
 
-				// Sign
-				signErr := build.CosignSign(ctx, digestRef, cosignKey, multiArch)
-
-				// Attest (only if DSSE file exists)
-				if _, statErr := os.Stat(dssePath); statErr == nil {
-					_ = build.CosignAttest(ctx, digestRef, dssePath, cosignKey)
-				}
-
-				if signErr != nil {
-					publishManifest.Published[i].SigningAttempted = true
+				pushBx := *bx
+				pushBx.Stdout = io.Discard
+				if pc.Verbose {
+					pushBx.Stderr = os.Stderr
 				} else {
-					// Discover the signature/attestation refs
-					artifacts, _ := registry.DiscoverArtifacts(ctx, img, nil)
-					publishManifest.Published[i].Attestation = &build.AttestationRecord{
-						Type:           build.AttestationCosign,
-						SignatureRef:   artifacts.Signature,
-						AttestationRef: artifacts.Provenance,
-						VerifiedDigest: img.Digest,
+					pushBx.Stderr = io.Discard
+				}
+				if err := pushBx.PushTags(pc.Ctx, remoteTags); err != nil {
+					output.SectionEnd(pc.Writer, "sf_push")
+					return nil, err
+				}
+
+				pushElapsed := time.Since(pushStart)
+				pushSec := output.NewSection(pc.Writer, "Push", pushElapsed, pc.Color)
+				for _, tag := range remoteTags {
+					pushSec.Row("%s  %s", output.StatusIcon("success", pc.Color), tag)
+				}
+				pushSec.Close()
+
+				regSet := make(map[string]bool)
+				for _, tag := range remoteTags {
+					parts := strings.SplitN(tag, "/", 2)
+					if len(parts) > 0 {
+						regSet[parts[0]] = true
+					}
+				}
+				pushSummary = fmt.Sprintf("%d tag(s) → %d registry", len(remoteTags), len(regSet))
+				output.SectionEnd(pc.Writer, "sf_push")
+
+				// Record single-platform pushes
+				publishModeUsed = true
+				for _, step := range plan.Steps {
+					if !step.Load || step.Push {
+						continue
+					}
+					for _, reg := range step.Registries {
+						if reg.Provider == "local" {
+							continue
+						}
+						host := registry.NormalizeHost(reg.URL)
+						provider := reg.Provider
+						if p, err := registry.CanonicalProvider(provider); err == nil {
+							provider = p
+						}
+
+						allTags := make([]string, len(reg.Tags))
+						copy(allTags, reg.Tags)
+
+						for _, tag := range reg.Tags {
+							ref := host + "/" + reg.Path + ":" + tag
+
+							var capturedDigest string
+							for i := 0; i < 6; i++ {
+								d, rErr := build.ResolveDigest(pc.Ctx, ref)
+								if rErr == nil {
+									capturedDigest = d
+									break
+								}
+								if i == 5 {
+									diag.Warn("could not resolve digest for %s via registry after push: %v", ref, rErr)
+								}
+								time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
+							}
+
+							if capturedDigest == "" {
+								if d, lErr := build.ResolveLocalDigest(pc.Ctx, ref); lErr == nil {
+									capturedDigest = d
+									diag.Info("publish: resolved digest via local RepoDigests fallback for %s", ref)
+								}
+							}
+
+							if capturedDigest == "" {
+								diag.Warn("published %s with no immutable digest — security will fall back to tag-based scanning", ref)
+							}
+
+							var observedAPI string
+							apiDigest, apiErr := registry.CheckManifestDigest(pc.Ctx, host, reg.Path, tag, nil, reg.Credentials)
+							if apiErr == nil {
+								observedAPI = apiDigest
+							}
+
+							if capturedDigest != "" && observedAPI != "" && capturedDigest != observedAPI {
+								diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", capturedDigest, observedAPI)
+							}
+
+							publishManifest.Published = append(publishManifest.Published, build.PublishedImage{
+								Host:              host,
+								Path:              reg.Path,
+								Tag:               tag,
+								Ref:               ref,
+								Provider:          provider,
+								CredentialRef:     reg.Credentials,
+								BuildInstance:     buildInst,
+								Digest:            capturedDigest,
+								Registry:          host,
+								ObservedDigest:    capturedDigest,
+								ObservedDigestAlt: observedAPI,
+								ObservedBy:        "buildx",
+								ObservedByAlt:     "registry_api",
+								ExpectedTags:      allTags,
+								ExpectedCommit:    buildInst.Commit,
+							})
+						}
 					}
 				}
 			}
-		} else {
-			diag.Debug(verbose, "cosign: not configured, skipping signing (cosign on PATH: %v, key available: %v)", cosignOnPath, cosignKey != "")
-		}
+
+			// --- Cosign signing (best-effort) ---
+			if publishModeUsed {
+				cosignKey := build.ResolveCosignKey()
+				cosignOnPath := build.CosignAvailable()
+				signingAttempted := cosignOnPath && cosignKey != ""
+
+				if signingAttempted {
+					for i, img := range publishManifest.Published {
+						if img.Digest == "" {
+							continue
+						}
+						digestRef := img.Host + "/" + img.Path + "@" + img.Digest
+						multiArch := false
+						for _, step := range plan.Steps {
+							if step.Push && len(step.Platforms) > 1 {
+								multiArch = true
+								break
+							}
+						}
+
+						dssePath := filepath.Join(pc.RootDir, ".stagefreight", "provenance.dsse.json")
+						if _, statErr := os.Stat(filepath.Join(pc.RootDir, ".stagefreight", "provenance.json")); statErr == nil {
+							provenanceData, readErr := os.ReadFile(filepath.Join(pc.RootDir, ".stagefreight", "provenance.json"))
+							if readErr == nil {
+								var stmt build.ProvenanceStatement
+								if jsonErr := json.Unmarshal(provenanceData, &stmt); jsonErr == nil {
+									_ = build.WriteDSSEProvenance(dssePath, stmt)
+								}
+							}
+						}
+
+						signErr := build.CosignSign(pc.Ctx, digestRef, cosignKey, multiArch)
+
+						if _, statErr := os.Stat(dssePath); statErr == nil {
+							_ = build.CosignAttest(pc.Ctx, digestRef, dssePath, cosignKey)
+						}
+
+						if signErr != nil {
+							publishManifest.Published[i].SigningAttempted = true
+						} else {
+							artifacts, _ := registry.DiscoverArtifacts(pc.Ctx, img, nil)
+							publishManifest.Published[i].Attestation = &build.AttestationRecord{
+								Type:           build.AttestationCosign,
+								SignatureRef:   artifacts.Signature,
+								AttestationRef: artifacts.Provenance,
+								VerifiedDigest: img.Digest,
+							}
+						}
+					}
+				} else {
+					diag.Debug(pc.Verbose, "cosign: not configured, skipping signing (cosign on PATH: %v, key available: %v)", cosignOnPath, cosignKey != "")
+				}
+			}
+
+			// Store publish manifest and build result in Scratch for downstream phases
+			pc.Scratch["docker.publishManifest"] = &publishManifest
+			pc.Scratch["docker.publishModeUsed"] = publishModeUsed
+			pc.Scratch["docker.buildResult"] = &result
+
+			buildSummary := fmt.Sprintf("%d image(s)", buildImageCount)
+			if pushSummary != "" {
+				buildSummary += ", " + pushSummary
+			}
+
+			return &pipeline.PhaseResult{
+				Name:    "build",
+				Status:  "success",
+				Summary: buildSummary,
+				Elapsed: buildElapsed,
+			}, nil
+		},
 	}
+}
 
-	// --- Write publish manifest ---
-	if publishModeUsed {
-		if err := build.WritePublishManifest(rootDir, publishManifest); err != nil {
-			return fmt.Errorf("writing publish manifest: %w", err)
-		}
+// dockerPublishPhase writes the docker publish manifest.
+// Separate from the generic PublishManifestPhase because docker builds manage their own
+// manifest accumulation (multi-platform digests, signing records, etc.).
+func dockerPublishPhase() pipeline.Phase {
+	return pipeline.Phase{
+		Name: "publish",
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			publishModeUsed, _ := pc.Scratch["docker.publishModeUsed"].(bool)
+			if !publishModeUsed {
+				return &pipeline.PhaseResult{
+					Name:    "publish",
+					Status:  "skipped",
+					Summary: "no artifacts published",
+				}, nil
+			}
+
+			publishManifest := pc.Scratch["docker.publishManifest"].(*build.PublishManifest)
+			if err := build.WritePublishManifest(pc.RootDir, *publishManifest); err != nil {
+				return nil, fmt.Errorf("writing publish manifest: %w", err)
+			}
+
+			// Also print image references
+			if result, ok := pc.Scratch["docker.buildResult"].(*build.BuildResult); ok {
+				fmt.Fprintf(pc.Writer, "\n    Image References\n")
+				for _, sr := range result.Steps {
+					for _, img := range sr.Images {
+						fmt.Fprintf(pc.Writer, "    → %s\n", img)
+					}
+				}
+				fmt.Fprintln(pc.Writer)
+			}
+
+			return &pipeline.PhaseResult{
+				Name:    "publish",
+				Status:  "success",
+				Summary: fmt.Sprintf("%d image(s)", len(publishManifest.Published)),
+			}, nil
+		},
 	}
+}
 
-	// --- Badges ---
-	var badgeSummary string
-	if hasNarratorBadgeItems() {
-		badgeSummary, _ = runBadgeSection(w, color, rootDir)
+// dockerReadmeHook syncs README to docker-readme targets.
+func dockerReadmeHook() pipeline.PostBuildHook {
+	return pipeline.PostBuildHook{
+		Name: "readme",
+		Condition: func(pc *pipeline.PipelineContext) bool {
+			targets := pipeline.CollectTargetsByKind(pc.Config, "docker-readme")
+			return len(targets) > 0 && !pc.Local
+		},
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			targets := pipeline.CollectTargetsByKind(pc.Config, "docker-readme")
+			summary, _ := runReadmeSyncSection(pc.Ctx, pc.Writer, pc.CI, pc.Color, targets, pc.RootDir)
+			return &pipeline.PhaseResult{
+				Name:    "readme",
+				Status:  "success",
+				Summary: summary,
+			}, nil
+		},
 	}
+}
 
-	// --- README Sync ---
-	var readmeSummary string
-	readmeTargets := collectTargetsByKind(cfg, "docker-readme")
-	if len(readmeTargets) > 0 && !dbLocal {
-		readmeSummary, _ = runReadmeSyncSection(ctx, w, ci, color, readmeTargets, rootDir)
+// dockerRetentionHook applies tag retention to configured registries.
+func dockerRetentionHook() pipeline.PostBuildHook {
+	return pipeline.PostBuildHook{
+		Name: "retention",
+		Condition: func(pc *pipeline.PipelineContext) bool {
+			plan, ok := pc.Scratch["docker.plan"].(*build.BuildPlan)
+			return ok && hasRetention(plan)
+		},
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			plan := pc.Scratch["docker.plan"].(*build.BuildPlan)
+			summary, _ := runRetentionSection(pc.Ctx, pc.Writer, pc.CI, pc.Color, plan)
+			return &pipeline.PhaseResult{
+				Name:    "retention",
+				Status:  "success",
+				Summary: summary,
+			}, nil
+		},
 	}
-
-	// --- Retention ---
-	var retentionSummary string
-	if hasRetention(plan) {
-		retentionSummary, _ = runRetentionSection(ctx, w, ci, color, plan)
-	}
-
-	// --- Summary ---
-	totalElapsed := time.Since(pipelineStart)
-	overallStatus := "success"
-
-	sumSec := output.NewSection(w, "Summary", 0, color)
-
-	// Lint
-	lintStatus := "success"
-	if lintSummary == "--skip-lint" {
-		lintStatus = "skipped"
-	}
-	output.SummaryRow(w, "lint", lintStatus, lintSummary, color)
-
-	// Detect
-	output.SummaryRow(w, "detect", "success", detectSummary, color)
-
-	// Plan
-	output.SummaryRow(w, "plan", "success", planSummary, color)
-
-	// Build
-	output.SummaryRow(w, "build", "success", buildSummary, color)
-
-	// Push
-	if pushSummary != "" {
-		output.SummaryRow(w, "push", "success", pushSummary, color)
-	}
-
-	// Badges
-	if badgeSummary != "" {
-		output.SummaryRow(w, "badges", "success", badgeSummary, color)
-	}
-
-	// Readme
-	if readmeSummary != "" {
-		output.SummaryRow(w, "readme", "success", readmeSummary, color)
-	}
-
-	// Retention
-	if retentionSummary != "" {
-		output.SummaryRow(w, "retention", "success", retentionSummary, color)
-	}
-
-	sumSec.Separator()
-	output.SummaryTotal(w, totalElapsed, overallStatus, color)
-	sumSec.Close()
-
-	// --- Image References ---
-	fmt.Fprintf(w, "\n    Image References\n")
-	for _, sr := range result.Steps {
-		for _, img := range sr.Images {
-			fmt.Fprintf(w, "    → %s\n", img)
-		}
-	}
-	fmt.Fprintln(w)
-
-	return nil
 }
 
 // resolveBuildMode determines the active build mode.
@@ -908,9 +986,10 @@ func runCrucibleMode(cmd *cobra.Command, args []string) error {
 	var gestResult build.BuildResult
 	for _, step := range plan.Steps {
 		stepResult, layers, err := bx.BuildWithLayers(ctx, step)
-		if stepResult != nil {
-			stepResult.Layers = layers
+		if stepResult == nil {
+			stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
 		}
+		stepResult.Layers = layers
 		gestResult.Steps = append(gestResult.Steps, *stepResult)
 		if err != nil {
 			buildElapsed := time.Since(buildStart)
@@ -1194,96 +1273,6 @@ func checkStatusIcon(status string, color bool) string {
 	default:
 		return output.StatusIcon("skipped", color)
 	}
-}
-
-func runPreBuildLint(ctx context.Context, rootDir string, ci bool, color bool, w io.Writer) (string, error) {
-	cacheDir := lint.ResolveCacheDir(rootDir, cfg.Lint.CacheDir)
-	cache := &lint.Cache{
-		Dir:     cacheDir,
-		Enabled: true,
-	}
-
-	lintEngine, err := lint.NewEngine(cfg.Lint, rootDir, nil, nil, verbose, cache)
-	if err != nil {
-		return "", err
-	}
-
-	files, err := lintEngine.CollectFiles()
-	if err != nil {
-		return "", err
-	}
-
-	// Delta filtering — skip when config requests full scan.
-	if cfg.Lint.Level != config.LevelFull {
-		delta := &lint.Delta{RootDir: rootDir, TargetBranch: cfg.Lint.TargetBranch, Verbose: verbose}
-		changedSet, _ := delta.ChangedFiles(ctx)
-		if changedSet != nil {
-			files = lint.FilterByDelta(files, changedSet)
-		}
-	}
-
-	start := time.Now()
-	findings, modStats, runErr := lintEngine.RunWithStats(ctx, files)
-	findings = append(findings, modules.CheckFilenameCollisions(files)...)
-	elapsed := time.Since(start)
-
-	// Tally
-	var critical, warning, info int
-	var totalFiles, totalCached int
-	for _, f := range findings {
-		switch f.Severity {
-		case lint.SeverityCritical:
-			critical++
-		case lint.SeverityWarning:
-			warning++
-		case lint.SeverityInfo:
-			info++
-		}
-	}
-	for _, ms := range modStats {
-		totalFiles += ms.Files
-		totalCached += ms.Cached
-	}
-
-	// Write JUnit XML in CI for GitLab test reporting
-	if ci {
-		moduleNames := lintEngine.ModuleNames()
-		if jErr := output.WriteLintJUnit(".stagefreight/reports", findings, files, moduleNames, elapsed); jErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write junit report: %v\n", jErr)
-		}
-	}
-
-	// Section output
-	sec := output.NewSection(w, "Lint", elapsed, color)
-	output.LintTable(w, modStats, color)
-	sec.Separator()
-	sec.Row("%-16s%5d   %5d   %d findings (%d critical)",
-		"total", totalFiles, totalCached, len(findings), critical)
-	sec.Close()
-
-	if len(findings) > 0 {
-		fSec := output.NewSection(w, "Findings", 0, color)
-		output.SectionFindings(fSec, findings, color)
-		fSec.Separator()
-		fSec.Row("%s", output.FindingsSummaryLine(len(findings), critical, warning, info, len(files), color))
-		fSec.Close()
-	}
-
-	if critical > 0 {
-		summary := fmt.Sprintf("%d files, %d cached, %d critical", len(files), totalCached, critical)
-		return summary, fmt.Errorf("lint failed: %d critical findings", critical)
-	}
-
-	summary := fmt.Sprintf("%d files, %d cached, 0 critical", len(files), totalCached)
-	if warning > 0 {
-		summary = fmt.Sprintf("%d files, %d cached, %d warnings", len(files), totalCached, warning)
-	}
-
-	if runErr != nil && verbose {
-		fmt.Fprintf(os.Stderr, "lint warning: %v\n", runErr)
-	}
-
-	return summary, nil
 }
 
 // hasRetention returns true if any step has a registry with retention configured.

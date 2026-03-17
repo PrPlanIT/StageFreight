@@ -63,10 +63,38 @@ type PublishedImage struct {
 	SigningAttempted bool               `json:"signing_attempted,omitempty"`         // true if signing was attempted but failed
 }
 
-// PublishManifest records all images successfully pushed during a build.
+// PublishedBinary records a single binary that was successfully built.
+type PublishedBinary struct {
+	Name      string `json:"name"`                // logical binary name
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	Path      string `json:"path"`                // local binary path
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256"`
+	BuildID   string `json:"build_id"`
+	Version   string `json:"version,omitempty"`
+	Commit    string `json:"commit,omitempty"`
+	Toolchain string `json:"toolchain,omitempty"` // "go1.24.1" — for audit + crucible verification
+}
+
+// PublishedArchive records a single archive that was successfully created.
+type PublishedArchive struct {
+	Name     string          `json:"name"`              // archive filename
+	Format   string          `json:"format"`            // tar.gz | zip
+	Path     string          `json:"path"`              // local archive path
+	Size     int64           `json:"size"`
+	SHA256   string          `json:"sha256"`
+	Contents []string        `json:"contents,omitempty"` // files in archive
+	BuildID  string          `json:"build_id"`
+	Binary   PublishedBinary `json:"binary"`
+}
+
+// PublishManifest records all artifacts successfully produced during a build.
 type PublishManifest struct {
-	Published []PublishedImage `json:"published"`
-	Timestamp string           `json:"timestamp"` // RFC3339
+	Published []PublishedImage   `json:"published"`
+	Binaries  []PublishedBinary  `json:"binaries,omitempty"`
+	Archives  []PublishedArchive `json:"archives,omitempty"`
+	Timestamp string             `json:"timestamp"` // RFC3339
 }
 
 const PublishManifestPath = ".stagefreight/publish.json"

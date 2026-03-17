@@ -47,12 +47,71 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 		if b.Kind == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind is required", bpath))
-		} else if b.Kind != "docker" {
-			errs = append(errs, fmt.Sprintf("%s: unknown build kind %q (supported: docker)", bpath, b.Kind))
+		} else if b.Kind != "docker" && b.Kind != "binary" {
+			errs = append(errs, fmt.Sprintf("%s: unknown build kind %q (supported: docker, binary)", bpath, b.Kind))
+		}
+
+		// DependsOn reference validation (deferred until all IDs collected)
+		// Binary-specific validation
+		if b.Kind == "binary" {
+			if b.Language == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind binary requires language (supported: go)", bpath))
+			} else if b.Language != "go" {
+				errs = append(errs, fmt.Sprintf("%s: unknown language %q (supported: go)", bpath, b.Language))
+			}
+			if b.Entry == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind binary requires entry (main package path)", bpath))
+			}
+			// Docker-only fields should not be set on binary builds
+			if b.Dockerfile != "" {
+				errs = append(errs, fmt.Sprintf("%s: dockerfile is not valid for kind binary", bpath))
+			}
+			if b.Context != "" {
+				errs = append(errs, fmt.Sprintf("%s: context is not valid for kind binary", bpath))
+			}
+			if b.Target != "" {
+				errs = append(errs, fmt.Sprintf("%s: target is not valid for kind binary", bpath))
+			}
+			if len(b.BuildArgs) > 0 {
+				errs = append(errs, fmt.Sprintf("%s: build_args is not valid for kind binary (use env)", bpath))
+			}
+		}
+
+		// Docker-only: binary fields should not be set
+		if b.Kind == "docker" {
+			if b.Language != "" {
+				errs = append(errs, fmt.Sprintf("%s: language is not valid for kind docker", bpath))
+			}
+			if b.Entry != "" {
+				errs = append(errs, fmt.Sprintf("%s: entry is not valid for kind docker", bpath))
+			}
+			if b.BinaryName != "" {
+				errs = append(errs, fmt.Sprintf("%s: binary_name is not valid for kind docker", bpath))
+			}
+			if len(b.LDFlags) > 0 {
+				errs = append(errs, fmt.Sprintf("%s: ldflags is not valid for kind docker", bpath))
+			}
+			if len(b.Env) > 0 {
+				errs = append(errs, fmt.Sprintf("%s: env is not valid for kind docker", bpath))
+			}
 		}
 
 		if b.BuildMode != "" && b.BuildMode != "crucible" {
 			errs = append(errs, fmt.Sprintf("%s: unknown build_mode %q (supported: crucible)", bpath, b.BuildMode))
+		}
+	}
+
+	// ── Build depends_on validation (all IDs now known) ─────────────────
+
+	for i, b := range cfg.Builds {
+		if b.DependsOn != "" {
+			bpath := fmt.Sprintf("builds[%d]", i)
+			if !buildIDs[b.DependsOn] {
+				errs = append(errs, fmt.Sprintf("%s: depends_on references unknown build %q", bpath, b.DependsOn))
+			}
+			if b.DependsOn == b.ID {
+				errs = append(errs, fmt.Sprintf("%s: depends_on cannot reference itself", bpath))
+			}
 		}
 	}
 
@@ -320,6 +379,24 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, polic
 
 		if t.Build != "" {
 			errs = append(errs, fmt.Sprintf("%s: kind release does not use build reference", path))
+		}
+
+	case "binary-archive":
+		if t.Build == "" {
+			errs = append(errs, fmt.Sprintf("%s: kind binary-archive requires build reference", path))
+		}
+		if !validArchiveFormats[t.Format] {
+			errs = append(errs, fmt.Sprintf("%s: unknown archive format %q (supported: auto, tar.gz, zip)", path, t.Format))
+		}
+		// Disallow registry-only fields
+		if t.URL != "" {
+			errs = append(errs, fmt.Sprintf("%s: url is not valid for kind binary-archive", path))
+		}
+		if t.Path != "" {
+			errs = append(errs, fmt.Sprintf("%s: path is not valid for kind binary-archive", path))
+		}
+		if len(t.Tags) > 0 {
+			errs = append(errs, fmt.Sprintf("%s: tags is not valid for kind binary-archive (use name template)", path))
 		}
 	}
 

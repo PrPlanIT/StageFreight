@@ -42,8 +42,8 @@ func resolveWorkspace(ciCtx *ci.CIContext) string {
 }
 
 // ── build runner ─────────────────────────────────────────────────────────────
-// Temporary exception: calls runDockerBuild directly from cmd package.
-// docker_build.go is too large to extract safely in this PR.
+// Runs binary builds first (if any), then docker builds.
+// Binary builds execute before docker builds to satisfy depends_on ordering.
 func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	_ = appCfg // build reads its own config via Cobra pre-run
 
@@ -57,13 +57,46 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
 
-	if err := runDockerBuild(dockerBuildCmd, nil); err != nil {
-		if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
-			st.Build.Reason = err.Error()
-		}); stErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+	// Run binary builds first (if configured) — needed for depends_on ordering
+	hasBinaryBuilds := false
+	for _, b := range cfg.Builds {
+		if b.Kind == "binary" {
+			hasBinaryBuilds = true
+			break
 		}
-		return fmt.Errorf("build subsystem: %w", err)
+	}
+	if hasBinaryBuilds {
+		if err := runBuildBinary(buildBinaryCmd, nil); err != nil {
+			if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+				st.Build.Reason = "binary build: " + err.Error()
+			}); stErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+			}
+			return fmt.Errorf("build subsystem (binary): %w", err)
+		}
+	}
+
+	// Run docker builds (if configured)
+	hasDockerBuilds := false
+	for _, b := range cfg.Builds {
+		if b.Kind == "docker" {
+			hasDockerBuilds = true
+			break
+		}
+	}
+	if hasDockerBuilds {
+		if err := runDockerBuild(dockerBuildCmd, nil); err != nil {
+			if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+				st.Build.Reason = err.Error()
+			}); stErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+			}
+			return fmt.Errorf("build subsystem: %w", err)
+		}
+	}
+
+	if !hasBinaryBuilds && !hasDockerBuilds {
+		return fmt.Errorf("no builds configured")
 	}
 
 	// Read publish manifest to determine what was produced.

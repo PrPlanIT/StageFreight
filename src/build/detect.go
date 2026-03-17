@@ -8,11 +8,12 @@ import (
 
 // Detection holds everything discovered about a repo's build capabilities.
 type Detection struct {
-	RootDir     string // absolute path to repo root
-	Dockerfiles []DockerfileInfo
-	Language    string   // "go", "rust", "node", "python", ""
-	Lockfiles   []string // relative paths: go.mod, Cargo.toml, etc.
-	GitInfo     *GitInfo
+	RootDir      string // absolute path to repo root
+	Dockerfiles  []DockerfileInfo
+	Language     string   // "go", "rust", "node", "python", ""
+	Lockfiles    []string // relative paths: go.mod, Cargo.toml, etc.
+	MainPackages []string // detected main package paths (Go: cmd/foo, bar, .)
+	GitInfo      *GitInfo
 }
 
 // GitInfo holds git repository metadata.
@@ -127,6 +128,13 @@ func DetectRepo(rootDir string) (*Detection, error) {
 				det.Language = lang
 			}
 		}
+	}
+
+	// Detect Go main packages if language is Go
+	if det.Language == "go" {
+		gb := NewGoBuild(false)
+		mains, _ := gb.DetectMainPackages(rootDir)
+		det.MainPackages = mains
 	}
 
 	// Detect git info
