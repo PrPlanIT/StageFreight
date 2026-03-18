@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/diag"
 )
 
 // Buildx wraps docker buildx commands.
@@ -235,15 +237,21 @@ func (bx *Buildx) Login(ctx context.Context, registries []RegistryTarget) error 
 
 		prefix := strings.ToUpper(reg.Credentials)
 		user := os.Getenv(prefix + "_USER")
-		// Accept _TOKEN as an alias for _PASS (common for registry API tokens)
-		pass := os.Getenv(prefix + "_PASS")
+		// Prefer _TOKEN over _PASS — tokens are scoped and revocable
+		pass := os.Getenv(prefix + "_TOKEN")
+		usingPassword := false
 		if pass == "" {
-			pass = os.Getenv(prefix + "_TOKEN")
+			pass = os.Getenv(prefix + "_PASS")
+			usingPassword = pass != ""
 		}
 
 		if user == "" || pass == "" {
-			return fmt.Errorf("registry %s: credentials %q configured but %s_USER and/or %s_PASS (or %s_TOKEN) env vars not set",
-				reg.URL, reg.Credentials, prefix, prefix, prefix)
+			return fmt.Errorf("registry %s: credentials %q configured but %s_USER and/or %s_TOKEN env vars not set",
+				reg.URL, reg.Credentials, prefix, prefix)
+		}
+
+		if usingPassword {
+			diag.Warn("registry %s: authenticating with %s_PASS — consider using %s_TOKEN instead (scoped, revocable)", reg.URL, prefix, prefix)
 		}
 
 		if bx.Verbose {

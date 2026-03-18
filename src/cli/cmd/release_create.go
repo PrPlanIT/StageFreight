@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -150,9 +151,13 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 					return "", ""
 				}
 				upper := strings.ToUpper(prefix)
-				pass := os.Getenv(upper + "_PASS")
+				// Prefer _TOKEN over _PASS — tokens are scoped and revocable
+				pass := os.Getenv(upper + "_TOKEN")
 				if pass == "" {
-					pass = os.Getenv(upper + "_TOKEN")
+					if pw := os.Getenv(upper + "_PASS"); pw != "" {
+						diag.Warn("credentials %s: authenticating with %s_PASS — consider using %s_TOKEN instead (scoped, revocable)", prefix, upper, upper)
+						pass = pw
+					}
 				}
 				return os.Getenv(upper + "_USER"), pass
 			}

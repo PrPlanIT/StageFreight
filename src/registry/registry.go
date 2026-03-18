@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/diag"
 )
 
 // Registry is the interface every container registry provider implements.
@@ -97,9 +99,13 @@ func resolveCredentials(prefix string) (user, pass string) {
 		return "", ""
 	}
 	p := strings.ToUpper(prefix)
-	pass = os.Getenv(p + "_PASS")
+	// Prefer _TOKEN over _PASS — tokens are scoped and revocable
+	pass = os.Getenv(p + "_TOKEN")
 	if pass == "" {
-		pass = os.Getenv(p + "_TOKEN")
+		if pw := os.Getenv(p + "_PASS"); pw != "" {
+			diag.Warn("credentials %s: authenticating with %s_PASS — consider using %s_TOKEN instead (scoped, revocable)", prefix, p, p)
+			pass = pw
+		}
 	}
 	return os.Getenv(p + "_USER"), pass
 }
