@@ -31,30 +31,22 @@ func extractExitCode(err error) int {
 	return 1
 }
 
-// classifyPushFailure inspects a PushError and returns a short
-// operator-meaningful reason with an owner tag in parentheses.
-func classifyPushFailure(pushErr *PushError) string {
-	// Combine per-push stderr + cause error for keyword matching.
-	// Exit codes from docker push don't differentiate error types (all 1),
-	// so keywords remain the classification signal.
-	s := strings.ToLower(pushErr.Stderr + "\n" + pushErr.Cause.Error())
-	switch {
-	case strings.Contains(s, "500 internal server error"):
-		return "HTTP 500 (registry)"
-	case strings.Contains(s, "401") || strings.Contains(s, "unauthorized"):
-		return "authentication failed (credentials)"
-	case strings.Contains(s, "403") || strings.Contains(s, "denied"):
-		return "permission denied (credentials)"
-	case strings.Contains(s, "404") || strings.Contains(s, "not found"):
-		return "repository not found (registry)"
-	case strings.Contains(s, "timeout") || strings.Contains(s, "deadline"):
-		return "connection timed out (network)"
-	case strings.Contains(s, "no such host") || strings.Contains(s, "lookup"):
-		return "DNS resolution failed (network)"
-	case strings.Contains(s, "certificate") || strings.Contains(s, "x509"):
-		return "TLS certificate error (network)"
-	default:
-		return "push failed"
+// newPushFailure converts a PushTags error into a runtime-agnostic PushFailure.
+// This is the single boundary where Docker-specific PushError is consumed.
+func newPushFailure(err error, fallbackStderr string) postbuild.PushFailure {
+	var pushErr *PushError
+	if errors.As(err, &pushErr) {
+		return postbuild.PushFailure{
+			Err:      err,
+			ExitCode: pushErr.ExitCode,
+			Stderr:   pushErr.Stderr,
+			Tag:      pushErr.Tag,
+		}
+	}
+	return postbuild.PushFailure{
+		Err:      err,
+		ExitCode: 1,
+		Stderr:   fallbackStderr,
 	}
 }
 
@@ -329,23 +321,7 @@ func executePhase(req Request) pipeline.Phase {
 				if err != nil {
 					pushRegs := collectPushRegistries(plan)
 
-					// Build PushFailure from PushError
-					var pushErr *PushError
-					var failure postbuild.PushFailure
-					if errors.As(err, &pushErr) {
-						failure = postbuild.PushFailure{
-							Err:      err,
-							ExitCode: pushErr.ExitCode,
-							Stderr:   pushErr.Stderr,
-							Tag:      pushErr.Tag,
-						}
-					} else {
-						failure = postbuild.PushFailure{
-							Err:      err,
-							ExitCode: 1,
-							Stderr:   pushStderrBuf.String(),
-						}
-					}
+					failure := newPushFailure(err, pushStderrBuf.String())
 
 					recovery := postbuild.RecoverPushFailure(pc.Ctx, pushRegs, failure)
 					if recovery.Retry {
@@ -366,29 +342,16 @@ func executePhase(req Request) pipeline.Phase {
 						_, err = pushBx.PushTags(pc.Ctx, remaining)
 					}
 					if err != nil {
-						var pushErr *PushError
-						var failedTag, reason string
-						var exitCode int
+						// Re-convert: err may be from retry attempt
+						failure = newPushFailure(err, pushStderrBuf.String())
+						reason := postbuild.ClassifyPushFailure(failure)
 
-						if errors.As(err, &pushErr) {
-							failedTag = pushErr.Tag
-							exitCode = pushErr.ExitCode
-							reason = classifyPushFailure(pushErr)
-						} else {
-							if len(remoteTags) > 0 {
-								failedTag = remoteTags[0]
-							}
-							exitCode = 1
-							reason = "push failed"
+						failedTag := failure.Tag
+						if failedTag == "" && len(remoteTags) > 0 {
+							failedTag = remoteTags[0]
 						}
 
-						// Prefer per-push stderr (precise), fall back to cumulative buffer
-						var detailStderr string
-						if pushErr != nil && strings.TrimSpace(pushErr.Stderr) != "" {
-							detailStderr = pushErr.Stderr
-						} else {
-							detailStderr = pushStderrBuf.String()
-						}
+						detailStderr := failure.Stderr
 						if detailStderr == "" || !strings.Contains(detailStderr, "\n") {
 							detailStderr = err.Error() + "\n" + detailStderr
 						}
@@ -400,7 +363,7 @@ func executePhase(req Request) pipeline.Phase {
 							Summary: fmt.Sprintf("image push failed — %s", reason),
 							Failure: &pipeline.FailureDetail{
 								Command:  fmt.Sprintf("docker push %s", failedTag),
-								ExitCode: exitCode,
+								ExitCode: failure.ExitCode,
 								Reason:   reason,
 								Stderr:   strings.TrimSpace(detailStderr),
 							},
