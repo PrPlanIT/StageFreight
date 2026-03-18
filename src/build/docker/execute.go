@@ -19,6 +19,24 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
+// extractPushTag extracts the failed image ref from a PushTags error.
+// PushTags returns errors in the format "docker push <tag>: <exec error>".
+func extractPushTag(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	const prefix = "docker push "
+	if !strings.HasPrefix(msg, prefix) {
+		return ""
+	}
+	rest := msg[len(prefix):]
+	if idx := strings.Index(rest, ": "); idx >= 0 {
+		return rest[:idx]
+	}
+	return ""
+}
+
 // classifyPushError parses stderr from a docker push and returns a short
 // operator-meaningful reason with an owner tag in parentheses.
 func classifyPushError(stderr string) string {
@@ -318,11 +336,24 @@ func executePhase(req Request) pipeline.Phase {
 					}
 					if err != nil {
 						pushStderr := pushStderrBuf.String()
-						reason := classifyPushError(pushStderr)
-						failedTag := ""
-						if len(remoteTags) > 0 {
+						// Classify from both stderr and the error message —
+						// docker may put the HTTP status in either place.
+						classifyInput := pushStderr + "\n" + err.Error()
+						reason := classifyPushError(classifyInput)
+
+						// Extract the actual failed tag from PushTags error
+						// format "docker push <tag>: <exec error>".
+						failedTag := extractPushTag(err)
+						if failedTag == "" && len(remoteTags) > 0 {
 							failedTag = remoteTags[0]
 						}
+
+						// Enrich thin stderr with the error message so
+						// operators always see the registry's response.
+						if pushStderr == "" || !strings.Contains(pushStderr, "\n") {
+							pushStderr = err.Error() + "\n" + pushStderr
+						}
+
 						output.SectionEnd(pc.Writer, "sf_push")
 						return &pipeline.PhaseResult{
 							Name:    "build",
@@ -332,7 +363,7 @@ func executePhase(req Request) pipeline.Phase {
 								Command:  fmt.Sprintf("docker push %s", failedTag),
 								ExitCode: 1,
 								Reason:   reason,
-								Stderr:   pushStderr,
+								Stderr:   strings.TrimSpace(pushStderr),
 							},
 						}, err
 					}
