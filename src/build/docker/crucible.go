@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/build/engines"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
@@ -150,7 +149,7 @@ func runCrucibleMode(req Request) error {
 	}
 	planCfg.Builds = builds
 
-	plan, err := engine.Plan(ctx, &engines.ImagePlanInput{Cfg: &planCfg, BuildID: req.BuildID}, det)
+	plan, err := engine.Plan(ctx, &build.ImagePlanInput{Cfg: &planCfg, BuildID: req.BuildID}, det)
 	if err != nil {
 		return fmt.Errorf("planning: %w", err)
 	}

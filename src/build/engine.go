@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // Engine is the interface every build engine implements.
@@ -13,6 +15,12 @@ type Engine interface {
 	Detect(ctx context.Context, rootDir string) (*Detection, error)
 	Plan(ctx context.Context, cfg interface{}, det *Detection) (*BuildPlan, error)
 	Execute(ctx context.Context, plan *BuildPlan) (*BuildResult, error)
+}
+
+// ImagePlanInput bundles the config needed for image build planning.
+type ImagePlanInput struct {
+	Cfg     *config.Config // full config
+	BuildID string         // optional: build specific entry by ID (empty = all)
 }
 
 var (

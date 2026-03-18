@@ -1,4 +1,4 @@
-package engines
+package docker
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/registry"
@@ -16,12 +15,6 @@ import (
 
 func init() {
 	build.Register("image", func() build.Engine { return &imageEngine{} })
-}
-
-// ImagePlanInput bundles the config needed for image build planning.
-type ImagePlanInput struct {
-	Cfg     *config.Config // full config
-	BuildID string         // optional: build specific entry by ID (empty = all)
 }
 
 // imageEngine builds container images and pushes to registries.
@@ -34,9 +27,9 @@ func (e *imageEngine) Detect(ctx context.Context, rootDir string) (*build.Detect
 }
 
 func (e *imageEngine) Plan(ctx context.Context, cfgRaw interface{}, det *build.Detection) (*build.BuildPlan, error) {
-	input, ok := cfgRaw.(*ImagePlanInput)
+	input, ok := cfgRaw.(*build.ImagePlanInput)
 	if !ok {
-		return nil, fmt.Errorf("image engine: expected *ImagePlanInput, got %T", cfgRaw)
+		return nil, fmt.Errorf("image engine: expected *build.ImagePlanInput, got %T", cfgRaw)
 	}
 	cfg := input.Cfg
 
@@ -327,7 +320,7 @@ func (e *imageEngine) Execute(ctx context.Context, plan *build.BuildPlan) (*buil
 	start := time.Now()
 	result := &build.BuildResult{}
 
-	bx := docker.NewBuildx(false)
+	bx := NewBuildx(false)
 
 	// Authenticate to registries before building.
 	// All steps share the same daemon auth state, so one login pass is sufficient.

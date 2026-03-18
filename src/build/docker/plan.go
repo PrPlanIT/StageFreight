@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/build/engines"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -60,7 +59,7 @@ func planPhase(req Request) pipeline.Phase {
 				}
 			}
 
-			plan, err := engine.Plan(pc.Ctx, &engines.ImagePlanInput{Cfg: &planCfg, BuildID: req.BuildID}, det)
+			plan, err := engine.Plan(pc.Ctx, &build.ImagePlanInput{Cfg: &planCfg, BuildID: req.BuildID}, det)
 			if err != nil {
 				output.SectionEnd(pc.Writer, "sf_plan")
 				return nil, fmt.Errorf("planning: %w", err)
