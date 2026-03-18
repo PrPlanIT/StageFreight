@@ -97,5 +97,9 @@ func resolveCredentials(prefix string) (user, pass string) {
 		return "", ""
 	}
 	p := strings.ToUpper(prefix)
-	return os.Getenv(p + "_USER"), os.Getenv(p + "_PASS")
+	pass = os.Getenv(p + "_PASS")
+	if pass == "" {
+		pass = os.Getenv(p + "_TOKEN")
+	}
+	return os.Getenv(p + "_USER"), pass
 }

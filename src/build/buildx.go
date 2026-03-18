@@ -235,11 +235,15 @@ func (bx *Buildx) Login(ctx context.Context, registries []RegistryTarget) error 
 
 		prefix := strings.ToUpper(reg.Credentials)
 		user := os.Getenv(prefix + "_USER")
+		// Accept _TOKEN as an alias for _PASS (common for registry API tokens)
 		pass := os.Getenv(prefix + "_PASS")
+		if pass == "" {
+			pass = os.Getenv(prefix + "_TOKEN")
+		}
 
 		if user == "" || pass == "" {
-			return fmt.Errorf("registry %s: credentials %q configured but %s_USER and/or %s_PASS env vars not set",
-				reg.URL, reg.Credentials, prefix, prefix)
+			return fmt.Errorf("registry %s: credentials %q configured but %s_USER and/or %s_PASS (or %s_TOKEN) env vars not set",
+				reg.URL, reg.Credentials, prefix, prefix, prefix)
 		}
 
 		if bx.Verbose {

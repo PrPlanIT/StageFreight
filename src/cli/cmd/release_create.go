@@ -150,7 +150,11 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 					return "", ""
 				}
 				upper := strings.ToUpper(prefix)
-				return os.Getenv(upper + "_USER"), os.Getenv(upper + "_PASS")
+				pass := os.Getenv(upper + "_PASS")
+				if pass == "" {
+					pass = os.Getenv(upper + "_TOKEN")
+				}
+				return os.Getenv(upper + "_USER"), pass
 			}
 
 			// Remote verification
