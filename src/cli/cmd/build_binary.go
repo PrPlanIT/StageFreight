@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,12 +11,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	_ "github.com/PrPlanIT/StageFreight/src/build/engines" // register binary engine
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
 
 var (
@@ -69,9 +72,6 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 		Scratch:       make(map[string]any),
 	}
 
-	// Register badge runner for BadgeHook (runBadgeSection lives in docker_build.go)
-	pc.Scratch["badge.run"] = runBadgeSection
-
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
 			pipeline.BannerPhase(binaryContextKV),
@@ -84,7 +84,7 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 			pipeline.PublishManifestPhase(),
 		},
 		Hooks: []pipeline.PostBuildHook{
-			pipeline.BadgeHook(cfg),
+			postbuild.BadgeHook(cfg, cmdBadgeRunner(cfg)),
 		},
 	}
 	return p.Run(pc)
@@ -203,9 +203,21 @@ func binaryPlanPhase() pipeline.Phase {
 			output.SectionStartCollapsed(pc.Writer, "sf_plan", "Plan")
 			planStart := time.Now()
 
-			binaryBuilds := pc.Scratch["binary.builds"].([]config.BuildConfig)
-			versionInfo := pc.Scratch["binary.version"].(*gitver.VersionInfo)
-			engine := pc.Scratch["binary.engine"].(build.EngineV2)
+			binaryBuilds, ok := pc.Scratch["binary.builds"].([]config.BuildConfig)
+			if !ok {
+				output.SectionEnd(pc.Writer, "sf_plan")
+				return nil, fmt.Errorf("missing binary builds in scratch")
+			}
+			versionInfo, ok := pc.Scratch["binary.version"].(*gitver.VersionInfo)
+			if !ok {
+				output.SectionEnd(pc.Writer, "sf_plan")
+				return nil, fmt.Errorf("missing binary version in scratch")
+			}
+			engine, ok := pc.Scratch["binary.engine"].(build.EngineV2)
+			if !ok {
+				output.SectionEnd(pc.Writer, "sf_plan")
+				return nil, fmt.Errorf("missing binary engine in scratch")
+			}
 
 			// Fail-fast guardrail: reject non-binary builds
 			for _, b := range binaryBuilds {
@@ -286,7 +298,10 @@ func binaryPlanPhase() pipeline.Phase {
 
 // renderBinaryPlan renders the dry-run plan output for binary builds.
 func renderBinaryPlan(pc *pipeline.PipelineContext) {
-	allSteps := pc.Scratch["binary.steps"].([]build.UniversalStep)
+	allSteps, ok := pc.Scratch["binary.steps"].([]build.UniversalStep)
+	if !ok {
+		return
+	}
 	fmt.Fprintf(pc.Writer, "Binary build plan (%d steps):\n", len(allSteps))
 	for _, s := range allSteps {
 		fmt.Fprintf(pc.Writer, "  %-30s  %s/%s  → %s\n",
@@ -300,14 +315,23 @@ func binaryExecutePhase() pipeline.Phase {
 	return pipeline.Phase{
 		Name: "build",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			allSteps := pc.Scratch["binary.steps"].([]build.UniversalStep)
-			versionInfo := pc.Scratch["binary.version"].(*gitver.VersionInfo)
-			engine := pc.Scratch["binary.engine"].(build.EngineV2)
+			allSteps, ok := pc.Scratch["binary.steps"].([]build.UniversalStep)
+			if !ok {
+				return nil, fmt.Errorf("missing binary steps in scratch")
+			}
+			versionInfo, ok := pc.Scratch["binary.version"].(*gitver.VersionInfo)
+			if !ok {
+				return nil, fmt.Errorf("missing binary version in scratch")
+			}
+			engine, ok := pc.Scratch["binary.engine"].(build.EngineV2)
+			if !ok {
+				return nil, fmt.Errorf("missing binary engine in scratch")
+			}
 
 			output.SectionStart(pc.Writer, "sf_build", "Build")
 			buildStart := time.Now()
 
-			var publishedBinaries []build.PublishedBinary
+			var publishedBinaries []artifact.PublishedBinary
 
 			buildSec := output.NewSection(pc.Writer, "Build", 0, pc.Color)
 			for _, step := range allSteps {
@@ -330,14 +354,14 @@ func binaryExecutePhase() pipeline.Phase {
 					output.StatusIcon("success", pc.Color),
 					result.Metrics.Duration.Seconds())
 
-				for _, artifact := range result.Artifacts {
-					publishedBinaries = append(publishedBinaries, build.PublishedBinary{
+				for _, out := range result.Artifacts {
+					publishedBinaries = append(publishedBinaries, artifact.PublishedBinary{
 						Name:      result.Metadata["binary_name"],
 						OS:        step.Platform.OS,
 						Arch:      step.Platform.Arch,
-						Path:      artifact.Path,
-						Size:      artifact.Size,
-						SHA256:    artifact.SHA256,
+						Path:      out.Path,
+						Size:      out.Size,
+						SHA256:    out.SHA256,
 						BuildID:   step.BuildID,
 						Version:   versionInfo.Version,
 						Commit:    versionInfo.SHA,
@@ -368,8 +392,14 @@ func binaryArchivePhase() pipeline.Phase {
 	return pipeline.Phase{
 		Name: "archive",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			publishedBinaries := pc.Scratch["binary.published"].([]build.PublishedBinary)
-			versionInfo := pc.Scratch["binary.version"].(*gitver.VersionInfo)
+			publishedBinaries, ok := pc.Scratch["binary.published"].([]artifact.PublishedBinary)
+			if !ok {
+				return nil, fmt.Errorf("missing binary.published in scratch")
+			}
+			versionInfo, ok := pc.Scratch["binary.version"].(*gitver.VersionInfo)
+			if !ok {
+				return nil, fmt.Errorf("missing binary version in scratch")
+			}
 
 			archiveTargets := pipeline.CollectTargetsByKind(pc.Config, "binary-archive")
 			if len(archiveTargets) == 0 {
@@ -383,12 +413,12 @@ func binaryArchivePhase() pipeline.Phase {
 			output.SectionStartCollapsed(pc.Writer, "sf_archive", "Archive")
 			archiveStart := time.Now()
 
-			var allArchives []build.PublishedArchive
+			var allArchives []artifact.PublishedArchive
 			archiveSec := output.NewSection(pc.Writer, "Archive", 0, pc.Color)
 
 			for _, t := range archiveTargets {
 				// Track archives created for this target only (checksums are per-target)
-				var targetArchives []build.PublishedArchive
+				var targetArchives []artifact.PublishedArchive
 
 				for _, pb := range publishedBinaries {
 					if t.Build != pb.BuildID {
@@ -428,7 +458,7 @@ func binaryArchivePhase() pipeline.Phase {
 						output.StatusIcon("success", pc.Color),
 						archResult.Format, archResult.Size)
 
-					targetArchives = append(targetArchives, build.PublishedArchive{
+					targetArchives = append(targetArchives, artifact.PublishedArchive{
 						Name:     filepath.Base(archResult.Path),
 						Format:   archResult.Format,
 						Path:     archResult.Path,
@@ -526,4 +556,18 @@ func formatOutputs(refs []build.ArtifactRef) string {
 		paths = append(paths, r.Path)
 	}
 	return strings.Join(paths, ", ")
+}
+
+// cmdBadgeRunner returns a postbuild.BadgeRunner that uses cmd-local badge helpers.
+func cmdBadgeRunner(appCfg *config.Config) postbuild.BadgeRunner {
+	return func(w io.Writer, color bool, rootDir string) (string, time.Duration) {
+		start := time.Now()
+		err := RunConfigBadges(appCfg, rootDir, nil, "passed")
+		elapsed := time.Since(start)
+		if err != nil {
+			return fmt.Sprintf("error: %v", err), elapsed
+		}
+		items := postbuild.CollectNarratorBadgeItems(appCfg)
+		return fmt.Sprintf("%d generated", len(items)), elapsed
+	}
 }

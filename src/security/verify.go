@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 )
 
@@ -63,7 +63,7 @@ type VerifyOpts struct {
 	ExpectedTags      []string
 	ExpectedCommit    string
 	SigningAttempted   bool
-	Attestation       *build.AttestationRecord
+	Attestation       *artifact.AttestationRecord
 	CosignKeyPath     string
 	CredResolver      func(string) (string, string)
 	CredRef           string

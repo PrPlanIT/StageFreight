@@ -8,8 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/build/docker"
+	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/dependency"
@@ -17,7 +20,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
-	"github.com/PrPlanIT/StageFreight/src/pipeline"
 )
 
 // buildCIRegistry returns a registry of all CI subsystem runners.
@@ -45,13 +47,11 @@ func resolveWorkspace(ciCtx *ci.CIContext) string {
 // Runs binary builds first (if any), then docker builds.
 // Binary builds execute before docker builds to satisfy depends_on ordering.
 func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
-	_ = appCfg // build reads its own config via Cobra pre-run
-
 	rootDir := resolveWorkspace(ciCtx)
 
 	// Initialize pipeline state with CI context
-	if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
-		st.CI = pipeline.InitFromCI(ciCtx)
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
+		st.CI = cistate.InitFromCI(ciCtx)
 		st.Build.Attempted = true
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
@@ -59,7 +59,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 
 	// Run binary builds first (if configured) — needed for depends_on ordering
 	hasBinaryBuilds := false
-	for _, b := range cfg.Builds {
+	for _, b := range appCfg.Builds {
 		if b.Kind == "binary" {
 			hasBinaryBuilds = true
 			break
@@ -67,7 +67,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	}
 	if hasBinaryBuilds {
 		if err := runBuildBinary(buildBinaryCmd, nil); err != nil {
-			if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.Build.Reason = "binary build: " + err.Error()
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
@@ -78,15 +78,22 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 
 	// Run docker builds (if configured)
 	hasDockerBuilds := false
-	for _, b := range cfg.Builds {
+	for _, b := range appCfg.Builds {
 		if b.Kind == "docker" {
 			hasDockerBuilds = true
 			break
 		}
 	}
 	if hasDockerBuilds {
-		if err := runDockerBuild(dockerBuildCmd, nil); err != nil {
-			if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		if err := docker.Run(docker.Request{
+			Context: ctx,
+			RootDir: rootDir,
+			Config:  appCfg,
+			Verbose: opts.Verbose,
+			Stdout:  os.Stdout,
+			Stderr:  os.Stderr,
+		}); err != nil {
+			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.Build.Reason = err.Error()
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
@@ -104,17 +111,17 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	// Unreadable manifest is NOT treated as "completed with no images" — that would
 	// cause security to skip silently. Instead, Completed stays false so downstream
 	// stages proceed and fail with diagnostic errors.
-	manifest, manifestErr := build.ReadPublishManifest(rootDir)
+	manifest, manifestErr := artifact.ReadPublishManifest(rootDir)
 
 	switch {
 	case manifestErr == nil:
 		count := len(manifest.Published)
-		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Build.Completed = true
 			st.Build.ProducedImages = count > 0
 			st.Build.PublishedCount = count
 			if count > 0 {
-				st.Build.ManifestPath = build.PublishManifestPath
+				st.Build.ManifestPath = artifact.PublishManifestPath
 			}
 			if count == 0 {
 				st.Build.Reason = "publish manifest exists but contains no images"
@@ -123,8 +130,8 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
 
-	case errors.Is(manifestErr, build.ErrPublishManifestNotFound):
-		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+	case errors.Is(manifestErr, artifact.ErrPublishManifestNotFound):
+		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Build.Completed = true
 			st.Build.ProducedImages = false
 			st.Build.Reason = "no targets matched current ref"
@@ -137,7 +144,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		// Security will proceed (not skip) and fail with a diagnostic from resolveTarget.
 		reason := fmt.Sprintf("publish manifest unreadable: %v", manifestErr)
 		fmt.Fprintf(os.Stderr, "warning: %s\n", reason)
-		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Build.Reason = reason
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
@@ -401,14 +408,14 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	// Missing state = proceed (local dev, or state not written yet).
 	// Build failed (Attempted && !Completed) = proceed (let scan fail naturally with good error).
 	if ciCtx.IsCI() {
-		st, _ := pipeline.ReadState(rootDir)
+		st, _ := cistate.ReadState(rootDir)
 		if st.Build.Attempted && st.Build.Completed && !st.Build.ProducedImages {
 			reason := "build completed but produced no images"
 			if st.Build.Reason != "" {
 				reason += " (" + st.Build.Reason + ")"
 			}
 			fmt.Printf("  security: skipping — %s\n", reason)
-			if err := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+			if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
 				s.Security.Skipped = true
 				s.Security.Reason = reason
 			}); err != nil {
@@ -420,22 +427,23 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 
 	// Mark attempted before running scan
 	if ciCtx.IsCI() {
-		if err := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
 			s.Security.Attempted = true
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
 	}
 
-	// Set config defaults on package-level vars and invoke the scan function directly.
-	// This avoids os/exec while reusing the full scan pipeline.
-	if appCfg.Security.OutputDir != "" {
-		secScanOutputDir = appCfg.Security.OutputDir
-	}
-
-	if err := runSecurityScan(securityScanCmd, nil); err != nil {
+	if err := RunSecurityScan(SecurityScanRequest{
+		Ctx:       ctx,
+		RootDir:   rootDir,
+		Config:    appCfg,
+		OutputDir: appCfg.Security.OutputDir,
+		SBOM:      true,
+		Writer:    os.Stdout,
+	}); err != nil {
 		if ciCtx.IsCI() {
-			if stErr := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+			if stErr := cistate.UpdateState(rootDir, func(s *cistate.State) {
 				s.Security.Reason = err.Error()
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
@@ -445,7 +453,7 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	}
 
 	if ciCtx.IsCI() {
-		if err := pipeline.UpdateState(rootDir, func(s *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
 			s.Security.Completed = true
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
@@ -518,7 +526,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 
 	if !appCfg.Release.Enabled {
 		fmt.Println("  release disabled in config")
-		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Skipped = true
 			st.Release.Reason = "release disabled in config"
 		}); err != nil {
@@ -529,7 +537,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 
 	if !ci.IsBranchHeadFresh(ciCtx) {
 		fmt.Println("  release: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
-		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Skipped = true
 			st.Release.Reason = "pipeline SHA is not branch HEAD"
 		}); err != nil {
@@ -547,11 +555,11 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	}
 
 	// Policy gate: check if tag matches ANY release target's when conditions.
-	// Uses the same target enumeration as runReleaseCreate (collectTargetsByKind + targetWhenMatches).
+	// Uses the same target enumeration as RunReleaseCreate (collectTargetsByKind + targetWhenMatches).
 	if !releaseTagMatchesAnyTarget(appCfg, tag) {
 		reason := fmt.Sprintf("tag %q does not match any release policy", tag)
 		fmt.Printf("  release: skipping — %s\n", reason)
-		if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Skipped = true
 			st.Release.Reason = reason
 		}); err != nil {
@@ -561,23 +569,25 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	}
 
 	// Tag matches — mark eligible and attempted before running
-	if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 		st.Release.Eligible = true
 		st.Release.Attempted = true
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
 
-	// Set config defaults on package-level vars and invoke release create directly.
-	rcTag = tag
-	if appCfg.Release.SecuritySummary != "" {
-		rcSecuritySummary = appCfg.Release.SecuritySummary
-	}
-	rcRegistryLinks = appCfg.Release.RegistryLinks
-	rcCatalogLinks = appCfg.Release.CatalogLinks
-
-	if err := runReleaseCreate(releaseCreateCmd, nil); err != nil {
-		if stErr := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+	if err := RunReleaseCreate(ReleaseCreateRequest{
+		Ctx:             ctx,
+		RootDir:         rootDir,
+		Config:          appCfg,
+		Tag:             tag,
+		SecuritySummary: appCfg.Release.SecuritySummary,
+		RegistryLinks:   appCfg.Release.RegistryLinks,
+		CatalogLinks:    appCfg.Release.CatalogLinks,
+		Writer:          os.Stdout,
+		Verbose:         opts.Verbose,
+	}); err != nil {
+		if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Reason = err.Error()
 		}); stErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
@@ -585,7 +595,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		return fmt.Errorf("release subsystem: %w", err)
 	}
 
-	if err := pipeline.UpdateState(rootDir, func(st *pipeline.State) {
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 		st.Release.Completed = true
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
@@ -596,10 +606,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 
 // releaseTagMatchesAnyTarget returns true if the tag matches at least one
 // release target's when conditions. Uses the same target enumeration as
-// runReleaseCreate (collectTargetsByKind + targetWhenMatches).
+// RunReleaseCreate (collectTargetsByKind + targetWhenMatches).
 // Returns true if no release targets have when constraints (backward compat).
 func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
-	releaseTargets := collectTargetsByKind(appCfg, "release")
+	releaseTargets := pipeline.CollectTargetsByKind(appCfg, "release")
 	if len(releaseTargets) == 0 {
 		return true // no release targets configured
 	}
@@ -610,7 +620,7 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 			continue
 		}
 		hasConstraints = true
-		if targetWhenMatches(t, tag) {
+		if targetWhenMatches(t, tag, appCfg.Policies) {
 			return true
 		}
 	}

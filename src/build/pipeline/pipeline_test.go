@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -343,8 +343,8 @@ func TestPublishManifestPhase_WritesWhenHasArtifacts(t *testing.T) {
 
 	pc := makePC()
 	pc.RootDir = tmpDir
-	pc.Manifest = build.PublishManifest{
-		Binaries: []build.PublishedBinary{
+	pc.Manifest = artifact.PublishManifest{
+		Binaries: []artifact.PublishedBinary{
 			{Name: "myapp", OS: "linux", Arch: "amd64", Path: "dist/myapp"},
 		},
 	}
@@ -356,56 +356,6 @@ func TestPublishManifestPhase_WritesWhenHasArtifacts(t *testing.T) {
 	}
 	if result.Status != "success" {
 		t.Errorf("status = %q; want %q", result.Status, "success")
-	}
-}
-
-// --- BadgeHook ---
-
-func TestBadgeHook_ConditionFalseWhenNoNarrator(t *testing.T) {
-	appCfg := &config.Config{} // empty narrator
-	hook := BadgeHook(appCfg)
-
-	pc := makePC()
-	if hook.Condition(pc) {
-		t.Error("BadgeHook.Condition = true with empty narrator config; want false")
-	}
-}
-
-func TestBadgeHook_RunDelegatesViaScratch(t *testing.T) {
-	var delegateCalled bool
-
-	appCfg := &config.Config{}
-	hook := BadgeHook(appCfg)
-
-	pc := makePC()
-	pc.Scratch["badge.run"] = func(w io.Writer, color bool, rootDir string) (string, time.Duration) {
-		delegateCalled = true
-		return "3 badges", time.Millisecond
-	}
-
-	result, err := hook.Run(pc)
-	if err != nil {
-		t.Fatalf("BadgeHook.Run() returned error: %v", err)
-	}
-	if !delegateCalled {
-		t.Error("badge delegate was not called")
-	}
-	if result.Status != "success" {
-		t.Errorf("status = %q; want %q", result.Status, "success")
-	}
-}
-
-func TestBadgeHook_RunSkipsWhenNoDelegateInScratch(t *testing.T) {
-	hook := BadgeHook(&config.Config{})
-	pc := makePC()
-	// No Scratch["badge.run"] set.
-
-	result, err := hook.Run(pc)
-	if err != nil {
-		t.Fatalf("BadgeHook.Run() returned error: %v", err)
-	}
-	if result.Status != "skipped" {
-		t.Errorf("status = %q; want %q", result.Status, "skipped")
 	}
 }
 

@@ -1,8 +1,7 @@
-// Package publish contains provider-specific publish orchestration.
-// It sits between build plan outputs (src/build) and registry clients (src/registry),
-// owning publish-path coordination: project precreation, post-push triggers, and
-// other registry-side behaviors that belong to neither the build engine nor the client layer.
-package publish
+// Package postbuild contains post-build hook adapters and pipeline↔registry
+// coordination glue. Harbor functions sit here because they coordinate between
+// build plan types and registry clients — same layer as the hooks.
+package postbuild
 
 import (
 	"context"

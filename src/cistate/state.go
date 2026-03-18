@@ -1,4 +1,4 @@
-package pipeline
+package cistate
 
 import (
 	"encoding/json"

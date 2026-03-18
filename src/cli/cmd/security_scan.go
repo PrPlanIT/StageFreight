@@ -4,15 +4,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/security"
 )
+
+// SecurityScanRequest is the explicit input contract for RunSecurityScan.
+// Cobra command fills this from flags; CI runner fills it from config/ciCtx.
+// Ctx is inside the request (matches docker.Request pattern).
+type SecurityScanRequest struct {
+	Ctx            context.Context
+	RootDir        string
+	Config         *config.Config
+	Image          string  // explicit image ref; empty = auto-resolve from manifest
+	OutputDir      string  // empty = from Config.Security.OutputDir
+	SBOM           bool
+	FailOnCritical bool
+	Skip           bool
+	Detail         string  // none|counts|detailed|full; empty = from config
+	Strict         bool
+	Verbose        bool
+	Writer         io.Writer
+}
 
 var (
 	secScanImage      string
@@ -51,7 +71,7 @@ func init() {
 }
 
 // resolveTarget determines the scan target with full provenance tracking.
-func resolveTarget(explicitImage string, positionalArgs []string) (security.ScanTarget, error) {
+func resolveTarget(rootDir string, explicitImage string, positionalArgs []string) (security.ScanTarget, error) {
 	// Priority 1: explicit --image flag
 	if explicitImage != "" {
 		stability := security.ClassifyRefStability(explicitImage, "")
@@ -82,13 +102,12 @@ func resolveTarget(explicitImage string, positionalArgs []string) (security.Scan
 	}
 
 	// Priority 3: auto-resolve from publish manifest
-	rootDir, _ := os.Getwd()
-	manifest, err := build.ReadPublishManifest(rootDir)
+	manifest, err := artifact.ReadPublishManifest(rootDir)
 	if err != nil {
-		if errors.Is(err, build.ErrPublishManifestNotFound) {
+		if errors.Is(err, artifact.ErrPublishManifestNotFound) {
 			return security.ScanTarget{}, fmt.Errorf(
 				"--image is required: no publish manifest at %s (build may not have produced images for this ref)",
-				build.PublishManifestPath)
+				artifact.PublishManifestPath)
 		}
 		return security.ScanTarget{}, fmt.Errorf("--image is required: publish manifest unreadable: %w", err)
 	}
@@ -113,7 +132,7 @@ func resolveTarget(explicitImage string, positionalArgs []string) (security.Scan
 	// 1. Prefer candidates with digest (StabilityDigest or StabilityTagWithDigest)
 	// 2. Among digest-resolved, prefer those where Digest == ObservedDigest
 	// 3. Among bare tags, prefer first by manifest order
-	var selected *build.PublishedImage
+	var selected *artifact.PublishedImage
 	var reason string
 
 	// Find first digest-resolved candidate
@@ -185,29 +204,65 @@ func resolveTarget(explicitImage string, positionalArgs []string) (security.Scan
 }
 
 func runSecurityScan(cmd *cobra.Command, args []string) error {
-	if secScanSkip {
+	rootDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	image := secScanImage
+	if image == "" && len(args) > 0 {
+		image = args[0]
+	}
+	return RunSecurityScan(SecurityScanRequest{
+		Ctx:            cmd.Context(),
+		RootDir:        rootDir,
+		Config:         cfg,
+		Image:          image,
+		OutputDir:      secScanOutputDir,
+		SBOM:           secScanSBOM,
+		FailOnCritical: secScanFailCrit,
+		Skip:           secScanSkip,
+		Detail:         secScanDetail,
+		Strict:         secScanStrict,
+		Verbose:        verbose,
+		Writer:         os.Stdout,
+	})
+}
+
+// RunSecurityScan executes the full security scan pipeline from an explicit request.
+// All inputs are taken from req — no package-level vars are referenced.
+func RunSecurityScan(req SecurityScanRequest) error {
+	if req.Skip {
 		fmt.Println("  security scan skipped")
 		return nil
 	}
 
-	target, err := resolveTarget(secScanImage, args)
+	target, err := resolveTarget(req.RootDir, req.Image, nil)
 	if err != nil {
 		return err
 	}
 	imageRef := target.Ref
 
-	// Merge CLI flags with config defaults
+	w := req.Writer
+	if w == nil {
+		w = os.Stdout
+	}
+	ctx := req.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Merge request fields with config defaults
 	scanCfg := security.ScanConfig{
-		Enabled:        !secScanSkip,
-		TrivyEnabled:   cfg.Security.Scanners.TrivyEnabled(),
-		GrypeEnabled:   cfg.Security.Scanners.GrypeEnabled(),
-		SBOMEnabled:    secScanSBOM,
-		FailOnCritical: secScanFailCrit || cfg.Security.FailOnCritical,
+		Enabled:        !req.Skip,
+		TrivyEnabled:   req.Config.Security.Scanners.TrivyEnabled(),
+		GrypeEnabled:   req.Config.Security.Scanners.GrypeEnabled(),
+		SBOMEnabled:    req.SBOM,
+		FailOnCritical: req.FailOnCritical || req.Config.Security.FailOnCritical,
 		ImageRef:       imageRef,
-		OutputDir:      secScanOutputDir,
+		OutputDir:      req.OutputDir,
 	}
 	if scanCfg.OutputDir == "" {
-		scanCfg.OutputDir = cfg.Security.OutputDir
+		scanCfg.OutputDir = req.Config.Security.OutputDir
 	}
 
 	// Ensure output directory exists
@@ -216,9 +271,6 @@ func runSecurityScan(cmd *cobra.Command, args []string) error {
 	}
 
 	color := output.UseColor()
-	w := os.Stdout
-
-	ctx := context.Background()
 
 	scanCfg.SectionWriter = os.Stderr
 
@@ -252,7 +304,7 @@ func runSecurityScan(cmd *cobra.Command, args []string) error {
 	artifacts := append([]string{}, result.Artifacts...)
 
 	// Resolve detail level from rules (CLI override > tag/branch rules > default)
-	detail := security.ResolveDetailLevel(cfg.Security, secScanDetail, cfg.Policies)
+	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail, req.Config.Policies)
 
 	// Build and write summary
 	_, summaryBody := security.BuildSummary(result, detail)
@@ -285,7 +337,7 @@ func runSecurityScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build SecurityUX from config + env overrides + defaults.
-	ux := buildSecurityUX(cfg.Security.OverwhelmMessage, cfg.Security.OverwhelmLink)
+	ux := buildSecurityUX(req.Config.Security.OverwhelmMessage, req.Config.Security.OverwhelmLink)
 
 	// ── Security Scan section ──
 	output.SectionStart(w, "sf_security", "Security Scan")
@@ -385,7 +437,7 @@ func runSecurityScan(cmd *cobra.Command, args []string) error {
 	output.SectionEnd(w, "sf_security")
 
 	// Print verbose summary to stdout
-	if verbose && summaryBody != "" {
+	if req.Verbose && summaryBody != "" {
 		fmt.Println()
 		fmt.Print(summaryBody)
 	}
@@ -396,21 +448,21 @@ func runSecurityScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Strict mode checks
-	if secScanStrict && result.Partial {
+	if req.Strict && result.Partial {
 		return fmt.Errorf("strict mode: scan is partial — %d scanner(s) failed", len(result.ScannersFailed))
 	}
-	if secScanStrict && result.Target.Stability == security.StabilityTag {
+	if req.Strict && result.Target.Stability == security.StabilityTag {
 		return fmt.Errorf("strict mode: scan target is a bare tag reference — cannot guarantee artifact identity")
 	}
-	if secScanStrict && result.Target.DigestMatch != nil && !*result.Target.DigestMatch {
+	if req.Strict && result.Target.DigestMatch != nil && !*result.Target.DigestMatch {
 		return fmt.Errorf("strict mode: registry digest mismatch — expected %s, observed %s",
 			result.Target.Digest, result.Target.ObservedDigest)
 	}
 	if verifyResult != nil {
-		if secScanStrict && result.Target.SigningAttempted && verifyResult.SignatureValid == nil {
+		if req.Strict && result.Target.SigningAttempted && verifyResult.SignatureValid == nil {
 			return fmt.Errorf("strict mode: signing was configured but failed — artifact is unsigned despite key availability")
 		}
-		if secScanStrict && verifyResult.Confidence == security.ConfidenceNone {
+		if req.Strict && verifyResult.Confidence == security.ConfidenceNone {
 			return fmt.Errorf("strict mode: artifact verification failed — confidence: none (%s)",
 				strings.Join(verifyResult.Failures, "; "))
 		}

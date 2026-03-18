@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -44,7 +45,7 @@ type readmeSyncResult struct {
 // Extracted for reuse by both Cobra command and CI runners.
 func RunDockerReadme(ctx context.Context, appCfg *config.Config, rootDir string, dryRun bool) error {
 	// Collect docker-readme targets
-	targets := collectTargetsByKind(appCfg, "docker-readme")
+	targets := pipeline.CollectTargetsByKind(appCfg, "docker-readme")
 	if len(targets) == 0 {
 		return fmt.Errorf("no docker-readme targets configured")
 	}

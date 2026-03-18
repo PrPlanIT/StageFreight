@@ -1,5 +1,7 @@
 package badge
 
+import "fmt"
+
 // Engine generates SVG badges using a specific font.
 type Engine struct {
 	metrics *FontMetrics
@@ -8,6 +10,37 @@ type Engine struct {
 // New creates a badge engine with the given font metrics.
 func New(metrics *FontMetrics) *Engine {
 	return &Engine{metrics: metrics}
+}
+
+// NewDefault creates an engine with dejavu-sans 11pt (the standard).
+func NewDefault() (*Engine, error) {
+	metrics, err := LoadBuiltinFont("dejavu-sans", 11)
+	if err != nil {
+		return nil, fmt.Errorf("loading badge font: %w", err)
+	}
+	return New(metrics), nil
+}
+
+// NewForSpec creates an engine from font override parameters.
+// Falls back to dejavu-sans if no overrides given.
+func NewForSpec(font string, fontSize float64, fontFile string) (*Engine, error) {
+	if fontSize == 0 {
+		fontSize = 11
+	}
+	var metrics *FontMetrics
+	var err error
+	switch {
+	case fontFile != "":
+		metrics, err = LoadFontFile(fontFile, fontSize)
+	case font != "":
+		metrics, err = LoadBuiltinFont(font, fontSize)
+	default:
+		metrics, err = LoadBuiltinFont("dejavu-sans", fontSize)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("loading badge font: %w", err)
+	}
+	return New(metrics), nil
 }
 
 // Badge defines the content and appearance of a single badge.

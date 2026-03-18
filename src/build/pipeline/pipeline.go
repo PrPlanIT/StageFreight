@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
@@ -29,11 +30,13 @@ type PipelineContext struct {
 	DryRun        bool
 	Local         bool
 	PipelineStart time.Time
-	Manifest      build.PublishManifest // accumulated by execute phases
+	Manifest      artifact.PublishManifest // accumulated by execute phases
+	BuildPlan     *build.BuildPlan      // set by build planning phases when applicable; nil for pipelines with no build plan
 	Results       []PhaseResult        // accumulated by pipeline runner
 
-	// Scratch is a typed state bag for command-specific data flowing between phases.
-	// Keys: "binary.steps", "docker.plan", "detect.result", etc.
+	// Scratch is a state bag for command-specific data flowing between phases.
+	// Keys are package-scoped conventions (e.g., "binary.steps", "docker.engine").
+	// Cross-package pipeline state uses typed fields above, not Scratch.
 	Scratch map[string]any
 }
 

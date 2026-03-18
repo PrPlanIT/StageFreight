@@ -15,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
 
 var (
@@ -63,11 +64,7 @@ func runBadgeGenerate(cmd *cobra.Command, args []string) error {
 // buildDefaultBadgeEngine creates a badge engine with the default font (dejavu-sans 11pt).
 // Per-item font overrides are handled in buildItemEngine.
 func buildDefaultBadgeEngine() (*badge.Engine, error) {
-	metrics, err := badge.LoadBuiltinFont("dejavu-sans", 11)
-	if err != nil {
-		return nil, fmt.Errorf("loading badge font: %w", err)
-	}
-	return badge.New(metrics), nil
+	return badge.NewDefault()
 }
 
 // badgeRow holds display data for a single badge in section output.
@@ -133,7 +130,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	start := time.Now()
 
 	// Collect all narrator items that have badge generation capability (kind: badge + output set)
-	items := collectNarratorBadgeItemsFrom(appCfg)
+	items := postbuild.CollectNarratorBadgeItems(appCfg)
 
 	if len(items) == 0 {
 		return fmt.Errorf("no badge items with generation configured in narrator")
@@ -165,7 +162,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	}
 
 	// Inject project description from docker-readme targets
-	if desc := firstDockerReadmeDescription(appCfg); desc != "" {
+	if desc := postbuild.FirstDockerReadmeDescription(appCfg); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}
 
@@ -196,7 +193,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		}
 	}
 	if needsDocker {
-		ns, repo := dockerHubFromCfg(appCfg)
+		ns, repo := postbuild.DockerHubFromConfig(appCfg)
 		if ns != "" && repo != "" {
 			dockerInfo, _ = gitver.FetchDockerHubInfo(ns, repo)
 			if dockerInfo != nil && len(tagNames) > 0 {
@@ -292,57 +289,8 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	return nil
 }
 
-// collectNarratorBadgeItemsFrom returns all narrator items with badge generation configured.
-// Parameterized version of collectNarratorBadgeItems for use outside Cobra context.
-func collectNarratorBadgeItemsFrom(appCfg *config.Config) []config.NarratorItem {
-	var items []config.NarratorItem
-	for _, f := range appCfg.Narrator {
-		for _, item := range f.Items {
-			if item.HasGeneration() {
-				items = append(items, item)
-			}
-		}
-	}
-	return items
-}
-
-// dockerHubFromCfg extracts Docker Hub namespace/repo from config targets.
-// Parameterized version of dockerHubFromConfig for use outside Cobra context.
-func dockerHubFromCfg(appCfg *config.Config) (string, string) {
-	for _, t := range appCfg.Targets {
-		if t.Kind == "registry" && t.URL == "docker.io" && t.Path != "" {
-			resolved := gitver.ResolveVars(t.Path, appCfg.Vars)
-			parts := strings.SplitN(resolved, "/", 2)
-			if len(parts) == 2 {
-				return parts[0], parts[1]
-			}
-		}
-	}
-	return "", ""
-}
-
 // buildItemEngine creates a badge engine for a BadgeSpec with font overrides.
 // Falls back to defaults (dejavu-sans 11pt) for any field not set.
 func buildItemEngine(spec config.BadgeSpec) (*badge.Engine, error) {
-	size := spec.FontSize
-	if size == 0 {
-		size = 11
-	}
-
-	var metrics *badge.FontMetrics
-	var err error
-
-	switch {
-	case spec.FontFile != "":
-		metrics, err = badge.LoadFontFile(spec.FontFile, size)
-	case spec.Font != "":
-		metrics, err = badge.LoadBuiltinFont(spec.Font, size)
-	default:
-		metrics, err = badge.LoadBuiltinFont("dejavu-sans", size)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return badge.New(metrics), nil
+	return badge.NewForSpec(spec.Font, spec.FontSize, spec.FontFile)
 }

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 )
 
 // ArtifactLinks holds discovered OCI referrer artifact links for an image.
@@ -42,7 +42,7 @@ type referrersResponse struct {
 // DiscoverArtifacts queries the OCI referrers API for a verified image digest.
 // Returns links to SBOM, provenance, and signature artifacts if present.
 // Best-effort: returns empty ArtifactLinks (no error) if referrers API unsupported.
-func DiscoverArtifacts(ctx context.Context, img build.PublishedImage, credResolver func(string) (string, string)) (ArtifactLinks, error) {
+func DiscoverArtifacts(ctx context.Context, img artifact.PublishedImage, credResolver func(string) (string, string)) (ArtifactLinks, error) {
 	if img.Digest == "" {
 		return ArtifactLinks{}, nil
 	}
@@ -98,7 +98,7 @@ func DiscoverArtifacts(ctx context.Context, img build.PublishedImage, credResolv
 	return parseReferrers(resp, img)
 }
 
-func parseReferrers(resp *http.Response, img build.PublishedImage) (ArtifactLinks, error) {
+func parseReferrers(resp *http.Response, img artifact.PublishedImage) (ArtifactLinks, error) {
 	var rr referrersResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
 		return ArtifactLinks{}, nil // parse failure is not fatal
@@ -138,14 +138,14 @@ func parseReferrers(resp *http.Response, img build.PublishedImage) (ArtifactLink
 
 // DiscoverAllArtifacts runs DiscoverArtifacts concurrently for multiple images.
 // Deduplicates by host/path@digest to avoid redundant lookups.
-func DiscoverAllArtifacts(ctx context.Context, images []build.PublishedImage, credResolver func(string) (string, string)) map[string]ArtifactLinks {
+func DiscoverAllArtifacts(ctx context.Context, images []artifact.PublishedImage, credResolver func(string) (string, string)) map[string]ArtifactLinks {
 	type cacheKey struct{ hostPath, digest string }
 	result := make(map[string]ArtifactLinks)
 	var mu sync.Mutex
 
 	// Dedup by host/path@digest
 	seen := make(map[cacheKey]bool)
-	var unique []build.PublishedImage
+	var unique []artifact.PublishedImage
 	for _, img := range images {
 		if img.Digest == "" {
 			continue
@@ -163,7 +163,7 @@ func DiscoverAllArtifacts(ctx context.Context, images []build.PublishedImage, cr
 
 	for _, img := range unique {
 		wg.Add(1)
-		go func(img build.PublishedImage) {
+		go func(img artifact.PublishedImage) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()

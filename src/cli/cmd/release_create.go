@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,7 +12,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/diag"
@@ -22,6 +25,27 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/PrPlanIT/StageFreight/src/retention"
 )
+
+// ReleaseCreateRequest is the explicit input contract for RunReleaseCreate.
+// Cobra command fills this from flags; CI runner fills it from config/ciCtx.
+// Ctx is inside the request (matches docker.Request pattern).
+type ReleaseCreateRequest struct {
+	Ctx             context.Context
+	RootDir         string
+	Config          *config.Config
+	Tag             string
+	Name            string
+	NotesFile       string
+	SecuritySummary string
+	Draft           bool
+	Prerelease      bool
+	Assets          []string
+	RegistryLinks   bool
+	CatalogLinks    bool
+	SkipSync        bool
+	Verbose         bool
+	Writer          io.Writer
+}
 
 var (
 	rcTag             string
@@ -84,20 +108,52 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	ctx := context.Background()
-	color := output.UseColor()
-	w := os.Stdout
-
-	// Apply config defaults when CLI flags are not explicitly set
+	// Apply config defaults when CLI flags are not explicitly set, then merge into request.
+	secSummary := rcSecuritySummary
 	if !cmd.Flags().Changed("security-summary") && cfg.Release.SecuritySummary != "" {
-		rcSecuritySummary = cfg.Release.SecuritySummary
+		secSummary = cfg.Release.SecuritySummary
 	}
+	regLinks := rcRegistryLinks
 	if !cmd.Flags().Changed("registry-links") {
-		rcRegistryLinks = cfg.Release.RegistryLinks
+		regLinks = cfg.Release.RegistryLinks
 	}
+	catLinks := rcCatalogLinks
 	if !cmd.Flags().Changed("catalog-links") {
-		rcCatalogLinks = cfg.Release.CatalogLinks
+		catLinks = cfg.Release.CatalogLinks
 	}
+
+	return RunReleaseCreate(ReleaseCreateRequest{
+		Ctx:             cmd.Context(),
+		RootDir:         rootDir,
+		Config:          cfg,
+		Tag:             rcTag,
+		Name:            rcName,
+		NotesFile:       rcNotesFile,
+		SecuritySummary: secSummary,
+		Draft:           rcDraft,
+		Prerelease:      rcPrerelease,
+		Assets:          rcAssets,
+		RegistryLinks:   regLinks,
+		CatalogLinks:    catLinks,
+		SkipSync:        rcSkipSync,
+		Verbose:         verbose,
+		Writer:          os.Stdout,
+	})
+}
+
+// RunReleaseCreate executes the full release creation pipeline from an explicit request.
+// All inputs are taken from req — no package-level vars are referenced.
+func RunReleaseCreate(req ReleaseCreateRequest) error {
+	rootDir := req.RootDir
+	ctx := req.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	w := req.Writer
+	if w == nil {
+		w = os.Stdout
+	}
+	color := output.UseColor()
 
 	// Detect version for tag
 	versionInfo, err := build.DetectVersion(rootDir)
@@ -105,23 +161,23 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("detecting version: %w", err)
 	}
 
-	tag := rcTag
+	tag := req.Tag
 	if tag == "" {
 		tag = "v" + versionInfo.Version
 	}
-	name := rcName
+	name := req.Name
 	if name == "" {
 		name = tag
 	}
 
 	// Load security summary if provided
 	var secTile, secBody string
-	if rcSecuritySummary != "" {
-		summaryPath := rcSecuritySummary + "/summary.md"
+	if req.SecuritySummary != "" {
+		summaryPath := req.SecuritySummary + "/summary.md"
 		data, err := os.ReadFile(summaryPath)
 		if err != nil {
 			// Not fatal — security scan may have been skipped
-			if verbose {
+			if req.Verbose {
 				fmt.Fprintf(os.Stderr, "note: no security summary at %s: %v\n", summaryPath, err)
 			}
 		} else {
@@ -139,7 +195,7 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	// Fallback mode: build from config targets (local dev, manual release).
 	currentTag := os.Getenv("CI_COMMIT_TAG")
 
-	manifest, manifestErr := build.ReadPublishManifest(rootDir)
+	manifest, manifestErr := artifact.ReadPublishManifest(rootDir)
 	var imageRows []release.ImageRow
 
 	switch {
@@ -248,9 +304,9 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 		}
 		// Empty manifest = no images, no fallback (intentional)
 
-	case errors.Is(manifestErr, build.ErrPublishManifestNotFound):
+	case errors.Is(manifestErr, artifact.ErrPublishManifestNotFound):
 		// No truth artifact — fallback to config targets (local dev, manual release)
-		imageRows = buildImageRowsFromConfig(cfg, currentTag, versionInfo)
+		imageRows = buildImageRowsFromConfig(req.Config, currentTag, versionInfo)
 
 	default:
 		// Manifest exists but invalid (checksum mismatch, parse error)
@@ -299,8 +355,8 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 
 	// Generate or load release notes
 	var notes string
-	if rcNotesFile != "" {
-		data, err := os.ReadFile(rcNotesFile)
+	if req.NotesFile != "" {
+		data, err := os.ReadFile(req.NotesFile)
 		if err != nil {
 			return fmt.Errorf("reading notes file: %w", err)
 		}
@@ -345,8 +401,8 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Collect release targets from config
-	primaryRelease := findPrimaryReleaseTarget(cfg)
-	remoteReleases := findRemoteReleaseTargets(cfg)
+	primaryRelease := findPrimaryReleaseTarget(req.Config)
+	remoteReleases := findRemoteReleaseTargets(req.Config)
 
 	// ── Collect all results ──
 	start := time.Now()
@@ -360,8 +416,8 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 		TagName:     tag,
 		Name:        name,
 		Description: notes,
-		Draft:       rcDraft,
-		Prerelease:  rcPrerelease,
+		Draft:       req.Draft,
+		Prerelease:  req.Prerelease,
 	})
 	if createErr != nil {
 		return fmt.Errorf("creating release: %w", createErr)
@@ -369,7 +425,7 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	report.URL = rel.URL
 
 	// Upload assets: manifest artifacts (binaries/archives) + explicit --asset flags.
-	allAssets := append(manifestAssets, rcAssets...)
+	allAssets := append(manifestAssets, req.Assets...)
 	for _, assetPath := range allAssets {
 		assetName := filepath.Base(assetPath)
 
@@ -385,8 +441,8 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add registry image links (from kind: registry targets, deduplicate by URL)
-	registryTargets := collectTargetsByKind(cfg, "registry")
-	if rcRegistryLinks && len(registryTargets) > 0 {
+	registryTargets := pipeline.CollectTargetsByKind(req.Config, "registry")
+	if req.RegistryLinks && len(registryTargets) > 0 {
 		linkedURLs := make(map[string]bool)
 		for _, t := range registryTargets {
 			regProvider := t.Provider
@@ -400,7 +456,7 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 			}
 
 			// Resolve vars in path for display
-			resolvedPath := gitver.ResolveVars(t.Path, cfg.Vars)
+			resolvedPath := gitver.ResolveVars(t.Path, req.Config.Vars)
 
 			link := buildRegistryLinkFromTarget(t.URL, resolvedPath, tag, regProvider)
 			if linkedURLs[link.URL] {
@@ -418,8 +474,8 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add GitLab Catalog link (from kind: gitlab-component targets)
-	if rcCatalogLinks && provider == forge.GitLab {
-		for _, t := range cfg.Targets {
+	if req.CatalogLinks && provider == forge.GitLab {
+		for _, t := range req.Config.Targets {
 			if t.Kind == "gitlab-component" && t.Catalog {
 				catalogLink := buildCatalogLink(remoteURL, tag)
 				if catalogLink.URL != "" {
@@ -440,7 +496,7 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	if primaryRelease != nil && len(primaryRelease.Aliases) > 0 {
 		currentTag := os.Getenv("CI_COMMIT_TAG")
 		// Check when conditions on the primary release target
-		if targetWhenMatches(*primaryRelease, currentTag) {
+		if targetWhenMatches(*primaryRelease, currentTag, req.Config.Policies) {
 			rollingTags := gitver.ResolveTags(primaryRelease.Aliases, versionInfo)
 			for _, rt := range rollingTags {
 				if rt == tag || rt == "" {
@@ -495,7 +551,7 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	output.SectionEnd(w, "sf_release")
 
 	// ── Sync section (remote release targets) ──
-	if !rcSkipSync && len(remoteReleases) > 0 {
+	if !req.SkipSync && len(remoteReleases) > 0 {
 		currentTag := os.Getenv("CI_COMMIT_TAG")
 
 		var syncResults []actionResult
@@ -503,14 +559,14 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 
 		for _, t := range remoteReleases {
 			// Check when conditions
-			if !targetWhenMatches(t, currentTag) {
-				if verbose {
+			if !targetWhenMatches(t, currentTag, req.Config.Policies) {
+				if req.Verbose {
 					fmt.Fprintf(os.Stderr, "skip sync: %s (when conditions not met)\n", t.ID)
 				}
 				continue
 			}
 
-			syncClient, err := newSyncForgeClientFromTarget(t)
+			syncClient, err := newSyncForgeClientFromTarget(t, req.Config.Vars)
 			if err != nil {
 				syncResults = append(syncResults, actionResult{Name: t.ID, Err: err})
 				fmt.Fprintf(os.Stderr, "warning: sync to %s: %v\n", t.ID, err)
@@ -522,8 +578,8 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 					TagName:     tag,
 					Name:        name,
 					Description: notes,
-					Draft:       rcDraft,
-					Prerelease:  rcPrerelease,
+					Draft:       req.Draft,
+					Prerelease:  req.Prerelease,
 				})
 				if err != nil {
 					syncResults = append(syncResults, actionResult{Name: t.ID, Err: err})
@@ -612,8 +668,8 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 	targetIndex := make(map[imageKey]*pendingTarget)
 	var targetOrder []imageKey
 
-	for _, t := range collectTargetsByKind(cfg, "registry") {
-		if !targetWhenMatches(t, currentTag) {
+	for _, t := range pipeline.CollectTargetsByKind(cfg, "registry") {
+		if !targetWhenMatches(t, currentTag, cfg.Policies) {
 			continue
 		}
 		regProvider := t.Provider
@@ -703,17 +759,17 @@ func findRemoteReleaseTargets(cfg *config.Config) []config.TargetConfig {
 }
 
 // targetWhenMatches checks if a target's when conditions match the current CI environment.
-// Resolves policy names from cfg.Policies.
-func targetWhenMatches(t config.TargetConfig, currentTag string) bool {
+// Resolves policy names from the provided policies config.
+func targetWhenMatches(t config.TargetConfig, currentTag string, policies config.PoliciesConfig) bool {
 	if len(t.When.GitTags) > 0 && currentTag != "" {
-		resolved := resolveWhenPatternsFromCfg(t.When.GitTags, cfg.Policies.GitTags)
+		resolved := resolveWhenPatternsFromCfg(t.When.GitTags, policies.GitTags)
 		if !config.MatchPatterns(resolved, currentTag) {
 			return false
 		}
 	}
 	if len(t.When.Branches) > 0 {
 		branch := resolveBranchFromEnv()
-		resolved := resolveWhenPatternsFromCfg(t.When.Branches, cfg.Policies.Branches)
+		resolved := resolveWhenPatternsFromCfg(t.When.Branches, policies.Branches)
 		if !config.MatchPatterns(resolved, branch) {
 			return false
 		}
@@ -920,9 +976,9 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 }
 
 // newSyncForgeClientFromTarget creates a forge client for a remote release target.
-func newSyncForgeClientFromTarget(t config.TargetConfig) (forge.Forge, error) {
+func newSyncForgeClientFromTarget(t config.TargetConfig, vars map[string]string) (forge.Forge, error) {
 	// Resolve {var:...} templates in target fields
-	t.ProjectID = gitver.ResolveVars(t.ProjectID, cfg.Vars)
+	t.ProjectID = gitver.ResolveVars(t.ProjectID, vars)
 
 	switch t.Provider {
 	case "gitlab":

@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -227,7 +227,7 @@ func PublishManifestPhase() Phase {
 			}
 
 			// Merge with existing manifest (binary builds may have already written)
-			existing, err := build.ReadPublishManifest(pc.RootDir)
+			existing, err := artifact.ReadPublishManifest(pc.RootDir)
 			if err == nil {
 				existing.Published = append(existing.Published, m.Published...)
 				existing.Binaries = append(existing.Binaries, m.Binaries...)
@@ -235,7 +235,7 @@ func PublishManifestPhase() Phase {
 				m = existing
 			}
 
-			if err := build.WritePublishManifest(pc.RootDir, *m); err != nil {
+			if err := artifact.WritePublishManifest(pc.RootDir, *m); err != nil {
 				return &PhaseResult{
 					Name:    "publish",
 					Status:  "failed",
@@ -248,41 +248,6 @@ func PublishManifestPhase() Phase {
 				Name:    "publish",
 				Status:  "success",
 				Summary: fmt.Sprintf("%d artifact(s)", count),
-			}, nil
-		},
-	}
-}
-
-// BadgeHook generates configured badges.
-// Condition: returns true only if narrator config has badge items.
-func BadgeHook(appCfg *config.Config) PostBuildHook {
-	return PostBuildHook{
-		Name: "badges",
-		Condition: func(pc *PipelineContext) bool {
-			for _, f := range appCfg.Narrator {
-				for _, item := range f.Items {
-					if item.HasGeneration() {
-						return true
-					}
-				}
-			}
-			return false
-		},
-		Run: func(pc *PipelineContext) (*PhaseResult, error) {
-			// Badge generation is delegated back to the command layer via Scratch.
-			// The command sets Scratch["badge.run"] to a func that does the actual work.
-			if fn, ok := pc.Scratch["badge.run"].(func(io.Writer, bool, string) (string, time.Duration)); ok {
-				summary, _ := fn(pc.Writer, pc.Color, pc.RootDir)
-				return &PhaseResult{
-					Name:    "badges",
-					Status:  "success",
-					Summary: summary,
-				}, nil
-			}
-			return &PhaseResult{
-				Name:    "badges",
-				Status:  "skipped",
-				Summary: "no badge runner configured",
 			}, nil
 		},
 	}

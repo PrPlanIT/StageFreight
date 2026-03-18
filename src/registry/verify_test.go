@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 )
 
 func TestVerifyImageSuccess(t *testing.T) {
@@ -24,7 +24,7 @@ func TestVerifyImageSuccess(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []build.PublishedImage{
+	images := []artifact.PublishedImage{
 		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker"},
 	}
 
@@ -54,7 +54,7 @@ func TestVerifyImageNotFound(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []build.PublishedImage{
+	images := []artifact.PublishedImage{
 		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker"},
 	}
 
@@ -83,7 +83,7 @@ func TestVerifyImageRetrySuccess(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []build.PublishedImage{
+	images := []artifact.PublishedImage{
 		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker"},
 	}
 
@@ -105,7 +105,7 @@ func TestVerifyImageDigestMismatch(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []build.PublishedImage{
+	images := []artifact.PublishedImage{
 		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker", Digest: "sha256:local-digest"},
 	}
 

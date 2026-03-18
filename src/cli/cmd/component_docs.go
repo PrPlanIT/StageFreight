@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/component"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
@@ -83,7 +84,7 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 	docs := component.GenerateDocs(specs)
 
 	// Resolve target and section name once from narrator config.
-	cfgTarget, cfgSection := resolveComponentTarget()
+	cfgTarget, cfgSection := resolveComponentTarget(cfg.Narrator)
 
 	// Resolve target file: --readme CLI flag → narrator config lookup
 	target := cdReadme
@@ -161,8 +162,8 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 // section name for the first component item.
 // In v2, the section name is derived from the placement between markers.
 // Returns ("", "") if not found.
-func resolveComponentTarget() (filePath, sectionName string) {
-	for _, f := range cfg.Narrator {
+func resolveComponentTarget(narratorFiles []config.NarratorFile) (filePath, sectionName string) {
+	for _, f := range narratorFiles {
 		for _, item := range f.Items {
 			if item.Kind == "component" {
 				// Derive section name from between markers: ["<!-- sf:X:start -->", ...]

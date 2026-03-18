@@ -67,14 +67,9 @@ func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose b
 	color := output.UseColor()
 	w := os.Stdout
 
-	// Temporarily set package-level cfg for processNarratorFile (which uses cfg.Vars etc.)
-	savedCfg := cfg
-	cfg = appCfg
-	defer func() { cfg = savedCfg }()
-
 	var results []narratorFileResult
 	for _, fileCfg := range appCfg.Narrator {
-		result, content, err := processNarratorFile(fileCfg, rootDir, versionInfo)
+		result, content, err := processNarratorFile(appCfg, fileCfg, rootDir, versionInfo, isVerbose, dryRun)
 		if err != nil {
 			return err
 		}
@@ -132,14 +127,14 @@ type placementGroup struct {
 	Items []config.NarratorItem
 }
 
-func processNarratorFile(fileCfg config.NarratorFile, rootDir string, vi *gitver.VersionInfo) (narratorFileResult, string, error) {
+func processNarratorFile(appCfg *config.Config, fileCfg config.NarratorFile, rootDir string, vi *gitver.VersionInfo, verbose bool, dryRun bool) (narratorFileResult, string, error) {
 	path := fileCfg.File
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(rootDir, path)
 	}
 
 	// Resolve URL bases from per-file config.
-	linkBase := strings.TrimRight(gitver.ResolveVars(fileCfg.LinkBase, cfg.Vars), "/")
+	linkBase := strings.TrimRight(gitver.ResolveVars(fileCfg.LinkBase, appCfg.Vars), "/")
 	rawBase := ""
 	if linkBase != "" {
 		rawBase = registry.DeriveRawBase(linkBase)
@@ -167,7 +162,7 @@ func processNarratorFile(fileCfg config.NarratorFile, rootDir string, vi *gitver
 			continue
 		}
 
-		m := resolveBuildContentsManifest(item, rootDir)
+		m := resolveBuildContentsManifest(appCfg, item, rootDir)
 		if m == nil {
 			continue
 		}
@@ -183,7 +178,7 @@ func processNarratorFile(fileCfg config.NarratorFile, rootDir string, vi *gitver
 			outPath = filepath.Join(rootDir, outPath)
 		}
 
-		if nrDryRun {
+		if dryRun {
 			fmt.Fprintf(os.Stdout, "# Would write to %s:\n%s\n", item.OutputFile, rendered)
 			continue
 		}
@@ -204,7 +199,7 @@ func processNarratorFile(fileCfg config.NarratorFile, rootDir string, vi *gitver
 
 	for _, group := range groups {
 		// Build modules from items in this group.
-		modules := buildModulesV2(group.Items, linkBase, rawBase, vi, rootDir)
+		modules := buildModulesV2(appCfg, group.Items, linkBase, rawBase, vi, rootDir)
 		if len(modules) == 0 {
 			continue
 		}
@@ -232,7 +227,7 @@ func processNarratorFile(fileCfg config.NarratorFile, rootDir string, vi *gitver
 		}
 	}
 
-	if nrDryRun {
+	if dryRun {
 		if content != original {
 			return narratorFileResult{File: fileCfg.File, Status: "success", Detail: "would update"}, content, nil
 		}
@@ -282,7 +277,7 @@ func groupItemsByPlacement(items []config.NarratorItem) []placementGroup {
 
 // buildModulesV2 converts v2 NarratorItem entries into narrator.Module instances.
 // Dispatches on item.Kind instead of checking which field is set.
-func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string) []narrator.Module {
+func buildModulesV2(appCfg *config.Config, items []config.NarratorItem, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string) []narrator.Module {
 	var modules []narrator.Module
 
 	for _, item := range items {
@@ -291,9 +286,9 @@ func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *g
 			modules = append(modules, narrator.BreakModule{})
 
 		case "badge":
-			link := gitver.ResolveVars(item.Link, cfg.Vars)
+			link := gitver.ResolveVars(item.Link, appCfg.Vars)
 			if vi != nil {
-				link = gitver.ResolveTemplateWithDirAndVars(link, vi, rootDir, cfg.Vars)
+				link = gitver.ResolveTemplateWithDirAndVars(link, vi, rootDir, appCfg.Vars)
 			}
 			resolved := item
 			resolved.Link = link
@@ -303,14 +298,14 @@ func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *g
 			}
 
 		case "shield":
-			shieldPath := gitver.ResolveVarsShields(item.Shield, cfg.Vars)
-			link := gitver.ResolveVars(item.Link, cfg.Vars)
+			shieldPath := gitver.ResolveVarsShields(item.Shield, appCfg.Vars)
+			link := gitver.ResolveVars(item.Link, appCfg.Vars)
 			label := item.Text
 			if label == "" {
 				label = shieldPath
 			}
 			if vi != nil {
-				label = gitver.ResolveTemplateWithDirAndVars(label, vi, "", cfg.Vars)
+				label = gitver.ResolveTemplateWithDirAndVars(label, vi, "", appCfg.Vars)
 			}
 			modules = append(modules, narrator.ShieldModule{
 				Path:  shieldPath,
@@ -321,7 +316,7 @@ func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *g
 		case "text":
 			text := item.Content
 			if vi != nil {
-				text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", cfg.Vars)
+				text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", appCfg.Vars)
 			}
 			modules = append(modules, narrator.TextModule{Text: text})
 
@@ -347,7 +342,7 @@ func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *g
 			modules = append(modules, narrator.IncludeModule{Content: strings.TrimSpace(string(data))})
 
 		case "build-contents":
-			m := resolveBuildContentsManifest(item, rootDir)
+			m := resolveBuildContentsManifest(appCfg, item, rootDir)
 			if m != nil {
 				modules = append(modules, narrator.BuildContentsModule{
 					Manifest: m,
@@ -366,11 +361,11 @@ func buildModulesV2(items []config.NarratorItem, linkBase, rawBase string, vi *g
 			// Resolve {var:...} templates in params values.
 			resolvedParams := make(map[string]string, len(item.Params))
 			for k, v := range item.Params {
-				resolvedParams[k] = gitver.ResolveVars(v, cfg.Vars)
+				resolvedParams[k] = gitver.ResolveVars(v, appCfg.Vars)
 			}
 			opts := props.RenderOptions{
 				Label:   item.Label,
-				Link:    gitver.ResolveVars(item.Link, cfg.Vars),
+				Link:    gitver.ResolveVars(item.Link, appCfg.Vars),
 				Style:   item.Style,
 				Logo:    item.Logo,
 				Variant: props.VariantClassic,
@@ -410,7 +405,7 @@ func resolveBadgeItemV2(item config.NarratorItem, linkBase, rawBase string) narr
 }
 
 // resolveBuildContentsManifest loads or generates a manifest for a build-contents item.
-func resolveBuildContentsManifest(item config.NarratorItem, rootDir string) *manifest.Manifest {
+func resolveBuildContentsManifest(appCfg *config.Config, item config.NarratorItem, rootDir string) *manifest.Manifest {
 	// If explicit source path is set, load from file
 	if item.Source != "" {
 		srcPath := item.Source
@@ -427,24 +422,24 @@ func resolveBuildContentsManifest(item config.NarratorItem, rootDir string) *man
 
 	// Generate manifest from config (current scope).
 	// With multiple builds and no explicit source, this is ambiguous.
-	if len(cfg.Builds) > 1 {
+	if len(appCfg.Builds) > 1 {
 		fmt.Fprintf(os.Stderr, "narrator: build-contents: multiple builds configured — set source to explicit manifest path or use a single-build config\n")
 		return nil
 	}
-	buildID := manifest.FindDefaultBuildID(cfg)
+	buildID := manifest.FindDefaultBuildID(appCfg)
 	if buildID == "" {
 		fmt.Fprintf(os.Stderr, "narrator: build-contents: no builds configured\n")
 		return nil
 	}
 
 	// Try loading existing manifest first
-	manifestPath := manifest.ResolveManifestPath(rootDir, cfg, buildID)
+	manifestPath := manifest.ResolveManifestPath(rootDir, appCfg, buildID)
 	if m, err := manifest.LoadManifest(manifestPath); err == nil {
 		return m
 	}
 
 	// Generate on the fly
-	manifests, err := manifest.Generate(cfg, manifest.GenerateOptions{
+	manifests, err := manifest.Generate(appCfg, manifest.GenerateOptions{
 		RootDir: rootDir,
 		BuildID: buildID,
 		Mode:    "ephemeral",

@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 )
 
 // VerificationResult tracks the outcome of verifying a single published image.
 type VerificationResult struct {
-	Image    build.PublishedImage
+	Image    artifact.PublishedImage
 	Verified bool
 	Digest   string // remote digest if available
 	Err      error
@@ -26,7 +26,7 @@ type VerificationResult struct {
 // Uses OCI Distribution API HEAD (fallback GET) manifest request.
 // Concurrent (max 8 workers), retries with exponential backoff.
 // Digest mismatch is a verification failure.
-func VerifyImages(ctx context.Context, images []build.PublishedImage, credResolver func(string) (string, string)) ([]VerificationResult, error) {
+func VerifyImages(ctx context.Context, images []artifact.PublishedImage, credResolver func(string) (string, string)) ([]VerificationResult, error) {
 	results := make([]VerificationResult, len(images))
 
 	var wg sync.WaitGroup
@@ -34,7 +34,7 @@ func VerifyImages(ctx context.Context, images []build.PublishedImage, credResolv
 
 	for i, img := range images {
 		wg.Add(1)
-		go func(idx int, img build.PublishedImage) {
+		go func(idx int, img artifact.PublishedImage) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -48,7 +48,7 @@ func VerifyImages(ctx context.Context, images []build.PublishedImage, credResolv
 	return results, nil
 }
 
-func verifyImage(ctx context.Context, img build.PublishedImage, credResolver func(string) (string, string)) VerificationResult {
+func verifyImage(ctx context.Context, img artifact.PublishedImage, credResolver func(string) (string, string)) VerificationResult {
 	ref := img.Host + "/" + img.Path
 	tag := img.Tag
 

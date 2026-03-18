@@ -1,4 +1,4 @@
-package build
+package artifact
 
 import (
 	"crypto/sha256"
