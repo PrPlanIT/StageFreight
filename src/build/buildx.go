@@ -237,21 +237,22 @@ func (bx *Buildx) Login(ctx context.Context, registries []RegistryTarget) error 
 
 		prefix := strings.ToUpper(reg.Credentials)
 		user := os.Getenv(prefix + "_USER")
-		// Prefer _TOKEN over _PASS — tokens are scoped and revocable
+		// Prefer _TOKEN — tokens are scoped and revocable.
+		// Fall back to _PASS or _PASSWORD with a warning.
 		pass := os.Getenv(prefix + "_TOKEN")
-		usingPassword := false
 		if pass == "" {
-			pass = os.Getenv(prefix + "_PASS")
-			usingPassword = pass != ""
+			for _, suffix := range []string{"_PASS", "_PASSWORD"} {
+				if pw := os.Getenv(prefix + suffix); pw != "" {
+					diag.Warn("registry %s: authenticating with %s%s — consider using %s_TOKEN instead (scoped, revocable)", reg.URL, prefix, suffix, prefix)
+					pass = pw
+					break
+				}
+			}
 		}
 
 		if user == "" || pass == "" {
 			return fmt.Errorf("registry %s: credentials %q configured but %s_USER and/or %s_TOKEN env vars not set",
 				reg.URL, reg.Credentials, prefix, prefix)
-		}
-
-		if usingPassword {
-			diag.Warn("registry %s: authenticating with %s_PASS — consider using %s_TOKEN instead (scoped, revocable)", reg.URL, prefix, prefix)
 		}
 
 		if bx.Verbose {

@@ -151,12 +151,16 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 					return "", ""
 				}
 				upper := strings.ToUpper(prefix)
-				// Prefer _TOKEN over _PASS — tokens are scoped and revocable
+				// Prefer _TOKEN — tokens are scoped and revocable.
+				// Fall back to _PASS or _PASSWORD with a warning.
 				pass := os.Getenv(upper + "_TOKEN")
 				if pass == "" {
-					if pw := os.Getenv(upper + "_PASS"); pw != "" {
-						diag.Warn("credentials %s: authenticating with %s_PASS — consider using %s_TOKEN instead (scoped, revocable)", prefix, upper, upper)
-						pass = pw
+					for _, suffix := range []string{"_PASS", "_PASSWORD"} {
+						if pw := os.Getenv(upper + suffix); pw != "" {
+							diag.Warn("credentials %s: authenticating with %s%s — consider using %s_TOKEN instead (scoped, revocable)", prefix, upper, suffix, upper)
+							pass = pw
+							break
+						}
 					}
 				}
 				return os.Getenv(upper + "_USER"), pass

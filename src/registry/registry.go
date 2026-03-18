@@ -99,12 +99,16 @@ func resolveCredentials(prefix string) (user, pass string) {
 		return "", ""
 	}
 	p := strings.ToUpper(prefix)
-	// Prefer _TOKEN over _PASS — tokens are scoped and revocable
+	// Prefer _TOKEN — tokens are scoped and revocable.
+	// Fall back to _PASS or _PASSWORD with a warning.
 	pass = os.Getenv(p + "_TOKEN")
 	if pass == "" {
-		if pw := os.Getenv(p + "_PASS"); pw != "" {
-			diag.Warn("credentials %s: authenticating with %s_PASS — consider using %s_TOKEN instead (scoped, revocable)", prefix, p, p)
-			pass = pw
+		for _, suffix := range []string{"_PASS", "_PASSWORD"} {
+			if pw := os.Getenv(p + suffix); pw != "" {
+				diag.Warn("credentials %s: authenticating with %s%s — consider using %s_TOKEN instead (scoped, revocable)", prefix, p, suffix, p)
+				pass = pw
+				break
+			}
 		}
 	}
 	return os.Getenv(p + "_USER"), pass
