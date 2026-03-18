@@ -101,6 +101,76 @@ targets:
 
 ---
 
+## Registry Credentials
+
+The `credentials` field on a registry target sets an environment variable
+**prefix**. StageFreight resolves the actual secret from your CI/CD variables
+at runtime — nothing sensitive lives in `.stagefreight.yml`.
+
+### Resolution order
+
+For a given prefix (e.g. `HARBOR`), StageFreight checks these suffixes in
+order, stopping at the first non-empty value:
+
+| Suffix | Example | Notes |
+|--------|---------|-------|
+| `_TOKEN` | `HARBOR_TOKEN` | **Preferred.** Scoped, revocable API token. |
+| `_PASS` | `HARBOR_PASS` | Accepted. Warning emitted recommending `_TOKEN`. |
+| `_PASSWORD` | `HARBOR_PASSWORD` | Accepted. Warning emitted recommending `_TOKEN`. |
+
+Username is always read from `{PREFIX}_USER` (e.g. `HARBOR_USER`).
+
+At the registry protocol level, all three are identical — they become the
+`--password-stdin` value passed to `docker login`. The distinction is
+entirely on the issuing side:
+
+- **Password** — authenticates the account directly. If it leaks, an
+  attacker has account-level access. Rotating it affects every system using
+  that account.
+- **Token** — a credential issued separately from the account password.
+  Tokens can be scoped to specific registries, projects, or actions (e.g.
+  push-only, no delete, no admin). They can be revoked individually without
+  touching the account or other tokens. Access logs attribute activity to
+  the token, not the account, giving a cleaner audit trail.
+
+**Recommendation:** create a robot account or API token in your registry
+with the minimum permissions needed (typically: push to the specific
+project), store it as `{PREFIX}_TOKEN` in your CI/CD variables, and never
+store your account password in CI at all.
+
+### Silencing the warning
+
+If you set `{PREFIX}_PASS` or `{PREFIX}_PASSWORD` but the warning is
+noise for your setup (e.g. the value is already a token and you just named
+the variable `_PASS`), you can silence it by renaming the CI/CD variable to
+use the `_TOKEN` suffix. StageFreight has no way to distinguish a password
+from a token by value — the warning is purely based on which suffix was
+matched.
+
+### Example — Harbor with a robot account token
+
+```yaml
+# .stagefreight.yml
+targets:
+  - id: harbor-dev
+    kind: registry
+    build: myapp
+    url: cr.example.com
+    provider: harbor
+    path: myorg/myapp
+    tags: ["dev-{sha:8}", "latest-dev"]
+    when: { branches: [main], events: [push] }
+    credentials: HARBOR
+```
+
+```
+# GitLab CI/CD variables
+HARBOR_USER   =  robot$myorg+stagefreight-push
+HARBOR_TOKEN  =  <robot account secret>
+```
+
+---
+
 ## Build Cache
 
 Controls cache invalidation rules for incremental builds.

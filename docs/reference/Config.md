@@ -193,7 +193,7 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `url` | `url` | string | No | — | Registry or forge hostname. |
 | `provider` | `provider` | string | No | — | Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets. |
 | `path` | `path` | string | No | — | Image path within the registry. |
-| `credentials` | `credentials` | string | No | — | Env var prefix for authentication. Resolution: try `{PREFIX}_TOKEN` first, else `{PREFIX}_USER` + `{PREFIX}_PASS`. |
+| `credentials` | `credentials` | string | No | — | Env var prefix for authentication. `{PREFIX}_USER` for username. Secret resolved in order: `{PREFIX}_TOKEN` (preferred) → `{PREFIX}_PASS` → `{PREFIX}_PASSWORD`. Using `_PASS` or `_PASSWORD` emits a warning. See [Registry Credentials](../Docker.md#registry-credentials). |
 | `description` | `description` | string | No | — | string value |
 | `keep_last` | `retention.keep_last` | int | Yes | — | Keep the N most recent tags/releases. |
 | `keep_daily` | `retention.keep_daily` | int | Yes | — | Keep one per day for the last N days. |
