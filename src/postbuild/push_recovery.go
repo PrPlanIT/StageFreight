@@ -7,6 +7,16 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/diag"
 )
 
+// PushFailure carries structured context about a failed push operation.
+// Both multi-platform (BuildWithLayers) and single-platform (PushTags)
+// paths produce this type for recovery classification.
+type PushFailure struct {
+	Err      error  // the original error
+	ExitCode int    // process exit code (1 if not determinable)
+	Stderr   string // stderr from the failed operation
+	Tag      string // specific ref that failed (empty for multi-platform)
+}
+
 // PushRecoveryResult tells the caller whether a push failure was recoverable.
 type PushRecoveryResult struct {
 	Retry   bool   // true = recovery action succeeded, caller should retry
@@ -19,9 +29,9 @@ type PushRecoveryResult struct {
 //
 // execute.go owns retry mechanics (which tags, stderr reset). This function
 // owns the vendor decision (is this recoverable? what action to take?).
-func RecoverPushFailure(ctx context.Context, registries []build.RegistryTarget, stderr string) PushRecoveryResult {
+func RecoverPushFailure(ctx context.Context, registries []build.RegistryTarget, failure PushFailure) PushRecoveryResult {
 	// Harbor: project-not-found → auto-create project
-	if IsHarborProjectMissingPushError(registries, stderr) {
+	if IsHarborProjectMissingPushError(registries, failure) {
 		if err := EnsureHarborProjects(ctx, registries); err != nil {
 			diag.Warn("harbor: auto-create failed: %v", err)
 			return PushRecoveryResult{Retry: false, Message: "harbor: project auto-create failed"}

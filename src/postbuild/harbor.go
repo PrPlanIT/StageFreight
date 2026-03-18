@@ -71,7 +71,7 @@ func EnsureHarborProjects(ctx context.Context, registries []build.RegistryTarget
 //
 // This is a narrow heuristic used only for recovery (auto-create + retry),
 // not a definitive classification of Harbor errors.
-func IsHarborProjectMissingPushError(registries []build.RegistryTarget, stderr string) bool {
+func IsHarborProjectMissingPushError(registries []build.RegistryTarget, failure PushFailure) bool {
 	hasHarbor := false
 	for _, reg := range registries {
 		if registry.NormalizeProvider(reg.Provider) == "harbor" {
@@ -83,7 +83,7 @@ func IsHarborProjectMissingPushError(registries []build.RegistryTarget, stderr s
 		return false
 	}
 
-	lower := strings.ToLower(stderr)
+	lower := strings.ToLower(failure.Stderr)
 	hasProject := strings.Contains(lower, "project")
 	hasMissing := strings.Contains(lower, "not found") ||
 		strings.Contains(lower, "does not exist")

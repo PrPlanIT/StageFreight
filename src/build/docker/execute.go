@@ -3,9 +3,11 @@ package docker
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,28 +21,23 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
-// extractPushTag extracts the failed image ref from a PushTags error.
-// PushTags returns errors in the format "docker push <tag>: <exec error>".
-func extractPushTag(err error) string {
-	if err == nil {
-		return ""
+// extractExitCode extracts the process exit code from an error.
+// Returns 1 if the error is not an exec.ExitError.
+func extractExitCode(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
 	}
-	msg := err.Error()
-	const prefix = "docker push "
-	if !strings.HasPrefix(msg, prefix) {
-		return ""
-	}
-	rest := msg[len(prefix):]
-	if idx := strings.Index(rest, ": "); idx >= 0 {
-		return rest[:idx]
-	}
-	return ""
+	return 1
 }
 
-// classifyPushError parses stderr from a docker push and returns a short
+// classifyPushFailure inspects a PushError and returns a short
 // operator-meaningful reason with an owner tag in parentheses.
-func classifyPushError(stderr string) string {
-	s := strings.ToLower(stderr)
+func classifyPushFailure(pushErr *PushError) string {
+	// Combine per-push stderr + cause error for keyword matching.
+	// Exit codes from docker push don't differentiate error types (all 1),
+	// so keywords remain the classification signal.
+	s := strings.ToLower(pushErr.Stderr + "\n" + pushErr.Cause.Error())
 	switch {
 	case strings.Contains(s, "500 internal server error"):
 		return "HTTP 500 (registry)"
@@ -160,7 +157,12 @@ func executePhase(req Request) pipeline.Phase {
 				// Registry push recovery: if a multi-platform --push build fails
 				// due to a recoverable registry error, attempt vendor recovery and retry once.
 				if err != nil && step.Push {
-					recovery := postbuild.RecoverPushFailure(pc.Ctx, step.Registries, stderrBuf.String())
+					failure := postbuild.PushFailure{
+						Err:      err,
+						ExitCode: extractExitCode(err),
+						Stderr:   stderrBuf.String(),
+					}
+					recovery := postbuild.RecoverPushFailure(pc.Ctx, step.Registries, failure)
 					if recovery.Retry {
 						diag.Info(recovery.Message)
 						stderrBuf.Reset()
@@ -326,7 +328,26 @@ func executePhase(req Request) pipeline.Phase {
 				pushed, err := pushBx.PushTags(pc.Ctx, remoteTags)
 				if err != nil {
 					pushRegs := collectPushRegistries(plan)
-					recovery := postbuild.RecoverPushFailure(pc.Ctx, pushRegs, pushStderrBuf.String())
+
+					// Build PushFailure from PushError
+					var pushErr *PushError
+					var failure postbuild.PushFailure
+					if errors.As(err, &pushErr) {
+						failure = postbuild.PushFailure{
+							Err:      err,
+							ExitCode: pushErr.ExitCode,
+							Stderr:   pushErr.Stderr,
+							Tag:      pushErr.Tag,
+						}
+					} else {
+						failure = postbuild.PushFailure{
+							Err:      err,
+							ExitCode: 1,
+							Stderr:   pushStderrBuf.String(),
+						}
+					}
+
+					recovery := postbuild.RecoverPushFailure(pc.Ctx, pushRegs, failure)
 					if recovery.Retry {
 						if recovery.Message != "" {
 							diag.Info(recovery.Message)
@@ -345,23 +366,31 @@ func executePhase(req Request) pipeline.Phase {
 						_, err = pushBx.PushTags(pc.Ctx, remaining)
 					}
 					if err != nil {
-						pushStderr := pushStderrBuf.String()
-						// Classify from both stderr and the error message —
-						// docker may put the HTTP status in either place.
-						classifyInput := pushStderr + "\n" + err.Error()
-						reason := classifyPushError(classifyInput)
+						var pushErr *PushError
+						var failedTag, reason string
+						var exitCode int
 
-						// Extract the actual failed tag from PushTags error
-						// format "docker push <tag>: <exec error>".
-						failedTag := extractPushTag(err)
-						if failedTag == "" && len(remoteTags) > 0 {
-							failedTag = remoteTags[0]
+						if errors.As(err, &pushErr) {
+							failedTag = pushErr.Tag
+							exitCode = pushErr.ExitCode
+							reason = classifyPushFailure(pushErr)
+						} else {
+							if len(remoteTags) > 0 {
+								failedTag = remoteTags[0]
+							}
+							exitCode = 1
+							reason = "push failed"
 						}
 
-						// Enrich thin stderr with the error message so
-						// operators always see the registry's response.
-						if pushStderr == "" || !strings.Contains(pushStderr, "\n") {
-							pushStderr = err.Error() + "\n" + pushStderr
+						// Prefer per-push stderr (precise), fall back to cumulative buffer
+						var detailStderr string
+						if pushErr != nil && strings.TrimSpace(pushErr.Stderr) != "" {
+							detailStderr = pushErr.Stderr
+						} else {
+							detailStderr = pushStderrBuf.String()
+						}
+						if detailStderr == "" || !strings.Contains(detailStderr, "\n") {
+							detailStderr = err.Error() + "\n" + detailStderr
 						}
 
 						output.SectionEnd(pc.Writer, "sf_push")
@@ -371,9 +400,9 @@ func executePhase(req Request) pipeline.Phase {
 							Summary: fmt.Sprintf("image push failed — %s", reason),
 							Failure: &pipeline.FailureDetail{
 								Command:  fmt.Sprintf("docker push %s", failedTag),
-								ExitCode: 1,
+								ExitCode: exitCode,
 								Reason:   reason,
-								Stderr:   strings.TrimSpace(pushStderr),
+								Stderr:   strings.TrimSpace(detailStderr),
 							},
 						}, err
 					}
