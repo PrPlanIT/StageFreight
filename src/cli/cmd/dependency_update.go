@@ -17,15 +17,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
-// ExitError wraps an error with a process exit code.
-type ExitError struct {
-	Code int
-	Err  error
-}
-
-func (e *ExitError) Error() string { return e.Err.Error() }
-func (e *ExitError) Unwrap() error { return e.Err }
-
 // Exit codes for dependency update.
 const (
 	exitOK         = 0

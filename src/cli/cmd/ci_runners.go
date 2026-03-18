@@ -98,7 +98,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
 			}
-			return err
+			return silentExit(err)
 		}
 	}
 

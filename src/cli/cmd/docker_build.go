@@ -51,7 +51,7 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 		rootDir = args[0]
 	}
 
-	return docker.Run(docker.Request{
+	if err := docker.Run(docker.Request{
 		Context:    cmd.Context(),
 		RootDir:    rootDir,
 		Config:     cfg,
@@ -67,5 +67,8 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 		ConfigFile: cfgFile,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
-	})
+	}); err != nil {
+		return silentExit(err)
+	}
+	return nil
 }

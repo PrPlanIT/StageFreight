@@ -44,16 +44,19 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 }
 
-// Execute runs the root command.
-func Execute() error {
+// Execute runs the root command. All exit paths call os.Exit explicitly.
+func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		var silentErr *SilentExitError
+		if errors.As(err, &silentErr) {
+			os.Exit(silentErr.Code)
+		}
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) {
 			fmt.Fprintln(os.Stderr, exitErr.Err)
 			os.Exit(exitErr.Code)
 		}
 		fmt.Fprintln(os.Stderr, err)
-		return err
+		os.Exit(1)
 	}
-	return nil
 }
