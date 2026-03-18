@@ -306,7 +306,8 @@ func executePhase(req Request) pipeline.Phase {
 				} else {
 					pushBx.Stderr = &pushStderrBuf
 				}
-				if err := pushBx.PushTags(pc.Ctx, remoteTags); err != nil {
+				pushed, err := pushBx.PushTags(pc.Ctx, remoteTags)
+				if err != nil {
 					// Harbor push-first recovery: collect registries from load-then-push steps
 					// and check if the failure is a missing Harbor project.
 					var pushRegs []build.RegistryTarget
@@ -323,13 +324,18 @@ func executePhase(req Request) pipeline.Phase {
 					if postbuild.IsHarborProjectMissingPushError(pushRegs, pushStderrBuf.String()) {
 						diag.Info("harbor: push failed with project-not-found, attempting auto-create and retry")
 						if ensureErr := postbuild.EnsureHarborProjects(pc.Ctx, pushRegs); ensureErr == nil {
+							// Retry only from the failed tag onward — prior tags already succeeded.
+							remaining := remoteTags
+							if pushed >= 0 && pushed < len(remoteTags) {
+								remaining = remoteTags[pushed:]
+							}
 							pushStderrBuf.Reset()
 							if pc.Verbose {
 								pushBx.Stderr = io.MultiWriter(req.Stderr, &pushStderrBuf)
 							} else {
 								pushBx.Stderr = &pushStderrBuf
 							}
-							err = pushBx.PushTags(pc.Ctx, remoteTags)
+							_, err = pushBx.PushTags(pc.Ctx, remaining)
 						} else {
 							diag.Warn("harbor: auto-create failed: %v", ensureErr)
 						}

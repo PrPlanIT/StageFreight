@@ -107,12 +107,12 @@ func RenderExitReason(w io.Writer, f *FailureDetail) {
 	oneLine := fmt.Sprintf("%s%s — %s", f.Command, exitSuffix, f.Reason)
 
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "── Exit Reason ────────────────────────────────────────────")
+	fmt.Fprintln(w, "    ── Exit Reason ────────────────────────────────────────────")
 	if len(oneLine) <= 80 {
-		fmt.Fprintf(w, "│ %s\n", oneLine)
+		fmt.Fprintf(w, "    │ %s\n", oneLine)
 	} else {
-		fmt.Fprintf(w, "│ %s%s\n", f.Command, exitSuffix)
-		fmt.Fprintf(w, "│ reason: %s\n", f.Reason)
+		fmt.Fprintf(w, "    │ %s%s\n", f.Command, exitSuffix)
+		fmt.Fprintf(w, "    │ reason: %s\n", f.Reason)
 	}
-	fmt.Fprintln(w, "└──────────────────────────────────────────────────────────────")
+	fmt.Fprintln(w, "    └──────────────────────────────────────────────────────────────")
 }

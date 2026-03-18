@@ -194,8 +194,12 @@ func (bx *Buildx) buildArgs(step build.BuildStep) []string {
 // PushTags pushes already-loaded local images to their remote registries.
 // Used in single-platform load-then-push strategy where buildx builds with
 // --load first, then we push each remote tag explicitly.
-func (bx *Buildx) PushTags(ctx context.Context, tags []string) error {
-	for _, tag := range tags {
+//
+// Returns the count of successfully pushed tags and the first error encountered.
+// On full success: (len(tags), nil). On failure: (N, err) where tags[:N] succeeded
+// and tags[N] failed. Callers can retry with tags[pushed:].
+func (bx *Buildx) PushTags(ctx context.Context, tags []string) (int, error) {
+	for i, tag := range tags {
 		if bx.Verbose {
 			fmt.Fprintf(bx.Stderr, "exec: docker push %s\n", tag)
 		}
@@ -205,10 +209,10 @@ func (bx *Buildx) PushTags(ctx context.Context, tags []string) error {
 		cmd.Stderr = bx.Stderr
 
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("docker push %s: %w", tag, err)
+			return i, fmt.Errorf("docker push %s: %w", tag, err)
 		}
 	}
-	return nil
+	return len(tags), nil
 }
 
 // IsMultiPlatform returns true if the step targets more than one platform.
