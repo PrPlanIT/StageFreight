@@ -41,6 +41,10 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 		return result, nil
 	}
 
+	// Ensure git trusts the worktree — container user may differ from repo owner.
+	// This is required for the same reason stagefreight's CI skeleton sets safe.directory.
+	_ = gitExec(ctx, absWorktree, "config", "--global", "--add", "safe.directory", absWorktree)
+
 	// 1. Create temporary bare mirror clone from local worktree
 	tmpDir, err := os.MkdirTemp("", "sf-mirror-*")
 	if err != nil {
