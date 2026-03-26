@@ -29,8 +29,7 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 		AccessoryID: accessory.ID,
 	}
 
-	// Resolve worktree to absolute path — clone requires a valid path
-	// regardless of process cwd.
+	// Resolve worktree to absolute path for safe.directory and origin detection.
 	absWorktree, err := filepath.Abs(worktree)
 	if err != nil {
 		result.Status = SyncFailed
@@ -42,10 +41,26 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 	}
 
 	// Ensure git trusts the worktree — container user may differ from repo owner.
-	// This is required for the same reason stagefreight's CI skeleton sets safe.directory.
 	_ = gitExec(ctx, absWorktree, "config", "--global", "--add", "safe.directory", absWorktree)
 
-	// 1. Create temporary bare mirror clone from local worktree
+	// Resolve the origin remote URL from the worktree. We mirror from origin
+	// (the authoritative distribution surface), not from the worktree filesystem.
+	// The worktree may be in detached HEAD state in CI, producing incomplete refs.
+	// Origin always has the complete, canonical refspace.
+	originURL, err := resolveOriginURL(ctx, absWorktree)
+	if err != nil {
+		result.Status = SyncFailed
+		result.Degraded = true
+		result.FailureReason = MirrorUnknown
+		result.Message = fmt.Sprintf("failed to resolve origin URL: %v", sanitizeError(err))
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	// 1. Clone --mirror from origin to get a complete bare repo with all refs.
+	// --mirror is safe here because we're cloning from a real remote (origin),
+	// not a local worktree. The resulting bare repo has proper refs/heads/*
+	// and refs/tags/* without CI artifacts like refs/pipelines/*.
 	tmpDir, err := os.MkdirTemp("", "sf-mirror-*")
 	if err != nil {
 		result.Status = SyncFailed
@@ -57,23 +72,14 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Use --bare (not --mirror) to clone only local refs (heads + tags).
-	// --mirror would copy ALL refs including refs/remotes/origin/* and
-	// GitLab CI refs like refs/pipelines/*, which must never be pushed
-	// to the accessory forge.
-	if err := gitExec(ctx, absWorktree, "clone", "--bare", absWorktree, tmpDir); err != nil {
+	if err := gitExec(ctx, absWorktree, "clone", "--mirror", originURL, tmpDir); err != nil {
 		result.Status = SyncFailed
 		result.Degraded = true
-		result.FailureReason = MirrorUnknown
-		result.Message = fmt.Sprintf("failed to create mirror clone: %v", sanitizeError(err))
+		result.FailureReason = classifyFailure(err)
+		result.Message = fmt.Sprintf("failed to clone from origin: %v", sanitizeError(err))
 		result.Duration = time.Since(start)
 		return result, nil
 	}
-
-	// CI runners often checkout as detached HEAD. The bare clone may miss
-	// branch refs that exist in the source repo's packed-refs. Explicitly
-	// fetch all heads and tags from the source to guarantee a complete refset.
-	_ = gitExec(ctx, tmpDir, "fetch", absWorktree, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
 
 	// 2. Build authenticated remote URL (internal only — never surfaced)
 	remoteURL, err := buildAuthURL(accessory)
@@ -109,6 +115,25 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 	result.Status = SyncSuccess
 	result.Message = fmt.Sprintf("mirror push to %s succeeded", accessory.ID)
 	return result, nil
+}
+
+// resolveOriginURL reads the origin remote URL from the worktree's git config.
+func resolveOriginURL(ctx context.Context, worktree string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
+	cmd.Dir = worktree
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git config --get remote.origin.url: %w", err)
+	}
+
+	url := strings.TrimSpace(stdout.String())
+	if url == "" {
+		return "", fmt.Errorf("origin remote URL is empty")
+	}
+	return url, nil
 }
 
 // buildAuthURL constructs an HTTPS URL with embedded token for git push.

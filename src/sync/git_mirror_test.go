@@ -325,21 +325,24 @@ func TestMirrorPush_ContextCancellation(t *testing.T) {
 
 // ── test helpers ──
 
-// mirrorPushDirect performs a mirror push using file:// URLs (no credentials needed).
-// This tests the core mirror mechanics without credential infrastructure.
+// mirrorPushDirect performs a mirror push using file paths (no credentials needed).
+// Uses the same push strategy as MirrorPush: --force --prune --all + --tags.
 func mirrorPushDirect(t *testing.T, worktree, remoteDir string) *MirrorResult {
 	t.Helper()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
 
-	// Clone --mirror from worktree
+	// Clone --mirror from worktree (safe in tests — not detached HEAD)
 	if err := gitExec(ctx, "", "clone", "--mirror", worktree, tmpDir); err != nil {
 		t.Fatalf("mirror clone failed: %v", err)
 	}
 
-	// Push --mirror to remote bare repo
-	err := gitExec(ctx, tmpDir, "push", "--mirror", remoteDir)
+	// Push using same strategy as production: --force --prune --all + --tags
+	err := gitExec(ctx, tmpDir, "push", "--prune", "--force", "--all", remoteDir)
+	if err == nil {
+		err = gitExec(ctx, tmpDir, "push", "--prune", "--force", "--tags", remoteDir)
+	}
 
 	result := &MirrorResult{
 		AccessoryID: "test-remote",
