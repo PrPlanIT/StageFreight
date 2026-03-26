@@ -57,7 +57,11 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := gitExec(ctx, absWorktree, "clone", "--mirror", absWorktree, tmpDir); err != nil {
+	// Use --bare (not --mirror) to clone only local refs (heads + tags).
+	// --mirror would copy ALL refs including refs/remotes/origin/* and
+	// GitLab CI refs like refs/pipelines/*, which must never be pushed
+	// to the accessory forge.
+	if err := gitExec(ctx, absWorktree, "clone", "--bare", absWorktree, tmpDir); err != nil {
 		result.Status = SyncFailed
 		result.Degraded = true
 		result.FailureReason = MirrorUnknown
@@ -77,10 +81,15 @@ func MirrorPush(ctx context.Context, worktree string, accessory config.MirrorCon
 		return result, nil
 	}
 
-	// 3. Mirror push from temp clone to accessory.
-	// --mirror includes deletion semantics (equivalent to prune) —
-	// refs deleted on source are deleted on the accessory.
-	pushErr := gitExec(ctx, tmpDir, "push", "--mirror", remoteURL)
+	// 3. Replicate heads and tags with force + prune.
+	// We do NOT use --mirror because it attempts to delete and recreate
+	// the default branch, which GitHub (and other forges) refuse.
+	// Instead: --force --prune --all (branches) + --force --prune --tags.
+	// This gives identical mirror semantics without violating forge constraints.
+	pushErr := gitExec(ctx, tmpDir, "push", "--prune", "--force", "--all", remoteURL)
+	if pushErr == nil {
+		pushErr = gitExec(ctx, tmpDir, "push", "--prune", "--force", "--tags", remoteURL)
+	}
 
 	result.Duration = time.Since(start)
 
