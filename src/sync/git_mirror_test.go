@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -216,62 +217,85 @@ func TestClassifyFailure(t *testing.T) {
 	}
 }
 
-func TestSanitizeMessage_RemovesCredentials(t *testing.T) {
+func TestResolveGitAuth(t *testing.T) {
+	tests := []struct {
+		provider string
+		wantUser string
+	}{
+		{"github", "x-access-token"},
+		{"gitlab", "oauth2"},
+		{"gitea", "git"},
+		{"unknown", "git"},
+	}
+	for _, tt := range tests {
+		auth := resolveGitAuth(tt.provider, "secret123")
+		if auth.Username != tt.wantUser {
+			t.Errorf("resolveGitAuth(%q): username = %q, want %q", tt.provider, auth.Username, tt.wantUser)
+		}
+		if auth.Password != "secret123" {
+			t.Errorf("resolveGitAuth(%q): password = %q, want %q", tt.provider, auth.Password, "secret123")
+		}
+	}
+}
+
+func TestBuildRemoteURL(t *testing.T) {
+	m := config.MirrorConfig{
+		URL:       "https://github.com",
+		ProjectID: "HomeLabHD/ansible",
+	}
+	got := buildRemoteURL(m)
+	if got != "https://github.com/HomeLabHD/ansible.git" {
+		t.Errorf("buildRemoteURL = %q, want https://github.com/HomeLabHD/ansible.git", got)
+	}
+}
+
+func TestBuildRemoteURL_AlreadyHasGitSuffix(t *testing.T) {
+	m := config.MirrorConfig{
+		URL:       "https://github.com",
+		ProjectID: "HomeLabHD/ansible.git",
+	}
+	got := buildRemoteURL(m)
+	if strings.HasSuffix(got, ".git.git") {
+		t.Errorf("buildRemoteURL double-appended .git: %s", got)
+	}
+}
+
+func TestSanitizeStderr_RemovesCredentials(t *testing.T) {
 	err := &gitError{
 		err:    nil,
-		stderr: "fatal: unable to push to https://ghp_abc123secret@github.com/org/repo.git",
-		args:   []string{"push", "--mirror", "https://ghp_abc123secret@github.com/org/repo.git"},
+		stderr: "fatal: unable to push to https://x-access-token:ghp_abc123secret@github.com/org/repo.git",
+		args:   []string{"push"},
 	}
 
-	msg := sanitizeMessage(err, "https://ghp_abc123secret@github.com/org/repo.git")
+	msg := err.Error()
 
 	if strings.Contains(msg, "ghp_abc123secret") {
-		t.Errorf("sanitized message still contains token: %s", msg)
+		t.Errorf("Error() still contains token: %s", msg)
+	}
+	if strings.Contains(msg, "x-access-token") {
+		t.Errorf("Error() still contains username: %s", msg)
 	}
 	if !strings.Contains(msg, "[redacted]") {
-		t.Errorf("sanitized message should contain [redacted]: %s", msg)
+		t.Errorf("Error() should contain [redacted]: %s", msg)
 	}
 }
 
-func TestBuildAuthURL(t *testing.T) {
-	// Set test credentials
-	os.Setenv("TEST_TOKEN", "ghp_testtoken123")
-	defer os.Unsetenv("TEST_TOKEN")
-
-	acc := config.MirrorConfig{
-		ID:          "github",
-		Provider:    "github",
-		URL:         "https://github.com",
-		ProjectID:   "HomeLabHD/ansible",
-		Credentials: "TEST",
+func TestGitErrorWrapped_NoCredentials(t *testing.T) {
+	inner := &gitError{
+		err:    nil,
+		stderr: "fatal: Authentication failed for 'https://oauth2:glpat_secret@gitlab.example.com/org/repo.git'",
+		args:   []string{"push"},
 	}
 
-	url, err := buildAuthURL(acc)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Wrap it like real code would
+	wrapped := fmt.Errorf("mirror push failed: %w", inner)
+	msg := wrapped.Error()
 
-	if !strings.Contains(url, "ghp_testtoken123@github.com") {
-		t.Errorf("URL should contain token: %s", url)
+	if strings.Contains(msg, "glpat_secret") {
+		t.Errorf("wrapped error contains token: %s", msg)
 	}
-	if !strings.HasSuffix(url, "/HomeLabHD/ansible.git") {
-		t.Errorf("URL should end with project path: %s", url)
-	}
-}
-
-func TestBuildAuthURL_NoCredentials(t *testing.T) {
-	os.Unsetenv("EMPTY_TOKEN")
-	os.Unsetenv("EMPTY_PASS")
-	os.Unsetenv("EMPTY_PASSWORD")
-
-	acc := config.MirrorConfig{
-		ID:          "github",
-		Credentials: "EMPTY",
-	}
-
-	_, err := buildAuthURL(acc)
-	if err == nil {
-		t.Error("expected error when no credentials available")
+	if strings.Contains(msg, "oauth2") {
+		t.Errorf("wrapped error contains username: %s", msg)
 	}
 }
 
