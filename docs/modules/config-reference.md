@@ -72,6 +72,14 @@ Build source configuration. Defines where source code lives and how to derive li
 | `worktree` | `primary.worktree` | string | Yes | "." | Path to working tree. |
 | `url` | `primary.url` | string | Yes | — | Repository URL. Enables deterministic link_base/raw_base derivation. |
 | `default_branch` | `primary.default_branch` | string | Yes | — | Default branch name. Used with URL for raw_base derivation. |
+| `id` | `accessories.id` | string | Yes | — | string value |
+| `provider` | `accessories.provider` | string | Yes | — | string value |
+| `url` | `accessories.url` | string | Yes | — | string value |
+| `project_id` | `accessories.project_id` | string | Yes | — | string value |
+| `credentials` | `accessories.credentials` | string | Yes | — | string value |
+| `git` | `accessories.sync.git` | bool | No | — | bool value |
+| `releases` | `accessories.sync.releases` | bool | No | — | bool value |
+| `docs` | `accessories.sync.docs` | bool | No | — | bool value |
 
 **Example:**
 
