@@ -726,7 +726,41 @@ func autoCommitViaPlanner(ctx context.Context, appCfg *config.Config, rootDir st
 		return nil, fmt.Errorf("auto-commit plan: %w", err)
 	}
 
-	backend := &commit.GitBackend{RootDir: rootDir}
+	// Select backend from config — same logic as the commit CLI command.
+	// Decision is explicit and deterministic: forge, git, or auto (CI → forge).
+	var useForge bool
+	switch appCfg.Commit.Backend {
+	case "forge":
+		useForge = true
+	case "git":
+		useForge = false
+	case "":
+		useForge = output.IsCI()
+	default:
+		return nil, fmt.Errorf("auto-commit: unknown backend %q", appCfg.Commit.Backend)
+	}
+
+	var backend commit.Backend
+	if useForge {
+		fc, branch, fErr := detectForgeForPush(rootDir, plan)
+		if fErr != nil {
+			if appCfg.Commit.Backend == "forge" {
+				return nil, fmt.Errorf("auto-commit: forge backend requested but detection failed: %w", fErr)
+			}
+			// Implicit forge (CI auto-detection) failed — fall back to git with warning.
+			fmt.Fprintf(os.Stderr, "warning: forge backend auto-detection failed, falling back to git: %v\n", fErr)
+			backend = &commit.GitBackend{RootDir: rootDir}
+		} else {
+			backend = &commit.ForgeBackend{
+				RootDir:     rootDir,
+				ForgeClient: fc,
+				Branch:      branch,
+			}
+		}
+	} else {
+		backend = &commit.GitBackend{RootDir: rootDir}
+	}
+
 	result, err := backend.Execute(ctx, plan, appCfg.Commit.Conventional)
 	if err != nil {
 		return nil, fmt.Errorf("auto-commit execute: %w", err)
