@@ -62,6 +62,9 @@ type Config struct {
 	// Release holds configuration for the release subsystem.
 	Release ReleaseConfig `yaml:"release"`
 
+	// Lifecycle defines the repository lifecycle mode (image, gitops).
+	Lifecycle LifecycleConfig `yaml:"lifecycle"`
+
 	// Glossary defines the repo's shared change-language model.
 	// Consumed by commit authoring, tag planning, and release rendering.
 	Glossary GlossaryConfig `yaml:"glossary"`
