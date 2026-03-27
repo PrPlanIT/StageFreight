@@ -50,6 +50,12 @@ func resolveWorkspace(ciCtx *ci.CIContext) string {
 // Runs binary builds first (if any), then docker builds.
 // Binary builds execute before docker builds to satisfy depends_on ordering.
 func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	// Policy gate: skip non-release tags (e.g., rolling "latest" tag)
+	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Policies) {
+		fmt.Printf("  build: skipping — tag %q does not match any release policy\n", ciCtx.Tag)
+		return nil
+	}
+
 	rootDir := resolveWorkspace(ciCtx)
 
 	// Initialize pipeline state with CI context
@@ -399,6 +405,12 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 
 // ── security runner ──────────────────────────────────────────────────────────
 func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	// Policy gate: skip non-release tags
+	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Policies) {
+		fmt.Printf("  security: skipping — tag %q does not match any release policy\n", ciCtx.Tag)
+		return nil
+	}
+
 	if !appCfg.Security.Enabled {
 		fmt.Println("  security scan disabled in config")
 		return nil
@@ -468,6 +480,12 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 
 // ── docs runner ──────────────────────────────────────────────────────────────
 func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	// Policy gate: skip non-release tags
+	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Policies) {
+		fmt.Printf("  docs: skipping — tag %q does not match any release policy\n", ciCtx.Tag)
+		return nil
+	}
+
 	if !appCfg.Docs.Enabled {
 		fmt.Println("  docs generation disabled in config")
 		return nil
@@ -639,6 +657,24 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 	}
 
 	return !hasConstraints
+}
+
+// tagMatchesReleasePolicy returns true if the tag matches any git_tags policy
+// pattern (stable or prerelease). Used to gate subsystem runners on tag events
+// so rolling tags like "latest" don't trigger full builds/scans/docs.
+//
+// The skeleton defines generic CI event classes; StageFreight enforces
+// repo-specific tag eligibility at runtime from .stagefreight.yml policy.
+func tagMatchesReleasePolicy(tag string, policies config.PoliciesConfig) bool {
+	if len(policies.GitTags) == 0 {
+		return true // no policies = all tags are eligible (backward compat)
+	}
+	for _, pattern := range policies.GitTags {
+		if config.MatchPatterns([]string{pattern}, tag) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── mirror sync ─────────────────────────────────────────────────────────────
