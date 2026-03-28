@@ -266,12 +266,13 @@ Exit codes: 0=success, 1=subsystem error, 2=config error, 3=context error
 <a id="cli-stagefreight-commit" name="cli-stagefreight-commit"></a>
 ### stagefreight commit
 
-**Usage:** `stagefreight commit [summary]`
+**Usage:** `stagefreight commit [summary] [paths...]`
 
 Create a git commit with conventional commit formatting.
 
 Summary can be provided as a positional argument or via --message.
-Files are staged via --add flags, --all, or from the existing staging area.
+Paths can be provided as positional args (after summary or after --),
+via --add flags, --all, or from the existing staging area.
 
 In CI environments, the push refspec is auto-detected from CI_COMMIT_REF_NAME
 or CI_COMMIT_BRANCH. Use --refspec for explicit control.
@@ -279,9 +280,13 @@ or CI_COMMIT_BRANCH. Use --refspec for explicit control.
 Examples:
   stagefreight commit -t docs -m "refresh generated docs"
   stagefreight commit -t docs "refresh generated docs"
-  stagefreight commit -t fix -m "handle edge case"
-  stagefreight commit --dry-run -t docs -m "test" --add docs/
+  stagefreight commit -t feat "add api validation" src/api/ src/config/config.go
+  stagefreight commit -t fix -m "handle nil config" -- src/api/ src/config/config.go
+  stagefreight commit -t docs --add README.md -m "document commit flow" -- docs/ examples/
+  stagefreight commit --dry-run -t docs -m "test generated docs" --add docs/ -- README.md
+  stagefreight commit -t feat --breaking -m "replace auth middleware" -- src/auth/
   stagefreight commit -t docs -m "refresh docs" --push --refspec HEAD:refs/heads/main
+  stagefreight commit -t feat -m "hotfix auth flow" --push --refspec HEAD:refs/heads/release/v1
 
 **Flags:**
 

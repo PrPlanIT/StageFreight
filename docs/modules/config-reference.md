@@ -18,6 +18,7 @@
 - [`manifest`](#config-manifest)
 - [`release`](#config-release)
 - [`lifecycle`](#config-lifecycle)
+- [`gitops`](#config-gitops)
 - [`glossary`](#config-glossary)
 - [`presentation`](#config-presentation)
 - [`tag`](#config-tag)
@@ -478,6 +479,18 @@ commit:
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `mode` | `mode` | string | Yes | — | string value |
+
+---
+
+<a id="config-gitops" name="config-gitops"></a>
+### gitops
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `backend` | `backend` | string | Yes | — | string value |
+| `name` | `cluster.name` | string | Yes | — | string value |
+| `server` | `cluster.server` | string | Yes | — | string value |
+| `audience` | `oidc.audience` | string | Yes | — | string value |
 
 ---
 
