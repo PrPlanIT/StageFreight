@@ -65,6 +65,9 @@ type Config struct {
 	// Lifecycle defines the repository lifecycle mode (image, gitops).
 	Lifecycle LifecycleConfig `yaml:"lifecycle"`
 
+	// GitOps defines configuration for the gitops lifecycle mode.
+	GitOps GitOpsConfig `yaml:"gitops"`
+
 	// Glossary defines the repo's shared change-language model.
 	// Consumed by commit authoring, tag planning, and release rendering.
 	Glossary GlossaryConfig `yaml:"glossary"`
@@ -128,6 +131,7 @@ func defaults() *Config {
 		Docs:       DefaultDocsConfig(),
 		Manifest:     DefaultManifestConfig(),
 		Release:      DefaultReleaseConfig(),
+		GitOps:       DefaultGitOpsConfig(),
 		Glossary:     DefaultGlossaryConfig(),
 		Presentation: DefaultPresentationConfig(),
 		Tag:          DefaultTagConfig(),

@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/gitops"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/runtime"
 )
 
 var gitopsCmd = &cobra.Command{
@@ -215,85 +217,76 @@ func runGitopsReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	graph, err := gitops.DiscoverFluxGraph(rootDir)
-	if err != nil {
-		return fmt.Errorf("discovering flux graph: %w", err)
+	// Build runtime context — CLI is a thin shell, runtime owns orchestration.
+	ciCtx := ci.ResolveContext()
+	rctx := &runtime.RuntimeContext{
+		CI:       ciCtx,
+		Invoker:  runtime.DetectInvoker(ciCtx),
+		RepoRoot: rootDir,
+		DryRun:   reconcileDry,
 	}
 
-	var reconcileSet []gitops.KustomizationKey
-
-	if reconcileOnly != "" {
-		// Parse ns/name
-		parts := strings.SplitN(reconcileOnly, "/", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("--only requires ns/name format, got %q", reconcileOnly)
-		}
-		key := gitops.KustomizationKey{Namespace: parts[0], Name: parts[1]}
-		if _, ok := graph.Kustomizations[key]; !ok {
-			return fmt.Errorf("kustomization %s not found in graph", key)
-		}
-		reconcileSet = []gitops.KustomizationKey{key}
-	} else if reconcileAll {
-		for k := range graph.Kustomizations {
-			reconcileSet = append(reconcileSet, k)
-		}
-		reconcileSet = gitops.TopoSort(graph, reconcileSet)
-	} else {
-		// Impact-derived
-		files, err := gitops.GetChangedFiles(rootDir, impactBase, impactHead)
-		if err != nil {
-			return fmt.Errorf("getting changed files: %w", err)
-		}
-		if len(files) == 0 {
-			fmt.Println("No changed files — nothing to reconcile.")
-			return nil
-		}
-		impact := gitops.ComputeImpact(graph, files)
-		if len(impact.ReconcileSet) == 0 {
-			fmt.Println("No affected kustomizations — nothing to reconcile.")
-			return nil
-		}
-		reconcileSet = impact.ReconcileSet
+	// RunLifecycle: Resolve → Validate → Prepare → Plan → Execute → Cleanup.
+	if err := runtime.RunLifecycle(cmd.Context(), cfg, rctx); err != nil {
+		return err
 	}
 
-	// Execute
+	// Report phase — runtime returns structured data, CLI renders it.
+	plan := rctx.Plan()
+	result := rctx.Result()
+
 	w := os.Stdout
 	color := output.UseColor()
 	sec := output.NewSection(w, "Reconcile", time.Since(start), color)
 
-	results := gitops.Reconcile(reconcileSet, reconcileDry)
+	if plan == nil || len(plan.Actions) == 0 {
+		sec.Row("No affected kustomizations — nothing to reconcile.")
+		sec.Close()
+		return nil
+	}
 
 	succeeded := 0
 	failed := 0
-	for i, r := range results {
+
+	for i, action := range plan.Actions {
 		status := "success"
 		suffix := ""
-		if !r.Success {
-			status = "failed"
-			failed++
+
+		if rctx.DryRun {
+			suffix = " (dry-run)"
+		} else if result != nil && i < len(result.Actions) {
+			ar := result.Actions[i]
+			if !ar.Success {
+				status = "failed"
+				failed++
+			} else {
+				succeeded++
+			}
+			if ar.Duration > 0 {
+				suffix = fmt.Sprintf(" (%s)", ar.Duration.Truncate(100*time.Millisecond))
+			}
 		} else {
 			succeeded++
 		}
-		if r.Duration > 0 {
-			suffix = fmt.Sprintf(" (%s)", r.Duration.Truncate(100*time.Millisecond))
-		}
-		if reconcileDry {
-			suffix = " (dry-run)"
-		}
-		label := fmt.Sprintf("[%d/%d] %s/%s", i+1, len(results), r.Namespace, r.Kustomization)
+
+		label := fmt.Sprintf("[%d/%d] %s", i+1, len(plan.Actions), action.Name)
 		output.RowStatus(sec, label, suffix, status, color)
 
-		if !r.Success && r.Message != "" {
-			fmt.Fprintf(w, "    │   %s\n", r.Message)
+		if !rctx.DryRun && result != nil && i < len(result.Actions) && !result.Actions[i].Success && result.Actions[i].Message != "" {
+			fmt.Fprintf(w, "    │   %s\n", result.Actions[i].Message)
 		}
 	}
 
 	sec.Separator()
-	sec.Row("%d/%d succeeded", succeeded, len(results))
+	if rctx.DryRun {
+		sec.Row("%d actions planned (dry-run)", len(plan.Actions))
+	} else {
+		sec.Row("%d/%d succeeded", succeeded, len(plan.Actions))
+	}
 	sec.Close()
 
 	if failed > 0 {
-		return fmt.Errorf("%d/%d reconciliations failed", failed, len(results))
+		return fmt.Errorf("%d/%d reconciliations failed", failed, len(plan.Actions))
 	}
 
 	return nil

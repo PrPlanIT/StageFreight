@@ -82,7 +82,20 @@ RUN wget -qO /usr/local/bin/osv-scanner \
       "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" && \
     chmod +x /usr/local/bin/osv-scanner
 
-ENV COSIGN_VERSION=3.0.5
+ENV FLUX_VERSION=2.5.1 \
+    KUBECTL_VERSION=1.34.0 \
+    COSIGN_VERSION=3.0.5
+
+# Install flux CLI (GitOps reconciliation)
+RUN wget -qO /tmp/flux.tar.gz \
+      "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" && \
+    tar -xzf /tmp/flux.tar.gz -C /usr/local/bin flux && \
+    rm /tmp/flux.tar.gz
+
+# Install kubectl (Kubernetes API client)
+RUN wget -qO /usr/local/bin/kubectl \
+      "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+    chmod +x /usr/local/bin/kubectl
 
 # Install cosign (container signing and verification)
 RUN wget -qO /usr/local/bin/cosign \
