@@ -68,6 +68,9 @@ type Config struct {
 	// GitOps defines configuration for the gitops lifecycle mode.
 	GitOps GitOpsConfig `yaml:"gitops"`
 
+	// Docker defines configuration for the docker lifecycle mode.
+	Docker DockerLifecycleConfig `yaml:"docker"`
+
 	// Glossary defines the repo's shared change-language model.
 	// Consumed by commit authoring, tag planning, and release rendering.
 	Glossary GlossaryConfig `yaml:"glossary"`
@@ -132,6 +135,7 @@ func defaults() *Config {
 		Manifest:     DefaultManifestConfig(),
 		Release:      DefaultReleaseConfig(),
 		GitOps:       DefaultGitOpsConfig(),
+		Docker:       DefaultDockerLifecycleConfig(),
 		Glossary:     DefaultGlossaryConfig(),
 		Presentation: DefaultPresentationConfig(),
 		Tag:          DefaultTagConfig(),

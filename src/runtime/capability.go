@@ -37,15 +37,16 @@ func DeriveRequired(cfg *config.Config, rctx *RuntimeContext) []Capability {
 	// All backends must support plan/execute separation.
 	required = append(required, CapPlanExecute)
 
-	// GitOps mode requires reconciliation.
-	if cfg.Lifecycle.Mode == "gitops" {
+	// Mode-specific requirements.
+	switch cfg.Lifecycle.Mode {
+	case "gitops":
 		required = append(required, CapReconcile)
 		required = append(required, CapImpactAnalysis)
-	}
-
-	// Cluster config present → cluster auth required.
-	if cfg.GitOps.Cluster.Name != "" {
-		required = append(required, CapClusterAuth)
+		if cfg.GitOps.Cluster.Name != "" {
+			required = append(required, CapClusterAuth)
+		}
+	case "docker":
+		required = append(required, CapReconcile)
 	}
 
 	// Dry-run requested → backend must support it.
