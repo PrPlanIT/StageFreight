@@ -295,6 +295,7 @@ Content composition for file targets. Composes badges, shields, text, includes, 
 | `label` | `items.label` | string | No | — | string value |
 | `style` | `items.style` | string | No | — | string value |
 | `logo` | `items.logo` | string | No | — | string value |
+| `catalog` | `items.catalog` | string | No | — | string value |
 
 **`items.kind` allowed values:** `badge`, `shield`, `text`, `component`, `break`, `include`
 
