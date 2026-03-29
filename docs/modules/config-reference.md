@@ -19,6 +19,7 @@
 - [`release`](#config-release)
 - [`lifecycle`](#config-lifecycle)
 - [`gitops`](#config-gitops)
+- [`docker`](#config-docker)
 - [`glossary`](#config-glossary)
 - [`presentation`](#config-presentation)
 - [`tag`](#config-tag)
@@ -492,6 +493,20 @@ commit:
 | `name` | `cluster.name` | string | Yes | — | string value |
 | `server` | `cluster.server` | string | Yes | — | string value |
 | `audience` | `oidc.audience` | string | Yes | — | string value |
+
+---
+
+<a id="config-docker" name="config-docker"></a>
+### docker
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `backend` | `backend` | string | Yes | — | string value |
+| `source` | `targets.source` | string | Yes | — | string value |
+| `inventory` | `targets.inventory` | string | Yes | — | string value |
+| `groups` | `targets.selector.groups` | []string | Yes | — | []string value |
+| `path` | `iac.path` | string | Yes | — | string value |
+| `provider` | `secrets.provider` | string | Yes | — | string value |
 
 ---
 
