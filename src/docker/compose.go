@@ -157,14 +157,17 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 		}
 
 		meta := DockerPlanMeta{
-			Scope:      stack.Scope,
-			ScopeKind:  stack.ScopeKind,
-			Stack:      stack.Name,
-			Path:       stack.Path,
-			BundleHash: dr.BundleHash,
-			StoredHash: dr.StoredHash,
-			DriftTier:  dr.Tier,
-			DeployKind: stack.DeployKind,
+			Scope:           stack.Scope,
+			ScopeKind:       stack.ScopeKind,
+			Stack:           stack.Name,
+			Path:            stack.Path,
+			BundleHash:      dr.BundleHash,
+			StoredHash:      dr.StoredHash,
+			DriftTier:       dr.Tier,
+			DeployKind:      stack.DeployKind,
+			DriftDetected:   dr.Drifted,
+			DriftReason:     dr.Reason,
+			RequestedAction: action,
 		}
 
 		actions = append(actions, runtime.PlannedAction{
@@ -246,17 +249,32 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 			orphanAction = "down" // degrade prune → down without force
 		}
 
+		// Preserve the original requested action before degradation.
+		requestedOrphanAction := dcfg.Drift.OrphanAction
+		if requestedOrphanAction == "" {
+			requestedOrphanAction = "report"
+		}
+
 		for _, proj := range orphans {
 			order++
 			desc := "orphaned: running but not declared in IaC"
+
+			blockedReason := ""
 			if !allowed {
+				blockedReason = reason
 				desc = fmt.Sprintf("orphaned (blocked: %s)", reason)
+			} else if orphanAction != requestedOrphanAction {
+				blockedReason = "prune degraded to down (confirmation required)"
 			}
 
 			meta := DockerPlanMeta{
-				Scope:     target.Name,
-				ScopeKind: "host",
-				Stack:     proj,
+				Scope:           target.Name,
+				ScopeKind:       "host",
+				Stack:           proj,
+				IsOrphan:        true,
+				RequestedAction: requestedOrphanAction,
+				BlockedReason:   blockedReason,
+				DriftReason:     "not declared in IaC",
 			}
 
 			actions = append(actions, runtime.PlannedAction{

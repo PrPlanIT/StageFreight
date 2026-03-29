@@ -68,6 +68,7 @@ type DeployResult struct {
 
 // DockerPlanMeta is the typed metadata for a Docker plan action.
 // Internally, backends operate on this. Serialized to Metadata map for transport.
+// Carries ALL signals needed for truthful output — no inference from action type.
 type DockerPlanMeta struct {
 	Scope      string
 	ScopeKind  string
@@ -77,19 +78,31 @@ type DockerPlanMeta struct {
 	StoredHash string
 	DriftTier  int
 	DeployKind string
+
+	// Signals for truthful output (not inferred from action).
+	DriftDetected   bool   // true if drift was found (independent of action taken)
+	DriftReason     string // human-readable drift reason
+	IsOrphan        bool   // true if this is an orphaned project
+	RequestedAction string // what policy wanted (before trust/safety gates)
+	BlockedReason   string // structured reason if action was degraded/blocked (empty = allowed)
 }
 
 // ToMetadata serializes to the generic transport map.
 func (m DockerPlanMeta) ToMetadata() map[string]string {
 	return map[string]string{
-		"scope":       m.Scope,
-		"scope_kind":  m.ScopeKind,
-		"stack":       m.Stack,
-		"path":        m.Path,
-		"bundle_hash": m.BundleHash,
-		"stored_hash": m.StoredHash,
-		"drift_tier":  fmt.Sprintf("%d", m.DriftTier),
-		"deploy_kind": m.DeployKind,
+		"scope":            m.Scope,
+		"scope_kind":       m.ScopeKind,
+		"stack":            m.Stack,
+		"path":             m.Path,
+		"bundle_hash":      m.BundleHash,
+		"stored_hash":      m.StoredHash,
+		"drift_tier":       fmt.Sprintf("%d", m.DriftTier),
+		"deploy_kind":      m.DeployKind,
+		"drift_detected":   fmt.Sprintf("%t", m.DriftDetected),
+		"drift_reason":     m.DriftReason,
+		"is_orphan":        fmt.Sprintf("%t", m.IsOrphan),
+		"requested_action": m.RequestedAction,
+		"blocked_reason":   m.BlockedReason,
 	}
 }
 
@@ -102,14 +115,19 @@ func ParseDockerPlanMeta(m map[string]string) DockerPlanMeta {
 		}
 	}
 	return DockerPlanMeta{
-		Scope:      m["scope"],
-		ScopeKind:  m["scope_kind"],
-		Stack:      m["stack"],
-		Path:       m["path"],
-		BundleHash: m["bundle_hash"],
-		StoredHash: m["stored_hash"],
-		DriftTier:  tier,
-		DeployKind: m["deploy_kind"],
+		Scope:           m["scope"],
+		ScopeKind:       m["scope_kind"],
+		Stack:           m["stack"],
+		Path:            m["path"],
+		BundleHash:      m["bundle_hash"],
+		StoredHash:      m["stored_hash"],
+		DriftTier:       tier,
+		DeployKind:      m["deploy_kind"],
+		DriftDetected:   m["drift_detected"] == "true",
+		DriftReason:     m["drift_reason"],
+		IsOrphan:        m["is_orphan"] == "true",
+		RequestedAction: m["requested_action"],
+		BlockedReason:   m["blocked_reason"],
 	}
 }
 
