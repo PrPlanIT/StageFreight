@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/gitops"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -70,8 +72,8 @@ func Discover(ctx context.Context, catalogPath, repoRoot string) (*DiscoveryResu
 		_ = err
 	}
 
-	// Phase 4: Resolve declared sources from Flux graph
-	fluxSources := resolveFluxSources(ctx, config, groups, repoRoot)
+	// Phase 4: Resolve declared sources from Flux graph (local repo walk)
+	fluxSources := resolveFluxSources(repoRoot, groups)
 
 	// Phase 5: Build AppRecords, classify, apply catalog
 	resolver := NewCategoryResolver(nil)
@@ -476,7 +478,7 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 
 		// Hosts (deduplicated, sorted) + Exposure from gateway parentRefs
 		rec.Hosts = dedupeHosts(g.routes)
-		rec.Exposure, rec.Gateway = classifyExposure(g.routes)
+		rec.Exposure, rec.Gateway = classifyExposure(g.routes, catalog.Exposure)
 
 		// Replicas + Status
 		var totalReady, totalDesired int32
@@ -669,19 +671,20 @@ func dedupeHosts(routes []ExposureRef) []string {
 }
 
 // classifyExposure determines exposure level from route gateway parentRefs.
-// Uses built-in gateway classification. Configurable via catalog in the future.
-func classifyExposure(routes []ExposureRef) (ExposureLevel, string) {
+// Gateway classification comes from catalog config — not hardcoded.
+func classifyExposure(routes []ExposureRef, exposureCfg ExposureConfig) (ExposureLevel, string) {
 	if len(routes) == 0 {
 		return ExposureCluster, ""
 	}
 
-	// Built-in gateway classification (configurable via catalog later).
-	internetGateways := map[string]bool{
-		"phloem-gateway":        true,
-		"cell-membrane-gateway": true,
+	// Build lookup from catalog config.
+	internetGateways := map[string]bool{}
+	for _, g := range exposureCfg.Internet {
+		internetGateways[g] = true
 	}
-	intranetGateways := map[string]bool{
-		"xylem-gateway": true,
+	intranetGateways := map[string]bool{}
+	for _, g := range exposureCfg.Intranet {
+		intranetGateways[g] = true
 	}
 
 	bestLevel := ExposureCluster
@@ -711,46 +714,118 @@ func classifyExposure(routes []ExposureRef) (ExposureLevel, string) {
 	return bestLevel, bestGateway
 }
 
-// resolveFluxSources queries Flux Kustomizations from the cluster and matches
+// resolveFluxSources walks the repo to discover Flux Kustomizations and matches
 // them to apps by (namespace + identity). Returns sources keyed by AppKey.
+// Uses gitops.DiscoverFluxGraph — local, proven, authoritative.
 // Only includes authoritative matches — never guesses.
-func resolveFluxSources(ctx context.Context, config *rest.Config, groups map[AppKey]*appGroup, repoRoot string) map[AppKey][]DeclaredSource {
+func resolveFluxSources(repoRoot string, groups map[AppKey]*appGroup) map[AppKey][]DeclaredSource {
 	sources := map[AppKey][]DeclaredSource{}
 
-	// Query Flux Kustomizations from cluster.
-	// Uses dynamic client since flux CRDs may not be installed.
-	type fluxKustomization struct {
-		Metadata struct {
-			Name      string `json:"name"`
-			Namespace string `json:"namespace"`
-		} `json:"metadata"`
-		Spec struct {
-			Path      string `json:"path"`
-			DependsOn []struct {
-				Name      string `json:"name"`
-				Namespace string `json:"namespace"`
-			} `json:"dependsOn"`
-		} `json:"spec"`
+	if repoRoot == "" {
+		return sources
 	}
 
-	// Use kubectl-style discovery: list kustomizations via REST.
-	// This avoids importing the full flux client library.
-	restClient, err := rest.RESTClientFor(config)
+	graph, err := gitops.DiscoverFluxGraph(repoRoot)
 	if err != nil {
-		return sources // can't query, return empty
+		return sources // can't discover, return empty (not fatal)
 	}
-	_ = restClient // placeholder — real implementation uses dynamic client
 
-	// For now, use the gitops.DiscoverFluxGraph approach: walk the repo locally.
-	// This is the recommended approach from Phase 2 plan:
-	// "use gitops.DiscoverFluxGraph locally — already implemented, proven, authoritative"
-	//
-	// TODO: Import and use gitops.DiscoverFluxGraph when the import path is wired.
-	// For now, return empty sources — Phase 2 source resolution is structurally ready
-	// but requires the gitops package import which may cause circular dependency.
-	// Will resolve in next iteration.
+	// Build app lookup: namespace → list of app identities
+	type appRef struct {
+		key      AppKey
+		identity string
+	}
+	appsByNS := map[string][]appRef{}
+	for key := range groups {
+		appsByNS[key.Namespace] = append(appsByNS[key.Namespace], appRef{key: key, identity: key.Identity})
+	}
+
+	// Match Kustomizations to apps by (namespace + identity).
+	// Identity match priority:
+	//   1. Exact: kustomization.name == app.identity
+	//   2. Path segment: last segment of spec.path == app.identity
+	//   3. No match → no source (never guess)
+	for kKey, kNode := range graph.Kustomizations {
+		ns := kKey.Namespace
+		apps, ok := appsByNS[ns]
+		if !ok {
+			continue
+		}
+
+		// Try to match this kustomization to an app
+		pathSegment := lastPathSegment(kNode.Path)
+
+		for _, app := range apps {
+			matched := false
+			// Priority 1: exact name match
+			if strings.EqualFold(kKey.Name, app.identity) {
+				matched = true
+			}
+			// Priority 2: path segment match
+			if !matched && pathSegment != "" && strings.EqualFold(pathSegment, app.identity) {
+				matched = true
+			}
+
+			if !matched {
+				continue
+			}
+
+			// Authoritative match — add source
+			src := DeclaredSource{
+				Kind:     "kustomization",
+				RepoPath: kNode.Path,
+				Relation: SourceRelationDeploys,
+				Primary:  true,
+			}
+
+			// Check for duplicates (same app might match multiple kustomizations)
+			existing := sources[app.key]
+			duplicate := false
+			for _, e := range existing {
+				if e.RepoPath == src.RepoPath {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				// If already has a primary, demote this one
+				if len(existing) > 0 {
+					src.Primary = false
+					// Use shorter path as primary (usually the overlay root)
+					if len(src.RepoPath) < len(existing[0].RepoPath) {
+						existing[0].Primary = false
+						src.Primary = true
+					}
+				}
+				sources[app.key] = append(sources[app.key], src)
+			}
+
+			// Resolve dependsOn as secondary sources
+			for _, dep := range kNode.DependsOn {
+				depNode, ok := graph.Kustomizations[dep]
+				if !ok || depNode.Path == "" {
+					continue
+				}
+				depSrc := DeclaredSource{
+					Kind:     "kustomization",
+					RepoPath: depNode.Path,
+					Relation: SourceRelationDependsOn,
+				}
+				sources[app.key] = append(sources[app.key], depSrc)
+			}
+		}
+	}
 
 	return sources
+}
+
+// lastPathSegment returns the last directory segment of a path.
+func lastPathSegment(path string) string {
+	path = strings.TrimRight(path, "/")
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 // sortRecords sorts by category (predefined order) then name (alpha, lowercase).

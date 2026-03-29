@@ -201,8 +201,9 @@ func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
 func renderSourceLinks(r AppRecord) string {
 	var links []string
 
-	// [open] — first public hostname (if internet-exposed)
-	if r.Exposure == ExposureInternet && len(r.Hosts) > 0 {
+	// [open] — first hostname (for any exposed app, not just internet).
+	// Exposure icon communicates reachability; link enables navigation.
+	if len(r.Hosts) > 0 {
 		links = append(links, fmt.Sprintf("[open](https://%s)", r.Hosts[0]))
 	}
 

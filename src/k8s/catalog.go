@@ -11,8 +11,16 @@ import (
 // Catalog holds human-curated metadata that augments cluster discovery.
 // Cluster tells you what exists; catalog tells you how to describe it.
 type Catalog struct {
-	Apps      []CatalogApp      `yaml:"apps"`
-	Graveyard []GraveyardEntry  `yaml:"graveyard"`
+	Apps      []CatalogApp       `yaml:"apps"`
+	Graveyard []GraveyardEntry   `yaml:"graveyard"`
+	Exposure  ExposureConfig     `yaml:"exposure"`
+}
+
+// ExposureConfig maps gateway names to exposure levels.
+// Configurable per-repo — not hardcoded to any cluster's gateway architecture.
+type ExposureConfig struct {
+	Internet []string `yaml:"internet"` // gateway names that mean internet-facing
+	Intranet []string `yaml:"intranet"` // gateway names that mean internal only
 }
 
 // CatalogApp defines metadata overrides for a discovered application.
