@@ -23,5 +23,9 @@ type SecretsProvider interface {
 // It does NOT know compose lifecycle semantics — it executes steps.
 type HostTransport interface {
 	ExecuteAction(ctx context.Context, action StackAction) (ExecResult, error)
+	// InspectStack queries runtime state for a compose project.
+	// Read-only. Returns structured runtime facts, not CLI output.
+	// Selects containers by Compose project label, not name.
+	InspectStack(ctx context.Context, project string) (StackInspection, error)
 	Close() error
 }

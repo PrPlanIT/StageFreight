@@ -152,6 +152,24 @@ type ExecResult struct {
 	Duration time.Duration
 }
 
+// StackInspection is the canonical runtime state of a compose project.
+// Reduced model — only the signals needed for drift detection.
+type StackInspection struct {
+	Project    string
+	Services   []ServiceRuntimeState
+}
+
+// ServiceRuntimeState is the canonical runtime state of a single compose service.
+// Primary Tier 2 signal: ConfigHash.
+type ServiceRuntimeState struct {
+	Service     string
+	ConfigHash  string // com.docker.compose.config-hash label
+	Image       string
+	Running     bool
+	State       string // running, exited, dead, etc.
+	ContainerID string
+}
+
 // HashStamps tracks last-known hashes for drift detection.
 // Stored in .stagefreight-state.yml (git-tracked).
 type HashStamps struct {

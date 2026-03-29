@@ -95,6 +95,18 @@ func (l *LocalTransport) execLocalInDir(ctx context.Context, dir string, cmd str
 	return r
 }
 
+// InspectStack queries running containers for a compose project by label.
+// Thin: lists container IDs, delegates parsing to inspect.go.
+func (l *LocalTransport) InspectStack(ctx context.Context, project string) (StackInspection, error) {
+	filter := fmt.Sprintf("label=com.docker.compose.project=%s", project)
+	psResult := l.execLocal(ctx, "docker", "ps", "-aq", "--filter", filter)
+	if !psResult.Success || strings.TrimSpace(psResult.Stdout) == "" {
+		return StackInspection{Project: project}, nil
+	}
+	ids := strings.Fields(strings.TrimSpace(psResult.Stdout))
+	return inspectLocalContainers(ctx, l, project, ids)
+}
+
 func (l *LocalTransport) Close() error { return nil }
 
 // SSHTransport executes stack actions on a remote host via SSH.
@@ -177,6 +189,18 @@ func (s *SSHTransport) ExecuteAction(ctx context.Context, action StackAction) (E
 
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+// InspectStack queries running containers for a compose project on the remote host.
+// Thin: lists container IDs via SSH, delegates parsing to inspect.go.
+func (s *SSHTransport) InspectStack(ctx context.Context, project string) (StackInspection, error) {
+	filter := fmt.Sprintf("label=com.docker.compose.project=%s", project)
+	psResult := s.sshExecResult(ctx, "docker", "ps", "-aq", "--filter", filter)
+	if !psResult.Success || strings.TrimSpace(psResult.Stdout) == "" {
+		return StackInspection{Project: project}, nil
+	}
+	ids := strings.Fields(strings.TrimSpace(psResult.Stdout))
+	return inspectRemoteContainers(ctx, s, project, ids)
 }
 
 func (s *SSHTransport) sshExec(ctx context.Context, cmd string, args ...string) (ExecResult, error) {

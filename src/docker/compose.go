@@ -145,7 +145,9 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 			continue
 		}
 
-		dr := DetectDrift(stack, rctx.RepoRoot, stamps, c.secrets)
+		// Resolve transport for Tier 2 drift check (may be nil for read-only).
+		transport := c.resolveTransportForStack(DockerPlanMeta{Scope: stack.Scope})
+		dr := DetectDrift(ctx, stack, rctx.RepoRoot, stamps, c.secrets, transport)
 		order++
 
 		action := "noop"
