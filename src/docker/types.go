@@ -5,6 +5,7 @@ package docker
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -95,7 +96,9 @@ func (m DockerPlanMeta) ToMetadata() map[string]string {
 func ParseDockerPlanMeta(m map[string]string) DockerPlanMeta {
 	tier := 0
 	if v, ok := m["drift_tier"]; ok {
-		fmt.Sscanf(v, "%d", &tier)
+		if parsed, err := strconv.Atoi(v); err == nil {
+			tier = parsed
+		}
 	}
 	return DockerPlanMeta{
 		Scope:      m["scope"],

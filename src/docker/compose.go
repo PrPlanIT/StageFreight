@@ -90,10 +90,20 @@ func (c *ComposeBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *
 		return fmt.Errorf("no targets resolved from selector groups %v", dcfg.Targets.Selector.Groups)
 	}
 
+	// Resolve transports for each target.
+	for i := range targets {
+		targets[i].Transport = ResolveTransport(targets[i])
+	}
 	c.targets = targets
 
-	// TODO: establish SSH transports for remote hosts
-	// For now, transport is deferred until Execute needs it
+	// Register transport cleanup.
+	rctx.Resolved.AddCleanup(func() {
+		for _, t := range c.targets {
+			if t.Transport != nil {
+				t.Transport.Close()
+			}
+		}
+	})
 
 	return nil
 }
@@ -201,8 +211,12 @@ func (c *ComposeBackend) Execute(ctx context.Context, plan *runtime.LifecyclePla
 			continue
 		}
 
+		// Resolve transport for this stack's target host.
+		meta := ParseDockerPlanMeta(pa.Metadata)
+		transport := c.resolveTransportForStack(meta)
+
 		start := time.Now()
-		err := deployStack(ctx, *stack, rctx.RepoRoot, c.secrets)
+		err := deployStack(ctx, *stack, rctx.RepoRoot, c.secrets, transport)
 		ar := runtime.ActionResult{
 			Name:     pa.Name,
 			Duration: time.Since(start),
@@ -239,8 +253,20 @@ func (c *ComposeBackend) Cleanup(rctx *runtime.RuntimeContext) {
 	// Transport cleanup via rctx.Resolved.Cleanup()
 }
 
+// resolveTransportForStack finds the transport for a stack's scope host.
+func (c *ComposeBackend) resolveTransportForStack(meta DockerPlanMeta) HostTransport {
+	for _, t := range c.targets {
+		if t.Name == meta.Scope {
+			return t.Transport
+		}
+	}
+	// Fallback: local transport (scope might be a group, not a host)
+	return &LocalTransport{}
+}
+
 // deployStack handles secret decryption, pre/post scripts, and docker compose up.
-func deployStack(ctx context.Context, stack StackInfo, rootDir string, secrets SecretsProvider) error {
+// All execution goes through the transport — never direct exec.Command.
+func deployStack(ctx context.Context, stack StackInfo, rootDir string, secrets SecretsProvider, transport HostTransport) error {
 	stackDir := filepath.Join(rootDir, stack.Path)
 
 	// Create tmpfs staging for decrypted secrets
@@ -268,46 +294,32 @@ func deployStack(ctx context.Context, stack StackInfo, rootDir string, secrets S
 		}
 	}
 
-	// Run pre.sh if present
+	// Run pre.sh if present — through transport.
 	if containsScript(stack.Scripts, "pre.sh") {
-		if err := runScript(ctx, stackDir, "pre.sh"); err != nil {
-			return fmt.Errorf("pre.sh: %w", err)
+		_, stderr, err := transport.Exec(ctx, "bash", filepath.Join(stackDir, "pre.sh"))
+		if err != nil {
+			return fmt.Errorf("pre.sh: %s", strings.TrimSpace(string(stderr)))
 		}
 	}
 
-	// docker compose up -d
+	// docker compose up -d — through transport.
 	args := []string{"compose", "-f", filepath.Join(stackDir, stack.ComposeFile)}
 	args = append(args, envArgs...)
 	args = append(args, "-p", stack.Name, "up", "-d")
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Dir = stackDir
-	// Strict environment isolation (from DD-UI)
-	cmd.Env = minimalEnv()
-	out, err := cmd.CombinedOutput()
+	_, stderr, err := transport.Exec(ctx, "docker", args...)
 	if err != nil {
-		return fmt.Errorf("docker compose up: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("docker compose up: %s", strings.TrimSpace(string(stderr)))
 	}
 
-	// Run post.sh if present
+	// Run post.sh if present — through transport.
 	if containsScript(stack.Scripts, "post.sh") {
-		if err := runScript(ctx, stackDir, "post.sh"); err != nil {
-			return fmt.Errorf("post.sh: %w", err)
+		_, stderr, err := transport.Exec(ctx, "bash", filepath.Join(stackDir, "post.sh"))
+		if err != nil {
+			return fmt.Errorf("post.sh: %s", strings.TrimSpace(string(stderr)))
 		}
 	}
 
-	return nil
-}
-
-// runScript executes a deploy lifecycle script.
-func runScript(ctx context.Context, dir, name string) error {
-	cmd := exec.CommandContext(ctx, "bash", filepath.Join(dir, name))
-	cmd.Dir = dir
-	cmd.Env = minimalEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %s", name, strings.TrimSpace(string(out)))
-	}
 	return nil
 }
 
