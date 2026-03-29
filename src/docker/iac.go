@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -157,31 +158,85 @@ func hasScripts(dir string) bool {
 	return false
 }
 
-// ComputeBundleHash computes a deterministic SHA256 hash of all files in a stack.
-// Files are sorted before hashing for determinism.
-func ComputeBundleHash(stack StackInfo, rootDir string) string {
+// ComputeBundleHash computes a deterministic SHA256 hash of a stack's rendered desired state.
+// SOPS-encrypted files are decrypted in-memory before hashing — never persisted.
+// Env files are normalized (sorted keys, trimmed whitespace, normalized line endings)
+// for deterministic drift detection. Files are sorted before hashing.
+//
+// Pipeline: IaC → [SOPS decrypt] → normalize → hash → discard
+func ComputeBundleHash(stack StackInfo, rootDir string, secrets SecretsProvider) string {
 	h := sha256.New()
 	stackDir := filepath.Join(rootDir, stack.Path)
 
-	// Collect all relevant files, sorted
-	var files []string
+	// Build ordered file list with encryption metadata
+	type hashFile struct {
+		name      string
+		encrypted bool
+		fullPath  string
+	}
+	var files []hashFile
 	if stack.ComposeFile != "" {
-		files = append(files, stack.ComposeFile)
+		files = append(files, hashFile{name: stack.ComposeFile, fullPath: filepath.Join(stackDir, stack.ComposeFile)})
 	}
 	for _, ef := range stack.EnvFiles {
-		files = append(files, ef.Path)
+		files = append(files, hashFile{name: ef.Path, encrypted: ef.Encrypted, fullPath: ef.FullPath})
 	}
-	files = append(files, stack.Scripts...)
-	sort.Strings(files)
+	for _, s := range stack.Scripts {
+		files = append(files, hashFile{name: s, fullPath: filepath.Join(stackDir, s)})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
 
 	for _, f := range files {
-		data, err := os.ReadFile(filepath.Join(stackDir, f))
+		var data []byte
+		var err error
+
+		if f.encrypted && secrets != nil {
+			// Decrypt in-memory — hash rendered desired state, not transport encoding.
+			// Decrypted content is never persisted, logged, or cached.
+			data, err = secrets.Decrypt(context.Background(), f.fullPath)
+		} else {
+			data, err = os.ReadFile(f.fullPath)
+		}
 		if err != nil {
 			continue
 		}
-		h.Write([]byte(f + "\n"))
+
+		// Normalize env files for deterministic hashing:
+		// sort lines, trim whitespace, normalize line endings.
+		if isEnvFile(f.name) {
+			data = normalizeEnv(data)
+		}
+
+		h.Write([]byte(f.name + "\n"))
 		h.Write(data)
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// normalizeEnv sorts env file lines and normalizes whitespace for deterministic hashing.
+// Blank lines and comments are preserved but trimmed. Key=value pairs are sorted.
+func normalizeEnv(data []byte) []byte {
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+
+	// Separate comments/blanks from key=value pairs
+	var kvLines, otherLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			otherLines = append(otherLines, trimmed)
+		} else {
+			kvLines = append(kvLines, trimmed)
+		}
+	}
+	sort.Strings(kvLines)
+
+	// Rejoin: comments first, then sorted kv pairs
+	all := append(otherLines, kvLines...)
+	return []byte(strings.Join(all, "\n") + "\n")
+}
+
+// isEnvFile returns true if the filename looks like an env file.
+func isEnvFile(name string) bool {
+	return name == ".env" || strings.HasSuffix(name, ".env")
 }

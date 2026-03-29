@@ -134,7 +134,7 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 			continue
 		}
 
-		dr := DetectDrift(stack, rctx.RepoRoot, stamps)
+		dr := DetectDrift(stack, rctx.RepoRoot, stamps, c.secrets)
 		if dr.Drifted {
 			order++
 			actions = append(actions, runtime.PlannedAction{

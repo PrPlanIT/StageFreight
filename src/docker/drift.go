@@ -11,9 +11,9 @@ import (
 // DetectDrift computes drift state for a stack against stored hash stamps.
 // Tier 1: bundle hash comparison. Tier 2 (container config hash) is deferred
 // until transport is wired for remote Docker API queries.
-func DetectDrift(stack StackInfo, rootDir string, stamps *HashStamps) DriftResult {
+func DetectDrift(stack StackInfo, rootDir string, stamps *HashStamps, secrets SecretsProvider) DriftResult {
 	key := stack.Scope + "/" + stack.Name
-	currentHash := ComputeBundleHash(stack, rootDir)
+	currentHash := ComputeBundleHash(stack, rootDir, secrets)
 
 	stored, ok := stamps.Stacks[key]
 	if !ok {
