@@ -114,6 +114,12 @@ type NarratorItem struct {
 
 	// Logo is a presentation override for shields.io logo name.
 	Logo string `yaml:"logo,omitempty"`
+
+	// ── kind: k8s-inventory ──────────────────────────────────────────────
+
+	// CatalogPath is the path to a catalog metadata file (kind: k8s-inventory).
+	// Optional — provides descriptions, friendly names, graveyard, tier overrides.
+	CatalogPath string `yaml:"catalog,omitempty"`
 }
 
 // HasGeneration returns true if this badge item should trigger SVG generation.

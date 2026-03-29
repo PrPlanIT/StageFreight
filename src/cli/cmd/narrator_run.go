@@ -354,6 +354,16 @@ func buildModulesV2(appCfg *config.Config, items []config.NarratorItem, linkBase
 				})
 			}
 
+		case "k8s-inventory":
+			sha := ""
+			if vi != nil {
+				sha = vi.SHA
+			}
+			modules = append(modules, &narrator.K8sInventoryModule{
+				CatalogPath: item.CatalogPath,
+				CommitSHA:   sha,
+			})
+
 		case "props":
 			def, ok := props.Get(item.Type)
 			if !ok {
