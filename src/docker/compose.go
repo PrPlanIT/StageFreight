@@ -144,21 +144,23 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 			drifted = append(drifted, dr)
 		}
 
+		meta := DockerPlanMeta{
+			Scope:      stack.Scope,
+			ScopeKind:  stack.ScopeKind,
+			Stack:      stack.Name,
+			Path:       stack.Path,
+			BundleHash: dr.BundleHash,
+			StoredHash: dr.StoredHash,
+			DriftTier:  dr.Tier,
+			DeployKind: stack.DeployKind,
+		}
+
 		actions = append(actions, runtime.PlannedAction{
 			Name:        dr.Stack,
 			Description: dr.Reason,
 			Order:       order,
 			Action:      action,
-			Metadata: map[string]string{
-				"scope":       stack.Scope,
-				"scope_kind":  stack.ScopeKind,
-				"stack":       stack.Name,
-				"path":        stack.Path,
-				"bundle_hash": dr.BundleHash,
-				"stored_hash": dr.StoredHash,
-				"drift_tier":  fmt.Sprintf("%d", dr.Tier),
-				"deploy_kind": stack.DeployKind,
-			},
+			Metadata:    meta.ToMetadata(),
 		})
 	}
 	c.drifted = drifted
@@ -212,8 +214,9 @@ func (c *ComposeBackend) Execute(ctx context.Context, plan *runtime.LifecyclePla
 		} else {
 			ar.Success = true
 			ar.Message = "deployed"
-			// Update hash stamps from plan metadata (not rediscovered)
-			bundleHash := pa.Metadata["bundle_hash"]
+			// Update hash stamps from typed plan metadata (not rediscovered)
+			meta := ParseDockerPlanMeta(pa.Metadata)
+			bundleHash := meta.BundleHash
 			c.stamps.Stacks[pa.Name] = StackStamp{
 				BundleHash: bundleHash,
 				DeployedAt: time.Now(),

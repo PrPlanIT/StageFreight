@@ -3,7 +3,10 @@
 // This is Docker lifecycle orchestration, not a docker-compose wrapper.
 package docker
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // TargetSelector declares which hosts are eligible for reconciliation.
 // Group-based initially (existing Ansible groups). Extensible later
@@ -59,6 +62,51 @@ type DeployResult struct {
 	Success  bool
 	Duration time.Duration
 	Message  string
+}
+
+// DockerPlanMeta is the typed metadata for a Docker plan action.
+// Internally, backends operate on this. Serialized to Metadata map for transport.
+type DockerPlanMeta struct {
+	Scope      string
+	ScopeKind  string
+	Stack      string
+	Path       string
+	BundleHash string
+	StoredHash string
+	DriftTier  int
+	DeployKind string
+}
+
+// ToMetadata serializes to the generic transport map.
+func (m DockerPlanMeta) ToMetadata() map[string]string {
+	return map[string]string{
+		"scope":       m.Scope,
+		"scope_kind":  m.ScopeKind,
+		"stack":       m.Stack,
+		"path":        m.Path,
+		"bundle_hash": m.BundleHash,
+		"stored_hash": m.StoredHash,
+		"drift_tier":  fmt.Sprintf("%d", m.DriftTier),
+		"deploy_kind": m.DeployKind,
+	}
+}
+
+// ParseDockerPlanMeta deserializes from the generic transport map.
+func ParseDockerPlanMeta(m map[string]string) DockerPlanMeta {
+	tier := 0
+	if v, ok := m["drift_tier"]; ok {
+		fmt.Sscanf(v, "%d", &tier)
+	}
+	return DockerPlanMeta{
+		Scope:      m["scope"],
+		ScopeKind:  m["scope_kind"],
+		Stack:      m["stack"],
+		Path:       m["path"],
+		BundleHash: m["bundle_hash"],
+		StoredHash: m["stored_hash"],
+		DriftTier:  tier,
+		DeployKind: m["deploy_kind"],
+	}
 }
 
 // HashStamps tracks last-known hashes for drift detection.

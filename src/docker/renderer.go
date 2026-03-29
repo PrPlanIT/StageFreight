@@ -31,7 +31,8 @@ func RenderPlan(w io.Writer, plan *runtime.LifecyclePlan, elapsed time.Duration,
 	var order []string
 
 	for _, a := range plan.Actions {
-		scope := a.Metadata["scope"]
+		meta := ParseDockerPlanMeta(a.Metadata)
+		scope := meta.Scope
 		if scope == "" {
 			scope = "unknown"
 		}
@@ -39,7 +40,7 @@ func RenderPlan(w io.Writer, plan *runtime.LifecyclePlan, elapsed time.Duration,
 		if !ok {
 			g = &scopeGroup{
 				scope:     scope,
-				scopeKind: a.Metadata["scope_kind"],
+				scopeKind: meta.ScopeKind,
 			}
 			groups[scope] = g
 			order = append(order, scope)
@@ -87,7 +88,8 @@ func RenderPlan(w io.Writer, plan *runtime.LifecyclePlan, elapsed time.Duration,
 				actionLabel = "error"
 			}
 
-			label := fmt.Sprintf("  %s", a.Metadata["stack"])
+			actionMeta := ParseDockerPlanMeta(a.Metadata)
+			label := fmt.Sprintf("  %s", actionMeta.Stack)
 			suffix := ""
 			if plan.DryRun {
 				suffix = " (dry-run)"
