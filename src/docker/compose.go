@@ -198,7 +198,15 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 		}
 		runningProjects, listErr := target.Transport.ListProjects(ctx)
 		if listErr != nil {
-			// Can't list projects — skip orphan detection for this host
+			// Surface failure — uncertainty must be visible, not silent.
+			order++
+			actions = append(actions, runtime.PlannedAction{
+				Name:        target.Name + "/*",
+				Description: fmt.Sprintf("orphan detection unavailable: %v", listErr),
+				Order:       order,
+				Action:      "report",
+				Metadata:    DockerPlanMeta{Scope: target.Name, ScopeKind: "host"}.ToMetadata(),
+			})
 			continue
 		}
 

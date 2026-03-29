@@ -343,13 +343,20 @@ func (s *SSHTransport) baseArgs() []string {
 }
 
 // composeArgs builds docker compose arguments from a StackAction.
-// Paths are relative to BundleDir (local execution).
+// For normal stacks: paths relative to BundleDir.
+// For orphan teardown (no ComposeFile): project-name-only, directory-independent.
 func composeArgs(action StackAction) []string {
-	composePath := filepath.Join(action.BundleDir, action.ComposeFile)
-	args := []string{"compose", "-f", composePath}
-	for _, ef := range action.EnvFiles {
-		args = append(args, "--env-file", filepath.Join(action.BundleDir, ef))
+	args := []string{"compose"}
+
+	if action.ComposeFile != "" {
+		// Normal stack: compose file + env files from bundle.
+		composePath := filepath.Join(action.BundleDir, action.ComposeFile)
+		args = append(args, "-f", composePath)
+		for _, ef := range action.EnvFiles {
+			args = append(args, "--env-file", filepath.Join(action.BundleDir, ef))
+		}
 	}
+
 	args = append(args, "-p", action.ProjectName)
 
 	switch action.Action {
