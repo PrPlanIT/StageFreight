@@ -206,23 +206,8 @@ func runCrucibleMode(req Request) error {
 			renderBuildLayers(failSec, gestResult.Steps, color)
 			output.RowStatus(failSec, "status", "build failed", "failed", color)
 
-			// Always show build error summary — same contract as execute.go.
-			// One failure rendering path, not two.
-			if errText := strings.TrimSpace(stderrBuf.String()); errText != "" {
-				lines := strings.Split(errText, "\n")
-				start := 0
-				if len(lines) > 10 {
-					start = len(lines) - 10
-					failSec.Row("... (%d lines truncated)", start)
-				}
-				for _, line := range lines[start:] {
-					line = strings.TrimRight(line, "\r")
-					if strings.TrimSpace(line) == "" {
-						continue
-					}
-					failSec.Row("  %s", line)
-				}
-			}
+			// Semantic error extraction — shared contract via errsurface.go.
+			RenderBuildError(failSec, stderrBuf.String())
 
 			failSec.Close()
 			return fmt.Errorf("gestation build failed: %w", err)

@@ -173,22 +173,8 @@ func executePhase(req Request) pipeline.Phase {
 					renderBuildLayers(failSec, result.Steps, pc.Color)
 					output.RowStatus(failSec, "status", "build failed", "failed", pc.Color)
 
-					// Always show a concise build error summary in the main output.
-					if errText := strings.TrimSpace(stderrBuf.String()); errText != "" {
-						lines := strings.Split(errText, "\n")
-						start := 0
-						if len(lines) > 10 {
-							start = len(lines) - 10
-							failSec.Row("... (%d lines truncated)", start)
-						}
-						for _, line := range lines[start:] {
-							line = strings.TrimRight(line, "\r")
-							if strings.TrimSpace(line) == "" {
-								continue
-							}
-							failSec.Row("  %s", line)
-						}
-					}
+					// Semantic error extraction — shared contract via errsurface.go.
+					RenderBuildError(failSec, stderrBuf.String())
 
 					failSec.Close()
 
