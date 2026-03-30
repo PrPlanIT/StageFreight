@@ -5,6 +5,12 @@ import (
 	"os"
 )
 
+// Error writes an error diagnostic to stderr.
+// Use for hard module failures where configured contract could not be fulfilled.
+func Error(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "ERROR: "+format+"\n", args...)
+}
+
 // Warn writes a warning diagnostic to stderr.
 // Use for non-fatal degradation the user should know about.
 func Warn(format string, args ...any) {

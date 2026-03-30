@@ -363,7 +363,7 @@ func buildModulesV2(appCfg *config.Config, items []config.NarratorItem, linkBase
 				CatalogPath:   item.CatalogPath,
 				CommitSHA:     sha,
 				RepoRoot:      rootDir,
-				ExposureRules: appCfg.GitOps.Cluster.Exposure,
+				ClusterConfig: appCfg.GitOps.Cluster,
 			})
 
 		case "props":
