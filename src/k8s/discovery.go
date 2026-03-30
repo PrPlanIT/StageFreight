@@ -30,7 +30,7 @@ const (
 
 // Discover queries the live cluster and returns a complete DiscoveryResult.
 // ObservedAt is captured once at start. Uses client-go directly.
-func Discover(ctx context.Context, catalogPath, repoRoot string) (*DiscoveryResult, error) {
+func Discover(ctx context.Context, catalogPath, repoRoot string, exposureRules config.ExposureRules) (*DiscoveryResult, error) {
 	observedAt := time.Now()
 
 	// Build Kubernetes client
@@ -77,7 +77,7 @@ func Discover(ctx context.Context, catalogPath, repoRoot string) (*DiscoveryResu
 
 	// Phase 5: Build AppRecords, classify, apply catalog
 	resolver := NewCategoryResolver(nil)
-	records := buildRecords(groups, catalog, resolver, fluxSources)
+	records := buildRecords(groups, catalog, resolver, fluxSources, exposureRules)
 
 	// Phase 6: Separate into tiers
 	var apps, platform []AppRecord
@@ -95,10 +95,26 @@ func Discover(ctx context.Context, catalogPath, repoRoot string) (*DiscoveryResu
 	sortRecords(apps)
 	sortRecords(platform)
 
+	// Phase 7: Reconcile lifecycle state + derive graveyard.
+	// Scoped to cluster: .stagefreight/manifests/k8s-inventory-<cluster>.json
+	allActive := append(apps, platform...)
+	var graveyard []GraveyardEntry
+
+	if repoRoot != "" && clusterName != "" {
+		manifest, err := LoadManifest(repoRoot, clusterName)
+		if err == nil {
+			changed := ReconcileLifecycle(manifest, allActive, true, observedAt)
+			if changed {
+				_ = SaveManifest(repoRoot, clusterName, manifest)
+			}
+			graveyard = GraveyardFromManifest(manifest)
+		}
+	}
+
 	return &DiscoveryResult{
 		Apps:       apps,
 		Platform:   platform,
-		Graveyard:  catalog.Graveyard,
+		Graveyard:  graveyard,
 		ObservedAt: observedAt,
 		Cluster:    clusterName,
 	}, nil
@@ -449,7 +465,7 @@ func extractGateway(route *gatewayv1.HTTPRoute) string {
 }
 
 // buildRecords converts app groups into classified AppRecords.
-func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *CategoryResolver, fluxSources map[AppKey][]DeclaredSource) []AppRecord {
+func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *CategoryResolver, fluxSources map[AppKey][]DeclaredSource, exposureRules config.ExposureRules) []AppRecord {
 	var records []AppRecord
 
 	for _, g := range groups {
@@ -478,7 +494,7 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 
 		// Hosts (deduplicated, sorted) + Exposure from gateway parentRefs
 		rec.Hosts = dedupeHosts(g.routes)
-		rec.Exposure, rec.Gateway = classifyExposure(g.routes, catalog.Exposure)
+		rec.Exposure = ClassifyExposure(g.routes, "", "", exposureRules)
 
 		// Replicas + Status
 		var totalReady, totalDesired int32
@@ -670,49 +686,6 @@ func dedupeHosts(routes []ExposureRef) []string {
 	return hosts
 }
 
-// classifyExposure determines exposure level from route gateway parentRefs.
-// Gateway classification comes from catalog config — not hardcoded.
-func classifyExposure(routes []ExposureRef, exposureCfg ExposureConfig) (ExposureLevel, string) {
-	if len(routes) == 0 {
-		return ExposureCluster, ""
-	}
-
-	// Build lookup from catalog config.
-	internetGateways := map[string]bool{}
-	for _, g := range exposureCfg.Internet {
-		internetGateways[g] = true
-	}
-	intranetGateways := map[string]bool{}
-	for _, g := range exposureCfg.Intranet {
-		intranetGateways[g] = true
-	}
-
-	bestLevel := ExposureCluster
-	bestGateway := ""
-
-	for _, r := range routes {
-		if r.Gateway == "" {
-			continue
-		}
-		if internetGateways[r.Gateway] {
-			return ExposureInternet, r.Gateway // internet wins immediately
-		}
-		if intranetGateways[r.Gateway] {
-			bestLevel = ExposureIntranet
-			bestGateway = r.Gateway
-		}
-	}
-
-	// Has routes but no classified gateway → LAN (LoadBalancer or unknown gateway)
-	if bestLevel == ExposureCluster && len(routes) > 0 {
-		bestLevel = ExposureLAN
-		if routes[0].Gateway != "" {
-			bestGateway = routes[0].Gateway
-		}
-	}
-
-	return bestLevel, bestGateway
-}
 
 // resolveFluxSources walks the repo to discover Flux Kustomizations and matches
 // them to apps by (namespace + identity). Returns sources keyed by AppKey.

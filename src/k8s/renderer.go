@@ -139,7 +139,7 @@ func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
 		}
 
 		// Exposure cell: icon + first host
-		exposure := exposureIcon(r.Exposure)
+		exposure := exposureIcon(r.Exposure.Declared)
 		if len(r.Hosts) > 0 {
 			exposure += " " + escMD(r.Hosts[0])
 		}
@@ -172,8 +172,8 @@ func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
 		if len(r.Hosts) > 0 {
 			b.WriteString(fmt.Sprintf("- Hosts: %s\n", strings.Join(r.Hosts, ", ")))
 		}
-		if r.Gateway != "" {
-			b.WriteString(fmt.Sprintf("- Gateway: %s\n", r.Gateway))
+		if r.Exposure.Gateway != "" {
+			b.WriteString(fmt.Sprintf("- Gateway: %s\n", r.Exposure.Gateway))
 		}
 		if r.Description != "" {
 			b.WriteString(fmt.Sprintf("- Description: %s\n", r.Description))

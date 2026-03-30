@@ -19,8 +19,27 @@ type GitOpsConfig struct {
 //
 // Name is uppercased with hyphens replaced by underscores for the env prefix.
 type ClusterConfig struct {
-	Name   string `yaml:"name"`
-	Server string `yaml:"server"`
+	Name     string        `yaml:"name"`
+	Server   string        `yaml:"server"`
+	Exposure ExposureRules `yaml:"exposure"`
+}
+
+// ExposureRules defines rule-based endpoint exposure classification.
+// Rules are evaluated by precedence: endpoint > gateway > CIDR > service type.
+// Conflicting equal-precedence rules → unknown. Never first-match-wins.
+type ExposureRules struct {
+	Rules []ExposureRule `yaml:"rules"`
+}
+
+// ExposureRule classifies endpoints into exposure levels.
+// Match fields are AND within a rule (CIDR AND port if both specified).
+type ExposureRule struct {
+	Level        string   `yaml:"level"`         // internet | intranet | cluster
+	Endpoints    []string `yaml:"endpoints"`     // ip:port (highest precedence)
+	Gateways     []string `yaml:"gateways"`
+	CIDRs        []string `yaml:"cidrs"`
+	Ports        []int    `yaml:"ports"`         // AND with CIDRs (empty = any port)
+	ServiceTypes []string `yaml:"service_types"` // ClusterIP | NodePort | LoadBalancer
 }
 
 // OIDCConfig defines OIDC authentication for cluster access.

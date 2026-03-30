@@ -360,9 +360,10 @@ func buildModulesV2(appCfg *config.Config, items []config.NarratorItem, linkBase
 				sha = vi.SHA
 			}
 			modules = append(modules, &narrator.K8sInventoryModule{
-				CatalogPath: item.CatalogPath,
-				CommitSHA:   sha,
-				RepoRoot:    rootDir,
+				CatalogPath:   item.CatalogPath,
+				CommitSHA:     sha,
+				RepoRoot:      rootDir,
+				ExposureRules: appCfg.GitOps.Cluster.Exposure,
 			})
 
 		case "props":

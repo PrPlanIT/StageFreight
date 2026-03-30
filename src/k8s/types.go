@@ -46,9 +46,8 @@ type AppRecord struct {
 	WorkloadKinds []string // deduped: ["Deployment"], ["StatefulSet", "Deployment"] → ["Mixed"]
 	Images        []ImageRef
 	Version       string // resolved via strict precedence
-	Hosts         []string // deduplicated, sorted hostnames from routes
-	Exposure      ExposureLevel // derived from gateway parentRefs
-	Gateway       string // gateway name for exposure context (e.g. "xylem-gateway")
+	Hosts    []string       // deduplicated, sorted hostnames from routes
+	Exposure ExposureResult // classified from exposure rules
 	Replicas      string // "ready/desired" format
 	Status        Status
 	Collision     bool   // true if identity was disambiguated via #shortUID
@@ -80,11 +79,23 @@ const (
 type ExposureLevel string
 
 const (
-	ExposureInternet ExposureLevel = "internet" // via public gateway (phloem, cell-membrane)
-	ExposureIntranet ExposureLevel = "intranet" // via internal gateway (xylem)
-	ExposureLAN      ExposureLevel = "lan"      // LoadBalancer, direct IP
-	ExposureCluster  ExposureLevel = "cluster"  // no external access
+	ExposureInternet ExposureLevel = "internet"
+	ExposureIntranet ExposureLevel = "intranet"
+	ExposureCluster  ExposureLevel = "cluster"
+	ExposureUnknown  ExposureLevel = "unknown"
 )
+
+// ExposureResult is the classified exposure of an app.
+// Declared is from rule matching. Observed is future (external probe).
+// Confidence is derived from match type, never user-set.
+type ExposureResult struct {
+	Declared   ExposureLevel `json:"declared"`
+	Observed   ExposureLevel `json:"observed,omitempty"` // future: from external probe
+	Gateway    string        `json:"gateway,omitempty"`
+	Endpoint   string        `json:"endpoint,omitempty"`
+	Confidence string        `json:"confidence"` // exact | inferred | fallback | unknown
+	RuleIndex  int           `json:"rule_index"` // which rule matched (-1 if none)
+}
 
 // ComponentRef identifies a single workload component within a multi-component app.
 type ComponentRef struct {
@@ -96,6 +107,7 @@ type ComponentRef struct {
 type ImageRef struct {
 	Repository string // e.g. "docker.io/library/redis"
 	Tag        string // e.g. "7.4.2", "latest"
+	Digest     string // e.g. "sha256:abc..." (if available from pod spec)
 }
 
 // ExposureRef represents a discovered route/ingress attachment.
