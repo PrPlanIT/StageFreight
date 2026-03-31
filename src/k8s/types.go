@@ -99,8 +99,9 @@ type ExposureResult struct {
 
 // ComponentRef identifies a single workload component within a multi-component app.
 type ComponentRef struct {
-	Name string // e.g. "core", "registry", "jobservice"
-	Kind string // e.g. "Deployment", "StatefulSet"
+	Name string        // e.g. "core", "registry", "jobservice"
+	Kind string        // e.g. "Deployment", "StatefulSet"
+	Role ComponentRole // classified role (database, cache, primary, etc.)
 }
 
 // ImageRef holds a parsed container image reference.

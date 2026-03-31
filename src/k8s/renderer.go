@@ -197,7 +197,11 @@ func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
 		if len(r.Components) > 1 {
 			b.WriteString("- Components:\n")
 			for _, c := range r.Components {
-				b.WriteString(fmt.Sprintf("  - %s (%s)\n", c.Name, c.Kind))
+				if c.Role != "" && c.Role != RolePrimary && c.Role != RoleUnknown {
+					b.WriteString(fmt.Sprintf("  - %s (%s, %s)\n", c.Name, c.Kind, c.Role))
+				} else {
+					b.WriteString(fmt.Sprintf("  - %s (%s)\n", c.Name, c.Kind))
+				}
 			}
 		}
 

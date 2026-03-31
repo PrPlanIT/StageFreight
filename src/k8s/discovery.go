@@ -84,6 +84,10 @@ func Discover(ctx context.Context, catalogPath, repoRoot string, exposureRules c
 	resolver := NewCategoryResolver(nil)
 	records := buildRecords(groups, catalog, resolver, fluxSources, exposureRules)
 
+	// Phase 5.5: Fold subordinate-only apps into their parents.
+	// Must happen after buildRecords (need roles) and before tier separation.
+	records = FoldSubordinates(records)
+
 	// Phase 6: Separate into tiers
 	var apps, platform []AppRecord
 	for _, r := range records {
@@ -372,7 +376,8 @@ var genericPrefixDenylist = map[string]bool{
 // groupByPrefix merges unlabeled multi-component workloads into family groups.
 // Only touches workloads with Source == "name" (label-based identities are frozen).
 // Never merges into existing labeled identities.
-// Prefix selection: shortest stable prefix, ≥2 matches, non-empty suffixes, denylist enforced.
+// Uses longest common hyphen-boundary prefix (LCP) instead of first-segment extraction
+// to preserve multi-segment identities like "open-webui" and "reactive-resume".
 func groupByPrefix(groups map[AppKey]*appGroup) {
 	// Collect name-fallback groups per namespace.
 	type candidate struct {
@@ -392,20 +397,40 @@ func groupByPrefix(groups map[AppKey]*appGroup) {
 			continue
 		}
 
-		// Find prefix families.
-		// For each candidate, extract potential prefix (everything before last "-" segment).
-		prefixMembers := map[string][]candidate{}
+		// Bucket candidates by first hyphen segment for initial grouping.
+		firstSegBuckets := map[string][]candidate{}
 		for _, c := range candidates {
-			prefix := extractPrefix(c.key.Identity)
-			if prefix == "" || genericPrefixDenylist[prefix] {
+			seg := firstSegment(c.key.Identity)
+			if seg == "" || genericPrefixDenylist[seg] {
 				continue
 			}
-			prefixMembers[prefix] = append(prefixMembers[prefix], c)
+			firstSegBuckets[seg] = append(firstSegBuckets[seg], c)
 		}
 
-		// Merge groups that share a prefix with ≥2 members.
-		for prefix, members := range prefixMembers {
+		// Within each bucket, compute the longest common hyphen-boundary prefix.
+		for _, members := range firstSegBuckets {
 			if len(members) < 2 {
+				continue
+			}
+
+			names := make([]string, len(members))
+			for i, m := range members {
+				names[i] = m.key.Identity
+			}
+			prefix := longestCommonHyphenPrefix(names)
+			if prefix == "" || len(prefix) < 3 || genericPrefixDenylist[prefix] {
+				continue
+			}
+
+			// Verify all members have a suffix beyond the prefix.
+			allHaveSuffix := true
+			for _, m := range members {
+				if m.key.Identity == prefix {
+					allHaveSuffix = false
+					break
+				}
+			}
+			if !allHaveSuffix {
 				continue
 			}
 
@@ -428,20 +453,15 @@ func groupByPrefix(groups map[AppKey]*appGroup) {
 
 			// Merge members into family.
 			for _, m := range members {
-				// Move workloads to family.
 				for _, wl := range m.group.workloads {
 					family.workloads = append(family.workloads, wl)
 				}
-				// Move routes.
 				family.routes = append(family.routes, m.group.routes...)
-				// Move services.
 				family.services = append(family.services, m.group.services...)
-				// Inherit first pod labels if family has none.
 				if family.podLabels == nil && m.group.podLabels != nil {
 					family.podLabels = m.group.podLabels
 				}
 
-				// Remove old group.
 				if m.key != familyKey {
 					delete(groups, m.key)
 				}
@@ -452,20 +472,18 @@ func groupByPrefix(groups map[AppKey]*appGroup) {
 	}
 }
 
-// extractPrefix returns the family prefix from a workload name.
-// "tactical-backend" → "tactical"
-// "erpnext-redis-cache" → "erpnext"
-// "standalone" → "" (no prefix)
-func extractPrefix(name string) string {
+// firstSegment returns the first hyphen-delimited segment of a name.
+// "tactical-backend" → "tactical", "standalone" → ""
+func firstSegment(name string) string {
 	idx := strings.Index(name, "-")
 	if idx <= 0 || idx >= len(name)-1 {
-		return "" // no hyphen or empty prefix/suffix
+		return ""
 	}
-	prefix := name[:idx]
-	if len(prefix) < 3 {
-		return "" // too short
+	seg := name[:idx]
+	if len(seg) < 3 {
+		return ""
 	}
-	return prefix
+	return seg
 }
 
 // augmentServices attaches Services to app groups via strict selector matching.
@@ -586,13 +604,15 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 			Collision: g.identity.Key.Identity != g.identity.Key.Identity, // always false; collision set in addWorkload
 		}
 
-		// FriendlyName: derive from identity, capitalize
-		rec.FriendlyName = titleCase(g.identity.Key.Identity)
+		// FriendlyName: authority chain — labels → titleCase fallback.
+		rec.FriendlyName = resolveFriendlyName(g)
 
-		// Components + WorkloadKinds
+		// Components + WorkloadKinds + Role classification
 		kindSet := map[string]bool{}
 		for _, wl := range g.workloads {
-			rec.Components = append(rec.Components, ComponentRef{Name: wl.name, Kind: wl.kind})
+			images := extractContainerImageNames(wl.containers)
+			role := ClassifyComponentRole(wl.name, images)
+			rec.Components = append(rec.Components, ComponentRef{Name: wl.name, Kind: wl.kind, Role: role})
 			kindSet[wl.kind] = true
 		}
 		for k := range kindSet {
@@ -933,6 +953,28 @@ func sortRecords(records []AppRecord) {
 		}
 		return strings.ToLower(records[i].FriendlyName) < strings.ToLower(records[j].FriendlyName)
 	})
+}
+
+// resolveFriendlyName derives the display name from authoritative metadata.
+// Authority chain: app.kubernetes.io/name label → titleCase(identity) fallback.
+// Catalog overrides apply later and take final precedence.
+func resolveFriendlyName(g *appGroup) string {
+	if name, ok := g.podLabels["app.kubernetes.io/name"]; ok && name != "" {
+		return titleCase(name)
+	}
+	return titleCase(g.identity.Key.Identity)
+}
+
+// extractContainerImageNames returns the image name (no registry/tag) for each container.
+func extractContainerImageNames(containers []corev1.Container) []string {
+	names := make([]string, 0, len(containers))
+	for _, c := range containers {
+		if IsSidecarImage(c.Image) {
+			continue
+		}
+		names = append(names, extractImageName(c.Image))
+	}
+	return names
 }
 
 // titleCase capitalizes the first letter of each word, handling hyphens.
