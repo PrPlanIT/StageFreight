@@ -87,6 +87,9 @@ Build source configuration. Defines where source code lives and how to derive li
 | `git` | `mirrors.sync.git` | bool | No | — | bool value |
 | `releases` | `mirrors.sync.releases` | bool | No | — | bool value |
 | `docs` | `mirrors.sync.docs` | bool | No | — | bool value |
+| `kind` | `publish_origin.kind` | string | Yes | — | string value |
+| `ref` | `publish_origin.ref` | string | No | — | string value |
+| `base` | `publish_origin.base` | string | No | — | string value |
 
 **Example:**
 
@@ -245,14 +248,14 @@ targets:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | string value |
-| `text` | `text` | string | Yes | — | string value |
-| `value` | `value` | string | Yes | — | string value |
-| `color` | `color` | string | Yes | — | string value |
-| `output` | `output` | string | Yes | — | string value |
-| `link` | `link` | string | No | — | string value |
-| `font` | `font` | string | No | — | string value |
-| `font_size` | `font_size` | int | No | — | int value |
+| `id` | `items.id` | string | Yes | — | string value |
+| `text` | `items.text` | string | Yes | — | string value |
+| `value` | `items.value` | string | Yes | — | string value |
+| `color` | `items.color` | string | Yes | — | string value |
+| `output` | `items.output` | string | Yes | — | string value |
+| `link` | `items.link` | string | No | — | string value |
+| `font` | `items.font` | string | No | — | string value |
+| `font_size` | `items.font_size` | int | No | — | int value |
 
 ---
 
