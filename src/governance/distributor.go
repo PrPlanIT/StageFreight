@@ -3,7 +3,6 @@ package governance
 import (
 	"bytes"
 	"fmt"
-	"time"
 )
 
 // PlanDistribution computes what files need to change for each governed repo.
@@ -26,35 +25,33 @@ func PlanDistribution(
 		resolvedConfig, _, err := ResolvePresets(
 			cluster.Config, presetLoader,
 			sourceIdentity+"@"+sourceRef,
-			"governance/clusters.yml",
+			".stagefreight.yml",
 			0, nil,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("cluster %q: resolving presets: %w", cluster.ID, err)
 		}
 
-		// Render managed config.
-		managed := ManagedConfig{
-			Source:      sourceIdentity,
-			Ref:         sourceRef,
-			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-			ClusterID:   cluster.ID,
-			Config:      resolvedConfig,
+		// Render sealed .stagefreight.yml.
+		seal := SealMeta{
+			SourceRepo: sourceIdentity,
+			SourceRef:  sourceRef,
+			ClusterID:  cluster.ID,
 		}
 
-		managedContent, err := RenderManagedConfig(managed)
+		sealedContent, err := RenderSealedConfig(seal, resolvedConfig)
 		if err != nil {
-			return nil, fmt.Errorf("cluster %q: rendering managed config: %w", cluster.ID, err)
+			return nil, fmt.Errorf("cluster %q: rendering sealed config: %w", cluster.ID, err)
 		}
 
 		for _, repo := range cluster.Targets.Repos {
 			plan := DistributionPlan{Repo: repo}
 
-			// Managed config file.
+			// Sealed .stagefreight.yml — the repo's actual config.
 			plan.Files = append(plan.Files, planFile(
 				forgeReader, repo,
-				".stagefreight/stagefreight-managed.yml",
-				managedContent,
+				".stagefreight.yml",
+				sealedContent,
 			))
 
 			// CI skeleton (if configured).
@@ -113,14 +110,10 @@ func planFile(reader ForgeReader, repo, path string, newContent []byte) Distribu
 		return f
 	}
 
-	// File exists but differs.
-	// For managed files, any difference is drift (machine-owned, never hand-edited).
-	if path == ".stagefreight/stagefreight-managed.yml" {
-		f.Action = "replace-drifted"
-		f.Drifted = true
-	} else {
-		f.Action = "update"
-	}
+	// File exists but differs — governance-governed files are authoritative.
+	// Any difference on a governed file is drift that gets replaced.
+	f.Action = "replace-drifted"
+	f.Drifted = true
 
 	return f
 }

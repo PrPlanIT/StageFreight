@@ -56,15 +56,6 @@ type ResolvedPreset struct {
 	Content     map[string]any // parsed YAML content under that key
 }
 
-// ManagedConfig is the rendered output for a governed repo.
-type ManagedConfig struct {
-	Source      string         // "org/PolicyRepo"
-	Ref         string         // policy repo ref
-	GeneratedAt string         // ISO 8601 timestamp
-	ClusterID   string         // which cluster produced this
-	Config      map[string]any // the concrete StageFreight config
-}
-
 // MergeTrace records how each config value was resolved.
 type MergeTrace struct {
 	Entries []MergeEntry

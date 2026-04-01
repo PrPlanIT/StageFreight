@@ -67,8 +67,12 @@ type Config struct {
 	// Release holds configuration for the release subsystem.
 	Release ReleaseConfig `yaml:"release"`
 
-	// Lifecycle defines the repository lifecycle mode (image, gitops).
+	// Lifecycle defines the repository lifecycle mode (image, gitops, governance).
 	Lifecycle LifecycleConfig `yaml:"lifecycle"`
+
+	// Governance defines configuration for the governance lifecycle mode.
+	// Only valid in the control repo (lifecycle.mode: governance).
+	Governance GovernanceConfig `yaml:"governance"`
 
 	// GitOps defines configuration for the gitops lifecycle mode.
 	GitOps GitOpsConfig `yaml:"gitops"`

@@ -14,9 +14,7 @@ var configResolveCmd = &cobra.Command{
 	Use:   "resolve",
 	Short: "Show the config resolution chain with provenance",
 	Long: `Shows how the effective config was resolved:
-- Which files were loaded (managed, local)
-- How values were merged
-- What overrode what
+- Preset sources and what they contributed
 - Source provenance for each value`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir, err := os.Getwd()
@@ -24,23 +22,23 @@ var configResolveCmd = &cobra.Command{
 			return err
 		}
 
-		managed, local, err := loadTwoFileConfig(rootDir)
+		config, err := loadConfig(rootDir)
 		if err != nil {
 			return err
 		}
 
-		managedPresent := managed != nil
-		localPresent := local != nil
+		// Resolve presets to build trace.
+		_, entries, resolveErr := governance.ResolvePresets(config, nil, "local", ".stagefreight.yml", 0, nil)
 
-		managedLayer := 0
-		_, trace := governance.MergeConfigs(managed, local, managedLayer)
+		fmt.Printf("Config: .stagefreight.yml\n")
+		fmt.Printf("  entries: %d\n", len(entries))
+		if resolveErr != nil {
+			fmt.Fprintf(os.Stderr, "  resolve error: %v\n", resolveErr)
+		}
 
-		// Print resolution summary.
-		fmt.Print(governance.ExplainResolution(managedPresent, localPresent, trace))
-
-		// Verbose: full trace.
 		if resolveVerbose {
 			fmt.Println()
+			trace := governance.MergeTrace{Entries: entries}
 			fmt.Print(governance.ExplainTrace(trace))
 		}
 
@@ -49,6 +47,6 @@ var configResolveCmd = &cobra.Command{
 }
 
 func init() {
-	configResolveCmd.Flags().BoolVarP(&resolveVerbose, "verbose", "v", false, "Show full merge trace")
+	configResolveCmd.Flags().BoolVarP(&resolveVerbose, "verbose", "v", false, "Show full resolution trace")
 	configCmd.AddCommand(configResolveCmd)
 }

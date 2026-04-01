@@ -15,10 +15,10 @@ var renderGated bool
 
 var configRenderCmd = &cobra.Command{
 	Use:   "render",
-	Short: "Show the fully merged effective config",
-	Long: `Renders the effective StageFreight config after merging managed + local files.
+	Short: "Show the effective config after preset resolution",
+	Long: `Renders the effective StageFreight config from .stagefreight.yml.
 
-Without --gated: shows merged config (what config declares).
+Without --gated: shows config after preset resolution (what config declares).
 With --gated: shows runnable plan (what will actually execute after capability gating).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir, err := os.Getwd()
@@ -26,21 +26,16 @@ With --gated: shows runnable plan (what will actually execute after capability g
 			return err
 		}
 
-		managed, local, err := loadTwoFileConfig(rootDir)
+		config, err := loadConfig(rootDir)
 		if err != nil {
 			return err
 		}
 
-		// Determine preset layer depth (0 for now — preset resolution not wired yet).
-		managedLayer := 0
-		merged, _ := governance.MergeConfigs(managed, local, managedLayer)
-
 		if renderGated {
-			// Capability gating not implemented yet — show merged with note.
-			fmt.Fprintln(os.Stderr, "# --gated: capability gating not yet implemented, showing merged config")
+			fmt.Fprintln(os.Stderr, "# --gated: capability gating not yet implemented, showing config")
 		}
 
-		out, err := governance.RenderEffective(merged)
+		out, err := governance.RenderEffective(config)
 		if err != nil {
 			return fmt.Errorf("rendering config: %w", err)
 		}
@@ -55,31 +50,13 @@ func init() {
 	configCmd.AddCommand(configRenderCmd)
 }
 
-// loadTwoFileConfig loads the managed and local config files as raw maps.
-// Either or both may be absent — that's fine (Level 0 = local only).
-func loadTwoFileConfig(rootDir string) (managed, local map[string]any, err error) {
-	managedPath := filepath.Join(rootDir, ".stagefreight", "stagefreight-managed.yml")
-	localPath := filepath.Join(rootDir, ".stagefreight.yml")
-
-	managed, err = loadRawYAML(managedPath)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("loading managed config: %w", err)
-	}
-
-	local, err = loadRawYAML(localPath)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("loading local config: %w", err)
-	}
-
-	if managed == nil && local == nil {
-		return nil, nil, fmt.Errorf("no config found (neither .stagefreight/stagefreight-managed.yml nor .stagefreight.yml)")
-	}
-
-	return managed, local, nil
+// loadConfig loads .stagefreight.yml as a raw map.
+func loadConfig(rootDir string) (map[string]any, error) {
+	path := filepath.Join(rootDir, ".stagefreight.yml")
+	return loadRawYAML(path)
 }
 
 // loadRawYAML loads a YAML file into a raw map.
-// Returns nil map and os.ErrNotExist if file doesn't exist.
 func loadRawYAML(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

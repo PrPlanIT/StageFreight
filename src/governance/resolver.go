@@ -237,3 +237,32 @@ func withoutKey(m map[string]any, key string) map[string]any {
 	}
 	return out
 }
+
+// DeepMerge merges two maps. Override (second arg) wins on conflict.
+// Objects: deep merge. Scalars: override replaces. Lists: override replaces.
+func DeepMerge(base, override map[string]any) map[string]any {
+	result := make(map[string]any, len(base)+len(override))
+
+	for k, v := range base {
+		result[k] = v
+	}
+
+	for k, overrideVal := range override {
+		baseVal, exists := result[k]
+		if !exists {
+			result[k] = overrideVal
+			continue
+		}
+
+		baseMap, baseIsMap := baseVal.(map[string]any)
+		overrideMap, overrideIsMap := overrideVal.(map[string]any)
+
+		if baseIsMap && overrideIsMap {
+			result[k] = DeepMerge(baseMap, overrideMap)
+		} else {
+			result[k] = overrideVal
+		}
+	}
+
+	return result
+}

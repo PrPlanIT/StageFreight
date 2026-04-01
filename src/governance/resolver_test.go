@@ -214,126 +214,63 @@ security:
 	}
 }
 
-// --- Merger Tests ---
-
-func TestMergeConfigs_LocalWins(t *testing.T) {
-	managed := map[string]any{
-		"security": map[string]any{
-			"sbom": true,
-		},
-	}
-
-	local := map[string]any{
-		"security": map[string]any{
-			"sbom": false,
-		},
-	}
-
-	merged, trace := MergeConfigs(managed, local, 0)
-
-	sbom := merged["security"].(map[string]any)["sbom"]
-	requireEqual(t, false, sbom, "local should override managed")
-
-	foundOverride := false
-	for _, e := range trace.Entries {
-		if e.Path == "security.sbom" && e.Overridden {
-			foundOverride = true
-		}
-	}
-	requireTrue(t, foundOverride, "expected override trace for security.sbom")
-}
-
-func TestMergeConfigs_LayerNumbers(t *testing.T) {
-	managed := map[string]any{
-		"security": map[string]any{
-			"sbom": true,
-		},
-	}
-
-	local := map[string]any{
-		"security": map[string]any{
-			"sbom": false,
-		},
-	}
-
-	_, trace := MergeConfigs(managed, local, 5) // preset layers 0-4, managed=5, local=6
-
-	for _, e := range trace.Entries {
-		if e.Path == "security.sbom" && e.Source == "managed" {
-			requireEqual(t, 5, e.Layer, "managed layer")
-		}
-		if e.Path == "security.sbom" && e.Source == "local" {
-			requireEqual(t, 6, e.Layer, "local layer")
-		}
-	}
-}
-
-func TestMergeConfigs_DeepMerge(t *testing.T) {
-	managed := map[string]any{
-		"security": map[string]any{
-			"sbom":           true,
-			"release_detail": "full",
-		},
-	}
-
-	local := map[string]any{
-		"security": map[string]any{
-			"sbom": false,
-		},
-	}
-
-	merged, _ := MergeConfigs(managed, local, 0)
-
-	sec := merged["security"].(map[string]any)
-	requireEqual(t, false, sec["sbom"], "local sbom should win")
-	requireEqual(t, "full", sec["release_detail"], "managed release_detail should survive")
-}
-
 // --- Renderer Tests ---
 
-func TestRenderManagedConfig_Deterministic(t *testing.T) {
+func TestRenderSealedConfig_Deterministic(t *testing.T) {
 	config := map[string]any{
 		"security": map[string]any{"sbom": true},
 		"targets":  []any{"a"},
 	}
 
-	managed := ManagedConfig{
-		Source:      "test",
-		Ref:         "v1",
-		ClusterID:   "test-cluster",
-		GeneratedAt: "2026-01-01T00:00:00Z",
-		Config:      config,
+	seal := SealMeta{
+		SourceRepo: "test",
+		SourceRef:  "v1",
+		ClusterID:  "test-cluster",
 	}
 
-	a, err := RenderManagedConfig(managed)
+	a, err := RenderSealedConfig(seal, config)
 	requireNoError(t, err)
 
-	b, err := RenderManagedConfig(managed)
+	b, err := RenderSealedConfig(seal, config)
 	requireNoError(t, err)
 
 	requireEqual(t, string(a), string(b), "render must be deterministic")
 }
 
-func TestRenderManagedConfig_CanonicalOrder(t *testing.T) {
+func TestRenderSealedConfig_HasSeal(t *testing.T) {
+	config := map[string]any{
+		"version": 1,
+	}
+
+	seal := SealMeta{
+		SourceRepo: "https://gitlab.prplanit.com/PrPlanIT/MaintenancePolicy",
+		SourceRef:  "v1.0.0",
+		ClusterID:  "docker-services",
+	}
+
+	out, err := RenderSealedConfig(seal, config)
+	requireNoError(t, err)
+
+	s := string(out)
+	requireTrue(t, indexOf(s, "GENERATED / ENFORCED BY STAGEFREIGHT GOVERNANCE") >= 0, "seal header missing")
+	requireTrue(t, indexOf(s, "MaintenancePolicy") >= 0, "source repo missing from seal")
+	requireTrue(t, indexOf(s, "v1.0.0") >= 0, "source ref missing from seal")
+	requireTrue(t, indexOf(s, "docker-services") >= 0, "cluster ID missing from seal")
+}
+
+func TestRenderSealedConfig_CanonicalOrder(t *testing.T) {
 	config := map[string]any{
 		"release":  map[string]any{"enabled": true},
 		"security": map[string]any{"sbom": true},
 		"targets":  []any{"a"},
 	}
 
-	managed := ManagedConfig{
-		Source:      "test",
-		Ref:         "v1",
-		ClusterID:   "test-cluster",
-		GeneratedAt: "2026-01-01T00:00:00Z",
-		Config:      config,
-	}
+	seal := SealMeta{SourceRepo: "test", SourceRef: "v1", ClusterID: "test"}
 
-	out, err := RenderManagedConfig(managed)
+	out, err := RenderSealedConfig(seal, config)
 	requireNoError(t, err)
 
 	s := string(out)
-	// targets should come before security, security before release (canonical order)
 	targetsIdx := indexOf(s, "targets:")
 	securityIdx := indexOf(s, "security:")
 	releaseIdx := indexOf(s, "release:")

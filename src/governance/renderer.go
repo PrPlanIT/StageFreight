@@ -7,33 +7,50 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// RenderManagedConfig produces the managed YAML file content for a repo.
+// RenderSealedConfig produces a sealed .stagefreight.yml for a satellite repo.
+// The seal is a human-facing warning header with provenance — not governance state.
 // Uses canonical key ordering for deterministic, diff-stable output.
-// Stamps metadata header with source provenance.
-func RenderManagedConfig(managed ManagedConfig) ([]byte, error) {
+func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 	var b strings.Builder
 
-	// Metadata header.
-	b.WriteString("# MANAGED BY STAGEFREIGHT GOVERNANCE — DO NOT EDIT\n")
-	b.WriteString(fmt.Sprintf("# Source: %s %s\n", managed.Source, managed.Ref))
-	b.WriteString(fmt.Sprintf("# Cluster: %s\n", managed.ClusterID))
-	b.WriteString(fmt.Sprintf("# Generated: %s\n", managed.GeneratedAt))
+	// Seal header.
+	b.WriteString("# ------------------------------------------------------------------------------\n")
+	b.WriteString("# GENERATED / ENFORCED BY STAGEFREIGHT GOVERNANCE\n")
+	b.WriteString(fmt.Sprintf("# Source repo: %s\n", seal.SourceRepo))
+	b.WriteString(fmt.Sprintf("# Source ref: %s\n", seal.SourceRef))
+	b.WriteString(fmt.Sprintf("# Cluster: %s\n", seal.ClusterID))
+	b.WriteString("# This .stagefreight.yml is governed, not purely local.\n")
+	b.WriteString("# To disable governance, detach from the control repo workflow.\n")
+	b.WriteString("# Manual changes may be overwritten by reconciliation.\n")
+	b.WriteString("# ------------------------------------------------------------------------------\n")
 	b.WriteString("\n")
 
 	// Render config in canonical key order.
-	body, err := renderCanonical(managed.Config)
+	body, err := renderCanonical(config)
 	if err != nil {
-		return nil, fmt.Errorf("rendering managed config: %w", err)
+		return nil, fmt.Errorf("rendering sealed config: %w", err)
 	}
 	b.Write(body)
 
 	return []byte(b.String()), nil
 }
 
+// SealMeta holds provenance info for the generated header.
+type SealMeta struct {
+	SourceRepo string // e.g., "https://gitlab.prplanit.com/PrPlanIT/MaintenancePolicy"
+	SourceRef  string // e.g., "v1.0.0" or commit SHA
+	ClusterID  string // e.g., "docker-services"
+}
+
+// RenderEffective returns config as YAML with canonical key ordering.
+// Used by `config render` for display.
+func RenderEffective(config map[string]any) ([]byte, error) {
+	return renderCanonical(config)
+}
+
 // renderCanonical serializes a config map with fixed top-level key order.
 // Keys not in CanonicalKeyOrder are appended alphabetically at the end.
 func renderCanonical(config map[string]any) ([]byte, error) {
-	// Build ordered node.
 	node := &yaml.Node{
 		Kind: yaml.MappingNode,
 	}
@@ -65,7 +82,6 @@ func renderCanonical(config map[string]any) ([]byte, error) {
 		}
 	}
 
-	// Marshal the ordered document.
 	doc := &yaml.Node{
 		Kind:    yaml.DocumentNode,
 		Content: []*yaml.Node{node},
@@ -82,7 +98,6 @@ func renderCanonical(config map[string]any) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// appendKeyValue adds a key-value pair to a yaml mapping node.
 func appendKeyValue(node *yaml.Node, key string, val any) error {
 	keyNode := &yaml.Node{
 		Kind:  yaml.ScalarNode,
@@ -98,7 +113,6 @@ func appendKeyValue(node *yaml.Node, key string, val any) error {
 		return fmt.Errorf("unmarshaling %s node: %w", key, err)
 	}
 
-	// yaml.Unmarshal wraps in a document node — unwrap.
 	if valNode.Kind == yaml.DocumentNode && len(valNode.Content) > 0 {
 		valNode = valNode.Content[0]
 	}
@@ -107,7 +121,6 @@ func appendKeyValue(node *yaml.Node, key string, val any) error {
 	return nil
 }
 
-// sortStrings sorts a string slice in place (simple insertion sort for small slices).
 func sortStrings(s []string) {
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j] < s[j-1]; j-- {
