@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -121,25 +122,75 @@ func runGovernanceReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("planning distribution: %w", err)
 	}
 
-	// Phase 5: Show results.
-	fmt.Fprintln(os.Stderr, "")
-	for _, plan := range plans {
-		if !plan.HasChanges() {
-			fmt.Fprintf(os.Stderr, "  %s: unchanged\n", plan.Repo)
-			continue
-		}
+	// Phase 5: Show results — cluster-first, action-grouped, unchanged aggregated.
+	planByRepo := make(map[string]governance.DistributionPlan, len(plans))
+	for _, p := range plans {
+		planByRepo[p.Repo] = p
+	}
 
-		fmt.Fprintf(os.Stderr, "  %s:\n", plan.Repo)
-		for _, f := range plan.Files {
-			if f.Action == "unchanged" {
+	fmt.Fprintln(os.Stderr, "")
+	for _, cluster := range gov.Clusters {
+		changed, unchanged := 0, 0
+		actionCounts := map[string]int{}
+
+		for _, repo := range cluster.Targets.Repos {
+			p, ok := planByRepo[repo]
+			if !ok || !p.HasChanges() {
+				unchanged++
 				continue
 			}
-			label := f.Action
-			if f.Drifted {
-				label += " (drifted)"
+			changed++
+			for _, f := range p.Files {
+				if f.Action != "unchanged" {
+					actionCounts[f.Action]++
+				}
 			}
-			fmt.Fprintf(os.Stderr, "    %s: %s (%d bytes)\n", f.Path, label, len(f.Content))
 		}
+
+		total := changed + unchanged
+		fmt.Fprintf(os.Stderr, "Cluster: %s (%d repos)\n", cluster.ID, total)
+		fmt.Fprintf(os.Stderr, "  changed: %d  unchanged: %d\n", changed, unchanged)
+
+		if len(actionCounts) > 0 {
+			fmt.Fprintln(os.Stderr, "  files:")
+			for _, action := range sortedMapKeys(actionCounts) {
+				fmt.Fprintf(os.Stderr, "    %s: %d\n", action, actionCounts[action])
+			}
+		}
+
+		// Show changed repos with file details grouped by action.
+		if changed > 0 {
+			fmt.Fprintln(os.Stderr, "")
+			for _, repo := range cluster.Targets.Repos {
+				p, ok := planByRepo[repo]
+				if !ok || !p.HasChanges() {
+					continue
+				}
+
+				fmt.Fprintf(os.Stderr, "  %s\n", repo)
+
+				// Group files by action.
+				byAction := map[string][]string{}
+				for _, f := range p.Files {
+					if f.Action != "unchanged" {
+						label := f.Action
+						if f.Drifted {
+							label = "replace-drifted"
+						}
+						byAction[label] = append(byAction[label], f.Path)
+					}
+				}
+
+				for _, action := range sortedStringMapKeys(byAction) {
+				paths := byAction[action]
+					fmt.Fprintf(os.Stderr, "    %s:\n", action)
+					for _, path := range paths {
+						fmt.Fprintf(os.Stderr, "      - %s\n", path)
+					}
+				}
+			}
+		}
+		fmt.Fprintln(os.Stderr, "")
 	}
 
 	if govDryRun {
@@ -174,17 +225,51 @@ func runGovernanceReconcile(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "\nReconcile completed with errors\n")
 	}
 
+	// Group commit results by cluster.
+	resultByRepo := make(map[string]governance.CommitResult, len(results))
 	for _, r := range results {
-		status := r.Status
-		if r.Drifted {
-			status += " (drifted)"
+		resultByRepo[r.Repo] = r
+	}
+
+	for _, cluster := range gov.Clusters {
+		committed, skipped, errored := 0, 0, 0
+		for _, repo := range cluster.Targets.Repos {
+			r, ok := resultByRepo[repo]
+			if !ok {
+				continue
+			}
+			switch r.Status {
+			case "committed":
+				committed++
+			case "skipped-identical":
+				skipped++
+			case "error":
+				errored++
+			}
 		}
-		if r.Error != nil {
-			fmt.Fprintf(os.Stderr, "  %s: %s — %v\n", r.Repo, status, r.Error)
-		} else if r.SHA != "" {
-			fmt.Fprintf(os.Stderr, "  %s: %s [%s]\n", r.Repo, status, r.SHA[:8])
-		} else {
-			fmt.Fprintf(os.Stderr, "  %s: %s\n", r.Repo, status)
+
+		fmt.Fprintf(os.Stderr, "\nCluster: %s  committed: %d  skipped: %d  errors: %d\n",
+			cluster.ID, committed, skipped, errored)
+
+		for _, repo := range cluster.Targets.Repos {
+			r, ok := resultByRepo[repo]
+			if !ok {
+				continue
+			}
+			if r.Status == "skipped-identical" {
+				continue // aggregated
+			}
+			status := r.Status
+			if r.Drifted {
+				status += " (drifted)"
+			}
+			if r.Error != nil {
+				fmt.Fprintf(os.Stderr, "  %s: %s — %v\n", r.Repo, status, r.Error)
+			} else if r.SHA != "" {
+				fmt.Fprintf(os.Stderr, "  %s: %s [%s]\n", r.Repo, status, r.SHA[:8])
+			} else {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", r.Repo, status)
+			}
 		}
 	}
 
@@ -308,4 +393,24 @@ func (a *forgeAdapter) CommitFiles(repo, branch, message string, files []governa
 		return "", nil
 	}
 	return result.SHA, nil
+}
+
+// sortedMapKeys returns sorted keys from a map[string]int.
+func sortedMapKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// sortedStringMapKeys returns sorted keys from a map[string][]string.
+func sortedStringMapKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
