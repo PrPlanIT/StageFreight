@@ -1052,6 +1052,7 @@ Use --dry-run to preview changes without committing.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
+| `--apply` | bool | — | Actually commit changes (required for real writes) |
 | `--cred-prefix` | string | `GITLAB` | Credential env var prefix for forge API |
 | `--dry-run` | bool | — | Preview changes without committing |
 | `--forge-url` | string | — | Forge base URL for target repos (e.g., https://gitlab.prplanit.com) |
