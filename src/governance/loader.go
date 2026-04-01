@@ -135,6 +135,31 @@ func parseClusters(path string) (*GovernanceConfig, error) {
 	return &wrapper.Governance, nil
 }
 
+// FetchFile fetches a single file from a git repo at a specific ref.
+// Used for loading the CI skeleton from the StageFreight repo.
+func FetchFile(repoURL, ref, path string) ([]byte, error) {
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	checkoutDir, err := fetchRepo(repoURL, ref)
+	if err != nil {
+		checkoutDir, err = fetchBySHA(repoURL, ref)
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s@%s: %w", repoURL, ref, err)
+		}
+	}
+	defer os.RemoveAll(checkoutDir)
+
+	filePath := filepath.Join(checkoutDir, path)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s from %s@%s: %w", path, repoURL, ref, err)
+	}
+
+	return data, nil
+}
+
 // filePresetLoader loads preset files from a local directory.
 type filePresetLoader struct {
 	root string

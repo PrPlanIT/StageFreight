@@ -63,9 +63,18 @@ func runGovernanceReconcile(cmd *cobra.Command, args []string) error {
 	if gov.Skeleton.Source.RepoURL != "" {
 		fmt.Fprintf(os.Stderr, "\nSkeleton source: %s @ %s path=%s\n",
 			gov.Skeleton.Source.RepoURL, gov.Skeleton.Source.Ref, gov.Skeleton.Source.Path)
-		// TODO: fetch skeleton from declared source.
-		// For now, skeleton distribution requires separate implementation.
-		fmt.Fprintln(os.Stderr, "  skeleton distribution: not yet implemented")
+
+		skeletonData, err := governance.FetchFile(
+			gov.Skeleton.Source.RepoURL,
+			gov.Skeleton.Source.Ref,
+			gov.Skeleton.Source.Path,
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  skeleton fetch failed: %v\n", err)
+		} else {
+			skeleton = skeletonData
+			fmt.Fprintf(os.Stderr, "  skeleton loaded: %d bytes\n", len(skeleton))
+		}
 	}
 
 	// Phase 3: Load auxiliary files (claude-code settings, etc.).
