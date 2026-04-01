@@ -13,6 +13,7 @@ import (
 
 var (
 	govDryRun      bool
+	govApply       bool   // explicit flag required to enable real commits
 	govSource      string // override governance source repo URL
 	govRef         string // override governance source ref
 	govPath        string // override governance clusters file path
@@ -33,6 +34,7 @@ Use --dry-run to preview changes without committing.`,
 
 func init() {
 	governanceReconcileCmd.Flags().BoolVar(&govDryRun, "dry-run", false, "Preview changes without committing")
+	governanceReconcileCmd.Flags().BoolVar(&govApply, "apply", false, "Actually commit changes (required for real writes)")
 	governanceReconcileCmd.Flags().StringVar(&govSource, "source", "", "Override governance source repo URL")
 	governanceReconcileCmd.Flags().StringVar(&govRef, "ref", "", "Override governance source ref")
 	governanceReconcileCmd.Flags().StringVar(&govPath, "path", "", "Override governance clusters file path")
@@ -93,7 +95,9 @@ func runGovernanceReconcile(cmd *cobra.Command, args []string) error {
 
 	sourceIdentity := extractIdentity(source.RepoURL)
 
-	// Build forge reader for drift detection.
+	// Build forge adapter for drift detection + commits.
+	// Single factory, single adapter — used for both read and write.
+	var adapter *forgeAdapter
 	var forgeReader governance.ForgeReader
 	if govForgeURL != "" {
 		factory := &forge.BasicFactory{
@@ -101,10 +105,11 @@ func runGovernanceReconcile(cmd *cobra.Command, args []string) error {
 			BaseURL:      govForgeURL,
 			CredPrefix:   govCredPrefix,
 		}
-		forgeReader = &forgeAdapter{factory: factory}
-		fmt.Fprintf(os.Stderr, "Forge reader: %s @ %s (cred: %s_*)\n", govProvider, govForgeURL, govCredPrefix)
+		adapter = &forgeAdapter{factory: factory, ctx: cmd.Context()}
+		forgeReader = adapter
+		fmt.Fprintf(os.Stderr, "Forge: %s @ %s (cred: %s_*)\n", govProvider, govForgeURL, govCredPrefix)
 	} else {
-		fmt.Fprintln(os.Stderr, "Forge reader: not configured (no --forge-url, drift detection disabled)")
+		fmt.Fprintln(os.Stderr, "Forge: not configured (no --forge-url, drift detection disabled)")
 	}
 
 	plans, err := governance.PlanDistribution(
@@ -154,19 +159,17 @@ func runGovernanceReconcile(cmd *cobra.Command, args []string) error {
 	}
 
 	// Phase 6: Commit to satellite repos.
-	if govForgeURL == "" {
-		return fmt.Errorf("--forge-url required for commit mode (use --dry-run to preview without credentials)")
+	if !govApply {
+		fmt.Fprintln(os.Stderr, "\nUse --apply to commit changes, or --dry-run to preview")
+		return nil
 	}
 
-	factory := &forge.BasicFactory{
-		ProviderName: govProvider,
-		BaseURL:      govForgeURL,
-		CredPrefix:   govCredPrefix,
+	if adapter == nil {
+		return fmt.Errorf("--forge-url required for --apply mode")
 	}
-	forgeClient := &forgeAdapter{factory: factory}
 
 	fmt.Fprintln(os.Stderr, "\nCommitting to satellite repos...")
-	results, err := governance.CommitDistribution(plans, forgeClient, sourceIdentity, source.Ref, false)
+	results, err := governance.CommitDistribution(plans, adapter, sourceIdentity, source.Ref, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nReconcile completed with errors\n")
 	}
@@ -259,29 +262,27 @@ func extractIdentity(repoURL string) string {
 // Governance selects repos; the factory materializes per-repo forge clients.
 type forgeAdapter struct {
 	factory forge.Factory
+	ctx     context.Context
 }
 
 func (a *forgeAdapter) GetFileContent(repo, path, ref string) ([]byte, error) {
-	ctx := context.Background()
-	f, err := a.factory.ForRepo(ctx, repo)
+	f, err := a.factory.ForRepo(a.ctx, repo)
 	if err != nil {
 		return nil, fmt.Errorf("creating forge for %s: %w", repo, err)
 	}
-	return f.GetFileContent(ctx, path, ref)
+	return f.GetFileContent(a.ctx, path, ref)
 }
 
 func (a *forgeAdapter) DefaultBranch(repo string) (string, error) {
-	ctx := context.Background()
-	f, err := a.factory.ForRepo(ctx, repo)
+	f, err := a.factory.ForRepo(a.ctx, repo)
 	if err != nil {
 		return "", fmt.Errorf("creating forge for %s: %w", repo, err)
 	}
-	return f.DefaultBranch(ctx)
+	return f.DefaultBranch(a.ctx)
 }
 
 func (a *forgeAdapter) CommitFiles(repo, branch, message string, files []governance.FileCommit) (string, error) {
-	ctx := context.Background()
-	f, err := a.factory.ForRepo(ctx, repo)
+	f, err := a.factory.ForRepo(a.ctx, repo)
 	if err != nil {
 		return "", fmt.Errorf("creating forge for %s: %w", repo, err)
 	}
@@ -295,7 +296,7 @@ func (a *forgeAdapter) CommitFiles(repo, branch, message string, files []governa
 		})
 	}
 
-	result, err := f.CommitFiles(ctx, forge.CommitFilesOptions{
+	result, err := f.CommitFiles(a.ctx, forge.CommitFilesOptions{
 		Branch:  branch,
 		Message: message,
 		Files:   forgeFiles,
