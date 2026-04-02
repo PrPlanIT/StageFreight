@@ -533,6 +533,10 @@ commit:
 | `ref` | `skeleton.source.ref` | string | Yes | — | string value |
 | `allow_floating` | `skeleton.source.allow_floating` | bool | Yes | — | bool value |
 | `id` | `clusters.id` | string | Yes | — | string value |
+| `repo_url` | `clusters.skeleton.source.repo_url` | string | Yes | — | string value |
+| `path` | `clusters.skeleton.source.path` | string | Yes | — | string value |
+| `ref` | `clusters.skeleton.source.ref` | string | Yes | — | string value |
+| `allow_floating` | `clusters.skeleton.source.allow_floating` | bool | Yes | — | bool value |
 | `repos` | `clusters.targets.repos` | []string | Yes | — | []string value |
 | `stagefreight` | `clusters.stagefreight` | map[string]any | Yes | — | map[string]any value |
 
