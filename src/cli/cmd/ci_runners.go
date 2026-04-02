@@ -599,7 +599,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	rootDir := resolveWorkspace(ciCtx)
 
 	if !appCfg.Release.Enabled {
-		renderReleaseSkip(ciCtx, "release disabled in config")
+		renderReleaseSkip(ciCtx, releaseSkipDisabled, "release disabled in config")
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Skipped = true
 			st.Release.Reason = "release disabled in config"
@@ -610,7 +610,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	}
 
 	if !ci.IsBranchHeadFresh(ciCtx) {
-		renderReleaseSkip(ciCtx, "pipeline SHA is not branch HEAD")
+		renderReleaseSkip(ciCtx, releaseSkipNotHead, "pipeline SHA is not branch HEAD")
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Skipped = true
 			st.Release.Reason = "pipeline SHA is not branch HEAD"
@@ -625,7 +625,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		tag = ciCtx.Tag
 	}
 	if tag == "" {
-		renderReleaseSkip(ciCtx, "no tag context")
+		renderReleaseSkip(ciCtx, releaseSkipNoTag, "no tag context")
 		if ciCtx.IsCI() {
 			if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.Release.Skipped = true
@@ -641,7 +641,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	// Uses the same target enumeration as RunReleaseCreate (collectTargetsByKind + targetWhenMatches).
 	if !releaseTagMatchesAnyTarget(appCfg, tag) {
 		reason := fmt.Sprintf("tag %q does not match any release policy", tag)
-		renderReleaseSkip(ciCtx, reason)
+		renderReleaseSkip(ciCtx, releaseSkipPolicyMismatch, reason)
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Release.Skipped = true
 			st.Release.Reason = reason
@@ -695,8 +695,18 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 
 // releaseTagMatchesAnyTarget returns true if the tag matches at least one
 // release target's when conditions. Uses the same target enumeration as
+// releaseSkipCode identifies why a release was skipped.
+type releaseSkipCode string
+
+const (
+	releaseSkipNoTag          releaseSkipCode = "no_tag_context"
+	releaseSkipDisabled       releaseSkipCode = "disabled"
+	releaseSkipNotHead        releaseSkipCode = "not_head"
+	releaseSkipPolicyMismatch releaseSkipCode = "policy_mismatch"
+)
+
 // renderReleaseSkip renders a structured skip section for the release subsystem.
-func renderReleaseSkip(ciCtx *ci.CIContext, reason string) {
+func renderReleaseSkip(ciCtx *ci.CIContext, code releaseSkipCode, reason string) {
 	color := output.UseColor()
 	sec := output.NewSection(os.Stdout, "Release", 0, color)
 	sec.Row("%-14s%s", "status", "skipped")
@@ -712,8 +722,24 @@ func renderReleaseSkip(ciCtx *ci.CIContext, reason string) {
 		tag = "none"
 	}
 	sec.Row("%-14s%s", "tag", tag)
-	sec.Row("%-14s%s", "result", "nothing to release")
+	sec.Row("%-14s%s", "result", releaseSkipResult(code))
 	sec.Close()
+}
+
+// releaseSkipResult maps a skip code to a human-readable outcome.
+func releaseSkipResult(code releaseSkipCode) string {
+	switch code {
+	case releaseSkipNoTag:
+		return "nothing to release"
+	case releaseSkipDisabled:
+		return "release disabled"
+	case releaseSkipNotHead:
+		return "superseded by newer pipeline"
+	case releaseSkipPolicyMismatch:
+		return "no matching release policy"
+	default:
+		return "skipped"
+	}
 }
 
 // RunReleaseCreate (collectTargetsByKind + targetWhenMatches).
