@@ -113,7 +113,8 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	}
 
 	if !hasBinaryBuilds && !hasDockerBuilds {
-		return fmt.Errorf("no builds configured")
+		fmt.Fprintln(os.Stderr, "build: no builds configured — skipping")
+		return nil
 	}
 
 	// Read publish manifest to determine what was produced.
