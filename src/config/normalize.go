@@ -65,10 +65,10 @@ func Normalize(cfg *Config) {
 func AssertNormalized(cfg *Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return nil // can't serialize, skip check
+		return fmt.Errorf("normalization assertion skipped: could not serialize config: %w", err)
 	}
 	if strings.Contains(string(data), "{var:") {
-		return fmt.Errorf("unresolved {var:} template found after normalization — Normalize() is missing a field")
+		return fmt.Errorf("unresolved {var:} template found after normalization")
 	}
 	return nil
 }
