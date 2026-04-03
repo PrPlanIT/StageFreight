@@ -40,12 +40,14 @@ builds:
     platforms: [linux/amd64]
 
 
-build_cache:
-  mode: hybrid
-  external:
-    target: harbor-dev
-    path: "cache"
-    fallback: "main"
+# build_cache temporarily disabled — bootstrap new latest-dev with cache fixes
+# Re-enable after this build publishes the fixed binary.
+# build_cache:
+#   mode: hybrid
+#   external:
+#     target: harbor-dev
+#     path: "cache"
+#     fallback: "main"
 
 targets:
   # ── Docker Hub: stable releases ─────────────────────────────────
