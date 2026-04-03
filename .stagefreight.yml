@@ -40,6 +40,13 @@ builds:
     platforms: [linux/amd64]
 
 
+build_cache:
+  mode: shared
+  external:
+    target: dockerhub-dev
+    path: "cache"
+    fallback: "main"
+
 targets:
   # ── Docker Hub: stable releases ─────────────────────────────────
   # Full rolling tag set. Renovate picks up {base} for auto-updates.
