@@ -102,6 +102,11 @@ RUN wget -qO /usr/local/bin/cosign \
       "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64" && \
     chmod +x /usr/local/bin/cosign
 
+# StageFreight runtime paths.
+# /stagefreight/cache — persistent (mount a volume here for cross-run reuse)
+# /tmp/stagefreight   — ephemeral scratch (dies with the container)
+RUN mkdir -p /stagefreight/cache /tmp/stagefreight
+
 # Copy the Go binary from builder stage.
 COPY --from=builder /out/stagefreight /usr/local/bin/stagefreight
 

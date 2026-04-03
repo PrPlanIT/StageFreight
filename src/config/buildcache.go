@@ -28,8 +28,10 @@ func (c BuildCacheConfig) IsActive() bool {
 }
 
 // LocalCacheConfig defines bounded local BuildKit cache.
-// Path is resolved at runtime from XDG_CACHE_HOME or /tmp — never inside the repo.
+// Default path: /stagefreight/cache/buildkit (persistent runtime root).
+// Override via Path field for non-standard mounts.
 type LocalCacheConfig struct {
+	Path      string         `yaml:"path,omitempty"` // override local cache root (default: /stagefreight/cache/buildkit)
 	Retention LocalRetention `yaml:"retention,omitempty"`
 }
 

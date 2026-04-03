@@ -40,13 +40,13 @@ func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, targets
 
 	switch cfg.Mode {
 	case "local":
-		return localFlags(repoID)
+		return localFlags(repoID, cfg.Local)
 
 	case "shared":
 		return externalFlags(cfg.External, repoID, branch, targets)
 
 	case "hybrid":
-		localFrom, localTo := localFlags(repoID)
+		localFrom, localTo := localFlags(repoID, cfg.Local)
 		extFrom, extTo := externalFlags(cfg.External, repoID, branch, targets)
 		return append(localFrom, extFrom...), append(localTo, extTo...)
 	}
@@ -55,8 +55,12 @@ func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, targets
 }
 
 // localFlags returns BuildKit local cache refs.
-func localFlags(repoID string) (cacheFrom, cacheTo []build.CacheRef) {
-	dir := LocalCacheDir(repoID)
+// Returns nil if the local cache path isn't available (not mounted/writable).
+func localFlags(repoID string, localCfg config.LocalCacheConfig) (cacheFrom, cacheTo []build.CacheRef) {
+	if !LocalCacheAvailable(repoID, localCfg) {
+		return nil, nil
+	}
+	dir := LocalCacheDir(repoID, localCfg)
 	return []build.CacheRef{{Type: "local", Ref: dir, Direction: "import"}},
 		[]build.CacheRef{{Type: "local", Ref: dir, Mode: "max", Direction: "export"}}
 }
@@ -102,16 +106,31 @@ func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, target
 }
 
 // LocalCacheDir resolves the local cache directory.
-// Uses XDG_CACHE_HOME if set, otherwise /tmp. Never inside the repo.
-func LocalCacheDir(repoID string) string {
+// Default: /stagefreight/cache/buildkit/<repo-hash> (persistent runtime root).
+// Falls back to config override if set. Never uses /tmp.
+func LocalCacheDir(repoID string, cfg config.LocalCacheConfig) string {
 	hash := repoHash(repoID)
-	base := os.Getenv("XDG_CACHE_HOME")
+	base := cfg.Path
 	if base == "" {
-		base = filepath.Join(os.TempDir(), "stagefreight", "cache")
-	} else {
-		base = filepath.Join(base, "stagefreight")
+		base = "/stagefreight/cache/buildkit"
 	}
-	return filepath.Join(base, hash, "buildkit")
+	return filepath.Join(base, hash)
+}
+
+// LocalCacheAvailable checks if the local cache path is mounted and writable.
+func LocalCacheAvailable(repoID string, cfg config.LocalCacheConfig) bool {
+	dir := LocalCacheDir(repoID, cfg)
+	// Check parent exists (the mount point).
+	parent := filepath.Dir(dir)
+	info, err := os.Stat(parent)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	// Try creating the repo-scoped dir.
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return false
+	}
+	return true
 }
 
 // BuilderName returns a deterministic, repo-scoped builder name.
