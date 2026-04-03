@@ -41,7 +41,7 @@ builds:
 
 
 build_cache:
-  mode: shared
+  mode: "off"
   external:
     target: dockerhub-dev
     path: "cache"
