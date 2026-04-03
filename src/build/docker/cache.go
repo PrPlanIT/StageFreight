@@ -57,8 +57,8 @@ func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, targets
 // localFlags returns BuildKit local cache refs.
 func localFlags(repoID string) (cacheFrom, cacheTo []build.CacheRef) {
 	dir := LocalCacheDir(repoID)
-	return []build.CacheRef{{Type: "local", Ref: dir}},
-		[]build.CacheRef{{Type: "local", Ref: dir, Mode: "max"}}
+	return []build.CacheRef{{Type: "local", Ref: dir, Direction: "import"}},
+		[]build.CacheRef{{Type: "local", Ref: dir, Mode: "max", Direction: "export"}}
 }
 
 // externalFlags returns BuildKit registry cache refs.
@@ -89,14 +89,14 @@ func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, target
 	branchRef := fmt.Sprintf("%s:%s-%s", targetRef, prefix, br)
 
 	// cache-from: branch first, then fallback.
-	cacheFrom = []build.CacheRef{{Type: "registry", Ref: branchRef}}
+	cacheFrom = []build.CacheRef{{Type: "registry", Ref: branchRef, Direction: "import"}}
 	if ext.Fallback != "" && ext.Fallback != branch {
 		fallbackRef := fmt.Sprintf("%s:%s-%s", targetRef, prefix, CanonicalizeRef(ext.Fallback))
-		cacheFrom = append(cacheFrom, build.CacheRef{Type: "registry", Ref: fallbackRef})
+		cacheFrom = append(cacheFrom, build.CacheRef{Type: "registry", Ref: fallbackRef, Direction: "import"})
 	}
 
 	// cache-to: branch only. Never fallback. Caller gates on build success.
-	cacheTo = []build.CacheRef{{Type: "registry", Ref: branchRef, Mode: mode}}
+	cacheTo = []build.CacheRef{{Type: "registry", Ref: branchRef, Mode: mode, Direction: "export"}}
 
 	return cacheFrom, cacheTo
 }

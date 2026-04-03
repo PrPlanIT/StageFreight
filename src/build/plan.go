@@ -39,14 +39,26 @@ type BuildStep struct {
 
 // CacheRef is a structured build cache reference.
 type CacheRef struct {
-	Type string // "registry", "local"
-	Ref  string // registry ref or local path
-	Mode string // "max", "min" (cache-to only)
+	Type      string // "registry", "local"
+	Ref       string // registry ref or local path
+	Mode      string // "max", "min" (export only)
+	Direction string // "import" or "export" — determines local key (src vs dest)
 }
 
 // Flag renders the CacheRef as a buildx --cache-from/--cache-to value.
+// Local cache uses src=/dest= keys. Registry cache uses ref=.
 func (c CacheRef) Flag() string {
-	f := "type=" + c.Type + ",ref=" + c.Ref
+	var f string
+	switch c.Type {
+	case "local":
+		if c.Direction == "export" {
+			f = "type=local,dest=" + c.Ref
+		} else {
+			f = "type=local,src=" + c.Ref
+		}
+	default:
+		f = "type=" + c.Type + ",ref=" + c.Ref
+	}
 	if c.Mode != "" {
 		f += ",mode=" + c.Mode
 	}
