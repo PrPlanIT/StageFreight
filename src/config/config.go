@@ -134,6 +134,11 @@ func LoadWithWarnings(path string) (*Config, []string, error) {
 	// All consumers get fully-resolved values — no late binding.
 	Normalize(cfg)
 
+	// Safety net: verify no unresolved vars remain.
+	if err := AssertNormalized(cfg); err != nil {
+		warnings = append(warnings, err.Error())
+	}
+
 	return cfg, warnings, nil
 }
 

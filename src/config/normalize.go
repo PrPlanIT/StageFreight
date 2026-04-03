@@ -1,6 +1,11 @@
 package config
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Normalize resolves {var:...} templates throughout the config using the
 // config's own Vars map. Called once after load+validate, before any consumer
@@ -52,6 +57,20 @@ func Normalize(cfg *Config) {
 
 	// BuildCache: external target is resolved via targets (already done above).
 	// Sources.PublishOrigin: resolved via Sources above.
+}
+
+// AssertNormalized verifies no unresolved {var:} templates remain in the config.
+// Called after Normalize as a safety net — catches regressions when new fields
+// are added but not included in the normalization pass.
+func AssertNormalized(cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil // can't serialize, skip check
+	}
+	if strings.Contains(string(data), "{var:") {
+		return fmt.Errorf("unresolved {var:} template found after normalization — Normalize() is missing a field")
+	}
+	return nil
 }
 
 // resolveTemplateVars replaces StageFreight {var:name} template placeholders
