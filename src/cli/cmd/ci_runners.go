@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
@@ -30,11 +31,13 @@ import (
 // All runner implementations live here in cmd — ci package stays pure types.
 func buildCIRegistry() ci.Registry {
 	return ci.Registry{
-		"build":    buildRunner,
-		"deps":     depsRunner,
-		"security": securityRunner,
-		"docs":     docsRunner,
-		"release":  releaseRunner,
+		"build":     buildRunner,
+		"deps":      depsRunner,
+		"docs":      docsRunner,
+		"reconcile": reconcileRunner,
+		"release":   releaseRunner,
+		"security":  securityRunner,
+		"validate":  validateRunner,
 	}
 }
 
@@ -1103,4 +1106,75 @@ func sanitizeBranchPrefix(raw string) string {
 		return ""
 	}
 	return p
+}
+
+// ── validate runner ─────────────────────────────────────────────────────────
+func validateRunner(_ context.Context, appCfg *config.Config, ciCtx *ci.CIContext, _ ci.RunOptions) error {
+	start := time.Now()
+	if strings.TrimSpace(string(appCfg.Lint.Level)) == "" {
+		renderCISkip("Validate", start, "no validation configured")
+		return nil
+	}
+	// Thin shim: delegate to existing lint command.
+	return runLint(&cobra.Command{}, []string{})
+}
+
+// ── reconcile runner ────────────────────────────────────────────────────────
+func reconcileRunner(_ context.Context, appCfg *config.Config, ciCtx *ci.CIContext, _ ci.RunOptions) error {
+	start := time.Now()
+
+	hasGitOps := strings.TrimSpace(appCfg.GitOps.Cluster.Name) != ""
+	hasGovernance := len(appCfg.Governance.Clusters) > 0
+
+	if !hasGitOps && !hasGovernance {
+		renderCISkip("Reconcile", start, "no reconcile target configured")
+		return nil
+	}
+
+	// GitOps reconcile — requires cluster auth.
+	if hasGitOps {
+		if strings.TrimSpace(appCfg.GitOps.OIDC.Audience) != "" && strings.TrimSpace(os.Getenv("STAGEFREIGHT_OIDC")) == "" {
+			renderCISkip("Reconcile", start, "cluster auth unavailable")
+		} else {
+			if err := runReconcile(&cobra.Command{}, []string{}); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Governance reconcile — requires forge credentials, not cluster auth.
+	// Not mutually exclusive with gitops — both can run.
+	if hasGovernance {
+		if err := runGovernanceReconcile(&cobra.Command{}, []string{}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ── shared CI skip renderer ─────────────────────────────────────────────────
+
+// renderCISkip renders a structured skip section for any CI subsystem.
+func renderCISkip(section string, start time.Time, reason string) {
+	color := output.UseColor()
+	sec := output.NewSection(os.Stdout, section, time.Since(start), color)
+	sec.Row("%-14s%s", "status", "skipped")
+	sec.Row("%-14s%s", "reason", reason)
+	sec.Row("%-14s%s", "result", ciSkipResult(reason))
+	sec.Close()
+}
+
+// ciSkipResult maps a skip reason to a human-readable outcome.
+func ciSkipResult(reason string) string {
+	switch reason {
+	case "no validation configured":
+		return "validation not configured"
+	case "no reconcile target configured":
+		return "nothing to reconcile"
+	case "cluster auth unavailable":
+		return "reconcile skipped — auth not available in this environment"
+	default:
+		return "skipped"
+	}
 }
