@@ -39,6 +39,7 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`governance`](#config-governance)
 - [`gitops`](#config-gitops)
 - [`docker`](#config-docker)
+- [`build_cache`](#config-build_cache)
 - [`glossary`](#config-glossary)
 - [`presentation`](#config-presentation)
 - [`tag`](#config-tag)
@@ -575,6 +576,32 @@ commit:
 | `orphan_action` | `drift.orphan_action` | string | Yes | — | string value |
 | `orphan_threshold` | `drift.orphan_threshold` | int | Yes | — | int value |
 | `prune_requires_confirmation` | `drift.prune_requires_confirmation` | bool | Yes | — | bool value |
+
+---
+
+<a id="config-build_cache" name="config-build_cache"></a>
+### build_cache
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `mode` | `mode` | string | No | — | string value |
+| `max_age` | `local.retention.max_age` | string | No | — | string value |
+| `max_size` | `local.retention.max_size` | string | No | — | string value |
+| `target` | `external.target` | string | No | — | string value |
+| `path` | `external.path` | string | No | — | string value |
+| `fallback` | `external.fallback` | string | No | — | string value |
+| `mode` | `external.mode` | string | No | — | string value |
+| `max_refs` | `external.retention.max_refs` | int | No | — | int value |
+| `stale_age` | `external.retention.stale_age` | string | No | — | string value |
+| `enforcement` | `cleanup.enforcement` | string | No | — | string value |
+| `refs` | `cleanup.protect.images.refs` | []string | No | — | []string value |
+| `named` | `cleanup.protect.volumes.named` | bool | No | — | bool value |
+| `older_than` | `cleanup.prune.images.dangling.older_than` | string | No | — | string value |
+| `older_than` | `cleanup.prune.images.unreferenced.older_than` | string | No | — | string value |
+| `older_than` | `cleanup.prune.build_cache.older_than` | string | No | — | string value |
+| `keep_storage` | `cleanup.prune.build_cache.keep_storage` | string | No | — | string value |
+| `older_than` | `cleanup.prune.containers.exited.older_than` | string | No | — | string value |
+| `unused` | `cleanup.prune.networks.unused` | bool | No | — | bool value |
 
 ---
 
