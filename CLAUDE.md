@@ -5,6 +5,8 @@
 - CRITICAL RULES:
   - STAY ON TASK when following directions. NO BAND AID, NO WORK AROUNDS. If you think we need to give up or regroup, ASK. Don't make the call on your own to find alternative solutions or shortcuts.
   - I want things done exactly how I ask. If you want to offer an alternative, conversation should stop till I tell you if I agree/disagree.
+  - **NEVER use `git commit`** — always use `stagefreight commit`. The binary is at `/usr/local/bin/stagefreight`.
+  - **NEVER use `git tag`** — always use `stagefreight tag`. Supports `--minor`, `--patch`, `--major`, `--push`, `-y`. Enforces version policy and generates release highlights.
 
 - Building & Testing:
   - **NO LOCAL GO TOOLCHAIN** — StageFreight dogfoods itself, all operations run in containers. Never run `go build`, `go mod tidy`, `go vet`, etc. locally.
