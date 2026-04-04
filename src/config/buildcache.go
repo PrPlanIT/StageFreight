@@ -11,6 +11,10 @@ type BuildCacheConfig struct {
 	// hybrid: both local and external.
 	Mode string `yaml:"mode,omitempty"`
 
+	// Builder configures the buildx builder lifecycle.
+	// The engine owns creation, bootstrap, and narration — skeleton is transport only.
+	Builder BuilderConfig `yaml:"builder,omitempty"`
+
 	// Local configures the bounded local buildkit cache.
 	Local LocalCacheConfig `yaml:"local,omitempty"`
 
@@ -20,6 +24,43 @@ type BuildCacheConfig struct {
 	// Cleanup configures host hygiene — residue pruning, not cache.
 	// Only executes when Mode is active (not empty, not off).
 	Cleanup HostCleanupConfig `yaml:"cleanup,omitempty"`
+}
+
+// BuilderConfig declares the buildx builder identity.
+// The engine creates/bootstraps/narrates — this is just the declaration.
+type BuilderConfig struct {
+	// Name is the buildx builder name. Default: "sf-builder".
+	Name string `yaml:"name,omitempty"`
+
+	// Driver is the buildx driver. Default: "docker-container".
+	Driver string `yaml:"driver,omitempty"`
+
+	// Context is the Docker context name for the builder endpoint. Default: "sf-context".
+	Context string `yaml:"context,omitempty"`
+}
+
+// BuilderName returns the builder name, defaulting to "sf-builder".
+func (b BuilderConfig) BuilderName() string {
+	if b.Name != "" {
+		return b.Name
+	}
+	return "sf-builder"
+}
+
+// BuilderDriver returns the driver, defaulting to "docker-container".
+func (b BuilderConfig) BuilderDriver() string {
+	if b.Driver != "" {
+		return b.Driver
+	}
+	return "docker-container"
+}
+
+// ContextName returns the Docker context name, defaulting to "sf-context".
+func (b BuilderConfig) ContextName() string {
+	if b.Context != "" {
+		return b.Context
+	}
+	return "sf-context"
 }
 
 // IsActive returns true if any cache mode is enabled.

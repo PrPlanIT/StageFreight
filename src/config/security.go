@@ -27,6 +27,7 @@ func (s ScannersConfig) GrypeEnabled() bool {
 // SecurityConfig holds security scanning configuration.
 type SecurityConfig struct {
 	Enabled        bool           `yaml:"enabled"`          // run vulnerability scanning (default: true)
+	Required       *bool          `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
 	Scanners       ScannersConfig `yaml:"scanners"`         // per-scanner toggles
 	SBOMEnabled    bool           `yaml:"sbom"`             // generate SBOM artifacts (default: true)
 	FailOnCritical bool           `yaml:"fail_on_critical"` // fail the pipeline if critical vulns found
@@ -57,6 +58,14 @@ type DetailRule struct {
 	// Detail is the detail level to use when this rule matches.
 	// Values: "none", "counts", "detailed", "full".
 	Detail string `yaml:"detail"`
+}
+
+// IsRequired returns whether security failure is a hard pipeline fail. Default: false.
+func (s SecurityConfig) IsRequired() bool {
+	if s.Required != nil {
+		return *s.Required
+	}
+	return false
 }
 
 // DefaultSecurityConfig returns sensible defaults for security scanning.

@@ -21,6 +21,9 @@ type BuildConfig struct {
 	// SelectTags enables CLI filtering via --select.
 	SelectTags []string `yaml:"select_tags,omitempty"`
 
+	// Required means build failure is a hard pipeline fail. Default: true.
+	Required *bool `yaml:"required,omitempty"`
+
 	// BuildMode controls the build execution strategy.
 	// Supported: "" (standard), "crucible" (self-proving rebuild).
 	BuildMode string `yaml:"build_mode,omitempty"`
@@ -90,6 +93,14 @@ type CrucibleConfig struct {
 	// ToolchainImage is the pinned container image for pass-2 verification.
 	// e.g., "docker.io/library/golang:1.24-alpine"
 	ToolchainImage string `yaml:"toolchain_image,omitempty"`
+}
+
+// IsRequired returns whether build failure is a hard pipeline fail. Default: true.
+func (b BuildConfig) IsRequired() bool {
+	if b.Required != nil {
+		return *b.Required
+	}
+	return true
 }
 
 // BuilderCommand returns the builder command, defaulting to "build".

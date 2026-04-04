@@ -96,20 +96,15 @@ func RunCrucible(ctx context.Context, opts CrucibleOpts) (*CrucibleResult, error
 
 	args = append(args, opts.Image)
 
-	// Reuse sf-builder from pass 1 (created by skeleton's .dind-setup).
-	// The buildx state is mounted from /stagefreight/buildx, so sf-builder
-	// is visible. Validate it exists and bootstrap it — no silent fallback.
+	// Builder lifecycle is owned by the engine's EnsureBuilder(), called inside
+	// stagefreight docker build. No shell-level builder/context creation needed.
 	va := VerificationArtifact{Tag: opts.FinalTag}
 	innerFlags := make([]string, 0, len(opts.ExtraFlags)+len(va.AppendFlags()))
 	innerFlags = append(innerFlags, opts.ExtraFlags...)
 	innerFlags = append(innerFlags, va.AppendFlags()...)
 
-	// Recreate sf-context + sf-builder deterministically. The buildx state is
-	// mounted from /stagefreight/buildx but the Docker context is ephemeral.
-	// Both are recreated fresh — no reuse guessing. Bootstrap is NOT done here —
-	// StageFreight's ResolveBuilderInfo() handles bootstrap + structured narration.
 	shellCmd := fmt.Sprintf(
-		`docker context rm sf-context 2>/dev/null || true && docker context create sf-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem" && docker buildx rm sf-builder 2>/dev/null || true && docker buildx create --name sf-builder --driver docker-container --use sf-context && mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"recreated","driver":"docker-container","context":"sf-context"}\n' > .stagefreight/runtime/docker/builder.json && stagefreight docker build %s`,
+		`stagefreight docker build %s`,
 		strings.Join(innerFlags, " "),
 	)
 	args = append(args, "sh", "-c", shellCmd)

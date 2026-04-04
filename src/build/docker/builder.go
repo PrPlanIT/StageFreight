@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
@@ -38,49 +40,99 @@ type GCRule struct {
 	MinFree      string
 }
 
-// ResolveBuilderInfo queries the active buildx builder, bootstraps it,
-// and returns structured facts. Captures raw output as fallback.
-// Inspects the currently selected builder (no hardcoded name).
-func ResolveBuilderInfo() BuilderInfo {
-	info := BuilderInfo{}
+// EnsureBuilder creates the Docker context and buildx builder from config,
+// bootstraps it, and writes builder.json. This is the single authority for
+// builder lifecycle — the skeleton is transport only (env vars + DinD service).
+func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
+	name := cfg.BuilderName()
+	driver := cfg.BuilderDriver()
 
-	// Read authoritative builder record first — skeleton or crucible writes this.
-	if recordBytes, err := os.ReadFile(".stagefreight/runtime/docker/builder.json"); err == nil {
-		var record struct {
-			Name     string `json:"name"`
-			Action   string `json:"action"`
-			Driver   string `json:"driver"`
-			Endpoint string `json:"endpoint"`
+	info := BuilderInfo{Name: name, Driver: driver}
+
+	ctxName := cfg.ContextName()
+
+	// Create Docker context from env vars (deterministic, recreated every run).
+	// Contract: both DOCKER_HOST + DOCKER_CERT_PATH set → remote TLS context.
+	// Neither set → local default docker. One without the other → misconfiguration, fail.
+	dockerHost := os.Getenv("DOCKER_HOST")
+	certPath := os.Getenv("DOCKER_CERT_PATH")
+	if (dockerHost == "") != (certPath == "") {
+		info.Status = "partial remote docker configuration"
+		info.RawOutput = fmt.Sprintf("DOCKER_HOST=%q DOCKER_CERT_PATH=%q — need both for remote TLS or neither for local docker", dockerHost, certPath)
+		info.ParseFailed = true
+		return info
+	}
+	useContext := dockerHost != "" && certPath != ""
+
+	if useContext {
+		exec.Command("docker", "context", "rm", ctxName).CombinedOutput()
+		contextArg := fmt.Sprintf("host=%s,ca=%s/ca.pem,cert=%s/cert.pem,key=%s/key.pem",
+			dockerHost, certPath, certPath, certPath)
+		if out, err := exec.Command("docker", "context", "create", ctxName,
+			"--docker", contextArg).CombinedOutput(); err != nil {
+			info.Status = "context creation failed"
+			info.RawOutput = string(out)
+			info.ParseFailed = true
+			return info
 		}
-		if json.Unmarshal(recordBytes, &record) == nil {
-			info.Name = record.Name
-			if record.Action == "created" || record.Action == "reused" {
-				info.Action = record.Action
-			}
-		}
+	} else {
+		fmt.Fprintf(os.Stderr, "builder: using default docker context (no DOCKER_HOST/DOCKER_CERT_PATH)\n")
 	}
 
-	// Determine which builder to inspect.
-	// Priority: builder.json name → environment default (no explicit name = current builder).
-	builderArg := []string{"docker", "buildx", "inspect", "--bootstrap"}
-	inspectArg := []string{"docker", "buildx", "inspect"}
-	if info.Name != "" {
-		builderArg = append(builderArg, info.Name)
-		inspectArg = append(inspectArg, info.Name)
-	}
-	if info.Name == "" {
-		info.Name = "(default)"
-	}
+	// Recreate builder (deterministic, no stale state reuse).
+	exec.Command("docker", "buildx", "rm", name).CombinedOutput()
 
-	// Bootstrap and capture output (suppress from CI log).
+	createArgs := []string{"buildx", "create", "--name", name, "--driver", driver, "--use"}
+	if useContext {
+		createArgs = append(createArgs, ctxName)
+	}
+	if out, err := exec.Command("docker", createArgs[0], createArgs[1:]...).CombinedOutput(); err != nil {
+		info.Status = "builder creation failed"
+		info.RawOutput = string(out)
+		info.ParseFailed = true
+		return info
+	}
+	info.Action = "recreated"
+
+	// Bootstrap — pulls BuildKit image, starts container.
 	bootstrapStart := time.Now()
-	bootstrapOut, bootstrapErr := exec.Command(builderArg[0], builderArg[1:]...).CombinedOutput()
+	bootstrapOut, bootstrapErr := exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
 	info.BootstrapDuration = time.Since(bootstrapStart)
 	info.BootstrapOK = bootstrapErr == nil
 	info.RawOutput = string(bootstrapOut)
 
-	// Inspect for structured facts.
-	out, err := exec.Command(inspectArg[0], inspectArg[1:]...).CombinedOutput()
+	// Write builder.json — engine is the authority, not shell glue.
+	writeBuilderRecord(name, driver, info.Action)
+
+	return info
+}
+
+// ResolveBuilderInfo inspects the active builder and returns structured facts.
+// Read-only — does NOT create or bootstrap. Call EnsureBuilder first.
+func ResolveBuilderInfo(info BuilderInfo) BuilderInfo {
+	name := info.Name
+	if name == "" || name == "(default)" {
+		// Fallback: read from builder.json if EnsureBuilder wasn't called.
+		if recordBytes, err := os.ReadFile(".stagefreight/runtime/docker/builder.json"); err == nil {
+			var record struct {
+				Name   string `json:"name"`
+				Action string `json:"action"`
+			}
+			if json.Unmarshal(recordBytes, &record) == nil {
+				name = record.Name
+				if info.Action == "" {
+					info.Action = record.Action
+				}
+			}
+		}
+	}
+	if name == "" {
+		name = "(default)"
+	}
+	info.Name = name
+
+	// Inspect for structured facts (no bootstrap — that's EnsureBuilder's job).
+	out, err := exec.Command("docker", "buildx", "inspect", name).CombinedOutput()
 	if err != nil {
 		info.Status = "not found"
 		info.ParseFailed = true
@@ -215,4 +267,26 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dms", d.Milliseconds())
 	}
 	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// writeBuilderRecord writes the authoritative builder.json.
+// Engine-owned — not shell glue.
+func writeBuilderRecord(name, driver, action string) {
+	dir := filepath.Join(".stagefreight", "runtime", "docker")
+	os.MkdirAll(dir, 0o755)
+
+	record := struct {
+		Name    string `json:"name"`
+		Action  string `json:"action"`
+		Driver  string `json:"driver"`
+	}{
+		Name:   name,
+		Action: action,
+		Driver: driver,
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return
+	}
+	os.WriteFile(filepath.Join(dir, "builder.json"), append(data, '\n'), 0o644)
 }
