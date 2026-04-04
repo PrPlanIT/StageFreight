@@ -4,7 +4,7 @@
 #
 # Standard build transport. Backend-agnostic — engine auto-detects:
 #   BUILDKIT_HOST set → persistent buildkitd (remote driver, fast cache)
-#   DOCKER_HOST set  → DinD (docker-container driver, ephemeral cache)
+#   BUILDKIT_HOST not set → DinD (docker-container driver)
 # Runner compose determines which endpoints exist. Skeleton is the same for both.
 # StageFreight decides what actually runs based on .stagefreight.yml config.
 
@@ -30,9 +30,13 @@ workflow:
   - export SF_CI_WORKSPACE="$PWD"
   - export SF_CI_PIPELINE_ID="${CI_PIPELINE_ID}"
 
-# Runner sets BUILDKIT_HOST and/or DOCKER_HOST via runner environment variables
-# or CI/CD group/project variables. See integrations/gitlab/runner-compose*.yml.
-# DOCKER_CERT_PATH is used for TLS auth to both DinD and buildkitd (same CA).
+# Runner transport — DinD access for all runners.
+# BUILDKIT_HOST is NOT here — operators add it via CI/CD variables
+# or runner config when persistent buildkitd is available.
+.runner-variables: &runner-variables
+  DOCKER_HOST: "tcp://dind:2376"
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "/certs/client"
 
 default:
   image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
@@ -42,6 +46,7 @@ dependency-update:
   stage: deps
   variables:
     GIT_DEPTH: 0
+    <<: *runner-variables
   before_script:
     - *sf-context
   script:
@@ -54,8 +59,7 @@ dependency-update:
 build:
   stage: build
   variables:
-    <<: *dind-variables
-    BUILDKIT_HOST: "tcp://buildkitd:1234"
+    <<: *runner-variables
   before_script:
     - *sf-context
   script:
@@ -69,6 +73,8 @@ build:
 security-scan:
   stage: security
   needs: [build]
+  variables:
+    <<: *runner-variables
   before_script:
     - *sf-context
   script:

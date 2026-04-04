@@ -48,18 +48,32 @@ func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
 	driver := cfg.BuilderDriver()
 	info := BuilderInfo{Name: name, Driver: driver}
 
-	// Detect build backend from environment.
-	// BUILDKIT_HOST → persistent buildkitd via remote driver (preferred).
-	// DOCKER_HOST + DOCKER_CERT_PATH → DinD via docker-container driver (legacy).
-	// Neither → local docker daemon.
-	buildkitHost := os.Getenv("BUILDKIT_HOST")
-
-	if buildkitHost != "" {
-		// Persistent buildkitd — use remote driver.
-		// Mount caches persist because the daemon persists.
-		info.Driver = "remote"
-		return ensureRemoteBuilder(name, buildkitHost, info)
+	// Backend selection via capability detection — engine decides, not skeleton.
+	// Priority: buildkitd (persistent cache) → DinD (ephemeral) → local docker.
+	// Discovery: probe well-known endpoint + check TLS certs. No env var needed.
+	buildkitHost := os.Getenv("BUILDKIT_HOST") // override, or empty for auto-discovery
+	if buildkitHost == "" {
+		buildkitHost = "tcp://buildkitd:1234" // well-known endpoint
 	}
+
+	bkCertPath := os.Getenv("BUILDKIT_CERT_PATH")
+	if bkCertPath == "" {
+		bkCertPath = "/buildkit-certs"
+	}
+
+	// Probe: TLS certs present AND endpoint reachable → use buildkitd.
+	if _, err := os.Stat(fmt.Sprintf("%s/ca.pem", bkCertPath)); err == nil {
+		info.Driver = "remote"
+		result := ensureRemoteBuilder(name, buildkitHost, info)
+		if result.BootstrapOK {
+			return result
+		}
+		// BuildKit not reachable — fall through to DinD.
+		fmt.Fprintf(os.Stderr, "builder: buildkitd probe failed, using DinD\n")
+	}
+
+	// DinD or local docker — docker-container driver.
+	info.Driver = driver
 
 	// DinD or local docker — use docker-container driver with context.
 	return ensureDockerContainerBuilder(name, driver, cfg.ContextName(), info)
