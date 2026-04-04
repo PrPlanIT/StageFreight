@@ -209,6 +209,8 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `branches` | `when.branches` | []string | No | — | Branch filters. Each entry is a policy name or inline regex. |
 | `git_tags` | `when.git_tags` | []string | No | — | Git tag filters. Each entry is a policy name or inline regex. |
 | `events` | `when.events` | []string | No | — | CI event type filters. |
+| `allow` | `run_from.allow` | []string | No | — | []string value |
+| `mismatch` | `run_from.mismatch` | string | No | — | string value |
 | `select_tags` | `select_tags` | []string | No | — | []string value |
 | `url` | `url` | string | No | — | Registry or forge hostname. |
 | `provider` | `provider` | string | No | — | Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets. |
@@ -478,6 +480,8 @@ commit:
 | `promotion` | `commit.promotion` | string | Yes | — | string value |
 | `branch_prefix` | `commit.mr.branch_prefix` | string | Yes | — | string value |
 | `target_branch` | `commit.mr.target_branch` | string | Yes | — | string value |
+| `allow` | `commit.run_from.allow` | []string | No | — | []string value |
+| `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
 | `handoff` | `ci.handoff` | string | Yes | — | string value |
 
 ---
@@ -498,6 +502,8 @@ commit:
 | `add` | `commit.add` | []string | Yes | — | []string value |
 | `push` | `commit.push` | bool | Yes | — | bool value |
 | `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
+| `allow` | `commit.run_from.allow` | []string | No | — | []string value |
+| `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
 
 ---
 
@@ -522,6 +528,8 @@ commit:
 | `security_summary` | `security_summary` | string | Yes | — | string value |
 | `registry_links` | `registry_links` | bool | Yes | — | bool value |
 | `catalog_links` | `catalog_links` | bool | Yes | — | bool value |
+| `allow` | `run_from.allow` | []string | No | — | []string value |
+| `mismatch` | `run_from.mismatch` | string | No | — | string value |
 
 ---
 
