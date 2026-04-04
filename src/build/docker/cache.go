@@ -113,16 +113,20 @@ func LocalCacheDir(repoID string, cfg config.LocalCacheConfig) string {
 	return filepath.Join(base, hash)
 }
 
-// LocalCacheAvailable checks if the local cache path is mounted and writable.
+// LocalCacheAvailable checks if the local cache path is writable.
+// Creates the full directory tree if it doesn't exist. The volume mount
+// shadows the image's directory, so we can't assume any structure exists.
 func LocalCacheAvailable(repoID string, cfg config.LocalCacheConfig) bool {
 	dir := LocalCacheDir(repoID, cfg)
-	// Check parent exists (the mount point).
-	parent := filepath.Dir(dir)
-	info, err := os.Stat(parent)
-	if err != nil || !info.IsDir() {
+	// Check mount point exists (/stagefreight).
+	mount := "/stagefreight"
+	if cfg.Path != "" {
+		mount = filepath.Dir(cfg.Path)
+	}
+	if info, err := os.Stat(mount); err != nil || !info.IsDir() {
 		return false
 	}
-	// Try creating the repo-scoped dir.
+	// Create the full path including intermediate dirs.
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return false
 	}

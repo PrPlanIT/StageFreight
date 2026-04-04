@@ -79,27 +79,42 @@ func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
 		fmt.Fprintf(os.Stderr, "builder: using default docker context (no DOCKER_HOST/DOCKER_CERT_PATH)\n")
 	}
 
-	// Recreate builder (deterministic, no stale state reuse).
-	exec.Command("docker", "buildx", "rm", name).CombinedOutput()
-
-	createArgs := []string{"buildx", "create", "--name", name, "--driver", driver, "--use"}
-	if useContext {
-		createArgs = append(createArgs, ctxName)
-	}
-	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
-		info.Status = "builder creation failed"
-		info.RawOutput = string(out)
-		info.ParseFailed = true
-		return info
-	}
-	info.Action = "recreated"
-
-	// Bootstrap — pulls BuildKit image, starts container.
+	// Try to reuse existing builder — mount caches (/root/.cache/go-build, /go/pkg/mod)
+	// live inside the BuildKit container. Destroying it kills compilation cache.
+	// Verify: context must resolve AND bootstrap must succeed.
 	bootstrapStart := time.Now()
 	bootstrapOut, bootstrapErr := exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
 	info.BootstrapDuration = time.Since(bootstrapStart)
 	info.BootstrapOK = bootstrapErr == nil
 	info.RawOutput = string(bootstrapOut)
+
+	if bootstrapErr == nil {
+		// Builder is healthy — reuse it. Mount caches survive.
+		info.Action = "reused"
+		exec.Command("docker", "buildx", "use", name).CombinedOutput()
+	} else {
+		// Builder missing or broken — recreate from scratch.
+		exec.Command("docker", "buildx", "rm", name).CombinedOutput()
+
+		createArgs := []string{"buildx", "create", "--name", name, "--driver", driver, "--use"}
+		if useContext {
+			createArgs = append(createArgs, ctxName)
+		}
+		if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
+			info.Status = "builder creation failed"
+			info.RawOutput = string(out)
+			info.ParseFailed = true
+			return info
+		}
+		info.Action = "recreated"
+
+		// Bootstrap the new builder.
+		bootstrapStart = time.Now()
+		bootstrapOut, bootstrapErr = exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
+		info.BootstrapDuration = time.Since(bootstrapStart)
+		info.BootstrapOK = bootstrapErr == nil
+		info.RawOutput = string(bootstrapOut)
+	}
 
 	// Write builder.json — engine is the authority, not shell glue.
 	writeBuilderRecord(name, driver, info.Action)
