@@ -630,7 +630,7 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	// Sync accessories (git mirror on push events — no release data).
 	// Mirror push is idempotent — safe even when no repo mutation occurred.
-	syncMirrors(ctx, appCfg, nil)
+	syncMirrors(ctx, appCfg)
 
 	return nil
 }
@@ -793,11 +793,8 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
 
-	// Sync accessories — git mirror only on release.
-	// Release projection is NOT wired here yet — full release data
-	// (notes, assets, links) must be passed from RunReleaseCreate.
-	// TODO: plumb release data from RunReleaseCreate into sync.
-	syncMirrors(ctx, appCfg, nil)
+	// Sync mirrors — git + release reconciliation from primary.
+	syncMirrors(ctx, appCfg)
 
 	return nil
 }
@@ -893,13 +890,15 @@ func tagMatchesReleasePolicy(tag string, policies config.PoliciesConfig) bool {
 
 // ── mirror sync ─────────────────────────────────────────────────────────────
 
-// syncMirrors runs per-mirror sync: git mirror first, then artifact
-// projection gated on mirror success. Strictly sequential per mirror.
-//
-// releaseData is optional — nil means no release projection for this run.
-// Mirror source is always sources.primary.worktree (resolved to absolute).
+// syncMirrors runs per-mirror sync: git mirror first, then release reconciliation.
+// Both sync domains read from the primary — no data needs to be passed in.
 // Mirror push is idempotent — safe to call even when no mutation occurred.
-func syncMirrors(ctx context.Context, appCfg *config.Config, releaseData *stagefreightsync.ReleaseData) {
+// Release sync is idempotent — existing releases are not recreated.
+func syncMirrors(ctx context.Context, appCfg *config.Config) {
+	syncMirrorsWithMode(ctx, appCfg, false)
+}
+
+func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bool) {
 	if len(appCfg.Sources.Mirrors) == 0 {
 		return
 	}
@@ -910,6 +909,30 @@ func syncMirrors(ctx context.Context, appCfg *config.Config, releaseData *stagef
 		worktree = "."
 	}
 
+	// Check if any mirror wants release sync — resolve primary releases once.
+	var primaryReleases []forge.ReleaseInfo
+	hasReleaseSyncMirror := false
+	for _, m := range appCfg.Sources.Mirrors {
+		if m.Sync.Releases {
+			hasReleaseSyncMirror = true
+			break
+		}
+	}
+	if hasReleaseSyncMirror && appCfg.Sources.Primary.URL != "" {
+		provider := forge.DetectProvider(appCfg.Sources.Primary.URL)
+		primaryClient, clientErr := newForgeClient(provider, appCfg.Sources.Primary.URL)
+		if clientErr == nil {
+			rels, listErr := primaryClient.ListReleases(ctx)
+			if listErr == nil {
+				primaryReleases = rels
+			} else {
+				fmt.Fprintf(os.Stderr, "  sync: warning: could not list primary releases: %v\n", listErr)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "  sync: warning: could not create primary forge client: %v\n", clientErr)
+		}
+	}
+
 	hasDegraded := false
 
 	for _, m := range appCfg.Sources.Mirrors {
@@ -918,7 +941,9 @@ func syncMirrors(ctx context.Context, appCfg *config.Config, releaseData *stagef
 		m.ProjectID = gitver.ResolveVars(m.ProjectID, appCfg.Vars)
 
 		// 1. Git mirror (if enabled)
-		if m.Sync.Git {
+		if m.Sync.Git && readOnly {
+			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
+		} else if m.Sync.Git {
 			result, err := stagefreightsync.MirrorPush(ctx, worktree, m)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
@@ -931,18 +956,59 @@ func syncMirrors(ctx context.Context, appCfg *config.Config, releaseData *stagef
 			} else {
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror DEGRADED — %s: %s\n", m.ID, result.FailureReason, result.Message)
 				hasDegraded = true
-				// Do NOT proceed to artifact sync for this mirror
 				continue
 			}
 		}
 
-		// 2. Release projection (if enabled and data provided)
-		if m.Sync.Releases && releaseData != nil {
-			result := stagefreightsync.SyncRelease(ctx, m, *releaseData)
-			if result.Status == stagefreightsync.SyncSuccess {
-				fmt.Printf("  sync: %s: release ✓\n", m.ID)
+		// 2. Release reconciliation (if enabled).
+		// Reads from primary, projects missing releases to mirror. Idempotent.
+		if m.Sync.Releases && len(primaryReleases) > 0 {
+			mirrorClient, err := newForgeClientFromMirror(m, appCfg.Vars)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, err)
+				continue
+			}
+			mirrorReleases, err := mirrorClient.ListReleases(ctx)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  sync: %s: release list error: %v\n", m.ID, err)
+				continue
+			}
+			mirrorTags := make(map[string]bool, len(mirrorReleases))
+			for _, r := range mirrorReleases {
+				mirrorTags[r.TagName] = true
+			}
+
+			created := 0
+			for _, r := range primaryReleases {
+				if mirrorTags[r.TagName] {
+					continue
+				}
+				name := r.Name
+				if name == "" {
+					name = r.TagName
+				}
+				if readOnly {
+					fmt.Printf("  sync: %s: [read-only] would project release %s\n", m.ID, r.TagName)
+					created++
+					continue
+				}
+				_, createErr := mirrorClient.CreateRelease(ctx, forge.ReleaseOptions{
+					TagName:     r.TagName,
+					Name:        name,
+					Description: r.Description,
+					Draft:       r.Draft,
+					Prerelease:  r.Prerelease,
+				})
+				if createErr != nil {
+					fmt.Fprintf(os.Stderr, "  sync: %s: release %s error: %v\n", m.ID, r.TagName, createErr)
+				} else {
+					created++
+				}
+			}
+			if created > 0 {
+				fmt.Printf("  sync: %s: release ✓ (%d projected)\n", m.ID, created)
 			} else {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release warning — %s\n", m.ID, result.Message)
+				fmt.Printf("  sync: %s: release ✓ (in sync)\n", m.ID)
 			}
 		}
 	}
