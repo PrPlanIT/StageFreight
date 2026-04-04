@@ -40,18 +40,47 @@ type GCRule struct {
 
 // ResolveBuilderInfo queries the active buildx builder, bootstraps it,
 // and returns structured facts. Captures raw output as fallback.
+// Inspects the currently selected builder (no hardcoded name).
 func ResolveBuilderInfo() BuilderInfo {
-	info := BuilderInfo{Name: "sf-builder"}
+	info := BuilderInfo{}
+
+	// Read authoritative builder record first — skeleton or crucible writes this.
+	if recordBytes, err := os.ReadFile(".stagefreight/runtime/docker/builder.json"); err == nil {
+		var record struct {
+			Name     string `json:"name"`
+			Action   string `json:"action"`
+			Driver   string `json:"driver"`
+			Endpoint string `json:"endpoint"`
+		}
+		if json.Unmarshal(recordBytes, &record) == nil {
+			info.Name = record.Name
+			if record.Action == "created" || record.Action == "reused" {
+				info.Action = record.Action
+			}
+		}
+	}
+
+	// Determine which builder to inspect.
+	// Priority: builder.json name → environment default (no explicit name = current builder).
+	builderArg := []string{"docker", "buildx", "inspect", "--bootstrap"}
+	inspectArg := []string{"docker", "buildx", "inspect"}
+	if info.Name != "" {
+		builderArg = append(builderArg, info.Name)
+		inspectArg = append(inspectArg, info.Name)
+	}
+	if info.Name == "" {
+		info.Name = "(default)"
+	}
 
 	// Bootstrap and capture output (suppress from CI log).
 	bootstrapStart := time.Now()
-	bootstrapOut, bootstrapErr := exec.Command("docker", "buildx", "inspect", "--bootstrap", "sf-builder").CombinedOutput()
+	bootstrapOut, bootstrapErr := exec.Command(builderArg[0], builderArg[1:]...).CombinedOutput()
 	info.BootstrapDuration = time.Since(bootstrapStart)
 	info.BootstrapOK = bootstrapErr == nil
 	info.RawOutput = string(bootstrapOut)
 
 	// Inspect for structured facts.
-	out, err := exec.Command("docker", "buildx", "inspect", "sf-builder").CombinedOutput()
+	out, err := exec.Command(inspectArg[0], inspectArg[1:]...).CombinedOutput()
 	if err != nil {
 		info.Status = "not found"
 		info.ParseFailed = true
@@ -97,28 +126,6 @@ func ResolveBuilderInfo() BuilderInfo {
 	}
 	if currentRule != nil {
 		info.GCRules = append(info.GCRules, *currentRule)
-	}
-
-	// Read authoritative builder record from transport.
-	// Skeleton writes structured JSON to .stagefreight/runtime/docker/builder.json.
-	if recordBytes, err := os.ReadFile(".stagefreight/runtime/docker/builder.json"); err == nil {
-		var record struct {
-			Name     string `json:"name"`
-			Action   string `json:"action"`
-			Driver   string `json:"driver"`
-			Endpoint string `json:"endpoint"`
-		}
-		if json.Unmarshal(recordBytes, &record) == nil {
-			if record.Action == "created" || record.Action == "reused" {
-				info.Action = record.Action
-			}
-			if record.Driver != "" {
-				info.Driver = record.Driver
-			}
-			if record.Endpoint != "" {
-				info.Endpoint = record.Endpoint
-			}
-		}
 	}
 
 	// Parse quality check — if critical fields are missing, mark as failed.

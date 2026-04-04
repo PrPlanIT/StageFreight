@@ -100,7 +100,7 @@ func RunCrucible(ctx context.Context, opts CrucibleOpts) (*CrucibleResult, error
 	innerFlags = append(innerFlags, va.AppendFlags()...)
 
 	shellCmd := fmt.Sprintf(
-		"docker buildx create --name sf-crucible --driver-opt network=host --use >/dev/null 2>&1; docker buildx inspect --bootstrap >/dev/null 2>&1 || true; stagefreight docker build %s",
+		`docker buildx create --name sf-crucible --driver-opt network=host --use >/dev/null 2>&1; docker buildx inspect --bootstrap >/dev/null 2>&1 || true; mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-crucible","action":"created","driver":"docker-container","endpoint":"network=host"}\n' > .stagefreight/runtime/docker/builder.json; stagefreight docker build %s`,
 		strings.Join(innerFlags, " "),
 	)
 	args = append(args, "sh", "-c", shellCmd)
