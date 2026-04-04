@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 )
 
@@ -180,7 +181,7 @@ func ReadState(rootDir string) (*State, error) {
 	return &st, nil
 }
 
-// WriteState writes pipeline state atomically (tmp + rename).
+// WriteState writes pipeline state atomically (tmp + fsync + rename).
 // Normalizes Version to 1 on write.
 func WriteState(rootDir string, st *State) error {
 	st.Version = 1
@@ -191,21 +192,7 @@ func WriteState(rootDir string, st *State) error {
 	}
 	data = append(data, '\n')
 
-	p := filepath.Join(rootDir, StatePath)
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating pipeline state dir: %w", err)
-	}
-
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("writing pipeline state tmp: %w", err)
-	}
-	if err := os.Rename(tmp, p); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("renaming pipeline state: %w", err)
-	}
-	return nil
+	return atomicfile.WriteFile(filepath.Join(rootDir, StatePath), data, 0o644)
 }
 
 // RecordSubsystem upserts a subsystem entry by name.

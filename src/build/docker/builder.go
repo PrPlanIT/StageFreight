@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -374,16 +375,13 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
-// writeBuilderRecord writes the authoritative builder.json.
+// writeBuilderRecord writes the authoritative builder.json atomically.
 // Engine-owned — not shell glue.
 func writeBuilderRecord(name, driver, action string) {
-	dir := filepath.Join(".stagefreight", "runtime", "docker")
-	os.MkdirAll(dir, 0o755)
-
 	record := struct {
-		Name    string `json:"name"`
-		Action  string `json:"action"`
-		Driver  string `json:"driver"`
+		Name   string `json:"name"`
+		Action string `json:"action"`
+		Driver string `json:"driver"`
 	}{
 		Name:   name,
 		Action: action,
@@ -393,5 +391,5 @@ func writeBuilderRecord(name, driver, action string) {
 	if err != nil {
 		return
 	}
-	os.WriteFile(filepath.Join(dir, "builder.json"), append(data, '\n'), 0o644)
+	_ = atomicfile.WriteFile(filepath.Join(".stagefreight", "runtime", "docker", "builder.json"), append(data, '\n'), 0o644)
 }

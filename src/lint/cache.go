@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
@@ -140,15 +141,10 @@ func (c *Cache) Get(key string, maxAge time.Duration) ([]Finding, bool) {
 	return entry.Findings, true
 }
 
-// Put stores findings in the cache.
+// Put stores findings in the cache atomically.
 func (c *Cache) Put(key string, findings []Finding) error {
 	if !c.Enabled {
 		return nil
-	}
-
-	path := c.path(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("creating cache dir: %w", err)
 	}
 
 	entry := cacheEntry{Findings: findings, CachedAt: time.Now().Unix()}
@@ -157,7 +153,7 @@ func (c *Cache) Put(key string, findings []Finding) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0o644)
+	return atomicfile.WriteFile(c.path(key), data, 0o644)
 }
 
 // EvictResult records what cache eviction did.

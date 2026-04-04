@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 )
 
 // ArchiveOpts holds configuration for archive creation.
@@ -152,7 +154,7 @@ func WriteChecksums(outputDir string, archives []*ArchiveResult) (string, error)
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
-	if err := os.WriteFile(checksumPath, []byte(content), 0o644); err != nil {
+	if err := atomicfile.WriteFile(checksumPath, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("writing checksums: %w", err)
 	}
 
@@ -282,7 +284,7 @@ func ChecksumFile(path string) (string, error) {
 
 	sidecar := path + ".sha256"
 	content := fmt.Sprintf("%s  %s\n", hexDigest, filepath.Base(path))
-	if err := os.WriteFile(sidecar, []byte(content), 0o644); err != nil {
+	if err := atomicfile.WriteFile(sidecar, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("writing checksum sidecar: %w", err)
 	}
 

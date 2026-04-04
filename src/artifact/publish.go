@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 )
 
 var ErrPublishManifestNotFound = errors.New("publish manifest not found")
@@ -165,21 +167,10 @@ func WritePublishManifest(dir string, manifest PublishManifest) error {
 	}
 	data = append(data, '\n')
 
-	// Write manifest
+	// Write manifest + checksum sidecar atomically.
 	manifestPath := filepath.Join(dir, PublishManifestPath)
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
-		return fmt.Errorf("creating publish manifest dir: %w", err)
-	}
-	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+	if err := atomicfile.WriteVerifiedPair(manifestPath, data, 0o644); err != nil {
 		return fmt.Errorf("writing publish manifest: %w", err)
-	}
-
-	// Write SHA-256 checksum sidecar
-	hash := sha256.Sum256(data)
-	checksumContent := hex.EncodeToString(hash[:]) + "  publish.json\n"
-	checksumPath := manifestPath + ".sha256"
-	if err := os.WriteFile(checksumPath, []byte(checksumContent), 0o644); err != nil {
-		return fmt.Errorf("writing publish manifest checksum: %w", err)
 	}
 
 	return nil
