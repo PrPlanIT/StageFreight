@@ -1028,7 +1028,8 @@ func newForgeClientFromMirror(m config.MirrorConfig, vars map[string]string) (fo
 		gt := forge.NewGitea(m.URL)
 		gt.Token = token
 		if projectID != "" {
-			gt.ProjectID = projectID
+			gt.Owner = ownerFromPath(projectID)
+			gt.Repo = repoFromPath(projectID)
 		}
 		return gt, nil
 	default:
