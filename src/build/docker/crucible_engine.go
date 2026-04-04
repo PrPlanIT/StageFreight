@@ -23,6 +23,7 @@ type CrucibleOpts struct {
 	EnvVars    []string // credential and CI env vars to forward (KEY=VALUE)
 	RunID      string   // correlates passes in logs
 	Verbose    bool
+	Backend    *Backend // resolved backend — determines execution strategy
 }
 
 // CrucibleResult captures the outcome of a pass-2 invocation.
@@ -50,10 +51,84 @@ func CrucibleTag(purpose, runID string) string {
 	return fmt.Sprintf("stagefreight/crucible-%s:%s", purpose, runID)
 }
 
-// RunCrucible executes pass 2 inside the pass-1 candidate image.
-// It streams stdout/stderr directly — pass-2 output is the canonical build log.
+// RunCrucible executes pass 2 using the resolved backend.
+// Buildkitd: extracts candidate binary, runs natively (same filesystem + buildkitd).
+// DinD: runs candidate via docker run (traditional container execution).
 func RunCrucible(ctx context.Context, opts CrucibleOpts) (*CrucibleResult, error) {
 	result := &CrucibleResult{FinalImageRef: opts.FinalTag}
+
+	if opts.Backend != nil && opts.Backend.IsBuildkit() {
+		return runCrucibleNative(ctx, opts, result)
+	}
+	return runCrucibleDocker(ctx, opts, result)
+}
+
+// runCrucibleNative extracts the candidate binary and runs it directly.
+// The binary builds via the same persistent buildkitd — coherent backend.
+func runCrucibleNative(ctx context.Context, opts CrucibleOpts, result *CrucibleResult) (*CrucibleResult, error) {
+	// Extract candidate binary from the built image using buildx --output.
+	// The gestation built with --load into DinD. We need the binary.
+	binPath := "/tmp/crucible-candidate-bin"
+	extractCmd := exec.CommandContext(ctx, "docker", "create", "--name", "sf-crucible-extract", opts.Image)
+	extractCmd.Stdout = os.Stdout
+	extractCmd.Stderr = os.Stderr
+	if err := extractCmd.Run(); err != nil {
+		result.Passed = false
+		return result, fmt.Errorf("crucible: failed to create extraction container: %w", err)
+	}
+	defer exec.Command("docker", "rm", "-f", "sf-crucible-extract").Run()
+
+	cpCmd := exec.CommandContext(ctx, "docker", "cp", "sf-crucible-extract:/usr/local/bin/stagefreight", binPath)
+	if err := cpCmd.Run(); err != nil {
+		result.Passed = false
+		return result, fmt.Errorf("crucible: failed to extract binary: %w", err)
+	}
+	os.Chmod(binPath, 0755)
+
+	// Build inner flags for the native run.
+	va := VerificationArtifact{Tag: opts.FinalTag}
+	innerFlags := make([]string, 0, len(opts.ExtraFlags)+len(va.AppendFlags()))
+	innerFlags = append(innerFlags, opts.ExtraFlags...)
+	innerFlags = append(innerFlags, va.AppendFlags()...)
+
+	// Set env vars for the native run.
+	for _, ev := range opts.EnvVars {
+		parts := strings.SplitN(ev, "=", 2)
+		if len(parts) == 2 {
+			os.Setenv(parts[0], parts[1])
+		}
+	}
+	os.Setenv(build.CrucibleEnvVar, "1")
+	os.Setenv(build.CrucibleRunIDEnvVar, opts.RunID)
+
+	// Run the extracted binary directly — same filesystem, same buildkitd.
+	args := append([]string{"docker", "build"}, innerFlags...)
+	cmd := exec.CommandContext(ctx, binPath, args...)
+	cmd.Dir = opts.RepoDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	diag.Debug(opts.Verbose, "crucible native exec: %s %s", binPath, strings.Join(args, " "))
+
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		} else {
+			result.ExitCode = 1
+		}
+		result.Passed = false
+		return result, err
+	}
+
+	result.Passed = true
+	result.ExitCode = 0
+	return result, nil
+}
+
+// runCrucibleDocker runs pass 2 inside a Docker container (DinD mode).
+func runCrucibleDocker(ctx context.Context, opts CrucibleOpts, result *CrucibleResult) (*CrucibleResult, error) {
 
 	// Crucible container uses host network of the DinD daemon. Since DinD
 	// is on the stagefreight compose network, --network host gives the

@@ -95,6 +95,19 @@ func runCrucibleMode(req Request) error {
 	crucibleCtx.Row("%-16s%s", "verify", finalTag)
 	crucibleCtx.Row("%-16s%s", "platform p1", fmt.Sprintf("linux/%s", runtime.GOARCH))
 	crucibleCtx.Row("%-16s%s", "platform p2", "configured build platforms")
+
+	// Resolve backend ONCE for the entire crucible — coherent execution context.
+	// Respects config override (e.g., backend: "dind" forces DinD even if buildkitd is available).
+	backend, backendErr := ResolveBackendWithConfig(BackendCapabilities{
+		Build:      true,
+		Run:        true,
+		Filesystem: true,
+	}, req.Config.BuildCache.Builder.Backend)
+	if backendErr != nil {
+		crucibleCtx.Close()
+		return fmt.Errorf("crucible: no coherent backend: %w", backendErr)
+	}
+	crucibleCtx.Row("%-16s%s", "backend", backend.Kind)
 	crucibleCtx.Close()
 
 	// --- Dry run ---
@@ -180,10 +193,9 @@ func runCrucibleMode(req Request) error {
 	gestPlan.Row("%-16s%s", "strategy", "local")
 	gestPlan.Close()
 
-	// Gestation: Build — ensure builder silently (option A).
-	// Same auto-discovery as execute phase: buildkitd preferred, DinD fallback.
+	// Gestation: Build — ensure builder using resolved backend (silent, option A).
 	// No narration here — pass 2's execute phase renders the authoritative Builder section.
-	EnsureBuilder(req.Config.BuildCache.Builder)
+	EnsureBuilderWithBackend(req.Config.BuildCache.Builder, backend)
 
 	buildStart := time.Now()
 
@@ -325,6 +337,7 @@ func runCrucibleMode(req Request) error {
 		EnvVars:    envVars,
 		RunID:      runID,
 		Verbose:    req.Verbose,
+		Backend:    backend,
 	})
 
 	// ═══════════════════════════════════════════════════════════

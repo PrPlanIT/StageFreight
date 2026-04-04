@@ -44,32 +44,36 @@ type GCRule struct {
 // bootstraps it, and writes builder.json. This is the single authority for
 // builder lifecycle — the skeleton is transport only (env vars + DinD service).
 func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
+	return EnsureBuilderWithBackend(cfg, nil)
+}
+
+// EnsureBuilderWithBackend creates a builder using the given backend.
+// If backend is nil, resolves one automatically.
+func EnsureBuilderWithBackend(cfg config.BuilderConfig, backend *Backend) BuilderInfo {
 	name := cfg.BuilderName()
 	driver := cfg.BuilderDriver()
 	info := BuilderInfo{Name: name, Driver: driver}
 
-	// Backend selection via capability detection — engine decides, not skeleton.
-	// Priority: buildkitd (persistent cache) → DinD (ephemeral) → local docker.
-	// Discovery: probe well-known endpoint + check TLS certs. No env var needed.
-	buildkitHost := os.Getenv("BUILDKIT_HOST") // override, or empty for auto-discovery
-	if buildkitHost == "" {
-		buildkitHost = "tcp://buildkitd:1234" // well-known endpoint
+	// Resolve backend if not provided, respecting config override.
+	if backend == nil {
+		resolved, err := ResolveBackendWithConfig(BackendCapabilities{Build: true}, cfg.Backend)
+		if err != nil {
+			info.Status = "no backend available"
+			info.RawOutput = err.Error()
+			info.ParseFailed = true
+			return info
+		}
+		backend = resolved
 	}
 
-	bkCertPath := os.Getenv("BUILDKIT_CERT_PATH")
-	if bkCertPath == "" {
-		bkCertPath = "/buildkit-certs"
-	}
-
-	// Probe: TLS certs present AND endpoint reachable → use buildkitd.
-	if _, err := os.Stat(fmt.Sprintf("%s/ca.pem", bkCertPath)); err == nil {
+	if backend.IsBuildkit() {
 		info.Driver = "remote"
-		result := ensureRemoteBuilder(name, buildkitHost, info)
+		result := ensureRemoteBuilder(name, backend.Endpoint, info)
 		if result.BootstrapOK {
 			return result
 		}
-		// BuildKit not reachable — fall through to DinD.
-		fmt.Fprintf(os.Stderr, "builder: buildkitd probe failed, using DinD\n")
+		fmt.Fprintf(os.Stderr, "builder: buildkitd bootstrap failed, trying DinD\n")
+		// Fall through to docker-container driver.
 	}
 
 	// DinD or local docker — docker-container driver.

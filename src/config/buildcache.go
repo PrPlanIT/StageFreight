@@ -29,6 +29,12 @@ type BuildCacheConfig struct {
 // BuilderConfig declares the buildx builder identity.
 // The engine creates/bootstraps/narrates — this is just the declaration.
 type BuilderConfig struct {
+	// Backend pins the build backend. Default: "" (auto-detect).
+	// "buildkitd" → prefer persistent buildkitd, fail if unavailable.
+	// "dind" → use DinD only, ignore buildkitd even if available.
+	// "" → auto-detect: prefer buildkitd if available, fall back to DinD.
+	Backend string `yaml:"backend,omitempty"`
+
 	// Name is the buildx builder name. Default: "sf-builder".
 	Name string `yaml:"name,omitempty"`
 
