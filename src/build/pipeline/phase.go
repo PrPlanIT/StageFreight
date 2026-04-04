@@ -181,7 +181,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	// Evict stale lint cache entries after run.
 	// Touch-on-read (in Cache.Get) marks active entries, so eviction
 	// only removes dead entries (old file versions never read again).
-	evictResult := cache.Evict()
+	evictResult := cache.Evict(appCfg.Lint.Cache.MaxAge, appCfg.Lint.Cache.MaxSize)
 	if evictResult.Evicted > 0 {
 		sec = output.NewSection(w, "Lint Cache Eviction", 0, color)
 		sec.Row("%-14s%d", "before", evictResult.EntriesBefore)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -166,24 +167,24 @@ type EvictResult struct {
 	Reason        string // non-empty if skipped/errored
 }
 
-// Internal eviction thresholds. Not config-exposed — these are hygiene
-// defaults for a content-addressed cache that grows monotonically.
-const (
-	evictMaxAge  = 30 * 24 * time.Hour // entries not hit in 30 days are dead
-	evictMaxSize = 100 * 1024 * 1024   // 100MB ceiling
-)
-
 // Evict removes stale cache entries to bound unbounded growth.
 // Content-addressed caches grow monotonically: every file edit creates a new
 // entry, old entries for previous content are never read again.
 //
 // Strategy: mtime-based (Get touches mtime on hit, so mtime = last access).
-//  1. Remove entries with mtime older than 30 days (dead entries)
-//  2. If still over 100MB, remove oldest entries until under limit
-func (c *Cache) Evict() EvictResult {
+//  1. Remove entries with mtime older than maxAge (dead entries)
+//  2. If still over maxSize, remove oldest entries until under limit
+//
+// Both maxAge and maxSize use the same human format as retention config
+// (e.g. "7d", "100MB"). Either can be empty to skip that phase.
+func (c *Cache) Evict(maxAge string, maxSize string) EvictResult {
 	result := EvictResult{}
 	if !c.Enabled || c.Dir == "" {
 		result.Reason = "cache not enabled"
+		return result
+	}
+	if maxAge == "" && maxSize == "" {
+		result.Reason = "no eviction policy configured"
 		return result
 	}
 
@@ -211,39 +212,84 @@ func (c *Cache) Evict() EvictResult {
 
 	result.EntriesBefore = len(entries)
 
-	// Phase 1: evict by age (mtime > 30 days = not hit in 30 days).
-	cutoff := time.Now().Add(-evictMaxAge)
-	var surviving []entry
-	for _, e := range entries {
-		if e.modTime.Before(cutoff) {
-			if os.Remove(e.path) == nil {
-				result.Evicted++
-				result.EvictedBytes += e.size
-				totalSize -= e.size
+	// Phase 1: evict by age.
+	if maxAge != "" {
+		ageDur, err := parseCacheDuration(maxAge)
+		if err == nil && ageDur > 0 {
+			cutoff := time.Now().Add(-ageDur)
+			var surviving []entry
+			for _, e := range entries {
+				if e.modTime.Before(cutoff) {
+					if os.Remove(e.path) == nil {
+						result.Evicted++
+						result.EvictedBytes += e.size
+						totalSize -= e.size
+					}
+				} else {
+					surviving = append(surviving, e)
+				}
 			}
-		} else {
-			surviving = append(surviving, e)
+			entries = surviving
 		}
 	}
 
 	// Phase 2: enforce size cap — evict oldest first until under limit.
-	if totalSize > evictMaxSize {
-		sort.Slice(surviving, func(i, j int) bool {
-			return surviving[i].modTime.Before(surviving[j].modTime)
-		})
-		for _, e := range surviving {
-			if totalSize <= evictMaxSize {
-				break
-			}
-			if os.Remove(e.path) == nil {
-				result.Evicted++
-				result.EvictedBytes += e.size
-				totalSize -= e.size
+	if maxSize != "" {
+		maxBytes, err := parseCacheSize(maxSize)
+		if err == nil && maxBytes > 0 && totalSize > maxBytes {
+			sort.Slice(entries, func(i, j int) bool {
+				return entries[i].modTime.Before(entries[j].modTime)
+			})
+			for _, e := range entries {
+				if totalSize <= maxBytes {
+					break
+				}
+				if os.Remove(e.path) == nil {
+					result.Evicted++
+					result.EvictedBytes += e.size
+					totalSize -= e.size
+				}
 			}
 		}
 	}
 
 	return result
+}
+
+// parseCacheDuration parses "7d", "72h", "30m" etc.
+func parseCacheDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if strings.HasSuffix(s, "d") {
+		s = strings.TrimSuffix(s, "d")
+		var days int
+		if _, err := fmt.Sscanf(s, "%d", &days); err != nil {
+			return 0, err
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
+
+// parseCacheSize parses "100MB", "1GB" etc.
+func parseCacheSize(s string) (int64, error) {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	var multiplier int64 = 1
+	switch {
+	case strings.HasSuffix(s, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "GB")
+	case strings.HasSuffix(s, "MB"):
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(s, "MB")
+	case strings.HasSuffix(s, "KB"):
+		multiplier = 1024
+		s = strings.TrimSuffix(s, "KB")
+	}
+	var val int64
+	if _, err := fmt.Sscanf(s, "%d", &val); err != nil {
+		return 0, err
+	}
+	return val * multiplier, nil
 }
 
 // Clear removes the entire cache directory.

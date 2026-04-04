@@ -22,6 +22,15 @@ type LintConfig struct {
 	TargetBranch string                  `yaml:"target_branch"`
 	Exclude      []string                `yaml:"exclude"`
 	Modules      map[string]ModuleConfig `yaml:"modules"`
+	Cache        LintCacheConfig         `yaml:"cache,omitempty"`
+}
+
+// LintCacheConfig controls lint result cache lifecycle.
+// Content-addressed caches grow monotonically — every file edit creates
+// a new entry. Without eviction, cache grows unbounded.
+type LintCacheConfig struct {
+	MaxAge  string `yaml:"max_age,omitempty"`  // evict entries not hit in this duration (e.g. "7d")
+	MaxSize string `yaml:"max_size,omitempty"` // evict oldest entries when cache exceeds this (e.g. "100MB")
 }
 
 // DefaultLintConfig returns production defaults.
@@ -30,5 +39,9 @@ func DefaultLintConfig() LintConfig {
 		Level:   LevelChanged,
 		Exclude: []string{},
 		Modules: map[string]ModuleConfig{},
+		Cache: LintCacheConfig{
+			MaxAge:  "7d",
+			MaxSize: "100MB",
+		},
 	}
 }
