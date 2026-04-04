@@ -588,6 +588,7 @@ commit:
 | `mode` | `external.mode` | string | No | — | string value |
 | `max_refs` | `external.retention.max_refs` | int | No | — | int value |
 | `stale_age` | `external.retention.stale_age` | string | No | — | string value |
+| `enabled` | `cleanup.enabled` | bool | No | — | bool value |
 | `enforcement` | `cleanup.enforcement` | string | No | — | string value |
 | `refs` | `cleanup.protect.images.refs` | []string | No | — | []string value |
 | `named` | `cleanup.protect.volumes.named` | bool | No | — | bool value |
