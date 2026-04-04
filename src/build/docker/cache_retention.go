@@ -203,8 +203,6 @@ func renderLocalRetention(w interface{ Write([]byte) (int, error) }, color bool,
 	sec.Close()
 }
 
-}
-
 // dirSize returns the total size of a directory tree.
 func dirSize(path string) int64 {
 	var size int64
