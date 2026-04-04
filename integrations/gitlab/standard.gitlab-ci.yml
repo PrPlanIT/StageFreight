@@ -33,7 +33,6 @@ workflow:
   - docker context create sf-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem"
   - docker buildx rm sf-builder 2>/dev/null || true
   - docker buildx create --name sf-builder --driver docker-container --use sf-context
-  - docker buildx inspect --bootstrap sf-builder
   - mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"recreated","driver":"docker-container","context":"sf-context"}\n' > .stagefreight/runtime/docker/builder.json
 
 .dind-variables: &dind-variables
