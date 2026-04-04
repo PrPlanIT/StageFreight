@@ -37,17 +37,13 @@ workflow:
   - docker buildx use sf-builder
 
 .dind-variables: &dind-variables
-  DOCKER_HOST: "tcp://docker:2376"
+  DOCKER_HOST: "tcp://dind:2376"
   DOCKER_TLS_VERIFY: "1"
   DOCKER_CERT_PATH: "/certs/client"
-  DOCKER_TLS_CERTDIR: "/certs"
 
 default:
   image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
   interruptible: true
-  services:
-    - name: docker.cr.pcfae.com/docker:27-dind
-      alias: docker
 
 dependency-update:
   stage: deps

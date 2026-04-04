@@ -2,7 +2,8 @@
 # provider: gitlab
 # supports: validate, deps, build, security, release, docs
 #
-# Standard build transport. DinD-capable. For repos that build artifacts.
+# Standard build transport. Persistent external DinD. For repos that build artifacts.
+# Job containers join the stagefreight network and talk to the persistent DinD.
 # StageFreight decides what actually runs based on .stagefreight.yml config.
 
 stages:
@@ -27,6 +28,11 @@ workflow:
   - export SF_CI_WORKSPACE="$PWD"
   - export SF_CI_PIPELINE_ID="${CI_PIPELINE_ID}"
 
+.dind-variables: &dind-variables
+  DOCKER_HOST: "tcp://dind:2376"
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "/certs/client"
+
 .dind-setup: &dind-setup
   - docker context create tls-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem" 2>/dev/null || true
   - |
@@ -38,18 +44,9 @@ workflow:
     fi
   - docker buildx use sf-builder
 
-.dind-variables: &dind-variables
-  DOCKER_HOST: "tcp://docker:2376"
-  DOCKER_TLS_VERIFY: "1"
-  DOCKER_CERT_PATH: "/certs/client"
-  DOCKER_TLS_CERTDIR: "/certs"
-
 default:
   image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
   interruptible: true
-  services:
-    - name: docker.cr.pcfae.com/docker:27-dind
-      alias: docker
 
 dependency-update:
   stage: deps
