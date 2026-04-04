@@ -130,13 +130,15 @@ func LoadWithWarnings(path string) (*Config, []string, error) {
 		return nil, warnings, fmt.Errorf("validating %s: %w", path, verr)
 	}
 
-	// Normalize: resolve {var:...} templates throughout the config.
+	// Normalize: resolve all {var:...} templates throughout the entire config graph.
 	// All consumers get fully-resolved values — no late binding.
-	Normalize(cfg)
+	if err := Normalize(cfg); err != nil {
+		return nil, warnings, fmt.Errorf("normalizing %s: %w", path, err)
+	}
 
-	// Safety net: verify no unresolved vars remain.
+	// Hard assertion: no {var:} may survive normalization.
 	if err := AssertNormalized(cfg); err != nil {
-		warnings = append(warnings, err.Error())
+		return nil, warnings, fmt.Errorf("normalizing %s: %w", path, err)
 	}
 
 	return cfg, warnings, nil

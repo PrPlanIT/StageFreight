@@ -2,73 +2,148 @@ package config
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Normalize resolves {var:...} templates throughout the config using the
-// config's own Vars map. Called once after load+validate, before any consumer
-// reads the config. All consumers get fully-resolved values — no late binding.
-func Normalize(cfg *Config) {
+// Normalize resolves all {var:...} templates throughout the entire config.
+// Walks every string in the config graph recursively — structs, maps, slices,
+// interfaces. No field enumeration. No partial coverage.
+//
+// Called once after load+validate, before any consumer reads the config.
+func Normalize(cfg *Config) error {
 	if len(cfg.Vars) == 0 {
-		return
+		return nil
 	}
 
-	// Targets: URL, Path, Credentials
-	for i := range cfg.Targets {
-		cfg.Targets[i].URL = resolveTemplateVars(cfg.Targets[i].URL, cfg.Vars)
-		cfg.Targets[i].Path = resolveTemplateVars(cfg.Targets[i].Path, cfg.Vars)
-		cfg.Targets[i].Credentials = resolveTemplateVars(cfg.Targets[i].Credentials, cfg.Vars)
-	}
-
-	// Sources: URL, mirrors
-	cfg.Sources.Primary.URL = resolveTemplateVars(cfg.Sources.Primary.URL, cfg.Vars)
-	for i := range cfg.Sources.Mirrors {
-		cfg.Sources.Mirrors[i].URL = resolveTemplateVars(cfg.Sources.Mirrors[i].URL, cfg.Vars)
-		cfg.Sources.Mirrors[i].ProjectID = resolveTemplateVars(cfg.Sources.Mirrors[i].ProjectID, cfg.Vars)
-		cfg.Sources.Mirrors[i].Credentials = resolveTemplateVars(cfg.Sources.Mirrors[i].Credentials, cfg.Vars)
-	}
-
-	// Builds: BuildArgs
-	for i := range cfg.Builds {
-		for k, v := range cfg.Builds[i].BuildArgs {
-			cfg.Builds[i].BuildArgs[k] = resolveTemplateVars(v, cfg.Vars)
+	// Guard: vars must not contain nested templates (single-pass only).
+	for k, v := range cfg.Vars {
+		if strings.Contains(v, "{var:") {
+			return fmt.Errorf("var %q contains nested {var:} template — not allowed", k)
 		}
 	}
 
-	// Badges: Link
-	for i := range cfg.Badges.Items {
-		cfg.Badges.Items[i].Link = resolveTemplateVars(cfg.Badges.Items[i].Link, cfg.Vars)
-	}
+	resolveValue(reflect.ValueOf(cfg), cfg.Vars)
+	return nil
+}
 
-	// Narrator: LinkBase, and per-item Link, Shield, Source, Content, Spec
-	for i := range cfg.Narrator {
-		cfg.Narrator[i].LinkBase = resolveTemplateVars(cfg.Narrator[i].LinkBase, cfg.Vars)
-		for j := range cfg.Narrator[i].Items {
-			item := &cfg.Narrator[i].Items[j]
-			item.Link = resolveTemplateVars(item.Link, cfg.Vars)
-			item.Shield = resolveTemplateVars(item.Shield, cfg.Vars)
-			item.Source = resolveTemplateVars(item.Source, cfg.Vars)
-			item.Content = resolveTemplateVars(item.Content, cfg.Vars)
-			item.Spec = resolveTemplateVars(item.Spec, cfg.Vars)
+// resolveValue is the single recursive traversal engine. Visits every reachable
+// value in the config graph and resolves {var:} templates in all strings.
+func resolveValue(v reflect.Value, vars map[string]string) {
+	switch v.Kind() {
+	case reflect.Ptr:
+		if !v.IsNil() {
+			resolveValue(v.Elem(), vars)
+		}
+
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Field(i)
+			if field.CanSet() {
+				resolveValue(field, vars)
+			}
+		}
+
+	case reflect.String:
+		if v.CanSet() {
+			s := v.String()
+			if strings.Contains(s, "{var:") {
+				v.SetString(resolveTemplateVars(s, vars))
+			}
+		}
+
+	case reflect.Slice:
+		for i := 0; i < v.Len(); i++ {
+			resolveValue(v.Index(i), vars)
+		}
+
+	case reflect.Map:
+		if v.IsNil() {
+			return
+		}
+		for _, key := range v.MapKeys() {
+			elem := v.MapIndex(key)
+			// Map values aren't directly settable — resolve and replace.
+			resolved := resolveAny(elem, vars)
+			v.SetMapIndex(key, resolved)
+		}
+
+	case reflect.Interface:
+		if !v.IsNil() {
+			resolved := resolveAny(v.Elem(), vars)
+			if v.CanSet() {
+				v.Set(resolved)
+			}
 		}
 	}
+}
 
-	// BuildCache: external target is resolved via targets (already done above).
-	// Sources.PublishOrigin: resolved via Sources above.
+// resolveAny resolves {var:} in any reflect.Value and returns the resolved value.
+// Used for map values and interface values that can't be set in-place.
+func resolveAny(v reflect.Value, vars map[string]string) reflect.Value {
+	// Unwrap interface.
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v
+		}
+		inner := resolveAny(v.Elem(), vars)
+		return inner
+	}
+
+	switch v.Kind() {
+	case reflect.String:
+		s := v.String()
+		if strings.Contains(s, "{var:") {
+			return reflect.ValueOf(resolveTemplateVars(s, vars))
+		}
+		return v
+
+	case reflect.Map:
+		// Rebuild map with resolved values.
+		newMap := reflect.MakeMap(v.Type())
+		for _, key := range v.MapKeys() {
+			elem := v.MapIndex(key)
+			resolved := resolveAny(elem, vars)
+			newMap.SetMapIndex(key, resolved)
+		}
+		return newMap
+
+	case reflect.Slice:
+		newSlice := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			resolved := resolveAny(v.Index(i), vars)
+			newSlice.Index(i).Set(resolved)
+		}
+		return newSlice
+
+	case reflect.Struct:
+		// Copy struct and resolve fields.
+		cp := reflect.New(v.Type()).Elem()
+		cp.Set(v)
+		for i := 0; i < cp.NumField(); i++ {
+			field := cp.Field(i)
+			if field.CanSet() {
+				resolveValue(field, vars)
+			}
+		}
+		return cp
+
+	default:
+		return v
+	}
 }
 
 // AssertNormalized verifies no unresolved {var:} templates remain in the config.
-// Called after Normalize as a safety net — catches regressions when new fields
-// are added but not included in the normalization pass.
+// Hard failure — not a warning. If this fires, normalization has a bug.
 func AssertNormalized(cfg *Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("normalization assertion skipped: could not serialize config: %w", err)
+		return fmt.Errorf("normalization assertion failed: could not serialize config: %w", err)
 	}
 	if strings.Contains(string(data), "{var:") {
-		return fmt.Errorf("unresolved {var:} template found after normalization")
+		return fmt.Errorf("normalization incomplete: unresolved {var:} template remains in config")
 	}
 	return nil
 }
@@ -76,9 +151,6 @@ func AssertNormalized(cfg *Config) error {
 // resolveTemplateVars replaces StageFreight {var:name} template placeholders
 // using values from vars. Single-pass only; no recursion or nesting.
 func resolveTemplateVars(s string, vars map[string]string) string {
-	if !strings.Contains(s, "{var:") {
-		return s
-	}
 	for k, v := range vars {
 		s = strings.ReplaceAll(s, "{var:"+k+"}", v)
 	}
