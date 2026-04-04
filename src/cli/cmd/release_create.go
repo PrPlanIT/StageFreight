@@ -593,16 +593,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			if !m.Sync.Releases || overriddenMirrors[m.ID] {
 				continue
 			}
-			mirrorTarget := config.TargetConfig{
-				ID:          "mirror:" + m.ID,
-				Kind:        "release",
-				Provider:    m.Provider,
-				URL:         m.URL,
-				ProjectID:   m.ProjectID,
-				Credentials: m.Credentials,
-				SyncRelease: true,
-			}
-			syncResults = append(syncResults, projectRelease(ctx, mirrorTarget, req, tag, name, notes, allAssets)...)
+			syncResults = append(syncResults, projectToMirror(ctx, m, req.Config.Vars, tag, name, notes, req.Draft, req.Prerelease)...)
 		}
 
 		if len(syncResults) > 0 {
@@ -977,8 +968,76 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 }
 
 // newSyncForgeClientFromTarget creates a forge client for a remote release target.
-// projectRelease projects a canonical release to a single destination.
-// Used by both explicit target overrides and mirror-driven default projection.
+// projectToMirror projects a canonical release to a mirror destination.
+// Mirrors are first-class sources, not synthetic targets. Forge identity
+// comes directly from the mirror config.
+func projectToMirror(ctx context.Context, m config.MirrorConfig, vars map[string]string, tag, name, notes string, draft, prerelease bool) []actionResult {
+	var results []actionResult
+	label := "mirror:" + m.ID
+
+	client, err := newForgeClientFromMirror(m, vars)
+	if err != nil {
+		results = append(results, actionResult{Name: label, Err: err})
+		fmt.Fprintf(os.Stderr, "warning: mirror projection to %s: %v\n", m.ID, err)
+		return results
+	}
+
+	rel, err := client.CreateRelease(ctx, forge.ReleaseOptions{
+		TagName:     tag,
+		Name:        name,
+		Description: notes,
+		Draft:       draft,
+		Prerelease:  prerelease,
+	})
+	if err != nil {
+		results = append(results, actionResult{Name: label, Err: err})
+		fmt.Fprintf(os.Stderr, "warning: release projection to %s: %v\n", m.ID, err)
+		return results
+	}
+	results = append(results, actionResult{Name: fmt.Sprintf("%s: %s", label, rel.URL), OK: true})
+	return results
+}
+
+// newForgeClientFromMirror creates a forge client directly from a mirror config.
+// No synthetic target conversion — mirrors are first-class sources.
+func newForgeClientFromMirror(m config.MirrorConfig, vars map[string]string) (forge.Forge, error) {
+	projectID := gitver.ResolveVars(m.ProjectID, vars)
+	credPrefix := m.Credentials
+	token := os.Getenv(credPrefix + "_TOKEN")
+	if token == "" {
+		return nil, fmt.Errorf("mirror %s: %s_TOKEN env var not set", m.ID, credPrefix)
+	}
+
+	switch m.Provider {
+	case "gitlab":
+		gl := forge.NewGitLab(m.URL)
+		gl.Token = token
+		if projectID != "" {
+			gl.ProjectID = projectID
+		}
+		return gl, nil
+	case "github":
+		gh := forge.NewGitHub(m.URL)
+		gh.Token = token
+		if projectID != "" {
+			gh.Owner = ownerFromPath(projectID)
+			gh.Repo = repoFromPath(projectID)
+		}
+		return gh, nil
+	case "gitea":
+		gt := forge.NewGitea(m.URL)
+		gt.Token = token
+		if projectID != "" {
+			gt.ProjectID = projectID
+		}
+		return gt, nil
+	default:
+		return nil, fmt.Errorf("mirror %s: unsupported provider %q", m.ID, m.Provider)
+	}
+}
+
+// projectRelease projects a canonical release to a single destination via target config.
+// Used by explicit target overrides only.
 func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreateRequest, tag, name, notes string, allAssets []string) []actionResult {
 	var results []actionResult
 

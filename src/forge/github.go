@@ -360,9 +360,13 @@ func (g *GitHubForge) ListReleases(ctx context.Context) ([]ReleaseInfo, error) {
 		url := fmt.Sprintf("%s?per_page=100&page=%d", g.apiURL("/releases"), page)
 
 		var releases []struct {
-			ID        int    `json:"id"`
-			TagName   string `json:"tag_name"`
-			CreatedAt string `json:"created_at"`
+			ID         int    `json:"id"`
+			TagName    string `json:"tag_name"`
+			Name       string `json:"name"`
+			Body       string `json:"body"`
+			Draft      bool   `json:"draft"`
+			Prerelease bool   `json:"prerelease"`
+			CreatedAt  string `json:"created_at"`
 		}
 
 		if err := g.doJSON(ctx, "GET", url, nil, &releases); err != nil {
@@ -371,8 +375,12 @@ func (g *GitHubForge) ListReleases(ctx context.Context) ([]ReleaseInfo, error) {
 
 		for _, r := range releases {
 			info := ReleaseInfo{
-				ID:      fmt.Sprintf("%d", r.ID),
-				TagName: r.TagName,
+				ID:          fmt.Sprintf("%d", r.ID),
+				TagName:     r.TagName,
+				Name:        r.Name,
+				Description: r.Body,
+				Draft:       r.Draft,
+				Prerelease:  r.Prerelease,
 			}
 			if t, err := parseTime(r.CreatedAt); err == nil {
 				info.CreatedAt = t

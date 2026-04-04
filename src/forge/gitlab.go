@@ -380,8 +380,10 @@ func (g *GitLabForge) ListReleases(ctx context.Context) ([]ReleaseInfo, error) {
 		url := fmt.Sprintf("%s?per_page=100&page=%d&order_by=released_at&sort=desc", g.apiURL("/releases"), page)
 
 		var releases []struct {
-			TagName   string `json:"tag_name"`
-			CreatedAt string `json:"created_at"`
+			TagName     string `json:"tag_name"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			CreatedAt   string `json:"created_at"`
 		}
 
 		if err := g.doJSON(ctx, "GET", url, nil, &releases); err != nil {
@@ -390,8 +392,10 @@ func (g *GitLabForge) ListReleases(ctx context.Context) ([]ReleaseInfo, error) {
 
 		for _, r := range releases {
 			info := ReleaseInfo{
-				ID:      r.TagName,
-				TagName: r.TagName,
+				ID:          r.TagName,
+				TagName:     r.TagName,
+				Name:        r.Name,
+				Description: r.Description,
 			}
 			if t, err := parseTime(r.CreatedAt); err == nil {
 				info.CreatedAt = t
