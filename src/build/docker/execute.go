@@ -105,6 +105,10 @@ func executePhase(req Request) pipeline.Phase {
 			output.SectionStart(pc.Writer, "sf_build", "Build")
 			buildStart := time.Now()
 
+			// Render builder info (structured narration, not raw buildx dump).
+			builderInfo := ResolveBuilderInfo()
+			RenderBuilderInfo(pc.Writer, pc.Color, builderInfo)
+
 			// Render cache resolution info (resolve in cache.go, render here).
 			cacheInfo := ResolveCacheInfo(pc)
 			RenderCacheInfo(pc.Writer, pc.Color, cacheInfo)

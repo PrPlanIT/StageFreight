@@ -48,9 +48,14 @@ build-image:
   before_script:
     - *sf-context
     - docker context create tls-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem" 2>/dev/null || true
-    - docker buildx inspect sf-builder >/dev/null 2>&1 || docker buildx create --name sf-builder --driver docker-container --use tls-context
+    - |
+      if docker buildx inspect sf-builder >/dev/null 2>&1; then
+        mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"reused","driver":"docker-container","endpoint":"tls-context"}\n' > .stagefreight/runtime/docker/builder.json
+      else
+        docker buildx create --name sf-builder --driver docker-container --use tls-context
+        mkdir -p .stagefreight/runtime && echo "created" > .stagefreight/runtime/builder_action
+      fi
     - docker buildx use sf-builder
-    - docker buildx inspect --bootstrap
   script:
     - stagefreight ci run build
   rules:
@@ -71,9 +76,14 @@ dependency-update:
   before_script:
     - *sf-context
     - docker context create tls-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem" 2>/dev/null || true
-    - docker buildx inspect sf-builder >/dev/null 2>&1 || docker buildx create --name sf-builder --driver docker-container --use tls-context
+    - |
+      if docker buildx inspect sf-builder >/dev/null 2>&1; then
+        mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"reused","driver":"docker-container","endpoint":"tls-context"}\n' > .stagefreight/runtime/docker/builder.json
+      else
+        docker buildx create --name sf-builder --driver docker-container --use tls-context
+        mkdir -p .stagefreight/runtime && echo "created" > .stagefreight/runtime/builder_action
+      fi
     - docker buildx use sf-builder
-    - docker buildx inspect --bootstrap
   script:
     - stagefreight ci run deps
   artifacts:
@@ -101,9 +111,14 @@ security-scan:
   before_script:
     - *sf-context
     - docker context create tls-context --docker "host=$DOCKER_HOST,ca=$DOCKER_CERT_PATH/ca.pem,cert=$DOCKER_CERT_PATH/cert.pem,key=$DOCKER_CERT_PATH/key.pem" 2>/dev/null || true
-    - docker buildx inspect sf-builder >/dev/null 2>&1 || docker buildx create --name sf-builder --driver docker-container --use tls-context
+    - |
+      if docker buildx inspect sf-builder >/dev/null 2>&1; then
+        mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"reused","driver":"docker-container","endpoint":"tls-context"}\n' > .stagefreight/runtime/docker/builder.json
+      else
+        docker buildx create --name sf-builder --driver docker-container --use tls-context
+        mkdir -p .stagefreight/runtime && echo "created" > .stagefreight/runtime/builder_action
+      fi
     - docker buildx use sf-builder
-    - docker buildx inspect --bootstrap
   script:
     - stagefreight ci run security
   rules:
