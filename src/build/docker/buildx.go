@@ -12,10 +12,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 )
+
+// buildPublishedImages creates structured publish records from a build step.
+// Authoritative — derived from step registries + tags, not reparsed from strings.
+func buildPublishedImages(step build.BuildStep) []artifact.PublishedImage {
+	if !step.Push || len(step.Registries) == 0 {
+		return nil
+	}
+	var images []artifact.PublishedImage
+	for _, reg := range step.Registries {
+		for _, tag := range step.Tags {
+			images = append(images, artifact.PublishedImage{
+				Host:     reg.URL,
+				Path:     reg.Path,
+				Tag:      tag,
+				Provider: reg.Provider,
+				Ref:      fmt.Sprintf("%s/%s:%s", reg.URL, reg.Path, tag),
+			})
+		}
+	}
+	return images
+}
 
 // Buildx wraps docker buildx commands.
 type Buildx struct {
@@ -62,6 +84,7 @@ func (bx *Buildx) Build(ctx context.Context, step build.BuildStep) (*build.StepR
 	result.Status = "success"
 	result.Duration = time.Since(start)
 	result.Images = step.Tags
+	result.PublishedImages = buildPublishedImages(step)
 
 	return result, nil
 }
@@ -106,6 +129,7 @@ func (bx *Buildx) BuildWithLayers(ctx context.Context, step build.BuildStep) (*b
 	result.Status = "success"
 	result.Duration = time.Since(start)
 	result.Images = step.Tags
+	result.PublishedImages = buildPublishedImages(step)
 
 	// Parse layer events from captured stderr.
 	layers := ParseBuildxOutput(stderrBuf.String())

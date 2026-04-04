@@ -336,14 +336,12 @@ func runCrucibleMode(req Request) error {
 				publishPassed = true
 				publishResult = pubResult
 
-				// Write publish manifest from ACTUAL publish results, not the plan.
-				// StepResult.Images contains refs that were actually pushed by buildx.
+				// Write publish manifest from ACTUAL structured publish records.
+				// PublishedImages is populated by buildx from step registries + tags
+				// at build time — authoritative, not reparsed from strings.
 				var manifest artifact.PublishManifest
 				for _, step := range pubResult.Steps {
-					for _, ref := range step.Images {
-						img := artifact.ParseImageRef(ref)
-						manifest.Published = append(manifest.Published, img)
-					}
+					manifest.Published = append(manifest.Published, step.PublishedImages...)
 				}
 
 				// Manifest write failure = publish failure. Downstream depends on this file.
