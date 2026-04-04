@@ -43,6 +43,7 @@ type ReleaseCreateRequest struct {
 	RegistryLinks   bool
 	CatalogLinks    bool
 	SkipSync        bool
+	ReadOnly        bool // run_from: read-only mode — evaluate + narrate but do not mutate
 	Verbose         bool
 	Writer          io.Writer
 }
@@ -418,7 +419,14 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		Forge: string(provider),
 	}
 
-	// Create release on primary forge
+	// Create release on primary forge.
+	// In read-only mode: narrate but do not mutate.
+	if req.ReadOnly {
+		fmt.Fprintf(w, "\n    [read-only] would create release %s on %s\n", tag, string(provider))
+		fmt.Fprintf(w, "    [read-only] notes: %d bytes, %d assets\n\n", len(notes), len(req.Assets))
+		return nil
+	}
+
 	rel, createErr := forgeClient.CreateRelease(ctx, forge.ReleaseOptions{
 		TagName:     tag,
 		Name:        name,
@@ -584,7 +592,11 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				}
 				continue
 			}
-			syncResults = append(syncResults, projectRelease(ctx, t, req, tag, name, notes, allAssets)...)
+			if req.ReadOnly {
+				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] %s: would project release %s", t.ID, tag), OK: true})
+			} else {
+				syncResults = append(syncResults, projectRelease(ctx, t, req, tag, name, notes, allAssets)...)
+			}
 		}
 
 		// Path 2: Mirror-driven default projection.
@@ -593,7 +605,11 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			if !m.Sync.Releases || overriddenMirrors[m.ID] {
 				continue
 			}
-			syncResults = append(syncResults, projectToMirror(ctx, m, req.Config.Vars, tag, name, notes, req.Draft, req.Prerelease)...)
+			if req.ReadOnly {
+				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] mirror:%s: would project canonical release %s", m.ID, tag), OK: true})
+			} else {
+				syncResults = append(syncResults, projectToMirror(ctx, m, req.Config.Vars, tag, name, notes, req.Draft, req.Prerelease)...)
+			}
 		}
 
 		if len(syncResults) > 0 {

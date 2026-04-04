@@ -671,8 +671,9 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	rootDir := resolveWorkspace(ciCtx)
 
 	// run_from gate — controls mutation authority for release.
-	if rfResult := config.EvaluateRunFrom(appCfg.Release.RunFrom, ciCtx.RepoURL, appCfg.Sources.Primary.URL); !rfResult.Matched && rfResult.Mode != "ignore" {
-		reason := fmt.Sprintf("run_from: %s (%s)", rfResult.Mode, rfResult.Reason)
+	rfResult := config.EvaluateRunFrom(appCfg.Release.RunFrom, ciCtx.RepoURL, appCfg.Sources.Primary.URL)
+	if !rfResult.Matched && rfResult.Mode == "exit" {
+		reason := fmt.Sprintf("run_from: exit (%s)", rfResult.Reason)
 		renderReleaseSkip(ciCtx, releaseSkipDisabled, reason)
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.RecordSubsystem(cistate.SubsystemState{
@@ -683,6 +684,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
 		return nil
+	}
+	releaseReadOnly := !rfResult.Matched && rfResult.Mode == "read-only"
+	if releaseReadOnly {
+		fmt.Fprintf(os.Stderr, "  release: read-only mode (%s)\n", rfResult.Reason)
 	}
 
 	if !appCfg.Release.Enabled {
@@ -764,6 +769,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		SecuritySummary: appCfg.Release.SecuritySummary,
 		RegistryLinks:   appCfg.Release.RegistryLinks,
 		CatalogLinks:    appCfg.Release.CatalogLinks,
+		ReadOnly:        releaseReadOnly,
 		Writer:          os.Stdout,
 		Verbose:         opts.Verbose,
 	}); err != nil {
