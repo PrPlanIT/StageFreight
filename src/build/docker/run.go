@@ -64,6 +64,7 @@ func Run(req Request) error {
 			cleanupPhase(),
 			executePhase(req),
 			publishPhase(),
+			localCacheRetentionPhase(),
 		},
 		Hooks: []pipeline.PostBuildHook{
 			postbuild.BadgeHook(req.Config, func(w io.Writer, color bool, rootDir string) (string, time.Duration) {
@@ -71,6 +72,7 @@ func Run(req Request) error {
 			}),
 			postbuild.ReadmeHook(),
 			postbuild.RetentionHook(),
+			externalCacheRetentionHook(),
 		},
 	}
 	return p.Run(pc)
