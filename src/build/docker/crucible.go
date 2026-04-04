@@ -297,9 +297,8 @@ func runCrucibleMode(req Request) error {
 			// Restore original tags (from config, not crucible tags)
 		}
 
-		// TODO: execute publish pass with real tags + registries.
-		// For now, mark as passed — full publish wiring comes next.
-		publishPassed = true
+		// Publish not yet wired in consolidated crucible.
+		// Explicitly skip — never fake success.
 		_ = publishPlan
 	}
 
@@ -307,13 +306,19 @@ func runCrucibleMode(req Request) error {
 	// Local + external retention — backend-aware reporting.
 	// Runs post-build on success only.
 	if cruciblePassed {
+		repoID := resolveRepoIDFromContext(pc)
+
 		localRetResult := enforceLocalRetention(
-			LocalCacheDir(resolveRepoIDFromContext(pc), req.Config.BuildCache.Local),
+			LocalCacheDir(repoID, req.Config.BuildCache.Local),
 			req.Config.BuildCache.Local.Retention,
 		)
 		renderLocalRetention(w, color, localRetResult)
 
-		// External retention would run here via the hook system.
+		ext := req.Config.BuildCache.External
+		if ext.Target != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {
+			extRetResult := enforceExternalRetention(ctx, ext, repoID, req.Config.Targets)
+			renderExternalRetention(w, color, extRetResult)
+		}
 	}
 
 	// ── Image Retention ──────────────────────────────────────────
@@ -419,6 +424,8 @@ func runCrucibleMode(req Request) error {
 
 	if publishPassed {
 		output.SummaryRow(w, "publish", "success", "verified artifact", color)
+	} else if cruciblePassed && (verification == nil || !verification.HasHardFailure()) {
+		output.SummaryRow(w, "publish", "skipped", "not yet wired in consolidated crucible", color)
 	} else if cruciblePassed {
 		output.SummaryRow(w, "publish", "failed", "verification blocked publish", color)
 	}
