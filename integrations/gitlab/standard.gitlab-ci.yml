@@ -29,15 +29,10 @@ workflow:
   - export SF_CI_PIPELINE_ID="${CI_PIPELINE_ID}"
 
 .dind-setup: &dind-setup
-  - |
-    if docker buildx inspect --bootstrap sf-builder >/dev/null 2>&1; then
-      mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"reused","driver":"docker-container"}\n' > .stagefreight/runtime/docker/builder.json
-    else
-      docker buildx rm sf-builder 2>/dev/null || true
-      docker buildx create --name sf-builder --driver docker-container --use
-      mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"created","driver":"docker-container"}\n' > .stagefreight/runtime/docker/builder.json
-    fi
-  - docker buildx use sf-builder
+  - docker buildx rm sf-builder 2>/dev/null || true
+  - docker buildx create --name sf-builder --driver docker-container --use
+  - docker buildx inspect --bootstrap sf-builder
+  - mkdir -p .stagefreight/runtime/docker && printf '{"name":"sf-builder","action":"recreated","driver":"docker-container"}\n' > .stagefreight/runtime/docker/builder.json
 
 .dind-variables: &dind-variables
   DOCKER_HOST: "tcp://docker:2376"
