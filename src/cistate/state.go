@@ -48,13 +48,8 @@ type SubsystemState struct {
 //   - Nothing attempted → unknown
 //   - Otherwise → passing
 //
-// If the generic Subsystems list is populated, uses that.
-// Otherwise falls back to the typed fields for backward compatibility.
 func (st *State) PipelineStatus() string {
 	subs := st.Subsystems
-	if len(subs) == 0 {
-		subs = st.synthesizeSubsystems()
-	}
 
 	anyAttempted := false
 	hasWarning := false
@@ -81,6 +76,12 @@ func (st *State) PipelineStatus() string {
 			}
 		case "not_applicable":
 			// Subsystem doesn't apply to this lifecycle mode. Always neutral.
+		case "cancelled":
+			// Cancelled subsystem: required → failing, otherwise → warning.
+			if !s.AllowFailure {
+				return "failing"
+			}
+			hasWarning = true
 		}
 	}
 
@@ -93,43 +94,6 @@ func (st *State) PipelineStatus() string {
 	return "passing"
 }
 
-// synthesizeSubsystems builds a generic list from the typed fields.
-// Temporary bridge — once all runners call RecordSubsystem, this goes away.
-func (st *State) synthesizeSubsystems() []SubsystemState {
-	var subs []SubsystemState
-	if st.Build.Attempted {
-		subs = append(subs, SubsystemState{
-			Name: "build", Attempted: true, Required: true,
-			Completed: st.Build.Completed,
-			Outcome:   outcomeFromBool(st.Build.Completed, false),
-		})
-	}
-	if st.Security.Attempted {
-		subs = append(subs, SubsystemState{
-			Name: "security", Attempted: true, AllowFailure: true,
-			Completed: st.Security.Completed, Skipped: st.Security.Skipped,
-			Outcome: outcomeFromBool(st.Security.Completed, st.Security.Skipped),
-		})
-	}
-	if st.Release.Attempted {
-		subs = append(subs, SubsystemState{
-			Name: "release", Attempted: true, AllowFailure: true,
-			Completed: st.Release.Completed, Skipped: st.Release.Skipped,
-			Outcome: outcomeFromBool(st.Release.Completed, st.Release.Skipped),
-		})
-	}
-	return subs
-}
-
-func outcomeFromBool(completed, skipped bool) string {
-	if skipped {
-		return "skipped"
-	}
-	if completed {
-		return "success"
-	}
-	return "failed"
-}
 
 // CIState captures the CI environment for this pipeline run.
 type CIState struct {
@@ -141,31 +105,32 @@ type CIState struct {
 	SHA        string `json:"sha"`
 }
 
-// BuildState records what the build subsystem did.
+// BuildState holds build-specific domain metadata.
+// Lifecycle tracking (attempted/completed/outcome) is in Subsystems.
 type BuildState struct {
-	Attempted      bool   `json:"attempted"`
-	Completed      bool   `json:"completed"`
 	ProducedImages bool   `json:"produced_images"`
 	PublishedCount int    `json:"published_count"`
 	ManifestPath   string `json:"manifest_path,omitempty"`
-	Reason         string `json:"reason,omitempty"`
 }
 
-// SecurityState records what the security subsystem did.
-type SecurityState struct {
-	Attempted bool   `json:"attempted"`
-	Completed bool   `json:"completed"`
-	Skipped   bool   `json:"skipped"`
-	Reason    string `json:"reason,omitempty"`
-}
+// SecurityState holds security-specific domain metadata.
+// Lifecycle tracking is in Subsystems.
+type SecurityState struct{}
 
-// ReleaseState records what the release subsystem did.
+// ReleaseState holds release-specific domain metadata.
+// Lifecycle tracking is in Subsystems.
 type ReleaseState struct {
-	Eligible  bool   `json:"eligible"`
-	Attempted bool   `json:"attempted"`
-	Completed bool   `json:"completed"`
-	Skipped   bool   `json:"skipped"`
-	Reason    string `json:"reason,omitempty"`
+	Eligible bool `json:"eligible"`
+}
+
+// GetSubsystem returns the subsystem entry by name, or nil if not found.
+func (st *State) GetSubsystem(name string) *SubsystemState {
+	for i := range st.Subsystems {
+		if st.Subsystems[i].Name == name {
+			return &st.Subsystems[i]
+		}
+	}
+	return nil
 }
 
 // ReadState reads pipeline state from the workspace. Returns a zero State
@@ -218,20 +183,14 @@ func WriteState(rootDir string, st *State) error {
 }
 
 // RecordSubsystem upserts a subsystem entry by name.
-func (st *State) RecordSubsystem(name string, attempted, completed, skipped bool, reason string) {
-	for i, s := range st.Subsystems {
-		if s.Name == name {
-			st.Subsystems[i] = SubsystemState{
-				Name: name, Attempted: attempted,
-				Completed: completed, Skipped: skipped, Reason: reason,
-			}
+func (st *State) RecordSubsystem(s SubsystemState) {
+	for i, existing := range st.Subsystems {
+		if existing.Name == s.Name {
+			st.Subsystems[i] = s
 			return
 		}
 	}
-	st.Subsystems = append(st.Subsystems, SubsystemState{
-		Name: name, Attempted: attempted,
-		Completed: completed, Skipped: skipped, Reason: reason,
-	})
+	st.Subsystems = append(st.Subsystems, s)
 }
 
 // UpdateState does read-modify-write. The caller mutates individual fields

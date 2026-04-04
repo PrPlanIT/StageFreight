@@ -65,7 +65,9 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	// Initialize pipeline state with CI context
 	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 		st.CI = cistate.InitFromCI(ciCtx)
-		st.Build.Attempted = true
+		st.RecordSubsystem(cistate.SubsystemState{
+			Name: "build", Attempted: true, Required: true, Outcome: "failed",
+		})
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
@@ -81,7 +83,10 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	if hasBinaryBuilds {
 		if err := runBuildBinary(buildBinaryCmd, nil); err != nil {
 			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
-				st.Build.Reason = "binary build: " + err.Error()
+				st.RecordSubsystem(cistate.SubsystemState{
+					Name: "build", Attempted: true, Required: true,
+					Outcome: "failed", Reason: "binary build: " + err.Error(),
+				})
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
 			}
@@ -107,7 +112,10 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			Stderr:  os.Stderr,
 		}); err != nil {
 			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
-				st.Build.Reason = err.Error()
+				st.RecordSubsystem(cistate.SubsystemState{
+					Name: "build", Attempted: true, Required: true,
+					Outcome: "failed", Reason: err.Error(),
+				})
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
 			}
@@ -119,9 +127,11 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		fmt.Fprintln(os.Stderr, "build: no builds configured — skipping")
 		if ciCtx.IsCI() {
 			if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-				st.Build.Completed = true
 				st.Build.ProducedImages = false
-				st.Build.Reason = "no builds configured"
+				st.RecordSubsystem(cistate.SubsystemState{
+					Name: "build", Attempted: true, Required: true,
+					Outcome: "not_applicable", Reason: "no builds configured",
+				})
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
@@ -140,24 +150,30 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	case manifestErr == nil:
 		count := len(manifest.Published)
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Build.Completed = true
 			st.Build.ProducedImages = count > 0
 			st.Build.PublishedCount = count
 			if count > 0 {
 				st.Build.ManifestPath = artifact.PublishManifestPath
 			}
+			reason := ""
 			if count == 0 {
-				st.Build.Reason = "publish manifest exists but contains no images"
+				reason = "publish manifest exists but contains no images"
 			}
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "build", Attempted: true, Completed: true, Required: true,
+				Outcome: "success", Reason: reason,
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
 
 	case errors.Is(manifestErr, artifact.ErrPublishManifestNotFound):
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Build.Completed = true
 			st.Build.ProducedImages = false
-			st.Build.Reason = "no targets matched current ref"
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "build", Attempted: true, Completed: true, Required: true,
+				Outcome: "success", Reason: "no targets matched current ref",
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -168,7 +184,10 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		reason := fmt.Sprintf("publish manifest unreadable: %v", manifestErr)
 		fmt.Fprintf(os.Stderr, "warning: %s\n", reason)
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Build.Reason = reason
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "build", Attempted: true, Required: true,
+				Outcome: "failed", Reason: reason,
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -433,20 +452,23 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	rootDir := resolveWorkspace(ciCtx)
 
 	// Pre-flight: check pipeline state for build output.
-	// Only skip when build explicitly COMPLETED and produced nothing.
+	// Only skip when build completed successfully and produced nothing.
 	// Missing state = proceed (local dev, or state not written yet).
-	// Build failed (Attempted && !Completed) = proceed (let scan fail naturally with good error).
+	// Build failed = proceed (let scan fail naturally with good error).
 	if ciCtx.IsCI() {
 		st, _ := cistate.ReadState(rootDir)
-		if st.Build.Attempted && st.Build.Completed && !st.Build.ProducedImages {
+		buildSub := st.GetSubsystem("build")
+		if buildSub != nil && buildSub.Outcome == "success" && !st.Build.ProducedImages {
 			reason := "build completed but produced no images"
-			if st.Build.Reason != "" {
-				reason += " (" + st.Build.Reason + ")"
+			if buildSub.Reason != "" {
+				reason += " (" + buildSub.Reason + ")"
 			}
 			fmt.Printf("  security: skipping — %s\n", reason)
 			if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
-				s.Security.Skipped = true
-				s.Security.Reason = reason
+				s.RecordSubsystem(cistate.SubsystemState{
+					Name: "security", Attempted: true, Skipped: true, AllowFailure: true,
+					Outcome: "not_applicable", Reason: reason,
+				})
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
@@ -457,7 +479,9 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	// Mark attempted before running scan
 	if ciCtx.IsCI() {
 		if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
-			s.Security.Attempted = true
+			s.RecordSubsystem(cistate.SubsystemState{
+				Name: "security", Attempted: true, AllowFailure: true, Outcome: "failed",
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -473,7 +497,10 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	}); err != nil {
 		if ciCtx.IsCI() {
 			if stErr := cistate.UpdateState(rootDir, func(s *cistate.State) {
-				s.Security.Reason = err.Error()
+				s.RecordSubsystem(cistate.SubsystemState{
+					Name: "security", Attempted: true, AllowFailure: true,
+					Outcome: "failed", Reason: err.Error(),
+				})
 			}); stErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
 			}
@@ -483,7 +510,10 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 
 	if ciCtx.IsCI() {
 		if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
-			s.Security.Completed = true
+			s.RecordSubsystem(cistate.SubsystemState{
+				Name: "security", Attempted: true, Completed: true, AllowFailure: true,
+				Outcome: "success",
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -614,8 +644,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	if !appCfg.Release.Enabled {
 		renderReleaseSkip(ciCtx, releaseSkipDisabled, "release disabled in config")
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Release.Skipped = true
-			st.Release.Reason = "release disabled in config"
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "release", Attempted: true, Skipped: true, AllowFailure: true,
+				Outcome: "not_applicable", Reason: "release disabled in config",
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -625,8 +657,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	if !ci.IsBranchHeadFresh(ciCtx) {
 		renderReleaseSkip(ciCtx, releaseSkipNotHead, "pipeline SHA is not branch HEAD")
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Release.Skipped = true
-			st.Release.Reason = "pipeline SHA is not branch HEAD"
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "release", Attempted: true, Skipped: true, AllowFailure: true,
+				Outcome: "skipped", Reason: "pipeline SHA is not branch HEAD",
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -641,8 +675,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		renderReleaseSkip(ciCtx, releaseSkipNoTag, "no tag context")
 		if ciCtx.IsCI() {
 			if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-				st.Release.Skipped = true
-				st.Release.Reason = "no tag context"
+				st.RecordSubsystem(cistate.SubsystemState{
+					Name: "release", Attempted: true, Skipped: true, AllowFailure: true,
+					Outcome: "not_applicable", Reason: "no tag context",
+				})
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
@@ -656,8 +692,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		reason := fmt.Sprintf("tag %q does not match any release policy", tag)
 		renderReleaseSkip(ciCtx, releaseSkipPolicyMismatch, reason)
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Release.Skipped = true
-			st.Release.Reason = reason
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "release", Attempted: true, Skipped: true, AllowFailure: true,
+				Outcome: "not_applicable", Reason: reason,
+			})
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -667,7 +705,9 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	// Tag matches — mark eligible and attempted before running
 	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 		st.Release.Eligible = true
-		st.Release.Attempted = true
+		st.RecordSubsystem(cistate.SubsystemState{
+			Name: "release", Attempted: true, AllowFailure: true, Outcome: "failed",
+		})
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
@@ -684,7 +724,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		Verbose:         opts.Verbose,
 	}); err != nil {
 		if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Release.Reason = err.Error()
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "release", Attempted: true, AllowFailure: true,
+				Outcome: "failed", Reason: err.Error(),
+			})
 		}); stErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
 		}
@@ -692,7 +735,10 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	}
 
 	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-		st.Release.Completed = true
+		st.RecordSubsystem(cistate.SubsystemState{
+			Name: "release", Attempted: true, Completed: true, AllowFailure: true,
+			Outcome: "success",
+		})
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
