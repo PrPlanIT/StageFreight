@@ -57,13 +57,21 @@ func RunCrucible(ctx context.Context, opts CrucibleOpts) (*CrucibleResult, error
 
 	// Crucible container uses host network of the DinD daemon. Since DinD
 	// is on the stagefreight compose network, --network host gives the
-	// crucible DinD's network namespace — resolves both buildkitd and dind.
+	// crucible DinD's network namespace — IP routing works to other compose services.
+	// DNS doesn't work with host networking, so we inject --add-host entries
+	// to preserve hostname resolution for TLS (certs use DNS SANs, not IPs).
 	args := []string{"run", "--rm", "--network", "host"}
 
+	// Inject host entries for compose services so TLS hostname verification works.
+	for _, host := range []string{"dind", "buildkitd"} {
+		if ip := resolveHostToIP(host); ip != "" {
+			args = append(args, "--add-host", host+":"+ip)
+		}
+	}
+
 	// Forward Docker transport (DinD access for --load, docker run, push).
-	// Resolve hostname to IP — --network host uses DinD's network namespace
-	// where Docker DNS doesn't work, but IP routing does.
-	dockerHost := resolveDockerHost(os.Getenv("DOCKER_HOST"))
+	// Keep DNS name — TLS cert has DNS:dind as SAN.
+	dockerHost := os.Getenv("DOCKER_HOST")
 	if dockerHost != "" {
 		args = append(args, "-e", "DOCKER_HOST="+dockerHost)
 		for _, tlsVar := range []string{"DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
@@ -84,11 +92,6 @@ func RunCrucible(ctx context.Context, opts CrucibleOpts) (*CrucibleResult, error
 	bkCertPath := "/buildkit-certs"
 	if _, err := os.Stat(bkCertPath + "/ca.pem"); err == nil {
 		args = append(args, "-v", bkCertPath+":"+bkCertPath+":ro")
-		// Resolve buildkitd hostname to IP for --network host (no Docker DNS).
-		// Pass as BUILDKIT_HOST so the engine inside the crucible can find it.
-		if resolved := resolveDockerHost("tcp://buildkitd:1234"); resolved != "" {
-			args = append(args, "-e", "BUILDKIT_HOST="+resolved)
-		}
 	}
 
 	// Mount stagefreight persistent data.
@@ -192,6 +195,21 @@ func resolveDockerHost(dockerHost string) string {
 	}
 	u.Host = net.JoinHostPort(chosen, u.Port())
 	return u.String()
+}
+
+// resolveHostToIP resolves a hostname to an IPv4 address.
+// Returns empty string if unresolvable. Used for --add-host injection.
+func resolveHostToIP(hostname string) string {
+	ips, err := net.LookupHost(hostname)
+	if err != nil || len(ips) == 0 {
+		return ""
+	}
+	for _, ip := range ips {
+		if net.ParseIP(ip).To4() != nil {
+			return ip
+		}
+	}
+	return ips[0]
 }
 
 // CrucibleCheck is a single verification data point.
