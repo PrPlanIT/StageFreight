@@ -26,7 +26,7 @@ import (
 // Metadata JSON format:
 //
 //	{"containerimage.digest": "sha256:...", "image.name": "host/path:tag,host2/path:tag,..."}
-func ParseBuildxPublished(metadataFile string, registries []build.RegistryConfig) ([]artifact.PublishedImage, error) {
+func ParseBuildxPublished(metadataFile string, registries []build.RegistryTarget) ([]artifact.PublishedImage, error) {
 	data, err := os.ReadFile(metadataFile)
 	if err != nil {
 		return nil, err
