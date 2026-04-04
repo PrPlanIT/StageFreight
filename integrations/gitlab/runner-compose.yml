@@ -1,0 +1,73 @@
+# StageFreight GitLab Runner — DinD only (simple)
+#
+# Ephemeral per-job DinD. Build cache via registry only.
+# Mount caches (Go compilation) do NOT persist between jobs.
+# Use this when: simplicity > build speed, or shared runners.
+
+services:
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: always
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+    volumes:
+      - dind-storage:/var/lib/docker
+      - ${SF_CERTS_PATH:-./certs}:/certs
+      - ${SF_RUNTIME_PATH:-./stagefreight}:/stagefreight
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  register-runner:
+    image: gitlab/gitlab-runner:latest
+    restart: "no"
+    depends_on:
+      dind:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /etc/gitlab-runner/config.toml ]; then
+          gitlab-runner register \
+            --docker-host=tcp://dind:2376 \
+            --docker-image=alpine:latest \
+            --docker-privileged=true \
+            --docker-volumes=/certs/client \
+            --docker-volumes=/stagefreight:/stagefreight \
+            --docker-volumes=/stagefreight/buildx:/root/.docker/buildx \
+            --executor=docker \
+            --name=$${RUNNER_NAME:-"StageFreight Runner"} \
+            --non-interactive \
+            --token=$${RUNNER_TOKEN} \
+            --url=$${CI_SERVER_URL}
+        fi
+    environment:
+      - CI_SERVER_URL=${CI_SERVER_URL}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - DOCKER_TLS_VERIFY=1
+      - DOCKER_CERT_PATH=/certs/client
+    volumes:
+      - ${SF_CERTS_PATH:-./certs}:/certs:ro
+      - ${SF_CONFIG_PATH:-./config}:/etc/gitlab-runner:z
+
+  runner:
+    image: gitlab/gitlab-runner:latest
+    restart: always
+    depends_on:
+      dind:
+        condition: service_healthy
+    environment:
+      - DOCKER_HOST=tcp://dind:2376
+      - DOCKER_TLS_VERIFY=1
+      - DOCKER_CERT_PATH=/certs/client
+    volumes:
+      - ${SF_CERTS_PATH:-./certs}:/certs:ro
+      - ${SF_CONFIG_PATH:-./config}:/etc/gitlab-runner:z
+
+volumes:
+  dind-storage:

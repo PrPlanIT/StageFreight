@@ -46,14 +46,65 @@ type GCRule struct {
 func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
 	name := cfg.BuilderName()
 	driver := cfg.BuilderDriver()
-
 	info := BuilderInfo{Name: name, Driver: driver}
 
-	ctxName := cfg.ContextName()
+	// Detect build backend from environment.
+	// BUILDKIT_HOST → persistent buildkitd via remote driver (preferred).
+	// DOCKER_HOST + DOCKER_CERT_PATH → DinD via docker-container driver (legacy).
+	// Neither → local docker daemon.
+	buildkitHost := os.Getenv("BUILDKIT_HOST")
 
-	// Create Docker context from env vars (deterministic, recreated every run).
-	// Contract: both DOCKER_HOST + DOCKER_CERT_PATH set → remote TLS context.
-	// Neither set → local default docker. One without the other → misconfiguration, fail.
+	if buildkitHost != "" {
+		// Persistent buildkitd — use remote driver.
+		// Mount caches persist because the daemon persists.
+		info.Driver = "remote"
+		return ensureRemoteBuilder(name, buildkitHost, info)
+	}
+
+	// DinD or local docker — use docker-container driver with context.
+	return ensureDockerContainerBuilder(name, driver, cfg.ContextName(), info)
+}
+
+// ensureRemoteBuilder connects to an external buildkitd via the remote driver.
+// The daemon is persistent — mount caches survive across builds.
+func ensureRemoteBuilder(name, endpoint string, info BuilderInfo) BuilderInfo {
+	// Try to reuse existing remote builder.
+	bootstrapStart := time.Now()
+	bootstrapOut, bootstrapErr := exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
+	info.BootstrapDuration = time.Since(bootstrapStart)
+	info.BootstrapOK = bootstrapErr == nil
+	info.RawOutput = string(bootstrapOut)
+
+	if bootstrapErr == nil {
+		info.Action = "reused"
+		exec.Command("docker", "buildx", "use", name).CombinedOutput()
+	} else {
+		// Create remote builder pointing at buildkitd.
+		exec.Command("docker", "buildx", "rm", name).CombinedOutput()
+		if out, err := exec.Command("docker", "buildx", "create",
+			"--name", name, "--driver", "remote", "--use", endpoint).CombinedOutput(); err != nil {
+			info.Status = "remote builder creation failed"
+			info.RawOutput = string(out)
+			info.ParseFailed = true
+			return info
+		}
+		info.Action = "created"
+
+		bootstrapStart = time.Now()
+		bootstrapOut, bootstrapErr = exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
+		info.BootstrapDuration = time.Since(bootstrapStart)
+		info.BootstrapOK = bootstrapErr == nil
+		info.RawOutput = string(bootstrapOut)
+	}
+
+	info.Endpoint = endpoint
+	writeBuilderRecord(name, "remote", info.Action)
+	return info
+}
+
+// ensureDockerContainerBuilder creates a builder using the docker-container driver.
+// Used when BUILDKIT_HOST is not set (DinD or local docker).
+func ensureDockerContainerBuilder(name, driver, ctxName string, info BuilderInfo) BuilderInfo {
 	dockerHost := os.Getenv("DOCKER_HOST")
 	certPath := os.Getenv("DOCKER_CERT_PATH")
 	if (dockerHost == "") != (certPath == "") {
@@ -79,9 +130,7 @@ func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
 		fmt.Fprintf(os.Stderr, "builder: using default docker context (no DOCKER_HOST/DOCKER_CERT_PATH)\n")
 	}
 
-	// Try to reuse existing builder — mount caches (/root/.cache/go-build, /go/pkg/mod)
-	// live inside the BuildKit container. Destroying it kills compilation cache.
-	// Verify: context must resolve AND bootstrap must succeed.
+	// Try to reuse existing builder — mount caches persist inside BuildKit container.
 	bootstrapStart := time.Now()
 	bootstrapOut, bootstrapErr := exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
 	info.BootstrapDuration = time.Since(bootstrapStart)
@@ -89,13 +138,10 @@ func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
 	info.RawOutput = string(bootstrapOut)
 
 	if bootstrapErr == nil {
-		// Builder is healthy — reuse it. Mount caches survive.
 		info.Action = "reused"
 		exec.Command("docker", "buildx", "use", name).CombinedOutput()
 	} else {
-		// Builder missing or broken — recreate from scratch.
 		exec.Command("docker", "buildx", "rm", name).CombinedOutput()
-
 		createArgs := []string{"buildx", "create", "--name", name, "--driver", driver, "--use"}
 		if useContext {
 			createArgs = append(createArgs, ctxName)
@@ -108,7 +154,6 @@ func EnsureBuilder(cfg config.BuilderConfig) BuilderInfo {
 		}
 		info.Action = "recreated"
 
-		// Bootstrap the new builder.
 		bootstrapStart = time.Now()
 		bootstrapOut, bootstrapErr = exec.Command("docker", "buildx", "inspect", "--bootstrap", name).CombinedOutput()
 		info.BootstrapDuration = time.Since(bootstrapStart)

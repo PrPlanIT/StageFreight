@@ -25,21 +25,19 @@ workflow:
   - export SF_CI_WORKSPACE="$PWD"
   - export SF_CI_PIPELINE_ID="${CI_PIPELINE_ID}"
 
-# Builder lifecycle is owned by the StageFreight engine, not the skeleton.
-# EnsureBuilder() creates context, builder, bootstraps, and writes builder.json.
+# Build jobs use persistent buildkitd. Docker jobs use DinD.
+# Job containers resolve both by hostname via stagefreight network.
+.buildkit-variables: &buildkit-variables
+  BUILDKIT_HOST: "tcp://buildkitd:1234"
 
 .dind-variables: &dind-variables
-  DOCKER_HOST: "tcp://docker:2376"
+  DOCKER_HOST: "tcp://dind:2376"
   DOCKER_TLS_VERIFY: "1"
   DOCKER_CERT_PATH: "/certs/client"
-  DOCKER_TLS_CERTDIR: "/certs"
 
 default:
   image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
   interruptible: true
-  services:
-    - name: docker.cr.pcfae.com/docker:27-dind
-      alias: docker
 
 dependency-update:
   stage: deps
@@ -58,7 +56,7 @@ dependency-update:
 build:
   stage: build
   variables:
-    <<: *dind-variables
+    <<: *buildkit-variables
   before_script:
     - *sf-context
   script:

@@ -1,0 +1,113 @@
+# StageFreight GitLab Runner — DinD + persistent buildkitd (fast)
+#
+# Persistent buildkitd daemon for image builds. Mount caches (Go
+# compilation, module cache) persist between jobs. DinD available
+# for Docker-dependent operations (security scans, docker push).
+#
+# Trust split:
+#   runner     → host Docker socket (container management only)
+#   build jobs → BUILDKIT_HOST=tcp://buildkitd:1234 (no Docker access)
+#   docker jobs → DOCKER_HOST=tcp://dind:2376 (no host Docker access)
+#   other jobs → no daemon access
+#
+# Use this when: build speed matters, persistent runner, trusted repos.
+
+services:
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: always
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+    volumes:
+      - dind-storage:/var/lib/docker
+      - ${SF_CERTS_PATH:-./certs}:/certs
+      - ${SF_RUNTIME_PATH:-./stagefreight}:/stagefreight
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      stagefreight:
+        aliases:
+          - dind
+
+  buildkitd:
+    image: moby/buildkit:latest
+    privileged: true
+    restart: always
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --oci-worker-gc=true
+      - --oci-worker-gc-keepstorage=35000
+    volumes:
+      - buildkitd-state:/var/lib/buildkit
+      - ${SF_RUNTIME_PATH:-./stagefreight}:/stagefreight
+    healthcheck:
+      test: ["CMD", "buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      stagefreight:
+        aliases:
+          - buildkitd
+
+  register-runner:
+    image: gitlab/gitlab-runner:latest
+    restart: "no"
+    depends_on:
+      dind:
+        condition: service_healthy
+      buildkitd:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /etc/gitlab-runner/config.toml ]; then
+          gitlab-runner register \
+            --docker-image=alpine:latest \
+            --docker-network-mode=stagefreight \
+            --docker-privileged=false \
+            --docker-volumes=${SF_RUNTIME_PATH:-/opt/stagefreight}:/stagefreight \
+            --executor=docker \
+            --name=$${RUNNER_NAME:-"StageFreight Runner"} \
+            --non-interactive \
+            --token=$${RUNNER_TOKEN} \
+            --url=$${CI_SERVER_URL}
+        fi
+    environment:
+      - CI_SERVER_URL=${CI_SERVER_URL}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SF_CONFIG_PATH:-./config}:/etc/gitlab-runner:z
+    networks:
+      - stagefreight
+
+  runner:
+    image: gitlab/gitlab-runner:latest
+    restart: always
+    depends_on:
+      dind:
+        condition: service_healthy
+      buildkitd:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SF_CONFIG_PATH:-./config}:/etc/gitlab-runner:z
+    networks:
+      - stagefreight
+
+networks:
+  stagefreight:
+    name: stagefreight
+
+volumes:
+  dind-storage:
+  buildkitd-state:
