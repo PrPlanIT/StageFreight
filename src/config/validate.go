@@ -189,7 +189,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 
 		// Kind-specific validation
-		terrs := validateTarget(t, tpath, buildIDs, cfg.Policies)
+		terrs := validateTarget(t, tpath, buildIDs, cfg.Policies, cfg.Sources.Mirrors)
 		errs = append(errs, terrs...)
 
 		// When block validation
@@ -455,7 +455,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 }
 
 // validateTarget checks kind-specific field constraints on a target.
-func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, policies PoliciesConfig) []string {
+func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, policies PoliciesConfig, mirrors []MirrorConfig) []string {
 	var errs []string
 
 	switch t.Kind {
@@ -499,7 +499,7 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, polic
 	case "release":
 		// Mirror-referenced release: forge identity comes from sources.mirrors.
 		if t.Mirror != "" {
-			if FindMirrorByID(cfg.Sources.Mirrors, t.Mirror) == nil {
+			if FindMirrorByID(mirrors, t.Mirror) == nil {
 				errs = append(errs, fmt.Sprintf("%s: mirror %q not found in sources.mirrors", path, t.Mirror))
 			}
 			// Mirror-referenced targets must not restate forge fields.
