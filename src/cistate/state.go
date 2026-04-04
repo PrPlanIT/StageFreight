@@ -22,6 +22,32 @@ type State struct {
 	Security   SecurityState    `json:"security"`
 	Release    ReleaseState     `json:"release"`
 	Subsystems []SubsystemState `json:"subsystems,omitempty"`
+	Retention  RetentionState   `json:"retention,omitempty"`
+}
+
+// RetentionState records cache retention enforcement results.
+// Authoritative — governance and diagnostics can inspect this.
+type RetentionState struct {
+	Local    *LocalRetentionRecord    `json:"local,omitempty"`
+	External *ExternalRetentionRecord `json:"external,omitempty"`
+}
+
+// LocalRetentionRecord records local cache retention results.
+type LocalRetentionRecord struct {
+	Dir           string `json:"dir"`
+	EntriesBefore int    `json:"entries_before"`
+	Pruned        int    `json:"pruned"`
+	PrunedBytes   int64  `json:"pruned_bytes"`
+}
+
+// ExternalRetentionRecord records external cache retention results.
+type ExternalRetentionRecord struct {
+	Registry string   `json:"registry"`
+	Prefix   string   `json:"prefix"`
+	Total    int      `json:"total"`
+	Pruned   int      `json:"pruned"`
+	Kept     int      `json:"kept"`
+	Errors   []string `json:"errors,omitempty"`
 }
 
 // SubsystemState is the generic lifecycle phase record.

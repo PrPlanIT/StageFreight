@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
@@ -43,6 +44,20 @@ func externalCacheRetentionHook() pipeline.PostBuildHook {
 
 			result := enforceExternalRetention(pc.Ctx, ext, repoID, pc.Config.Targets)
 			renderExternalRetention(pc.Writer, pc.Color, result)
+
+			// Record in pipeline state for governance/diagnostics.
+			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
+				st.Retention.External = &cistate.ExternalRetentionRecord{
+					Registry: result.Registry,
+					Prefix:   result.Prefix,
+					Total:    result.Total,
+					Pruned:   result.Pruned,
+					Kept:     result.Kept,
+					Errors:   result.Errors,
+				}
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: retention state write failed: %v\n", err)
+			}
 
 			summary := fmt.Sprintf("pruned %d/%d cache refs", result.Pruned, result.Total)
 			if result.Pruned == 0 {
@@ -81,16 +96,10 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 	result.Registry = registryURL
 	result.Path = repoPath
 
-	// Namespace isolation: prefix includes both the configured path AND a repo hash.
-	// Tag pattern: <path>-<repo-hash-8>-<branch-canonical>
-	// This ensures we only prune tags StageFreight created for THIS repo,
-	// even on shared cache targets.
-	pathPrefix := ext.Path
-	if pathPrefix == "" {
-		pathPrefix = "cache"
-	}
-	repoScope := repoHash(repoID)[:8]
-	prefix := fmt.Sprintf("%s-%s", pathPrefix, repoScope)
+	// Use canonical CacheTag to derive the repo-scoped prefix.
+	// Same constructor as the writer — single source of truth.
+	scopeTag := BuildCacheTag(ext.Path, repoID, "")
+	prefix := scopeTag.ScopePrefix()
 	result.Prefix = prefix
 
 	// Find the target config to get provider + credentials.
@@ -120,12 +129,10 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 	}
 
 	// Filter: only tags matching StageFreight's deterministic cache naming.
-	// Pattern: <prefix>-<normalized-branch>-<8-char-hex-hash>
-	// The hash suffix is the ownership proof — random branch names won't match.
-	// We scope to the configured prefix AND require the hash suffix pattern.
+	// Uses the canonical IsSFCacheTag validator — single source of truth.
 	var cacheTags []registry.TagInfo
 	for _, t := range allTags {
-		if strings.HasPrefix(t.Name, prefix+"-") && looksLikeSFCacheTag(t.Name, prefix) {
+		if IsSFCacheTag(t.Name, prefix) {
 			cacheTags = append(cacheTags, t)
 		}
 	}
@@ -178,31 +185,6 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 
 	result.Kept = result.Total - result.Pruned
 	return result
-}
-
-// looksLikeSFCacheTag validates that a tag matches StageFreight's deterministic
-// cache naming pattern: <prefix>-<anything>-<8-hex-hash>.
-// The 8-char hex suffix is the ownership proof from CanonicalizeRef().
-func looksLikeSFCacheTag(tag, prefix string) bool {
-	suffix := strings.TrimPrefix(tag, prefix+"-")
-	if suffix == tag {
-		return false // didn't have prefix
-	}
-	// Must end with -<8 hex chars> (the hash from CanonicalizeRef).
-	idx := strings.LastIndex(suffix, "-")
-	if idx < 0 || idx == len(suffix)-1 {
-		return false
-	}
-	hash := suffix[idx+1:]
-	if len(hash) != 8 {
-		return false
-	}
-	for _, c := range hash {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
 
 func renderExternalRetention(w interface{ Write([]byte) (int, error) }, color bool, result ExternalRetentionResult) {

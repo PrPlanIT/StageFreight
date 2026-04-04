@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -41,6 +42,18 @@ func localCacheRetentionPhase() pipeline.Phase {
 
 			result := enforceLocalRetention(dir, localCfg.Retention)
 			renderLocalRetention(pc.Writer, pc.Color, result)
+
+			// Record in pipeline state for governance/diagnostics.
+			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
+				st.Retention.Local = &cistate.LocalRetentionRecord{
+					Dir:           result.Dir,
+					EntriesBefore: result.EntriesBefore,
+					Pruned:        result.Pruned,
+					PrunedBytes:   result.PrunedBytes,
+				}
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: retention state write failed: %v\n", err)
+			}
 
 			summary := fmt.Sprintf("pruned %d entries", result.Pruned)
 			if result.Pruned == 0 {

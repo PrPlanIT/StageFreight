@@ -76,29 +76,22 @@ func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, target
 		return nil, nil
 	}
 
-	// Cache refs are tags on the target repo.
-	// Pattern: <registry>/<path>:<prefix>-<repo-hash>-<branch-canonical>
-	// e.g. cr.pcfae.com/prplanit/stagefreight:cache-0d6e4079-main-a1b2c3d4
+	// Cache tags use the canonical CacheTag constructor — single source of truth.
+	// Format: <prefix>-<repo-hash-8>-<branch-canonical>
 	// Repo hash prevents cross-repo collision on shared cache targets.
-	prefix := ext.Path
-	if prefix == "" {
-		prefix = "cache"
-	}
-
-	repoScope := repoHash(repoID)[:8]
-	br := CanonicalizeRef(branch)
 	mode := ext.Mode
 	if mode == "" {
 		mode = "max"
 	}
 
-	tagPrefix := fmt.Sprintf("%s-%s", prefix, repoScope)
-	branchRef := fmt.Sprintf("%s:%s-%s", targetRef, tagPrefix, br)
+	tag := BuildCacheTag(ext.Path, repoID, branch)
+	branchRef := fmt.Sprintf("%s:%s", targetRef, tag.String())
 
 	// cache-from: branch first, then fallback.
 	cacheFrom = []build.CacheRef{{Type: "registry", Ref: branchRef, Direction: "import"}}
 	if ext.Fallback != "" && ext.Fallback != branch {
-		fallbackRef := fmt.Sprintf("%s:%s-%s", targetRef, tagPrefix, CanonicalizeRef(ext.Fallback))
+		fbTag := BuildCacheTag(ext.Path, repoID, ext.Fallback)
+		fallbackRef := fmt.Sprintf("%s:%s", targetRef, fbTag.String())
 		cacheFrom = append(cacheFrom, build.CacheRef{Type: "registry", Ref: fallbackRef, Direction: "import"})
 	}
 
