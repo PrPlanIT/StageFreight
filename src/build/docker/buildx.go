@@ -129,11 +129,15 @@ func (bx *Buildx) Build(ctx context.Context, step build.BuildStep) (*build.StepR
 	result.Duration = time.Since(start)
 	result.Images = step.Tags
 
-	// Extract structured publish records from metadata file (authoritative).
-	if step.MetadataFile != "" {
-		if imgs, err := ParseBuildxPublished(step.MetadataFile, step.Registries); err == nil {
-			result.PublishedImages = imgs
+	// Construct verified publish records: identity from registries, truth from metadata.
+	if step.Push && len(step.Registries) > 0 {
+		imgs, err := resolvePublished(step)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Errorf("publish verification: %w", err)
+			return result, result.Error
 		}
+		result.PublishedImages = imgs
 	}
 
 	return result, nil
@@ -180,17 +184,108 @@ func (bx *Buildx) BuildWithLayers(ctx context.Context, step build.BuildStep) (*b
 	result.Duration = time.Since(start)
 	result.Images = step.Tags
 
-	// Extract structured publish records from metadata file (authoritative).
-	if step.MetadataFile != "" {
-		if imgs, err := ParseBuildxPublished(step.MetadataFile, step.Registries); err == nil {
-			result.PublishedImages = imgs
+	// Construct verified publish records: identity from registries, truth from metadata.
+	if step.Push && len(step.Registries) > 0 {
+		imgs, err := resolvePublished(step)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Errorf("publish verification: %w", err)
+			return result, nil, result.Error
 		}
+		result.PublishedImages = imgs
 	}
 
 	// Parse layer events from captured stderr.
 	layers := ParseBuildxOutput(stderrBuf.String())
 
 	return result, layers, nil
+}
+
+// resolvePublished combines registry identity with buildx metadata observation.
+//
+// Identity (from config): host, path, bare tags, provider — clean decomposed data.
+// Truth (from buildx): digest, actual pushed ref count — post-push observation.
+//
+// Contract:
+//   - Metadata file MUST exist and be parseable for push builds (hard fail otherwise)
+//   - Digest MUST be present (buildx always writes it on successful push)
+//   - Actual pushed ref count MUST match expected (no silent partial success)
+func resolvePublished(step build.BuildStep) ([]artifact.PublishedImage, error) {
+	// Read metadata — the only observation we have of what buildx actually did.
+	if step.MetadataFile == "" {
+		return nil, fmt.Errorf("no metadata file for push build — cannot verify publish result")
+	}
+
+	metaData, err := os.ReadFile(step.MetadataFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading buildx metadata: %w", err)
+	}
+
+	var meta struct {
+		Digest    string `json:"containerimage.digest"`
+		ImageName string `json:"image.name"`
+	}
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		return nil, fmt.Errorf("parsing buildx metadata: %w", err)
+	}
+
+	// Digest is the immutable truth. If buildx didn't write one, the push didn't happen.
+	if meta.Digest == "" {
+		return nil, fmt.Errorf("buildx metadata has no digest — push may not have completed")
+	}
+
+	// Count actual pushed refs from image.name (comma-separated).
+	// This is buildx's record of what it actually pushed, not what we asked for.
+	var actualCount int
+	if meta.ImageName != "" {
+		for _, ref := range strings.Split(meta.ImageName, ",") {
+			if strings.TrimSpace(ref) != "" {
+				actualCount++
+			}
+		}
+	}
+
+	// Build expected entries from decomposed registry identity.
+	var expected []artifact.PublishedImage
+	for _, reg := range step.Registries {
+		if reg.Provider == "local" {
+			continue
+		}
+		host := normalizeRegistryHost(reg.URL)
+		for _, tag := range reg.Tags {
+			expected = append(expected, artifact.PublishedImage{
+				Host:     host,
+				Path:     reg.Path,
+				Tag:      tag,
+				Provider: reg.Provider,
+				Ref:      host + "/" + reg.Path + ":" + tag,
+				Digest:   meta.Digest,
+			})
+		}
+	}
+
+	if len(expected) == 0 {
+		return nil, fmt.Errorf("no remote registries in step — nothing to publish")
+	}
+
+	// Verify: actual pushed count must match expected.
+	// If image.name is empty but digest exists, buildx may have pushed without recording
+	// ref names (older buildx versions). Warn but proceed — digest is the real truth.
+	if actualCount > 0 && actualCount != len(expected) {
+		return nil, fmt.Errorf("publish count mismatch: expected %d refs, buildx reported %d — partial push or config drift",
+			len(expected), actualCount)
+	}
+	if actualCount == 0 && meta.ImageName == "" {
+		diag.Warn("buildx metadata has digest but no image.name — cannot verify ref count (older buildx?)")
+	}
+
+	return expected, nil
+}
+
+// normalizeRegistryHost strips scheme prefixes and trailing slashes, lowercases.
+func normalizeRegistryHost(url string) string {
+	h := strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+	return strings.ToLower(strings.TrimSuffix(h, "/"))
 }
 
 // injectProgressPlain adds --progress=plain to buildx args if not already present.

@@ -343,9 +343,9 @@ func runCrucibleMode(req Request) error {
 				publishPassed = true
 				publishResult = pubResult
 
-				// Write publish manifest from ACTUAL structured publish records.
-				// PublishedImages is populated by buildx from step registries + tags
-				// at build time — authoritative, not reparsed from strings.
+				// Write publish manifest from structured publish records.
+				// PublishedImages is built from step.Registries (decomposed host/path/tag)
+				// + metadata digest — no image.name string parsing.
 				var manifest artifact.PublishManifest
 				for _, step := range pubResult.Steps {
 					manifest.Published = append(manifest.Published, step.PublishedImages...)
