@@ -1,7 +1,12 @@
-# StageFreight GitLab CI skeleton
-# Behavior is configured in .stagefreight.yml, not here.
-# This file translates GitLab CI context into StageFreight's normalized contract.
-# ALL jobs always exist. StageFreight decides if they do work at runtime.
+# stagefreight-skeleton: standard
+# provider: gitlab
+# supports: validate, deps, build, security, release, docs
+#
+# Standard build transport. Backend-agnostic — engine auto-detects:
+#   BUILDKIT_HOST set → persistent buildkitd (remote driver, fast cache)
+#   BUILDKIT_HOST not set → DinD (docker-container driver)
+# Runner compose determines which endpoints exist. Skeleton is the same for both.
+# StageFreight decides what actually runs based on .stagefreight.yml config.
 
 stages:
   - deps
@@ -25,9 +30,9 @@ workflow:
   - export SF_CI_WORKSPACE="$PWD"
   - export SF_CI_PIPELINE_ID="${CI_PIPELINE_ID}"
 
-# Runner transport — DinD for Docker operations.
-# BUILDKIT_HOST injected by runner/CI variable when persistent buildkitd is available.
-# Engine auto-detects: buildkitd reachable → remote driver, else → docker-container.
+# Runner transport — DinD access for all runners.
+# BUILDKIT_HOST is NOT here — operators add it via CI/CD variables
+# or runner config when persistent buildkitd is available.
 .runner-variables: &runner-variables
   DOCKER_HOST: "tcp://dind:2376"
   DOCKER_TLS_VERIFY: "1"
