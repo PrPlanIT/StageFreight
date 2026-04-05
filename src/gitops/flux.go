@@ -78,19 +78,13 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 		}, nil
 	}
 
-	// Compute impact from HEAD~1..HEAD.
-	files, err := GetChangedFiles(rctx.RepoRoot, "HEAD~1", "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("getting changed files: %w", err)
-	}
-
-	var reconcileSet []KustomizationKey
-	if len(files) == 0 {
-		// No changes — empty reconcile set.
-		reconcileSet = nil
-	} else {
-		impact := ComputeImpact(graph, files)
-		reconcileSet = impact.ReconcileSet
+	// Reconcile ALL kustomizations — not just impacted ones.
+	// Flux reconcile is idempotent: unchanged kustomizations converge instantly.
+	// Pre-filtering by changed files misses drift from manual changes,
+	// failed previous reconciles, or operator mutations.
+	reconcileSet := make([]KustomizationKey, 0, len(graph.Kustomizations))
+	for _, ks := range graph.Kustomizations {
+		reconcileSet = append(reconcileSet, ks.Key)
 	}
 	f.reconcileSet = reconcileSet
 
