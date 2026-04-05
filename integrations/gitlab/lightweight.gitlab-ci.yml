@@ -40,6 +40,12 @@ validate:
 
 reconcile:
   stage: reconcile
+  # id_tokens: GitLab 16+ OIDC JWT for cluster auth.
+  # aud must match gitops.oidc.audience in .stagefreight.yml.
+  # Remove this block if your repo does not use GitOps reconcile.
+  id_tokens:
+    STAGEFREIGHT_OIDC:
+      aud: stagefreight
   variables:
     GIT_DEPTH: 0
   before_script:
