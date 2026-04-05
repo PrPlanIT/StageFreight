@@ -39,11 +39,29 @@ func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext) err
 		return err
 	}
 
-	// Resolve OIDC token.
+	// Resolve auth — OIDC token or service account token.
+	// OIDC preferred, then SA token fallback, then hard fail.
 	token := os.Getenv("STAGEFREIGHT_OIDC")
+	credName := "oidc"
 	if token == "" {
-		return fmt.Errorf("STAGEFREIGHT_OIDC not set")
+		// Fallback: service account token (in-cluster or CI-injected).
+		saToken := os.Getenv(prefix + "_TOKEN")
+		if saToken == "" {
+			// Try Kubernetes-mounted SA token.
+			if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
+				saToken = string(data)
+			}
+		}
+		if saToken != "" {
+			token = saToken
+			credName = "sa-token"
+		}
 	}
+	if token == "" {
+		return fmt.Errorf("no cluster auth: set STAGEFREIGHT_OIDC or %s_TOKEN", prefix)
+	}
+
+	fmt.Fprintf(os.Stderr, "prepare[flux]: auth method=%s\n", credName)
 
 	// Build kubeconfig via kubectl.
 	if err := kubectl("config", "set-cluster", cfg.Name,
@@ -53,7 +71,7 @@ func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext) err
 		return fmt.Errorf("kubectl set-cluster: %w", err)
 	}
 
-	if err := kubectl("config", "set-credentials", "oidc",
+	if err := kubectl("config", "set-credentials", credName,
 		"--token="+token,
 	); err != nil {
 		return fmt.Errorf("kubectl set-credentials: %w", err)
@@ -61,7 +79,7 @@ func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext) err
 
 	if err := kubectl("config", "set-context", cfg.Name,
 		"--cluster="+cfg.Name,
-		"--user=oidc",
+		"--user="+credName,
 	); err != nil {
 		return fmt.Errorf("kubectl set-context: %w", err)
 	}
