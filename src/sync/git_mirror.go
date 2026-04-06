@@ -39,9 +39,9 @@ func resolveGitAuth(provider, secret string) gitAuth {
 
 // buildRemoteURL constructs a plain HTTPS URL for the mirror remote.
 // No credentials are embedded — auth is injected via GIT_ASKPASS.
-func buildRemoteURL(mirror config.MirrorConfig) string {
-	baseURL := strings.TrimRight(mirror.URL, "/")
-	projectPath := strings.TrimLeft(mirror.ProjectID, "/")
+func buildRemoteURL(repo config.ResolvedRepo) string {
+	baseURL := strings.TrimRight(repo.BaseURL, "/")
+	projectPath := strings.TrimLeft(repo.Project, "/")
 	u := baseURL + "/" + projectPath
 	if !strings.HasSuffix(u, ".git") {
 		u += ".git"
@@ -57,7 +57,7 @@ func buildRemoteURL(mirror config.MirrorConfig) string {
 //   - Never mutates the user's working repo (temp bare clone only)
 //   - Credentials are injected via GIT_ASKPASS self-reexec, never in URLs or argv
 //   - Process is killed on context cancellation
-func MirrorPush(ctx context.Context, worktree string, mirror config.MirrorConfig) (*MirrorResult, error) {
+func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo) (*MirrorResult, error) {
 	start := time.Now()
 	result := &MirrorResult{
 		AccessoryID: mirror.ID,

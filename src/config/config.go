@@ -26,9 +26,6 @@ type Config struct {
 	// section entirely — it exists for users to define &anchors.
 	Defaults yaml.Node `yaml:"defaults,omitempty"`
 
-	// Sources defines build source configuration (legacy — use Forges/Repos/Registries).
-	Sources SourcesConfig `yaml:"sources,omitempty"`
-
 	// Forges declares git hosts. Each entry is a host identity (provider, URL, credentials).
 	Forges []ForgeConfig `yaml:"forges,omitempty"`
 
@@ -160,7 +157,6 @@ func defaults() *Config {
 	return &Config{
 		Version:    1,
 		Vars:       map[string]string{},
-		Sources:    DefaultSourcesConfig(),
 		Policies:   DefaultPoliciesConfig(),
 		Lint:       DefaultLintConfig(),
 		Security:   DefaultSecurityConfig(),

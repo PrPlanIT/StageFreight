@@ -95,8 +95,18 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 	var results []readmeSyncResult
 
 	for _, t := range targets {
-		// Resolve {var:...} templates in target fields
-		resolvedPath := gitver.ResolveVars(t.Path, appCfg.Vars)
+		// Resolve registry identity from identity graph or legacy inline fields.
+		resolved, resolveErr := config.ResolveRegistryForTarget(t, appCfg.Registries, appCfg.Vars)
+		if resolveErr != nil {
+			results = append(results, readmeSyncResult{
+				Registry: t.ID,
+				Status:   "failed",
+				Detail:   resolveErr.Error(),
+				Err:      resolveErr,
+			})
+			continue
+		}
+		resolvedPath := resolved.Path
 		resolvedDesc := gitver.ResolveVars(t.Description, appCfg.Vars)
 
 		file := t.File
@@ -107,7 +117,7 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 		content, err := registry.PrepareReadmeFromFile(file, resolvedDesc, linkBase, rawBase, rootDir)
 		if err != nil {
 			results = append(results, readmeSyncResult{
-				Registry: t.URL + "/" + resolvedPath,
+				Registry: resolved.URL + "/" + resolvedPath,
 				Status:   "failed",
 				Detail:   err.Error(),
 				Err:      err,
@@ -115,10 +125,9 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 			continue
 		}
 
-		// Resolve provider from explicit config or auto-detect from URL
-		provider := t.Provider
+		provider := resolved.Provider
 		if provider == "" {
-			provider = build.DetectProvider(t.URL)
+			provider = build.DetectProvider(resolved.URL)
 		}
 
 		// Only docker, github, quay, harbor support description APIs
@@ -127,17 +136,17 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 			// supported
 		default:
 			results = append(results, readmeSyncResult{
-				Registry: t.URL + "/" + resolvedPath,
+				Registry: resolved.URL + "/" + resolvedPath,
 				Status:   "skipped",
 				Detail:   "no description API",
 			})
 			continue
 		}
 
-		client, err := registry.NewRegistry(provider, t.URL, t.Credentials)
+		client, err := registry.NewRegistry(provider, resolved.URL, resolved.Credentials)
 		if err != nil {
 			results = append(results, readmeSyncResult{
-				Registry: t.URL + "/" + resolvedPath,
+				Registry: resolved.URL + "/" + resolvedPath,
 				Status:   "failed",
 				Detail:   err.Error(),
 				Err:      err,
@@ -156,21 +165,21 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 		// Surface credential warnings (populated during auth)
 		if warner, ok := client.(registry.Warner); ok {
 			for _, warn := range warner.Warnings() {
-				fmt.Fprintf(os.Stderr, "warning: %s/%s: %s\n", t.URL, resolvedPath, warn)
+				fmt.Fprintf(os.Stderr, "warning: %s/%s: %s\n", resolved.URL, resolvedPath, warn)
 			}
 		}
 
 		if err != nil {
 			if registry.IsForbidden(err) {
 				results = append(results, readmeSyncResult{
-					Registry: t.URL + "/" + resolvedPath,
+					Registry: resolved.URL + "/" + resolvedPath,
 					Status:   "skipped",
 					Detail:   "forbidden (ensure PAT has read/write/delete scope)",
 				})
 				continue
 			}
 			results = append(results, readmeSyncResult{
-				Registry: t.URL + "/" + resolvedPath,
+				Registry: resolved.URL + "/" + resolvedPath,
 				Status:   "failed",
 				Detail:   err.Error(),
 				Err:      err,
@@ -179,7 +188,7 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 		}
 
 		results = append(results, readmeSyncResult{
-			Registry: t.URL + "/" + resolvedPath,
+			Registry: resolved.URL + "/" + resolvedPath,
 			Status:   "success",
 		})
 	}

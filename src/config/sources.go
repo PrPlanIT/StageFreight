@@ -6,37 +6,7 @@ import (
 	"strings"
 )
 
-// SourcesConfig holds the build source definitions and mirror forge declarations.
-// The primary source is the authoritative forge. Mirrors are strict downstream
-// replicas synchronized outward from the primary.
-// PublishOrigin declares where rendered artifacts are served from.
-type SourcesConfig struct {
-	Primary       SourceConfig   `yaml:"primary"`
-	Mirrors       []MirrorConfig `yaml:"mirrors,omitempty"`
-	PublishOrigin *PublishOrigin  `yaml:"publish_origin,omitempty"`
-}
-
-// SourceConfig defines the primary (authoritative) build source.
-type SourceConfig struct {
-	Kind          string `yaml:"kind"`           // source type (default: "git")
-	Worktree      string `yaml:"worktree"`       // path to working tree (default: ".")
-	URL           string `yaml:"url"`            // optional: enables deterministic link_base/raw_base derivation
-	DefaultBranch string `yaml:"default_branch"` // optional: used with URL for raw_base derivation
-}
-
-// MirrorConfig declares a downstream forge replica that receives projections
-// from the primary. A mirror is strict — it never originates state.
-// Directionality is enforced: source → mirror only.
-type MirrorConfig struct {
-	ID          string     `yaml:"id"`          // unique identifier (e.g., "github")
-	Provider    string     `yaml:"provider"`    // forge provider: github, gitlab, gitea
-	URL         string     `yaml:"url"`         // forge base URL (e.g., "https://github.com")
-	ProjectID   string     `yaml:"project_id"`  // owner/repo or numeric ID on the mirror forge
-	Credentials string     `yaml:"credentials"` // env var prefix for token resolution
-	Sync        SyncConfig `yaml:"sync"`        // which domains to synchronize
-}
-
-// SyncConfig declares which sync domains an accessory receives.
+// SyncConfig declares which sync domains a mirror repo receives.
 // Git mirror is the foundation; artifact projection is subordinate and
 // gated on mirror success for the same accessory.
 type SyncConfig struct {
@@ -55,73 +25,33 @@ type SyncConfig struct {
 	Docs bool `yaml:"docs,omitempty"`
 }
 
-// PublishOrigin declares where rendered artifacts (badges, etc.) are served from.
-// Three kinds:
-//   - primary: derives raw content URL from sources.primary (the authoritative forge)
-//   - mirror:  derives raw content URL from a sources.mirrors[] entry
-//   - url:     explicit base URL (CDN, S3, RGW, any static hosting)
-//
-// Mirrors MUST track the primary branch. The branch used for raw URL construction
-// always comes from sources.primary.default_branch — for both primary and mirror kinds.
-type PublishOrigin struct {
-	Kind string `yaml:"kind"`           // "primary", "mirror", or "url"
-	Ref  string `yaml:"ref,omitempty"`  // mirror ID (kind: mirror only)
-	Base string `yaml:"base,omitempty"` // explicit URL (kind: url only)
-}
-
-// DefaultSourcesConfig returns sensible defaults for source configuration.
-func DefaultSourcesConfig() SourcesConfig {
-	return SourcesConfig{
-		Primary: SourceConfig{
-			Kind:     "git",
-			Worktree: ".",
-		},
-	}
-}
-
 // ResolvePublishOrigin resolves the serving base URL for rendered artifacts.
-// Hard fails if publish_origin is nil or misconfigured.
-// Config values may contain {var:*} templates — these are resolved using cfg.Vars.
 func ResolvePublishOrigin(cfg *Config) (string, error) {
-	po := cfg.Sources.PublishOrigin
-	if po == nil {
-		return "", fmt.Errorf("sources.publish_origin is required")
+	if cfg.PublishOrigin == nil {
+		return "", fmt.Errorf("publish_origin is required")
 	}
-	branch := resolveVars(cfg.Sources.Primary.DefaultBranch, cfg.Vars)
+	branch := PrimaryDefaultBranch(cfg)
 	if branch == "" {
-		return "", fmt.Errorf("sources.primary.default_branch is required when publish_origin is used")
+		return "", fmt.Errorf("publish_origin: primary repo default_branch is required")
 	}
-	switch po.Kind {
-	case "primary":
-		srcURL := resolveVars(cfg.Sources.Primary.URL, cfg.Vars)
-		if srcURL == "" {
-			return "", fmt.Errorf("sources.publish_origin (kind: primary): sources.primary.url is required")
+	switch cfg.PublishOrigin.Kind {
+	case "repo":
+		repo := FindRepoByID(cfg.Repos, cfg.PublishOrigin.Ref)
+		if repo == nil {
+			return "", fmt.Errorf("publish_origin ref %q not found in repos", cfg.PublishOrigin.Ref)
 		}
-		provider, baseURL, projectID, err := ParseForgeURL(srcURL)
+		resolved, err := ResolveRepo(*repo, cfg.Forges, cfg.Vars)
 		if err != nil {
-			return "", fmt.Errorf("sources.publish_origin (kind: primary): %w", err)
+			return "", fmt.Errorf("publish_origin: %w", err)
 		}
-		return ForgeRawBase(provider, baseURL, projectID, branch)
-	case "mirror":
-		if po.Ref == "" {
-			return "", fmt.Errorf("sources.publish_origin (kind: mirror): ref is required")
-		}
-		mirror := FindMirrorByID(cfg.Sources.Mirrors, po.Ref)
-		if mirror == nil {
-			return "", fmt.Errorf("sources.publish_origin ref %q: not found in sources.mirrors", po.Ref)
-		}
-		mirrorURL := resolveVars(mirror.URL, cfg.Vars)
-		projectID := resolveVars(mirror.ProjectID, cfg.Vars)
-		return ForgeRawBase(mirror.Provider, mirrorURL, projectID, branch)
+		return ForgeRawBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
 	case "url":
-		base := resolveVars(po.Base, cfg.Vars)
-		if base == "" {
-			return "", fmt.Errorf("sources.publish_origin (kind: url): base is required")
+		if cfg.PublishOrigin.Base == "" {
+			return "", fmt.Errorf("publish_origin (kind: url): base is required")
 		}
-		return strings.TrimRight(base, "/"), nil
+		return strings.TrimRight(cfg.PublishOrigin.Base, "/"), nil
 	default:
-		return "", fmt.Errorf(
-			"sources.publish_origin: unknown kind %q (expected primary, mirror, or url)", po.Kind)
+		return "", fmt.Errorf("publish_origin: unknown kind %q", cfg.PublishOrigin.Kind)
 	}
 }
 
@@ -138,42 +68,26 @@ func resolveVars(s string, vars map[string]string) string {
 }
 
 // ResolveLinkBase resolves the page-link (blob) base URL from publish_origin.
-// Same resolution path as ResolvePublishOrigin but returns blob URLs instead of raw URLs.
-// Used for resolving relative link paths (e.g., LICENSE → full blob URL).
 func ResolveLinkBase(cfg *Config) (string, error) {
-	po := cfg.Sources.PublishOrigin
-	if po == nil {
-		return "", fmt.Errorf("sources.publish_origin is required")
+	if cfg.PublishOrigin == nil {
+		return "", fmt.Errorf("publish_origin is required")
 	}
-	branch := resolveVars(cfg.Sources.Primary.DefaultBranch, cfg.Vars)
+	branch := PrimaryDefaultBranch(cfg)
 	if branch == "" {
-		return "", fmt.Errorf("sources.primary.default_branch is required when publish_origin is used")
+		return "", fmt.Errorf("publish_origin: primary repo default_branch is required")
 	}
-	switch po.Kind {
-	case "primary":
-		srcURL := resolveVars(cfg.Sources.Primary.URL, cfg.Vars)
-		if srcURL == "" {
-			return "", fmt.Errorf("sources.publish_origin (kind: primary): sources.primary.url is required")
+	switch cfg.PublishOrigin.Kind {
+	case "repo":
+		repo := FindRepoByID(cfg.Repos, cfg.PublishOrigin.Ref)
+		if repo == nil {
+			return "", fmt.Errorf("publish_origin ref %q not found in repos", cfg.PublishOrigin.Ref)
 		}
-		provider, baseURL, projectID, err := ParseForgeURL(srcURL)
+		resolved, err := ResolveRepo(*repo, cfg.Forges, cfg.Vars)
 		if err != nil {
-			return "", fmt.Errorf("sources.publish_origin (kind: primary): %w", err)
+			return "", fmt.Errorf("publish_origin: %w", err)
 		}
-		return ForgeLinkBase(provider, baseURL, projectID, branch)
-	case "mirror":
-		if po.Ref == "" {
-			return "", fmt.Errorf("sources.publish_origin (kind: mirror): ref is required")
-		}
-		mirror := FindMirrorByID(cfg.Sources.Mirrors, po.Ref)
-		if mirror == nil {
-			return "", fmt.Errorf("sources.publish_origin ref %q: not found in sources.mirrors", po.Ref)
-		}
-		mirrorURL := resolveVars(mirror.URL, cfg.Vars)
-		projectID := resolveVars(mirror.ProjectID, cfg.Vars)
-		return ForgeLinkBase(mirror.Provider, mirrorURL, projectID, branch)
+		return ForgeLinkBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
 	case "url":
-		// kind: url has no forge concept — no blob URL derivable.
-		// Return empty — callers should handle relative links as-is.
 		return "", nil
 	default:
 		return "", fmt.Errorf(
@@ -181,15 +95,6 @@ func ResolveLinkBase(cfg *Config) (string, error) {
 	}
 }
 
-// FindMirrorByID returns the mirror with the given ID, or nil.
-func FindMirrorByID(mirrors []MirrorConfig, id string) *MirrorConfig {
-	for i := range mirrors {
-		if mirrors[i].ID == id {
-			return &mirrors[i]
-		}
-	}
-	return nil
-}
 
 // ForgeRawBase constructs a raw content base URL from forge mirror fields.
 // Handles GitLab subgroup paths (group/subgroup/project) correctly.

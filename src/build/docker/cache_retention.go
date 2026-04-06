@@ -231,8 +231,8 @@ func formatBytes(b int64) string {
 
 // resolveRepoIDFromContext extracts a repo identifier from pipeline context.
 func resolveRepoIDFromContext(pc *pipeline.PipelineContext) string {
-	if pc.Config != nil && pc.Config.Sources.Primary.URL != "" {
-		return pc.Config.Sources.Primary.URL
+	if pc.Config != nil && config.PrimaryURL(pc.Config) != "" {
+		return config.PrimaryURL(pc.Config)
 	}
 	return os.Getenv("SF_CI_REPO_URL")
 }

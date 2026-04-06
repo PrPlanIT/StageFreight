@@ -81,12 +81,13 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 	// Project to each mirror with sync.releases: true.
 	var totalCreated, totalSkipped, totalFailed int
 
-	for _, m := range cfg.Sources.Mirrors {
+	resolvedMirrors, _ := config.ResolveAllMirrors(cfg.Repos, cfg.Forges, cfg.Vars)
+	for _, m := range resolvedMirrors {
 		if !m.Sync.Releases {
 			continue
 		}
 
-		mirrorClient, err := newForgeClientFromMirror(m, cfg.Vars)
+		mirrorClient, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 		if err != nil {
 			sec.Row("%s mirror:%s — %v", output.StatusIcon("failed", color), m.ID, err)
 			totalFailed++

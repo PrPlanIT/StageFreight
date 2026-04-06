@@ -56,13 +56,7 @@ func ResolveRepo(repo RepoConfig, forges []ForgeConfig, vars map[string]string) 
 // registry graph. Path comes from target override or registry default_path.
 func ResolveRegistryForTarget(target TargetConfig, registries []RegistryConfig, vars map[string]string) (*ResolvedRegistry, error) {
 	if target.Registry == "" {
-		// Legacy inline mode — construct from target fields directly.
-		return &ResolvedRegistry{
-			Provider:    target.Provider,
-			URL:         resolveVarsInline(target.URL, vars),
-			Path:        resolveVarsInline(target.Path, vars),
-			Credentials: target.Credentials,
-		}, nil
+		return nil, fmt.Errorf("target %s: registry: is required", target.ID)
 	}
 
 	reg := FindRegistryByID(registries, target.Registry)
@@ -107,6 +101,34 @@ func ResolvePrimary(repos []RepoConfig, forges []ForgeConfig, vars map[string]st
 		return nil, fmt.Errorf("no primary repo defined")
 	}
 	return ResolveRepo(*primary, forges, vars)
+}
+
+// PrimaryURL returns the full URL of the primary repo, or empty string.
+// Thin wrapper over ResolvePrimary for call sites that only need the URL.
+func PrimaryURL(cfg *Config) string {
+	resolved, err := ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars)
+	if err != nil || resolved == nil {
+		return ""
+	}
+	return resolved.BaseURL + "/" + resolved.Project
+}
+
+// PrimaryWorktree returns the worktree path of the primary repo, or ".".
+func PrimaryWorktree(cfg *Config) string {
+	resolved, err := ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars)
+	if err != nil || resolved == nil || resolved.Worktree == "" {
+		return "."
+	}
+	return resolved.Worktree
+}
+
+// PrimaryDefaultBranch returns the default branch of the primary repo.
+func PrimaryDefaultBranch(cfg *Config) string {
+	resolved, err := ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars)
+	if err != nil || resolved == nil {
+		return ""
+	}
+	return resolved.DefaultBranch
 }
 
 // resolveVarsInline does simple {var:name} replacement.

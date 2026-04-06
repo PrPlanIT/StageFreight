@@ -460,9 +460,14 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	if req.RegistryLinks && len(registryTargets) > 0 {
 		linkedURLs := make(map[string]bool)
 		for _, t := range registryTargets {
-			regProvider := t.Provider
+			resolved, resolveErr := config.ResolveRegistryForTarget(t, req.Config.Registries, req.Config.Vars)
+			if resolveErr != nil {
+				report.Links = append(report.Links, actionResult{Name: t.ID, Err: resolveErr})
+				continue
+			}
+			regProvider := resolved.Provider
 			if regProvider == "" {
-				regProvider = build.DetectProvider(t.URL)
+				regProvider = build.DetectProvider(resolved.URL)
 			}
 			if p, err := registry.CanonicalProvider(regProvider); err == nil {
 				regProvider = p
@@ -470,10 +475,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				regProvider = "generic"
 			}
 
-			// Resolve vars in path for display
-			resolvedPath := gitver.ResolveVars(t.Path, req.Config.Vars)
-
-			link := buildRegistryLinkFromTarget(t.URL, resolvedPath, tag, regProvider)
+			link := buildRegistryLinkFromTarget(resolved.URL, resolved.Path, tag, regProvider)
 			if linkedURLs[link.URL] {
 				continue
 			}
@@ -481,7 +483,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 
 			if err := forgeClient.AddReleaseLink(ctx, rel.ID, link); err != nil {
 				report.Links = append(report.Links, actionResult{Name: link.Name, Err: err})
-				fmt.Fprintf(os.Stderr, "warning: failed to add registry link for %s: %v\n", t.URL, err)
+				fmt.Fprintf(os.Stderr, "warning: failed to add registry link for %s: %v\n", resolved.URL, err)
 			} else {
 				report.Links = append(report.Links, actionResult{Name: link.Name, OK: true})
 			}
@@ -601,14 +603,15 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 
 		// Path 2: Mirror-driven default projection.
 		// Mirrors with sync.releases that don't have an explicit override.
-		for _, m := range req.Config.Sources.Mirrors {
+		resolvedMirrors, _ := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars)
+		for _, m := range resolvedMirrors {
 			if !m.Sync.Releases || overriddenMirrors[m.ID] {
 				continue
 			}
 			if req.ReadOnly {
 				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] mirror:%s: would project canonical release %s", m.ID, tag), OK: true})
 			} else {
-				syncResults = append(syncResults, projectToMirror(ctx, m, req.Config.Vars, tag, name, notes, req.Draft, req.Prerelease)...)
+				syncResults = append(syncResults, projectToMirror(ctx, *m, tag, name, notes, req.Draft, req.Prerelease)...)
 			}
 		}
 
@@ -680,9 +683,13 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 		if !targetWhenMatches(t, currentTag, cfg.Policies) {
 			continue
 		}
-		regProvider := t.Provider
+		resolved, resolveErr := config.ResolveRegistryForTarget(t, cfg.Registries, cfg.Vars)
+		if resolveErr != nil {
+			continue
+		}
+		regProvider := resolved.Provider
 		if regProvider == "" {
-			regProvider = build.DetectProvider(t.URL)
+			regProvider = build.DetectProvider(resolved.URL)
 		}
 		if p, err := registry.CanonicalProvider(regProvider); err == nil {
 			regProvider = p
@@ -690,18 +697,17 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 			regProvider = "generic"
 		}
 
-		resolvedPath := gitver.ResolveVars(t.Path, cfg.Vars)
 		resolvedTags := gitver.ResolveTags(t.Tags, versionInfo)
 
-		host := registry.NormalizeHost(t.URL)
-		k := imageKey{host: host, path: resolvedPath}
+		host := registry.NormalizeHost(resolved.URL)
+		k := imageKey{host: host, path: resolved.Path}
 		pt, exists := targetIndex[k]
 		if !exists {
 			pt = &pendingTarget{
 				resolved: registry.ResolvedRegistryTarget{
 					Provider: regProvider,
 					Host:     host,
-					Path:     resolvedPath,
+					Path:     resolved.Path,
 				},
 				seen: make(map[string]bool),
 			}
@@ -987,11 +993,11 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 // projectToMirror projects a canonical release to a mirror destination.
 // Mirrors are first-class sources, not synthetic targets. Forge identity
 // comes directly from the mirror config.
-func projectToMirror(ctx context.Context, m config.MirrorConfig, vars map[string]string, tag, name, notes string, draft, prerelease bool) []actionResult {
+func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, notes string, draft, prerelease bool) []actionResult {
 	var results []actionResult
 	label := "mirror:" + m.ID
 
-	client, err := newForgeClientFromMirror(m, vars)
+	client, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 	if err != nil {
 		results = append(results, actionResult{Name: label, Err: err})
 		fmt.Fprintf(os.Stderr, "warning: mirror projection to %s: %v\n", m.ID, err)
@@ -1014,51 +1020,12 @@ func projectToMirror(ctx context.Context, m config.MirrorConfig, vars map[string
 	return results
 }
 
-// newForgeClientFromMirror creates a forge client directly from a mirror config.
-// No synthetic target conversion — mirrors are first-class sources.
-func newForgeClientFromMirror(m config.MirrorConfig, vars map[string]string) (forge.Forge, error) {
-	projectID := gitver.ResolveVars(m.ProjectID, vars)
-	credPrefix := m.Credentials
-	token := os.Getenv(credPrefix + "_TOKEN")
-	if token == "" {
-		return nil, fmt.Errorf("mirror %s: %s_TOKEN env var not set", m.ID, credPrefix)
-	}
-
-	switch m.Provider {
-	case "gitlab":
-		gl := forge.NewGitLab(m.URL)
-		gl.Token = token
-		if projectID != "" {
-			gl.ProjectID = projectID
-		}
-		return gl, nil
-	case "github":
-		gh := forge.NewGitHub(m.URL)
-		gh.Token = token
-		if projectID != "" {
-			gh.Owner = ownerFromPath(projectID)
-			gh.Repo = repoFromPath(projectID)
-		}
-		return gh, nil
-	case "gitea":
-		gt := forge.NewGitea(m.URL)
-		gt.Token = token
-		if projectID != "" {
-			gt.Owner = ownerFromPath(projectID)
-			gt.Repo = repoFromPath(projectID)
-		}
-		return gt, nil
-	default:
-		return nil, fmt.Errorf("mirror %s: unsupported provider %q", m.ID, m.Provider)
-	}
-}
-
 // projectRelease projects a canonical release to a single destination via target config.
 // Used by explicit target overrides only.
 func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreateRequest, tag, name, notes string, allAssets []string) []actionResult {
 	var results []actionResult
 
-	syncClient, err := newSyncForgeClientFromTarget(t, req.Config.Vars, req.Config.Sources.Mirrors)
+	syncClient, err := newSyncForgeClientFromTarget(t, req.Config)
 	if err != nil {
 		results = append(results, actionResult{Name: t.ID, Err: err})
 		fmt.Fprintf(os.Stderr, "warning: projection to %s: %v\n", t.ID, err)
@@ -1096,68 +1063,19 @@ func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreat
 	return results
 }
 
-func newSyncForgeClientFromTarget(t config.TargetConfig, vars map[string]string, mirrors []config.MirrorConfig) (forge.Forge, error) {
-	// Resolve mirror reference — forge identity comes from the mirror.
+func newSyncForgeClientFromTarget(t config.TargetConfig, cfg *config.Config) (forge.Forge, error) {
+	// Resolve mirror reference — forge identity comes from the repo graph.
 	if t.Mirror != "" {
-		m := config.FindMirrorByID(mirrors, t.Mirror)
-		if m == nil {
-			return nil, fmt.Errorf("release target %s: mirror %q not found", t.ID, t.Mirror)
+		repo := config.FindRepoByID(cfg.Repos, t.Mirror)
+		if repo == nil {
+			return nil, fmt.Errorf("release target %s: mirror %q not found in repos", t.ID, t.Mirror)
 		}
-		t.Provider = m.Provider
-		t.URL = m.URL
-		t.ProjectID = m.ProjectID
-		t.Credentials = m.Credentials
+		resolved, err := config.ResolveRepo(*repo, cfg.Forges, cfg.Vars)
+		if err != nil {
+			return nil, fmt.Errorf("release target %s: resolving mirror %q: %w", t.ID, t.Mirror, err)
+		}
+		return forge.NewFromAccessory(resolved.Provider, resolved.BaseURL, resolved.Project, resolved.Credentials)
 	}
 
-	// Resolve {var:...} templates in target fields
-	t.ProjectID = gitver.ResolveVars(t.ProjectID, vars)
-
-	switch t.Provider {
-	case "gitlab":
-		gl := forge.NewGitLab(t.URL)
-		// Override with target-specific credentials
-		if t.Credentials != "" {
-			token := os.Getenv(t.Credentials + "_TOKEN")
-			if token == "" {
-				return nil, fmt.Errorf("release target %s: %s_TOKEN env var not set", t.ID, t.Credentials)
-			}
-			gl.Token = token
-		}
-		if t.ProjectID != "" {
-			gl.ProjectID = t.ProjectID
-		}
-		return gl, nil
-	case "github":
-		gh := forge.NewGitHub(t.URL)
-		// Override with target-specific credentials
-		if t.Credentials != "" {
-			token := os.Getenv(t.Credentials + "_TOKEN")
-			if token == "" {
-				return nil, fmt.Errorf("release target %s: %s_TOKEN env var not set", t.ID, t.Credentials)
-			}
-			gh.Token = token
-		}
-		if t.ProjectID != "" {
-			gh.Owner = ownerFromPath(t.ProjectID)
-			gh.Repo = repoFromPath(t.ProjectID)
-		}
-		return gh, nil
-	case "gitea":
-		gt := forge.NewGitea(t.URL)
-		// Override with target-specific credentials
-		if t.Credentials != "" {
-			token := os.Getenv(t.Credentials + "_TOKEN")
-			if token == "" {
-				return nil, fmt.Errorf("release target %s: %s_TOKEN env var not set", t.ID, t.Credentials)
-			}
-			gt.Token = token
-		}
-		if t.ProjectID != "" {
-			gt.Owner = ownerFromPath(t.ProjectID)
-			gt.Repo = repoFromPath(t.ProjectID)
-		}
-		return gt, nil
-	default:
-		return nil, fmt.Errorf("unknown sync provider: %s", t.Provider)
-	}
+	return nil, fmt.Errorf("release target %s: mirror: is required for remote release targets", t.ID)
 }

@@ -232,8 +232,8 @@ func resolveGovernanceSourceFromOpts(opts GovernanceReconcileOpts) (governance.G
 	}
 
 	// Layer 3: Config fallback — sources.primary.url from .stagefreight.yml.
-	if source.RepoURL == "" && opts.Config != nil && opts.Config.Sources.Primary.URL != "" {
-		source.RepoURL = opts.Config.Sources.Primary.URL
+	if source.RepoURL == "" && opts.Config != nil && config.PrimaryURL(opts.Config) != "" {
+		source.RepoURL = config.PrimaryURL(opts.Config)
 	}
 
 	// Default path.
@@ -254,11 +254,11 @@ func resolveGovernanceSourceFromOpts(opts GovernanceReconcileOpts) (governance.G
 
 // resolveGovernanceForgeFromConfig reads forge identity from the standard sources.primary config.
 func resolveGovernanceForgeFromConfig(appCfg *config.Config) (provider, baseURL, credPrefix string, err error) {
-	if appCfg == nil || appCfg.Sources.Primary.URL == "" {
+	if appCfg == nil || config.PrimaryURL(appCfg) == "" {
 		return "", "", "", fmt.Errorf("sources.primary.url not configured")
 	}
 
-	provider, baseURL, _, err = config.ParseForgeURL(appCfg.Sources.Primary.URL)
+	provider, baseURL, _, err = config.ParseForgeURL(config.PrimaryURL(appCfg))
 	if err != nil {
 		return "", "", "", fmt.Errorf("parsing sources.primary.url: %w", err)
 	}

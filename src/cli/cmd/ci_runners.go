@@ -270,7 +270,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	// Auto-commit if configured and files changed — gated by run_from.
 	if appCfg.Dependency.Commit.Enabled && len(result.FilesChanged) > 0 {
-		if rfResult := config.EvaluateRunFrom(appCfg.Dependency.Commit.RunFrom, ciCtx.RepoURL, appCfg.Sources.Primary.URL); !rfResult.Matched && rfResult.Mode != "ignore" {
+		if rfResult := config.EvaluateRunFrom(appCfg.Dependency.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg)); !rfResult.Matched && rfResult.Mode != "ignore" {
 			fmt.Fprintf(os.Stderr, "  deps commit: %s (%s)\n", rfResult.Mode, rfResult.Reason)
 			return nil
 		}
@@ -608,7 +608,7 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	// Auto-commit if configured — gated by run_from.
 	if appCfg.Docs.Commit.Enabled {
-		rfResult := config.EvaluateRunFrom(appCfg.Docs.Commit.RunFrom, ciCtx.RepoURL, appCfg.Sources.Primary.URL)
+		rfResult := config.EvaluateRunFrom(appCfg.Docs.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 		switch {
 		case !rfResult.Matched && rfResult.Mode == "exit":
 			fmt.Fprintf(os.Stderr, "  docs commit: blocked (%s)\n", rfResult.Reason)
@@ -671,7 +671,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	rootDir := resolveWorkspace(ciCtx)
 
 	// run_from gate — controls mutation authority for release.
-	rfResult := config.EvaluateRunFrom(appCfg.Release.RunFrom, ciCtx.RepoURL, appCfg.Sources.Primary.URL)
+	rfResult := config.EvaluateRunFrom(appCfg.Release.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 	if !rfResult.Matched && rfResult.Mode == "exit" {
 		reason := fmt.Sprintf("run_from: exit (%s)", rfResult.Reason)
 		renderReleaseSkip(ciCtx, releaseSkipDisabled, reason)
@@ -899,52 +899,54 @@ func syncMirrors(ctx context.Context, appCfg *config.Config) {
 }
 
 func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bool) {
-	if len(appCfg.Sources.Mirrors) == 0 {
+	// Resolve mirrors from identity graph.
+	mirrors, err := config.ResolveAllMirrors(appCfg.Repos, appCfg.Forges, appCfg.Vars)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  sync: warning: could not resolve mirrors: %v\n", err)
+		return
+	}
+	if len(mirrors) == 0 {
 		return
 	}
 
-	// Mirror source is the authoritative local worktree, not rootDir.
-	worktree := appCfg.Sources.Primary.Worktree
-	if worktree == "" {
-		worktree = "."
-	}
+	worktree := config.PrimaryWorktree(appCfg)
 
 	// Check if any mirror wants release sync — resolve primary releases once.
 	var primaryReleases []forge.ReleaseInfo
 	hasReleaseSyncMirror := false
-	for _, m := range appCfg.Sources.Mirrors {
+	for _, m := range mirrors {
 		if m.Sync.Releases {
 			hasReleaseSyncMirror = true
 			break
 		}
 	}
-	if hasReleaseSyncMirror && appCfg.Sources.Primary.URL != "" {
-		provider := forge.DetectProvider(appCfg.Sources.Primary.URL)
-		primaryClient, clientErr := newForgeClient(provider, appCfg.Sources.Primary.URL)
-		if clientErr == nil {
-			rels, listErr := primaryClient.ListReleases(ctx)
-			if listErr == nil {
-				primaryReleases = rels
+	if hasReleaseSyncMirror {
+		primaryURL := config.PrimaryURL(appCfg)
+		if primaryURL != "" {
+			provider := forge.DetectProvider(primaryURL)
+			primaryClient, clientErr := newForgeClient(provider, primaryURL)
+			if clientErr == nil {
+				rels, listErr := primaryClient.ListReleases(ctx)
+				if listErr == nil {
+					primaryReleases = rels
+				} else {
+					fmt.Fprintf(os.Stderr, "  sync: warning: could not list primary releases: %v\n", listErr)
+				}
 			} else {
-				fmt.Fprintf(os.Stderr, "  sync: warning: could not list primary releases: %v\n", listErr)
+				fmt.Fprintf(os.Stderr, "  sync: warning: could not create primary forge client: %v\n", clientErr)
 			}
-		} else {
-			fmt.Fprintf(os.Stderr, "  sync: warning: could not create primary forge client: %v\n", clientErr)
 		}
 	}
 
 	hasDegraded := false
 
-	for _, m := range appCfg.Sources.Mirrors {
-		// Resolve {var:...} templates in mirror config fields.
-		m.URL = gitver.ResolveVars(m.URL, appCfg.Vars)
-		m.ProjectID = gitver.ResolveVars(m.ProjectID, appCfg.Vars)
+	for _, m := range mirrors {
 
 		// 1. Git mirror (if enabled)
 		if m.Sync.Git && readOnly {
 			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
 		} else if m.Sync.Git {
-			result, err := stagefreightsync.MirrorPush(ctx, worktree, m)
+			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
 				hasDegraded = true
@@ -963,7 +965,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		// 2. Release reconciliation (if enabled).
 		// Reads from primary, projects missing releases to mirror. Idempotent.
 		if m.Sync.Releases && len(primaryReleases) > 0 {
-			mirrorClient, err := newForgeClientFromMirror(m, appCfg.Vars)
+			mirrorClient, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, err)
 				continue
@@ -1022,9 +1024,12 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 // is also declared as a mirror, meaning the mirror should take precedence.
 // Exported for use in release_create.go where legacy sync targets are executed.
 func LegacySyncOverlapsMirror(targetProvider string, appCfg *config.Config) bool {
-	for _, m := range appCfg.Sources.Mirrors {
-		if m.Provider == targetProvider {
-			return true
+	for _, r := range appCfg.Repos {
+		if r.Role == "mirror" {
+			f := config.FindForgeByID(appCfg.Forges, r.Forge)
+			if f != nil && f.Provider == targetProvider {
+				return true
+			}
 		}
 	}
 	return false

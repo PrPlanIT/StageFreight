@@ -31,53 +31,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
-	// ── Source Mirrors ───────────────────────────────────────────────────
-
-	mirrorIDs := make(map[string]bool)
-	validProviders := map[string]bool{"github": true, "gitlab": true, "gitea": true}
-	for i, m := range cfg.Sources.Mirrors {
-		mpath := fmt.Sprintf("sources.mirrors[%d]", i)
-
-		if m.ID == "" {
-			errs = append(errs, fmt.Sprintf("%s: id is required", mpath))
-		} else if mirrorIDs[m.ID] {
-			errs = append(errs, fmt.Sprintf("%s: duplicate mirror id %q", mpath, m.ID))
-		} else {
-			mirrorIDs[m.ID] = true
-		}
-
-		if m.Provider == "" {
-			errs = append(errs, fmt.Sprintf("%s: provider is required", mpath))
-		} else if !validProviders[m.Provider] {
-			errs = append(errs, fmt.Sprintf("%s: unknown provider %q (supported: github, gitlab, gitea)", mpath, m.Provider))
-		}
-
-		if m.URL == "" {
-			errs = append(errs, fmt.Sprintf("%s: url is required", mpath))
-		}
-		if m.ProjectID == "" {
-			errs = append(errs, fmt.Sprintf("%s: project_id is required", mpath))
-		}
-		if m.Credentials == "" {
-			errs = append(errs, fmt.Sprintf("%s: credentials is required", mpath))
-		}
-
-		// At least one sync domain must be enabled
-		if !m.Sync.Git && !m.Sync.Releases && !m.Sync.Docs {
-			errs = append(errs, fmt.Sprintf("%s: at least one sync domain must be enabled (git, releases, docs)", mpath))
-		}
-
-		// git + docs is mutually exclusive — docs arrive through git mirror
-		if m.Sync.Git && m.Sync.Docs {
-			errs = append(errs, fmt.Sprintf("%s: sync.git and sync.docs are mutually exclusive (docs arrive through git mirror)", mpath))
-		}
-
-		// releases without git — warn, don't error
-		if m.Sync.Releases && !m.Sync.Git {
-			warnings = append(warnings, fmt.Sprintf("%s: sync.releases without sync.git — release projection does not guarantee referenced commits exist on mirror", mpath))
-		}
-	}
-
 	// ── Builds ────────────────────────────────────────────────────────────
 
 	buildIDs := make(map[string]bool)
@@ -189,41 +142,12 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 
 		// Kind-specific validation
-		terrs := validateTarget(t, tpath, buildIDs, cfg.Policies, cfg.Sources.Mirrors)
+		terrs := validateTarget(t, tpath, buildIDs, cfg.Policies, cfg.Registries)
 		errs = append(errs, terrs...)
 
 		// When block validation
 		werrs := validateWhen(t.When, tpath, cfg.Policies)
 		errs = append(errs, werrs...)
-	}
-
-	// ── Sources: publish_origin ──────────────────────────────────────────
-
-	if po := cfg.Sources.PublishOrigin; po != nil {
-		// default_branch is required for forge-based resolution (primary and mirror)
-		if po.Kind == "primary" || po.Kind == "mirror" {
-			if cfg.Sources.Primary.DefaultBranch == "" {
-				errs = append(errs, "sources.primary.default_branch is required when publish_origin is used")
-			}
-		}
-		switch po.Kind {
-		case "primary":
-			if cfg.Sources.Primary.URL == "" {
-				errs = append(errs, "sources.publish_origin (kind: primary): sources.primary.url is required")
-			}
-		case "mirror":
-			if po.Ref == "" {
-				errs = append(errs, "sources.publish_origin (kind: mirror): ref is required")
-			} else if FindMirrorByID(cfg.Sources.Mirrors, po.Ref) == nil {
-				errs = append(errs, fmt.Sprintf("sources.publish_origin ref %q not found in sources.mirrors", po.Ref))
-			}
-		case "url":
-			if po.Base == "" {
-				errs = append(errs, "sources.publish_origin (kind: url): base is required")
-			}
-		default:
-			errs = append(errs, fmt.Sprintf("sources.publish_origin: unknown kind %q (expected primary, mirror, or url)", po.Kind))
-		}
 	}
 
 	// ── Badges ───────────────────────────────────────────────────────────
@@ -288,8 +212,8 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			break
 		}
 	}
-	if hasBadgeRef && cfg.Sources.PublishOrigin == nil {
-		errs = append(errs, "narrator uses badge_ref but sources.publish_origin is not configured")
+	if hasBadgeRef && cfg.PublishOrigin == nil {
+		errs = append(errs, "narrator uses badge_ref but publish_origin is not configured")
 	}
 
 	// ── Commit ────────────────────────────────────────────────────────────
@@ -450,16 +374,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	// ── Identity graph validation (forges + repos + registries) ─────────
 
-	usesNewIdentity := len(cfg.Forges) > 0 || len(cfg.Repos) > 0 || len(cfg.Registries) > 0
-	usesLegacySources := cfg.Sources.Primary.URL != "" || cfg.Sources.Primary.Kind != "" ||
-		cfg.Sources.Primary.Worktree != "" || len(cfg.Sources.Mirrors) > 0 ||
-		cfg.Sources.PublishOrigin != nil
-
-	if usesNewIdentity && usesLegacySources {
-		errs = append(errs, "cannot mix forges/repos/registries with legacy sources: — use one or the other")
-	}
-
-	if usesNewIdentity {
+	if len(cfg.Forges) > 0 || len(cfg.Repos) > 0 || len(cfg.Registries) > 0 {
 		errs = append(errs, ValidateIdentityGraph(cfg.Forges, cfg.Repos, cfg.Registries)...)
 		errs = append(errs, ValidateTargetRegistryRefs(cfg.Targets, cfg.Registries)...)
 
@@ -491,7 +406,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 }
 
 // validateTarget checks kind-specific field constraints on a target.
-func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, policies PoliciesConfig, mirrors []MirrorConfig) []string {
+func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, policies PoliciesConfig, registries []RegistryConfig) []string {
 	var errs []string
 
 	switch t.Kind {
@@ -499,11 +414,15 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, polic
 		if t.Build == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind registry requires build reference", path))
 		}
-		if t.URL == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind registry requires url", path))
-		}
-		if t.Path == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind registry requires path", path))
+		// URL and path validation only for inline targets (no registry: ref).
+		// When registry: is set, identity comes from registries[].
+		if t.Registry == "" {
+			if t.URL == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind registry requires registry: or url:", path))
+			}
+			if t.Path == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind registry requires path when using inline url", path))
+			}
 		}
 		// Disallow release-only fields
 		if len(t.Aliases) > 0 {
@@ -514,11 +433,13 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, polic
 		}
 
 	case "docker-readme":
-		if t.URL == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires url", path))
-		}
-		if t.Path == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires path", path))
+		if t.Registry == "" {
+			if t.URL == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires registry: or url:", path))
+			}
+			if t.Path == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires path when using inline url", path))
+			}
 		}
 		if t.Build != "" {
 			errs = append(errs, fmt.Sprintf("%s: kind docker-readme does not use build reference", path))
@@ -533,11 +454,9 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, polic
 		}
 
 	case "release":
-		// Mirror-referenced release: forge identity comes from sources.mirrors.
+		// Mirror-referenced release: forge identity comes from repos.
 		if t.Mirror != "" {
-			if FindMirrorByID(mirrors, t.Mirror) == nil {
-				errs = append(errs, fmt.Sprintf("%s: mirror %q not found in sources.mirrors", path, t.Mirror))
-			}
+			// Note: mirror field references repos[].id, validated in identity graph check
 			// Mirror-referenced targets must not restate forge fields.
 			if t.Provider != "" || t.URL != "" || t.ProjectID != "" || t.Credentials != "" {
 				errs = append(errs, fmt.Sprintf("%s: mirror-referenced release must not set provider/url/project_id/credentials (resolved from mirror)", path))
