@@ -103,7 +103,9 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 	prefix := scopeTag.ScopePrefix()
 	result.Prefix = prefix
 
-	// Find the target config to get provider + credentials.
+	// Find the target config and resolve its registry identity via the
+	// identity graph, so registry-id references surface provider +
+	// credentials correctly.
 	var targetCfg *config.TargetConfig
 	for i := range targets {
 		if targets[i].ID == ext.Target {
@@ -115,8 +117,13 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 		result.Errors = append(result.Errors, fmt.Sprintf("target %q not found in config", ext.Target))
 		return result
 	}
+	resolvedReg, regErr := config.ResolveRegistryForTarget(*targetCfg, registries, vars)
+	if regErr != nil || resolvedReg == nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("resolving registry for target %q: %v", ext.Target, regErr))
+		return result
+	}
 
-	client, err := registry.NewRegistry(targetCfg.Provider, registryURL, targetCfg.Credentials)
+	client, err := registry.NewRegistry(resolvedReg.Provider, registryURL, resolvedReg.Credentials)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("registry client: %v", err))
 		return result

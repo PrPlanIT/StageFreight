@@ -121,19 +121,35 @@ func generateForBuild(cfg *config.Config, bc config.BuildConfig, opts GenerateOp
 		Targets: []Target{},
 	}
 
-	// Collect targets for this build
+	// Collect targets for this build. Registry-kind targets resolve through
+	// the identity graph so the manifest records the concrete registry
+	// provider/URL/path/credentials regardless of whether the config uses
+	// inline fields or `registry: <id>` references.
 	for _, tc := range cfg.Targets {
-		if tc.Build == bc.ID {
-			m.Targets = append(m.Targets, Target{
-				ID:            tc.ID,
-				Kind:          tc.Kind,
-				Provider:      tc.Provider,
-				URL:           tc.URL,
-				Path:          tc.Path,
-				Tags:          tc.Tags,
-				CredentialRef: tc.Credentials,
-			})
+		if tc.Build != bc.ID {
+			continue
 		}
+		provider := tc.Provider
+		url := tc.URL
+		path := tc.Path
+		creds := tc.Credentials
+		if tc.Kind == "registry" || tc.Kind == "docker-readme" {
+			if reg, err := config.ResolveRegistryForTarget(tc, cfg.Registries, cfg.Vars); err == nil && reg != nil {
+				provider = reg.Provider
+				url = reg.URL
+				path = reg.Path
+				creds = reg.Credentials
+			}
+		}
+		m.Targets = append(m.Targets, Target{
+			ID:            tc.ID,
+			Kind:          tc.Kind,
+			Provider:      provider,
+			URL:           url,
+			Path:          path,
+			Tags:          tc.Tags,
+			CredentialRef: creds,
+		})
 	}
 
 	// Extract inventory from Dockerfile
