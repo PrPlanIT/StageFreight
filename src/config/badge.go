@@ -2,7 +2,7 @@ package config
 
 // BadgesConfig is the top-level badges configuration.
 // Badge system owns definitions; narrator references them via badge_ref.
-// Artifact serving location is declared at sources.publish_origin (cross-cutting).
+// Artifact serving URL derived from publish-origin repo role.
 type BadgesConfig struct {
 	Items []BadgeConfig `yaml:"items"`
 }

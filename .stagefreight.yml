@@ -29,7 +29,7 @@ repos:
   - id: github-mirror
     forge: github
     project: "{var:github_org}/{var:github_repo}"
-    roles: [mirror]
+    roles: [mirror, publish-origin]
     sync:
       git: true
       releases: true
@@ -46,10 +46,6 @@ registries:
     url: cr.pcfae.com
     credentials: HARBOR
     default_path: "{var:org}/{var:repo}"
-
-publish_origin:
-  kind: repo
-  ref: github-mirror
 
 policies:
   git_tags:

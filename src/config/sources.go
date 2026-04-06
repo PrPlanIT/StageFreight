@@ -25,74 +25,50 @@ type SyncConfig struct {
 	Docs bool `yaml:"docs,omitempty"`
 }
 
+// resolvePublishOriginRepo finds the repo that serves as publish origin.
+// Lookup order: repo with publish-origin role → primary (fallback).
+// Validation guarantees at most one publish-origin exists.
+func resolvePublishOriginRepo(cfg *Config) (*ResolvedRepo, error) {
+	repo := FindRepoWithRole(cfg.Repos, "publish-origin")
+	if repo == nil {
+		repo = FindRepoWithRole(cfg.Repos, "primary")
+	}
+	if repo == nil {
+		return nil, fmt.Errorf("publish-origin: no repo with publish-origin or primary role")
+	}
+	resolved, err := ResolveRepo(*repo, cfg.Forges, cfg.Vars)
+	if err != nil {
+		return nil, fmt.Errorf("publish-origin: %w", err)
+	}
+	return resolved, nil
+}
+
 // ResolvePublishOrigin resolves the serving base URL for rendered artifacts.
+// Uses the repo with publish-origin role, falling back to primary.
 func ResolvePublishOrigin(cfg *Config) (string, error) {
-	if cfg.PublishOrigin == nil {
-		return "", fmt.Errorf("publish_origin is required")
-	}
 	branch := PrimaryDefaultBranch(cfg)
 	if branch == "" {
-		return "", fmt.Errorf("publish_origin: primary repo default_branch is required")
+		return "", fmt.Errorf("publish-origin: primary repo default_branch is required")
 	}
-	switch cfg.PublishOrigin.Kind {
-	case "repo":
-		repo := FindRepoByID(cfg.Repos, cfg.PublishOrigin.Ref)
-		if repo == nil {
-			return "", fmt.Errorf("publish_origin ref %q not found in repos", cfg.PublishOrigin.Ref)
-		}
-		resolved, err := ResolveRepo(*repo, cfg.Forges, cfg.Vars)
-		if err != nil {
-			return "", fmt.Errorf("publish_origin: %w", err)
-		}
-		return ForgeRawBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
-	case "url":
-		if cfg.PublishOrigin.Base == "" {
-			return "", fmt.Errorf("publish_origin (kind: url): base is required")
-		}
-		return strings.TrimRight(cfg.PublishOrigin.Base, "/"), nil
-	default:
-		return "", fmt.Errorf("publish_origin: unknown kind %q", cfg.PublishOrigin.Kind)
+	resolved, err := resolvePublishOriginRepo(cfg)
+	if err != nil {
+		return "", err
 	}
+	return ForgeRawBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
 }
 
-// resolveVars performs simple {var:name} template resolution.
-// Avoids importing gitver into config package.
-func resolveVars(s string, vars map[string]string) string {
-	if len(vars) == 0 || !strings.Contains(s, "{var:") {
-		return s
-	}
-	for k, v := range vars {
-		s = strings.ReplaceAll(s, "{var:"+k+"}", v)
-	}
-	return s
-}
-
-// ResolveLinkBase resolves the page-link (blob) base URL from publish_origin.
+// ResolveLinkBase resolves the page-link (blob) base URL for relative links.
+// Uses the repo with publish-origin role, falling back to primary.
 func ResolveLinkBase(cfg *Config) (string, error) {
-	if cfg.PublishOrigin == nil {
-		return "", fmt.Errorf("publish_origin is required")
-	}
 	branch := PrimaryDefaultBranch(cfg)
 	if branch == "" {
-		return "", fmt.Errorf("publish_origin: primary repo default_branch is required")
+		return "", fmt.Errorf("publish-origin: primary repo default_branch is required")
 	}
-	switch cfg.PublishOrigin.Kind {
-	case "repo":
-		repo := FindRepoByID(cfg.Repos, cfg.PublishOrigin.Ref)
-		if repo == nil {
-			return "", fmt.Errorf("publish_origin ref %q not found in repos", cfg.PublishOrigin.Ref)
-		}
-		resolved, err := ResolveRepo(*repo, cfg.Forges, cfg.Vars)
-		if err != nil {
-			return "", fmt.Errorf("publish_origin: %w", err)
-		}
-		return ForgeLinkBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
-	case "url":
-		return "", nil
-	default:
-		return "", fmt.Errorf(
-			"publish_origin: unknown kind %q (expected repo or url)", cfg.PublishOrigin.Kind)
+	resolved, err := resolvePublishOriginRepo(cfg)
+	if err != nil {
+		return "", err
 	}
+	return ForgeLinkBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
 }
 
 

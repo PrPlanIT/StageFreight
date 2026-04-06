@@ -35,9 +35,6 @@ type Config struct {
 	// Registries declares OCI registry hosts. Referenced by targets.
 	Registries []RegistryConfig `yaml:"registries,omitempty"`
 
-	// PublishOrigin declares where rendered artifacts are served from.
-	PublishOrigin *PublishOriginConfig `yaml:"publish_origin,omitempty"`
-
 	// Policies defines named regex patterns for git tag and branch matching.
 	Policies PoliciesConfig `yaml:"policies"`
 
@@ -49,7 +46,7 @@ type Config struct {
 
 	// Badges defines badge artifact generation (SVGs).
 	// Badge system owns definitions; narrator references them via badge_ref.
-	// Artifact serving location is declared at sources.publish_origin (cross-cutting).
+	// Artifact serving URL derived from publish-origin repo role.
 	Badges BadgesConfig `yaml:"badges"`
 
 	// Narrator defines content composition for file targets.

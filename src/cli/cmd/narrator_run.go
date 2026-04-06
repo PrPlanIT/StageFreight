@@ -63,7 +63,7 @@ func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose b
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
 
-	// Resolve publish_origin for badge_ref image URLs and link resolution.
+	// Resolve publish-origin for badge_ref image URLs and link resolution.
 	// Only hard-fail if badge_ref items actually exist.
 	publishBase, poErr := config.ResolvePublishOrigin(appCfg)
 	if poErr != nil {
@@ -85,8 +85,7 @@ func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose b
 		publishBase = "" // no badge_refs, resolution not needed
 	}
 
-	// Derive link base (blob URLs) from the same publish_origin.
-	// Replaces per-file link_base — topology is declared once in sources.
+	// Derive link base (blob URLs) from the same publish-origin repo.
 	linkBase, _ := config.ResolveLinkBase(appCfg)
 	// Empty linkBase is fine — relative links stay relative.
 

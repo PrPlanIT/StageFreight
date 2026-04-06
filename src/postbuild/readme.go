@@ -42,7 +42,7 @@ func RunReadmeSection(ctx context.Context, w io.Writer, _ bool, color bool, targ
 
 	var synced, errors int
 
-	// Resolve link bases from sources.publish_origin (once, shared across targets).
+	// Resolve link bases from publish-origin repo role (once, shared across targets).
 	linkBase, _ := config.ResolveLinkBase(appCfg)
 	rawBase, _ := config.ResolvePublishOrigin(appCfg)
 

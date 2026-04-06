@@ -17,7 +17,7 @@ type ReadmeContent struct {
 // PrepareReadmeFromFile loads a README file and returns processed content ready for registry sync.
 // linkBase is the blob/page URL base for clickable links.
 // rawBase is the raw content URL base for embedded images.
-// Both are resolved from sources.publish_origin by the caller.
+// Both are resolved from publish-origin repo role by the caller.
 func PrepareReadmeFromFile(file, description, linkBase, rawBase, rootDir string) (*ReadmeContent, error) {
 	if file == "" {
 		file = "README.md"

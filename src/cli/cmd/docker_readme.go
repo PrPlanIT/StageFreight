@@ -69,7 +69,7 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 	color := output.UseColor()
 	w := os.Stdout
 
-	// Resolve link bases from sources.publish_origin (once, shared across targets).
+	// Resolve link bases from publish-origin repo role (once, shared across targets).
 	linkBase, _ := config.ResolveLinkBase(appCfg)
 	rawBase, _ := config.ResolvePublishOrigin(appCfg)
 

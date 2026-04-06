@@ -50,16 +50,6 @@ type RegistryConfig struct {
 	DefaultPath string `yaml:"default_path,omitempty"` // default image path (e.g., "{var:org}/{var:repo}")
 }
 
-// PublishOriginConfig declares where rendered artifacts are served from.
-// Discriminated by Kind:
-//   - "repo": derive URLs from repos[ref] + forge identity
-//   - "url": explicit base URL, no repo reference
-type PublishOriginConfig struct {
-	Kind string `yaml:"kind"`           // "repo" or "url"
-	Ref  string `yaml:"ref,omitempty"`  // references repos[].id (kind: repo)
-	Base string `yaml:"base,omitempty"` // explicit base URL (kind: url)
-}
-
 // ValidateIdentityGraph checks structural invariants of forges, repos, and registries.
 // Returns all errors found (not just the first).
 func ValidateIdentityGraph(forges []ForgeConfig, repos []RepoConfig, registries []RegistryConfig) []string {

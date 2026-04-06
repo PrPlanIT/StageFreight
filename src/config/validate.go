@@ -198,24 +198,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
-	// ── Cross-validation: badge_ref requires publish_origin ─────────────
-
-	hasBadgeRef := false
-	for _, f := range cfg.Narrator {
-		for _, item := range f.Items {
-			if item.Kind == "badge_ref" {
-				hasBadgeRef = true
-				break
-			}
-		}
-		if hasBadgeRef {
-			break
-		}
-	}
-	if hasBadgeRef && cfg.PublishOrigin == nil {
-		errs = append(errs, "narrator uses badge_ref but publish_origin is not configured")
-	}
-
 	// ── Commit ────────────────────────────────────────────────────────────
 
 	commitTypeKeys := make(map[string]bool)
@@ -377,26 +359,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	if len(cfg.Forges) > 0 || len(cfg.Repos) > 0 || len(cfg.Registries) > 0 {
 		errs = append(errs, ValidateIdentityGraph(cfg.Forges, cfg.Repos, cfg.Registries)...)
 		errs = append(errs, ValidateTargetRegistryRefs(cfg.Targets, cfg.Registries)...)
-
-		// PublishOrigin validation.
-		if po := cfg.PublishOrigin; po != nil {
-			switch po.Kind {
-			case "repo":
-				if po.Ref == "" {
-					errs = append(errs, "publish_origin (kind: repo): ref is required")
-				} else if FindRepoByID(cfg.Repos, po.Ref) == nil {
-					errs = append(errs, fmt.Sprintf("publish_origin ref %q not found in repos", po.Ref))
-				}
-			case "url":
-				if po.Base == "" {
-					errs = append(errs, "publish_origin (kind: url): base is required")
-				}
-			case "":
-				errs = append(errs, "publish_origin: kind is required (repo or url)")
-			default:
-				errs = append(errs, fmt.Sprintf("publish_origin: unknown kind %q (expected repo or url)", po.Kind))
-			}
-		}
 	}
 
 	if len(errs) > 0 {

@@ -78,7 +78,7 @@ func runNarratorCompose(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
 
-	// Resolve URL bases from sources.publish_origin.
+	// Resolve URL bases from publish-origin repo role.
 	rawBase, _ := config.ResolvePublishOrigin(cfg)
 	linkBase, _ := config.ResolveLinkBase(cfg)
 
