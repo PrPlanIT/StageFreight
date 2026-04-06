@@ -134,7 +134,7 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 		// Resolve color
 		badgeColor := spec.Color
 		if badgeColor == "" || badgeColor == "auto" {
-			badgeColor = badge.StatusColor("passed")
+			badgeColor = badge.StatusColor(value)
 		}
 
 		svg := itemEng.Generate(badge.Badge{
