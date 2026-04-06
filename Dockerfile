@@ -54,7 +54,6 @@ LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
 # Runtime dependencies — only what stagefreight actually shells out to.
 RUN apk add --no-cache \
       chafa \
-      docker-cli \
       git \
       tree
 
@@ -63,10 +62,22 @@ ENV LANG=C.UTF-8
 
 # Pinned tool versions — bump these for updates.
 ENV BUILDX_VERSION=v0.33.0 \
-    TRIVY_VERSION=0.69.3 \
-    SYFT_VERSION=1.42.3 \
+    COSIGN_VERSION=3.0.6 \
+    DOCKER_VERSION=29.3.1 \
+    FLUX_VERSION=2.8.3 \
     GRYPE_VERSION=0.110.0 \
-    OSV_SCANNER_VERSION=2.3.3
+    KUBECTL_VERSION=1.34.2 \
+    OSV_SCANNER_VERSION=2.3.5 \
+    SYFT_VERSION=1.42.3 \
+    TRIVY_VERSION=0.69.3
+
+# Install docker CLI (static binary — Alpine apk lags behind security patches)
+RUN wget -qO /tmp/docker.tgz \
+      "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" && \
+    tar -xzf /tmp/docker.tgz -C /tmp docker/docker && \
+    mv /tmp/docker/docker /usr/local/bin/docker && \
+    chmod +x /usr/local/bin/docker && \
+    rm -rf /tmp/docker.tgz /tmp/docker
 
 # Install docker buildx
 RUN mkdir -p ~/.docker/cli-plugins && \
@@ -96,10 +107,6 @@ RUN wget -qO /tmp/grype.tar.gz \
 RUN wget -qO /usr/local/bin/osv-scanner \
       "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" && \
     chmod +x /usr/local/bin/osv-scanner
-
-ENV FLUX_VERSION=2.8.3 \
-    KUBECTL_VERSION=1.34.0 \
-    COSIGN_VERSION=3.0.5
 
 # Install flux CLI (GitOps reconciliation)
 RUN wget -qO /tmp/flux.tar.gz \
