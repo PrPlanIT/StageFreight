@@ -32,7 +32,12 @@ type TargetConfig struct {
 	// SelectTags enables CLI filtering via --select.
 	SelectTags []string `yaml:"select_tags,omitempty"`
 
-	// ── Shared fields (used by multiple kinds) ────────────────────────────
+	// Registry references a registries[].id for registry/docker-readme targets.
+	// When set, URL/Provider/Path/Credentials are resolved from the registry entry.
+	// Path can still be overridden on the target (overrides registry default_path).
+	Registry string `yaml:"registry,omitempty"`
+
+	// ── Shared fields (used by multiple kinds, legacy when registry: is set) ──
 
 	// URL is the registry/forge hostname (kind: registry, docker-readme, release).
 	URL string `yaml:"url,omitempty"`

@@ -448,6 +448,42 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
+	// ── Identity graph validation (forges + repos + registries) ─────────
+
+	usesNewIdentity := len(cfg.Forges) > 0 || len(cfg.Repos) > 0 || len(cfg.Registries) > 0
+	usesLegacySources := cfg.Sources.Primary.URL != "" || cfg.Sources.Primary.Kind != "" ||
+		cfg.Sources.Primary.Worktree != "" || len(cfg.Sources.Mirrors) > 0 ||
+		cfg.Sources.PublishOrigin != nil
+
+	if usesNewIdentity && usesLegacySources {
+		errs = append(errs, "cannot mix forges/repos/registries with legacy sources: — use one or the other")
+	}
+
+	if usesNewIdentity {
+		errs = append(errs, ValidateIdentityGraph(cfg.Forges, cfg.Repos, cfg.Registries)...)
+		errs = append(errs, ValidateTargetRegistryRefs(cfg.Targets, cfg.Registries)...)
+
+		// PublishOrigin validation.
+		if po := cfg.PublishOrigin; po != nil {
+			switch po.Kind {
+			case "repo":
+				if po.Ref == "" {
+					errs = append(errs, "publish_origin (kind: repo): ref is required")
+				} else if FindRepoByID(cfg.Repos, po.Ref) == nil {
+					errs = append(errs, fmt.Sprintf("publish_origin ref %q not found in repos", po.Ref))
+				}
+			case "url":
+				if po.Base == "" {
+					errs = append(errs, "publish_origin (kind: url): base is required")
+				}
+			case "":
+				errs = append(errs, "publish_origin: kind is required (repo or url)")
+			default:
+				errs = append(errs, fmt.Sprintf("publish_origin: unknown kind %q (expected repo or url)", po.Kind))
+			}
+		}
+	}
+
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}

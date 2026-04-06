@@ -26,8 +26,20 @@ type Config struct {
 	// section entirely — it exists for users to define &anchors.
 	Defaults yaml.Node `yaml:"defaults,omitempty"`
 
-	// Sources defines build source configuration.
-	Sources SourcesConfig `yaml:"sources"`
+	// Sources defines build source configuration (legacy — use Forges/Repos/Registries).
+	Sources SourcesConfig `yaml:"sources,omitempty"`
+
+	// Forges declares git hosts. Each entry is a host identity (provider, URL, credentials).
+	Forges []ForgeConfig `yaml:"forges,omitempty"`
+
+	// Repos declares projects on forges. References forges by id. Has role (primary/mirror).
+	Repos []RepoConfig `yaml:"repos,omitempty"`
+
+	// Registries declares OCI registry hosts. Referenced by targets.
+	Registries []RegistryConfig `yaml:"registries,omitempty"`
+
+	// PublishOrigin declares where rendered artifacts are served from.
+	PublishOrigin *PublishOriginConfig `yaml:"publish_origin,omitempty"`
 
 	// Policies defines named regex patterns for git tag and branch matching.
 	Policies PoliciesConfig `yaml:"policies"`
