@@ -1769,7 +1769,7 @@ Modes:
   stagefreight tag --major
   stagefreight tag               Interactive selection (TTY only)
 
-The tag is validated against policies.git_tags before creation.
+The tag is validated against versioning.tags before creation.
 Highlights are generated from the glossary pipeline or prompted
 when in interactive mode.
 

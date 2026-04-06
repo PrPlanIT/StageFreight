@@ -8,8 +8,8 @@
 - [`forges`](#config-forges)
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
-- [`publish_origin`](#config-publish_origin)
-- [`policies`](#config-policies)
+- [`versioning`](#config-versioning)
+- [`matchers`](#config-matchers)
 - [`builds`](#config-builds)
 - [`targets`](#config-targets)
 - [`badges`](#config-badges)
@@ -93,8 +93,8 @@ vars:
 | `id` | `id` | string | Yes | — | string value |
 | `forge` | `forge` | string | Yes | — | string value |
 | `project` | `project` | string | Yes | — | string value |
-| `role` | `role` | string | No | — | string value |
-| `default_branch` | `default_branch` | string | No | — | string value |
+| `roles` | `roles` | []string | No | — | []string value |
+| `default` | `branches.default` | string | No | — | string value |
 | `worktree` | `worktree` | string | No | — | string value |
 | `ref` | `ref` | string | No | — | string value |
 | `git` | `sync.git` | bool | No | — | bool value |
@@ -116,37 +116,28 @@ vars:
 
 ---
 
-<a id="config-publish_origin" name="config-publish_origin"></a>
-### publish_origin
+<a id="config-versioning" name="config-versioning"></a>
+### versioning
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `kind` | `kind` | string | Yes | — | string value |
-| `ref` | `ref` | string | No | — | string value |
-| `base` | `base` | string | No | — | string value |
+| `id` | `tag_sources.id` | string | Yes | — | string value |
+| `pattern` | `tag_sources.pattern` | string | Yes | — | string value |
+| `id` | `branch_builds.id` | string | Yes | — | string value |
+| `match` | `branch_builds.match` | string | No | — | string value |
+| `base_from` | `branch_builds.base_from` | []string | Yes | — | []string value |
+| `format` | `branch_builds.format` | string | Yes | — | string value |
+| `mode` | `no_lineage.mode` | string | No | — | string value |
+| `version` | `no_lineage.version` | string | No | — | string value |
 
 ---
 
-<a id="config-policies" name="config-policies"></a>
-### policies
-
-Named regex patterns for git tag and branch matching. Referenced by target `when` conditions (e.g., `git_tags: [stable]`).
+<a id="config-matchers" name="config-matchers"></a>
+### matchers
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `git_tags` | `git_tags` | map[string]string | Yes | — | map[string]string value |
 | `branches` | `branches` | map[string]string | Yes | — | map[string]string value |
-
-**Example:**
-
-```yaml
-policies:
-  git_tags:
-    stable: "^v?\\d+\\.\\d+\\.\\d+$"
-    prerelease: "^v?\\d+\\.\\d+\\.\\d+-.+"
-  branches:
-    main: "^main$"
-```
 
 ---
 
