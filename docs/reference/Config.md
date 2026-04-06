@@ -23,6 +23,10 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`vars`](#config-vars)
 - [`defaults`](#config-defaults)
 - [`sources`](#config-sources)
+- [`forges`](#config-forges)
+- [`repos`](#config-repos)
+- [`registries`](#config-registries)
+- [`publish_origin`](#config-publish_origin)
 - [`policies`](#config-policies)
 - [`builds`](#config-builds)
 - [`targets`](#config-targets)
@@ -123,6 +127,60 @@ sources:
 
 ---
 
+<a id="config-forges" name="config-forges"></a>
+### forges
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `id` | `id` | string | Yes | — | string value |
+| `provider` | `provider` | string | Yes | — | string value |
+| `url` | `url` | string | Yes | — | string value |
+| `credentials` | `credentials` | string | No | — | string value |
+
+---
+
+<a id="config-repos" name="config-repos"></a>
+### repos
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `id` | `id` | string | Yes | — | string value |
+| `forge` | `forge` | string | Yes | — | string value |
+| `project` | `project` | string | Yes | — | string value |
+| `role` | `role` | string | No | — | string value |
+| `default_branch` | `default_branch` | string | No | — | string value |
+| `worktree` | `worktree` | string | No | — | string value |
+| `ref` | `ref` | string | No | — | string value |
+| `git` | `sync.git` | bool | No | — | bool value |
+| `releases` | `sync.releases` | bool | No | — | bool value |
+| `docs` | `sync.docs` | bool | No | — | bool value |
+
+---
+
+<a id="config-registries" name="config-registries"></a>
+### registries
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `id` | `id` | string | Yes | — | string value |
+| `provider` | `provider` | string | Yes | — | string value |
+| `url` | `url` | string | Yes | — | string value |
+| `credentials` | `credentials` | string | No | — | string value |
+| `default_path` | `default_path` | string | No | — | string value |
+
+---
+
+<a id="config-publish_origin" name="config-publish_origin"></a>
+### publish_origin
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `kind` | `kind` | string | Yes | — | string value |
+| `ref` | `ref` | string | No | — | string value |
+| `base` | `base` | string | No | — | string value |
+
+---
+
 <a id="config-policies" name="config-policies"></a>
 ### policies
 
@@ -212,6 +270,7 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `allow` | `run_from.allow` | []string | No | — | []string value |
 | `mismatch` | `run_from.mismatch` | string | No | — | string value |
 | `select_tags` | `select_tags` | []string | No | — | []string value |
+| `registry` | `registry` | string | No | — | string value |
 | `url` | `url` | string | No | — | Registry or forge hostname. |
 | `provider` | `provider` | string | No | — | Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets. |
 | `path` | `path` | string | No | — | Image path within the registry. |
