@@ -22,7 +22,6 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`version`](#config-version)
 - [`vars`](#config-vars)
 - [`defaults`](#config-defaults)
-- [`sources`](#config-sources)
 - [`forges`](#config-forges)
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
@@ -88,42 +87,6 @@ vars:
 
 <a id="config-defaults" name="config-defaults"></a>
 ### defaults
-
----
-
-<a id="config-sources" name="config-sources"></a>
-### sources
-
-Build source configuration. Defines where source code lives and how to derive link/raw URLs.
-
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `kind` | `primary.kind` | string | Yes | git | Source type. |
-| `worktree` | `primary.worktree` | string | Yes | "." | Path to working tree. |
-| `url` | `primary.url` | string | Yes | — | Repository URL. Enables deterministic link_base/raw_base derivation. |
-| `default_branch` | `primary.default_branch` | string | Yes | — | Default branch name. Used with URL for raw_base derivation. |
-| `id` | `mirrors.id` | string | Yes | — | string value |
-| `provider` | `mirrors.provider` | string | Yes | — | string value |
-| `url` | `mirrors.url` | string | Yes | — | string value |
-| `project_id` | `mirrors.project_id` | string | Yes | — | string value |
-| `credentials` | `mirrors.credentials` | string | Yes | — | string value |
-| `git` | `mirrors.sync.git` | bool | No | — | bool value |
-| `releases` | `mirrors.sync.releases` | bool | No | — | bool value |
-| `docs` | `mirrors.sync.docs` | bool | No | — | bool value |
-| `kind` | `publish_origin.kind` | string | Yes | — | string value |
-| `ref` | `publish_origin.ref` | string | No | — | string value |
-| `base` | `publish_origin.base` | string | No | — | string value |
-
-**Example:**
-
-```yaml
-sources:
-  primary:
-    kind: git
-    worktree: "."
-    url: "https://github.com/myorg/myrepo"
-    default_branch: "main"
-```
 
 ---
 
