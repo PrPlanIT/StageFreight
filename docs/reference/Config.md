@@ -138,6 +138,7 @@ vars:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `id` | `tag_sources.id` | string | Yes | — | string value |
 | `pattern` | `tag_sources.pattern` | string | Yes | — | string value |
 | `id` | `branch_builds.id` | string | Yes | — | string value |
@@ -154,6 +155,7 @@ vars:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `branches` | `branches` | map[string]string | Yes | — | map[string]string value |
 
 ---
@@ -284,6 +286,7 @@ targets:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `id` | `items.id` | string | Yes | — | string value |
 | `text` | `items.text` | string | Yes | — | string value |
 | `value` | `items.value` | string | Yes | — | string value |
@@ -368,6 +371,7 @@ Linting configuration. Controls scan mode, module toggles, and per-module option
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `level` | `level` | string | Yes | changed | Scan mode. `changed` scans only modified files; `full` scans everything. |
 | `cache_dir` | `cache_dir` | string | Yes | $XDG_CACHE_HOME/stagefreight/<repo-hash>/lint | Override cache directory. |
 | `target_branch` | `target_branch` | string | Yes | — | Target branch for diff-based scanning. |
@@ -401,6 +405,7 @@ Security scanning configuration. Controls vulnerability scanning (Trivy, Grype),
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | true | Run vulnerability scanning. |
 | `required` | `required` | bool | No | — | bool value |
 | `trivy` | `scanners.trivy` | bool | No | true | Run Trivy image scan. |
@@ -444,6 +449,7 @@ Commit subsystem configuration. Controls conventional commit formatting, type re
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `default_type` | `default_type` | string | No | chore | Default commit type when --type is omitted. |
 | `default_scope` | `default_scope` | string | No | — | Default commit scope when --scope is omitted. |
 | `skip_ci` | `skip_ci` | bool | No | false | Append `[skip ci]` to commit subjects by default. |
@@ -481,6 +487,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
 | `output` | `output` | string | Yes | — | string value |
 | `go_modules` | `scope.go_modules` | bool | Yes | — | bool value |
@@ -504,6 +511,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
 | `badges` | `generators.badges` | bool | Yes | — | bool value |
 | `reference_docs` | `generators.reference_docs` | bool | Yes | — | bool value |
@@ -525,6 +533,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
 | `mode` | `mode` | string | No | — | string value |
 | `output_dir` | `output_dir` | string | No | — | string value |
@@ -536,6 +545,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
 | `required` | `required` | bool | No | — | bool value |
 | `security_summary` | `security_summary` | string | Yes | — | string value |
@@ -551,6 +561,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `mode` | `mode` | string | Yes | — | string value |
 
 ---
@@ -574,6 +585,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `backend` | `backend` | string | Yes | — | string value |
 | `name` | `cluster.name` | string | Yes | — | string value |
 | `server` | `cluster.server` | string | Yes | — | string value |
@@ -592,6 +604,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `backend` | `backend` | string | Yes | — | string value |
 | `source` | `targets.source` | string | Yes | — | string value |
 | `inventory` | `targets.inventory` | string | Yes | — | string value |
@@ -610,6 +623,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `mode` | `mode` | string | No | — | string value |
 | `backend` | `builder.backend` | string | No | — | string value |
 | `name` | `builder.name` | string | No | — | string value |
@@ -642,6 +656,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `types` | `types` | map[string]object | Yes | — | map[string]object value |
 | `aliases` | `breaking.aliases` | []string | No | — | []string value |
 | `bang_suffix` | `breaking.bang_suffix` | bool | Yes | — | bool value |
@@ -665,6 +680,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `preserve_raw_subject` | `commit.preserve_raw_subject` | bool | Yes | — | bool value |
 | `enforce_conventional` | `commit.enforce_conventional` | bool | Yes | — | bool value |
 | `max_entries` | `tag.max_entries` | int | Yes | — | int value |
@@ -684,6 +700,7 @@ commit:
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
 | `target` | `defaults.target` | string | Yes | — | string value |
 | `preview` | `defaults.preview` | bool | Yes | — | bool value |
 | `require_approval` | `defaults.require_approval` | bool | Yes | — | bool value |
