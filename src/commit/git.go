@@ -43,48 +43,51 @@ func (g *GitBackend) Execute(_ context.Context, plan *Plan, conventional bool) (
 		return nil, fmt.Errorf("reading staged files: %w", err)
 	}
 
-	// 3. No-op check
-	if len(files) == 0 {
+	// 3. No-op check — "nothing to commit" is only terminal when push was not requested.
+	// When push IS requested, skip commit creation but still converge and publish.
+	nothingToCommit := len(files) == 0
+	if nothingToCommit && !plan.Push.Enabled {
 		return &Result{NoOp: true}, nil
 	}
 
-	// 4. Ensure git author identity exists (CI images often lack it)
-	g.ensureAuthorIdentity()
+	result := &Result{Backend: "git", NoOp: nothingToCommit}
 
-	// 5. Build commit command
-	subject := plan.Subject(conventional)
-	commitArgs := []string{"commit", "-m", subject}
-	if plan.Body != "" {
-		commitArgs = append(commitArgs, "-m", plan.Body)
-	}
-	if plan.SignOff {
-		commitArgs = append(commitArgs, "--signoff")
+	if !nothingToCommit {
+		// 4. Ensure git author identity exists (CI images often lack it)
+		g.ensureAuthorIdentity()
+
+		// 5. Build commit command
+		subject := plan.Subject(conventional)
+		commitArgs := []string{"commit", "-m", subject}
+		if plan.Body != "" {
+			commitArgs = append(commitArgs, "-m", plan.Body)
+		}
+		if plan.SignOff {
+			commitArgs = append(commitArgs, "--signoff")
+		}
+
+		// Execute commit with streaming — hooks are observable live.
+		handlers := StreamHandlers{}
+		if g.OnCommitLine != nil {
+			handlers.OnStdoutLine = func(line string) { g.OnCommitLine("stdout", line) }
+			handlers.OnStderrLine = func(line string) { g.OnCommitLine("stderr", line) }
+		}
+		if _, err := g.gitStream(handlers, commitArgs...); err != nil {
+			return nil, fmt.Errorf("committing: %w", err)
+		}
+
+		// 6. Capture SHA
+		sha, err := g.gitOutput("rev-parse", "HEAD")
+		if err != nil {
+			return nil, fmt.Errorf("reading commit SHA: %w", err)
+		}
+		result.SHA = sha
+		result.Message = plan.Message(conventional)
+		result.Files = files
 	}
 
-	// Execute commit with streaming — hooks are observable live.
-	handlers := StreamHandlers{}
-	if g.OnCommitLine != nil {
-		handlers.OnStdoutLine = func(line string) { g.OnCommitLine("stdout", line) }
-		handlers.OnStderrLine = func(line string) { g.OnCommitLine("stderr", line) }
-	}
-	if _, err := g.gitStream(handlers, commitArgs...); err != nil {
-		return nil, fmt.Errorf("committing: %w", err)
-	}
-
-	// 6. Capture SHA
-	sha, err := g.gitOutput("rev-parse", "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("reading commit SHA: %w", err)
-	}
-
-	result := &Result{
-		SHA:     sha,
-		Message: plan.Message(conventional),
-		Files:   files,
-		Backend: "git",
-	}
-
-	// 7. Push via convergence engine — handles missing upstream, diverge, rebase.
+	// 7. Push via convergence engine — runs regardless of whether a new commit
+	// was created. "Nothing to commit" does not mean "nothing to publish."
 	if plan.Push.Enabled {
 		state, err := g.DetectRepoState()
 		if err != nil {

@@ -223,28 +223,32 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		sec.Row("%-16s%s", "backend", result.Backend)
 	}
 
-	if result.NoOp {
+	if result.NoOp && !result.Pushed {
 		sec.Row("%-16s%s", "status", "nothing to commit")
 		sec.Close()
 		return nil
 	}
 
-	// Message
-	sec.Row("%-16s%s", "message", plan.Subject(cfg.Commit.Conventional))
+	if result.NoOp {
+		sec.Row("%-16s%s", "status", "nothing to commit — pushing existing commits")
+	} else {
+		// Message
+		sec.Row("%-16s%s", "message", plan.Subject(cfg.Commit.Conventional))
+	}
 
 	if commitDryRun {
 		sec.Row("%-16s%s", "mode", "dry-run")
 	}
 
-	// Staged files
-	sec.Row("%-16s%d files", "staged", len(result.Files))
-	for _, f := range result.Files {
-		output.RowStatus(sec, f, "", "success", useColor)
-	}
-
-	// SHA
-	if result.SHA != "" {
-		sec.Row("%-16s%s", "sha", result.SHA)
+	// Staged files and SHA only when a commit was actually created.
+	if !result.NoOp {
+		sec.Row("%-16s%d files", "staged", len(result.Files))
+		for _, f := range result.Files {
+			output.RowStatus(sec, f, "", "success", useColor)
+		}
+		if result.SHA != "" {
+			sec.Row("%-16s%s", "sha", result.SHA)
+		}
 	}
 
 	// Push status
