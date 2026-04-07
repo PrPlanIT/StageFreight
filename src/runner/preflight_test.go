@@ -103,9 +103,11 @@ func TestCollectSubstrateFacts_DockerAlwaysProbed(t *testing.T) {
 		t.Error("DockerAvailable=false but DockerSocket is non-empty")
 	}
 
-	// BuildKitAvailable must equal DockerAvailable (no separate probe).
-	if facts.BuildKitAvailable != facts.DockerAvailable {
-		t.Errorf("BuildKitAvailable (%v) must equal DockerAvailable (%v)", facts.BuildKitAvailable, facts.DockerAvailable)
+	// BuildKitAvailable is independent of DockerAvailable — BuildKit can be available
+	// via standalone buildkitd even when Docker is absent.
+	// When Docker IS available, BuildKit must also be available (ships with Docker).
+	if facts.DockerAvailable && !facts.BuildKitAvailable {
+		t.Error("BuildKitAvailable must be true when DockerAvailable is true")
 	}
 }
 
@@ -163,7 +165,7 @@ func TestEvaluateHealth_DegradedMemory(t *testing.T) {
 		StagefreightWritable: true,
 		DiskFreeMB:           10000,
 		TmpFreeMB:            5000,
-		MemAvailableMB:       1024, // below default 4096 warn threshold
+		MemAvailableMB:       256, // below default 512 MB warn threshold
 		InodePctFree:         -1,
 	}
 	_, grade := EvaluateHealth(facts, Options{})

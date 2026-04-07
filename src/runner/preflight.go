@@ -10,6 +10,7 @@
 package runner
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // ExecutionEngine identifies the CI orchestrator or execution context.
@@ -98,7 +100,7 @@ type Options struct {
 	IsCrucible     bool  // doubles disk/memory warn thresholds
 	DiskWarnMB     int64 // 0 = default (2048)
 	DiskFailMB     int64 // 0 = default (512)
-	MemWarnMB      int64 // 0 = default (4096)
+	MemWarnMB      int64 // 0 = default (512); IsCrucible doubles to 1024
 }
 
 // DetectEngine identifies the CI orchestrator from environment variables.
@@ -176,19 +178,41 @@ func CollectFacts(rootDir string) SubstrateFacts {
 	}
 
 	// ── Docker detection (always runs — unconditional by design) ──────────────
-	socketPath := "/var/run/docker.sock"
-	if dockerHost := os.Getenv("DOCKER_HOST"); strings.HasPrefix(dockerHost, "unix://") {
-		socketPath = strings.TrimPrefix(dockerHost, "unix://")
-	}
-	if _, err := os.Stat(socketPath); err == nil {
-		facts.DockerSocket = socketPath
-		if f, err := os.Open(socketPath); err == nil {
-			f.Close()
+	//
+	// Docker may be accessible via a local unix socket OR a remote TCP endpoint
+	// (DinD service containers, remote daemons, etc.).
+	// Detection strategy differs by case:
+	//   - TCP (DOCKER_HOST=tcp://...): no local socket exists; prove via docker info
+	//   - Unix socket: stat + open for permission check
+	//
+	// Capability is proven, not inferred from socket presence alone.
+	dockerHostEnv := os.Getenv("DOCKER_HOST")
+
+	if strings.HasPrefix(dockerHostEnv, "tcp://") {
+		// Remote/service-container Docker daemon.
+		// Socket probing is not applicable — prove by running docker info.
+		facts.DockerSocket = dockerHostEnv
+		if probeDockerDaemon() {
 			facts.DockerAvailable = true
 		}
+	} else {
+		socketPath := "/var/run/docker.sock"
+		if strings.HasPrefix(dockerHostEnv, "unix://") {
+			socketPath = strings.TrimPrefix(dockerHostEnv, "unix://")
+		}
+		if _, err := os.Stat(socketPath); err == nil {
+			facts.DockerSocket = socketPath
+			if f, err := os.Open(socketPath); err == nil {
+				f.Close()
+				facts.DockerAvailable = true
+			}
+		}
 	}
-	// BuildKit = DockerAvailable: modern Docker ships with BuildKit, no separate probe needed.
-	facts.BuildKitAvailable = facts.DockerAvailable
+
+	// BuildKit availability: Docker ships BuildKit, but BuildKit can also be available
+	// standalone (pure buildkitd, remote builder, buildkitd sidecar without Docker).
+	// Probe independently so the two facts are not conflated.
+	facts.BuildKitAvailable = facts.DockerAvailable || probeBuildKit()
 
 	// Buildx: CLI plugin or standalone binary
 	if home := os.Getenv("HOME"); home != "" {
@@ -202,9 +226,9 @@ func CollectFacts(rootDir string) SubstrateFacts {
 		}
 	}
 
-	// DinD detection: inside container + standard socket accessible (not remote TCP).
+	// DinD detection: inside container + local socket accessible.
+	// TCP docker endpoints are service-container docker, not socket-mount DinD.
 	if facts.DockerAvailable {
-		dockerHostEnv := os.Getenv("DOCKER_HOST")
 		if !strings.HasPrefix(dockerHostEnv, "tcp://") {
 			inContainer := false
 			if _, err := os.Stat("/.dockerenv"); err == nil {
@@ -290,7 +314,7 @@ func CollectFacts(rootDir string) SubstrateFacts {
 func EvaluateHealth(facts SubstrateFacts, opts Options) ([]Finding, HealthGrade) {
 	diskWarn := int64(2048)
 	diskFail := int64(512)
-	memWarn := int64(4096)
+	memWarn := int64(512) // warn below 512 MB available; IsCrucible doubles to 1024 MB
 
 	if opts.DiskWarnMB > 0 {
 		diskWarn = opts.DiskWarnMB
@@ -443,4 +467,27 @@ func fmtMB(mb int64) string {
 		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
 	}
 	return fmt.Sprintf("%d MB", mb)
+}
+
+// probeDockerDaemon runs docker info to verify daemon reachability.
+// Used for TCP docker endpoints where socket-based detection is not applicable.
+// Respects DOCKER_HOST, DOCKER_TLS_VERIFY, DOCKER_CERT_PATH from environment.
+// Short timeout (2s) prevents preflight from blocking CI jobs on unreachable daemons.
+func probeDockerDaemon() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "info", "--format", "{{.ServerVersion}}")
+	out, err := cmd.Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
+// probeBuildKit runs buildctl to verify buildkitd reachability.
+// Respects BUILDKIT_HOST from environment — covers standalone buildkitd,
+// remote builders, and sidecar buildkitd containers (tcp://buildkitd:1234 etc.).
+// Short timeout (2s) prevents preflight from blocking CI jobs on unreachable daemons.
+func probeBuildKit() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "buildctl", "debug", "workers")
+	return cmd.Run() == nil
 }

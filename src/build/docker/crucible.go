@@ -79,7 +79,7 @@ func runCrucibleMode(req Request) error {
 
 	// ── Banner + Code Identity ───────────────────────────────────
 	output.Banner(w, output.NewBannerInfo(version.Version, version.Commit, ""), color)
-	output.ContextBlock(w, pipeline.CIContextKV())
+	output.ContextBlock(w, pipeline.CIContextKV(), color)
 
 	// ── Execution substrate (Runner panel) ───────────────────────
 	// Crucible always requires Docker; IsCrucible doubles thresholds.

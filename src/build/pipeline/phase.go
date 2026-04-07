@@ -59,7 +59,7 @@ func BannerPhase() Phase {
 		Name: "banner",
 		Run: func(pc *PipelineContext) (*PhaseResult, error) {
 			output.Banner(pc.Writer, output.NewBannerInfo(version.Version, version.Commit, ""), pc.Color)
-			output.ContextBlock(pc.Writer, CIContextKV())
+			output.ContextBlock(pc.Writer, CIContextKV(), pc.Color)
 			return &PhaseResult{
 				Name:   "banner",
 				Status: "success",

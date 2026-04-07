@@ -1,9 +1,6 @@
 package output
 
-import (
-	"fmt"
-	"io"
-)
+import "io"
 
 // PanelDomain declares ownership boundaries for rendered data.
 // No datum may appear outside its owning domain panel.
@@ -67,19 +64,21 @@ func CodeKV(key, value string) DomainKV {
 	return DomainKV{Domain: DomainCode, Key: key, Value: value}
 }
 
-// ContextBlock prints the code identity header.
-// Renders in two-column pairs per line.
-func ContextBlock(w io.Writer, kv []DomainKV) {
+// ContextBlock renders the DomainCode panel as a proper section box.
+// Accepts only DomainCode KVs — pass CodeKV() values, not raw DomainKV.
+// Pairs are rendered two-per-line. Elapsed is omitted (instantaneous by design).
+func ContextBlock(w io.Writer, kv []DomainKV, color bool) {
 	if len(kv) == 0 {
 		return
 	}
-	fmt.Fprintln(w)
+	sec := NewSection(w, "Code", 0, color)
 	for i := 0; i < len(kv); i += 2 {
 		if i+1 < len(kv) {
-			fmt.Fprintf(w, "    %-12s%-14s%-11s%s\n",
+			sec.Row("%-12s%-22s%-11s%s",
 				kv[i].Key, kv[i].Value, kv[i+1].Key, kv[i+1].Value)
 		} else {
-			fmt.Fprintf(w, "    %-12s%s\n", kv[i].Key, kv[i].Value)
+			sec.Row("%-12s%s", kv[i].Key, kv[i].Value)
 		}
 	}
+	sec.Close()
 }
