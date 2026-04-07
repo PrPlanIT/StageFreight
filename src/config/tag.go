@@ -2,6 +2,7 @@ package config
 
 // TagConfig holds workflow defaults for the tag planner.
 type TagConfig struct {
+	Preset   string      `yaml:"preset,omitempty"`
 	Defaults TagDefaults `yaml:"defaults"`
 	Message  TagMessage  `yaml:"message"`
 }

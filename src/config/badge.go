@@ -4,7 +4,8 @@ package config
 // Badge system owns definitions; narrator references them via badge_ref.
 // Artifact serving URL derived from publish-origin repo role.
 type BadgesConfig struct {
-	Items []BadgeConfig `yaml:"items"`
+	Preset string        `yaml:"preset,omitempty"`
+	Items  []BadgeConfig `yaml:"items"`
 }
 
 // BadgeConfig is the user-facing badge definition in .stagefreight.yml.

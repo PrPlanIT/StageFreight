@@ -2,6 +2,8 @@ package config
 
 // GitOpsConfig defines configuration for the gitops lifecycle mode.
 type GitOpsConfig struct {
+	Preset string `yaml:"preset,omitempty"`
+
 	// Backend selects the GitOps reconciliation backend (e.g. "flux", "argo").
 	Backend string `yaml:"backend"`
 

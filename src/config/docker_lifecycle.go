@@ -3,6 +3,8 @@ package config
 // DockerLifecycleConfig defines configuration for the docker lifecycle mode.
 // This is Docker lifecycle orchestration, not docker-compose wrapping.
 type DockerLifecycleConfig struct {
+	Preset string `yaml:"preset,omitempty"`
+
 	// Backend selects the Docker execution engine (e.g. "compose").
 	Backend string `yaml:"backend"`
 

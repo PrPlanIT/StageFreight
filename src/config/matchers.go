@@ -11,6 +11,8 @@ package config
 // over another. They are purely id → pattern associations, so a map is the
 // right shape.
 type MatchersConfig struct {
+	Preset string `yaml:"preset,omitempty"`
+
 	// Branches maps matcher names to regex patterns for branch matching.
 	// e.g., "main": "^main$"
 	Branches map[string]string `yaml:"branches"`

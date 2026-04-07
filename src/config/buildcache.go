@@ -3,6 +3,8 @@ package config
 // BuildCacheConfig defines the three-layer build cache subsystem.
 // Mode selects the active planes. Advanced config underneath only when needed.
 type BuildCacheConfig struct {
+	Preset string `yaml:"preset,omitempty"`
+
 	// Mode selects which cache planes are active.
 	// "": inactive — no cache flags emitted, no cleanup runs.
 	// off: explicitly disabled.

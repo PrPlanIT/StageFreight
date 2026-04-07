@@ -26,6 +26,7 @@ func (s ScannersConfig) GrypeEnabled() bool {
 
 // SecurityConfig holds security scanning configuration.
 type SecurityConfig struct {
+	Preset         string         `yaml:"preset,omitempty"`
 	Enabled        bool           `yaml:"enabled"`          // run vulnerability scanning (default: true)
 	Required       *bool          `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
 	Scanners       ScannersConfig `yaml:"scanners"`         // per-scanner toggles

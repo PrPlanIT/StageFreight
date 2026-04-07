@@ -9,6 +9,8 @@ package config
 // A branch defines a path through tag sources; the first reachable match
 // defines the version. That is the entire versioning contract.
 type VersioningConfig struct {
+	Preset string `yaml:"preset,omitempty"`
+
 	// TagSources defines named places where version bases can come from.
 	// e.g., {id: "stable", pattern: "^v?\\d+\\.\\d+\\.\\d+$"}
 	// Globally eligible, no inherent priority. Order is declaration-preserving

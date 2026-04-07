@@ -19,6 +19,7 @@ type DependencyCIConfig struct {
 
 // DependencyConfig holds configuration for the dependency update subsystem.
 type DependencyConfig struct {
+	Preset  string                 `yaml:"preset,omitempty"`
 	Enabled bool                   `yaml:"enabled"`
 	Output  string                 `yaml:"output"`
 	Scope   DependencyScopeConfig  `yaml:"scope"`

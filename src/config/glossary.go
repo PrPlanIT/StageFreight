@@ -3,6 +3,7 @@ package config
 // GlossaryConfig defines the repo's shared change-language model.
 // Consumed by commit authoring, tag planning, and release rendering.
 type GlossaryConfig struct {
+	Preset   string                  `yaml:"preset,omitempty"`
 	Types    map[string]GlossaryType `yaml:"types"`
 	Breaking BreakingConfig          `yaml:"breaking"`
 	Filters  FilterConfig            `yaml:"filters"`

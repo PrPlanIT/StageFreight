@@ -2,6 +2,7 @@ package config
 
 // DocsConfig holds configuration for the docs generation subsystem.
 type DocsConfig struct {
+	Preset     string              `yaml:"preset,omitempty"`
 	Enabled    bool                `yaml:"enabled"`
 	Generators DocsGeneratorsConfig `yaml:"generators"`
 	Commit     DocsCommitConfig    `yaml:"commit"`

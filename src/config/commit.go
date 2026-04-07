@@ -2,6 +2,7 @@ package config
 
 // CommitConfig holds configuration for the commit subsystem.
 type CommitConfig struct {
+	Preset       string       `yaml:"preset,omitempty"`
 	DefaultType  string       `yaml:"default_type,omitempty"`
 	DefaultScope string       `yaml:"default_scope,omitempty"`
 	SkipCI       bool         `yaml:"skip_ci,omitempty"`

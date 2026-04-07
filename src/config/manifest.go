@@ -2,6 +2,8 @@ package config
 
 // ManifestConfig holds configuration for the manifest subsystem.
 type ManifestConfig struct {
+	Preset string `yaml:"preset,omitempty"`
+
 	// Enabled controls whether manifest generation is active (default: false).
 	Enabled bool `yaml:"enabled"`
 

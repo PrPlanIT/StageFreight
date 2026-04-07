@@ -2,6 +2,7 @@ package config
 
 // ReleaseConfig holds configuration for the release subsystem.
 type ReleaseConfig struct {
+	Preset          string   `yaml:"preset,omitempty"`
 	Enabled         bool     `yaml:"enabled"`
 	Required        *bool    `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
 	SecuritySummary string   `yaml:"security_summary"`

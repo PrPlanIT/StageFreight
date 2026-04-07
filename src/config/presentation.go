@@ -3,6 +3,7 @@ package config
 // PresentationConfig defines surface-specific rendering policies.
 // Same semantic meaning, different editorial treatment per output.
 type PresentationConfig struct {
+	Preset  string              `yaml:"preset,omitempty"`
 	Commit  CommitPresentation  `yaml:"commit"`
 	Tag     TagPresentation     `yaml:"tag"`
 	Release ReleasePresentation `yaml:"release"`

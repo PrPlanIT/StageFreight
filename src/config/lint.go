@@ -17,6 +17,7 @@ type ModuleConfig struct {
 
 // LintConfig holds lint-specific configuration.
 type LintConfig struct {
+	Preset       string                  `yaml:"preset,omitempty"`
 	Level        Level                   `yaml:"level"`
 	CacheDir     string                  `yaml:"cache_dir"`
 	TargetBranch string                  `yaml:"target_branch"`
