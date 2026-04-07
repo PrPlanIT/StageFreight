@@ -131,9 +131,10 @@ func BuildPlan(opts PlannerOptions, cfg config.CommitConfig, registry *TypeRegis
 		Paths:     normalizedPaths,
 		StageMode: stageMode,
 		Push: PushOptions{
-			Enabled: push,
-			Remote:  remote,
-			Refspec: refspec,
+			Enabled:         push,
+			Remote:          remote,
+			Refspec:         refspec,
+			RebaseOnDiverge: true, // default: rebase instead of failing on diverge
 		},
 		SignOff: opts.SignOff,
 	}, nil

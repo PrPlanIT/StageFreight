@@ -15,5 +15,12 @@ type Result struct {
 	Files   []string // actual staged files (from git diff --cached --name-only)
 	Pushed  bool
 	NoOp    bool
-	Backend string // stable descriptor: "git", "forge (gitlab)", "forge (github)", "dry-run"
+	Backend string      // stable descriptor: "git", "forge (gitlab)", "forge (github)", "dry-run"
+	Sync    *SyncResult // populated when push was executed via the convergence engine
+
+	// MaintainerOverride is true when --maintainer-override was active for this commit.
+	// OverriddenBlocks records which governance checks were bypassed.
+	// Both are empty for normal commits with no governance failures.
+	MaintainerOverride bool
+	OverriddenBlocks   CommitBlocks
 }

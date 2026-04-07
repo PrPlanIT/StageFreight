@@ -13,19 +13,20 @@ import (
 )
 
 var (
-	commitType    string
-	commitScope   string
-	commitMessage string
-	commitBody    string
-	commitAdd     []string
-	commitAll     bool
-	commitBreak   bool
-	commitSkipCI  bool
-	commitPush    bool
-	commitRemote  string
-	commitRefspec string
-	commitDryRun  bool
-	commitSignOff bool
+	commitType               string
+	commitScope              string
+	commitMessage            string
+	commitBody               string
+	commitAdd                []string
+	commitAll                bool
+	commitBreak              bool
+	commitSkipCI             bool
+	commitPush               bool
+	commitRemote             string
+	commitRefspec            string
+	commitDryRun             bool
+	commitSignOff            bool
+	commitMaintainerOverride bool
 )
 
 var commitCmd = &cobra.Command{
@@ -68,6 +69,10 @@ func init() {
 	commitCmd.Flags().StringVar(&commitRefspec, "refspec", "", "push refspec (e.g. HEAD:refs/heads/main)")
 	commitCmd.Flags().BoolVar(&commitDryRun, "dry-run", false, "show what would be committed without executing")
 	commitCmd.Flags().BoolVar(&commitSignOff, "sign-off", false, "add Signed-off-by trailer")
+	commitCmd.Flags().BoolVar(&commitMaintainerOverride, "maintainer-override", false,
+		"bypass governance/policy failures when the commit path is still deterministic\n"+
+			"    does NOT bypass mechanical failures (detached HEAD, hook rejection, sync errors)\n"+
+			"    bypassed checks are recorded in output and result")
 
 	rootCmd.AddCommand(commitCmd)
 }
@@ -170,9 +175,32 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Collect governance blocks. Ring 1+2 failures are already hard errors from
+	// BuildPlan and Execute — they never reach this point. Ring 3 blocks are
+	// collected here and either surfaced as warnings (with --maintainer-override)
+	// or returned as an error instructing the operator to add the flag.
+	// The slice is empty today — no governance checks exist yet. It is here so
+	// future checks land in the right place without restructuring the command.
+	var governanceBlocks commit.CommitBlocks
+	// Future: governanceBlocks = append(governanceBlocks, checkGovernance(plan, rootDir)...)
+
+	if governanceBlocks.HasGovernance() && !commitMaintainerOverride {
+		msg := fmt.Sprintf("commit blocked by governance checks — use --maintainer-override to proceed:\n")
+		for _, b := range governanceBlocks.GovernanceOnly() {
+			msg += fmt.Sprintf("  [%s] %s: %s\n", b.Ring, b.ID, b.Message)
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
 	result, err := backend.Execute(ctx, plan, cfg.Commit.Conventional)
 	if err != nil {
 		return err
+	}
+
+	// Record override use in result so it is observable in output and future audit.
+	if commitMaintainerOverride && governanceBlocks.HasGovernance() {
+		result.MaintainerOverride = true
+		result.OverriddenBlocks = governanceBlocks.GovernanceOnly()
 	}
 
 	// Render output
@@ -224,8 +252,29 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		if result.Pushed {
 			pushTarget := plan.Push.Remote
 			output.RowStatus(sec, "pushed", pushTarget, "success", useColor)
+			// Show non-trivial sync actions (rebase, fast-forward, set-upstream).
+			if result.Sync != nil {
+				for _, action := range result.Sync.ActionsExecuted {
+					switch action {
+					case commit.SyncRebase:
+						sec.Row("%-16s%s", "sync", "rebased onto upstream before push")
+					case commit.SyncFastForward:
+						sec.Row("%-16s%s", "sync", "fast-forwarded to upstream")
+					case commit.SyncSetUpstream:
+						sec.Row("%-16s%s", "sync", "tracking branch configured")
+					}
+				}
+			}
 		} else if commitDryRun {
 			sec.Row("%-16s%s (dry-run)", "push", plan.Push.Remote)
+		}
+	}
+
+	// Render governance overrides — honest, never silent.
+	if result.MaintainerOverride && len(result.OverriddenBlocks) > 0 {
+		sec.Row("%-16s%s", "override", "--maintainer-override active")
+		for _, b := range result.OverriddenBlocks {
+			sec.Row("  %-14s[%s] %s", b.ID, b.Ring, b.Message)
 		}
 	}
 

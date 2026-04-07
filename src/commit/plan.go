@@ -13,9 +13,10 @@ const (
 
 // PushOptions controls post-commit push behavior.
 type PushOptions struct {
-	Enabled bool
-	Remote  string // default: "origin"
-	Refspec string // default: "" (current branch)
+	Enabled         bool
+	Remote          string // default: "origin"
+	Refspec         string // default: "" (current branch)
+	RebaseOnDiverge bool   // when true (default), rebase onto upstream if diverged before pushing
 }
 
 // Plan is a fully resolved, validated commit intent.

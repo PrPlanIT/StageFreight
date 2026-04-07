@@ -84,16 +84,22 @@ func (g *GitBackend) Execute(_ context.Context, plan *Plan, conventional bool) (
 		Backend: "git",
 	}
 
-	// 7. Push
+	// 7. Push via convergence engine — handles missing upstream, diverge, rebase.
 	if plan.Push.Enabled {
-		pushArgs := []string{"push", plan.Push.Remote}
-		if plan.Push.Refspec != "" {
-			pushArgs = append(pushArgs, plan.Push.Refspec)
+		state, err := g.DetectRepoState()
+		if err != nil {
+			return nil, fmt.Errorf("detecting repo state for push: %w", err)
 		}
-		if err := g.git(pushArgs...); err != nil {
-			return nil, fmt.Errorf("pushing: %w", err)
+		syncPlan, err := PlanSync(state, plan.Push.Remote, plan.Push.Refspec, plan.Push.RebaseOnDiverge)
+		if err != nil {
+			return nil, fmt.Errorf("planning push: %w", err)
 		}
-		result.Pushed = true
+		syncResult, err := g.Sync(syncPlan)
+		if err != nil {
+			return nil, fmt.Errorf("push: %w", err)
+		}
+		result.Sync = syncResult
+		result.Pushed = containsAction(syncResult.ActionsExecuted, SyncPush)
 	}
 
 	return result, nil
