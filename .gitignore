@@ -1,3 +1,8 @@
 .stagefreight/*
 !.stagefreight/badges/
 src/output/banner_art_gen.go
+
+# compiled binaries — never commit these
+/cli
+/stagefreight
+*.exe
