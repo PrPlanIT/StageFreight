@@ -23,6 +23,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 )
 
@@ -215,6 +216,10 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	}
 
 	rootDir := resolveWorkspace(ciCtx)
+
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("deps subsystem: substrate unhealthy")
+	}
 
 	// Fetch security advisories from prior pipeline (cross-pipeline bridge).
 	if ciCtx.IsCI() {
@@ -467,6 +472,10 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	secAllowFailure := !appCfg.Security.IsRequired()
 	rootDir := resolveWorkspace(ciCtx)
 
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("security subsystem: substrate unhealthy")
+	}
+
 	// Pre-flight: check pipeline state for build output.
 	// Only skip when build completed successfully and produced nothing.
 	// Missing state = proceed (local dev, or state not written yet).
@@ -565,6 +574,10 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	}
 
 	rootDir := resolveWorkspace(ciCtx)
+
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("docs subsystem: substrate unhealthy")
+	}
 
 	// Resolve BUILD_STATUS from pipeline state — not hardcoded in skeleton.
 	// Reads accumulated subsystem state; docs is always the last consumer.
@@ -668,6 +681,10 @@ func hasTrailer(body, key, value string) bool {
 func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	relAllowFailure := !appCfg.Release.IsRequired()
 	rootDir := resolveWorkspace(ciCtx)
+
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("release subsystem: substrate unhealthy")
+	}
 
 	// run_from gate — controls mutation authority for release.
 	rfResult := config.EvaluateRunFrom(appCfg.Release.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
@@ -1325,6 +1342,13 @@ func validateRunner(_ context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 		renderCISkip("Validate", start, "no validation configured")
 		return nil
 	}
+
+	rootDir := resolveWorkspace(ciCtx)
+
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("validate subsystem: substrate unhealthy")
+	}
+
 	// Thin shim: delegate to existing lint command.
 	return runLint(&cobra.Command{}, []string{})
 }
@@ -1340,6 +1364,12 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	if !hasGitOps && !hasGovernanceClusters {
 		renderCISkip("Reconcile", start, "no reconcile target configured")
 		return nil
+	}
+
+	rootDir := resolveWorkspace(ciCtx)
+
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("reconcile subsystem: substrate unhealthy")
 	}
 
 	// GitOps reconcile — auth resolved at runtime (CA cert, OIDC, or kubeconfig).
@@ -1373,6 +1403,21 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	}
 
 	return nil
+}
+
+// ── shared runner preflight ─────────────────────────────────────────────────
+
+// runnerPreflight runs substrate assessment, renders the Runner panel, and
+// persists the report to cistate. Returns the report so callers can inspect
+// Health and return subsystem-specific errors on Unhealthy.
+func runnerPreflight(rootDir string, opts runner.Options) runner.ExecutionReport {
+	start := time.Now()
+	report := runner.Run(rootDir, opts)
+	pipeline.RenderRunnerSection(os.Stdout, report, opts, output.UseColor(), time.Since(start))
+	if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) { st.Runner = report }); stErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+	}
+	return report
 }
 
 // ── shared CI skip renderer ─────────────────────────────────────────────────

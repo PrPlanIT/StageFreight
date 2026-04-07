@@ -8,6 +8,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // StatePath is the workspace-relative path where pipeline state is persisted.
@@ -17,13 +18,14 @@ const StatePath = ".stagefreight/pipeline.json"
 // Each subsystem records what it did; downstream stages read the ledger
 // instead of probing files.
 type State struct {
-	Version    int              `json:"version"`
-	CI         CIState          `json:"ci"`
-	Build      BuildState       `json:"build"`
-	Security   SecurityState    `json:"security"`
-	Release    ReleaseState     `json:"release"`
-	Subsystems []SubsystemState `json:"subsystems,omitempty"`
-	Retention  RetentionState   `json:"retention,omitempty"`
+	Version    int                    `json:"version"`
+	CI         CIState                `json:"ci"`
+	Runner     runner.ExecutionReport `json:"runner,omitempty"`
+	Build      BuildState             `json:"build"`
+	Security   SecurityState          `json:"security"`
+	Release    ReleaseState           `json:"release"`
+	Subsystems []SubsystemState       `json:"subsystems,omitempty"`
+	Retention  RetentionState         `json:"retention,omitempty"`
 }
 
 // RetentionState records cache retention enforcement results.

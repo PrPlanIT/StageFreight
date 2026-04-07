@@ -365,7 +365,7 @@ func TestBannerPhase_RunsWithoutError(t *testing.T) {
 	pc := makePC()
 	pc.Writer = io.Discard
 
-	phase := BannerPhase(nil)
+	phase := BannerPhase()
 	result, err := phase.Run(pc)
 	if err != nil {
 		t.Fatalf("BannerPhase returned error: %v", err)
@@ -375,26 +375,12 @@ func TestBannerPhase_RunsWithoutError(t *testing.T) {
 	}
 }
 
-func TestBannerPhase_ExtraKVIsCalled(t *testing.T) {
-	var extraCalled bool
-	pc := makePC()
-	pc.Writer = io.Discard
-
-	phase := BannerPhase(func(pc *PipelineContext) []output.KV {
-		extraCalled = true
-		return []output.KV{{Key: "Engine", Value: "test"}}
-	})
-	phase.Run(pc) //nolint:errcheck
-
-	if !extraCalled {
-		t.Error("extraKV callback was not called")
-	}
-}
-
 // --- CIContextKV ---
 
 func TestCIContextKV_EmptyWhenNoEnvVars(t *testing.T) {
-	// Unset all relevant env vars to get a clean result.
+	// Unset all code-domain env vars — result should be empty.
+	// CIContextKV emits only Commit + Branch/Tag. No platforms, no pipeline,
+	// no runner. Those belong to DomainExecution and DomainPlan respectively.
 	unsetEnvVars(t,
 		"CI_PIPELINE_ID", "CI_RUNNER_DESCRIPTION",
 		"CI_COMMIT_SHORT_SHA", "CI_COMMIT_SHA",
@@ -403,26 +389,16 @@ func TestCIContextKV_EmptyWhenNoEnvVars(t *testing.T) {
 	)
 
 	kv := CIContextKV()
-	// Only platforms should be present (always set from runtime.GOOS/GOARCH).
-	platformCount := 0
-	for _, k := range kv {
-		if k.Key == "Platforms" {
-			platformCount++
-		}
-	}
-	if platformCount != 1 {
-		t.Errorf("expected 1 Platforms entry; got %d", platformCount)
-	}
-	// No CI-specific keys should be present.
-	for _, k := range kv {
-		switch k.Key {
-		case "Pipeline", "Runner", "Commit", "Branch", "Tag":
-			t.Errorf("unexpected KV %q=%q when CI env vars are unset", k.Key, k.Value)
+	if len(kv) != 0 {
+		t.Errorf("expected empty CIContextKV when no code env vars set; got %d entries", len(kv))
+		for _, k := range kv {
+			t.Logf("  unexpected: %q = %q (domain=%s)", k.Key, k.Value, k.Domain)
 		}
 	}
 }
 
 func TestCIContextKV_ReadsCIEnvVars(t *testing.T) {
+	// Pipeline ID must NOT appear — it belongs to DomainExecution, not DomainCode.
 	t.Setenv("CI_PIPELINE_ID", "99")
 	t.Setenv("CI_COMMIT_SHORT_SHA", "abcd1234")
 	t.Setenv("CI_COMMIT_BRANCH", "main")
@@ -434,18 +410,26 @@ func TestCIContextKV_ReadsCIEnvVars(t *testing.T) {
 		kvMap[k.Key] = k.Value
 	}
 
-	if kvMap["Pipeline"] != "99" {
-		t.Errorf("Pipeline = %q; want %q", kvMap["Pipeline"], "99")
-	}
 	if kvMap["Commit"] != "abcd1234" {
 		t.Errorf("Commit = %q; want %q", kvMap["Commit"], "abcd1234")
 	}
 	if kvMap["Branch"] != "main" {
 		t.Errorf("Branch = %q; want %q", kvMap["Branch"], "main")
 	}
+	if _, hasPipeline := kvMap["Pipeline"]; hasPipeline {
+		t.Error("Pipeline must not appear in CIContextKV — belongs to DomainExecution")
+	}
+	// All returned KVs must be DomainCode.
+	for _, k := range kv {
+		if k.Domain != output.DomainCode {
+			t.Errorf("KV %q has domain %q; all CIContextKV entries must be DomainCode", k.Key, k.Domain)
+		}
+	}
 }
 
-func TestCIContextKV_PlatformOverride(t *testing.T) {
+func TestCIContextKV_PlatformsNotPresent(t *testing.T) {
+	// Platforms belong to DomainPlan, never DomainCode.
+	// STAGEFREIGHT_PLATFORMS must be ignored by CIContextKV.
 	t.Setenv("STAGEFREIGHT_PLATFORMS", "linux/amd64,linux/arm64")
 	unsetEnvVars(t, "CI_PIPELINE_ID", "CI_RUNNER_DESCRIPTION",
 		"CI_COMMIT_SHORT_SHA", "CI_COMMIT_SHA",
@@ -454,13 +438,9 @@ func TestCIContextKV_PlatformOverride(t *testing.T) {
 	kv := CIContextKV()
 	for _, k := range kv {
 		if k.Key == "Platforms" {
-			if k.Value != "linux/amd64,linux/arm64" {
-				t.Errorf("Platforms = %q; want %q", k.Value, "linux/amd64,linux/arm64")
-			}
-			return
+			t.Errorf("Platforms must not appear in CIContextKV — belongs to DomainPlan")
 		}
 	}
-	t.Error("Platforms key not found in CIContextKV output")
 }
 
 func TestCIContextKV_TagWhenNoBranch(t *testing.T) {

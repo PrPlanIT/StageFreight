@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
-	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // Run is the entry point for docker build orchestration.
@@ -40,6 +39,18 @@ func Run(req Request) error {
 		gitver.SetProjectDescription(desc)
 	}
 
+	// Determine runner policy for this build.
+	dockerRequired := false
+	isCrucible := false
+	for _, b := range req.Config.Builds {
+		if b.Kind == "docker" {
+			dockerRequired = true
+		}
+		if b.BuildMode == "crucible" {
+			isCrucible = true
+		}
+	}
+
 	pc := &pipeline.PipelineContext{
 		Ctx:           req.Context,
 		RootDir:       req.RootDir,
@@ -57,7 +68,11 @@ func Run(req Request) error {
 
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
-			pipeline.BannerPhase(contextKV),
+			pipeline.BannerPhase(),
+			pipeline.RunnerPreflightPhase(runner.Options{
+				DockerRequired: dockerRequired,
+				IsCrucible:     isCrucible,
+			}),
 			pipeline.LintPhase(),
 			detectPhase(req),
 			planPhase(req),
@@ -77,30 +92,4 @@ func Run(req Request) error {
 		},
 	}
 	return p.Run(pc)
-}
-
-// contextKV returns docker-specific KV pairs for the banner context block.
-func contextKV(pc *pipeline.PipelineContext) []output.KV {
-	var kv []output.KV
-
-	regTargets := pipeline.CollectTargetsByKind(pc.Config, "registry")
-	if len(regTargets) > 0 {
-		// Resolve each target through the identity graph so registry-id
-		// references surface their URL for the diagnostic header.
-		var regNames []string
-		seen := make(map[string]bool)
-		for _, t := range regTargets {
-			reg, err := config.ResolveRegistryForTarget(t, pc.Config.Registries, pc.Config.Vars)
-			if err != nil || reg == nil || reg.URL == "" {
-				continue
-			}
-			if !seen[reg.URL] {
-				regNames = append(regNames, reg.URL)
-				seen[reg.URL] = true
-			}
-		}
-		kv = append(kv, output.KV{Key: "Registries", Value: fmt.Sprintf("%d (%s)", len(regTargets), strings.Join(regNames, ", "))})
-	}
-
-	return kv
 }

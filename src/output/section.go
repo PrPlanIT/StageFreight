@@ -98,25 +98,8 @@ func Dimmed(text string, color bool) string {
 	return "\033[90m" + text + "\033[0m"
 }
 
-// ContextBlock prints the pipeline context header.
-// Replaces the old CIHeader with an aligned key-value layout.
-func ContextBlock(w io.Writer, kv []KV) {
-	if len(kv) == 0 {
-		return
-	}
-	fmt.Fprintln(w)
-	// Print in two-column pairs per line
-	for i := 0; i < len(kv); i += 2 {
-		if i+1 < len(kv) {
-			fmt.Fprintf(w, "    %-12s%-14s%-11s%s\n",
-				kv[i].Key, kv[i].Value, kv[i+1].Key, kv[i+1].Value)
-		} else {
-			fmt.Fprintf(w, "    %-12s%s\n", kv[i].Key, kv[i].Value)
-		}
-	}
-}
-
-// KV is a key-value pair for the context block.
+// KV is a key-value pair used for section row rendering.
+// For the code identity header (ContextBlock), use DomainKV and CodeKV instead.
 type KV struct {
 	Key   string
 	Value string

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
@@ -18,6 +17,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -77,9 +77,17 @@ func runCrucibleMode(req Request) error {
 		gitver.SetProjectDescription(desc)
 	}
 
-	// ── Banner + Context ─────────────────────────────────────────
+	// ── Banner + Code Identity ───────────────────────────────────
 	output.Banner(w, output.NewBannerInfo(version.Version, version.Commit, ""), color)
-	output.ContextBlock(w, buildContextKV(req))
+	output.ContextBlock(w, pipeline.CIContextKV())
+
+	// ── Execution substrate (Runner panel) ───────────────────────
+	// Crucible always requires Docker; IsCrucible doubles thresholds.
+	// Note: crucible child (pass 2) is excluded via IsCrucibleChild() in
+	// RunnerPreflightPhase — crucible.go is only reached from the outer pass.
+	if r := pipeline.RunnerPreflightWithWriter(w, rootDir, runner.Options{DockerRequired: true, IsCrucible: true}, color); r.Health == runner.Unhealthy {
+		return fmt.Errorf("crucible: substrate unhealthy — aborting before pass 1")
+	}
 
 	crucibleEpoch := fmt.Sprintf("%d", pipelineStart.Unix())
 	crucibleCreated := time.Unix(pipelineStart.Unix(), 0).UTC().Format(time.RFC3339)
@@ -659,53 +667,3 @@ func checkStatusIcon(status string, color bool) string {
 	}
 }
 
-func buildContextKV(req Request) []output.KV {
-	var kv []output.KV
-
-	if pipe := os.Getenv("CI_PIPELINE_ID"); pipe != "" {
-		kv = append(kv, output.KV{Key: "Pipeline", Value: pipe})
-	}
-	if runner := os.Getenv("CI_RUNNER_DESCRIPTION"); runner != "" {
-		kv = append(kv, output.KV{Key: "Runner", Value: runner})
-	}
-
-	if sha := os.Getenv("CI_COMMIT_SHORT_SHA"); sha != "" {
-		kv = append(kv, output.KV{Key: "Commit", Value: sha})
-	} else if sha := os.Getenv("CI_COMMIT_SHA"); sha != "" && len(sha) >= 8 {
-		kv = append(kv, output.KV{Key: "Commit", Value: sha[:8]})
-	}
-	if branch := os.Getenv("CI_COMMIT_BRANCH"); branch != "" {
-		kv = append(kv, output.KV{Key: "Branch", Value: branch})
-	} else if tag := os.Getenv("CI_COMMIT_TAG"); tag != "" {
-		kv = append(kv, output.KV{Key: "Tag", Value: tag})
-	}
-
-	platforms := formatPlatforms(nil)
-	if p := os.Getenv("STAGEFREIGHT_PLATFORMS"); p != "" {
-		platforms = p
-	}
-	if platforms != "" {
-		kv = append(kv, output.KV{Key: "Platforms", Value: platforms})
-	}
-
-	regTargets := pipeline.CollectTargetsByKind(req.Config, "registry")
-	if len(regTargets) > 0 {
-		// Resolve each target through the identity graph so registry-id
-		// references surface their URL for the diagnostic header.
-		var regNames []string
-		seen := make(map[string]bool)
-		for _, t := range regTargets {
-			reg, err := config.ResolveRegistryForTarget(t, req.Config.Registries, req.Config.Vars)
-			if err != nil || reg == nil || reg.URL == "" {
-				continue
-			}
-			if !seen[reg.URL] {
-				regNames = append(regNames, reg.URL)
-				seen[reg.URL] = true
-			}
-		}
-		kv = append(kv, output.KV{Key: "Registries", Value: fmt.Sprintf("%d (%s)", len(regTargets), strings.Join(regNames, ", "))})
-	}
-
-	return kv
-}

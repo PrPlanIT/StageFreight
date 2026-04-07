@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -47,25 +51,277 @@ type PostBuildHook struct {
 	Run       func(pc *PipelineContext) (*PhaseResult, error)
 }
 
-// BannerPhase renders the StageFreight banner and CI context block.
-// extraKV lets each command add engine-specific key-value pairs (registry counts, platforms, etc.).
-func BannerPhase(extraKV func(*PipelineContext) []output.KV) Phase {
+// BannerPhase renders the StageFreight banner and code identity block.
+// Code panel: Commit + Branch/Tag only. No pipeline, runner, platforms, or
+// registries — those belong to their domain panels (Execution, Plan, Result).
+func BannerPhase() Phase {
 	return Phase{
 		Name: "banner",
 		Run: func(pc *PipelineContext) (*PhaseResult, error) {
 			output.Banner(pc.Writer, output.NewBannerInfo(version.Version, version.Commit, ""), pc.Color)
-
-			kv := CIContextKV()
-			if extraKV != nil {
-				kv = append(kv, extraKV(pc)...)
-			}
-			output.ContextBlock(pc.Writer, kv)
-
+			output.ContextBlock(pc.Writer, CIContextKV())
 			return &PhaseResult{
 				Name:   "banner",
 				Status: "success",
 			}, nil
 		},
+	}
+}
+
+// RunnerPreflightPhase runs execution substrate checks and renders the Runner section.
+// This is the DomainExecution panel — it absorbs Pipeline ID, Runner name,
+// engine detection, and substrate health from the former ContextBlock.
+//
+// Skip conditions: crucible child pass (pass-2 substrate is not meaningful to report).
+func RunnerPreflightPhase(opts runner.Options) Phase {
+	return Phase{
+		Name: "runner",
+		Run: func(pc *PipelineContext) (*PhaseResult, error) {
+			if build.IsCrucibleChild() {
+				return &PhaseResult{Name: "runner", Status: "skipped", Summary: "crucible child"}, nil
+			}
+
+			start := time.Now()
+			report := runner.Run(pc.RootDir, opts)
+
+			RenderRunnerSection(pc.Writer, report, opts, pc.Color, time.Since(start))
+
+			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
+				st.Runner = report
+			}); err != nil {
+				diag.Warn("runner preflight: state write failed: %v", err)
+			}
+
+			switch report.Health {
+			case runner.Unhealthy:
+				return &PhaseResult{
+					Name:    "runner",
+					Status:  "failed",
+					Summary: "substrate unhealthy",
+				}, fmt.Errorf("runner preflight: substrate unhealthy — pipeline aborted")
+			case runner.Degraded:
+				var warnCount int
+				for _, f := range report.Findings {
+					if f.Status == "fail" || f.Status == "warn" {
+						warnCount++
+					}
+				}
+				return &PhaseResult{
+					Name:    "runner",
+					Status:  "warning",
+					Summary: fmt.Sprintf("%d warning(s)", warnCount),
+				}, nil
+			default:
+				return &PhaseResult{Name: "runner", Status: "success"}, nil
+			}
+		},
+	}
+}
+
+// renderRunnerSection renders the DomainExecution panel box.
+// Row order is fixed: identity → separator → substrate → separator → health → [findings].
+// Rule 8: substrate rows always present when fact exists.
+// Rule 10: info-severity findings never appear as finding rows.
+// RunnerPreflightWithWriter is the exported equivalent of the cmd-package
+// runnerPreflight helper, for callers that own their own io.Writer (e.g. crucible).
+// Runs substrate assessment, renders the Runner panel to w, persists to cistate.
+// Returns the report so callers can inspect Health and abort on Unhealthy.
+func RunnerPreflightWithWriter(w io.Writer, rootDir string, opts runner.Options, color bool) runner.ExecutionReport {
+	start := time.Now()
+	report := runner.Run(rootDir, opts)
+	RenderRunnerSection(w, report, opts, color, time.Since(start))
+	if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) { st.Runner = report }); stErr != nil {
+		fmt.Fprintf(w, "warning: pipeline state write failed: %v\n", stErr)
+	}
+	return report
+}
+
+// RenderRunnerSection renders the DomainExecution panel box.
+// Exported for callers that need to render without running preflight (e.g. tests).
+func RenderRunnerSection(w io.Writer, report runner.ExecutionReport, opts runner.Options, color bool, elapsed time.Duration) {
+	sec := output.NewSection(w, "Runner", elapsed, color)
+
+	// ── Identity rows ──────────────────────────────────────────────────────────
+	// Engine + Run (InvocationID) always first and always paired.
+	sec.Row("%-12s%-20s%-10s%s", "Engine", string(report.Engine), "Run", report.InvocationID)
+
+	id := report.Identity
+	switch report.Engine {
+	case runner.EngineGitLab:
+		if id.PipelineID != "" || id.JobID != "" {
+			sec.Row("%-12s%-20s%-10s%s", "Pipeline", id.PipelineID, "Job", id.JobID)
+		}
+		if id.Name != "" {
+			sec.Row("%-12s%s", "Runner", id.Name)
+		}
+	case runner.EngineGitHub:
+		if id.Workflow != "" || id.JobID != "" {
+			sec.Row("%-12s%-20s%-10s%s", "Workflow", id.Workflow, "Job", id.JobID)
+		}
+		if id.Name != "" {
+			sec.Row("%-12s%s", "Runner", id.Name)
+		}
+	case runner.EngineForgejo, runner.EngineGitea:
+		if id.PipelineID != "" {
+			sec.Row("%-12s%s", "Pipeline", id.PipelineID)
+		}
+		if id.Name != "" {
+			sec.Row("%-12s%s", "Runner", id.Name)
+		}
+	case runner.EngineStageFreight:
+		if id.Controller != "" {
+			sec.Row("%-12s%s", "Controller", id.Controller)
+		}
+		if id.Satellite != "" {
+			sec.Row("%-12s%s", "Satellite", id.Satellite)
+		}
+	}
+
+	sec.Separator()
+
+	// ── Substrate rows ─────────────────────────────────────────────────────────
+	f := report.Facts
+
+	// workspace + free
+	wsLabel := "writable"
+	wsIcon := output.StatusIcon("success", color)
+	if !f.StagefreightWritable {
+		wsLabel = "not writable"
+		wsIcon = output.StatusIcon("failed", color)
+	}
+	diskIcon := runnerFindingIcon(report.Findings, color, "disk_critical", "disk_low")
+	sec.Row("%-12s%-20s%-10s%s", "workspace", wsLabel+" "+wsIcon, "free", formatRunnerMB(f.DiskFreeMB)+" "+diskIcon)
+
+	// memory + cpu
+	memVal := "-"
+	if f.MemAvailableMB >= 0 {
+		memIcon := runnerFindingIcon(report.Findings, color, "memory_low")
+		memVal = formatRunnerMB(f.MemAvailableMB) + " " + memIcon
+	}
+	cpuVal := "-"
+	if f.CPULoadAvg1 >= 0 {
+		cpuVal = fmt.Sprintf("%.2f avg", f.CPULoadAvg1)
+	}
+	sec.Row("%-12s%-20s%-10s%s", "memory", strings.TrimSpace(memVal), "cpu", cpuVal)
+
+	// docker + buildkit — always rendered; severity affects icon/wording, not presence
+	sec.Row("%-12s%-20s%-10s%s", "docker",
+		formatRunnerDockerStatus(f.DockerAvailable, opts.DockerRequired, color),
+		"buildkit",
+		formatRunnerBuildkitStatus(f.BuildKitAvailable, opts.DockerRequired, color))
+
+	// dind + buildx — always rendered; both are informational (no icon — Rule 10)
+	dindLabel := "not detected"
+	if f.DindDetected {
+		dindLabel = "detected"
+	}
+	sec.Row("%-12s%-20s%-10s%s", "dind", dindLabel, "buildx",
+		formatRunnerBuildxStatus(f.BuildxAvailable))
+
+	sec.Separator()
+
+	// ── Health line ────────────────────────────────────────────────────────────
+	sec.Row("%-12s%s %s", "health", string(report.Health), output.StatusIcon(runnerHealthStatus(report.Health), color))
+
+	// ── Findings block (warn/fail severity only — no info per Rule 10) ─────────
+	var actionable []runner.Finding
+	for _, finding := range report.Findings {
+		if finding.Severity != "info" && (finding.Status == "warn" || finding.Status == "fail") {
+			actionable = append(actionable, finding)
+		}
+	}
+	if len(actionable) > 0 {
+		sec.Separator()
+		for _, finding := range actionable {
+			icon := output.StatusIcon("warning", color)
+			if finding.Status == "fail" {
+				icon = output.StatusIcon("failed", color)
+			}
+			sec.Row("%s  %-18s%s", icon, finding.ID, finding.Detail)
+		}
+	}
+
+	sec.Close()
+}
+
+// runnerFindingIcon returns the icon for the worst finding matching any of the given IDs.
+func runnerFindingIcon(findings []runner.Finding, color bool, ids ...string) string {
+	worst := "ok"
+	for _, f := range findings {
+		for _, id := range ids {
+			if f.ID == id && f.Status != "ok" {
+				if f.Status == "fail" {
+					worst = "fail"
+				} else if worst != "fail" {
+					worst = "warn"
+				}
+			}
+		}
+	}
+	switch worst {
+	case "fail":
+		return output.StatusIcon("failed", color)
+	case "warn":
+		return output.StatusIcon("warning", color)
+	default:
+		return output.StatusIcon("success", color)
+	}
+}
+
+func formatRunnerMB(mb int64) string {
+	if mb < 0 {
+		return "-"
+	}
+	if mb >= 1024 {
+		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
+	}
+	return fmt.Sprintf("%d MB", mb)
+}
+
+func formatRunnerDockerStatus(available, required bool, color bool) string {
+	if available {
+		if required {
+			return "available " + output.StatusIcon("success", color)
+		}
+		return "available" // no icon — info only (Rule 10)
+	}
+	if required {
+		return "not available " + output.StatusIcon("failed", color)
+	}
+	return "not present" // no icon, no alarm — info only
+}
+
+func formatRunnerBuildkitStatus(available, required bool, color bool) string {
+	if available {
+		if required {
+			return "available " + output.StatusIcon("success", color)
+		}
+		return "available"
+	}
+	if required {
+		return "not available " + output.StatusIcon("failed", color)
+	}
+	return "not available"
+}
+
+// formatRunnerBuildxStatus is always informational — buildx absence is not
+// a health finding. We don't yet have "multi-platform build planned" signal,
+// so no severity threshold can be applied. No icon, always plain text.
+func formatRunnerBuildxStatus(available bool) string {
+	if available {
+		return "available"
+	}
+	return "not available"
+}
+
+func runnerHealthStatus(h runner.HealthGrade) string {
+	switch h {
+	case runner.Healthy:
+		return "success"
+	case runner.Degraded:
+		return "warning"
+	default:
+		return "failed"
 	}
 }
 

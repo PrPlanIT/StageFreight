@@ -19,6 +19,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 var (
@@ -74,7 +75,8 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
-			pipeline.BannerPhase(binaryContextKV),
+			pipeline.BannerPhase(),
+			pipeline.RunnerPreflightPhase(runner.Options{DockerRequired: false}),
 			pipeline.LintPhase(),
 			binaryDetectPhase(),
 			binaryPlanPhase(),
@@ -88,28 +90,6 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 		},
 	}
 	return p.Run(pc)
-}
-
-// binaryContextKV returns binary-specific KV pairs for the banner context block.
-func binaryContextKV(pc *pipeline.PipelineContext) []output.KV {
-	var kv []output.KV
-
-	// Count binary builds that will actually run (respects --build filter)
-	var count int
-	for _, b := range pc.Config.Builds {
-		if b.Kind != "binary" {
-			continue
-		}
-		if bbBuildID != "" && b.ID != bbBuildID {
-			continue
-		}
-		count++
-	}
-	if count > 0 {
-		kv = append(kv, output.KV{Key: "Builds", Value: fmt.Sprintf("%d binary", count)})
-	}
-
-	return kv
 }
 
 // binaryDetectPhase discovers the repo and filters to binary builds.
