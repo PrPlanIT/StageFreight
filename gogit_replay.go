@@ -275,7 +275,12 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 		return fmt.Errorf("staging changes: %w", err)
 	}
 
-	// Index integrity check: forward — every entry in commitTree must be in index with matching hash
+	// Index integrity check: verify only the files this commit actually touched.
+	//
+	// We cannot compare the full index to commitTree — after rebasing on a new
+	// upstream base the index also contains the upstream's changes, so the trees
+	// will legitimately differ for files we didn't touch. Checking only the
+	// changed paths ensures the diff applied cleanly without corruption.
 	idx, err := repo.Storer.Index()
 	if err != nil {
 		return fmt.Errorf("reading index: %w", err)
@@ -285,22 +290,32 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 		idxEntries[entry.Name] = entry.Hash
 	}
 
-	// Build set of expected tree paths for reverse check
-	treeEntries := make(map[string]struct{}, len(commitTree.Entries))
-	for _, entry := range commitTree.Entries {
-		treeEntries[entry.Name] = struct{}{}
-		idxHash, ok := idxEntries[entry.Name]
-		if !ok || idxHash != entry.Hash {
-			_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
-			return &gitstate.ErrIndexDrift{CommitHash: c.Hash}
+	// Collect the paths this commit touched and their expected post-commit blob hashes.
+	changedPaths := make(map[string]plumbing.Hash) // path → expected blob (zero = deleted)
+	for _, ch := range changes {
+		action, _ := ch.Action()
+		switch action {
+		case merkletrie.Insert, merkletrie.Modify:
+			changedPaths[ch.To.Name] = ch.To.TreeEntry.Hash
+		case merkletrie.Delete:
+			changedPaths[ch.From.Name] = plumbing.ZeroHash
 		}
 	}
 
-	// Index integrity check: reverse — index must not contain entries absent from the tree
-	for name := range idxEntries {
-		if _, inTree := treeEntries[name]; !inTree {
-			_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
-			return &gitstate.ErrIndexDrift{CommitHash: c.Hash}
+	for path, expectedHash := range changedPaths {
+		if expectedHash == plumbing.ZeroHash {
+			// File was deleted — must be absent from index.
+			if _, present := idxEntries[path]; present {
+				_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
+				return &gitstate.ErrIndexDrift{CommitHash: c.Hash}
+			}
+		} else {
+			// File was added or modified — must be in index with the right blob.
+			idxHash, ok := idxEntries[path]
+			if !ok || idxHash != expectedHash {
+				_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
+				return &gitstate.ErrIndexDrift{CommitHash: c.Hash}
+			}
 		}
 	}
 
