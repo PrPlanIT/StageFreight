@@ -200,24 +200,22 @@ func Replay(session *gitstate.SyncSession) error {
 
 // validateReplayGate validates all commits against gate conditions.
 // Collects ALL violations before returning — no short-circuit.
+//
+// Gate is structural only: merge commits and non-linear chains cannot be
+// deterministically replayed by diff application. Authorship markers (e.g.
+// SF-generated trailer) are NOT gate conditions — historical commits and CI
+// commits that predate the trailer are replayable by the same mechanism.
 func validateReplayGate(commits []*object.Commit, mergeBase plumbing.Hash) []string {
 	var violations []string
 	for i, c := range commits {
-		// Rule 1: SF-generated trailer required
-		if !hasSFGeneratedTrailer(c.Message) {
-			violations = append(violations, fmt.Sprintf(
-				"%s %q: missing trailer (not SF-generated, use manual rebase)",
-				c.Hash.String()[:8], firstLine(c.Message),
-			))
-		}
-		// Rule 2: no merge commits
+		// Rule 1: no merge commits
 		if len(c.ParentHashes) != 1 {
 			violations = append(violations, fmt.Sprintf(
 				"%s %q: has %d parents (merge commits cannot be replayed)",
 				c.Hash.String()[:8], firstLine(c.Message), len(c.ParentHashes),
 			))
 		}
-		// Rule 3: linear chain
+		// Rule 2: linear chain
 		if len(c.ParentHashes) == 1 {
 			expected := mergeBase
 			if i > 0 {
