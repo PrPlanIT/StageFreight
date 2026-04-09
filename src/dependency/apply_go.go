@@ -20,10 +20,12 @@ type goRunner func(ctx context.Context, dir string, args ...string) ([]byte, err
 func resolveGoRunner(repoRoot string) (goRunner, error) {
 	// Strategy 1: Native go binary in PATH
 	if _, err := exec.LookPath("go"); err == nil {
+		fmt.Fprintln(os.Stderr, "[deps:diag] go runner: strategy 1 (native)")
 		return nativeGoRunner, nil
 	}
 	// Strategy 2: Toolcache (STAGEFREIGHT_GO_HOME or /toolcache/go)
 	if goHome := toolcacheGoHome(); goHome != "" {
+		fmt.Fprintf(os.Stderr, "[deps:diag] go runner: strategy 2 (toolcache: %s)\n", goHome)
 		return toolcacheGoRunner(goHome), nil
 	}
 	// Strategy 3: Container runtime (docker/podman/nerdctl)
@@ -35,6 +37,7 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 		if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
 			absRoot = resolved
 		}
+		fmt.Fprintf(os.Stderr, "[deps:diag] go runner: strategy 3 (container: %s, root: %s)\n", rt, absRoot)
 		return containerGoRunner(rt, absRoot), nil
 	}
 	// Strategy 4: Error

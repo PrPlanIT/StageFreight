@@ -3,9 +3,11 @@ package dependency
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -48,29 +50,41 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	}
 
 	// 2. Check tracked files are clean
+	t0 := time.Now()
+	fmt.Fprintln(os.Stderr, "[deps:diag] step: checkGitClean")
 	if err := checkGitClean(ctx, repoRoot); err != nil {
 		return result, err
 	}
+	fmt.Fprintf(os.Stderr, "[deps:diag] step: checkGitClean done (%s)\n", time.Since(t0).Round(time.Millisecond))
 
 	// 3. Detect git-tracked files
+	t0 = time.Now()
+	fmt.Fprintln(os.Stderr, "[deps:diag] step: gitTrackedFiles")
 	trackedFiles, err := gitTrackedFiles(ctx, repoRoot)
 	if err != nil {
 		return result, fmt.Errorf("listing tracked files: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "[deps:diag] step: gitTrackedFiles done (%s, %d files)\n", time.Since(t0).Round(time.Millisecond), len(trackedFiles))
 
 	// 4. Filter update candidates
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
+	fmt.Fprintf(os.Stderr, "[deps:diag] candidates: %d go-mod, filtering from %d deps\n", len(candidates), len(deps))
 
 	if len(candidates) == 0 {
+		fmt.Fprintln(os.Stderr, "[deps:diag] no candidates — skipping apply+verify")
 		return result, nil
 	}
 
 	// 5. Group by ecosystem and apply
 	gomodDeps, dockerDeps := groupByEcosystem(candidates)
+	fmt.Fprintf(os.Stderr, "[deps:diag] apply: %d gomod deps, %d docker deps\n", len(gomodDeps), len(dockerDeps))
 
 	if len(gomodDeps) > 0 {
+		t0 = time.Now()
+		fmt.Fprintln(os.Stderr, "[deps:diag] step: applyGoUpdates")
 		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, repoRoot)
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: applyGoUpdates done (%s, touched dirs: %v)\n", time.Since(t0).Round(time.Millisecond), touchedDirs)
 		if err != nil {
 			return result, fmt.Errorf("applying Go updates: %w", err)
 		}
@@ -81,7 +95,10 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	}
 
 	if len(dockerDeps) > 0 {
+		t0 = time.Now()
+		fmt.Fprintln(os.Stderr, "[deps:diag] step: applyDockerfileUpdates")
 		applied, dkSkipped, touchedFiles, err := applyDockerfileUpdates(dockerDeps, repoRoot)
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: applyDockerfileUpdates done (%s)\n", time.Since(t0).Round(time.Millisecond))
 		if err != nil {
 			return result, fmt.Errorf("applying Dockerfile updates: %w", err)
 		}
@@ -105,9 +122,12 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	syncResolved = mergeGoDirectiveSyncResults(syncResolved, driftResolved)
 
 	if len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0 {
+		t0 = time.Now()
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: syncGoDirectives (%d targets, %d conflicted)\n", len(syncResolved.Targets), len(syncResolved.Conflicted))
 		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved); err != nil {
 			return result, fmt.Errorf("syncing go directives: %w", err)
 		}
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: syncGoDirectives done (%s)\n", time.Since(t0).Round(time.Millisecond))
 		result.Toolchains = collectToolchainDepsFromResolved(syncResolved, result.Applied)
 	}
 
@@ -117,7 +137,10 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 		for _, d := range result.TouchedModuleDirs {
 			absDirs = append(absDirs, filepath.Join(repoRoot, d))
 		}
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: Verify (%d module dirs: %v)\n", len(absDirs), result.TouchedModuleDirs)
+		t0 = time.Now()
 		log, verifyErr := Verify(ctx, absDirs, repoRoot, true, cfg.Vulncheck)
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: Verify done (%s)\n", time.Since(t0).Round(time.Millisecond))
 		result.Verified = true
 		result.VerifyLog = log
 		result.VerifyErr = verifyErr
