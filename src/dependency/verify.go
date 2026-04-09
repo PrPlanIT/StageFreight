@@ -1,10 +1,13 @@
 package dependency
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sort"
 	"strings"
+
+	vulnscan "golang.org/x/vuln/scan"
 )
 
 // Verify runs post-update verification (go test + govulncheck) on the
@@ -31,7 +34,7 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 	sort.Strings(dirs)
 
 	var runGo goRunner
-	if runTests || runVulncheck {
+	if runTests {
 		var err error
 		runGo, err = resolveGoRunner(repoRoot)
 		if err != nil {
@@ -51,7 +54,7 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 		}
 
 		if runVulncheck {
-			vulnLog, err := runGovulncheck(ctx, dir, runGo)
+			vulnLog, err := runGovulncheck(ctx, dir)
 			if vulnLog != "" {
 				log.WriteString(fmt.Sprintf("=== govulncheck ./... (%s) ===\n", dir))
 				log.WriteString(vulnLog)
@@ -71,9 +74,19 @@ func runGoTest(ctx context.Context, dir string, runGo goRunner) (string, error) 
 	return string(out), err
 }
 
-const govulncheckModule = "golang.org/x/vuln/cmd/govulncheck@latest"
-
-func runGovulncheck(ctx context.Context, dir string, runGo goRunner) (string, error) {
-	out, err := runGo(ctx, dir, "run", govulncheckModule, "./...")
-	return string(out), err
+// runGovulncheck runs govulncheck in-process against the module at dir.
+// Uses the golang.org/x/vuln/scan library — no subprocess or Go toolchain required.
+// The -C flag sets the working directory; no chdir needed.
+func runGovulncheck(ctx context.Context, dir string) (string, error) {
+	var buf bytes.Buffer
+	cmd := vulnscan.Command(ctx, "-C", dir, "./...")
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	if err := cmd.Wait(); err != nil {
+		return buf.String(), err
+	}
+	return buf.String(), nil
 }
