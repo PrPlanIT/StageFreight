@@ -122,23 +122,6 @@ type ResolvedPreset struct {
 	Content     map[string]any // parsed YAML content under that key
 }
 
-// MergeTrace records how each config value was resolved.
-type MergeTrace struct {
-	Entries []MergeEntry
-}
-
-// MergeEntry records the provenance of a single config value.
-type MergeEntry struct {
-	Path         string // dot-path (e.g., "security.sbom")
-	Source       string // "managed", "local", "preset:preset/security.yml"
-	SourceRef    string // "PrPlanIT/MaintenancePolicy@v1.0.0" for presets
-	Layer        int    // resolution depth (0=innermost preset, N=outermost, N+1=managed, N+2=local)
-	Operation    string // "set", "override", "merge", "replace"
-	Value        any
-	Overridden   bool
-	OverriddenBy string
-}
-
 // DetectionReport is the output of capability discovery.
 type DetectionReport struct {
 	Capabilities []CapabilityResult

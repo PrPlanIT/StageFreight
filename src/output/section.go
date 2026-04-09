@@ -5,9 +5,12 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/output/layout"
+	"github.com/PrPlanIT/StageFreight/src/output/termutil"
 )
 
-const sectionWidth = 61 // inner width between │ and line end
+const sectionWidth = 61 // inner separator width (box frame)
 
 // Section renders a box-drawing framed output section.
 type Section struct {
@@ -25,9 +28,14 @@ func NewSection(w io.Writer, name string, elapsed time.Duration, color bool) *Se
 }
 
 // Row writes a content line inside the section frame.
+// Lines that exceed the available width are wrapped at word boundaries:
+// " ..." suffix on the cut line, indented "... " prefix on continuations.
 func (s *Section) Row(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
-	fmt.Fprintf(s.w, "    │ %s\n", line)
+	budget := termutil.ContentWidth(s.w)
+	for _, wrapped := range layout.WrapContent(line, budget) {
+		fmt.Fprintf(s.w, "    │ %s\n", wrapped)
+	}
 }
 
 // Separator writes a mid-section divider.

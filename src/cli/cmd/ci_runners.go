@@ -25,6 +25,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runner"
+	"github.com/PrPlanIT/StageFreight/src/trace"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 )
 
@@ -65,14 +66,32 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 
 	// Resolve build policy from config. If ANY build is required, the subsystem is required.
 	buildRequired := false
+	dockerRequired := false
+	isCrucible := false
 	for _, b := range appCfg.Builds {
 		if b.IsRequired() {
 			buildRequired = true
-			break
+		}
+		if b.Kind == "docker" {
+			dockerRequired = true
+		}
+		if b.BuildMode == "crucible" {
+			isCrucible = true
 		}
 	}
 	if len(appCfg.Builds) == 0 {
 		buildRequired = true // no builds configured = subsystem still required (will report not_applicable)
+	}
+
+	// Execution spine: Runner → Config → Lint (universal, always present)
+	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: dockerRequired, IsCrucible: isCrucible}); r.Health == runner.Unhealthy {
+		return fmt.Errorf("build subsystem: substrate unhealthy")
+	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("build subsystem: %w", err)
+	}
+	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
+		return fmt.Errorf("build subsystem (lint): %w", err)
 	}
 
 	// Initialize pipeline state with CI context
@@ -117,12 +136,13 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	}
 	if hasDockerBuilds {
 		if err := docker.Run(docker.Request{
-			Context: ctx,
-			RootDir: rootDir,
-			Config:  appCfg,
-			Verbose: opts.Verbose,
-			Stdout:  os.Stdout,
-			Stderr:  os.Stderr,
+			Context:  ctx,
+			RootDir:  rootDir,
+			Config:   appCfg,
+			Verbose:  opts.Verbose,
+			Stdout:   os.Stdout,
+			Stderr:   os.Stderr,
+			SkipLint: true, // lint already ran via runUniversalLint above
 		}); err != nil {
 			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.RecordSubsystem(cistate.SubsystemState{
@@ -149,6 +169,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
 		}
+		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -206,6 +227,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		}
 	}
 
+	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -220,6 +242,12 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("deps subsystem: substrate unhealthy")
+	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("deps subsystem: %w", err)
+	}
+	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
+		return fmt.Errorf("deps subsystem (lint): %w", err)
 	}
 
 	// Fetch security advisories from prior pipeline (cross-pipeline bridge).
@@ -374,6 +402,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
+	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -476,6 +505,12 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("security subsystem: substrate unhealthy")
 	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("security subsystem: %w", err)
+	}
+	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
+		return fmt.Errorf("security subsystem (lint): %w", err)
+	}
 
 	// Pre-flight: check pipeline state for build output.
 	// Only skip when build completed successfully and produced nothing.
@@ -498,6 +533,7 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
+			runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 			return nil
 		}
 	}
@@ -545,6 +581,7 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 		}
 	}
 
+	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -578,6 +615,12 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("docs subsystem: substrate unhealthy")
+	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("docs subsystem: %w", err)
+	}
+	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
+		return fmt.Errorf("docs subsystem (lint): %w", err)
 	}
 
 	// Resolve BUILD_STATUS from pipeline state — not hardcoded in skeleton.
@@ -696,6 +739,12 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("release subsystem: substrate unhealthy")
 	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("release subsystem: %w", err)
+	}
+	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
+		return fmt.Errorf("release subsystem (lint): %w", err)
+	}
 
 	// run_from gate — controls mutation authority for release.
 	rfResult := config.EvaluateRunFrom(appCfg.Release.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
@@ -710,6 +759,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
+		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 	releaseReadOnly := !rfResult.Matched && rfResult.Mode == "read-only"
@@ -727,6 +777,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
+		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -740,6 +791,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
+		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -759,6 +811,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
 		}
+		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -775,6 +828,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
+		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -823,6 +877,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	// Sync mirrors — git + release reconciliation from primary.
 	syncMirrors(ctx, appCfg)
 
+	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -1382,6 +1437,12 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("reconcile subsystem: substrate unhealthy")
 	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("reconcile subsystem: %w", err)
+	}
+	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
+		return fmt.Errorf("reconcile subsystem (lint): %w", err)
+	}
 
 	// GitOps reconcile — auth resolved at runtime (CA cert, OIDC, or kubeconfig).
 	// No pre-flight gate — let the runtime detect available auth and fail
@@ -1413,6 +1474,7 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 		}
 	}
 
+	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -1431,6 +1493,224 @@ func runnerPreflight(rootDir string, opts runner.Options) runner.ExecutionReport
 	return report
 }
 
+// ── universal lint + docs orchestration ─────────────────────────────────────
+
+func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, verbose bool) error {
+	color := output.UseColor()
+	if strings.TrimSpace(string(appCfg.Lint.Level)) == "" {
+		col := trace.NewCollector()
+		col.Decision("lint", "status", "skipped — not configured", "no lint level set", "config", trace.StatusSkipped)
+		sec := output.NewSection(os.Stdout, "Lint", 0, color)
+		for _, e := range col.ForDomain("lint") {
+			sec.Row("%-16s%s", e.Key, e.RenderValue())
+			col.MarkRendered(e)
+		}
+		sec.Close()
+		return nil
+	}
+	_, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
+	return err
+}
+
+// docsOutcome tracks per-generator outcomes for the Docs panel.
+// Panels render from this — not from stderr. Panel status is authoritative.
+type docsOutcome struct {
+	badgesOK        bool
+	badgesErr       error
+	narratorOK      bool
+	narratorErr     error
+	dockerReadmeOK  bool
+	dockerReadmeErr error
+	configured      bool // true if at least one generator is enabled
+}
+
+// runUniversalDocs generates badges and narrator if configured, renders the Docs panel.
+// Universal postamble — every modality runs this.
+// Does NOT commit or sync mirrors — those are docsRunner's exclusive territory.
+func runUniversalDocs(ctx context.Context, appCfg *config.Config, rootDir string, verbose bool) {
+	col := trace.NewCollector()
+	gen := appCfg.Docs.Generators
+	configured := gen.Badges || gen.Narrator || gen.DockerReadme
+
+	if !configured {
+		col.Decision("docs", "status", "skipped — not configured", "no docs generators enabled", "config", trace.StatusSkipped)
+		renderDocsPanel(col)
+		return
+	}
+
+	buildStatusSrc := "env"
+	if os.Getenv("BUILD_STATUS") == "" {
+		if st, err := cistate.ReadState(rootDir); err == nil {
+			os.Setenv("BUILD_STATUS", st.PipelineStatus())
+			buildStatusSrc = "cistate"
+		} else {
+			os.Setenv("BUILD_STATUS", "failing")
+			buildStatusSrc = "default (state unreadable)"
+		}
+	}
+	col.Decision("docs", "build_status", os.Getenv("BUILD_STATUS")+" (source: "+buildStatusSrc+")",
+		"resolved from "+buildStatusSrc, buildStatusSrc, trace.StatusOK)
+
+	out := docsOutcome{configured: true}
+
+	if gen.Badges {
+		if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
+			out.badgesErr = err
+		} else {
+			out.badgesOK = true
+		}
+	}
+	if gen.Narrator {
+		if err := RunNarrator(appCfg, rootDir, false, verbose); err != nil {
+			out.narratorErr = err
+		} else {
+			out.narratorOK = true
+		}
+	}
+	if gen.DockerReadme {
+		if err := RunDockerReadme(ctx, appCfg, rootDir, false); err != nil {
+			out.dockerReadmeErr = err
+		} else {
+			out.dockerReadmeOK = true
+		}
+	}
+
+	if gen.Badges {
+		if out.badgesOK {
+			col.SideEffect("docs", "badges", "generated", "", "badges-generator", trace.StatusOK)
+		} else {
+			col.SideEffect("docs", "badges", "failed", out.badgesErr.Error(), "badges-generator", trace.StatusFail)
+		}
+	}
+	if gen.Narrator {
+		if out.narratorOK {
+			col.SideEffect("docs", "narrator", "generated", "", "narrator-generator", trace.StatusOK)
+		} else {
+			col.SideEffect("docs", "narrator", "failed", out.narratorErr.Error(), "narrator-generator", trace.StatusFail)
+		}
+	}
+	if gen.DockerReadme {
+		if out.dockerReadmeOK {
+			col.SideEffect("docs", "docker_readme", "synced", "", "docker-readme-sync", trace.StatusOK)
+		} else {
+			col.SideEffect("docs", "docker_readme", "failed", out.dockerReadmeErr.Error(), "docker-readme-sync", trace.StatusFail)
+		}
+	}
+
+	hasFailure := out.badgesErr != nil || out.narratorErr != nil || out.dockerReadmeErr != nil
+	if hasFailure {
+		col.Decision("docs", "status", "degraded", "one or more generators failed", "docs-aggregate", trace.StatusWarn)
+	} else {
+		col.Decision("docs", "status", "success", "", "docs-aggregate", trace.StatusOK)
+	}
+
+	renderDocsPanel(col)
+}
+
+// renderDocsPanel renders the Docs section exclusively from emissions in col.
+func renderDocsPanel(col *trace.Collector) {
+	color := output.UseColor()
+	sec := output.NewSection(os.Stdout, "Docs", 0, color)
+	for _, e := range col.ForDomain("docs") {
+		icon := ""
+		switch e.Status {
+		case trace.StatusOK:
+			icon = " " + output.StatusIcon("success", color)
+		case trace.StatusWarn:
+			icon = " " + output.StatusIcon("warning", color)
+		case trace.StatusFail:
+			icon = " " + output.StatusIcon("failed", color)
+		}
+		row := e.RenderValue()
+		if e.Detail != "" && e.Status != trace.StatusOK {
+			row += "  " + e.Detail
+		}
+		sec.Row("%-16s%s%s", e.Key, row, icon)
+		col.MarkRendered(e)
+	}
+	sec.Close()
+
+	if unrendered := col.Unrendered(); len(unrendered) > 0 {
+		pipeline.RenderContractPanel(os.Stdout, unrendered, color)
+	}
+}
+
+// renderSyncPanel renders the DomainSync panel for mirror push outcomes.
+func renderSyncPanel(results []syncMirrorOutcome) {
+	if len(results) == 0 {
+		return
+	}
+	col := trace.NewCollector()
+
+	degraded := false
+	for _, r := range results {
+		switch {
+		case r.err != nil || r.degraded:
+			degraded = true
+			detail := ""
+			if r.err != nil {
+				detail = r.err.Error()
+			} else if r.reason != "" {
+				detail = string(r.reason)
+			}
+			col.SideEffect("sync", r.id, "failed", detail, "mirror-push", trace.StatusFail)
+		case r.skipped:
+			col.Decision("sync", r.id, "skipped (read-only)", "read-only mode", "mirror-push", trace.StatusSkipped)
+		default:
+			v := r.value
+			if v == "" {
+				v = "pushed (" + r.duration.Truncate(100*time.Millisecond).String() + ")"
+			}
+			col.SideEffect("sync", r.id, v, "", "mirror-push", trace.StatusOK)
+		}
+	}
+	if degraded {
+		col.Decision("sync", "status", "degraded", "one or more mirrors failed", "sync-aggregate", trace.StatusWarn)
+	} else {
+		col.Decision("sync", "status", "success", "", "sync-aggregate", trace.StatusOK)
+	}
+
+	color := output.UseColor()
+	sec := output.NewSection(os.Stdout, "Sync", 0, color)
+	emissions := col.ForDomain("sync")
+	for _, e := range emissions {
+		icon := ""
+		switch e.Status {
+		case trace.StatusOK:
+			icon = " " + output.StatusIcon("success", color)
+		case trace.StatusWarn:
+			icon = " " + output.StatusIcon("warning", color)
+		case trace.StatusFail:
+			icon = " " + output.StatusIcon("failed", color)
+		}
+		row := e.RenderValue()
+		if e.Detail != "" {
+			row += "  " + e.Detail
+		}
+		if e.Key == "status" {
+			sec.Separator()
+		}
+		sec.Row("%-16s%s%s", e.Key, row, icon)
+		col.MarkRendered(e)
+	}
+	sec.Close()
+
+	if unrendered := col.Unrendered(); len(unrendered) > 0 {
+		pipeline.RenderContractPanel(os.Stdout, unrendered, color)
+	}
+}
+
+// syncMirrorOutcome captures the result of one mirror operation for panel rendering.
+type syncMirrorOutcome struct {
+	id       string
+	degraded bool
+	skipped  bool
+	err      error
+	reason   stagefreightsync.MirrorFailureReason
+	duration time.Duration
+	value    string // optional: overrides computed success value in renderSyncPanel
+}
+
 // ── shared CI skip renderer ─────────────────────────────────────────────────
 
 // renderCISkip renders a structured skip section for any CI subsystem.
@@ -1447,6 +1727,105 @@ func renderCISkip(section string, start time.Time, reason string) {
 func governanceSourceConfigured(appCfg *config.Config, ciCtx *ci.CIContext) bool {
 	src, err := resolveGovernanceSourceFromOpts(GovernanceReconcileOpts{Config: appCfg, CICtx: ciCtx})
 	return err == nil && src.RepoURL != ""
+}
+
+// ── config phase ─────────────────────────────────────────────────────────────
+
+// runConfigPhase loads config, emits all config truth to a Collector, renders
+// the Config panel exclusively from those emissions, and enforces the contract.
+// Logs a warning if any emission was not rendered (hard fail in a future pass).
+func runConfigPhase(rootDir string) error {
+	_, report, _ := config.LoadWithReport(rootDir + "/.stagefreight.yml")
+
+	col := trace.NewCollector()
+
+	col.Public("config", trace.CategoryInput, "source", report.SourceFile, "config", trace.StatusOK)
+
+	if len(report.Presets) > 0 {
+		col.Public("config", trace.CategoryInput, "presets", strings.Join(report.Presets, " → "), "config", trace.StatusOK)
+		if report.Overrides > 0 {
+			col.Public("config", trace.CategoryInput, "overrides", fmt.Sprintf("%d", report.Overrides), "config", trace.StatusOK)
+		}
+	} else {
+		col.Decision("config", "presets", "none", "no presets configured", "config", trace.StatusInfo)
+	}
+
+	var activeParts, inactiveParts []string
+	for _, s := range report.Sections {
+		if s.Active {
+			activeParts = append(activeParts, s.Name+" "+configProvenanceIcon(s.Provenance))
+		} else if s.Kind == "capability" {
+			inactiveParts = append(inactiveParts, s.Name+" ⛔")
+		}
+	}
+	if len(activeParts) > 0 {
+		col.Public("config", trace.CategoryInput, "active", strings.Join(activeParts, "   "), "config", trace.StatusOK)
+	}
+	if len(inactiveParts) > 0 {
+		col.Decision("config", "inactive", strings.Join(inactiveParts, "   "), "capability domains not configured", "config", trace.StatusInfo)
+	}
+
+	if report.VarsApplied > 0 {
+		col.Public("config", trace.CategoryInput, "vars", fmt.Sprintf("%d applied", report.VarsApplied), "config", trace.StatusOK)
+	}
+
+	for i, w := range report.Warnings {
+		col.PublicDetail("config", trace.CategoryDecision, fmt.Sprintf("warning_%d", i+1), w, w, "config", trace.StatusWarn)
+	}
+
+	resStatus := trace.StatusOK
+	if report.Status == "partial" {
+		resStatus = trace.StatusWarn
+	} else if report.Status == "error" {
+		resStatus = trace.StatusFail
+	}
+	col.Decision("config", "resolution", report.Status, "config resolution completeness", "resolver", resStatus)
+
+	modelStatus := trace.StatusOK
+	modelValue := report.Completeness
+	if report.Completeness != "complete" {
+		modelStatus = trace.StatusWarn
+		modelValue = report.Completeness + " (resolution incomplete)"
+	}
+	col.Decision("config", "model", modelValue, "truth completeness signal", "resolver", modelStatus)
+
+	color := output.UseColor()
+	sec := output.NewSection(os.Stdout, "Config", 0, color)
+	for _, e := range col.ForDomain("config") {
+		icon := ""
+		switch e.Status {
+		case trace.StatusOK:
+			icon = " " + output.StatusIcon("success", color)
+		case trace.StatusWarn:
+			icon = " " + output.StatusIcon("warning", color)
+		case trace.StatusFail:
+			icon = " " + output.StatusIcon("failed", color)
+		}
+		sec.Row("%-16s%s%s", e.Key, e.RenderValue(), icon)
+		col.MarkRendered(e)
+	}
+	sec.Close()
+
+	if unrendered := col.Unrendered(); len(unrendered) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: config panel: %d unrendered emissions\n", len(unrendered))
+	}
+
+	if report.Status == "error" {
+		return fmt.Errorf("config resolution failed: %s", report.Error)
+	}
+	return nil
+}
+
+// configProvenanceIcon returns the display icon for a section's provenance.
+func configProvenanceIcon(provenance string) string {
+	switch provenance {
+	case "manifest":
+		return "📋"
+	case "preset":
+		return "♻️"
+	default:
+		return ""
+	}
 }
 
 // ciSkipResult maps a skip reason to a human-readable outcome.

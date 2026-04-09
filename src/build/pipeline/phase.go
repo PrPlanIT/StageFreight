@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runner"
+	"github.com/PrPlanIT/StageFreight/src/trace"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -557,4 +558,156 @@ func CollectTargetsByKind(cfg *config.Config, kind string) []config.TargetConfig
 		}
 	}
 	return targets
+}
+
+// RunLint delegates to the pre-build lint implementation.
+// Called by runUniversalLint in ci_runners — decouples runner layer from lint internals.
+func RunLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, color bool, verbose bool, w io.Writer) (string, error) {
+	return runPreBuildLintImpl(ctx, rootDir, appCfg, isCI, color, verbose, w)
+}
+
+// sectionProvenanceIcon returns the display icon for a config section's provenance.
+//
+//	📋 manifest — operator declared it in .stagefreight.yml
+//	♻️  preset   — preset engine activated it
+func sectionProvenanceIcon(provenance string) string {
+	switch provenance {
+	case "manifest":
+		return "📋"
+	case "preset":
+		return "♻️"
+	default:
+		return ""
+	}
+}
+
+// ConfigPhase renders the DomainConfig panel from a ConfigReport.
+// Always present — surfaces the "Explain" layer of config resolution.
+// Status is "partial" when preset resolution failed or was incomplete.
+//
+// Emission-driven: all config truth is emitted to pc.Trace first.
+// Panel renders exclusively from pc.Trace.ForDomain("config").
+// The global contract check at end of Pipeline.Run catches anything not rendered.
+func ConfigPhase(report config.ConfigReport) Phase {
+	return Phase{
+		Name: "config",
+		Run: func(pc *PipelineContext) (*PhaseResult, error) {
+			// — Emit config truth ——————————————————————————————————————————
+			pc.Trace.Public("config", trace.CategoryInput, "source", report.SourceFile, "config", trace.StatusOK)
+
+			if len(report.Presets) > 0 {
+				pc.Trace.Public("config", trace.CategoryInput, "presets", strings.Join(report.Presets, " → "), "config", trace.StatusOK)
+				if report.Overrides > 0 {
+					pc.Trace.Public("config", trace.CategoryInput, "overrides", fmt.Sprintf("%d", report.Overrides), "config", trace.StatusOK)
+				}
+			} else {
+				pc.Trace.Decision("config", "presets", "none", "no presets configured", "config", trace.StatusInfo)
+			}
+
+			var activeParts, inactiveParts []string
+			for _, s := range report.Sections {
+				if s.Active {
+					activeParts = append(activeParts, s.Name+" "+sectionProvenanceIcon(s.Provenance))
+				} else if s.Kind == "capability" {
+					inactiveParts = append(inactiveParts, s.Name+" ⛔")
+				}
+			}
+			if len(activeParts) > 0 {
+				pc.Trace.Public("config", trace.CategoryInput, "active", strings.Join(activeParts, "   "), "config", trace.StatusOK)
+			}
+			if len(inactiveParts) > 0 {
+				pc.Trace.Decision("config", "inactive", strings.Join(inactiveParts, "   "), "capability domains not configured", "config", trace.StatusInfo)
+			}
+
+			if report.VarsApplied > 0 {
+				pc.Trace.Public("config", trace.CategoryInput, "vars", fmt.Sprintf("%d applied", report.VarsApplied), "config", trace.StatusOK)
+			}
+
+			for i, w := range report.Warnings {
+				pc.Trace.PublicDetail("config", trace.CategoryDecision, fmt.Sprintf("warning_%d", i+1), w, w, "config", trace.StatusWarn)
+			}
+
+			if report.Error != "" {
+				pc.Trace.PublicDetail("config", trace.CategoryDecision, "error", report.Error, report.Error, "config", trace.StatusFail)
+			}
+
+			resStatus := trace.StatusOK
+			if report.Status == "partial" {
+				resStatus = trace.StatusWarn
+			} else if report.Status == "error" {
+				resStatus = trace.StatusFail
+			}
+			pc.Trace.Decision("config", "resolution", report.Status, "config resolution completeness", "resolver", resStatus)
+
+			modelStatus := trace.StatusOK
+			modelValue := report.Completeness
+			if report.Completeness != "complete" {
+				modelStatus = trace.StatusWarn
+				modelValue = report.Completeness + " (resolution incomplete)"
+			}
+			pc.Trace.Decision("config", "model", modelValue, "truth completeness signal", "resolver", modelStatus)
+
+			// — Render from emissions ONLY ——————————————————————————————————
+			sec := output.NewSection(pc.Writer, "Config", 0, pc.Color)
+			for _, e := range pc.Trace.ForDomain("config") {
+				icon := ""
+				switch e.Status {
+				case trace.StatusOK:
+					icon = " " + output.StatusIcon("success", pc.Color)
+				case trace.StatusWarn:
+					icon = " " + output.StatusIcon("warning", pc.Color)
+				case trace.StatusFail:
+					icon = " " + output.StatusIcon("failed", pc.Color)
+				}
+				sec.Row("%-16s%s%s", e.Key, e.RenderValue(), icon)
+				pc.Trace.MarkRendered(e)
+			}
+			sec.Close()
+
+			if report.Status == "error" {
+				return &PhaseResult{Name: "config", Status: "failed", Summary: report.Error},
+					fmt.Errorf("config resolution failed: %s", report.Error)
+			}
+			phaseStatus := "success"
+			if report.Status == "partial" {
+				phaseStatus = "warning"
+			}
+			return &PhaseResult{Name: "config", Status: phaseStatus}, nil
+		},
+	}
+}
+
+// RenderContractPanel renders the enforcement panel when unrendered emissions exist.
+// Called at end of Pipeline.Run() — never by phase code.
+// Groups unrendered emissions by domain for operator readability.
+func RenderContractPanel(w io.Writer, unrendered []trace.Emission, color bool) {
+	if len(unrendered) == 0 {
+		return
+	}
+	sec := output.NewSection(w, "Contract", 0, color)
+	sec.Row("%-16s%s %s", "status", "partial", output.StatusIcon("warning", color))
+	sec.Row("%-16s%d emissions", "unrendered", len(unrendered))
+
+	byDomain := make(map[string][]trace.Emission)
+	var domainOrder []string
+	seen := make(map[string]bool)
+	for _, e := range unrendered {
+		if !seen[e.Domain] {
+			domainOrder = append(domainOrder, e.Domain)
+			seen[e.Domain] = true
+		}
+		byDomain[e.Domain] = append(byDomain[e.Domain], e)
+	}
+
+	sec.Separator()
+	for _, domain := range domainOrder {
+		for _, e := range byDomain[domain] {
+			icon := output.StatusIcon("warning", color)
+			if e.Status == trace.StatusFail {
+				icon = output.StatusIcon("failed", color)
+			}
+			sec.Row("%s  %-30s%s", icon, domain+"/"+e.Key, e.Source)
+		}
+	}
+	sec.Close()
 }
