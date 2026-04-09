@@ -20,6 +20,9 @@ func isSSHURL(url string) bool {
 		strings.HasPrefix(url, "git@")
 }
 
+// IsSSHURL is the exported form of isSSHURL for use by other packages.
+func IsSSHURL(url string) bool { return isSSHURL(url) }
+
 // ResolveAuth resolves the go-git SSH transport auth method for a remote URL.
 //
 // Resolution order (exclusive — first match wins):

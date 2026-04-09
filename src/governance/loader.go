@@ -3,12 +3,16 @@ package governance
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"gopkg.in/yaml.v3"
+
+	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
 // LoadGovernance loads governance config and returns a preset loader.
@@ -80,49 +84,82 @@ var (
 
 // fetchRepo clones the policy repo at the given ref into a temp directory.
 // Returns the checkout path. Caller should NOT clean up — immutable for the run.
+// Tries the ref as a tag reference, then as a branch reference. If both fail
+// (e.g. ref is a commit SHA), falls back to fetchBySHA.
 func fetchRepo(repoURL, ref string) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "sf-governance-*")
+	auth, err := resolveGovernanceAuth(repoURL)
 	if err != nil {
-		return "", fmt.Errorf("creating temp dir: %w", err)
+		return "", fmt.Errorf("resolving auth for %s: %w", repoURL, err)
 	}
 
-	// Shallow clone at the specific ref.
-	cmd := exec.Command("git", "clone", "--depth=1", "--branch", ref, "--single-branch", repoURL, tmpDir)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		// If --branch fails (commit SHA), try fetch approach.
+	for _, refName := range []plumbing.ReferenceName{
+		plumbing.NewTagReferenceName(ref),
+		plumbing.NewBranchReferenceName(ref),
+	} {
+		tmpDir, err := os.MkdirTemp("", "sf-governance-*")
+		if err != nil {
+			return "", fmt.Errorf("creating temp dir: %w", err)
+		}
+		_, cloneErr := git.PlainClone(tmpDir, false, &git.CloneOptions{
+			URL:           repoURL,
+			Auth:          auth,
+			Depth:         1,
+			SingleBranch:  true,
+			ReferenceName: refName,
+		})
+		if cloneErr == nil {
+			return tmpDir, nil
+		}
 		os.RemoveAll(tmpDir)
-		return fetchBySHA(repoURL, ref)
 	}
 
-	return tmpDir, nil
+	return fetchBySHA(repoURL, ref)
 }
 
-// fetchBySHA handles commit SHA refs that can't use --branch.
+// fetchBySHA handles commit SHA refs that can't be fetched via --branch.
+// Performs a full clone then checks out the specific commit.
 func fetchBySHA(repoURL, sha string) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "sf-governance-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp dir: %w", err)
 	}
 
-	// Init + fetch specific commit.
-	cmds := [][]string{
-		{"git", "init", tmpDir},
-		{"git", "-C", tmpDir, "remote", "add", "origin", repoURL},
-		{"git", "-C", tmpDir, "fetch", "--depth=1", "origin", sha},
-		{"git", "-C", tmpDir, "checkout", "FETCH_HEAD"},
+	auth, err := resolveGovernanceAuth(repoURL)
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("resolving auth for %s: %w", repoURL, err)
 	}
 
-	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			os.RemoveAll(tmpDir)
-			return "", fmt.Errorf("git %s: %w", strings.Join(args[1:], " "), err)
-		}
+	repo, err := git.PlainClone(tmpDir, false, &git.CloneOptions{
+		URL:  repoURL,
+		Auth: auth,
+	})
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("cloning %s for SHA %s: %w", repoURL, sha, err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("worktree: %w", err)
+	}
+
+	if err := wt.Checkout(&git.CheckoutOptions{Hash: plumbing.NewHash(sha)}); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("checking out %s: %w", sha, err)
 	}
 
 	return tmpDir, nil
+}
+
+// resolveGovernanceAuth returns the appropriate go-git auth method for repoURL.
+// SSH URLs use gitstate.ResolveAuth; HTTPS repos are currently public (nil auth).
+func resolveGovernanceAuth(repoURL string) (transport.AuthMethod, error) {
+	if gitstate.IsSSHURL(repoURL) {
+		return gitstate.ResolveAuth(repoURL)
+	}
+	return nil, nil
 }
 
 // parseClusters reads and parses the governance clusters file.
