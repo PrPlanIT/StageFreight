@@ -82,21 +82,44 @@ func detectContainerRuntime() string {
 	return ""
 }
 
+// isDinD reports whether the Docker daemon is remote (TCP), indicating
+// Docker-in-Docker mode where bind-mount paths reference the inner daemon's
+// filesystem rather than the current container's filesystem.
+func isDinD() bool {
+	host := os.Getenv("DOCKER_HOST")
+	return strings.HasPrefix(host, "tcp://") || strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://")
+}
+
 func containerGoRunner(rt, repoRoot string) goRunner {
+	dind := isDinD()
 	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		ver := parseGoVersion(dir, repoRoot)
 		image := fmt.Sprintf("docker.io/library/golang:%s-alpine", ver)
 
-		relDir, err := filepath.Rel(repoRoot, dir)
-		if err != nil {
-			relDir = "."
-		}
-		workDir := "/src"
-		if relDir != "." && relDir != "" {
-			workDir = "/src/" + filepath.ToSlash(relDir)
+		var workDir string
+		runArgs := []string{"run", "--rm", "--pull=missing"}
+
+		if dind {
+			// DinD: the inner daemon can't resolve bind-mount paths from the job
+			// container's filesystem. Use --volumes-from to share the current
+			// container's volumes directly — paths are preserved without remapping.
+			if hostname := os.Getenv("HOSTNAME"); hostname != "" {
+				runArgs = append(runArgs, "--volumes-from", hostname)
+			}
+			workDir = dir
+		} else {
+			relDir, err := filepath.Rel(repoRoot, dir)
+			if err != nil {
+				relDir = "."
+			}
+			workDir = "/src"
+			if relDir != "." && relDir != "" {
+				workDir = "/src/" + filepath.ToSlash(relDir)
+			}
+			runArgs = append(runArgs, "-v", repoRoot+":/src")
 		}
 
-		runArgs := []string{"run", "--rm", "--pull=missing", "-v", repoRoot + ":/src", "-w", workDir}
+		runArgs = append(runArgs, "-w", workDir)
 
 		// Run as current user to avoid root-owned writes on shared volumes
 		if uid := os.Getuid(); uid >= 0 {
@@ -126,7 +149,7 @@ func containerGoRunner(rt, repoRoot string) goRunner {
 		cmd := exec.CommandContext(ctx, rt, runArgs...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return out, fmt.Errorf("%w\nhint: if running in DinD, ensure the repo path is visible to the Docker daemon", err)
+			return out, fmt.Errorf("%w", err)
 		}
 		return out, nil
 	}
