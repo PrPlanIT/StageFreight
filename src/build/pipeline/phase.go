@@ -69,28 +69,28 @@ func BannerPhase() Phase {
 	}
 }
 
-// RunnerPreflightPhase runs execution substrate checks and renders the Runner section.
+// ExecutorPreflightPhase runs execution substrate checks and renders the Executor section.
 // This is the DomainExecution panel — it absorbs Pipeline ID, Runner name,
 // engine detection, and substrate health from the former ContextBlock.
 //
 // Skip conditions: crucible child pass (pass-2 substrate is not meaningful to report).
-func RunnerPreflightPhase(opts runner.Options) Phase {
+func ExecutorPreflightPhase(opts runner.Options) Phase {
 	return Phase{
-		Name: "runner",
+		Name: "executor",
 		Run: func(pc *PipelineContext) (*PhaseResult, error) {
 			if build.IsCrucibleChild() {
-				return &PhaseResult{Name: "runner", Status: "skipped", Summary: "crucible child"}, nil
+				return &PhaseResult{Name: "executor", Status: "skipped", Summary: "crucible child"}, nil
 			}
 
 			start := time.Now()
 			report := runner.Run(pc.RootDir, opts)
 
-			RenderRunnerSection(pc.Writer, report, opts, pc.Color, time.Since(start))
+			RenderExecutorSection(pc.Writer, report, opts, pc.Color, time.Since(start))
 
 			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
 				st.Runner = report
 			}); err != nil {
-				diag.Warn("runner preflight: state write failed: %v", err)
+				diag.Warn("executor preflight: state write failed: %v", err)
 			}
 
 			switch report.Health {
@@ -99,7 +99,7 @@ func RunnerPreflightPhase(opts runner.Options) Phase {
 					Name:    "runner",
 					Status:  "failed",
 					Summary: "substrate unhealthy",
-				}, fmt.Errorf("runner preflight: substrate unhealthy — pipeline aborted")
+				}, fmt.Errorf("executor preflight: substrate unhealthy — pipeline aborted")
 			case runner.Degraded:
 				var warnCount int
 				for _, f := range report.Findings {
@@ -113,7 +113,7 @@ func RunnerPreflightPhase(opts runner.Options) Phase {
 					Summary: fmt.Sprintf("%d warning(s)", warnCount),
 				}, nil
 			default:
-				return &PhaseResult{Name: "runner", Status: "success"}, nil
+				return &PhaseResult{Name: "executor", Status: "success"}, nil
 			}
 		},
 	}
@@ -123,24 +123,24 @@ func RunnerPreflightPhase(opts runner.Options) Phase {
 // Row order is fixed: identity → separator → substrate → separator → health → [findings].
 // Rule 8: substrate rows always present when fact exists.
 // Rule 10: info-severity findings never appear as finding rows.
-// RunnerPreflightWithWriter is the exported equivalent of the cmd-package
-// runnerPreflight helper, for callers that own their own io.Writer (e.g. crucible).
-// Runs substrate assessment, renders the Runner panel to w, persists to cistate.
+// ExecutorPreflightWithWriter is the exported equivalent of the cmd-package
+// executorPreflight helper, for callers that own their own io.Writer (e.g. crucible).
+// Runs substrate assessment, renders the Executor panel to w, persists to cistate.
 // Returns the report so callers can inspect Health and abort on Unhealthy.
-func RunnerPreflightWithWriter(w io.Writer, rootDir string, opts runner.Options, color bool) runner.ExecutionReport {
+func ExecutorPreflightWithWriter(w io.Writer, rootDir string, opts runner.Options, color bool) runner.ExecutionReport {
 	start := time.Now()
 	report := runner.Run(rootDir, opts)
-	RenderRunnerSection(w, report, opts, color, time.Since(start))
+	RenderExecutorSection(w, report, opts, color, time.Since(start))
 	if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) { st.Runner = report }); stErr != nil {
 		fmt.Fprintf(w, "warning: pipeline state write failed: %v\n", stErr)
 	}
 	return report
 }
 
-// RenderRunnerSection renders the DomainExecution panel box.
+// RenderExecutorSection renders the DomainExecution panel box.
 // Exported for callers that need to render without running preflight (e.g. tests).
-func RenderRunnerSection(w io.Writer, report runner.ExecutionReport, opts runner.Options, color bool, elapsed time.Duration) {
-	sec := output.NewSection(w, "Runner", elapsed, color)
+func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runner.Options, color bool, elapsed time.Duration) {
+	sec := output.NewSection(w, "Executor", elapsed, color)
 
 	// ── Identity rows ──────────────────────────────────────────────────────────
 	// Engine + Run (InvocationID) always first and always paired.

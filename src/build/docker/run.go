@@ -69,7 +69,7 @@ func Run(req Request) error {
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
 			pipeline.BannerPhase(),
-			pipeline.RunnerPreflightPhase(runner.Options{
+			pipeline.ExecutorPreflightPhase(runner.Options{
 				DockerRequired: dockerRequired,
 				IsCrucible:     isCrucible,
 			}),

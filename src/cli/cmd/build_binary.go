@@ -76,7 +76,7 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
 			pipeline.BannerPhase(),
-			pipeline.RunnerPreflightPhase(runner.Options{DockerRequired: false}),
+			pipeline.ExecutorPreflightPhase(runner.Options{DockerRequired: false}),
 			pipeline.LintPhase(),
 			binaryDetectPhase(),
 			binaryPlanPhase(),

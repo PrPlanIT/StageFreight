@@ -109,10 +109,3 @@ func HasFacet(facets []ActiveFacet, name string) bool {
 	return false
 }
 
-// RecommendSkeleton returns the skeleton variant name for the active facets.
-func RecommendSkeleton(facets []ActiveFacet) string {
-	if NeedsDinD(facets) {
-		return "standard"
-	}
-	return "lightweight"
-}

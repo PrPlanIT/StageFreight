@@ -78,6 +78,9 @@ type Config struct {
 	// Release holds configuration for the release subsystem.
 	Release ReleaseConfig `yaml:"release"`
 
+	// CI holds all pipeline-related configuration consumed by ci render.
+	CI CIConfig `yaml:"ci"`
+
 	// Lifecycle defines the repository lifecycle mode (image, gitops, governance).
 	Lifecycle LifecycleConfig `yaml:"lifecycle"`
 
@@ -103,6 +106,7 @@ type Config struct {
 
 	// Tag holds workflow defaults for the tag planner.
 	Tag TagConfig `yaml:"tag"`
+
 }
 
 // Load reads configuration from a YAML file.

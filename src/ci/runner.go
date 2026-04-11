@@ -22,8 +22,11 @@ type Runner func(ctx context.Context, cfg *config.Config, ciCtx *CIContext, opts
 type Registry map[string]Runner
 
 // ValidSubsystems returns the list of valid subsystem names.
+// Canonical lifecycle phases are the primary interface.
+// Legacy names (build, deps, security, docs, release, validate, reconcile)
+// remain as compatibility aliases.
 func ValidSubsystems() []string {
-	return []string{"build", "deps", "security", "docs", "release"}
+	return []string{"audition", "perform", "review", "publish", "narrate"}
 }
 
 // RunSubsystem dispatches to a subsystem runner by name.
@@ -31,7 +34,7 @@ func ValidSubsystems() []string {
 func RunSubsystem(reg Registry, subsystem string, ctx context.Context, cfg *config.Config, ciCtx *CIContext, opts RunOptions) error {
 	runner, ok := reg[subsystem]
 	if !ok {
-		return fmt.Errorf("unknown subsystem %q (valid: build, deps, security, docs, release)", subsystem)
+		return fmt.Errorf("unknown subsystem %q (valid: %v)", subsystem, ValidSubsystems())
 	}
 	return runner(ctx, cfg, ciCtx, opts)
 }

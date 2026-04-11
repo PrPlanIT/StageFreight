@@ -81,11 +81,11 @@ func runCrucibleMode(req Request) error {
 	output.Banner(w, output.NewBannerInfo(version.Version, version.Commit, ""), color)
 	output.ContextBlock(w, pipeline.CIContextKV(), color)
 
-	// ── Execution substrate (Runner panel) ───────────────────────
+	// ── Execution substrate (Executor panel) ───────────────────────
 	// Crucible always requires Docker; IsCrucible doubles thresholds.
 	// Note: crucible child (pass 2) is excluded via IsCrucibleChild() in
-	// RunnerPreflightPhase — crucible.go is only reached from the outer pass.
-	if r := pipeline.RunnerPreflightWithWriter(w, rootDir, runner.Options{DockerRequired: true, IsCrucible: true}, color); r.Health == runner.Unhealthy {
+	// ExecutorPreflightPhase — crucible.go is only reached from the outer pass.
+	if r := pipeline.ExecutorPreflightWithWriter(w, rootDir, runner.Options{DockerRequired: true, IsCrucible: true}, color); r.Health == runner.Unhealthy {
 		return fmt.Errorf("crucible: substrate unhealthy — aborting before pass 1")
 	}
 

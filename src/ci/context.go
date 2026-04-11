@@ -8,7 +8,7 @@ import (
 )
 
 // CIContext holds normalized CI environment information.
-// Provider skeletons translate forge-native vars into SF_CI_* env vars;
+// Generated CI files translate forge-native vars into SF_CI_* env vars;
 // CIContext reads those to provide a provider-neutral execution context.
 type CIContext struct {
 	Provider      string // gitlab, github, gitea, forgejo, jenkins

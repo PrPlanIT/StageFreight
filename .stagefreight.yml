@@ -1,5 +1,8 @@
 version: 1
 
+ci:
+  image: docker.io/prplanit/stagefreight:latest-dev
+
 matchers:
   branches:
     main: "^main$"

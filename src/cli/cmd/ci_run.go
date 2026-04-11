@@ -14,14 +14,14 @@ var ciRunTag string
 var ciRunCmd = &cobra.Command{
 	Use:   "run <subsystem>",
 	Short: "Run a CI subsystem",
-	Long: fmt.Sprintf(`Run a CI subsystem by name.
+	Long: fmt.Sprintf(`Run a CI phase or legacy subsystem by name.
 
-Valid subsystems: %s
+Canonical phases: %s
 
-Provider skeletons set SF_CI_* environment variables, then call this command.
-Subsystem behavior is configured in .stagefreight.yml.
+Generated CI files set SF_CI_* environment variables, then call this command.
+Phase behavior is configured in .stagefreight.yml.
 
-Exit codes: 0=success, 1=subsystem error, 2=config error, 3=context error`, strings.Join(ci.ValidSubsystems(), ", ")),
+Exit codes: 0=success, 1=phase error, 2=config error, 3=context error`, strings.Join(ci.ValidSubsystems(), ", ")),
 	Args: cobra.ExactArgs(1),
 	RunE: runCIRun,
 }

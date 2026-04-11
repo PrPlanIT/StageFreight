@@ -33,6 +33,13 @@ import (
 // All runner implementations live here in cmd — ci package stays pure types.
 func buildCIRegistry() ci.Registry {
 	return ci.Registry{
+		// Canonical lifecycle phase commands — used by all CI skeletons.
+		"audition": auditionPhaseRunner,
+		"perform":  performPhaseRunner,
+		"review":   reviewPhaseRunner,
+		"publish":  publishPhaseRunner,
+		"narrate":  narratePhaseRunner,
+		// Legacy compatibility aliases — kept for local dev and migration.
 		"build":     buildRunner,
 		"deps":      depsRunner,
 		"docs":      docsRunner,
@@ -83,15 +90,8 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		buildRequired = true // no builds configured = subsystem still required (will report not_applicable)
 	}
 
-	// Execution spine: Runner → Config → Lint (universal, always present)
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: dockerRequired, IsCrucible: isCrucible}); r.Health == runner.Unhealthy {
+	if r := executorCheck(rootDir, runner.Options{DockerRequired: dockerRequired, IsCrucible: isCrucible}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("build subsystem: substrate unhealthy")
-	}
-	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("build subsystem: %w", err)
-	}
-	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
-		return fmt.Errorf("build subsystem (lint): %w", err)
 	}
 
 	// Initialize pipeline state with CI context
@@ -142,7 +142,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			Verbose:  opts.Verbose,
 			Stdout:   os.Stdout,
 			Stderr:   os.Stderr,
-			SkipLint: true, // lint already ran via runUniversalLint above
+			SkipLint: true, // lint ran in deps stage
 		}); err != nil {
 			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.RecordSubsystem(cistate.SubsystemState{
@@ -169,7 +169,6 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
 		}
-		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -227,7 +226,6 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		}
 	}
 
-	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -240,7 +238,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("deps subsystem: substrate unhealthy")
 	}
 	if err := runConfigPhase(rootDir); err != nil {
@@ -402,7 +400,6 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
-	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -502,14 +499,8 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	secAllowFailure := !appCfg.Security.IsRequired()
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
+	if r := executorCheck(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("security subsystem: substrate unhealthy")
-	}
-	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("security subsystem: %w", err)
-	}
-	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
-		return fmt.Errorf("security subsystem (lint): %w", err)
 	}
 
 	// Pre-flight: check pipeline state for build output.
@@ -533,7 +524,6 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
-			runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 			return nil
 		}
 	}
@@ -581,7 +571,6 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 		}
 	}
 
-	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -613,14 +602,8 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("docs subsystem: substrate unhealthy")
-	}
-	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("docs subsystem: %w", err)
-	}
-	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
-		return fmt.Errorf("docs subsystem (lint): %w", err)
 	}
 
 	// Resolve BUILD_STATUS from pipeline state — not hardcoded in skeleton.
@@ -662,8 +645,25 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
-	// Auto-commit if configured — gated by run_from.
-	if appCfg.Docs.Commit.Enabled {
+	// Auto-commit if configured — gated by run_from and branch state.
+	// GitLab checks out detached HEAD by default on MR and tag pipelines.
+	// Auto-commit requires a named branch; skip when detached or repo unreadable.
+	//
+	// Three distinct states — not collapsed:
+	//   1. not a git repository   → skip, log as repo error
+	//   2. HEAD is detached       → skip, log as detached
+	//   3. HEAD is on a branch    → proceed
+	onBranch := false
+	if repo, repoErr := gitstate.OpenRepo(rootDir); repoErr != nil {
+		fmt.Fprintf(os.Stderr, "  docs commit: skipping — could not open git repository: %v\n", repoErr)
+	} else if head, headErr := repo.Head(); headErr != nil {
+		fmt.Fprintf(os.Stderr, "  docs commit: skipping — could not resolve HEAD: %v\n", headErr)
+	} else {
+		onBranch = head.Name().IsBranch()
+	}
+	if appCfg.Docs.Commit.Enabled && !onBranch {
+		fmt.Fprintf(os.Stderr, "  docs commit: skipping — HEAD is detached (not on a named branch)\n")
+	} else if appCfg.Docs.Commit.Enabled {
 		rfResult := config.EvaluateRunFrom(appCfg.Docs.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 		switch {
 		case !rfResult.Matched && rfResult.Mode == "exit":
@@ -736,14 +736,8 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	relAllowFailure := !appCfg.Release.IsRequired()
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("release subsystem: substrate unhealthy")
-	}
-	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("release subsystem: %w", err)
-	}
-	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
-		return fmt.Errorf("release subsystem (lint): %w", err)
 	}
 
 	// run_from gate — controls mutation authority for release.
@@ -759,7 +753,6 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
-		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 	releaseReadOnly := !rfResult.Matched && rfResult.Mode == "read-only"
@@ -777,7 +770,6 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
-		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -791,7 +783,6 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
-		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -811,7 +802,6 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 			}
 		}
-		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -828,7 +818,6 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
-		runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 		return nil
 	}
 
@@ -877,7 +866,6 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	// Sync mirrors — git + release reconciliation from primary.
 	syncMirrors(ctx, appCfg)
 
-	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
@@ -1411,8 +1399,11 @@ func validateRunner(_ context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("validate subsystem: substrate unhealthy")
+	}
+	if err := runConfigPhase(rootDir); err != nil {
+		return fmt.Errorf("validate subsystem: %w", err)
 	}
 
 	// Thin shim: delegate to existing lint command.
@@ -1434,14 +1425,8 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := runnerPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("reconcile subsystem: substrate unhealthy")
-	}
-	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("reconcile subsystem: %w", err)
-	}
-	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
-		return fmt.Errorf("reconcile subsystem (lint): %w", err)
 	}
 
 	// GitOps reconcile — auth resolved at runtime (CA cert, OIDC, or kubeconfig).
@@ -1474,19 +1459,25 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 		}
 	}
 
-	runUniversalDocs(ctx, appCfg, rootDir, opts.Verbose)
 	return nil
 }
 
-// ── shared runner preflight ─────────────────────────────────────────────────
+// ── shared executor preflight ─────────────────────────────────────────────────
 
-// runnerPreflight runs substrate assessment, renders the Runner panel, and
-// persists the report to cistate. Returns the report so callers can inspect
-// Health and return subsystem-specific errors on Unhealthy.
-func runnerPreflight(rootDir string, opts runner.Options) runner.ExecutionReport {
+// executorCheck performs a silent substrate health assertion without rendering the
+// Executor panel or writing cistate. Used by non-audition phases. Callers must
+// inspect Health and return a subsystem-specific error on Unhealthy.
+func executorCheck(rootDir string, opts runner.Options) runner.ExecutionReport {
+	return runner.Run(rootDir, opts)
+}
+
+// executorPreflight runs substrate assessment, renders the Executor panel, and
+// persists the report to cistate. Authoritative readiness discovery — belongs
+// to audition only. Returns the report so callers can inspect Health.
+func executorPreflight(rootDir string, opts runner.Options) runner.ExecutionReport {
 	start := time.Now()
 	report := runner.Run(rootDir, opts)
-	pipeline.RenderRunnerSection(os.Stdout, report, opts, output.UseColor(), time.Since(start))
+	pipeline.RenderExecutorSection(os.Stdout, report, opts, output.UseColor(), time.Since(start))
 	if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) { st.Runner = report }); stErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
 	}
@@ -1510,129 +1501,6 @@ func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string
 	}
 	_, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
 	return err
-}
-
-// docsOutcome tracks per-generator outcomes for the Docs panel.
-// Panels render from this — not from stderr. Panel status is authoritative.
-type docsOutcome struct {
-	badgesOK        bool
-	badgesErr       error
-	narratorOK      bool
-	narratorErr     error
-	dockerReadmeOK  bool
-	dockerReadmeErr error
-	configured      bool // true if at least one generator is enabled
-}
-
-// runUniversalDocs generates badges and narrator if configured, renders the Docs panel.
-// Universal postamble — every modality runs this.
-// Does NOT commit or sync mirrors — those are docsRunner's exclusive territory.
-func runUniversalDocs(ctx context.Context, appCfg *config.Config, rootDir string, verbose bool) {
-	col := trace.NewCollector()
-	gen := appCfg.Docs.Generators
-	configured := gen.Badges || gen.Narrator || gen.DockerReadme
-
-	if !configured {
-		col.Decision("docs", "status", "skipped — not configured", "no docs generators enabled", "config", trace.StatusSkipped)
-		renderDocsPanel(col)
-		return
-	}
-
-	buildStatusSrc := "env"
-	if os.Getenv("BUILD_STATUS") == "" {
-		if st, err := cistate.ReadState(rootDir); err == nil {
-			os.Setenv("BUILD_STATUS", st.PipelineStatus())
-			buildStatusSrc = "cistate"
-		} else {
-			os.Setenv("BUILD_STATUS", "failing")
-			buildStatusSrc = "default (state unreadable)"
-		}
-	}
-	col.Decision("docs", "build_status", os.Getenv("BUILD_STATUS")+" (source: "+buildStatusSrc+")",
-		"resolved from "+buildStatusSrc, buildStatusSrc, trace.StatusOK)
-
-	out := docsOutcome{configured: true}
-
-	if gen.Badges {
-		if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
-			out.badgesErr = err
-		} else {
-			out.badgesOK = true
-		}
-	}
-	if gen.Narrator {
-		if err := RunNarrator(appCfg, rootDir, false, verbose); err != nil {
-			out.narratorErr = err
-		} else {
-			out.narratorOK = true
-		}
-	}
-	if gen.DockerReadme {
-		if err := RunDockerReadme(ctx, appCfg, rootDir, false); err != nil {
-			out.dockerReadmeErr = err
-		} else {
-			out.dockerReadmeOK = true
-		}
-	}
-
-	if gen.Badges {
-		if out.badgesOK {
-			col.SideEffect("docs", "badges", "generated", "", "badges-generator", trace.StatusOK)
-		} else {
-			col.SideEffect("docs", "badges", "failed", out.badgesErr.Error(), "badges-generator", trace.StatusFail)
-		}
-	}
-	if gen.Narrator {
-		if out.narratorOK {
-			col.SideEffect("docs", "narrator", "generated", "", "narrator-generator", trace.StatusOK)
-		} else {
-			col.SideEffect("docs", "narrator", "failed", out.narratorErr.Error(), "narrator-generator", trace.StatusFail)
-		}
-	}
-	if gen.DockerReadme {
-		if out.dockerReadmeOK {
-			col.SideEffect("docs", "docker_readme", "synced", "", "docker-readme-sync", trace.StatusOK)
-		} else {
-			col.SideEffect("docs", "docker_readme", "failed", out.dockerReadmeErr.Error(), "docker-readme-sync", trace.StatusFail)
-		}
-	}
-
-	hasFailure := out.badgesErr != nil || out.narratorErr != nil || out.dockerReadmeErr != nil
-	if hasFailure {
-		col.Decision("docs", "status", "degraded", "one or more generators failed", "docs-aggregate", trace.StatusWarn)
-	} else {
-		col.Decision("docs", "status", "success", "", "docs-aggregate", trace.StatusOK)
-	}
-
-	renderDocsPanel(col)
-}
-
-// renderDocsPanel renders the Docs section exclusively from emissions in col.
-func renderDocsPanel(col *trace.Collector) {
-	color := output.UseColor()
-	sec := output.NewSection(os.Stdout, "Docs", 0, color)
-	for _, e := range col.ForDomain("docs") {
-		icon := ""
-		switch e.Status {
-		case trace.StatusOK:
-			icon = " " + output.StatusIcon("success", color)
-		case trace.StatusWarn:
-			icon = " " + output.StatusIcon("warning", color)
-		case trace.StatusFail:
-			icon = " " + output.StatusIcon("failed", color)
-		}
-		row := e.RenderValue()
-		if e.Detail != "" && e.Status != trace.StatusOK {
-			row += "  " + e.Detail
-		}
-		sec.Row("%-16s%s%s", e.Key, row, icon)
-		col.MarkRendered(e)
-	}
-	sec.Close()
-
-	if unrendered := col.Unrendered(); len(unrendered) > 0 {
-		pipeline.RenderContractPanel(os.Stdout, unrendered, color)
-	}
 }
 
 // renderSyncPanel renders the DomainSync panel for mirror push outcomes.
