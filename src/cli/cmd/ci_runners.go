@@ -645,25 +645,11 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
-	// Auto-commit if configured — gated by run_from and branch state.
-	// GitLab checks out detached HEAD by default on MR and tag pipelines.
-	// Auto-commit requires a named branch; skip when detached or repo unreadable.
-	//
-	// Three distinct states — not collapsed:
-	//   1. not a git repository   → skip, log as repo error
-	//   2. HEAD is detached       → skip, log as detached
-	//   3. HEAD is on a branch    → proceed
-	onBranch := false
-	if repo, repoErr := gitstate.OpenRepo(rootDir); repoErr != nil {
-		fmt.Fprintf(os.Stderr, "  docs commit: skipping — could not open git repository: %v\n", repoErr)
-	} else if head, headErr := repo.Head(); headErr != nil {
-		fmt.Fprintf(os.Stderr, "  docs commit: skipping — could not resolve HEAD: %v\n", headErr)
-	} else {
-		onBranch = head.Name().IsBranch()
-	}
-	if appCfg.Docs.Commit.Enabled && !onBranch {
-		fmt.Fprintf(os.Stderr, "  docs commit: skipping — HEAD is detached (not on a named branch)\n")
-	} else if appCfg.Docs.Commit.Enabled {
+	// Auto-commit if configured — gated by run_from policy.
+	// GitLab CI checks out detached HEAD by default. The planner handles this
+	// by constructing refspecs from CI_COMMIT_BRANCH/CI_COMMIT_REF_NAME to
+	// push HEAD to the correct branch ref. No branch checkout needed.
+	if appCfg.Docs.Commit.Enabled {
 		rfResult := config.EvaluateRunFrom(appCfg.Docs.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 		switch {
 		case !rfResult.Matched && rfResult.Mode == "exit":

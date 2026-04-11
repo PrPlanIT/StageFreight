@@ -1,45 +1,38 @@
 package sync
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
+
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
-// gitAuth holds provider-adapted credentials for git transport.
-// Username semantics vary by forge; this is resolved once in resolveGitAuth.
-type gitAuth struct {
-	Username string
-	Password string
-}
-
 // resolveGitAuth maps a provider and secret to the correct git transport
 // username/password pair. This is the ONLY place provider-specific username
 // rules live — do not duplicate elsewhere.
-func resolveGitAuth(provider, secret string) gitAuth {
+func resolveGitAuth(provider, secret string) *githttp.BasicAuth {
 	switch provider {
 	case "github":
-		return gitAuth{Username: "x-access-token", Password: secret}
+		return &githttp.BasicAuth{Username: "x-access-token", Password: secret}
 	case "gitlab":
-		return gitAuth{Username: "oauth2", Password: secret}
-	case "gitea":
-		return gitAuth{Username: "git", Password: secret}
+		return &githttp.BasicAuth{Username: "oauth2", Password: secret}
 	default:
-		return gitAuth{Username: "git", Password: secret}
+		return &githttp.BasicAuth{Username: "git", Password: secret}
 	}
 }
 
 // buildRemoteURL constructs a plain HTTPS URL for the mirror remote.
-// No credentials are embedded — auth is injected via GIT_ASKPASS.
 func buildRemoteURL(repo config.ResolvedRepo) string {
 	baseURL := strings.TrimRight(repo.BaseURL, "/")
 	projectPath := strings.TrimLeft(repo.Project, "/")
@@ -51,40 +44,21 @@ func buildRemoteURL(repo config.ResolvedRepo) string {
 }
 
 // MirrorPush performs an authoritative git mirror push from the primary
-// forge (origin) to a mirror forge. It clones from origin into a temp bare
-// repo and pushes all heads + tags with force and prune.
-//
-// NOTE: This function calls the git binary for clone and push operations.
-// It is the SOLE remaining git CLI dependency in StageFreight. All other
-// git operations use go-git. This function requires a git binary in the
-// runtime environment or will fail gracefully with Degraded status.
-// Replacement with a native go-git mirror implementation is tracked in the
-// forge-sync project (see project_stagefreight_forge_sync.md).
+// forge (origin) to a mirror forge using go-git. Clones from origin into
+// a temp bare repo and pushes all heads + tags with force.
 //
 // Invariants:
 //   - Never mutates the user's working repo (temp bare clone only)
-//   - Credentials are injected via GIT_ASKPASS self-reexec, never in URLs or argv
-//   - Process is killed on context cancellation
+//   - Credentials passed via go-git BasicAuth, never in URLs
+//   - No git binary required
 func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo) (*MirrorResult, error) {
 	start := time.Now()
 	result := &MirrorResult{
 		AccessoryID: mirror.ID,
 	}
 
-	// Resolve worktree to absolute path for safe.directory and origin detection.
-	absWorktree, err := filepath.Abs(worktree)
-	if err != nil {
-		result.Status = SyncFailed
-		result.Degraded = true
-		result.FailureReason = MirrorUnknown
-		result.Message = fmt.Sprintf("failed to resolve worktree path: %v", err)
-		result.Duration = time.Since(start)
-		return result, nil
-	}
-
-	// Resolve the origin remote URL from the worktree. We mirror from origin
-	// (the authoritative distribution surface), not from the worktree filesystem.
-	originURL, err := resolveOriginURL(ctx, absWorktree)
+	// Resolve the origin remote URL from the worktree.
+	originURL, err := resolveOriginURL(ctx, worktree)
 	if err != nil {
 		result.Status = SyncFailed
 		result.Degraded = true
@@ -94,7 +68,18 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 		return result, nil
 	}
 
-	// 1. Clone --mirror from origin to get a complete bare repo with all refs.
+	// Resolve origin auth (SSH for GitLab/local, may be nil for public repos)
+	originAuth, err := resolveCloneAuth(originURL)
+	if err != nil {
+		result.Status = SyncFailed
+		result.Degraded = true
+		result.FailureReason = MirrorAuthFailed
+		result.Message = fmt.Sprintf("failed to resolve origin auth: %v", err)
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	// 1. Clone from origin into a temp bare repo.
 	tmpDir, err := os.MkdirTemp("", "sf-mirror-*")
 	if err != nil {
 		result.Status = SyncFailed
@@ -106,16 +91,23 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := gitExec(ctx, absWorktree, "clone", "--mirror", originURL, tmpDir); err != nil {
+	cloneOpts := &git.CloneOptions{
+		URL:    originURL,
+		Auth:   originAuth,
+		Mirror: true,
+	}
+
+	bareRepo, err := git.PlainCloneContext(ctx, tmpDir, true, cloneOpts)
+	if err != nil {
 		result.Status = SyncFailed
 		result.Degraded = true
-		result.FailureReason = classifyFailure(err)
-		result.Message = fmt.Sprintf("failed to clone from origin: %v", sanitizeStderr(err))
+		result.FailureReason = classifyGoGitFailure(err)
+		result.Message = fmt.Sprintf("failed to clone from origin: %v", sanitizeError(err))
 		result.Duration = time.Since(start)
 		return result, nil
 	}
 
-	// 2. Resolve credentials and build auth + remote URL.
+	// 2. Resolve mirror credentials.
 	creds := credentials.ResolvePrefix(mirror.Credentials)
 	if creds.Secret == "" {
 		result.Status = SyncFailed
@@ -126,24 +118,69 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 		return result, nil
 	}
 
-	auth := resolveGitAuth(mirror.Provider, creds.Secret)
+	mirrorAuth := resolveGitAuth(mirror.Provider, creds.Secret)
 	remoteURL := buildRemoteURL(mirror)
 
-	// 3. Replicate heads and tags with force + prune.
-	// We do NOT use --mirror because it attempts to delete and recreate
-	// the default branch, which GitHub (and other forges) refuse.
-	pushErr := gitExecWithAuth(ctx, tmpDir, auth, "push", "--prune", "--force", "--all", remoteURL)
-	if pushErr == nil {
-		pushErr = gitExecWithAuth(ctx, tmpDir, auth, "push", "--prune", "--force", "--tags", remoteURL)
+	// 3. Add the mirror as a remote and push all refs.
+	_, err = bareRepo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "mirror",
+		URLs: []string{remoteURL},
+	})
+	if err != nil {
+		result.Status = SyncFailed
+		result.Degraded = true
+		result.FailureReason = MirrorUnknown
+		result.Message = fmt.Sprintf("failed to add mirror remote: %v", err)
+		result.Duration = time.Since(start)
+		return result, nil
 	}
+
+	// Build refspecs: force-push local heads + tags, delete remote-only refs (prune).
+	// Scope: heads + tags only. NOT --mirror push (breaks GitHub default branch).
+	// Original code: git push --prune --force --all + git push --prune --force --tags
+	localRefs, err := collectLocalRefs(bareRepo)
+	if err != nil {
+		result.Status = SyncFailed
+		result.Degraded = true
+		result.FailureReason = MirrorUnknown
+		result.Message = fmt.Sprintf("failed to enumerate local refs: %v", err)
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	remoteRefs, err := listRemoteRefs(ctx, bareRepo, mirrorAuth)
+	if err != nil {
+		result.Status = SyncFailed
+		result.Degraded = true
+		result.FailureReason = classifyGoGitFailure(err)
+		result.Message = fmt.Sprintf("failed to list mirror refs: %v", sanitizeError(err))
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	refSpecs := buildPushRefSpecs(localRefs, remoteRefs)
+
+	if len(refSpecs) == 0 {
+		result.Status = SyncSuccess
+		result.Message = "no refs to push"
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	pushErr := bareRepo.PushContext(ctx, &git.PushOptions{
+		RemoteName: "mirror",
+		RefSpecs:   refSpecs,
+		Auth:       mirrorAuth,
+		Force:      true,
+	})
 
 	result.Duration = time.Since(start)
 
-	if pushErr != nil {
+	if pushErr != nil && pushErr != git.NoErrAlreadyUpToDate {
 		result.Status = SyncFailed
 		result.Degraded = true
-		result.FailureReason = classifyFailure(pushErr)
-		result.Message = sanitizeStderr(pushErr)
+		result.FailureReason = classifyGoGitFailure(pushErr)
+		result.Message = sanitizeError(pushErr)
 		return result, nil
 	}
 
@@ -168,113 +205,106 @@ func resolveOriginURL(_ context.Context, worktree string) (string, error) {
 	return u, nil
 }
 
-// gitExecWithAuth runs a git command with credentials injected via GIT_ASKPASS.
-// StageFreight re-executes itself in askpass mode — no temp scripts, no URL auth.
-// Credentials are passed via STAGEFREIGHT_GIT_USERNAME/PASSWORD env vars that
-// only the askpass handler reads.
-func gitExecWithAuth(ctx context.Context, dir string, auth gitAuth, args ...string) error {
-	exe, err := os.Executable()
+// resolveCloneAuth resolves auth for cloning from origin.
+// SSH URLs get SSH auth, HTTPS URLs get nil (public) or HTTP auth.
+func resolveCloneAuth(originURL string) (transport.AuthMethod, error) {
+	if gitstate.IsSSHURL(originURL) {
+		return gitstate.ResolveAuth(originURL)
+	}
+	// HTTPS origin — typically public (the primary forge), no auth needed.
+	return nil, nil
+}
+
+// collectLocalRefs enumerates heads and tags in the local bare repo.
+func collectLocalRefs(repo *git.Repository) (map[string]bool, error) {
+	refs, err := repo.References()
 	if err != nil {
-		return fmt.Errorf("locating executable for askpass: %w", err)
+		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_ASKPASS="+exe,
-		"GIT_TERMINAL_PROMPT=0",
-		"GCM_INTERACTIVE=never",
-		"STAGEFREIGHT_ASKPASS=1",
-		"STAGEFREIGHT_GIT_USERNAME="+auth.Username,
-		"STAGEFREIGHT_GIT_PASSWORD="+auth.Password,
-	)
+	local := make(map[string]bool)
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		name := ref.Name().String()
+		if strings.HasPrefix(name, "refs/heads/") || strings.HasPrefix(name, "refs/tags/") {
+			local[name] = true
+		}
+		return nil
+	})
+	return local, err
+}
 
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+// listRemoteRefs queries the mirror remote for its current refs.
+func listRemoteRefs(ctx context.Context, repo *git.Repository, auth transport.AuthMethod) (map[string]bool, error) {
+	remote, err := repo.Remote("mirror")
+	if err != nil {
+		return nil, err
+	}
 
-	if err := cmd.Run(); err != nil {
-		return &gitError{
-			err:    err,
-			stderr: stderr.String(),
-			args:   args,
+	remoteRefList, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make(map[string]bool)
+	for _, ref := range remoteRefList {
+		name := ref.Name().String()
+		if strings.HasPrefix(name, "refs/heads/") || strings.HasPrefix(name, "refs/tags/") {
+			refs[name] = true
 		}
 	}
-	return nil
+	return refs, nil
 }
 
-// gitExec runs a git command with context cancellation support (no auth).
-func gitExec(ctx context.Context, dir string, args ...string) error {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+// buildPushRefSpecs builds force-push refspecs for all local refs and
+// delete refspecs for remote refs not present locally (prune).
+// This is equivalent to: git push --prune --force --all + --tags
+func buildPushRefSpecs(local, remote map[string]bool) []gitconfig.RefSpec {
+	var specs []gitconfig.RefSpec
 
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	// Force-push all local heads + tags
+	for name := range local {
+		specs = append(specs, gitconfig.RefSpec("+"+name+":"+name))
+	}
 
-	if err := cmd.Run(); err != nil {
-		return &gitError{
-			err:    err,
-			stderr: stderr.String(),
-			args:   args,
+	// Prune: delete refs that exist on remote but not locally
+	for name := range remote {
+		if !local[name] {
+			specs = append(specs, gitconfig.RefSpec(":"+name))
 		}
 	}
-	return nil
+
+	return specs
 }
 
-// gitError wraps a git command failure with captured stderr for classification.
-// Error() never surfaces raw stderr — it is sanitized to remove any potential
-// credential material that git might echo.
-type gitError struct {
-	err    error
-	stderr string
-	args   []string
-}
-
-func (e *gitError) Error() string {
-	// Sanitize stderr: remove anything that looks like a credential in a URL.
-	safe := sanitizeStderrString(e.stderr)
-	return fmt.Sprintf("git %s: %s", e.args[0], safe)
-}
-
-func (e *gitError) Unwrap() error {
-	return e.err
-}
-
-// classifyFailure performs best-effort classification of git push failures
-// via stderr substring matching. Never crashes — falls back to MirrorUnknown.
-func classifyFailure(err error) MirrorFailureReason {
-	ge, ok := err.(*gitError)
-	if !ok {
-		return MirrorUnknown
-	}
-
-	stderr := strings.ToLower(ge.stderr)
+// classifyGoGitFailure performs best-effort classification of go-git errors.
+func classifyGoGitFailure(err error) MirrorFailureReason {
+	msg := strings.ToLower(err.Error())
 
 	switch {
-	case strings.Contains(stderr, "authentication failed") ||
-		strings.Contains(stderr, "invalid credentials") ||
-		strings.Contains(stderr, "could not read password") ||
-		strings.Contains(stderr, "401") ||
-		strings.Contains(stderr, "403"):
+	case strings.Contains(msg, "authentication") ||
+		strings.Contains(msg, "invalid credentials") ||
+		strings.Contains(msg, "401") ||
+		strings.Contains(msg, "403"):
 		return MirrorAuthFailed
 
-	case strings.Contains(stderr, "protected branch") ||
-		strings.Contains(stderr, "pre-receive hook declined") ||
-		strings.Contains(stderr, "deny updating a hidden ref"):
+	case strings.Contains(msg, "protected branch") ||
+		strings.Contains(msg, "pre-receive hook declined"):
 		return MirrorProtectedRefRejected
 
-	case strings.Contains(stderr, "could not resolve host") ||
-		strings.Contains(stderr, "connection refused") ||
-		strings.Contains(stderr, "connection timed out") ||
-		strings.Contains(stderr, "network is unreachable"):
+	case strings.Contains(msg, "could not resolve host") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection timed out") ||
+		strings.Contains(msg, "network is unreachable") ||
+		strings.Contains(msg, "dial tcp"):
 		return MirrorNetworkFailed
 
-	case (strings.Contains(stderr, "repository") && strings.Contains(stderr, "not found")) ||
-		strings.Contains(stderr, "does not exist") ||
-		strings.Contains(stderr, "404"):
+	case strings.Contains(msg, "repository not found") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "404"):
 		return MirrorRemoteNotFound
 
-	case strings.Contains(stderr, "rejected") ||
-		strings.Contains(stderr, "failed to push"):
+	case strings.Contains(msg, "rejected") ||
+		strings.Contains(msg, "failed to push"):
 		return MirrorPushRejected
 
 	default:
@@ -282,19 +312,9 @@ func classifyFailure(err error) MirrorFailureReason {
 	}
 }
 
-// sanitizeStderr extracts and sanitizes the stderr message from an error.
-func sanitizeStderr(err error) string {
-	ge, ok := err.(*gitError)
-	if !ok {
-		return err.Error()
-	}
-	return sanitizeStderrString(ge.stderr)
-}
-
-// sanitizeStderrString removes credential-bearing content from git stderr output.
-// Redacts tokens embedded in URLs (https://token@host pattern).
-func sanitizeStderrString(s string) string {
-	// Redact any https://user:pass@host or https://token@host patterns
+// sanitizeError removes potential credential material from error messages.
+func sanitizeError(err error) string {
+	s := err.Error()
 	if idx := strings.Index(s, "@"); idx > 0 {
 		for _, scheme := range []string{"https://", "http://"} {
 			if schemeIdx := strings.Index(s, scheme); schemeIdx >= 0 && schemeIdx < idx {

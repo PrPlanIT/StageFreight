@@ -58,7 +58,6 @@ func TestMirrorPush_Success(t *testing.T) {
 	source := setupTestRepo(t)
 	remote := setupBareRemote(t)
 
-	// Override buildAuthURL for test — use bare file path directly
 	result := mirrorPushDirect(t, source, remote)
 
 	if result.Status != SyncSuccess {
@@ -66,9 +65,6 @@ func TestMirrorPush_Success(t *testing.T) {
 	}
 	if result.Degraded {
 		t.Error("should not be degraded on success")
-	}
-	if result.AccessoryID != "test-remote" {
-		// This test uses mirrorPushDirect, not the full MirrorPush
 	}
 
 	// Verify remote has the tag
@@ -185,27 +181,27 @@ func TestMirrorPush_NoMutationOfWorktree(t *testing.T) {
 	}
 }
 
-func TestClassifyFailure(t *testing.T) {
+func TestClassifyGoGitFailure(t *testing.T) {
 	tests := []struct {
-		stderr string
-		want   MirrorFailureReason
+		msg  string
+		want MirrorFailureReason
 	}{
-		{"fatal: Authentication failed for 'https://...'", MirrorAuthFailed},
-		{"remote: HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled\nfatal: Authentication failed", MirrorAuthFailed},
-		{"remote: error: GH006: Protected branch update failed", MirrorProtectedRefRejected},
-		{"! [remote rejected] main -> main (pre-receive hook declined)", MirrorProtectedRefRejected},
-		{"fatal: unable to access: Could not resolve host: github.com", MirrorNetworkFailed},
-		{"fatal: Connection refused", MirrorNetworkFailed},
-		{"fatal: repository 'https://github.com/foo/bar.git/' not found", MirrorRemoteNotFound},
-		{"error: failed to push some refs to 'https://...'", MirrorPushRejected},
+		{"Authentication failed for 'https://...'", MirrorAuthFailed},
+		{"invalid credentials", MirrorAuthFailed},
+		{"401 unauthorized", MirrorAuthFailed},
+		{"protected branch update failed", MirrorProtectedRefRejected},
+		{"pre-receive hook declined", MirrorProtectedRefRejected},
+		{"could not resolve host: github.com", MirrorNetworkFailed},
+		{"connection refused", MirrorNetworkFailed},
+		{"repository not found", MirrorRemoteNotFound},
+		{"failed to push some refs", MirrorPushRejected},
 		{"some other unknown error", MirrorUnknown},
 	}
 
 	for _, tt := range tests {
-		err := &gitError{err: nil, stderr: tt.stderr}
-		got := classifyFailure(err)
+		got := classifyGoGitFailure(fmt.Errorf("%s", tt.msg))
 		if got != tt.want {
-			t.Errorf("classifyFailure(%q) = %s, want %s", tt.stderr, got, tt.want)
+			t.Errorf("classifyGoGitFailure(%q) = %s, want %s", tt.msg, got, tt.want)
 		}
 	}
 }
@@ -253,42 +249,18 @@ func TestBuildRemoteURL_AlreadyHasGitSuffix(t *testing.T) {
 	}
 }
 
-func TestSanitizeStderr_RemovesCredentials(t *testing.T) {
-	err := &gitError{
-		err:    nil,
-		stderr: "fatal: unable to push to https://x-access-token:ghp_abc123secret@github.com/org/repo.git",
-		args:   []string{"push"},
-	}
-
-	msg := err.Error()
+func TestSanitizeError_RemovesCredentials(t *testing.T) {
+	err := fmt.Errorf("unable to push to https://x-access-token:ghp_abc123secret@github.com/org/repo.git")
+	msg := sanitizeError(err)
 
 	if strings.Contains(msg, "ghp_abc123secret") {
-		t.Errorf("Error() still contains token: %s", msg)
+		t.Errorf("sanitizeError still contains token: %s", msg)
 	}
 	if strings.Contains(msg, "x-access-token") {
-		t.Errorf("Error() still contains username: %s", msg)
+		t.Errorf("sanitizeError still contains username: %s", msg)
 	}
 	if !strings.Contains(msg, "[redacted]") {
-		t.Errorf("Error() should contain [redacted]: %s", msg)
-	}
-}
-
-func TestGitErrorWrapped_NoCredentials(t *testing.T) {
-	inner := &gitError{
-		err:    nil,
-		stderr: "fatal: Authentication failed for 'https://oauth2:glpat_secret@gitlab.example.com/org/repo.git'",
-		args:   []string{"push"},
-	}
-
-	// Wrap it like real code would
-	wrapped := fmt.Errorf("mirror push failed: %w", inner)
-	msg := wrapped.Error()
-
-	if strings.Contains(msg, "glpat_secret") {
-		t.Errorf("wrapped error contains token: %s", msg)
-	}
-	if strings.Contains(msg, "oauth2") {
-		t.Errorf("wrapped error contains username: %s", msg)
+		t.Errorf("sanitizeError should contain [redacted]: %s", msg)
 	}
 }
 
@@ -296,14 +268,12 @@ func TestMirrorPush_EmptyRepoBootstrap(t *testing.T) {
 	source := setupTestRepo(t)
 	remote := setupBareRemote(t)
 
-	// Remote is empty — first mirror push should create full state
 	result := mirrorPushDirect(t, source, remote)
 
 	if result.Status != SyncSuccess {
 		t.Fatalf("bootstrap push should succeed, got %s: %s", result.Status, result.Message)
 	}
 
-	// Verify all refs arrived
 	out := gitOutput(t, remote, "rev-parse", "main")
 	srcSHA := gitOutput(t, source, "rev-parse", "main")
 	if out != srcSHA {
@@ -316,63 +286,53 @@ func TestMirrorPush_EmptyRepoBootstrap(t *testing.T) {
 	}
 }
 
-func TestMirrorPush_ContextCancellation(t *testing.T) {
-	source := setupTestRepo(t)
-
-	// Create a context that's already cancelled
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	tmpDir := t.TempDir()
-
-	// Attempt clone with cancelled context — should fail
-	err := gitExec(ctx, "", "clone", "--mirror", source, tmpDir)
-	if err == nil {
-		t.Error("expected error with cancelled context")
-	}
-
-	// Verify failure is classified (not a crash)
-	reason := classifyFailure(err)
-	// Cancelled context may produce various errors — just verify it doesn't panic
-	// and returns a valid reason
-	if reason == "" {
-		t.Error("failure reason should not be empty")
-	}
-}
-
 // ── test helpers ──
 
-// mirrorPushDirect performs a mirror push using file paths (no credentials needed).
-// Uses the same push strategy as MirrorPush: --force --prune --all + --tags.
+// mirrorPushDirect performs a mirror push using git CLI for test fixtures.
+// Tests use git CLI because the build environment has git available.
 func mirrorPushDirect(t *testing.T, worktree, remoteDir string) *MirrorResult {
 	t.Helper()
-	ctx := context.Background()
 
 	tmpDir := t.TempDir()
 
-	// Clone --mirror from worktree (safe in tests — not detached HEAD)
-	if err := gitExec(ctx, "", "clone", "--mirror", worktree, tmpDir); err != nil {
-		t.Fatalf("mirror clone failed: %v", err)
-	}
-
-	// Push using same strategy as production: --force --prune --all + --tags
-	err := gitExec(ctx, tmpDir, "push", "--prune", "--force", "--all", remoteDir)
-	if err == nil {
-		err = gitExec(ctx, tmpDir, "push", "--prune", "--force", "--tags", remoteDir)
-	}
-
-	result := &MirrorResult{
-		AccessoryID: "test-remote",
-	}
+	// Clone --mirror from worktree
+	cmd := exec.Command("git", "clone", "--mirror", worktree, tmpDir)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		result.Status = SyncFailed
-		result.Degraded = true
-		result.FailureReason = classifyFailure(err)
-		result.Message = err.Error()
-	} else {
-		result.Status = SyncSuccess
+		t.Fatalf("mirror clone failed: %s: %s", err, out)
 	}
-	return result
+
+	// Push --force --all + --tags
+	cmd = exec.Command("git", "push", "--prune", "--force", "--all", remoteDir)
+	cmd.Dir = tmpDir
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return &MirrorResult{
+			AccessoryID:   "test-remote",
+			Status:        SyncFailed,
+			Degraded:      true,
+			FailureReason: MirrorUnknown,
+			Message:       string(out),
+		}
+	}
+
+	cmd = exec.Command("git", "push", "--prune", "--force", "--tags", remoteDir)
+	cmd.Dir = tmpDir
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return &MirrorResult{
+			AccessoryID:   "test-remote",
+			Status:        SyncFailed,
+			Degraded:      true,
+			FailureReason: MirrorUnknown,
+			Message:       string(out),
+		}
+	}
+
+	return &MirrorResult{
+		AccessoryID: "test-remote",
+		Status:      SyncSuccess,
+	}
 }
 
 func gitIn(t *testing.T, dir string, args ...string) {
