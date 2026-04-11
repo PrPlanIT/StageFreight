@@ -11,203 +11,30 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // goRunner executes a go subcommand in the given directory.
 type goRunner func(ctx context.Context, dir string, args ...string) ([]byte, error)
 
-// resolveGoRunner tries strategies in order and returns the first available go runner.
+// resolveGoRunner resolves a Go toolchain via the StageFreight toolchain subsystem.
+// Downloads, verifies, and caches the binary if not already present.
+// No host assumptions. No DinD. No containers-for-tools.
 func resolveGoRunner(repoRoot string) (goRunner, error) {
-	// Strategy 1: Native go binary in PATH
-	if _, err := exec.LookPath("go"); err == nil {
-		fmt.Fprintln(os.Stderr, "[deps:diag] go runner: strategy 1 (native)")
-		return nativeGoRunner, nil
+	version := toolchain.ResolveGoVersion(".", repoRoot)
+	result, err := toolchain.Resolve(repoRoot, "go", version)
+	if err != nil {
+		return nil, fmt.Errorf("go toolchain: %w", err)
 	}
-	// Strategy 2: Toolcache (STAGEFREIGHT_GO_HOME or /toolcache/go)
-	if goHome := toolcacheGoHome(); goHome != "" {
-		fmt.Fprintf(os.Stderr, "[deps:diag] go runner: strategy 2 (toolcache: %s)\n", goHome)
-		return toolcacheGoRunner(goHome), nil
-	}
-	// Strategy 3: Container runtime (docker/podman/nerdctl)
-	if rt := detectContainerRuntime(); rt != "" {
-		absRoot, err := filepath.Abs(repoRoot)
-		if err != nil {
-			return nil, fmt.Errorf("resolving repo root: %w", err)
-		}
-		if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
-			absRoot = resolved
-		}
-		fmt.Fprintf(os.Stderr, "[deps:diag] go runner: strategy 3 (container: %s, root: %s)\n", rt, absRoot)
-		return containerGoRunner(rt, absRoot), nil
-	}
-	// Strategy 4: Error
-	return nil, fmt.Errorf("go toolchain not found: install Go, set STAGEFREIGHT_GO_HOME, or ensure a container runtime (docker/podman/nerdctl) is available")
-}
-
-func nativeGoRunner(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Dir = dir
-	cmd.Env = os.Environ()
-	return cmd.CombinedOutput()
-}
-
-func toolcacheGoRunner(goHome string) goRunner {
-	goBin := filepath.Join(goHome, "bin", "go")
+	toolchain.Report(os.Stderr, result)
 	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, goBin, args...)
+		cmd := exec.CommandContext(ctx, result.Path, args...)
 		cmd.Dir = dir
 		cmd.Env = os.Environ()
 		return cmd.CombinedOutput()
-	}
+	}, nil
 }
 
-func toolcacheGoHome() string {
-	if env := os.Getenv("STAGEFREIGHT_GO_HOME"); env != "" {
-		if _, err := os.Stat(filepath.Join(env, "bin", "go")); err == nil {
-			return env
-		}
-	}
-	if _, err := os.Stat("/toolcache/go/bin/go"); err == nil {
-		return "/toolcache/go"
-	}
-	return ""
-}
-
-func detectContainerRuntime() string {
-	for _, rt := range []string{"docker", "podman", "nerdctl"} {
-		if _, err := exec.LookPath(rt); err == nil {
-			return rt
-		}
-	}
-	return ""
-}
-
-// isDinD reports whether the Docker daemon is remote (TCP), indicating
-// Docker-in-Docker mode where bind-mount paths reference the inner daemon's
-// filesystem rather than the current container's filesystem.
-func isDinD() bool {
-	host := os.Getenv("DOCKER_HOST")
-	return strings.HasPrefix(host, "tcp://") || strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://")
-}
-
-func containerGoRunner(rt, repoRoot string) goRunner {
-	dind := isDinD()
-	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		ver := parseGoVersion(dir, repoRoot)
-		image := fmt.Sprintf("docker.io/library/golang:%s-alpine", ver)
-
-		var workDir string
-		runArgs := []string{"run", "--rm", "--pull=missing"}
-
-		if dind {
-			// DinD: the inner daemon can't resolve bind-mount paths from the job
-			// container's filesystem. Use --volumes-from to share the current
-			// container's volumes directly — paths are preserved without remapping.
-			if hostname := os.Getenv("HOSTNAME"); hostname != "" {
-				runArgs = append(runArgs, "--volumes-from", hostname)
-			}
-			workDir = dir
-		} else {
-			relDir, err := filepath.Rel(repoRoot, dir)
-			if err != nil {
-				relDir = "."
-			}
-			workDir = "/src"
-			if relDir != "." && relDir != "" {
-				workDir = "/src/" + filepath.ToSlash(relDir)
-			}
-			runArgs = append(runArgs, "-v", repoRoot+":/src")
-		}
-
-		runArgs = append(runArgs, "-w", workDir)
-
-		// Run as current user to avoid root-owned writes on shared volumes
-		if uid := os.Getuid(); uid >= 0 {
-			runArgs = append(runArgs, "--user", fmt.Sprintf("%d:%d", uid, os.Getgid()))
-		}
-
-		// Set HOME and Go caches inside the container
-		runArgs = append(runArgs,
-			"-e", "HOME=/tmp",
-			"-e", "GOCACHE=/tmp/gocache",
-			"-e", "GOMODCACHE=/tmp/gomodcache",
-		)
-
-		// Pass through Go module-relevant and proxy environment variables
-		for _, key := range []string{
-			"GOPROXY", "GONOSUMDB", "GOPRIVATE", "GONOPROXY", "GOFLAGS",
-			"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-		} {
-			if val, ok := os.LookupEnv(key); ok {
-				runArgs = append(runArgs, "-e", key+"="+val)
-			}
-		}
-
-		runArgs = append(runArgs, image, "go")
-		runArgs = append(runArgs, args...)
-
-		cmd := exec.CommandContext(ctx, rt, runArgs...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return out, fmt.Errorf("%w", err)
-		}
-		return out, nil
-	}
-}
-
-// parseGoVersion extracts the go directive version from go.work or go.mod.
-func parseGoVersion(dir, repoRoot string) string {
-	// Prefer go.work at repo root (workspace mode)
-	if ver := parseGoDirectiveFromFile(filepath.Join(repoRoot, "go.work")); ver != "" {
-		return ver
-	}
-	// Try go.mod in module directory
-	if ver := parseGoDirectiveFromFile(filepath.Join(dir, "go.mod")); ver != "" {
-		return ver
-	}
-	// Try go.mod at repo root
-	if dir != repoRoot {
-		if ver := parseGoDirectiveFromFile(filepath.Join(repoRoot, "go.mod")); ver != "" {
-			return ver
-		}
-	}
-	return "1.24"
-}
-
-// parseGoDirectiveFromFile reads a go.mod or go.work file and returns the go version directive.
-// Prefers the toolchain directive (e.g. "toolchain go1.22.6" → "1.22") over the go directive.
-func parseGoDirectiveFromFile(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	var goVer string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// "toolchain go1.22.6" is a stronger signal than "go 1.22"
-		if strings.HasPrefix(line, "toolchain ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				ver := strings.TrimPrefix(fields[1], "go")
-				// Strip patch: "1.22.6" → "1.22"
-				if parts := strings.SplitN(ver, ".", 3); len(parts) >= 2 {
-					return parts[0] + "." + parts[1]
-				}
-				return ver
-			}
-		}
-		if goVer == "" && strings.HasPrefix(line, "go ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				goVer = fields[1]
-			}
-		}
-	}
-	return goVer
-}
 
 // applyGoUpdates applies Go module dependency updates.
 // Returns touched module dirs (repoRoot-relative) as the 3rd value,
@@ -754,6 +581,39 @@ func mergeGoDirectiveSyncResults(a, b goDirectiveSyncResult) goDirectiveSyncResu
 	})
 
 	return a
+}
+
+// parseGoDirectiveFromFile reads a go.mod or go.work file and returns the go version directive.
+// Used for comparing current vs desired Go versions in module sync — not for toolchain resolution.
+func parseGoDirectiveFromFile(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	var goVer string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "toolchain ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				ver := strings.TrimPrefix(fields[1], "go")
+				if parts := strings.SplitN(ver, ".", 3); len(parts) >= 2 {
+					return parts[0] + "." + parts[1]
+				}
+				return ver
+			}
+		}
+		if goVer == "" && strings.HasPrefix(line, "go ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				goVer = fields[1]
+			}
+		}
+	}
+	return goVer
 }
 
 // detectReplaceDirectives parses go.mod and returns a set of replaced module paths.
