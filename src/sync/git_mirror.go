@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -258,22 +259,32 @@ func listRemoteRefs(ctx context.Context, repo *git.Repository, auth transport.Au
 // buildPushRefSpecs builds force-push refspecs for all local refs and
 // delete refspecs for remote refs not present locally (prune).
 // This is equivalent to: git push --prune --force --all + --tags
+// Refs are sorted for deterministic ordering in logs and debugging.
 func buildPushRefSpecs(local, remote map[string]bool) []gitconfig.RefSpec {
 	var specs []gitconfig.RefSpec
 
-	// Force-push all local heads + tags
-	for name := range local {
+	// Force-push all local heads + tags (sorted)
+	for _, name := range sortedKeys(local) {
 		specs = append(specs, gitconfig.RefSpec("+"+name+":"+name))
 	}
 
-	// Prune: delete refs that exist on remote but not locally
-	for name := range remote {
+	// Prune: delete refs that exist on remote but not locally (sorted)
+	for _, name := range sortedKeys(remote) {
 		if !local[name] {
 			specs = append(specs, gitconfig.RefSpec(":"+name))
 		}
 	}
 
 	return specs
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // classifyGoGitFailure performs best-effort classification of go-git errors.
