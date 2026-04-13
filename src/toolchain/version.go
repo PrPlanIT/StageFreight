@@ -1,6 +1,10 @@
 package toolchain
 
-import "github.com/PrPlanIT/StageFreight/src/config"
+import (
+	"sort"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
+)
 
 // ResolveVersion determines the version to use for a tool.
 //
@@ -25,4 +29,29 @@ func ResolveVersion(tool, requestedVersion string, desired map[string]config.Too
 		return def.DefaultVer, false
 	}
 	return "", false
+}
+
+// SeedDesired returns a complete map of all managed tools with their current
+// default versions. Used to populate toolchains.desired for new repos so that
+// all managed tools are explicitly materialized in config from the start.
+// Go is excluded — its version comes from go.mod, not the toolchain registry.
+func SeedDesired() map[string]config.ToolPinConfig {
+	desired := make(map[string]config.ToolPinConfig)
+	for _, def := range AllTools() {
+		if def.Name == "" || def.Name == "go" {
+			continue // Go version is authoritative from go.mod, not desired config
+		}
+		desired[def.Name] = config.ToolPinConfig{Version: def.DefaultVer}
+	}
+	return desired
+}
+
+// ManagedToolNames returns a sorted list of all managed tool names.
+func ManagedToolNames() []string {
+	var names []string
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

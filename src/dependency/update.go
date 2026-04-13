@@ -77,8 +77,8 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	}
 
 	// 5. Group by ecosystem and apply
-	gomodDeps, dockerDeps := groupByEcosystem(candidates)
-	fmt.Fprintf(os.Stderr, "[deps:diag] apply: %d gomod deps, %d docker deps\n", len(gomodDeps), len(dockerDeps))
+	gomodDeps, dockerDeps, toolchainDeps := groupByEcosystem(candidates)
+	fmt.Fprintf(os.Stderr, "[deps:diag] apply: %d gomod deps, %d docker deps, %d toolchain deps\n", len(gomodDeps), len(dockerDeps), len(toolchainDeps))
 
 	if len(gomodDeps) > 0 {
 		t0 = time.Now()
@@ -104,6 +104,19 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 		}
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, dkSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+	}
+
+	if len(toolchainDeps) > 0 {
+		t0 = time.Now()
+		fmt.Fprintln(os.Stderr, "[deps:diag] step: applyToolchainDesiredUpdates")
+		applied, tcSkipped, touchedFiles, err := applyToolchainDesiredUpdates(toolchainDeps, repoRoot)
+		fmt.Fprintf(os.Stderr, "[deps:diag] step: applyToolchainDesiredUpdates done (%s)\n", time.Since(t0).Round(time.Millisecond))
+		if err != nil {
+			return result, fmt.Errorf("applying toolchain updates: %w", err)
+		}
+		result.Applied = append(result.Applied, applied...)
+		result.Skipped = append(result.Skipped, tcSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
@@ -162,13 +175,15 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	return result, nil
 }
 
-func groupByEcosystem(deps []freshness.Dependency) (gomod, docker []freshness.Dependency) {
+func groupByEcosystem(deps []freshness.Dependency) (gomod, docker, tc []freshness.Dependency) {
 	for _, dep := range deps {
 		switch dep.Ecosystem {
 		case freshness.EcosystemGoMod:
 			gomod = append(gomod, dep)
 		case freshness.EcosystemDockerImage, freshness.EcosystemGitHubRelease:
 			docker = append(docker, dep)
+		case freshness.EcosystemToolchain:
+			tc = append(tc, dep)
 		}
 	}
 	return

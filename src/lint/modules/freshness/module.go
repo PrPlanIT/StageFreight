@@ -7,13 +7,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 // freshnessModule implements lint.Module and lint.ConfigurableModule.
 type freshnessModule struct {
-	cfg    FreshnessConfig
-	http   *httpClient
+	cfg     FreshnessConfig
+	http    *httpClient
+	desired map[string]config.ToolPinConfig
+}
+
+func (m *freshnessModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
+	m.desired = desired
 }
 
 func newModule() *freshnessModule {
@@ -31,6 +37,7 @@ func (m *freshnessModule) AutoDetect() []string {
 	return []string{
 		"Dockerfile*",
 		"*.dockerfile",
+		".stagefreight.yml",
 		"go.mod",
 		"Cargo.toml",
 		"package.json",
@@ -78,6 +85,9 @@ func (m *freshnessModule) resolveFile(ctx context.Context, file lint.FileInfo) (
 		return m.checkDockerfile(ctx, file)
 	case base == "go.mod":
 		return m.checkGoMod(ctx, file)
+	case base == ".stagefreight.yml":
+		// Toolchain desired versions — config-driven discovery
+		return m.checkToolchainDesired(ctx, m.desired), nil
 	case base == "Cargo.toml":
 		return m.checkCargo(ctx, file)
 	case base == "package.json":
