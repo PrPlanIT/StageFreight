@@ -79,6 +79,146 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// installStandaloneBinary copies a downloaded binary to its final path atomically.
+// Writes to .tmp, syncs, chmod, then renames. Safe against partial reads and crashes.
+func installStandaloneBinary(srcPath, dstPath string) error {
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		return err
+	}
+	return atomicCopyBinary(srcPath, dstPath)
+}
+
+// installFromArchive extracts a tar.gz archive to a temp dir, locates the named
+// binary, and copies ONLY that binary to the final path atomically.
+// If 0 or >1 binaries match, returns an error (ambiguity = hard failure).
+func installFromArchive(archivePath, dstBinPath, binaryName string) error {
+	tmpDir, err := os.MkdirTemp("", "sf-extract-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := extractTarGz(archivePath, tmpDir); err != nil {
+		return fmt.Errorf("extracting archive: %w", err)
+	}
+
+	// Walk to find the binary by name — exact match only
+	var matches []string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && info.Name() == binaryName {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+
+	switch len(matches) {
+	case 0:
+		return fmt.Errorf("binary %q not found in archive", binaryName)
+	case 1:
+		if err := os.MkdirAll(filepath.Dir(dstBinPath), 0755); err != nil {
+			return err
+		}
+		// Atomic copy (not rename — may be cross-filesystem between tmpdir and cache)
+		return atomicCopyBinary(matches[0], dstBinPath)
+	default:
+		return fmt.Errorf("ambiguous: %d files named %q in archive", len(matches), binaryName)
+	}
+}
+
+// atomicCopyBinary copies a binary to dstPath atomically via temp file + rename.
+// Safe against cross-filesystem boundaries (no os.Rename across mounts).
+func atomicCopyBinary(srcPath, dstPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	// Write to .tmp in the SAME directory as dst (same filesystem = rename safe)
+	tmp := dstPath + ".tmp"
+	dst, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		os.Remove(tmp)
+		return err
+	}
+
+	// Sync to disk before rename
+	if err := dst.Sync(); err != nil {
+		dst.Close()
+		os.Remove(tmp)
+		return err
+	}
+	dst.Close()
+
+	return os.Rename(tmp, dstPath)
+}
+
+// extractTarGz extracts all entries from a tar.gz archive into destDir.
+func extractTarGz(archivePath, destDir string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("gzip: %w", err)
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar: %w", err)
+		}
+
+		target := filepath.Join(destDir, hdr.Name)
+
+		// Path traversal guard
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("path traversal in archive: %s", hdr.Name)
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			outf, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outf, tr); err != nil {
+				outf.Close()
+				return err
+			}
+			outf.Close()
+		case tar.TypeSymlink:
+			// Symlinks ignored — we only need the binary, and symlinks
+			// in toolchain archives are an unnecessary attack surface.
+			continue
+		}
+	}
+	return nil
+}
+
 // extractGoArchive extracts the Go distribution tarball into destDir.
 // The Go tarball has a top-level `go/` directory. We extract the full
 // distribution (bin, pkg, src — all needed for go run/build).
