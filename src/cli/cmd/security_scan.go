@@ -260,6 +260,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		FailOnCritical: req.FailOnCritical || req.Config.Security.FailOnCritical,
 		ImageRef:       imageRef,
 		OutputDir:      req.OutputDir,
+		RootDir:        req.RootDir,
 		TrivyCacheMax:    req.Config.Security.Cache.Trivy.MaxSize,
 		TrivyCacheMaxAge: req.Config.Security.Cache.Trivy.MaxAge,
 		GrypeCacheMax:    req.Config.Security.Cache.Grype.MaxSize,

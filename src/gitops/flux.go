@@ -9,6 +9,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 func init() {
@@ -21,6 +22,7 @@ func init() {
 type FluxBackend struct {
 	graph        *FluxGraph
 	reconcileSet []KustomizationKey
+	fluxBin      string // resolved flux binary path
 }
 
 func (f *FluxBackend) Name() string { return "flux" }
@@ -37,10 +39,12 @@ func (f *FluxBackend) Capabilities() []runtime.Capability {
 
 // Validate checks that the flux CLI is available and cluster config is complete.
 func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
-	// Check flux CLI availability.
-	if _, err := exec.LookPath("flux"); err != nil {
-		return fmt.Errorf("flux CLI not found in PATH")
+	// Resolve flux CLI via toolchain.
+	fluxResult, err := toolchain.Resolve(rctx.RepoRoot, "flux", "")
+	if err != nil {
+		return fmt.Errorf("flux CLI: %w", err)
 	}
+	f.fluxBin = fluxResult.Path
 
 	// Cluster config validation (only if cluster is configured — local dev skips).
 	if cfg.GitOps.Cluster.Name != "" {
@@ -117,7 +121,7 @@ func (f *FluxBackend) Execute(ctx context.Context, plan *runtime.LifecyclePlan, 
 		}
 
 		// Reconcile source first.
-		srcCmd := exec.CommandContext(ctx, "flux", "reconcile", "source", "git", "flux-system", "-n", k.Namespace)
+		srcCmd := exec.CommandContext(ctx, f.fluxBin, "reconcile", "source", "git", "flux-system", "-n", k.Namespace)
 		if out, err := srcCmd.CombinedOutput(); err != nil {
 			ar.Duration = time.Since(start)
 			ar.Success = false
@@ -127,7 +131,7 @@ func (f *FluxBackend) Execute(ctx context.Context, plan *runtime.LifecyclePlan, 
 		}
 
 		// Reconcile kustomization.
-		cmd := exec.CommandContext(ctx, "flux", "reconcile", "kustomization", k.Name, "-n", k.Namespace)
+		cmd := exec.CommandContext(ctx, f.fluxBin, "reconcile", "kustomization", k.Name, "-n", k.Namespace)
 		out, err := cmd.CombinedOutput()
 		ar.Duration = time.Since(start)
 
@@ -165,7 +169,13 @@ type FluxReconcileResult struct {
 
 // Reconcile executes flux reconcile on the given kustomizations in order.
 // Legacy function — new code should use FluxBackend via the runtime.
-func Reconcile(keys []KustomizationKey, dryRun bool) []FluxReconcileResult {
+func Reconcile(rootDir string, keys []KustomizationKey, dryRun bool) []FluxReconcileResult {
+	fluxResult, err := toolchain.Resolve(rootDir, "flux", "")
+	if err != nil {
+		return []FluxReconcileResult{{Kustomization: "toolchain", Message: fmt.Sprintf("flux resolve: %v", err)}}
+	}
+	fluxBin := fluxResult.Path
+
 	var results []FluxReconcileResult
 
 	for _, k := range keys {
@@ -185,7 +195,7 @@ func Reconcile(keys []KustomizationKey, dryRun bool) []FluxReconcileResult {
 		start := time.Now()
 
 		// Reconcile source first
-		srcCmd := exec.Command("flux", "reconcile", "source", "git", "flux-system", "-n", k.Namespace)
+		srcCmd := exec.Command(fluxBin, "reconcile", "source", "git", "flux-system", "-n", k.Namespace)
 		if out, err := srcCmd.CombinedOutput(); err != nil {
 			res.Duration = time.Since(start)
 			res.Success = false
@@ -195,7 +205,7 @@ func Reconcile(keys []KustomizationKey, dryRun bool) []FluxReconcileResult {
 		}
 
 		// Reconcile kustomization
-		cmd := exec.Command("flux", "reconcile", "kustomization", k.Name, "-n", k.Namespace)
+		cmd := exec.Command(fluxBin, "reconcile", "kustomization", k.Name, "-n", k.Namespace)
 		out, err := cmd.CombinedOutput()
 		res.Duration = time.Since(start)
 

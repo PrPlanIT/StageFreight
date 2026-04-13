@@ -524,7 +524,7 @@ func executePhase(req Request) pipeline.Phase {
 			// --- Cosign signing (best-effort) ---
 			if publishModeUsed {
 				cosignKey := ResolveCosignKey()
-				cosignOnPath := CosignAvailable()
+				cosignOnPath := CosignAvailable(pc.RootDir)
 				signingAttempted := cosignOnPath && cosignKey != ""
 
 				if signingAttempted {
@@ -552,10 +552,10 @@ func executePhase(req Request) pipeline.Phase {
 							}
 						}
 
-						signErr := CosignSign(pc.Ctx, digestRef, cosignKey, multiArch)
+						signErr := CosignSign(pc.Ctx, pc.RootDir, digestRef, cosignKey, multiArch)
 
 						if _, statErr := os.Stat(dssePath); statErr == nil {
-							_ = CosignAttest(pc.Ctx, digestRef, dssePath, cosignKey)
+							_ = CosignAttest(pc.Ctx, pc.RootDir, digestRef, dssePath, cosignKey)
 						}
 
 						if signErr != nil {

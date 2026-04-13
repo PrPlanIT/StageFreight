@@ -6,11 +6,13 @@ package security
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // VerifyConfidence represents the computed trust level of artifact verification.
@@ -118,15 +120,15 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 
 // verifyCosignSignature runs cosign verify against a digest reference.
 func verifyCosignSignature(ctx context.Context, r *VerificationResult, opts VerifyOpts) {
-	cosignPath, lookErr := exec.LookPath("cosign")
-	if lookErr != nil {
-		diag.Debug(false, "cosign: not found on PATH, skipping signature verification")
+	rootDir, _ := os.Getwd()
+	cosignResult, resolveErr := toolchain.Resolve(rootDir, "cosign", "")
+	if resolveErr != nil {
+		diag.Debug(false, "cosign: toolchain resolve failed, skipping signature verification: %v", resolveErr)
 		if opts.SigningAttempted {
 			r.Failures = append(r.Failures, "signing was configured but cosign not available for verification")
 		}
 		return
 	}
-	_ = cosignPath
 
 	if opts.CosignKeyPath == "" {
 		diag.Debug(false, "cosign: no key configured, skipping signature verification")
@@ -134,10 +136,11 @@ func verifyCosignSignature(ctx context.Context, r *VerificationResult, opts Veri
 	}
 
 	digestRef := extractRepo(opts.ActualRef) + "@" + opts.ExpectedDigest
-	cmd := exec.CommandContext(ctx, "cosign", "verify",
+	cmd := exec.CommandContext(ctx, cosignResult.Path, "verify",
 		"--key", opts.CosignKeyPath,
 		"--insecure-ignore-tlog=true",
 		digestRef)
+	cmd.Env = toolchain.CleanEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		valid := false

@@ -9,6 +9,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // BuildKubeconfig creates an isolated kubeconfig for the target cluster.
@@ -63,28 +64,35 @@ func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext) err
 
 	fmt.Fprintf(os.Stderr, "prepare[flux]: auth method=%s\n", credName)
 
+	// Resolve kubectl via toolchain.
+	kubectlResult, resolveErr := toolchain.Resolve(rctx.RepoRoot, "kubectl", "")
+	if resolveErr != nil {
+		return fmt.Errorf("kubectl toolchain resolve: %w", resolveErr)
+	}
+	kb := kubectlResult.Path
+
 	// Build kubeconfig via kubectl.
-	if err := kubectl("config", "set-cluster", cfg.Name,
+	if err := kubectlRun(kb, "config", "set-cluster", cfg.Name,
 		"--server="+cfg.Server,
 		"--certificate-authority="+caPath,
 	); err != nil {
 		return fmt.Errorf("kubectl set-cluster: %w", err)
 	}
 
-	if err := kubectl("config", "set-credentials", credName,
+	if err := kubectlRun(kb, "config", "set-credentials", credName,
 		"--token="+token,
 	); err != nil {
 		return fmt.Errorf("kubectl set-credentials: %w", err)
 	}
 
-	if err := kubectl("config", "set-context", cfg.Name,
+	if err := kubectlRun(kb, "config", "set-context", cfg.Name,
 		"--cluster="+cfg.Name,
 		"--user="+credName,
 	); err != nil {
 		return fmt.Errorf("kubectl set-context: %w", err)
 	}
 
-	if err := kubectl("config", "use-context", cfg.Name); err != nil {
+	if err := kubectlRun(kb, "config", "use-context", cfg.Name); err != nil {
 		return fmt.Errorf("kubectl use-context: %w", err)
 	}
 
@@ -139,9 +147,10 @@ func envPrefix(name string) string {
 	return strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
-// kubectl runs a kubectl command and returns any error.
-func kubectl(args ...string) error {
-	cmd := exec.Command("kubectl", args...)
+// kubectlRun runs a kubectl command using a toolchain-resolved binary.
+func kubectlRun(binPath string, args ...string) error {
+	cmd := exec.Command(binPath, args...)
+	cmd.Env = toolchain.CleanEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))

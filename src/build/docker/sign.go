@@ -8,11 +8,17 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // CosignSign signs an image digest ref using cosign.
 // The digestRef must be in the form repo@sha256:... — tags are never used.
-func CosignSign(ctx context.Context, digestRef, keyPath string, multiArch bool) error {
+func CosignSign(ctx context.Context, rootDir, digestRef, keyPath string, multiArch bool) error {
+	result, err := toolchain.Resolve(rootDir, "cosign", "")
+	if err != nil {
+		return fmt.Errorf("cosign sign: toolchain resolve: %w", err)
+	}
+
 	args := []string{"sign",
 		"--key", keyPath,
 		"--tlog-upload=false",
@@ -23,8 +29,8 @@ func CosignSign(ctx context.Context, digestRef, keyPath string, multiArch bool) 
 	}
 	args = append(args, digestRef)
 
-	cmd := exec.CommandContext(ctx, "cosign", args...)
-	cmd.Env = append(os.Environ(), "COSIGN_YES=1")
+	cmd := exec.CommandContext(ctx, result.Path, args...)
+	cmd.Env = append(toolchain.CleanEnv(), "COSIGN_YES=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		diag.Warn("cosign sign failed: %s", strings.TrimSpace(string(out)))
@@ -35,15 +41,20 @@ func CosignSign(ctx context.Context, digestRef, keyPath string, multiArch bool) 
 
 // CosignAttest attests a predicate against an image digest ref using cosign.
 // The digestRef must be in the form repo@sha256:... — tags are never used.
-func CosignAttest(ctx context.Context, digestRef, predicatePath, keyPath string) error {
-	cmd := exec.CommandContext(ctx, "cosign", "attest",
+func CosignAttest(ctx context.Context, rootDir, digestRef, predicatePath, keyPath string) error {
+	result, err := toolchain.Resolve(rootDir, "cosign", "")
+	if err != nil {
+		return fmt.Errorf("cosign attest: toolchain resolve: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, result.Path, "attest",
 		"--key", keyPath,
 		"--predicate", predicatePath,
 		"--type", "slsaprovenance",
 		"--tlog-upload=false",
 		"--upload=true",
 		digestRef)
-	cmd.Env = append(os.Environ(), "COSIGN_YES=1")
+	cmd.Env = append(toolchain.CleanEnv(), "COSIGN_YES=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		diag.Warn("cosign attest failed: %s", strings.TrimSpace(string(out)))
@@ -65,8 +76,8 @@ func ResolveCosignKey() string {
 	return ""
 }
 
-// CosignAvailable returns true if cosign is on PATH.
-func CosignAvailable() bool {
-	_, err := exec.LookPath("cosign")
+// CosignAvailable returns true if cosign can be resolved via toolchain.
+func CosignAvailable(rootDir string) bool {
+	_, err := toolchain.Resolve(rootDir, "cosign", "")
 	return err == nil
 }

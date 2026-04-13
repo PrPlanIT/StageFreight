@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // lockfiles maps base filenames to whether osv-scanner supports them.
@@ -32,8 +34,8 @@ var lockfiles = map[string]bool{
 }
 
 type osvModule struct {
-	once      sync.Once
-	available bool
+	once    sync.Once
+	binPath string // resolved binary path, empty if resolution failed
 }
 
 func newModule() *osvModule { return &osvModule{} }
@@ -65,10 +67,13 @@ func (m *osvModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Findi
 	}
 
 	m.once.Do(func() {
-		_, err := exec.LookPath("osv-scanner")
-		m.available = err == nil
+		rootDir, _ := os.Getwd()
+		result, err := toolchain.Resolve(rootDir, "osv-scanner", "")
+		if err == nil {
+			m.binPath = result.Path
+		}
 	})
-	if !m.available {
+	if m.binPath == "" {
 		return nil, nil
 	}
 
@@ -76,7 +81,8 @@ func (m *osvModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Findi
 }
 
 func (m *osvModule) scan(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
-	cmd := exec.CommandContext(ctx, "osv-scanner", "scan", "--format", "json", "-L", file.AbsPath)
+	cmd := exec.CommandContext(ctx, m.binPath, "scan", "--format", "json", "-L", file.AbsPath)
+	cmd.Env = toolchain.CleanEnv()
 	out, err := cmd.Output()
 
 	// osv-scanner exits 1 when vulnerabilities are found — still valid JSON.

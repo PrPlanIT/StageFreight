@@ -18,6 +18,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // ScanConfig holds security scan configuration.
@@ -29,6 +30,7 @@ type ScanConfig struct {
 	FailOnCritical bool      // fail if critical vulns found
 	ImageRef       string    // image reference or tarball path to scan
 	OutputDir      string    // directory for scan artifacts
+	RootDir        string    // workspace root for toolchain resolution
 	SectionWriter  io.Writer // writer for CI section markers (nil = os.Stderr)
 	TrivyCacheMax    string  // max_size for Trivy DB cache (full-clear when exceeded)
 	TrivyCacheMaxAge string  // max_age for Trivy DB cache (full-clear when oldest file exceeds)
@@ -188,54 +190,60 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 		}
 	}
 
-	// Run Trivy if enabled and available.
+	// Run Trivy if enabled.
 	if cfg.TrivyEnabled {
 		output.SectionStartCollapsed(sw, "sf_trivy_raw", "Trivy scanner (raw)")
-		if _, lookErr := exec.LookPath("trivy"); lookErr == nil {
-			trivyVer := trivyVersion()
+		trivyResult, trivyErr := toolchain.Resolve(cfg.RootDir, "trivy", "")
+		if trivyErr != nil {
+			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy"})
+			result.Partial = true
+			diag.Warn("trivy toolchain resolve failed: %v", trivyErr)
+		} else {
+			toolchain.Report(sw, trivyResult)
 			// Trivy JSON scan
 			jsonPath := cfg.OutputDir + "/security-scan.json"
-			if err := runTrivy(ctx, cfg.ImageRef, "json", jsonPath, trivyCacheDir); err != nil {
-				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy", Version: trivyVer})
+			if err := runTrivy(ctx, trivyResult.Path, cfg.ImageRef, "json", jsonPath, trivyCacheDir); err != nil {
+				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy", Version: trivyResult.Version})
 				result.Partial = true
 				diag.Warn("trivy scan failed: %v", err)
 			} else {
 				// Trivy SARIF scan
 				sarifPath := cfg.OutputDir + "/vulnerability-report.sarif"
-				if err := runTrivy(ctx, cfg.ImageRef, "sarif", sarifPath, trivyCacheDir); err != nil {
+				if err := runTrivy(ctx, trivyResult.Path, cfg.ImageRef, "sarif", sarifPath, trivyCacheDir); err != nil {
 					diag.Warn("trivy SARIF generation failed (continuing): %v", err)
 				} else {
 					result.Artifacts = append(result.Artifacts, sarifPath)
 				}
 				result.Artifacts = append(result.Artifacts, jsonPath)
-				result.ScannersRun = append(result.ScannersRun, ScannerInfo{Name: "trivy", Version: trivyVer})
+				result.ScannersRun = append(result.ScannersRun, ScannerInfo{Name: "trivy", Version: trivyResult.Version})
 
 				// Parse Trivy vulnerabilities
 				if err := parseTrivyVulnerabilities(jsonPath, result); err != nil {
 					diag.Warn("parsing trivy results: %v", err)
 				}
 			}
-		} else {
-			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy"})
-			result.Partial = true
-			diag.Warn("trivy not found on PATH — skipping Trivy scan")
 		}
 		output.SectionEnd(sw, "sf_trivy_raw")
 	}
 
-	// Run Grype if enabled and available.
+	// Run Grype if enabled.
 	if cfg.GrypeEnabled {
 		output.SectionStartCollapsed(sw, "sf_grype_raw", "Grype scanner (raw)")
-		if _, lookErr := exec.LookPath("grype"); lookErr == nil {
-			grypeVer := grypeVersion()
+		grypeResult, grypeErr := toolchain.Resolve(cfg.RootDir, "grype", "")
+		if grypeErr != nil {
+			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype"})
+			result.Partial = true
+			diag.Warn("grype toolchain resolve failed: %v", grypeErr)
+		} else {
+			toolchain.Report(sw, grypeResult)
 			grypeJSON := cfg.OutputDir + "/security-scan-grype.json"
-			if err := runGrype(ctx, cfg.ImageRef, "json", grypeJSON, grypeCacheDir); err != nil {
-				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype", Version: grypeVer})
+			if err := runGrype(ctx, grypeResult.Path, cfg.ImageRef, "json", grypeJSON, grypeCacheDir); err != nil {
+				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype", Version: grypeResult.Version})
 				result.Partial = true
 				diag.Warn("grype scan failed (continuing without Grype): %v", err)
 			} else {
 				result.Artifacts = append(result.Artifacts, grypeJSON)
-				result.ScannersRun = append(result.ScannersRun, ScannerInfo{Name: "grype", Version: grypeVer})
+				result.ScannersRun = append(result.ScannersRun, ScannerInfo{Name: "grype", Version: grypeResult.Version})
 				grypeVulns, parseErr := parseGrypeVulnerabilities(grypeJSON)
 				if parseErr != nil {
 					diag.Warn("grype parse failed (continuing without Grype): %v", parseErr)
@@ -243,10 +251,6 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 					result.Vulnerabilities = append(result.Vulnerabilities, grypeVulns...)
 				}
 			}
-		} else {
-			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype"})
-			result.Partial = true
-			diag.Warn("grype not found on PATH — skipping Grype scan")
 		}
 		output.SectionEnd(sw, "sf_grype_raw")
 	}
@@ -270,12 +274,18 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Generate SBOM if enabled
 	if cfg.SBOMEnabled {
 		output.SectionStartCollapsed(sw, "sf_syft_raw", "Syft SBOM (raw)")
+		syftResult, syftErr := toolchain.Resolve(cfg.RootDir, "syft", "")
+		if syftErr != nil {
+			output.SectionEnd(sw, "sf_syft_raw")
+			return nil, fmt.Errorf("syft toolchain resolve failed: %w", syftErr)
+		}
+		toolchain.Report(sw, syftResult)
 		spdxPath := cfg.OutputDir + "/sbom.spdx.json"
-		spdxErr := runSyft(ctx, cfg.ImageRef, "spdx-json", spdxPath)
+		spdxErr := runSyft(ctx, syftResult.Path, cfg.ImageRef, "spdx-json", spdxPath)
 		if spdxErr == nil {
 			result.Artifacts = append(result.Artifacts, spdxPath)
 			cdxPath := cfg.OutputDir + "/sbom.cyclonedx.json"
-			if err := runSyft(ctx, cfg.ImageRef, "cyclonedx-json", cdxPath); err != nil {
+			if err := runSyft(ctx, syftResult.Path, cfg.ImageRef, "cyclonedx-json", cdxPath); err != nil {
 				output.SectionEnd(sw, "sf_syft_raw")
 				return nil, fmt.Errorf("syft cyclonedx: %w", err)
 			}
@@ -566,20 +576,22 @@ func titleCase(s string) string {
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
 }
 
-func runTrivy(ctx context.Context, imageRef, format, output, cacheDir string) error {
+func runTrivy(ctx context.Context, binPath, imageRef, format, output, cacheDir string) error {
 	args := []string{"image", "--format", format, "--output", output}
 	if cacheDir != "" {
 		args = append(args, "--cache-dir", cacheDir)
 	}
 	args = append(args, imageRef)
-	cmd := exec.CommandContext(ctx, "trivy", args...)
+	cmd := exec.CommandContext(ctx, binPath, args...)
+	cmd.Env = toolchain.CleanEnv()
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-func runSyft(ctx context.Context, imageRef, format, output string) error {
-	cmd := exec.CommandContext(ctx, "syft", imageRef, "-o", format, "-v")
+func runSyft(ctx context.Context, binPath, imageRef, format, output string) error {
+	cmd := exec.CommandContext(ctx, binPath, imageRef, "-o", format, "-v")
+	cmd.Env = toolchain.CleanEnv()
 	outFile, err := os.Create(output)
 	if err != nil {
 		return err
@@ -668,14 +680,16 @@ func parseTrivyVulnerabilities(jsonPath string, result *ScanResult) error {
 	return nil
 }
 
-func runGrype(ctx context.Context, imageRef, format, output, cacheDir string) error {
+func runGrype(ctx context.Context, binPath, imageRef, format, output, cacheDir string) error {
 	args := []string{imageRef, "-o", format, "--file", output, "-v"}
-	cmd := exec.CommandContext(ctx, "grype", args...)
+	cmd := exec.CommandContext(ctx, binPath, args...)
+	env := toolchain.CleanEnv()
+	if cacheDir != "" {
+		env = append(env, "GRYPE_DB_CACHE_DIR="+cacheDir)
+	}
+	cmd.Env = env
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
-	if cacheDir != "" {
-		cmd.Env = append(os.Environ(), "GRYPE_DB_CACHE_DIR="+cacheDir)
-	}
 	err := cmd.Run()
 	if err != nil {
 		// Grype exits 1 when vulnerabilities are found — output is still valid.
