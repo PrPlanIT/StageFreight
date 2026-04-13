@@ -16,7 +16,7 @@ import (
 // CA is resolved from environment: <PREFIX>_CA_FILE or <PREFIX>_CA_B64.
 // OIDC token is resolved from STAGEFREIGHT_OIDC.
 // All ephemeral files are registered for cleanup on rctx.Resolved.
-func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext) error {
+func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolPinConfig) error {
 	prefix := envPrefix(cfg.Name)
 
 	// Create isolated kubeconfig — never mutate ~/.kube/config.
@@ -65,8 +65,12 @@ func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext) err
 	fmt.Fprintf(os.Stderr, "prepare[flux]: auth method=%s\n", credName)
 
 	// Resolve kubectl via toolchain.
-	kubectlResult, resolveErr := toolchain.Resolve(rctx.RepoRoot, "kubectl", "")
+	kubectlVer, kubectlPinned := toolchain.ResolveVersion("kubectl", "", desired)
+	kubectlResult, resolveErr := toolchain.Resolve(rctx.RepoRoot, "kubectl", kubectlVer)
 	if resolveErr != nil {
+		if kubectlPinned {
+			return fmt.Errorf("kubectl pinned version %s failed to resolve: %w", kubectlVer, resolveErr)
+		}
 		return fmt.Errorf("kubectl toolchain resolve: %w", resolveErr)
 	}
 	kb := kubectlResult.Path

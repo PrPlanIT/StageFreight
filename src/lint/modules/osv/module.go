@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -36,6 +37,11 @@ var lockfiles = map[string]bool{
 type osvModule struct {
 	once    sync.Once
 	binPath string // resolved binary path, empty if resolution failed
+	desired map[string]config.ToolPinConfig
+}
+
+func (m *osvModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
+	m.desired = desired
 }
 
 func newModule() *osvModule { return &osvModule{} }
@@ -68,10 +74,17 @@ func (m *osvModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Findi
 
 	m.once.Do(func() {
 		rootDir, _ := os.Getwd()
-		result, err := toolchain.Resolve(rootDir, "osv-scanner", "")
-		if err == nil {
-			m.binPath = result.Path
+		ver, pinned := toolchain.ResolveVersion("osv-scanner", "", m.desired)
+		result, err := toolchain.Resolve(rootDir, "osv-scanner", ver)
+		if err != nil {
+			if pinned {
+				// Pinned version failed — this will surface as no findings,
+				// but the resolve error was already logged by the resolver.
+				// TODO: propagate hard failure through lint module interface.
+			}
+			return
 		}
+		m.binPath = result.Path
 	})
 	if m.binPath == "" {
 		return nil, nil

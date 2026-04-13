@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -66,9 +67,10 @@ type VerifyOpts struct {
 	ExpectedCommit    string
 	SigningAttempted   bool
 	Attestation       *artifact.AttestationRecord
-	CosignKeyPath     string
-	CredResolver      func(string) (string, string)
-	CredRef           string
+	CosignKeyPath      string
+	CredResolver       func(string) (string, string)
+	CredRef            string
+	ToolchainDesired   map[string]config.ToolPinConfig
 }
 
 // Verify performs 6-layer artifact verification against a digest reference.
@@ -121,7 +123,8 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 // verifyCosignSignature runs cosign verify against a digest reference.
 func verifyCosignSignature(ctx context.Context, r *VerificationResult, opts VerifyOpts) {
 	rootDir, _ := os.Getwd()
-	cosignResult, resolveErr := toolchain.Resolve(rootDir, "cosign", "")
+	cosignVer, _ := toolchain.ResolveVersion("cosign", "", opts.ToolchainDesired)
+	cosignResult, resolveErr := toolchain.Resolve(rootDir, "cosign", cosignVer)
 	if resolveErr != nil {
 		diag.Debug(false, "cosign: toolchain resolve failed, skipping signature verification: %v", resolveErr)
 		if opts.SigningAttempted {

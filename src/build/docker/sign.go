@@ -7,15 +7,20 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // CosignSign signs an image digest ref using cosign.
 // The digestRef must be in the form repo@sha256:... — tags are never used.
-func CosignSign(ctx context.Context, rootDir, digestRef, keyPath string, multiArch bool) error {
-	result, err := toolchain.Resolve(rootDir, "cosign", "")
+func CosignSign(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef, keyPath string, multiArch bool) error {
+	ver, pinned := toolchain.ResolveVersion("cosign", "", desired)
+	result, err := toolchain.Resolve(rootDir, "cosign", ver)
 	if err != nil {
+		if pinned {
+			return fmt.Errorf("cosign sign: pinned version %s failed to resolve: %w", ver, err)
+		}
 		return fmt.Errorf("cosign sign: toolchain resolve: %w", err)
 	}
 
@@ -41,9 +46,13 @@ func CosignSign(ctx context.Context, rootDir, digestRef, keyPath string, multiAr
 
 // CosignAttest attests a predicate against an image digest ref using cosign.
 // The digestRef must be in the form repo@sha256:... — tags are never used.
-func CosignAttest(ctx context.Context, rootDir, digestRef, predicatePath, keyPath string) error {
-	result, err := toolchain.Resolve(rootDir, "cosign", "")
+func CosignAttest(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef, predicatePath, keyPath string) error {
+	ver, pinned := toolchain.ResolveVersion("cosign", "", desired)
+	result, err := toolchain.Resolve(rootDir, "cosign", ver)
 	if err != nil {
+		if pinned {
+			return fmt.Errorf("cosign attest: pinned version %s failed to resolve: %w", ver, err)
+		}
 		return fmt.Errorf("cosign attest: toolchain resolve: %w", err)
 	}
 
@@ -77,7 +86,8 @@ func ResolveCosignKey() string {
 }
 
 // CosignAvailable returns true if cosign can be resolved via toolchain.
-func CosignAvailable(rootDir string) bool {
-	_, err := toolchain.Resolve(rootDir, "cosign", "")
+func CosignAvailable(rootDir string, desired map[string]config.ToolPinConfig) bool {
+	ver, _ := toolchain.ResolveVersion("cosign", "", desired)
+	_, err := toolchain.Resolve(rootDir, "cosign", ver)
 	return err == nil
 }

@@ -19,11 +19,12 @@ import (
 
 // Engine orchestrates lint modules across files.
 type Engine struct {
-	Config  config.LintConfig
-	RootDir string
-	Modules []Module
-	Cache   *Cache
-	Verbose bool
+	Config            config.LintConfig
+	RootDir           string
+	Modules           []Module
+	Cache             *Cache
+	Verbose           bool
+	ToolchainDesired  map[string]config.ToolPinConfig
 
 	CacheHits   atomic.Int64
 	CacheMisses atomic.Int64
@@ -86,6 +87,10 @@ func NewEngine(cfg config.LintConfig, rootDir string, moduleNames []string, skip
 		return nil, fmt.Errorf("no lint modules selected")
 	}
 
+	// Note: ToolchainDesired is set by the caller after construction,
+	// before Run(). Modules that implement ToolchainAwareModule receive
+	// it via applyToolchainDesired() called from Run().
+
 	return &Engine{
 		Config:  cfg,
 		RootDir: rootDir,
@@ -113,6 +118,15 @@ func (e *Engine) Run(ctx context.Context, files []FileInfo) ([]Finding, error) {
 
 // RunWithStats executes all modules and returns findings plus per-module statistics.
 func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding, []ModuleStats, error) {
+	// Propagate toolchain config to modules that need it.
+	if e.ToolchainDesired != nil {
+		for _, m := range e.Modules {
+			if ta, ok := m.(ToolchainAwareModule); ok {
+				ta.SetToolchainDesired(e.ToolchainDesired)
+			}
+		}
+	}
+
 	var (
 		mu       sync.Mutex
 		findings []Finding

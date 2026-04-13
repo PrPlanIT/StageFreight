@@ -10,6 +10,9 @@ const (
 	persistentRoot = "/stagefreight/toolchains"
 )
 
+// PersistentCacheRoot returns the persistent cache root path constant.
+func PersistentCacheRoot() string { return persistentRoot }
+
 // ReadRoots returns cache roots to search for existing toolchain installs,
 // in priority order. Persistent mount is checked first (operator-preseeded
 // or previously written), then workspace-local.

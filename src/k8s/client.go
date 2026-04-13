@@ -80,7 +80,7 @@ func resolveConfig(cluster config.ClusterConfig) (*rest.Config, string, func(), 
 	// 2. OIDC BuildKubeconfig — CI path, writes temp kubeconfig then re-reads.
 	if cluster.Name != "" {
 		rctx := &runtime.RuntimeContext{}
-		if err := gitops.BuildKubeconfig(cluster, rctx); err == nil {
+		if err := gitops.BuildKubeconfig(cluster, rctx, nil); err == nil {
 			// Re-read kubeconfig after OIDC setup wrote it.
 			rules2 := clientcmd.NewDefaultClientConfigLoadingRules()
 			kc2 := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules2, &clientcmd.ConfigOverrides{})

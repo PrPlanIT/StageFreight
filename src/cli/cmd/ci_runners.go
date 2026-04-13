@@ -425,6 +425,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		output.SectionEnd(w, "sf_deps_resolve")
 		return nil, fmt.Errorf("creating lint engine: %w", err)
 	}
+	engine.ToolchainDesired = appCfg.Toolchains.Desired
 
 	files, err := engine.CollectFiles()
 	if err != nil {

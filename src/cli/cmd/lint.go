@@ -79,6 +79,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	engine.ToolchainDesired = cfg.Toolchains.Desired
 
 	if verbose {
 		names := make([]string, len(engine.Modules))

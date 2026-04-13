@@ -107,6 +107,9 @@ type Config struct {
 	// Tag holds workflow defaults for the tag planner.
 	Tag TagConfig `yaml:"tag"`
 
+	// Toolchains defines operator control over external tool resolution.
+	// Version pins, future retention policy, future trust settings.
+	Toolchains ToolchainConfig `yaml:"toolchains,omitempty"`
 }
 
 // Load reads configuration from a YAML file.

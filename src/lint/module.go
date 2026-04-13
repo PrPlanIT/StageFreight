@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // Module is the interface every lint check implements.
@@ -22,6 +24,14 @@ type Module interface {
 type ConfigurableModule interface {
 	Module
 	Configure(opts map[string]any) error
+}
+
+// ToolchainAwareModule is implemented by modules that need toolchain config
+// for version pinning. The engine calls SetToolchainDesired after construction
+// if the module implements this interface.
+type ToolchainAwareModule interface {
+	Module
+	SetToolchainDesired(desired map[string]config.ToolPinConfig)
 }
 
 // CacheTTLModule controls time-based cache expiry.

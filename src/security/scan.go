@@ -30,8 +30,9 @@ type ScanConfig struct {
 	FailOnCritical bool      // fail if critical vulns found
 	ImageRef       string    // image reference or tarball path to scan
 	OutputDir      string    // directory for scan artifacts
-	RootDir        string    // workspace root for toolchain resolution
-	SectionWriter  io.Writer // writer for CI section markers (nil = os.Stderr)
+	RootDir              string               // workspace root for toolchain resolution
+	ToolchainDesired     map[string]config.ToolPinConfig // from appCfg.Toolchains.Desired
+	SectionWriter        io.Writer // writer for CI section markers (nil = os.Stderr)
 	TrivyCacheMax    string  // max_size for Trivy DB cache (full-clear when exceeded)
 	TrivyCacheMaxAge string  // max_age for Trivy DB cache (full-clear when oldest file exceeds)
 	GrypeCacheMax    string  // max_size for Grype DB cache (full-clear when exceeded)
@@ -193,8 +194,12 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Run Trivy if enabled.
 	if cfg.TrivyEnabled {
 		output.SectionStartCollapsed(sw, "sf_trivy_raw", "Trivy scanner (raw)")
-		trivyResult, trivyErr := toolchain.Resolve(cfg.RootDir, "trivy", "")
+		trivyVer, trivyPinned := toolchain.ResolveVersion("trivy", "", cfg.ToolchainDesired)
+		trivyResult, trivyErr := toolchain.Resolve(cfg.RootDir, "trivy", trivyVer)
 		if trivyErr != nil {
+			if trivyPinned {
+				return nil, fmt.Errorf("trivy pinned version %s failed to resolve: %w", trivyVer, trivyErr)
+			}
 			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy"})
 			result.Partial = true
 			diag.Warn("trivy toolchain resolve failed: %v", trivyErr)
@@ -229,8 +234,12 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Run Grype if enabled.
 	if cfg.GrypeEnabled {
 		output.SectionStartCollapsed(sw, "sf_grype_raw", "Grype scanner (raw)")
-		grypeResult, grypeErr := toolchain.Resolve(cfg.RootDir, "grype", "")
+		grypeVer, grypePinned := toolchain.ResolveVersion("grype", "", cfg.ToolchainDesired)
+		grypeResult, grypeErr := toolchain.Resolve(cfg.RootDir, "grype", grypeVer)
 		if grypeErr != nil {
+			if grypePinned {
+				return nil, fmt.Errorf("grype pinned version %s failed to resolve: %w", grypeVer, grypeErr)
+			}
 			result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype"})
 			result.Partial = true
 			diag.Warn("grype toolchain resolve failed: %v", grypeErr)
@@ -274,9 +283,13 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Generate SBOM if enabled
 	if cfg.SBOMEnabled {
 		output.SectionStartCollapsed(sw, "sf_syft_raw", "Syft SBOM (raw)")
-		syftResult, syftErr := toolchain.Resolve(cfg.RootDir, "syft", "")
+		syftVer, syftPinned := toolchain.ResolveVersion("syft", "", cfg.ToolchainDesired)
+		syftResult, syftErr := toolchain.Resolve(cfg.RootDir, "syft", syftVer)
 		if syftErr != nil {
 			output.SectionEnd(sw, "sf_syft_raw")
+			if syftPinned {
+				return nil, fmt.Errorf("syft pinned version %s failed to resolve: %w", syftVer, syftErr)
+			}
 			return nil, fmt.Errorf("syft toolchain resolve failed: %w", syftErr)
 		}
 		toolchain.Report(sw, syftResult)
