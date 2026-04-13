@@ -75,6 +75,13 @@ func (e *Engine) Sync() (*SyncResult, error) {
 		return e.doFirstPush(result, preClass, state)
 	}
 
+	// Explicit refspec push (CI detached HEAD): skip the entire fetch→classify→
+	// transition cycle. Branch tracking is irrelevant — just push HEAD to the
+	// refspec target. The commit is already done; this is a direct push.
+	if e.opts.Refspec != "" && state.DetachedHEAD {
+		return e.doRefspecPush(result, state)
+	}
+
 	// Pre-flight: blocked states (DETACHED_HEAD, DIRTY_WORKTREE) are hard stops.
 	if err := gitstate.RequireAttached(state); err != nil {
 		return result, err
@@ -144,6 +151,28 @@ func (e *Engine) Sync() (*SyncResult, error) {
 			Allowed: []gitstate.StateClass{gitstate.StateCleanSynced, gitstate.StateCleanAhead, gitstate.StateCleanBehind, gitstate.StateDiverged},
 		}
 	}
+}
+
+// doRefspecPush handles CI detached HEAD: push HEAD to the explicit refspec
+// without fetch, classify, or branch tracking. The commit is already done.
+func (e *Engine) doRefspecPush(result *SyncResult, state gitstate.RepoState) (*SyncResult, error) {
+	remote := e.opts.Remote
+	if remote == "" {
+		remote = "origin"
+	}
+
+	e.emit(gitstate.TransitionEvent{
+		From:   gitstate.StateDetachedHEAD,
+		Action: "REFSPEC_PUSH",
+		Note:   fmt.Sprintf("refspec=%s remote=%s (detached HEAD)", e.opts.Refspec, remote),
+	})
+
+	if err := e.session.Push(remote, e.opts.Refspec, false); err != nil {
+		return result, fmt.Errorf("refspec push: %w", err)
+	}
+	result.ActionsExecuted = append(result.ActionsExecuted, SyncPush)
+	result.PushedRef = e.opts.Refspec
+	return result, nil
 }
 
 // doFastForward executes the CLEAN_BEHIND → FAST_FORWARD → CLEAN_SYNCED transition.
