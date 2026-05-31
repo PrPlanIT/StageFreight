@@ -43,9 +43,8 @@ type referrersResponse struct {
 // Returns links to SBOM, provenance, and signature artifacts if present.
 // Best-effort: returns empty ArtifactLinks (no error) if referrers API unsupported.
 //
-// Takes individual identity fields rather than a PublishedImage struct —
-// this keeps the function free of v1 manifest coupling and aligns with the
-// (target + digest) identity boundary used elsewhere.
+// Takes individual identity fields rather than a struct — this preserves
+// the (target + digest) identity boundary used elsewhere.
 func DiscoverArtifacts(ctx context.Context, host, path, digest, credentialRef string, credResolver func(string) (string, string)) (ArtifactLinks, error) {
 	if digest == "" {
 		return ArtifactLinks{}, nil

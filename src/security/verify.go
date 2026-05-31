@@ -66,7 +66,7 @@ type VerifyOpts struct {
 	ExpectedTags      []string
 	ExpectedCommit    string
 	SigningAttempted  bool
-	Attestation       *artifact.AttestationRecord // TODO(4C.3): migrate to AttestationOutcome
+	Attestation       *artifact.AttestationOutcome
 	CosignKeyPath     string
 	CredResolver      func(string) (string, string)
 	CredRef           string

@@ -458,3 +458,12 @@ func sha256Hex(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
 }
+
+// normalizeHost strips scheme/trailing slash and lowercases a registry host
+// so identical hosts compare equal regardless of input shape.
+func normalizeHost(h string) string {
+	h = strings.TrimPrefix(h, "https://")
+	h = strings.TrimPrefix(h, "http://")
+	h = strings.TrimSuffix(h, "/")
+	return strings.ToLower(h)
+}
