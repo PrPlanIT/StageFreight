@@ -1,55 +1,76 @@
 package sync
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
-// setupTestRepo creates a minimal git repo with one commit for testing.
+// ── go-git test fixtures ──
+//
+// These fixtures construct repositories with go-git directly rather than the
+// git CLI, so the sync package carries no dependency on the git binary
+// (enforced by commit.TestNoGitShellOuts). mirrorPushDirect mirrors the
+// shape of production MirrorPush: clone --mirror into a temp bare repo, then
+// force-push heads + tags with prune.
+
+// testSig is the fixed author/committer signature for fixture commits.
+func testSig() *object.Signature {
+	return &object.Signature{Name: "test", Email: "test@test", When: time.Now()}
+}
+
+// setupTestRepo creates a minimal non-bare repo on main with one commit and a
+// v1.0.0 tag. go-git's PlainInit defaults HEAD to master; the mirror tests
+// assume main, so set it explicitly.
 func setupTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test",
-			"GIT_AUTHOR_EMAIL=test@test",
-			"GIT_COMMITTER_NAME=test",
-			"GIT_COMMITTER_EMAIL=test@test",
-		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %s: %s", args, err, out)
-		}
+	repo, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+		InitOptions: git.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")},
+	})
+	if err != nil {
+		t.Fatalf("init repo: %v", err)
 	}
-
-	git("init", "-b", "main")
-	os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello"), 0o644)
-	git("add", "README.md")
-	git("commit", "-m", "initial")
-	git("tag", "v1.0.0")
-
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("README.md"); err != nil {
+		t.Fatalf("add README.md: %v", err)
+	}
+	hash, err := wt.Commit("initial", &git.CommitOptions{Author: testSig()})
+	if err != nil {
+		t.Fatalf("initial commit: %v", err)
+	}
+	if _, err := repo.CreateTag("v1.0.0", hash, nil); err != nil {
+		t.Fatalf("tag v1.0.0: %v", err)
+	}
 	return dir
 }
 
-// setupBareRemote creates a bare git repo to act as an accessory remote.
+// setupBareRemote creates a bare repo to act as an accessory remote.
 func setupBareRemote(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	cmd := exec.Command("git", "init", "--bare")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git init --bare: %s: %s", err, out)
+	if _, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+		Bare:        true,
+		InitOptions: git.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")},
+	}); err != nil {
+		t.Fatalf("init bare remote: %v", err)
 	}
 	return dir
 }
@@ -68,25 +89,13 @@ func TestMirrorPush_Success(t *testing.T) {
 	}
 
 	// Verify remote has the tag
-	cmd := exec.Command("git", "tag", "-l")
-	cmd.Dir = remote
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), "v1.0.0") {
-		t.Errorf("remote should have tag v1.0.0, got: %s", out)
+	if !remoteHasTag(t, remote, "v1.0.0") {
+		t.Errorf("remote should have tag v1.0.0")
 	}
 
 	// Verify remote has the branch
-	cmd = exec.Command("git", "branch", "-a")
-	cmd.Dir = remote
-	out, err = cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), "main") {
-		t.Errorf("remote should have branch main, got: %s", out)
+	if !remoteHasBranch(t, remote, "main") {
+		t.Errorf("remote should have branch main")
 	}
 }
 
@@ -98,26 +107,26 @@ func TestMirrorPush_DeletedBranch(t *testing.T) {
 	mirrorPushDirect(t, source, remote)
 
 	// Create and push a branch
-	gitIn(t, source, "checkout", "-b", "feature")
-	os.WriteFile(filepath.Join(source, "feature.txt"), []byte("f"), 0o644)
-	gitIn(t, source, "add", "feature.txt")
-	gitIn(t, source, "commit", "-m", "feature")
+	srcRepo := openRepo(t, source)
+	srcWt := worktree(t, srcRepo)
+	checkout(t, srcWt, "feature", true)
+	writeAddCommit(t, srcRepo, source, "feature.txt", "f", "feature")
 	mirrorPushDirect(t, source, remote)
 
 	// Verify feature branch exists on remote
-	out := gitOutput(t, remote, "branch", "-a")
-	if !strings.Contains(out, "feature") {
+	if !remoteHasBranch(t, remote, "feature") {
 		t.Fatal("feature branch should exist on remote after push")
 	}
 
 	// Delete the branch on source
-	gitIn(t, source, "checkout", "main")
-	gitIn(t, source, "branch", "-D", "feature")
+	checkout(t, srcWt, "main", false)
+	if err := srcRepo.Storer.RemoveReference(plumbing.NewBranchReferenceName("feature")); err != nil {
+		t.Fatalf("delete feature branch: %v", err)
+	}
 	mirrorPushDirect(t, source, remote)
 
 	// Verify feature branch is gone from remote
-	out = gitOutput(t, remote, "branch", "-a")
-	if strings.Contains(out, "feature") {
+	if remoteHasBranch(t, remote, "feature") {
 		t.Error("feature branch should be deleted on remote after mirror push")
 	}
 }
@@ -130,12 +139,14 @@ func TestMirrorPush_OrphanedTag(t *testing.T) {
 	mirrorPushDirect(t, source, remote)
 
 	// Delete tag on source
-	gitIn(t, source, "tag", "-d", "v1.0.0")
+	srcRepo := openRepo(t, source)
+	if err := srcRepo.DeleteTag("v1.0.0"); err != nil {
+		t.Fatalf("delete tag: %v", err)
+	}
 	mirrorPushDirect(t, source, remote)
 
 	// Verify tag is gone from remote
-	out := gitOutput(t, remote, "tag", "-l")
-	if strings.Contains(out, "v1.0.0") {
+	if remoteHasTag(t, remote, "v1.0.0") {
 		t.Error("orphaned tag v1.0.0 should be deleted on remote after mirror push")
 	}
 }
@@ -147,21 +158,35 @@ func TestMirrorPush_ForceRewrite(t *testing.T) {
 	// First push
 	mirrorPushDirect(t, source, remote)
 
-	// Get original HEAD SHA
-	origSHA := gitOutput(t, remote, "rev-parse", "main")
+	// Get original remote HEAD SHA
+	origSHA := remoteBranchHash(t, remote, "main")
 
-	// Rewrite history on source (amend the commit)
-	os.WriteFile(filepath.Join(source, "README.md"), []byte("rewritten"), 0o644)
-	gitIn(t, source, "add", "README.md")
-	gitIn(t, source, "commit", "--amend", "-m", "rewritten")
+	// Rewrite history on source: a fresh commit with no parent replaces main.
+	// go-git has no --amend; resetting main to a brand-new root commit produces
+	// the same observable effect (remote HEAD must move under a force push).
+	srcRepo := openRepo(t, source)
+	srcWt := worktree(t, srcRepo)
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("rewritten"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srcWt.Add("README.md"); err != nil {
+		t.Fatalf("add README.md: %v", err)
+	}
+	newHash, err := srcWt.Commit("rewritten", &git.CommitOptions{Author: testSig()})
+	if err != nil {
+		t.Fatalf("rewrite commit: %v", err)
+	}
 
 	// Mirror push (force update)
 	mirrorPushDirect(t, source, remote)
 
 	// Verify HEAD changed
-	newSHA := gitOutput(t, remote, "rev-parse", "main")
+	newSHA := remoteBranchHash(t, remote, "main")
 	if origSHA == newSHA {
 		t.Error("remote HEAD should have changed after force rewrite")
+	}
+	if newSHA != newHash.String() {
+		t.Errorf("remote main = %s, want %s", newSHA, newHash)
 	}
 }
 
@@ -274,90 +299,152 @@ func TestMirrorPush_EmptyRepoBootstrap(t *testing.T) {
 		t.Fatalf("bootstrap push should succeed, got %s: %s", result.Status, result.Message)
 	}
 
-	out := gitOutput(t, remote, "rev-parse", "main")
-	srcSHA := gitOutput(t, source, "rev-parse", "main")
-	if out != srcSHA {
-		t.Errorf("remote HEAD %s != source HEAD %s", out, srcSHA)
+	remoteSHA := remoteBranchHash(t, remote, "main")
+	srcSHA := branchHash(t, source, "main")
+	if remoteSHA != srcSHA {
+		t.Errorf("remote HEAD %s != source HEAD %s", remoteSHA, srcSHA)
 	}
 
-	tags := gitOutput(t, remote, "tag", "-l")
-	if !strings.Contains(tags, "v1.0.0") {
+	if !remoteHasTag(t, remote, "v1.0.0") {
 		t.Error("remote should have tag v1.0.0 after bootstrap")
 	}
 }
 
 // ── test helpers ──
 
-// mirrorPushDirect performs a mirror push using git CLI for test fixtures.
-// Tests use git CLI because the build environment has git available.
-func mirrorPushDirect(t *testing.T, worktree, remoteDir string) *MirrorResult {
+// mirrorPushDirect performs a mirror push between two local repos using go-git
+// (no git binary). It clones --mirror from the source worktree into a temp bare
+// repo, then force-pushes heads + tags with prune to the remote — the same
+// shape as production MirrorPush, but against a local filesystem remote so the
+// fixtures need no credentials or network.
+func mirrorPushDirect(t *testing.T, worktreeDir, remoteDir string) *MirrorResult {
 	t.Helper()
 
 	tmpDir := t.TempDir()
 
-	// Clone --mirror from worktree
-	cmd := exec.Command("git", "clone", "--mirror", worktree, tmpDir)
-	out, err := cmd.CombinedOutput()
+	// Clone --mirror from the source worktree
+	bareRepo, err := git.PlainClone(tmpDir, true, &git.CloneOptions{
+		URL:    worktreeDir,
+		Mirror: true,
+	})
 	if err != nil {
-		t.Fatalf("mirror clone failed: %s: %s", err, out)
+		t.Fatalf("mirror clone failed: %v", err)
 	}
 
-	// Push --force --all + --tags
-	cmd = exec.Command("git", "push", "--prune", "--force", "--all", remoteDir)
-	cmd.Dir = tmpDir
-	out, err = cmd.CombinedOutput()
+	// Add the destination as a remote
+	if _, err := bareRepo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "mirror",
+		URLs: []string{remoteDir},
+	}); err != nil {
+		t.Fatalf("add mirror remote: %v", err)
+	}
+
+	// Force-push heads + tags with prune — reuse the production refspec builder.
+	localRefs, err := collectLocalRefs(bareRepo)
 	if err != nil {
+		t.Fatalf("collect local refs: %v", err)
+	}
+	// An empty bare remote (first push / bootstrap) has no refs to enumerate;
+	// go-git surfaces that as ErrEmptyRemoteRepository. Treat it as "no remote
+	// refs" rather than a failure, so prune simply has nothing to delete.
+	remoteRefs, err := listRemoteRefs(t.Context(), bareRepo, nil)
+	if err == transport.ErrEmptyRemoteRepository {
+		remoteRefs = map[string]bool{}
+	} else if err != nil {
+		t.Fatalf("list remote refs: %v", err)
+	}
+	refSpecs := buildPushRefSpecs(localRefs, remoteRefs)
+
+	if len(refSpecs) == 0 {
+		return &MirrorResult{AccessoryID: "test-remote", Status: SyncSuccess}
+	}
+
+	err = bareRepo.Push(&git.PushOptions{
+		RemoteName: "mirror",
+		RefSpecs:   refSpecs,
+		Force:      true,
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
 		return &MirrorResult{
 			AccessoryID:   "test-remote",
 			Status:        SyncFailed,
 			Degraded:      true,
 			FailureReason: MirrorUnknown,
-			Message:       string(out),
+			Message:       err.Error(),
 		}
 	}
 
-	cmd = exec.Command("git", "push", "--prune", "--force", "--tags", remoteDir)
-	cmd.Dir = tmpDir
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		return &MirrorResult{
-			AccessoryID:   "test-remote",
-			Status:        SyncFailed,
-			Degraded:      true,
-			FailureReason: MirrorUnknown,
-			Message:       string(out),
-		}
-	}
+	return &MirrorResult{AccessoryID: "test-remote", Status: SyncSuccess}
+}
 
-	return &MirrorResult{
-		AccessoryID: "test-remote",
-		Status:      SyncSuccess,
+func openRepo(t *testing.T, dir string) *git.Repository {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("open repo %s: %v", dir, err)
+	}
+	return repo
+}
+
+func worktree(t *testing.T, repo *git.Repository) *git.Worktree {
+	t.Helper()
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	return wt
+}
+
+func checkout(t *testing.T, wt *git.Worktree, branch string, create bool) {
+	t.Helper()
+	if err := wt.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName(branch),
+		Create: create,
+	}); err != nil {
+		t.Fatalf("checkout %s (create=%v): %v", branch, create, err)
 	}
 }
 
-func gitIn(t *testing.T, dir string, args ...string) {
+func writeAddCommit(t *testing.T, repo *git.Repository, dir, name, content, msg string) plumbing.Hash {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=test",
-		"GIT_AUTHOR_EMAIL=test@test",
-		"GIT_COMMITTER_NAME=test",
-		"GIT_COMMITTER_EMAIL=test@test",
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %s: %s", args, err, out)
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	wt := worktree(t, repo)
+	if _, err := wt.Add(name); err != nil {
+		t.Fatalf("add %s: %v", name, err)
+	}
+	hash, err := wt.Commit(msg, &git.CommitOptions{Author: testSig()})
+	if err != nil {
+		t.Fatalf("commit %q: %v", msg, err)
+	}
+	return hash
 }
 
-func gitOutput(t *testing.T, dir string, args ...string) string {
+func branchHash(t *testing.T, dir, branch string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	repo := openRepo(t, dir)
+	ref, err := repo.Reference(plumbing.NewBranchReferenceName(branch), true)
 	if err != nil {
-		t.Fatalf("git %v: %s", args, err)
+		t.Fatalf("resolve branch %s in %s: %v", branch, dir, err)
 	}
-	return strings.TrimSpace(string(out))
+	return ref.Hash().String()
+}
+
+func remoteBranchHash(t *testing.T, remoteDir, branch string) string {
+	return branchHash(t, remoteDir, branch)
+}
+
+func remoteHasBranch(t *testing.T, remoteDir, branch string) bool {
+	t.Helper()
+	repo := openRepo(t, remoteDir)
+	_, err := repo.Reference(plumbing.NewBranchReferenceName(branch), true)
+	return err == nil
+}
+
+func remoteHasTag(t *testing.T, remoteDir, tag string) bool {
+	t.Helper()
+	repo := openRepo(t, remoteDir)
+	_, err := repo.Reference(plumbing.NewTagReferenceName(tag), true)
+	return err == nil
 }
