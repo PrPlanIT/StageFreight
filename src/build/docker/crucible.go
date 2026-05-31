@@ -411,18 +411,9 @@ func runCrucibleMode(req Request) error {
 						}
 					}
 
-					if err := artifact.WriteOutputsManifest(rootDir, outputs); err != nil {
+					if _, err := writeManifests(rootDir, &outputs, rb); err != nil {
 						publishPassed = false
-						publishErr = fmt.Errorf("write outputs manifest: %w", err)
-					} else {
-						results, err := rb.Build(&outputs)
-						if err != nil {
-							publishPassed = false
-							publishErr = fmt.Errorf("build results manifest: %w", err)
-						} else if err := artifact.WriteResultsManifest(rootDir, results); err != nil {
-							publishPassed = false
-							publishErr = fmt.Errorf("write results manifest: %w", err)
-						}
+						publishErr = err
 					}
 				}
 			}

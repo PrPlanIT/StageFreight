@@ -8,6 +8,32 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 )
 
+// writeManifests is the single owner of the v2 emission sequence: write
+// outputs.json (intent), build the results manifest — which enforces the
+// outputs↔results ArtifactID join and binds the intent checksum — then write
+// published.json (observations). Returns the built ResultsManifest so callers
+// can report on recorded outcomes.
+//
+// Both execution paths route through here: the docker pipeline's publishPhase
+// and crucible mode's verified-publish pass. Keeping the write/build/write
+// trio in one place means the two paths cannot drift in emission order or
+// error semantics.
+func writeManifests(rootDir string, outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) (artifact.ResultsManifest, error) {
+	if err := artifact.WriteOutputsManifest(rootDir, *outputs); err != nil {
+		return artifact.ResultsManifest{}, fmt.Errorf("writing outputs manifest: %w", err)
+	}
+
+	results, err := rb.Build(outputs)
+	if err != nil {
+		return artifact.ResultsManifest{}, fmt.Errorf("building results manifest: %w", err)
+	}
+	if err := artifact.WriteResultsManifest(rootDir, results); err != nil {
+		return artifact.ResultsManifest{}, fmt.Errorf("writing results manifest: %w", err)
+	}
+
+	return results, nil
+}
+
 // publishPhase is the v2 execution sink: it writes outputs.json and
 // published.json from the in-memory OutputsManifest + ResultsBuilder owned
 // by run.go. No Scratch reads. No publishManifest. No publish decision
@@ -30,16 +56,9 @@ func publishPhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) p
 				}, nil
 			}
 
-			if err := artifact.WriteOutputsManifest(pc.RootDir, *outputs); err != nil {
-				return nil, fmt.Errorf("writing outputs manifest: %w", err)
-			}
-
-			results, err := rb.Build(outputs)
+			results, err := writeManifests(pc.RootDir, outputs, rb)
 			if err != nil {
-				return nil, fmt.Errorf("building results manifest: %w", err)
-			}
-			if err := artifact.WriteResultsManifest(pc.RootDir, results); err != nil {
-				return nil, fmt.Errorf("writing results manifest: %w", err)
+				return nil, err
 			}
 
 			// Image references — UX printing, derived purely from outputs.
