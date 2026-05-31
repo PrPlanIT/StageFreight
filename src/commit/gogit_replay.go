@@ -446,11 +446,6 @@ func checkRealPathSafe(repoRoot, dirPath, label string) error {
 	return nil
 }
 
-// hasSFGeneratedTrailer checks whether the commit message contains the SF generated trailer.
-func hasSFGeneratedTrailer(message string) bool {
-	return strings.Contains(message, sfGeneratedTrailer)
-}
-
 // firstLine returns the first non-empty line of a string (for error display).
 func firstLine(s string) string {
 	if idx := strings.Index(s, "\n"); idx >= 0 {
