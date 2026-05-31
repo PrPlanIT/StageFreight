@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -322,42 +321,11 @@ func TestDryRunGate_NilRenderPlanIsSafe(t *testing.T) {
 	}
 }
 
-// --- PublishManifestPhase ---
-
-func TestPublishManifestPhase_SkipsWhenEmpty(t *testing.T) {
-	pc := makePC()
-	// Manifest is zero-value (no artifacts).
-
-	phase := PublishManifestPhase()
-	result, err := phase.Run(pc)
-	if err != nil {
-		t.Fatalf("PublishManifestPhase returned error: %v", err)
-	}
-	if result.Status != "skipped" {
-		t.Errorf("status = %q; want %q", result.Status, "skipped")
-	}
-}
-
-func TestPublishManifestPhase_WritesWhenHasArtifacts(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	pc := makePC()
-	pc.RootDir = tmpDir
-	pc.Manifest = artifact.PublishManifest{
-		Binaries: []artifact.PublishedBinary{
-			{Name: "myapp", OS: "linux", Arch: "amd64", Path: "dist/myapp"},
-		},
-	}
-
-	phase := PublishManifestPhase()
-	result, err := phase.Run(pc)
-	if err != nil {
-		t.Fatalf("PublishManifestPhase returned error: %v", err)
-	}
-	if result.Status != "success" {
-		t.Errorf("status = %q; want %q", result.Status, "success")
-	}
-}
+// PublishManifestPhase removed in Phase 4C.1 — generic pipeline phase
+// that wrote v1 publish.json is no longer needed. Docker uses its own
+// publishPhase (writes outputs.json + published.json); binary uses
+// binaryPublishPhase. Tests previously here exercised v1 accumulation
+// semantics that no longer exist.
 
 // --- BannerPhase ---
 

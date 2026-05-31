@@ -65,12 +65,12 @@ type VerifyOpts struct {
 	ObservedDigestAlt string // alternate observation (registry API)
 	ExpectedTags      []string
 	ExpectedCommit    string
-	SigningAttempted   bool
-	Attestation       *artifact.AttestationRecord
-	CosignKeyPath      string
-	CredResolver       func(string) (string, string)
-	CredRef            string
-	ToolchainDesired   map[string]config.ToolPinConfig
+	SigningAttempted  bool
+	Attestation       *artifact.AttestationRecord // TODO(4C.3): migrate to AttestationOutcome
+	CosignKeyPath     string
+	CredResolver      func(string) (string, string)
+	CredRef           string
+	ToolchainDesired  map[string]config.ToolPinConfig
 }
 
 // Verify performs 6-layer artifact verification against a digest reference.

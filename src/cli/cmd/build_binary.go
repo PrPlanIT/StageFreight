@@ -330,7 +330,10 @@ func binaryExecutePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 			output.SectionStart(pc.Writer, "sf_build", "Build")
 			buildStart := time.Now()
 
-			var publishedBinaries []artifact.PublishedBinary
+			// Local in-process handoff to binaryArchivePhase. NOT v2 truth
+			// (which lives in outputs + rb); this is intra-pipeline data
+			// flow for the archive phase to know which files to wrap.
+			var publishedBinaries []builtBinary
 
 			buildSec := output.NewSection(pc.Writer, "Build", 0, pc.Color)
 			for _, step := range allSteps {
@@ -387,19 +390,16 @@ func binaryExecutePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 						},
 					})
 
-					// v1 in-process handoff for binaryArchivePhase. Not
-					// part of v2 truth; just intra-pipeline data flow.
-					publishedBinaries = append(publishedBinaries, artifact.PublishedBinary{
-						Name:      binaryName,
-						OS:        step.Platform.OS,
-						Arch:      step.Platform.Arch,
-						Path:      out.Path,
-						Size:      out.Size,
-						SHA256:    out.SHA256,
-						BuildID:   step.BuildID,
-						Version:   versionInfo.Version,
-						Commit:    versionInfo.SHA,
-						Toolchain: toolchain,
+					// In-process handoff for binaryArchivePhase. Not part
+					// of v2 truth — that's already recorded above via rb.
+					publishedBinaries = append(publishedBinaries, builtBinary{
+						Name:    binaryName,
+						OS:      step.Platform.OS,
+						Arch:    step.Platform.Arch,
+						Path:    out.Path,
+						SHA256:  out.SHA256,
+						Size:    out.Size,
+						BuildID: step.BuildID,
 					})
 				}
 			}
@@ -418,6 +418,22 @@ func binaryExecutePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 			}, nil
 		},
 	}
+}
+
+// builtBinary is the in-process handoff between binaryExecutePhase and
+// binaryArchivePhase. It carries the fields the archive phase needs
+// (which file to wrap, what its build ID/platform/etc. are) WITHOUT
+// using any v1 type. The v2 truth for these binaries is already
+// recorded in rb at the moment of execution; this struct exists purely
+// as intra-pipeline data flow.
+type builtBinary struct {
+	Name    string
+	OS      string
+	Arch    string
+	Path    string
+	SHA256  string
+	Size    int64
+	BuildID string
 }
 
 // uniqueBinaryArtifactName composes a stable, unique-per-build artifact
@@ -444,7 +460,7 @@ func binaryArchivePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 	return pipeline.Phase{
 		Name: "archive",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			publishedBinaries, ok := pc.Scratch["binary.published"].([]artifact.PublishedBinary)
+			publishedBinaries, ok := pc.Scratch["binary.published"].([]builtBinary)
 			if !ok {
 				return nil, fmt.Errorf("missing binary.published in scratch")
 			}
@@ -465,12 +481,15 @@ func binaryArchivePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 			output.SectionStartCollapsed(pc.Writer, "sf_archive", "Archive")
 			archiveStart := time.Now()
 
-			var allArchives []artifact.PublishedArchive
+			// Track per-archive results for checksums + summary count.
+			// Local type since archive identity (v2) is already recorded
+			// via rb above; this slice exists only to drive the per-target
+			// SHA256SUMS sidecar file.
+			var archiveCount int
 			archiveSec := output.NewSection(pc.Writer, "Archive", 0, pc.Color)
 
 			for _, t := range archiveTargets {
-				// Track archives created for this target only (checksums are per-target)
-				var targetArchives []artifact.PublishedArchive
+				var targetArchives []*build.ArchiveResult
 
 				for _, pb := range publishedBinaries {
 					if t.Build != pb.BuildID {
@@ -543,28 +562,12 @@ func binaryArchivePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 						},
 					})
 
-					targetArchives = append(targetArchives, artifact.PublishedArchive{
-						Name:     filepath.Base(archResult.Path),
-						Format:   archResult.Format,
-						Path:     archResult.Path,
-						Size:     archResult.Size,
-						SHA256:   archResult.SHA256,
-						Contents: archResult.Contents,
-						BuildID:  pb.BuildID,
-						Binary:   pb,
-					})
+					targetArchives = append(targetArchives, archResult)
 				}
 
-				// Write checksums scoped to this target's archives only
+				// Write checksums scoped to this target's archives only.
 				if t.Checksums && len(targetArchives) > 0 {
-					var archiveResults []*build.ArchiveResult
-					for _, pa := range targetArchives {
-						archiveResults = append(archiveResults, &build.ArchiveResult{
-							Path:   pa.Path,
-							SHA256: pa.SHA256,
-						})
-					}
-					checksumPath, err := build.WriteChecksums(filepath.Join(pc.RootDir, "dist"), archiveResults)
+					checksumPath, err := build.WriteChecksums(filepath.Join(pc.RootDir, "dist"), targetArchives)
 					if err != nil {
 						archiveSec.Close()
 						output.SectionEnd(pc.Writer, "sf_archive")
@@ -574,14 +577,14 @@ func binaryArchivePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 						output.StatusIcon("success", pc.Color))
 				}
 
-				allArchives = append(allArchives, targetArchives...)
+				archiveCount += len(targetArchives)
 			}
 
 			archiveElapsed := time.Since(archiveStart)
 			archiveSec.Close()
 			output.SectionEnd(pc.Writer, "sf_archive")
 
-			summary := fmt.Sprintf("%d archive(s)", len(allArchives))
+			summary := fmt.Sprintf("%d archive(s)", archiveCount)
 			return &pipeline.PhaseResult{
 				Name:    "archive",
 				Status:  "success",

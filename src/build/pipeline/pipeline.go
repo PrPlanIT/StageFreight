@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/trace"
@@ -36,9 +35,8 @@ type PipelineContext struct {
 	DryRun        bool
 	Local         bool
 	PipelineStart time.Time
-	Manifest      artifact.PublishManifest // accumulated by execute phases
-	BuildPlan     *build.BuildPlan      // set by build planning phases when applicable; nil for pipelines with no build plan
-	Results       []PhaseResult        // accumulated by pipeline runner
+	BuildPlan     *build.BuildPlan // set by build planning phases when applicable; nil for pipelines with no build plan
+	Results       []PhaseResult    // accumulated by pipeline runner
 
 	// Trace is the truth emission collector for this pipeline run.
 	// All inputs, decisions, mutations, and side effects emit through it.

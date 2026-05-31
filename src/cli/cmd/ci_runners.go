@@ -172,25 +172,39 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		return nil
 	}
 
-	// Read publish manifest to determine what was produced.
-	// Distinguish "not found" (no targets matched) from "unreadable" (real error).
-	// Unreadable manifest is NOT treated as "completed with no images" — that would
-	// cause security to skip silently. Instead, Completed stays false so downstream
-	// stages proceed and fail with diagnostic errors.
-	manifest, manifestErr := artifact.ReadPublishManifest(rootDir)
+	// Read v2 manifests to determine what was produced. PublishedCount =
+	// successful docker push outcomes. Distinguish "not found" (no
+	// publishable artifacts for this ref) from "unreadable" (genuine
+	// error). Unreadable is NOT treated as "completed with no images" —
+	// that would cause security to skip silently. Instead, Completed
+	// stays false so downstream stages proceed and fail with diagnostic
+	// errors.
+	outputs, outErr := artifact.ReadOutputsManifest(rootDir)
+	results, resErr := artifact.ReadResultsManifest(rootDir)
+
+	bothNotFound := errors.Is(outErr, artifact.ErrOutputsManifestNotFound) &&
+		errors.Is(resErr, artifact.ErrResultsManifestNotFound)
 
 	switch {
-	case manifestErr == nil:
-		count := len(manifest.Published)
+	case outErr == nil && resErr == nil:
+		// Count successful docker push outcomes via PublicationView.
+		// Failed pushes surface in the view too — they don't count.
+		views := artifact.BuildPublicationViews(outputs, results)
+		count := 0
+		for _, v := range views {
+			if v.PushStatus == artifact.OutcomeSuccess {
+				count++
+			}
+		}
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Build.ProducedImages = count > 0
 			st.Build.PublishedCount = count
 			if count > 0 {
-				st.Build.ManifestPath = artifact.PublishManifestPath
+				st.Build.ManifestPath = artifact.OutputsManifestPath
 			}
 			reason := ""
 			if count == 0 {
-				reason = "publish manifest exists but contains no images"
+				reason = "manifests exist but no successful publications"
 			}
 			st.RecordSubsystem(cistate.SubsystemState{
 				Name: "build", Attempted: true, Completed: true, Required: buildRequired,
@@ -200,7 +214,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
 
-	case errors.Is(manifestErr, artifact.ErrPublishManifestNotFound):
+	case bothNotFound:
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.Build.ProducedImages = false
 			st.RecordSubsystem(cistate.SubsystemState{
@@ -212,9 +226,17 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		}
 
 	default:
-		// Manifest exists but is unreadable — do NOT mark Completed.
-		// Security will proceed (not skip) and fail with a diagnostic from resolveTarget.
-		reason := fmt.Sprintf("publish manifest unreadable: %v", manifestErr)
+		// One manifest is present but unreadable, or only one of the
+		// pair exists. Either is a genuine error worth surfacing.
+		var reason string
+		switch {
+		case outErr != nil && !errors.Is(outErr, artifact.ErrOutputsManifestNotFound):
+			reason = fmt.Sprintf("outputs manifest unreadable: %v", outErr)
+		case resErr != nil && !errors.Is(resErr, artifact.ErrResultsManifestNotFound):
+			reason = fmt.Sprintf("results manifest unreadable: %v", resErr)
+		default:
+			reason = "outputs/results manifest pair inconsistent (one missing)"
+		}
 		fmt.Fprintf(os.Stderr, "warning: %s\n", reason)
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.RecordSubsystem(cistate.SubsystemState{

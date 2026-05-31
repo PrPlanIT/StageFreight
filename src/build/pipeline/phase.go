@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -501,50 +500,6 @@ func DryRunGate(renderPlan func(pc *PipelineContext)) Phase {
 				Status:  "success",
 				Summary: "plan rendered",
 			}, ErrDryRunExit
-		},
-	}
-}
-
-// PublishManifestPhase writes the accumulated publish manifest.
-// No-op (records "skipped") when the manifest has no artifacts.
-func PublishManifestPhase() Phase {
-	return Phase{
-		Name: "publish",
-		Run: func(pc *PipelineContext) (*PhaseResult, error) {
-			m := &pc.Manifest
-			hasArtifacts := len(m.Published) > 0 || len(m.Binaries) > 0 || len(m.Archives) > 0
-
-			if !hasArtifacts {
-				return &PhaseResult{
-					Name:    "publish",
-					Status:  "skipped",
-					Summary: "no artifacts",
-				}, nil
-			}
-
-			// Merge with existing manifest (binary builds may have already written)
-			existing, err := artifact.ReadPublishManifest(pc.RootDir)
-			if err == nil {
-				existing.Published = append(existing.Published, m.Published...)
-				existing.Binaries = append(existing.Binaries, m.Binaries...)
-				existing.Archives = append(existing.Archives, m.Archives...)
-				m = existing
-			}
-
-			if err := artifact.WritePublishManifest(pc.RootDir, *m); err != nil {
-				return &PhaseResult{
-					Name:    "publish",
-					Status:  "failed",
-					Summary: err.Error(),
-				}, fmt.Errorf("writing publish manifest: %w", err)
-			}
-
-			count := len(m.Published) + len(m.Binaries) + len(m.Archives)
-			return &PhaseResult{
-				Name:    "publish",
-				Status:  "success",
-				Summary: fmt.Sprintf("%d artifact(s)", count),
-			}, nil
 		},
 	}
 }
