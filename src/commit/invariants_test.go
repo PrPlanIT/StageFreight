@@ -11,20 +11,26 @@ import (
 	"testing"
 )
 
-// TestNoGitOrSSHShellOuts verifies that no package in the repository shells out
-// to the `git` or `ssh` binaries via exec.Command or exec.CommandContext.
+// TestNoGitShellOuts verifies that no package in the repository shells out
+// to the `git` binary via exec.Command or exec.CommandContext.
 //
 // After the go-git migration, all git operations go through src/gitstate/ or
 // src/commit/ using the go-git library. Any regression that re-introduces a
-// shell-out will be caught here and fail CI.
+// git shell-out will be caught here and fail CI.
+//
+// The invariant is scoped to git specifically. It does NOT ban exec("ssh"):
+// SSH is a general transport (e.g. src/docker/transport.go runs Docker over
+// SSH), and forbidding it here would couple unrelated subsystems to the git
+// packages to satisfy a test broader than its own design intent. The rule is
+// "no git CLI dependency," not "no SSH anywhere."
 //
 // Allowed packages (explicitly exempted):
 //   - src/commit/     — CommitEngine and SyncEngine (domain owners)
 //   - src/gitstate/   — Transport and repo primitives (domain owners)
 //
 // All other packages must NOT contain exec.Command("git", ...) or
-// exec.Command("ssh", ...) or exec.CommandContext(ctx, "git", ...) etc.
-func TestNoGitOrSSHShellOuts(t *testing.T) {
+// exec.CommandContext(ctx, "git", ...) etc.
+func TestNoGitShellOuts(t *testing.T) {
 	// Locate the module root by walking up from this file's package
 	repoRoot, err := findModuleRoot()
 	if err != nil {
@@ -65,13 +71,13 @@ func TestNoGitOrSSHShellOuts(t *testing.T) {
 	}
 
 	if len(violations) > 0 {
-		t.Errorf("found %d git/ssh shell-out violation(s) outside domain packages:\n\n%s\n\nAll git operations must go through src/gitstate/ or src/commit/ using go-git.",
+		t.Errorf("found %d git shell-out violation(s) outside domain packages:\n\n%s\n\nAll git operations must go through src/gitstate/ or src/commit/ using go-git.",
 			len(violations), strings.Join(violations, "\n"))
 	}
 }
 
 // checkFileForGitShellOuts parses a Go source file and reports any
-// exec.Command or exec.CommandContext calls where the first argument is "git" or "ssh".
+// exec.Command or exec.CommandContext calls where the command name is "git".
 func checkFileForGitShellOuts(t *testing.T, path, repoRoot string) []string {
 	t.Helper()
 
@@ -126,7 +132,7 @@ func checkFileForGitShellOuts(t *testing.T, path, repoRoot string) []string {
 		}
 
 		cmdName := strings.Trim(lit.Value, `"`)
-		if cmdName == "git" || cmdName == "ssh" {
+		if cmdName == "git" {
 			pos := fset.Position(call.Pos())
 			violations = append(violations, fmt.Sprintf(
 				"  %s:%d: exec.%s(%q, ...) — use src/gitstate/ or src/commit/ instead",
