@@ -14,43 +14,74 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 )
 
-// VerificationResult tracks the outcome of verifying a single published image.
-type VerificationResult struct {
-	Image    artifact.PublishedImage
-	Verified bool
-	Digest   string // remote digest if available
-	Err      error
+// ImageVerifyTarget is one image reference to verify. Identity is the typed
+// ArtifactID (the join key release_create uses to correlate results back to
+// views) — never reconstructed from fields. Host/Path/Tag/Digest/CredentialRef
+// are primitives obtained from a PublicationView; this struct stays
+// backend-agnostic so the registry helpers don't import a domain-specific
+// view type.
+type ImageVerifyTarget struct {
+	ArtifactID     artifact.ArtifactID
+	Host           string
+	Path           string
+	Tag            string
+	ExpectedDigest string // empty = don't enforce digest match
+	CredentialRef  string
 }
 
-// VerifyImages checks each published image against its remote registry.
-// Uses OCI Distribution API HEAD (fallback GET) manifest request.
-// Concurrent (max 8 workers), retries with exponential backoff.
-// Digest mismatch is a verification failure.
-func VerifyImages(ctx context.Context, images []artifact.PublishedImage, credResolver func(string) (string, string)) ([]VerificationResult, error) {
-	results := make([]VerificationResult, len(images))
+// VerificationResult tracks the outcome of verifying a single target.
+// ArtifactID propagates from the input target so callers can join results
+// back to their view collection by exact ArtifactID equality.
+type VerificationResult struct {
+	ArtifactID artifact.ArtifactID
+	Host       string
+	Path       string
+	Tag        string
+	Verified   bool
+	Digest     string // remote digest if available
+	Err        error
+}
+
+// VerifyImages checks each target against its remote registry. Uses OCI
+// Distribution API HEAD (fallback GET) manifest request. Concurrent (max 8
+// workers), retries with exponential backoff. Digest mismatch (when
+// ExpectedDigest is non-empty) is a verification failure.
+func VerifyImages(ctx context.Context, targets []ImageVerifyTarget, credResolver func(string) (string, string)) ([]VerificationResult, error) {
+	results := make([]VerificationResult, len(targets))
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
 
-	for i, img := range images {
+	for i, tgt := range targets {
 		wg.Add(1)
-		go func(idx int, img artifact.PublishedImage) {
+		go func(idx int, tgt ImageVerifyTarget) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			result := verifyImage(ctx, img, credResolver)
+			result := verifyOne(ctx, tgt, credResolver)
 			results[idx] = result
-		}(i, img)
+		}(i, tgt)
 	}
 
 	wg.Wait()
 	return results, nil
 }
 
-func verifyImage(ctx context.Context, img artifact.PublishedImage, credResolver func(string) (string, string)) VerificationResult {
-	ref := img.Host + "/" + img.Path
-	tag := img.Tag
+func verifyOne(ctx context.Context, tgt ImageVerifyTarget, credResolver func(string) (string, string)) VerificationResult {
+	ref := tgt.Host + "/" + tgt.Path
+
+	mkResult := func(verified bool, digest string, err error) VerificationResult {
+		return VerificationResult{
+			ArtifactID: tgt.ArtifactID,
+			Host:       tgt.Host,
+			Path:       tgt.Path,
+			Tag:        tgt.Tag,
+			Verified:   verified,
+			Digest:     digest,
+			Err:        err,
+		}
+	}
 
 	// Retry with backoff: 1s, 2s, 3s, 4s, 5s
 	var lastErr error
@@ -58,34 +89,29 @@ func verifyImage(ctx context.Context, img artifact.PublishedImage, credResolver 
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return VerificationResult{Image: img, Err: ctx.Err()}
+				return mkResult(false, "", ctx.Err())
 			case <-time.After(time.Duration(attempt) * time.Second):
 			}
 		}
 
-		digest, err := checkManifest(ctx, img.Host, img.Path, tag, credResolver, img.CredentialRef)
+		digest, err := checkManifest(ctx, tgt.Host, tgt.Path, tgt.Tag, credResolver, tgt.CredentialRef)
 		if err != nil {
 			lastErr = err
-			// Don't retry on 404 — image genuinely not found
 			if isNotFound(err) {
-				return VerificationResult{Image: img, Err: fmt.Errorf("image not found: %s:%s", ref, tag)}
+				return mkResult(false, "", fmt.Errorf("image not found: %s:%s", ref, tgt.Tag))
 			}
 			continue
 		}
 
-		// Digest mismatch check
-		if img.Digest != "" && digest != "" && img.Digest != digest {
-			return VerificationResult{
-				Image:  img,
-				Digest: digest,
-				Err:    fmt.Errorf("digest mismatch for %s:%s: local %s, remote %s", ref, tag, img.Digest, digest),
-			}
+		if tgt.ExpectedDigest != "" && digest != "" && tgt.ExpectedDigest != digest {
+			return mkResult(false, digest,
+				fmt.Errorf("digest mismatch for %s:%s: expected %s, remote %s", ref, tgt.Tag, tgt.ExpectedDigest, digest))
 		}
 
-		return VerificationResult{Image: img, Verified: true, Digest: digest}
+		return mkResult(true, digest, nil)
 	}
 
-	return VerificationResult{Image: img, Err: fmt.Errorf("verification failed after retries: %w", lastErr)}
+	return mkResult(false, "", fmt.Errorf("verification failed after retries: %w", lastErr))
 }
 
 // CheckManifestDigest performs a HEAD (fallback GET) on the OCI manifest endpoint.

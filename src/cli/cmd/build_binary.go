@@ -73,6 +73,12 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 		Scratch:       make(map[string]any),
 	}
 
+	// Shared v2 state captured by closure across binary execute/archive/publish.
+	// Mirrors the docker pipeline pattern in run.go — outputs is populated
+	// once per artifact emission, rb is append-only, neither lives in Scratch.
+	var outputs artifact.OutputsManifest
+	rb := build.NewResultsBuilder()
+
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
 			pipeline.BannerPhase(),
@@ -81,9 +87,9 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 			binaryDetectPhase(),
 			binaryPlanPhase(),
 			pipeline.DryRunGate(renderBinaryPlan),
-			binaryExecutePhase(),
-			binaryArchivePhase(),
-			pipeline.PublishManifestPhase(),
+			binaryExecutePhase(&outputs, rb),
+			binaryArchivePhase(&outputs, rb),
+			binaryPublishPhase(&outputs, rb),
 		},
 		Hooks: []pipeline.PostBuildHook{
 			postbuild.BadgeHook(cfg, cmdBadgeRunner(cfg)),
@@ -291,7 +297,20 @@ func renderBinaryPlan(pc *pipeline.PipelineContext) {
 }
 
 // binaryExecutePhase compiles all planned binary steps.
-func binaryExecutePhase() pipeline.Phase {
+// binaryExecutePhase runs each planned binary step and records, per
+// successful build, a v2 (intent, outcome) pair via the captured outputs
+// pointer and ResultsBuilder.
+//
+// Recording is pure passthrough — per the Phase 4 unified determinism rule,
+// the recording layer takes whatever bytes/metadata the toolchain produced
+// and records it verbatim. No path cleanup, no metadata reordering, no
+// "harmless" trimming. If the toolchain emitted nondeterministic bytes,
+// that is a build-system defect, not something this phase can paper over.
+//
+// publishedBinaries is kept in Scratch as the in-process handoff for
+// binaryArchivePhase to know which binaries to wrap; this is execution-
+// internal data flow, not the v2 truth (which lives in outputs + rb).
+func binaryExecutePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) pipeline.Phase {
 	return pipeline.Phase{
 		Name: "build",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
@@ -334,9 +353,44 @@ func binaryExecutePhase() pipeline.Phase {
 					output.StatusIcon("success", pc.Color),
 					result.Metrics.Duration.Seconds())
 
+				binaryName := result.Metadata["binary_name"]
+				toolchain := result.Metadata["toolchain"]
+
 				for _, out := range result.Artifacts {
+					// Plan-time intent: descriptor describes the binary
+					// without execution observations (no SHA256, no Size).
+					// Per Q2: no targets.
+					artifactName := uniqueBinaryArtifactName(binaryName, step.Platform.OS, step.Platform.Arch)
+					artifactID := artifact.NewArtifactID("binary", artifactName)
+					outputs.Artifacts = append(outputs.Artifacts, artifact.Artifact{
+						Kind:    "binary",
+						Name:    artifactName,
+						Version: versionInfo.Version,
+						Binary: &artifact.BinaryDescriptor{
+							OS:        step.Platform.OS,
+							Arch:      step.Platform.Arch,
+							Path:      out.Path,
+							Toolchain: toolchain,
+						},
+					})
+
+					// Execution observation: BinaryOutcome carries whatever
+					// the build emitted. No target (un-targeted by design).
+					rb.Record(artifactID, artifact.Outcome{
+						Type: artifact.OutcomeTypeBinaryBuild,
+						Binary: &artifact.BinaryOutcome{
+							Status:  artifact.OutcomeSuccess,
+							SHA256:  out.SHA256,
+							Path:    out.Path,
+							Size:    out.Size,
+							BuildID: step.BuildID,
+						},
+					})
+
+					// v1 in-process handoff for binaryArchivePhase. Not
+					// part of v2 truth; just intra-pipeline data flow.
 					publishedBinaries = append(publishedBinaries, artifact.PublishedBinary{
-						Name:      result.Metadata["binary_name"],
+						Name:      binaryName,
 						OS:        step.Platform.OS,
 						Arch:      step.Platform.Arch,
 						Path:      out.Path,
@@ -345,7 +399,7 @@ func binaryExecutePhase() pipeline.Phase {
 						BuildID:   step.BuildID,
 						Version:   versionInfo.Version,
 						Commit:    versionInfo.SHA,
-						Toolchain: result.Metadata["toolchain"],
+						Toolchain: toolchain,
 					})
 				}
 			}
@@ -354,7 +408,6 @@ func binaryExecutePhase() pipeline.Phase {
 			output.SectionEnd(pc.Writer, "sf_build")
 
 			pc.Scratch["binary.published"] = publishedBinaries
-			pc.Manifest.Binaries = append(pc.Manifest.Binaries, publishedBinaries...)
 
 			summary := fmt.Sprintf("%d binary(ies)", len(publishedBinaries))
 			return &pipeline.PhaseResult{
@@ -367,8 +420,27 @@ func binaryExecutePhase() pipeline.Phase {
 	}
 }
 
-// binaryArchivePhase creates archives for configured binary-archive targets.
-func binaryArchivePhase() pipeline.Phase {
+// uniqueBinaryArtifactName composes a stable, unique-per-build artifact
+// name for binaries across multiple platforms. Cross-platform builds
+// produce multiple binaries with the same logical name; we suffix the
+// platform so each (binary, platform) tuple has a distinct ArtifactID.
+//
+// Determinism rule applies: this name is identity, not observation, so it
+// must be derived deterministically from plan inputs only.
+func uniqueBinaryArtifactName(binaryName, osName, arch string) string {
+	return binaryName + "-" + osName + "-" + arch
+}
+
+// binaryArchivePhase creates archives for configured binary-archive targets
+// and emits ArchiveOutcome facts via the supplied ResultsBuilder. Each
+// archive is a sibling artifact to its source binaries — never embedded.
+// Sources references binary ArtifactIDs by string; sorting happens at
+// ResultsManifest.Finalize time, not here.
+//
+// CreateArchive enforces archive-bytes determinism (sorted entry order,
+// normalized tar/zip headers, hash over final stream). This phase just
+// records what CreateArchive emitted.
+func binaryArchivePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) pipeline.Phase {
 	return pipeline.Phase{
 		Name: "archive",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
@@ -438,6 +510,39 @@ func binaryArchivePhase() pipeline.Phase {
 						output.StatusIcon("success", pc.Color),
 						archResult.Format, archResult.Size)
 
+					// v2 intent + outcome emission. Archive name uses the
+					// archive filename basename so the artifact_id stays
+					// stable across the (binary, archive) sibling pair.
+					archiveArtifactName := filepath.Base(archResult.Path)
+					archiveArtifactID := artifact.NewArtifactID("archive", archiveArtifactName)
+					outputs.Artifacts = append(outputs.Artifacts, artifact.Artifact{
+						Kind:    "archive",
+						Name:    archiveArtifactName,
+						Version: versionInfo.Version,
+						Archive: &artifact.ArchiveDescriptor{
+							Format: archResult.Format,
+							Path:   archResult.Path,
+						},
+					})
+
+					// ArchiveOutcome carries the bytes-deterministic SHA256
+					// from CreateArchive plus the Sources sibling reference
+					// to the source binary's ArtifactID. Sources is
+					// semantically unordered; ResultsManifest.Finalize sorts
+					// it for canonical serialization.
+					sourceBinaryID := artifact.NewArtifactID("binary", uniqueBinaryArtifactName(pb.Name, pb.OS, pb.Arch))
+					rb.Record(archiveArtifactID, artifact.Outcome{
+						Type: artifact.OutcomeTypeArchive,
+						Archive: &artifact.ArchiveOutcome{
+							Status:  artifact.OutcomeSuccess,
+							SHA256:  archResult.SHA256,
+							Path:    archResult.Path,
+							Format:  archResult.Format,
+							Size:    archResult.Size,
+							Sources: []artifact.ArtifactID{sourceBinaryID},
+						},
+					})
+
 					targetArchives = append(targetArchives, artifact.PublishedArchive{
 						Name:     filepath.Base(archResult.Path),
 						Format:   archResult.Format,
@@ -476,14 +581,57 @@ func binaryArchivePhase() pipeline.Phase {
 			archiveSec.Close()
 			output.SectionEnd(pc.Writer, "sf_archive")
 
-			pc.Manifest.Archives = append(pc.Manifest.Archives, allArchives...)
-
 			summary := fmt.Sprintf("%d archive(s)", len(allArchives))
 			return &pipeline.PhaseResult{
 				Name:    "archive",
 				Status:  "success",
 				Summary: summary,
 				Elapsed: archiveElapsed,
+			}, nil
+		},
+	}
+}
+
+// binaryPublishPhase is the pure flush sink for the binary pipeline.
+// Mirrors docker's publishPhase: writes outputs.json and published.json
+// from the in-memory OutputsManifest + ResultsBuilder. No Scratch reads,
+// no v1 publishManifest, no publication decision logic.
+//
+// Skipped when no artifacts were emitted — same semantic as the docker
+// publish phase: publication occurred iff outputs.Artifacts is non-empty.
+func binaryPublishPhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) pipeline.Phase {
+	return pipeline.Phase{
+		Name: "publish",
+		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
+			if outputs == nil || len(outputs.Artifacts) == 0 {
+				return &pipeline.PhaseResult{
+					Name:    "publish",
+					Status:  "skipped",
+					Summary: "no artifacts",
+				}, nil
+			}
+
+			if err := artifact.WriteOutputsManifest(pc.RootDir, *outputs); err != nil {
+				return nil, fmt.Errorf("writing outputs manifest: %w", err)
+			}
+
+			results, err := rb.Build(outputs)
+			if err != nil {
+				return nil, fmt.Errorf("building results manifest: %w", err)
+			}
+			if err := artifact.WriteResultsManifest(pc.RootDir, results); err != nil {
+				return nil, fmt.Errorf("writing results manifest: %w", err)
+			}
+
+			outcomeCount := 0
+			for _, r := range results.Results {
+				outcomeCount += len(r.Outcomes)
+			}
+			return &pipeline.PhaseResult{
+				Name:   "publish",
+				Status: "success",
+				Summary: fmt.Sprintf("%d outcome(s) across %d artifact(s)",
+					outcomeCount, len(results.Results)),
 			}, nil
 		},
 	}

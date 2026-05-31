@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -66,6 +68,13 @@ func Run(req Request) error {
 		Scratch:       make(map[string]any),
 	}
 
+	// Shared state between executePhase and publishPhase, captured by both
+	// phase closures. Replaces the pc.Scratch handoff. outputs is populated
+	// once by executePhase from the resolved BuildPlan; rb is append-only
+	// and the sole accumulator of push/attestation outcomes.
+	var outputs artifact.OutputsManifest
+	rb := build.NewResultsBuilder()
+
 	p := &pipeline.Pipeline{
 		Phases: []pipeline.Phase{
 			pipeline.BannerPhase(),
@@ -78,8 +87,8 @@ func Run(req Request) error {
 			planPhase(req),
 			pipeline.DryRunGate(renderPlan),
 			cleanupPhase(),
-			executePhase(req),
-			publishPhase(),
+			executePhase(req, &outputs, rb),
+			publishPhase(&outputs, rb),
 			localCacheRetentionPhase(),
 		},
 		Hooks: []pipeline.PostBuildHook{

@@ -101,66 +101,85 @@ func resolveTarget(rootDir string, explicitImage string, positionalArgs []string
 		}, nil
 	}
 
-	// Priority 3: auto-resolve from publish manifest
-	manifest, err := artifact.ReadPublishManifest(rootDir)
+	// Priority 3: auto-resolve from v2 manifests (outputs + results).
+	// PublicationView is the consumer-side join over intent + observations;
+	// selection logic operates on views, not on a v1 dual-purpose manifest.
+	outputs, err := artifact.ReadOutputsManifest(rootDir)
 	if err != nil {
-		if errors.Is(err, artifact.ErrPublishManifestNotFound) {
+		if errors.Is(err, artifact.ErrOutputsManifestNotFound) {
 			return security.ScanTarget{}, fmt.Errorf(
-				"--image is required: no publish manifest at %s (build may not have produced images for this ref)",
-				artifact.PublishManifestPath)
+				"--image is required: no outputs manifest at %s (build may not have produced any artifacts for this ref)",
+				artifact.OutputsManifestPath)
 		}
-		return security.ScanTarget{}, fmt.Errorf("--image is required: publish manifest unreadable: %w", err)
+		return security.ScanTarget{}, fmt.Errorf("--image is required: outputs manifest unreadable: %w", err)
 	}
-	if len(manifest.Published) == 0 {
-		return security.ScanTarget{}, fmt.Errorf(
-			"--image is required: publish manifest exists but contains no published images")
+	results, err := artifact.ReadResultsManifest(rootDir)
+	if err != nil {
+		if errors.Is(err, artifact.ErrResultsManifestNotFound) {
+			return security.ScanTarget{}, fmt.Errorf(
+				"--image is required: no results manifest at %s (build did not complete or no pushes occurred)",
+				artifact.ResultsManifestPath)
+		}
+		return security.ScanTarget{}, fmt.Errorf("--image is required: results manifest unreadable: %w", err)
 	}
 
-	// Build candidate list
+	// Successful publications only. Failed push outcomes also surface in
+	// BuildPublicationViews but are not scannable — the image was never
+	// pushed. Filtering here keeps selection logic narrow.
+	allViews := artifact.BuildPublicationViews(outputs, results)
+	var pubViews []artifact.PublicationView
+	for _, v := range allViews {
+		if v.PushStatus == artifact.OutcomeSuccess {
+			pubViews = append(pubViews, v)
+		}
+	}
+	if len(pubViews) == 0 {
+		return security.ScanTarget{}, fmt.Errorf(
+			"--image is required: no successful publication outcomes in results manifest")
+	}
+
+	// Build candidate list for UX. ObservedDigestAlt is intentionally
+	// absent in v2 — the cross-check warning (buildx vs registry API) is
+	// emitted at record time in the docker push helper, not preserved as
+	// dual-observer state in the results model.
 	var candidates []security.CandidateInfo
-	for _, img := range manifest.Published {
+	for _, v := range pubViews {
 		candidates = append(candidates, security.CandidateInfo{
-			Ref:               img.Ref,
-			Digest:            img.Digest,
-			ObservedDigest:    img.ObservedDigest,
-			ObservedDigestAlt: img.ObservedDigestAlt,
-			Stability:         security.ClassifyRefStability(img.Ref, img.Digest),
+			Ref:            v.Ref(),
+			Digest:         v.Digest,
+			ObservedDigest: v.ObservedDigest,
+			Stability:      security.ClassifyRefStability(v.Ref(), v.Digest),
 		})
 	}
 
-	// Selection rules:
-	// 1. Prefer candidates with digest (StabilityDigest or StabilityTagWithDigest)
-	// 2. Among digest-resolved, prefer those where Digest == ObservedDigest
-	// 3. Among bare tags, prefer first by manifest order
-	var selected *artifact.PublishedImage
+	// Selection rules (preserved from v1):
+	//   1. Prefer the first view with a non-empty digest (immutable target)
+	//   2. Fall back to the first view by recorded order (bare tag)
+	var selected *artifact.PublicationView
 	var reason string
-
-	// Find first digest-resolved candidate
-	for i, img := range manifest.Published {
-		if img.Digest != "" {
-			selected = &manifest.Published[i]
+	for i := range pubViews {
+		if pubViews[i].Digest != "" {
+			selected = &pubViews[i]
 			reason = fmt.Sprintf("first digest-resolved candidate (%d candidates)", len(candidates))
 			break
 		}
 	}
-
-	// Fallback to first candidate (bare tag)
 	if selected == nil {
-		selected = &manifest.Published[0]
+		selected = &pubViews[0]
 		reason = fmt.Sprintf("first candidate by manifest order (%d candidates, all bare tags)", len(candidates))
 	}
 
-	// Build the execution ref — if we have a digest, use digest ref for scanning
-	execRef := selected.Ref
-	stability := security.ClassifyRefStability(selected.Ref, selected.Digest)
+	// Build execution ref — digest ref if known, mutable tag otherwise.
+	execRef := selected.Ref()
+	stability := security.ClassifyRefStability(selected.Ref(), selected.Digest)
 	if selected.Digest != "" {
-		// Use digest ref for the actual scan execution
-		repo := selected.Host + "/" + selected.Path
-		execRef = repo + "@" + selected.Digest
+		execRef = selected.DigestRef()
 		stability = security.StabilityDigest
 	}
 
-	// Check digest vs observed digest
+	// Digest match check — same single-observation comparison the docker
+	// helper already warned about at record time, re-surfaced at scan time
+	// in case the registry has since drifted.
 	var digestMatch *bool
 	if selected.Digest != "" && selected.ObservedDigest != "" {
 		match := selected.Digest == selected.ObservedDigest
@@ -171,15 +190,14 @@ func resolveTarget(rootDir string, explicitImage string, positionalArgs []string
 		}
 	}
 
-	// Log candidate selection with resolution strength
 	if selected.Digest != "" {
-		fmt.Fprintf(os.Stderr, "security: resolved immutable scan target from publish manifest\n")
+		fmt.Fprintf(os.Stderr, "security: resolved immutable scan target from publication views\n")
 	} else {
-		fmt.Fprintf(os.Stderr, "security: falling back to mutable tag target from publish manifest\n")
+		fmt.Fprintf(os.Stderr, "security: falling back to mutable tag target from publication views\n")
 	}
 	for _, c := range candidates {
 		marker := "   "
-		if c.Ref == selected.Ref {
+		if c.Ref == selected.Ref() {
 			marker = " → "
 		}
 		fmt.Fprintf(os.Stderr, "%s%s (%s)\n", marker, c.Ref, c.Stability)
@@ -187,19 +205,18 @@ func resolveTarget(rootDir string, explicitImage string, positionalArgs []string
 	fmt.Fprintf(os.Stderr, "  selected: %s\n", reason)
 
 	return security.ScanTarget{
-		Ref:               execRef,
-		DiscoveredTag:     selected.Tag,
-		Digest:            selected.Digest,
-		ObservedDigest:    selected.ObservedDigest,
-		ObservedDigestAlt: selected.ObservedDigestAlt,
-		DigestMatch:       digestMatch,
-		Source:            security.TargetPublishManifest,
-		SelectionReason:   reason,
-		Stability:         stability,
-		Candidates:        candidates,
-		ExpectedTags:      selected.ExpectedTags,
-		ExpectedCommit:    selected.ExpectedCommit,
-		SigningAttempted:   selected.SigningAttempted,
+		Ref:              execRef,
+		DiscoveredTag:    selected.Tag,
+		Digest:           selected.Digest,
+		ObservedDigest:   selected.ObservedDigest,
+		DigestMatch:      digestMatch,
+		Source:           security.TargetPublishManifest,
+		SelectionReason:  reason,
+		Stability:        stability,
+		Candidates:       candidates,
+		ExpectedTags:     selected.ExpectedTags,
+		ExpectedCommit:   selected.ExpectedCommit,
+		SigningAttempted: selected.SigningAttempted,
 	}, nil
 }
 
@@ -294,15 +311,19 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// Run verification if target has a digest
 	var verifyResult *security.VerificationResult
 	if target.Digest != "" {
+		// VerifyOpts.ObservedDigestAlt is intentionally omitted: v2 does not
+		// preserve a second observation. The buildx-vs-registry-API
+		// cross-check was already emitted at record time in the docker
+		// push helper. Verify's consistency-check path now no-ops, which
+		// matches the v2 single-observation model.
 		verifyResult = security.Verify(ctx, security.VerifyOpts{
-			ExpectedDigest:    target.Digest,
-			ActualRef:         target.Ref,
-			ActualTag:         target.DiscoveredTag,
-			ObservedDigest:    target.ObservedDigest,
-			ObservedDigestAlt: target.ObservedDigestAlt,
-			ExpectedTags:      target.ExpectedTags,
-			ExpectedCommit:    target.ExpectedCommit,
-			SigningAttempted:   target.SigningAttempted,
+			ExpectedDigest:   target.Digest,
+			ActualRef:        target.Ref,
+			ActualTag:        target.DiscoveredTag,
+			ObservedDigest:   target.ObservedDigest,
+			ExpectedTags:     target.ExpectedTags,
+			ExpectedCommit:   target.ExpectedCommit,
+			SigningAttempted: target.SigningAttempted,
 		})
 	}
 

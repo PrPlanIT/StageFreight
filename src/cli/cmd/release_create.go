@@ -191,167 +191,268 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		}
 	}
 
-	// Build image availability rows.
-	// Truth mode: read from publish manifest (build stage output).
-	// Fallback mode: build from config targets (local dev, manual release).
+	// ── release_create v2 invariant ────────────────────────────────────
+	// ArtifactID is the only join key across all artifact views.
+	// Any other derived key is strictly presentation-only and must not
+	// participate in joins, lookups, or graph construction.
+	//
+	// Forbidden patterns (caught by TestNoIdentityReconstructionPatterns):
+	//   - string concat of fields as identity (e.g. name + "-" + os + "-" + arch)
+	//   - composite map keys derived from fields (BuildID/OS/Arch tuples)
+	//   - parsing of artifact names to derive type/platform
+	//   - any lookup keyed by string when the key represents artifact identity
+	// ────────────────────────────────────────────────────────────────────
 	currentTag := os.Getenv("CI_COMMIT_TAG")
 
-	manifest, manifestErr := artifact.ReadPublishManifest(rootDir)
+	outputs, outputsErr := artifact.ReadOutputsManifest(rootDir)
+	results, resultsErr := artifact.ReadResultsManifest(rootDir)
 	var imageRows []release.ImageRow
+	var downloadRows []release.BinaryRow
+	var manifestAssets []string
 
 	switch {
-	case manifestErr == nil:
-		// Truth mode: build rows from verified publish manifest
-		if len(manifest.Published) > 0 {
-			// Credential resolver for verification
-			credResolver := func(prefix string) (string, string) {
-				cred := credentials.ResolvePrefix(prefix)
-				if cred.Kind == credentials.SecretPassword {
-					diag.Warn("credentials %s: authenticating with %s — consider using %s_TOKEN instead (scoped, revocable)",
-						prefix, cred.SecretEnv, strings.ToUpper(prefix))
+	case outputsErr == nil && resultsErr == nil:
+		// Truth mode: v2 outputs + results both present.
+		publicationViews := artifact.BuildPublicationViews(outputs, results)
+		archiveViews := artifact.BuildArchiveExecutionViews(outputs, results)
+		binaryViews := artifact.BuildBinaryExecutionViews(outputs, results)
+
+		credResolver := func(prefix string) (string, string) {
+			cred := credentials.ResolvePrefix(prefix)
+			if cred.Kind == credentials.SecretPassword {
+				diag.Warn("credentials %s: authenticating with %s — consider using %s_TOKEN instead (scoped, revocable)",
+					prefix, cred.SecretEnv, strings.ToUpper(prefix))
+			}
+			return cred.User, cred.Secret
+		}
+
+		// Filter to successful pushes — only verified-publishable images
+		// participate in release. Failed pushes legitimately surface in
+		// PublicationView but cannot be published.
+		var pubViews []artifact.PublicationView
+		for _, v := range publicationViews {
+			if v.PushStatus == artifact.OutcomeSuccess {
+				pubViews = append(pubViews, v)
+			}
+		}
+
+		if len(pubViews) > 0 {
+			// Build verify targets — primitives + typed ArtifactID for join-back.
+			verifyTargets := make([]registry.ImageVerifyTarget, 0, len(pubViews))
+			discoveryTargets := make([]registry.ArtifactDiscoveryTarget, 0, len(pubViews))
+			for _, v := range pubViews {
+				credRef := credentialRefForHost(req.Config, v.Host)
+				verifyTargets = append(verifyTargets, registry.ImageVerifyTarget{
+					ArtifactID:     v.ArtifactID,
+					Host:           v.Host,
+					Path:           v.Path,
+					Tag:            v.Tag,
+					ExpectedDigest: v.Digest,
+					CredentialRef:  credRef,
+				})
+				if v.Digest != "" {
+					discoveryTargets = append(discoveryTargets, registry.ArtifactDiscoveryTarget{
+						ArtifactID:    v.ArtifactID,
+						Host:          v.Host,
+						Path:          v.Path,
+						Digest:        v.Digest,
+						CredentialRef: credRef,
+					})
 				}
-				return cred.User, cred.Secret
 			}
 
-			// Remote verification
-			results, verifyErr := registry.VerifyImages(ctx, manifest.Published, credResolver)
+			verifyResults, verifyErr := registry.VerifyImages(ctx, verifyTargets, credResolver)
 			if verifyErr != nil {
 				return fmt.Errorf("verifying published images: %w", verifyErr)
 			}
-			for _, r := range results {
+			for _, r := range verifyResults {
 				if !r.Verified {
-					return fmt.Errorf("published image %s failed remote verification: %v", r.Image.Ref, r.Err)
+					return fmt.Errorf("published image %s/%s:%s failed remote verification: %v",
+						r.Host, r.Path, r.Tag, r.Err)
 				}
 			}
 
-			// Artifact discovery (best-effort)
-			artifactMap := registry.DiscoverAllArtifacts(ctx, manifest.Published, credResolver)
+			// Artifact discovery keyed by ArtifactID — typed join key, no
+			// reconstructed lookup keys.
+			artifactMap := registry.DiscoverAllArtifacts(ctx, discoveryTargets, credResolver)
 
-			// Group by host+path, dedup tags
-			type imageKey struct{ host, path string }
-			type pendingTarget struct {
-				resolved  registry.ResolvedRegistryTarget
-				seen      map[string]bool
-				digestRef string
-				sbom      string
-				prov      string
-				sig       string
+			// Group publication views into ImageRow per (Host, Path).
+			// This grouping key is presentation-only — it is never used to
+			// retrieve or identify an artifact. The artifact identity is
+			// always the ArtifactID, carried separately.
+			type imageGroupKey struct{ host, path string }
+			type pendingImageGroup struct {
+				artifactID artifact.ArtifactID
+				host       string
+				path       string
+				provider   string
+				seen       map[string]bool
+				tagList    []string
+				digest     string
+				sbom       string
+				prov       string
+				sig        string
 			}
-			targetIndex := make(map[imageKey]*pendingTarget)
-			var targetOrder []imageKey
-
-			for _, img := range manifest.Published {
-				k := imageKey{host: img.Host, path: img.Path}
-				pt, exists := targetIndex[k]
+			groupIndex := make(map[imageGroupKey]*pendingImageGroup)
+			var groupOrder []imageGroupKey
+			for _, v := range pubViews {
+				k := imageGroupKey{host: v.Host, path: v.Path}
+				g, exists := groupIndex[k]
 				if !exists {
-					pt = &pendingTarget{
-						resolved: registry.ResolvedRegistryTarget{
-							Provider: img.Provider,
-							Host:     img.Host,
-							Path:     img.Path,
-						},
-						seen: make(map[string]bool),
+					g = &pendingImageGroup{
+						artifactID: v.ArtifactID,
+						host:       v.Host,
+						path:       v.Path,
+						provider:   providerFromHost(v.Host),
+						seen:       make(map[string]bool),
 					}
-					targetIndex[k] = pt
-					targetOrder = append(targetOrder, k)
+					groupIndex[k] = g
+					groupOrder = append(groupOrder, k)
 				}
-				if !pt.seen[img.Tag] {
-					pt.seen[img.Tag] = true
-					pt.resolved.Tags = append(pt.resolved.Tags, img.Tag)
+				if !g.seen[v.Tag] {
+					g.seen[v.Tag] = true
+					g.tagList = append(g.tagList, v.Tag)
 				}
-				if img.Digest != "" && pt.digestRef == "" {
-					pt.digestRef = img.Host + "/" + img.Path + "@" + img.Digest
-					// Look up artifact links
-					aKey := img.Host + "/" + img.Path + "@" + img.Digest
-					if links, ok := artifactMap[aKey]; ok {
-						pt.sbom = links.SBOM
-						pt.prov = links.Provenance
-						pt.sig = links.Signature
+				if v.Digest != "" && g.digest == "" {
+					g.digest = v.Digest
+					if links, ok := artifactMap[v.ArtifactID]; ok {
+						g.sbom = links.SBOM
+						g.prov = links.Provenance
+						g.sig = links.Signature
 					}
 				}
 			}
 
-			// Sort by provider, then domain
-			sort.SliceStable(targetOrder, func(i, j int) bool {
-				ri, rj := targetIndex[targetOrder[i]], targetIndex[targetOrder[j]]
-				if ri.resolved.Provider != rj.resolved.Provider {
-					return ri.resolved.Provider < rj.resolved.Provider
+			// Sort groups by (provider, host) — presentation order.
+			sort.SliceStable(groupOrder, func(i, j int) bool {
+				gi, gj := groupIndex[groupOrder[i]], groupIndex[groupOrder[j]]
+				if gi.provider != gj.provider {
+					return gi.provider < gj.provider
 				}
-				return ri.resolved.Host < rj.resolved.Host
+				return gi.host < gj.host
 			})
 
-			imageRows = make([]release.ImageRow, 0, len(targetOrder))
-			for _, k := range targetOrder {
-				pt := targetIndex[k]
-				rt := pt.resolved
-				tags := make([]release.ResolvedTag, 0, len(rt.Tags))
-				for _, t := range rt.Tags {
+			imageRows = make([]release.ImageRow, 0, len(groupOrder))
+			for _, k := range groupOrder {
+				g := groupIndex[k]
+				rt := registry.ResolvedRegistryTarget{
+					Provider: g.provider,
+					Host:     g.host,
+					Path:     g.path,
+					Tags:     g.tagList,
+				}
+				tags := make([]release.ResolvedTag, 0, len(g.tagList))
+				for _, t := range g.tagList {
 					tags = append(tags, release.ResolvedTag{
 						Name: t,
 						URL:  rt.TagURL(t),
 					})
+				}
+				var digestRef string
+				if g.digest != "" {
+					digestRef = g.host + "/" + g.path + "@" + g.digest
 				}
 				imageRows = append(imageRows, release.ImageRow{
 					RegistryLabel: rt.DisplayName(),
 					RegistryURL:   rt.RepoURL(),
 					ImageRef:      rt.ImageRef(),
 					Tags:          tags,
-					DigestRef:     pt.digestRef,
-					SBOM:          pt.sbom,
-					Provenance:    pt.prov,
-					Signature:     pt.sig,
+					DigestRef:     digestRef,
+					SBOM:          g.sbom,
+					Provenance:    g.prov,
+					Signature:     g.sig,
 				})
 			}
 		}
-		// Empty manifest = no images, no fallback (intentional)
 
-	case errors.Is(manifestErr, artifact.ErrPublishManifestNotFound):
-		// No truth artifact — fallback to config targets (local dev, manual release)
+		// Archive + binary download rows. The cross-domain join is by
+		// ArtifactID exact equality: archives reference source binary
+		// ArtifactIDs in Sources; uncovered binaries are those whose
+		// ArtifactID is not in any archive's Sources set.
+		//
+		// Assets are collected as (row, path, ArtifactID, kind) tuples so
+		// the cross-kind canonicalization sort below works directly on
+		// the typed identity — no ArtifactName→ArtifactID reverse lookup.
+		// Carrying identity alongside the row from construction is the
+		// invariant: identity is propagated unchanged, never re-derived.
+		binaryByID := make(map[artifact.ArtifactID]artifact.BinaryExecutionView, len(binaryViews))
+		for _, bv := range binaryViews {
+			binaryByID[bv.ArtifactID] = bv
+		}
+		coveredIDs := make(map[artifact.ArtifactID]struct{})
+		var assets []releaseAsset
+
+		for _, av := range archiveViews {
+			if av.BuildStatus != artifact.OutcomeSuccess {
+				continue
+			}
+			for _, sourceID := range av.Sources {
+				coveredIDs[sourceID] = struct{}{}
+			}
+			assets = append(assets, releaseAsset{
+				Kind:       "archive",
+				ArtifactID: av.ArtifactID,
+				AssetPath:  av.Path,
+				Row: release.BinaryRow{
+					Name:     av.ArtifactName,
+					Platform: archivePlatform(av, binaryByID),
+					Size:     av.Size,
+					SHA256:   av.SHA256,
+				},
+			})
+		}
+		for _, bv := range binaryViews {
+			if bv.BuildStatus != artifact.OutcomeSuccess {
+				continue
+			}
+			if _, covered := coveredIDs[bv.ArtifactID]; covered {
+				continue
+			}
+			assets = append(assets, releaseAsset{
+				Kind:       "binary",
+				ArtifactID: bv.ArtifactID,
+				AssetPath:  bv.Path,
+				Row: release.BinaryRow{
+					Name:     bv.ArtifactName,
+					Platform: bv.OS + "/" + bv.Arch,
+					Size:     bv.Size,
+					SHA256:   bv.SHA256,
+				},
+			})
+		}
+
+		// Cross-kind canonicalization sort. The key is (Kind, ArtifactID)
+		// directly on the typed identity field — no name lookup, no
+		// reconstruction. Trap-4 boundary: assets cross artifact kinds and
+		// must be deterministically ordered before external publication.
+		sort.SliceStable(assets, func(i, j int) bool {
+			if assets[i].Kind != assets[j].Kind {
+				return assets[i].Kind < assets[j].Kind
+			}
+			return assets[i].ArtifactID < assets[j].ArtifactID
+		})
+
+		downloadRows = make([]release.BinaryRow, len(assets))
+		manifestAssets = make([]string, len(assets))
+		for i, a := range assets {
+			downloadRows[i] = a.Row
+			manifestAssets[i] = a.AssetPath
+		}
+
+	case errors.Is(outputsErr, artifact.ErrOutputsManifestNotFound) ||
+		errors.Is(resultsErr, artifact.ErrResultsManifestNotFound):
+		// No v2 truth artifacts — fallback to config targets for image rows
+		// (local dev, manual release). Binary/archive download rows are not
+		// available in this mode; they require the build pipeline to have run.
 		imageRows = buildImageRowsFromConfig(req.Config, currentTag, versionInfo)
 
 	default:
-		// Manifest exists but invalid (checksum mismatch, parse error)
-		return fmt.Errorf("publish manifest: %w", manifestErr)
-	}
-
-	// Build download rows and collect manifest assets for upload.
-	// Archives are the primary distributable; raw binaries are uploaded
-	// only when no archive covers that binary.
-	var downloadRows []release.BinaryRow
-	var manifestAssets []string // local paths to auto-upload
-
-	if manifest != nil {
-		// Track which binaries have archives
-		archivedBinaries := make(map[string]bool)
-		for _, a := range manifest.Archives {
-			archivedBinaries[a.BuildID+"/"+a.Binary.OS+"/"+a.Binary.Arch] = true
+		// One of the manifests was present but invalid (checksum mismatch,
+		// parse error). Surface the error rather than silently degrading.
+		if outputsErr != nil {
+			return fmt.Errorf("outputs manifest: %w", outputsErr)
 		}
-
-		// Archives first — these are the user-facing downloads
-		for _, a := range manifest.Archives {
-			downloadRows = append(downloadRows, release.BinaryRow{
-				Name:     a.Name,
-				Platform: a.Binary.OS + "/" + a.Binary.Arch,
-				Size:     a.Size,
-				SHA256:   a.SHA256,
-			})
-			manifestAssets = append(manifestAssets, a.Path)
-		}
-
-		// Raw binaries only if no archive covers them
-		for _, bin := range manifest.Binaries {
-			key := bin.BuildID + "/" + bin.OS + "/" + bin.Arch
-			if archivedBinaries[key] {
-				continue
-			}
-			downloadRows = append(downloadRows, release.BinaryRow{
-				Name:     bin.Name,
-				Platform: bin.OS + "/" + bin.Arch,
-				Size:     bin.Size,
-				SHA256:   bin.SHA256,
-			})
-			manifestAssets = append(manifestAssets, bin.Path)
-		}
+		return fmt.Errorf("results manifest: %w", resultsErr)
 	}
 
 	// Generate or load release notes
@@ -1096,3 +1197,125 @@ func newSyncForgeClientFromTarget(t config.TargetConfig, cfg *config.Config) (fo
 
 	return nil, fmt.Errorf("release target %s: mirror: is required for remote release targets", t.ID)
 }
+
+// releaseAsset carries a download row, its on-disk asset path, the typed
+// ArtifactID, and the artifact kind. Bundling identity with the row at
+// construction time means the cross-kind canonicalization sort operates
+// on the typed identity directly — no Name→ArtifactID reverse lookup is
+// ever required.
+type releaseAsset struct {
+	Kind       string // "archive" | "binary"
+	ArtifactID artifact.ArtifactID
+	AssetPath  string
+	Row        release.BinaryRow
+}
+
+// archivePlatform returns the platform string for an archive's release row.
+//
+// Single-source archive: use that source binary's OS/Arch (joined by
+// exact ArtifactID match — no name reconstruction).
+// Multi-source homogeneous archive: that single platform.
+// Multi-source heterogeneous archive: "multi-platform". The earlier
+// "first-by-ArtifactID" rule was structurally deterministic but
+// semantically misleading; surfacing multi-platform reality directly is
+// more accurate.
+// No sources resolvable: empty string.
+func archivePlatform(av artifact.ArchiveExecutionView, binaryByID map[artifact.ArtifactID]artifact.BinaryExecutionView) string {
+	resolved := make([]string, 0, len(av.Sources))
+	for _, sourceID := range av.Sources {
+		if bv, ok := binaryByID[sourceID]; ok {
+			resolved = append(resolved, bv.OS+"/"+bv.Arch)
+		}
+	}
+	switch len(resolved) {
+	case 0:
+		return ""
+	case 1:
+		return resolved[0]
+	default:
+		first := resolved[0]
+		for _, p := range resolved[1:] {
+			if p != first {
+				return "multi-platform"
+			}
+		}
+		return first
+	}
+}
+
+// credentialRefForHost walks the config's registries to find the credentials
+// env-var prefix for a given host. Returns "" if no matching registry is
+// configured — anonymous auth (which works for public registries).
+//
+// Config-driven, not derived from the artifact truth model. CredentialRef
+// stays out of PublicationView per the Phase 4 step 1 lock-in: credentials
+// are deployment configuration, not artifact identity.
+//
+// Host comparison normalizes registry URLs (strips scheme/path, lowercases)
+// so a config entry of "https://ghcr.io/" matches a published host of
+// "ghcr.io". Registries with ports (e.g. "registry.local:5000") match when
+// the config entry is specified with the same port.
+func credentialRefForHost(cfg *config.Config, host string) string {
+	if cfg == nil {
+		return ""
+	}
+	want := normalizeRegistryHost(host)
+	for _, reg := range cfg.Registries {
+		if normalizeRegistryHost(reg.URL) == want {
+			return reg.Credentials
+		}
+	}
+	return ""
+}
+
+// normalizeRegistryHost canonicalizes a host or URL to a comparable host
+// string: lowercased, scheme/path stripped.
+func normalizeRegistryHost(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "https://")
+	s = strings.TrimPrefix(s, "http://")
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.ToLower(s)
+}
+
+// providerFromHost is a presentation-only classification of a registry
+// host. Per the v2 contract, Provider is NOT stored in PublicationView or
+// anywhere in the truth model — it is derived at consumer time.
+//
+// IMPORTANT: this string is consumed ONLY by the release-notes display
+// (rt.DisplayName / rt.RepoURL via release.ImageRow). All routing/auth
+// decisions in this codebase read Provider from RegistryConfig or
+// ResolvedRegistry instead — those are the config-resolved authoritative
+// source. Anyone introducing a new behavioral dependency on the result
+// of this function should redirect that call to the config-resolved
+// Provider, not extend this heuristic.
+//
+// Substring matches for self-hosted vendor variants (gitea, harbor, jfrog)
+// are intentional: they classify hosts whose names embed the vendor name
+// (e.g. "harbor.example.com", "gitea.internal"), which is the common
+// homelab/private-registry pattern. If a host happens to embed the
+// substring without actually being that vendor, the worst case is a
+// neutral mis-labeled display in release notes — never a routing change.
+func providerFromHost(host string) string {
+	h := strings.ToLower(host)
+	switch {
+	case h == "docker.io" || strings.HasSuffix(h, ".docker.io"):
+		return "dockerhub"
+	case h == "ghcr.io" || strings.HasSuffix(h, ".ghcr.io"):
+		return "ghcr"
+	case strings.HasSuffix(h, ".gitlab.io") || strings.HasPrefix(h, "registry.gitlab") || strings.Contains(h, "gitlab"):
+		return "gitlab"
+	case strings.HasSuffix(h, ".gitea.io") || strings.Contains(h, "gitea"):
+		return "gitea"
+	case strings.HasSuffix(h, ".harbor") || strings.Contains(h, "harbor"):
+		return "harbor"
+	case strings.HasSuffix(h, ".jfrog.io") || strings.Contains(h, "jfrog"):
+		return "jfrog"
+	case h == "quay.io" || strings.HasSuffix(h, ".quay.io"):
+		return "quay"
+	}
+	return "registry"
+}
+

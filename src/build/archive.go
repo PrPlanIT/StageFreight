@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 )
@@ -58,6 +59,18 @@ type ArchiveResult struct {
 }
 
 // CreateArchive builds an archive containing a binary and optional extra files.
+// CreateArchive produces a deterministic archive file from the supplied
+// binary + optional include files. Determinism rule (load-bearing for
+// ArchiveOutcome.SHA256 stability across runs):
+//
+//   Archive identity MUST be deterministic over:
+//   - sorted file set (canonical archive-name order, not caller order)
+//   - normalized tar/zip headers (zero ModTime, zero Uid/Gid, fixed mode)
+//   - single-pass SHA256 over the final stream
+//
+//   Any deviation introduces cross-run instability in ArchiveOutcome.SHA256.
+//   Caller-supplied include order is intentionally ignored; sorting happens
+//   here once, at the determinism boundary, not at every consumer.
 func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 	// Resolve format
 	format := opts.Format
@@ -78,16 +91,16 @@ func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 		return nil, fmt.Errorf("creating output dir: %w", err)
 	}
 
-	// Collect files to archive: binary first, then includes
+	// Collect files to archive: binary first, then includes. Order at this
+	// point is caller-supplied; canonicalization happens via sort below
+	// before any byte is written.
 	var entries []archiveEntry
 
-	// Binary
 	entries = append(entries, archiveEntry{
 		sourcePath:  opts.BinaryPath,
 		archiveName: opts.BinaryName,
 	})
 
-	// Include files
 	for _, inc := range opts.IncludeFiles {
 		srcPath := filepath.Join(opts.RepoRoot, inc)
 		if _, err := os.Stat(srcPath); err != nil {
@@ -98,6 +111,13 @@ func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 			archiveName: inc,
 		})
 	}
+
+	// Determinism step 1: canonical file order. Sort by archive-name (the
+	// in-archive path), not by source-path — same archive contents must
+	// produce the same on-disk bytes regardless of where source files lived.
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].archiveName < entries[j].archiveName
+	})
 
 	var contents []string
 	for _, e := range entries {
@@ -188,6 +208,13 @@ func createTarGz(outputPath string, entries []archiveEntry) error {
 	defer f.Close()
 
 	gw := gzip.NewWriter(f)
+	// gzip header normalization: ModTime defaults to wall clock and OS byte
+	// defaults to runtime OS — both leak into the archive bytes. Zero them
+	// for cross-run / cross-host hash stability.
+	gw.ModTime = time.Time{}
+	gw.OS = 0
+	gw.Name = ""
+	gw.Comment = ""
 	defer gw.Close()
 
 	tw := tar.NewWriter(gw)
@@ -202,6 +229,10 @@ func createTarGz(outputPath string, entries []archiveEntry) error {
 	return nil
 }
 
+// tarEpoch is the fixed timestamp used in tar entry headers. Any value would
+// do; zero is the natural choice and matches gzip header normalization.
+var tarEpoch = time.Time{}
+
 func addToTar(tw *tar.Writer, sourcePath, archiveName string) error {
 	info, err := os.Stat(sourcePath)
 	if err != nil {
@@ -213,6 +244,23 @@ func addToTar(tw *tar.Writer, sourcePath, archiveName string) error {
 		return err
 	}
 	header.Name = archiveName
+
+	// tar entry normalization: every field that can vary across hosts /
+	// runs / users is forced to a fixed value. Mode preserves only the
+	// executable bit (0755 for executables, 0644 for everything else) —
+	// host-specific permission bits would otherwise leak into the hash.
+	header.ModTime = tarEpoch
+	header.AccessTime = tarEpoch
+	header.ChangeTime = tarEpoch
+	header.Uid = 0
+	header.Gid = 0
+	header.Uname = ""
+	header.Gname = ""
+	if info.Mode()&0o111 != 0 {
+		header.Mode = 0o755
+	} else {
+		header.Mode = 0o644
+	}
 
 	if err := tw.WriteHeader(header); err != nil {
 		return err
@@ -259,6 +307,12 @@ func addToZip(zw *zip.Writer, sourcePath, archiveName string) error {
 	}
 	header.Name = archiveName
 	header.Method = zip.Deflate
+
+	// zip entry normalization: Modified is the only timestamp zip carries
+	// natively, but it defaults to file mtime → variable. Mode/permission
+	// bits are absent from zip headers in most cases (FAT/external attrs
+	// would carry them if set; we don't).
+	header.Modified = tarEpoch
 
 	w, err := zw.CreateHeader(header)
 	if err != nil {

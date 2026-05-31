@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 )
 
 func TestVerifyImageSuccess(t *testing.T) {
@@ -19,16 +17,15 @@ func TestVerifyImageSuccess(t *testing.T) {
 	defer srv.Close()
 
 	host := strings.TrimPrefix(srv.URL, "https://")
-	// Override default client to accept test TLS
 	origClient := http.DefaultClient
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []artifact.PublishedImage{
-		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker"},
+	targets := []ImageVerifyTarget{
+		{ArtifactID: "docker:app", Host: host, Path: "org/app", Tag: "1.0.0"},
 	}
 
-	results, err := VerifyImages(context.Background(), images, nil)
+	results, err := VerifyImages(context.Background(), targets, nil)
 	if err != nil {
 		t.Fatalf("VerifyImages: %v", err)
 	}
@@ -40,6 +37,9 @@ func TestVerifyImageSuccess(t *testing.T) {
 	}
 	if results[0].Digest != "sha256:abc123" {
 		t.Fatalf("expected digest sha256:abc123, got %s", results[0].Digest)
+	}
+	if results[0].ArtifactID != "docker:app" {
+		t.Fatalf("ArtifactID not propagated: got %q", results[0].ArtifactID)
 	}
 }
 
@@ -54,11 +54,11 @@ func TestVerifyImageNotFound(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []artifact.PublishedImage{
-		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker"},
+	targets := []ImageVerifyTarget{
+		{ArtifactID: "docker:app", Host: host, Path: "org/app", Tag: "1.0.0"},
 	}
 
-	results, _ := VerifyImages(context.Background(), images, nil)
+	results, _ := VerifyImages(context.Background(), targets, nil)
 	if results[0].Verified {
 		t.Fatal("expected not verified for 404")
 	}
@@ -69,7 +69,6 @@ func TestVerifyImageRetrySuccess(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&attempts, 1)
 		if n <= 2 {
-			// Return 500 (retryable) for first 2 attempts
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -83,11 +82,11 @@ func TestVerifyImageRetrySuccess(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []artifact.PublishedImage{
-		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker"},
+	targets := []ImageVerifyTarget{
+		{ArtifactID: "docker:app", Host: host, Path: "org/app", Tag: "1.0.0"},
 	}
 
-	results, _ := VerifyImages(context.Background(), images, nil)
+	results, _ := VerifyImages(context.Background(), targets, nil)
 	if !results[0].Verified {
 		t.Fatalf("expected verified after retry, got error: %v", results[0].Err)
 	}
@@ -105,11 +104,11 @@ func TestVerifyImageDigestMismatch(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	images := []artifact.PublishedImage{
-		{Host: host, Path: "org/app", Tag: "1.0.0", Provider: "docker", Digest: "sha256:local-digest"},
+	targets := []ImageVerifyTarget{
+		{ArtifactID: "docker:app", Host: host, Path: "org/app", Tag: "1.0.0", ExpectedDigest: "sha256:local-digest"},
 	}
 
-	results, _ := VerifyImages(context.Background(), images, nil)
+	results, _ := VerifyImages(context.Background(), targets, nil)
 	if results[0].Verified {
 		t.Fatal("expected not verified for digest mismatch")
 	}

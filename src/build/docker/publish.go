@@ -8,42 +8,69 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 )
 
-// publishPhase writes the docker publish manifest.
-// Separate from the generic PublishManifestPhase because docker builds manage their own
-// manifest accumulation (multi-platform digests, signing records, etc.).
-func publishPhase() pipeline.Phase {
+// publishPhase is the v2 execution sink: it writes outputs.json and
+// published.json from the in-memory OutputsManifest + ResultsBuilder owned
+// by run.go. No Scratch reads. No publishManifest. No publish decision
+// logic. The only inputs are the closure-captured `outputs` pointer (frozen
+// intent snapshot, written by executePhase) and the `rb` (append-only
+// outcome accumulator).
+//
+// Publication occurred if outputs has artifacts. There is no separate
+// boolean tracking "did publication happen" — the OutputsManifest is the
+// truth source for intent; rb is the truth source for what happened.
+func publishPhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) pipeline.Phase {
 	return pipeline.Phase{
 		Name: "publish",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			publishModeUsed, _ := pc.Scratch["docker.publishModeUsed"].(bool)
-			if !publishModeUsed {
+			if outputs == nil || len(outputs.Artifacts) == 0 {
 				return &pipeline.PhaseResult{
 					Name:    "publish",
 					Status:  "skipped",
-					Summary: "no artifacts published",
+					Summary: "no artifacts",
 				}, nil
 			}
 
-			publishManifest := pc.Scratch["docker.publishManifest"].(*artifact.PublishManifest)
-			if err := artifact.WritePublishManifest(pc.RootDir, *publishManifest); err != nil {
-				return nil, fmt.Errorf("writing publish manifest: %w", err)
+			if err := artifact.WriteOutputsManifest(pc.RootDir, *outputs); err != nil {
+				return nil, fmt.Errorf("writing outputs manifest: %w", err)
 			}
 
-			// Also print image references
-			if result, ok := pc.Scratch["docker.buildResult"].(*build.BuildResult); ok {
-				fmt.Fprintf(pc.Writer, "\n    Image References\n")
-				for _, sr := range result.Steps {
-					for _, img := range sr.Images {
-						fmt.Fprintf(pc.Writer, "    → %s\n", img)
+			results, err := rb.Build(outputs)
+			if err != nil {
+				return nil, fmt.Errorf("building results manifest: %w", err)
+			}
+			if err := artifact.WriteResultsManifest(pc.RootDir, results); err != nil {
+				return nil, fmt.Errorf("writing results manifest: %w", err)
+			}
+
+			// Image references — UX printing, derived purely from outputs.
+			// Intent-side data ("what was meant to be published"); a future
+			// reader of the manifest sees the same shape.
+			fmt.Fprintf(pc.Writer, "\n    Image References\n")
+			for _, a := range outputs.Artifacts {
+				if a.Kind != "docker" {
+					continue
+				}
+				for _, t := range a.Targets {
+					if t.Kind != "registry" || t.Registry == nil {
+						continue
+					}
+					for _, tag := range t.Registry.Tags {
+						fmt.Fprintf(pc.Writer, "    → %s/%s:%s\n",
+							t.Registry.Host, t.Registry.Path, tag)
 					}
 				}
-				fmt.Fprintln(pc.Writer)
 			}
+			fmt.Fprintln(pc.Writer)
 
+			outcomeCount := 0
+			for _, r := range results.Results {
+				outcomeCount += len(r.Outcomes)
+			}
 			return &pipeline.PhaseResult{
-				Name:    "publish",
-				Status:  "success",
-				Summary: fmt.Sprintf("%d image(s)", len(publishManifest.Published)),
+				Name:   "publish",
+				Status: "success",
+				Summary: fmt.Sprintf("%d outcome(s) across %d artifact(s)",
+					outcomeCount, len(results.Results)),
 			}, nil
 		},
 	}

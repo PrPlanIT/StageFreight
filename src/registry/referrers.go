@@ -42,12 +42,16 @@ type referrersResponse struct {
 // DiscoverArtifacts queries the OCI referrers API for a verified image digest.
 // Returns links to SBOM, provenance, and signature artifacts if present.
 // Best-effort: returns empty ArtifactLinks (no error) if referrers API unsupported.
-func DiscoverArtifacts(ctx context.Context, img artifact.PublishedImage, credResolver func(string) (string, string)) (ArtifactLinks, error) {
-	if img.Digest == "" {
+//
+// Takes individual identity fields rather than a PublishedImage struct —
+// this keeps the function free of v1 manifest coupling and aligns with the
+// (target + digest) identity boundary used elsewhere.
+func DiscoverArtifacts(ctx context.Context, host, path, digest, credentialRef string, credResolver func(string) (string, string)) (ArtifactLinks, error) {
+	if digest == "" {
 		return ArtifactLinks{}, nil
 	}
 
-	url := fmt.Sprintf("https://%s/v2/%s/referrers/%s", img.Host, img.Path, img.Digest)
+	url := fmt.Sprintf("https://%s/v2/%s/referrers/%s", host, path, digest)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -66,7 +70,7 @@ func DiscoverArtifacts(ctx context.Context, img artifact.PublishedImage, credRes
 
 	// Handle 401 — try token auth
 	if resp.StatusCode == http.StatusUnauthorized {
-		token, tokenErr := negotiateToken(ctx, resp, img.Host, credResolver, img.CredentialRef)
+		token, tokenErr := negotiateToken(ctx, resp, host, credResolver, credentialRef)
 		if tokenErr != nil {
 			return ArtifactLinks{}, nil // best-effort
 		}
@@ -88,24 +92,24 @@ func DiscoverArtifacts(ctx context.Context, img artifact.PublishedImage, credRes
 			return ArtifactLinks{}, nil
 		}
 
-		return parseReferrers(resp2, img)
+		return parseReferrers(resp2, host, path)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		return ArtifactLinks{}, nil // unsupported or error — best-effort
 	}
 
-	return parseReferrers(resp, img)
+	return parseReferrers(resp, host, path)
 }
 
-func parseReferrers(resp *http.Response, img artifact.PublishedImage) (ArtifactLinks, error) {
+func parseReferrers(resp *http.Response, host, path string) (ArtifactLinks, error) {
 	var rr referrersResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
 		return ArtifactLinks{}, nil // parse failure is not fatal
 	}
 
 	var links ArtifactLinks
-	imageBase := img.Host + "/" + img.Path
+	imageBase := host + "/" + path
 
 	for _, m := range rr.Manifests {
 		ref := imageBase + "@" + m.Digest
@@ -136,47 +140,79 @@ func parseReferrers(resp *http.Response, img artifact.PublishedImage) (ArtifactL
 	return links, nil
 }
 
-// DiscoverAllArtifacts runs DiscoverArtifacts concurrently for multiple images.
-// Deduplicates by host/path@digest to avoid redundant lookups.
-func DiscoverAllArtifacts(ctx context.Context, images []artifact.PublishedImage, credResolver func(string) (string, string)) map[string]ArtifactLinks {
-	type cacheKey struct{ hostPath, digest string }
-	result := make(map[string]ArtifactLinks)
+// ArtifactDiscoveryTarget is one (artifact, registry coordinate, digest)
+// tuple to look up referrers for. Mirrors ImageVerifyTarget's identity
+// model — ArtifactID is the typed join key, primitives carry the registry
+// coordinates and credential reference.
+type ArtifactDiscoveryTarget struct {
+	ArtifactID    artifact.ArtifactID
+	Host          string
+	Path          string
+	Digest        string
+	CredentialRef string
+}
+
+// DiscoverAllArtifacts runs DiscoverArtifacts concurrently for the supplied
+// targets. Deduplicates registry queries by (Host, Path, Digest) tuple
+// (presentation grouping, not identity), but the returned map is keyed by
+// the typed ArtifactID so consumers join back via exact ArtifactID
+// equality.
+//
+// If multiple targets share the same (Host, Path, Digest) — common when
+// the same image is published under multiple tags — they all map to the
+// same ArtifactLinks result with one underlying registry call.
+func DiscoverAllArtifacts(ctx context.Context, targets []ArtifactDiscoveryTarget, credResolver func(string) (string, string)) map[artifact.ArtifactID]ArtifactLinks {
+	result := make(map[artifact.ArtifactID]ArtifactLinks)
 	var mu sync.Mutex
 
-	// Dedup by host/path@digest
-	seen := make(map[cacheKey]bool)
-	var unique []artifact.PublishedImage
-	for _, img := range images {
-		if img.Digest == "" {
+	// Presentation-only dedup key for the registry query. Not an identity.
+	type queryKey struct {
+		hostPath string
+		digest   string
+	}
+	type queryPlan struct {
+		host          string
+		path          string
+		digest        string
+		credentialRef string
+		mappedIDs     []artifact.ArtifactID
+	}
+	planByQuery := make(map[queryKey]*queryPlan)
+	for _, tgt := range targets {
+		if tgt.Digest == "" {
 			continue
 		}
-		k := cacheKey{img.Host + "/" + img.Path, img.Digest}
-		if seen[k] {
-			continue
+		k := queryKey{tgt.Host + "/" + tgt.Path, tgt.Digest}
+		plan, exists := planByQuery[k]
+		if !exists {
+			plan = &queryPlan{
+				host:          tgt.Host,
+				path:          tgt.Path,
+				digest:        tgt.Digest,
+				credentialRef: tgt.CredentialRef,
+			}
+			planByQuery[k] = plan
 		}
-		seen[k] = true
-		unique = append(unique, img)
+		plan.mappedIDs = append(plan.mappedIDs, tgt.ArtifactID)
 	}
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
-
-	for _, img := range unique {
+	for _, plan := range planByQuery {
 		wg.Add(1)
-		go func(img artifact.PublishedImage) {
+		go func(p *queryPlan) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			links, _ := DiscoverArtifacts(ctx, img, credResolver)
-			key := img.Host + "/" + img.Path + "@" + img.Digest
-
+			links, _ := DiscoverArtifacts(ctx, p.host, p.path, p.digest, p.credentialRef, credResolver)
 			mu.Lock()
-			result[key] = links
+			for _, id := range p.mappedIDs {
+				result[id] = links
+			}
 			mu.Unlock()
-		}(img)
+		}(plan)
 	}
-
 	wg.Wait()
 	return result
 }

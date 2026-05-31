@@ -79,28 +79,30 @@ func collectPushRegistries(plan *build.BuildPlan) []build.RegistryTarget {
 	return regs
 }
 
-// executePhase builds images via buildx, pushes, and signs.
-// Build + push + sign are kept in one phase because they share buildx state,
-// publish manifest accumulation, and deferred metadata file cleanup.
-func executePhase(req Request) pipeline.Phase {
+// executePhase builds images via buildx, pushes, and emits push/attestation
+// events. Build + push + sign share buildx state; signing is per-target,
+// inline with the push, never post-hoc. Outcomes flow into the supplied
+// ResultsBuilder; the OutputsManifest is constructed once from the plan
+// and written by the supplied pointer for publishPhase to consume.
+func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.ResultsBuilder) pipeline.Phase {
 	return pipeline.Phase{
 		Name: "build",
 		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
 			plan := pc.BuildPlan
-		if plan == nil {
-			return nil, fmt.Errorf("missing build plan")
-		}
-
-			// Publish manifest tracking
-			var publishManifest artifact.PublishManifest
-			var publishModeUsed bool
-
-			buildInst := artifact.BuildInstance{
-				Commit:     os.Getenv("CI_COMMIT_SHA"),
-				PipelineID: os.Getenv("CI_PIPELINE_ID"),
-				JobID:      os.Getenv("CI_JOB_ID"),
-				CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+			if plan == nil {
+				return nil, fmt.Errorf("missing build plan")
 			}
+
+			// OutputsManifest is constructed once from the resolved plan and
+			// frozen for the duration of execution. No re-derivation later.
+			builtOutputs, err := build.PlanToOutputs(plan, build.PlanToOutputsOpts{
+				Commit:   os.Getenv("CI_COMMIT_SHA"),
+				Pipeline: &artifact.Pipeline{ID: os.Getenv("CI_PIPELINE_ID"), Provider: "gitlab"},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("constructing outputs manifest: %w", err)
+			}
+			*outputsOut = builtOutputs
 
 			output.SectionStart(pc.Writer, "sf_build", "Build")
 			buildStart := time.Now()
@@ -254,12 +256,41 @@ func executePhase(req Request) pipeline.Phase {
 				}
 			}
 
-			// Record multi-platform pushes (step.Push = true → buildx --push)
+			// Signing setup — build-scoped, computed once. cosignKey is the
+			// only signal the attestation helper consumes; empty disables.
+			// Collapse availability + key resolution into the single string:
+			// no key OR cosign not on PATH = signing disabled.
+			cosignKey := ResolveCosignKey()
+			if !CosignAvailable(pc.RootDir, pc.Config.Toolchains.Desired) {
+				cosignKey = ""
+			}
+
+			// DSSE provenance is build-scoped: generated once at this point
+			// (from provenance.json if buildx wrote one). Per-target
+			// attestation only stat-checks and reads this path — never
+			// regenerates. Regenerating per-target would couple provenance
+			// to loop order.
+			dssePath := filepath.Join(pc.RootDir, ".stagefreight", "provenance.dsse.json")
+			if cosignKey != "" {
+				if _, statErr := os.Stat(filepath.Join(pc.RootDir, ".stagefreight", "provenance.json")); statErr == nil {
+					provenanceData, readErr := os.ReadFile(filepath.Join(pc.RootDir, ".stagefreight", "provenance.json"))
+					if readErr == nil {
+						var stmt build.ProvenanceStatement
+						if jsonErr := json.Unmarshal(provenanceData, &stmt); jsonErr == nil {
+							_ = build.WriteDSSEProvenance(dssePath, stmt)
+						}
+					}
+				}
+			}
+
+			// Record multi-platform pushes (step.Push = true → buildx --push).
+			// SITE 1 v2: per-target push + attestation events via ResultsBuilder.
+			// No publishManifest append, no inline cosign call — both moved
+			// into recordPushOutcome / recordAttestationOutcomeIfConfigured.
 			for _, step := range plan.Steps {
 				if !step.Push {
 					continue
 				}
-				publishModeUsed = true
 
 				var capturedDigest string
 				if step.MetadataFile != "" {
@@ -274,62 +305,32 @@ func executePhase(req Request) pipeline.Phase {
 					}
 				}
 
+				artifactID := artifact.NewArtifactID("docker", step.Name)
+				multiArch := len(step.Platforms) > 1 // step-scoped
+
 				for _, reg := range step.Registries {
 					if reg.Provider == "local" {
 						continue
 					}
 					host := registry.NormalizeHost(reg.URL)
-					provider := reg.Provider
-					if p, err := registry.CanonicalProvider(provider); err == nil {
-						provider = p
-					}
-
-					allTags := make([]string, len(reg.Tags))
-					copy(allTags, reg.Tags)
 
 					for _, tag := range reg.Tags {
-						ref := host + "/" + reg.Path + ":" + tag
-
-						var observedBuildx string
-						for i := 0; i < 3; i++ {
-							d, rErr := ResolveDigest(pc.Ctx, ref)
-							if rErr == nil {
-								observedBuildx = d
-								break
-							}
-							time.Sleep(time.Second)
+						target := artifact.OutcomeTarget{
+							Kind: "registry",
+							Host: host,
+							Path: reg.Path,
+							Tag:  tag,
 						}
-
-						var observedAPI string
-						apiDigest, apiErr := registry.CheckManifestDigest(pc.Ctx, host, reg.Path, tag, nil, reg.Credentials)
-						if apiErr == nil {
-							observedAPI = apiDigest
-						}
-
-						if observedBuildx != "" && observedAPI != "" && observedBuildx != observedAPI {
-							diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", observedBuildx, observedAPI)
-						}
-						if capturedDigest != "" && observedBuildx != "" && capturedDigest != observedBuildx {
-							diag.Warn("registry propagation lag: expected %s, registry served %s", capturedDigest, observedBuildx)
-						}
-
-						publishManifest.Published = append(publishManifest.Published, artifact.PublishedImage{
-							Host:              host,
-							Path:              reg.Path,
-							Tag:               tag,
-							Ref:               ref,
-							Provider:          provider,
-							CredentialRef:     reg.Credentials,
-							BuildInstance:     buildInst,
-							Digest:            capturedDigest,
-							Registry:          host,
-							ObservedDigest:    observedBuildx,
-							ObservedDigestAlt: observedAPI,
-							ObservedBy:        "buildx",
-							ObservedByAlt:     "registry_api",
-							ExpectedTags:      allTags,
-							ExpectedCommit:    buildInst.Commit,
-						})
+						digest := recordPushOutcome(
+							pc.Ctx, rb, artifactID, target,
+							artifact.OutcomeSuccess,
+							capturedDigest, reg.Credentials, "",
+						)
+						recordAttestationOutcomeIfConfigured(
+							pc.Ctx, rb, artifactID, target, digest,
+							multiArch, pc.RootDir, cosignKey,
+							pc.Config.Toolchains.Desired, dssePath, reg.Credentials,
+						)
 					}
 				}
 			}
@@ -443,28 +444,30 @@ func executePhase(req Request) pipeline.Phase {
 				pushSummary = fmt.Sprintf("%d tag(s) → %d registry", len(remoteTags), len(regSet))
 				output.SectionEnd(pc.Writer, "sf_push")
 
-				// Record single-platform pushes
-				publishModeUsed = true
+				// Record single-platform pushes (step.Load && !step.Push).
+				// SITE 2 v2: per-target push + attestation events via ResultsBuilder.
+				// SITE 3 (cosign post-hoc loop) is gone — attestation now inline,
+				// per-target, with no shared lifecycle buffer.
 				for _, step := range plan.Steps {
 					if !step.Load || step.Push {
 						continue
 					}
+					artifactID := artifact.NewArtifactID("docker", step.Name)
+					multiArch := len(step.Platforms) > 1 // step-scoped
+
 					for _, reg := range step.Registries {
 						if reg.Provider == "local" {
 							continue
 						}
 						host := registry.NormalizeHost(reg.URL)
-						provider := reg.Provider
-						if p, err := registry.CanonicalProvider(provider); err == nil {
-							provider = p
-						}
-
-						allTags := make([]string, len(reg.Tags))
-						copy(allTags, reg.Tags)
 
 						for _, tag := range reg.Tags {
 							ref := host + "/" + reg.Path + ":" + tag
 
+							// Single-platform digest resolution: 6-retry with backoff,
+							// then local RepoDigests fallback. PushTags doesn't return
+							// digests directly, so this is the SITE-2-specific path
+							// to a pre-resolved digest before handing off to the helper.
 							var capturedDigest string
 							for i := 0; i < 6; i++ {
 								d, rErr := ResolveDigest(pc.Ctx, ref)
@@ -477,108 +480,42 @@ func executePhase(req Request) pipeline.Phase {
 								}
 								time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
 							}
-
 							if capturedDigest == "" {
 								if d, lErr := ResolveLocalDigest(pc.Ctx, ref); lErr == nil {
 									capturedDigest = d
 									diag.Info("publish: resolved digest via local RepoDigests fallback for %s", ref)
 								}
 							}
-
 							if capturedDigest == "" {
 								diag.Warn("published %s with no immutable digest — security will fall back to tag-based scanning", ref)
 							}
 
-							var observedAPI string
-							apiDigest, apiErr := registry.CheckManifestDigest(pc.Ctx, host, reg.Path, tag, nil, reg.Credentials)
-							if apiErr == nil {
-								observedAPI = apiDigest
+							target := artifact.OutcomeTarget{
+								Kind: "registry",
+								Host: host,
+								Path: reg.Path,
+								Tag:  tag,
 							}
-
-							if capturedDigest != "" && observedAPI != "" && capturedDigest != observedAPI {
-								diag.Warn("registry inconsistency: buildx saw %s, registry API saw %s — possible shadow write", capturedDigest, observedAPI)
-							}
-
-							publishManifest.Published = append(publishManifest.Published, artifact.PublishedImage{
-								Host:              host,
-								Path:              reg.Path,
-								Tag:               tag,
-								Ref:               ref,
-								Provider:          provider,
-								CredentialRef:     reg.Credentials,
-								BuildInstance:     buildInst,
-								Digest:            capturedDigest,
-								Registry:          host,
-								ObservedDigest:    capturedDigest,
-								ObservedDigestAlt: observedAPI,
-								ObservedBy:        "buildx",
-								ObservedByAlt:     "registry_api",
-								ExpectedTags:      allTags,
-								ExpectedCommit:    buildInst.Commit,
-							})
+							digest := recordPushOutcome(
+								pc.Ctx, rb, artifactID, target,
+								artifact.OutcomeSuccess,
+								capturedDigest, reg.Credentials, "",
+							)
+							recordAttestationOutcomeIfConfigured(
+								pc.Ctx, rb, artifactID, target, digest,
+								multiArch, pc.RootDir, cosignKey,
+								pc.Config.Toolchains.Desired, dssePath, reg.Credentials,
+							)
 						}
 					}
 				}
 			}
 
-			// --- Cosign signing (best-effort) ---
-			if publishModeUsed {
-				cosignKey := ResolveCosignKey()
-				cosignOnPath := CosignAvailable(pc.RootDir, pc.Config.Toolchains.Desired)
-				signingAttempted := cosignOnPath && cosignKey != ""
-
-				if signingAttempted {
-					for i, img := range publishManifest.Published {
-						if img.Digest == "" {
-							continue
-						}
-						digestRef := img.Host + "/" + img.Path + "@" + img.Digest
-						multiArch := false
-						for _, step := range plan.Steps {
-							if step.Push && len(step.Platforms) > 1 {
-								multiArch = true
-								break
-							}
-						}
-
-						dssePath := filepath.Join(pc.RootDir, ".stagefreight", "provenance.dsse.json")
-						if _, statErr := os.Stat(filepath.Join(pc.RootDir, ".stagefreight", "provenance.json")); statErr == nil {
-							provenanceData, readErr := os.ReadFile(filepath.Join(pc.RootDir, ".stagefreight", "provenance.json"))
-							if readErr == nil {
-								var stmt build.ProvenanceStatement
-								if jsonErr := json.Unmarshal(provenanceData, &stmt); jsonErr == nil {
-									_ = build.WriteDSSEProvenance(dssePath, stmt)
-								}
-							}
-						}
-
-						signErr := CosignSign(pc.Ctx, pc.RootDir, pc.Config.Toolchains.Desired, digestRef, cosignKey, multiArch)
-
-						if _, statErr := os.Stat(dssePath); statErr == nil {
-							_ = CosignAttest(pc.Ctx, pc.RootDir, pc.Config.Toolchains.Desired, digestRef, dssePath, cosignKey)
-						}
-
-						if signErr != nil {
-							publishManifest.Published[i].SigningAttempted = true
-						} else {
-							artifacts, _ := registry.DiscoverArtifacts(pc.Ctx, img, nil)
-							publishManifest.Published[i].Attestation = &artifact.AttestationRecord{
-								Type:           artifact.AttestationCosign,
-								SignatureRef:   artifacts.Signature,
-								AttestationRef: artifacts.Provenance,
-								VerifiedDigest: img.Digest,
-							}
-						}
-					}
-				} else {
-					diag.Debug(pc.Verbose, "cosign: not configured, skipping signing (cosign on PATH: %v, key available: %v)", cosignOnPath, cosignKey != "")
-				}
-			}
-
-			// Store publish manifest and build result in Scratch for downstream phases
-			pc.Scratch["docker.publishManifest"] = &publishManifest
-			pc.Scratch["docker.publishModeUsed"] = publishModeUsed
-			pc.Scratch["docker.buildResult"] = &result
+			// publishPhase consumes outputs and rb directly via closure capture
+			// — no Scratch handoff. The OutputsManifest is already populated
+			// via the outputsOut pointer; rb has accumulated outcomes per
+			// (artifact, target) interaction. publishPhase will write both v2
+			// manifests and render image refs from the same data.
 
 			buildSummary := fmt.Sprintf("%d image(s)", buildImageCount)
 			if pushSummary != "" {

@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 )
 
 func TestDiscoverArtifactsSBOM(t *testing.T) {
@@ -27,8 +25,7 @@ func TestDiscoverArtifactsSBOM(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	img := artifact.PublishedImage{Host: host, Path: "org/app", Tag: "1.0.0", Digest: "sha256:imgdigest"}
-	links, err := DiscoverArtifacts(context.Background(), img, nil)
+	links, err := DiscoverArtifacts(context.Background(), host, "org/app", "sha256:imgdigest", "", nil)
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -56,8 +53,7 @@ func TestDiscoverArtifactsMultiple(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	img := artifact.PublishedImage{Host: host, Path: "org/app", Tag: "1.0.0", Digest: "sha256:imgdigest"}
-	links, _ := DiscoverArtifacts(context.Background(), img, nil)
+	links, _ := DiscoverArtifacts(context.Background(), host, "org/app", "sha256:imgdigest", "", nil)
 
 	if links.SBOM == "" {
 		t.Fatal("expected SBOM link")
@@ -82,8 +78,7 @@ func TestDiscoverArtifactsNoReferrers(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	img := artifact.PublishedImage{Host: host, Path: "org/app", Tag: "1.0.0", Digest: "sha256:imgdigest"}
-	links, _ := DiscoverArtifacts(context.Background(), img, nil)
+	links, _ := DiscoverArtifacts(context.Background(), host, "org/app", "sha256:imgdigest", "", nil)
 
 	if links.SBOM != "" || links.Provenance != "" || links.Signature != "" {
 		t.Fatal("expected empty links for no referrers")
@@ -101,8 +96,7 @@ func TestDiscoverArtifactsUnsupportedRegistry(t *testing.T) {
 	http.DefaultClient = srv.Client()
 	defer func() { http.DefaultClient = origClient }()
 
-	img := artifact.PublishedImage{Host: host, Path: "org/app", Tag: "1.0.0", Digest: "sha256:imgdigest"}
-	links, err := DiscoverArtifacts(context.Background(), img, nil)
+	links, err := DiscoverArtifacts(context.Background(), host, "org/app", "sha256:imgdigest", "", nil)
 	if err != nil {
 		t.Fatalf("expected no error for unsupported registry, got %v", err)
 	}
@@ -112,8 +106,7 @@ func TestDiscoverArtifactsUnsupportedRegistry(t *testing.T) {
 }
 
 func TestDiscoverArtifactsNoDigest(t *testing.T) {
-	img := artifact.PublishedImage{Host: "docker.io", Path: "org/app", Tag: "1.0.0"}
-	links, err := DiscoverArtifacts(context.Background(), img, nil)
+	links, err := DiscoverArtifacts(context.Background(), "docker.io", "org/app", "", "", nil)
 	if err != nil {
 		t.Fatalf("expected no error for no digest, got %v", err)
 	}
