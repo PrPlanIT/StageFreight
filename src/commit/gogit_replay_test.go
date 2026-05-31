@@ -30,8 +30,16 @@ func newReplayTestRepo(t *testing.T) *replayTestRepo {
 	localDir := t.TempDir()
 	remoteDir := t.TempDir()
 
-	// Init bare remote
-	_, err := git.PlainInit(remoteDir, true)
+	// Init bare remote on main. Like the local repo below, go-git defaults a
+	// bare repo's HEAD symbolic ref to refs/heads/master; if left as master,
+	// PlainClone of this remote (advanceRemote) fails to resolve HEAD with
+	// "reference not found" once only refs/heads/main has been pushed.
+	_, err := git.PlainInitWithOptions(remoteDir, &git.PlainInitOptions{
+		Bare: true,
+		InitOptions: git.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName("main"),
+		},
+	})
 	if err != nil {
 		t.Fatalf("init bare remote: %v", err)
 	}
@@ -176,8 +184,14 @@ func TestReplay_SingleFileModify(t *testing.T) {
 	r.addSFCommit(t, "README.md", "modified content", "fix: update readme")
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay failed: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 
 	// Verify tree equivalence: remote HEAD tree == what we committed
@@ -196,8 +210,14 @@ func TestReplay_MultiFileModify(t *testing.T) {
 	testCommit(t, wt, fmt.Sprintf("feat: add multiple files\n\n%s", sfGeneratedTrailer))
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay failed: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 
 	assertRemoteHasFile(t, r.remoteDir, "a.txt", "file a")
@@ -210,8 +230,14 @@ func TestReplay_AddFile(t *testing.T) {
 	r.addSFCommit(t, "newfile.txt", "hello new file", "feat: add new file")
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay failed: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 	assertRemoteHasFile(t, r.remoteDir, "newfile.txt", "hello new file")
 }
@@ -236,8 +262,14 @@ func TestReplay_DeleteFile(t *testing.T) {
 	testCommit(t, wt, fmt.Sprintf("fix: remove file\n\n%s", sfGeneratedTrailer))
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay failed: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 	assertRemoteFileMissing(t, r.remoteDir, "todelete.txt")
 }
@@ -258,8 +290,14 @@ func TestReplay_BinaryFile(t *testing.T) {
 	testCommit(t, wt, fmt.Sprintf("feat: add binary file\n\n%s", sfGeneratedTrailer))
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay failed: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 	assertRemoteHasFileBytes(t, r.remoteDir, "data.bin", binaryContent)
 }
@@ -300,8 +338,14 @@ func TestReplay_SingleCommit(t *testing.T) {
 	r.addSFCommit(t, "local.txt", "local content", "feat: local change")
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay single commit: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 	assertRemoteHasFile(t, r.remoteDir, "local.txt", "local content")
 }
@@ -320,8 +364,14 @@ func TestReplay_NCommits(t *testing.T) {
 	}
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay N commits: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 
 	// All 5 files should be on remote
@@ -346,8 +396,14 @@ func TestReplay_TreeEquivalence(t *testing.T) {
 	origTreeHash := origTree.Hash
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay: %v", err)
+	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
 	}
 
 	// Verify remote HEAD tree == original local HEAD tree
@@ -396,12 +452,16 @@ func TestReplay_GateRejects_MergeCommit(t *testing.T) {
 	featureCommit, _ := repo.CommitObject(featureRef.Hash())
 	mainCommit, _ := repo.CommitObject(mainRef.Hash())
 
-	// Manually create a merge commit with 2 parents
+	// Manually create a merge commit with 2 parents. The worktree tree already
+	// matches main's HEAD (feature.txt lives only on the feature branch), so the
+	// merge introduces no file changes — AllowEmptyCommits lets go-git record the
+	// two-parent commit anyway, which is exactly the merge shape the gate rejects.
 	mergeHash, err := wt.Commit(
 		"Merge branch 'feature'\n\n"+sfGeneratedTrailer,
 		&git.CommitOptions{
-			Author: &object.Signature{Name: "test", Email: "test@test", When: time.Now()},
-			Parents: []plumbing.Hash{mainCommit.Hash, featureCommit.Hash},
+			Author:            &object.Signature{Name: "test", Email: "test@test", When: time.Now()},
+			Parents:           []plumbing.Hash{mainCommit.Hash, featureCommit.Hash},
+			AllowEmptyCommits: true,
 		},
 	)
 	if err != nil {
@@ -420,7 +480,11 @@ func TestReplay_GateRejects_MergeCommit(t *testing.T) {
 	}
 }
 
-func TestReplay_GateRejects_MissingTrailer(t *testing.T) {
+func TestReplay_NoTrailer_StillReplays(t *testing.T) {
+	// The SF-generated trailer is NOT a replay gate condition. The gate is
+	// structural only (no merges, linear chain) — historical and CI commits
+	// that predate the trailer must remain replayable. This pins that contract:
+	// a structurally-valid commit lacking the trailer replays successfully.
 	r := newReplayTestRepo(t)
 	r.advanceRemote(t, "upstream.txt", "upstream")
 
@@ -431,30 +495,66 @@ func TestReplay_GateRejects_MissingTrailer(t *testing.T) {
 	testCommit(t, wt, "fix: manual fix (no trailer)")
 
 	session := openSession(t, r.localDir)
-	err := Replay(session)
-	if err == nil {
-		t.Fatal("expected ErrReplayUnsafe for missing trailer, got nil")
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
 	}
-	var replayErr *gitstate.ErrReplayUnsafe
-	if !isReplayUnsafe(err, &replayErr) {
-		t.Errorf("expected ErrReplayUnsafe, got %T: %v", err, err)
+	if err := Replay(session); err != nil {
+		t.Fatalf("replay of no-trailer commit should succeed (trailer is not a gate): %v", err)
 	}
+	if err := session.Push("origin", "", false); err != nil {
+		t.Fatalf("push after replay: %v", err)
+	}
+	assertRemoteHasFile(t, r.remoteDir, "manual.txt", "manual change")
 }
 
 func TestReplay_GateDoesNotMutate(t *testing.T) {
 	r := newReplayTestRepo(t)
 	r.advanceRemote(t, "upstream.txt", "upstream")
 
-	// Add a commit without trailer — gate should reject before any mutation
-	wt, _ := r.repo.Worktree()
-	writeTestFile(t, r.localDir, "bad.txt", "bad commit")
-	wt.Add("bad.txt")
-	testCommit(t, wt, "feat: human commit (no trailer)")
+	// Build a merge commit (two parents) — the structural gate rejects it.
+	// Rejection must happen before the hard reset, leaving HEAD untouched.
+	repo := r.repo
+	wt, _ := repo.Worktree()
 
-	repo, _ := git.PlainOpen(r.localDir)
+	if err := wt.Checkout(&git.CheckoutOptions{
+		Branch: "refs/heads/feature",
+		Create: true,
+	}); err != nil {
+		t.Fatalf("checkout feature: %v", err)
+	}
+	writeTestFile(t, r.localDir, "feature.txt", "feature")
+	wt.Add("feature.txt")
+	testCommit(t, wt, "feat: feature\n\n"+sfGeneratedTrailer)
+
+	wt.Checkout(&git.CheckoutOptions{Branch: "refs/heads/main"})
+	writeTestFile(t, r.localDir, "main.txt", "main")
+	wt.Add("main.txt")
+	testCommit(t, wt, "feat: main\n\n"+sfGeneratedTrailer)
+
+	featureRef, _ := repo.Reference(plumbing.NewBranchReferenceName("feature"), true)
+	mainRef, _ := repo.Head()
+	featureCommit, _ := repo.CommitObject(featureRef.Hash())
+	mainCommit, _ := repo.CommitObject(mainRef.Hash())
+
+	// Two-parent merge commit. The worktree tree already matches main's HEAD,
+	// so AllowEmptyCommits is required to record the merge shape the gate rejects.
+	if _, err := wt.Commit(
+		"Merge branch 'feature'\n\n"+sfGeneratedTrailer,
+		&git.CommitOptions{
+			Author:            &object.Signature{Name: "test", Email: "test@test", When: time.Now()},
+			Parents:           []plumbing.Hash{mainCommit.Hash, featureCommit.Hash},
+			AllowEmptyCommits: true,
+		},
+	); err != nil {
+		t.Fatalf("create merge commit: %v", err)
+	}
+
 	headBefore, _ := repo.Head()
 
 	session := openSession(t, r.localDir)
+	if err := session.Fetch("origin"); err != nil {
+		t.Fatalf("fetch before replay: %v", err)
+	}
 	_ = Replay(session)
 
 	headAfter, _ := repo.Head()
