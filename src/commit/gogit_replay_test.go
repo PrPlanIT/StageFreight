@@ -36,8 +36,14 @@ func newReplayTestRepo(t *testing.T) *replayTestRepo {
 		t.Fatalf("init bare remote: %v", err)
 	}
 
-	// Init local repo
-	repo, err := git.PlainInit(localDir, false)
+	// Init local repo on main. go-git's PlainInit defaults HEAD to
+	// refs/heads/master; without this the initial commit lands on master
+	// while the push refspec targets main, yielding "already up-to-date".
+	repo, err := git.PlainInitWithOptions(localDir, &git.PlainInitOptions{
+		InitOptions: git.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName("main"),
+		},
+	})
 	if err != nil {
 		t.Fatalf("init local: %v", err)
 	}
