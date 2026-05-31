@@ -12,13 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 )
 
-// ParseBuildxPublished extracts structured publish records from a buildx metadata file.
+// ParseBuildxPublished extracts push observations from a buildx metadata file.
 // This is the authoritative source: buildx writes the actual pushed refs + digest
 // to the metadata file after a successful push. Works for both docker-container
 // and remote (buildkitd) drivers.
@@ -26,7 +25,13 @@ import (
 // Metadata JSON format:
 //
 //	{"containerimage.digest": "sha256:...", "image.name": "host/path:tag,host2/path:tag,..."}
-func ParseBuildxPublished(metadataFile string, registries []build.RegistryTarget) ([]artifact.PublishedImage, error) {
+//
+// Returns []build.PushObservation — primitives only (host, path, tag, digest).
+// The registries argument is retained for compatibility with current callers
+// but is no longer consulted; provider/credential resolution happens at the
+// consumer layer that has access to config (not in the registry/buildx layer).
+func ParseBuildxPublished(metadataFile string, registries []build.RegistryTarget) ([]build.PushObservation, error) {
+	_ = registries // retained for ABI compat; provider is consumer-derived now
 	data, err := os.ReadFile(metadataFile)
 	if err != nil {
 		return nil, err
@@ -44,43 +49,33 @@ func ParseBuildxPublished(metadataFile string, registries []build.RegistryTarget
 		return nil, fmt.Errorf("no image.name in metadata file")
 	}
 
-	// Build provider lookup from registry configs.
-	providerByHost := make(map[string]string)
-	for _, reg := range registries {
-		providerByHost[strings.ToLower(reg.URL)] = reg.Provider
-	}
-
-	var images []artifact.PublishedImage
+	var observations []build.PushObservation
 	for _, ref := range strings.Split(meta.ImageName, ",") {
 		ref = strings.TrimSpace(ref)
 		if ref == "" {
 			continue
 		}
 
-		img := artifact.PublishedImage{
-			Ref:    ref,
-			Digest: meta.Digest,
-		}
+		obs := build.PushObservation{Digest: meta.Digest}
 
 		// Parse host/path:tag from the ref.
 		r := ref
 		if idx := strings.LastIndex(r, ":"); idx > 0 && !strings.Contains(r[idx:], "/") {
-			img.Tag = r[idx+1:]
+			obs.Tag = r[idx+1:]
 			r = r[:idx]
 		}
 		parts := strings.SplitN(r, "/", 2)
 		if len(parts) == 2 && (strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":")) {
-			img.Host = strings.ToLower(parts[0])
-			img.Path = parts[1]
+			obs.Host = strings.ToLower(parts[0])
+			obs.Path = parts[1]
 		} else {
-			img.Host = "docker.io"
-			img.Path = r
+			obs.Host = "docker.io"
+			obs.Path = r
 		}
 
-		img.Provider = providerByHost[img.Host]
-		images = append(images, img)
+		observations = append(observations, obs)
 	}
-	return images, nil
+	return observations, nil
 }
 
 // Buildx wraps docker buildx commands.
@@ -137,7 +132,7 @@ func (bx *Buildx) Build(ctx context.Context, step build.BuildStep) (*build.StepR
 			result.Error = fmt.Errorf("publish verification: %w", err)
 			return result, result.Error
 		}
-		result.PublishedImages = imgs
+		result.Publications = imgs
 	}
 
 	return result, nil
@@ -192,7 +187,7 @@ func (bx *Buildx) BuildWithLayers(ctx context.Context, step build.BuildStep) (*b
 			result.Error = fmt.Errorf("publish verification: %w", err)
 			return result, nil, result.Error
 		}
-		result.PublishedImages = imgs
+		result.Publications = imgs
 	}
 
 	// Parse layer events from captured stderr.
@@ -201,16 +196,19 @@ func (bx *Buildx) BuildWithLayers(ctx context.Context, step build.BuildStep) (*b
 	return result, layers, nil
 }
 
-// resolvePublished combines registry identity with buildx metadata observation.
+// resolvePublished produces push observations for a successful push step.
 //
-// Identity (from config): host, path, bare tags, provider — clean decomposed data.
-// Truth (from buildx): digest, actual pushed ref count — post-push observation.
+// Identity (from config): host, path, tags — decomposed from RegistryTarget.
+// Truth (from buildx): digest + actual pushed ref count — post-push observation.
 //
 // Contract:
 //   - Metadata file MUST exist and be parseable for push builds (hard fail otherwise)
 //   - Digest MUST be present (buildx always writes it on successful push)
 //   - Actual pushed ref count MUST match expected (no silent partial success)
-func resolvePublished(step build.BuildStep) ([]artifact.PublishedImage, error) {
+//
+// Returns []build.PushObservation — primitives that the consumer (crucible or
+// the docker executePhase) converts to v2 Outcome records via ResultsBuilder.
+func resolvePublished(step build.BuildStep) ([]build.PushObservation, error) {
 	// Read metadata — the only observation we have of what buildx actually did.
 	if step.MetadataFile == "" {
 		return nil, fmt.Errorf("no metadata file for push build — cannot verify publish result")
@@ -245,21 +243,19 @@ func resolvePublished(step build.BuildStep) ([]artifact.PublishedImage, error) {
 		}
 	}
 
-	// Build expected entries from decomposed registry identity.
-	var expected []artifact.PublishedImage
+	// Build expected observations from decomposed registry identity.
+	var expected []build.PushObservation
 	for _, reg := range step.Registries {
 		if reg.Provider == "local" {
 			continue
 		}
 		host := normalizeRegistryHost(reg.URL)
 		for _, tag := range reg.Tags {
-			expected = append(expected, artifact.PublishedImage{
-				Host:     host,
-				Path:     reg.Path,
-				Tag:      tag,
-				Provider: reg.Provider,
-				Ref:      host + "/" + reg.Path + ":" + tag,
-				Digest:   meta.Digest,
+			expected = append(expected, build.PushObservation{
+				Host:   host,
+				Path:   reg.Path,
+				Tag:    tag,
+				Digest: meta.Digest,
 			})
 		}
 	}
@@ -268,8 +264,6 @@ func resolvePublished(step build.BuildStep) ([]artifact.PublishedImage, error) {
 		return nil, fmt.Errorf("no remote registries in step — nothing to publish")
 	}
 
-	// Verify: actual pushed count must match expected.
-	// image.name is required — buildx 0.8+ always writes it on successful push.
 	if actualCount == 0 {
 		return nil, fmt.Errorf("buildx metadata has digest but no image.name — cannot verify what was actually pushed")
 	}

@@ -373,18 +373,57 @@ func runCrucibleMode(req Request) error {
 				publishPassed = true
 				publishResult = pubResult
 
-				// Write publish manifest from structured publish records.
-				// PublishedImages is built from step.Registries (decomposed host/path/tag)
-				// + metadata digest — no image.name string parsing.
-				var manifest artifact.PublishManifest
-				for _, step := range pubResult.Steps {
-					manifest.Published = append(manifest.Published, step.PublishedImages...)
-				}
-
-				// Manifest write failure = publish failure. Downstream depends on this file.
-				if err := artifact.WritePublishManifest(rootDir, manifest); err != nil {
+				// Emit v2 manifests (outputs.json + published.json) from the
+				// publishPlan + per-step PushObservation records. Identity is
+				// the typed ArtifactID derived from each plan step's Name;
+				// recording is pure passthrough — each observation becomes
+				// one push outcome via ResultsBuilder.Record.
+				outputs, planErr := build.PlanToOutputs(publishPlan, build.PlanToOutputsOpts{
+					Commit: os.Getenv("CI_COMMIT_SHA"),
+					Pipeline: &artifact.Pipeline{
+						ID:       os.Getenv("CI_PIPELINE_ID"),
+						Provider: "gitlab",
+					},
+				})
+				if planErr != nil {
 					publishPassed = false
-					publishErr = fmt.Errorf("write publish manifest: %w", err)
+					publishErr = fmt.Errorf("constructing outputs manifest: %w", planErr)
+				} else {
+					rb := build.NewResultsBuilder()
+					for _, step := range pubResult.Steps {
+						artifactID := artifact.NewArtifactID("docker", step.Name)
+						for _, obs := range step.Publications {
+							rb.Record(artifactID, artifact.Outcome{
+								Type: artifact.OutcomeTypePush,
+								Target: &artifact.OutcomeTarget{
+									Kind: "registry",
+									Host: obs.Host,
+									Path: obs.Path,
+									Tag:  obs.Tag,
+								},
+								Push: &artifact.PushOutcome{
+									Status:         artifact.OutcomeSuccess,
+									Digest:         obs.Digest,
+									ObservedDigest: obs.Digest,
+									ObservedBy:     "buildx",
+								},
+							})
+						}
+					}
+
+					if err := artifact.WriteOutputsManifest(rootDir, outputs); err != nil {
+						publishPassed = false
+						publishErr = fmt.Errorf("write outputs manifest: %w", err)
+					} else {
+						results, err := rb.Build(&outputs)
+						if err != nil {
+							publishPassed = false
+							publishErr = fmt.Errorf("build results manifest: %w", err)
+						} else if err := artifact.WriteResultsManifest(rootDir, results); err != nil {
+							publishPassed = false
+							publishErr = fmt.Errorf("write results manifest: %w", err)
+						}
+					}
 				}
 			}
 		}
@@ -529,8 +568,8 @@ func runCrucibleMode(req Request) error {
 		// Count actually pushed images from structured records.
 		pushed := 0
 		for _, step := range publishResult.Steps {
-			if len(step.PublishedImages) > 0 {
-				pushed += len(step.PublishedImages)
+			if len(step.Publications) > 0 {
+				pushed += len(step.Publications)
 			} else {
 				pushed += len(step.Images) // fallback to raw refs
 			}
