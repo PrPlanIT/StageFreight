@@ -388,13 +388,6 @@ func TestReplay_TreeEquivalence(t *testing.T) {
 	r.addSFCommit(t, "a.txt", "a content", "feat: a")
 	r.addSFCommit(t, "b.txt", "b content", "feat: b")
 
-	// Capture original local HEAD tree hash
-	repo, _ := git.PlainOpen(r.localDir)
-	head, _ := repo.Head()
-	headCommit, _ := repo.CommitObject(head.Hash())
-	origTree, _ := headCommit.Tree()
-	origTreeHash := origTree.Hash
-
 	session := openSession(t, r.localDir)
 	if err := session.Fetch("origin"); err != nil {
 		t.Fatalf("fetch before replay: %v", err)
@@ -402,18 +395,30 @@ func TestReplay_TreeEquivalence(t *testing.T) {
 	if err := Replay(session); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
+
+	// Capture the local HEAD tree AFTER replay. Replay rebases onto the advanced
+	// upstream, so the replayed tree legitimately includes upstream changes and
+	// differs from the pre-replay tree (see replayCommit's hash-comparison note).
+	// The equivalence that must hold is push integrity: the tree produced locally
+	// by replay is exactly what lands on the remote.
+	repo, _ := git.PlainOpen(r.localDir)
+	head, _ := repo.Head()
+	headCommit, _ := repo.CommitObject(head.Hash())
+	replayedTree, _ := headCommit.Tree()
+	replayedTreeHash := replayedTree.Hash
+
 	if err := session.Push("origin", "", false); err != nil {
 		t.Fatalf("push after replay: %v", err)
 	}
 
-	// Verify remote HEAD tree == original local HEAD tree
+	// Verify remote HEAD tree == replayed local HEAD tree
 	remoteRepo, _ := git.PlainOpen(r.remoteDir)
 	remoteHead, _ := remoteRepo.Reference(plumbing.NewBranchReferenceName("main"), true)
 	remoteCommit, _ := remoteRepo.CommitObject(remoteHead.Hash())
 	remoteTree, _ := remoteCommit.Tree()
 
-	if remoteTree.Hash != origTreeHash {
-		t.Errorf("tree equivalence failed: local=%s remote=%s", origTreeHash, remoteTree.Hash)
+	if remoteTree.Hash != replayedTreeHash {
+		t.Errorf("tree equivalence failed: local replayed=%s remote=%s", replayedTreeHash, remoteTree.Hash)
 	}
 }
 
