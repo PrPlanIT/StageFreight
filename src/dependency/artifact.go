@@ -356,7 +356,14 @@ func writePatch(_ context.Context, repoRoot, patchFile string) error {
 			continue
 		}
 
-		diffs := dmp.DiffMain(oldContent, newContent, false)
+		// Line-level diff: collapse each line to a rune, diff on those runes,
+		// then expand back to text. Character-level DiffMain shreds a changed
+		// line into per-character insert/delete runs, so neither the original
+		// nor the updated line survives intact in the rendered patch — this
+		// keeps whole lines as the unit of change.
+		lineText1, lineText2, lineArray := dmp.DiffLinesToRunes(oldContent, newContent)
+		diffs := dmp.DiffMainRunes(lineText1, lineText2, false)
+		diffs = dmp.DiffCharsToLines(diffs, lineArray)
 		chunks := make([]fdiff.Chunk, 0, len(diffs))
 		for _, d := range diffs {
 			var op fdiff.Operation
