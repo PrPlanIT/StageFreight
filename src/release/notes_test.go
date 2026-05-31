@@ -2,10 +2,46 @@ package release
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
+
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
+
+// goCommit commits the currently staged worktree with a fixed test signature
+// and returns the new commit hash. go-git is used directly so the release
+// fixtures carry no dependency on the git CLI (enforced by TestNoGitShellOuts).
+func goCommit(t *testing.T, wt *git.Worktree, msg string) plumbing.Hash {
+	t.Helper()
+	h, err := wt.Commit(msg, &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test", When: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("commit %q: %v", msg, err)
+	}
+	return h
+}
+
+// initMainRepo initializes a non-bare repo with HEAD on main and returns the
+// repo plus its worktree. go-git's PlainInit defaults HEAD to master; the
+// release tests assume main, so set it explicitly.
+func initMainRepo(t *testing.T, dir string) (*git.Repository, *git.Worktree) {
+	t.Helper()
+	repo, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+		InitOptions: git.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")},
+	})
+	if err != nil {
+		t.Fatalf("init repo: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	return repo, wt
+}
 
 // setupTestRepo creates a temporary git repo with a linear commit history
 // and the specified tags. Returns the repo directory.
@@ -14,35 +50,21 @@ func setupTestRepo(t *testing.T, commits int, tags map[int][]string) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test",
-			"GIT_AUTHOR_EMAIL=test@test",
-			"GIT_COMMITTER_NAME=test",
-			"GIT_COMMITTER_EMAIL=test@test",
-		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %s: %s", args, err, out)
-		}
-	}
-
-	git("init", "-b", "main")
+	repo, wt := initMainRepo(t, dir)
 
 	for i := 1; i <= commits; i++ {
-		f := filepath.Join(dir, "file.txt")
-		if err := os.WriteFile(f, []byte{byte(i)}, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte{byte(i)}, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		git("add", "file.txt")
-		git("commit", "-m", "commit "+string(rune('0'+i)))
+		if _, err := wt.Add("file.txt"); err != nil {
+			t.Fatalf("add file.txt: %v", err)
+		}
+		hash := goCommit(t, wt, "commit "+string(rune('0'+i)))
 
-		if tagNames, ok := tags[i]; ok {
-			for _, tag := range tagNames {
-				git("tag", tag)
+		// tags[i] is nil when absent — ranging over nil is a no-op.
+		for _, tag := range tags[i] {
+			if _, err := repo.CreateTag(tag, hash, nil); err != nil {
+				t.Fatalf("tag %s: %v", tag, err)
 			}
 		}
 	}
@@ -140,43 +162,49 @@ func TestPreviousReleaseTag_PatternExcludesBareVersion(t *testing.T) {
 func TestPreviousReleaseTag_NonAncestorSkipped(t *testing.T) {
 	// Create a branch with a higher version tag that's not an ancestor of main.
 	dir := t.TempDir()
-	git := func(args ...string) {
+	repo, wt := initMainRepo(t, dir)
+
+	writeAdd := func(content string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test",
-			"GIT_AUTHOR_EMAIL=test@test",
-			"GIT_COMMITTER_NAME=test",
-			"GIT_COMMITTER_EMAIL=test@test",
-		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %s: %s", args, err, out)
+		if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := wt.Add("f.txt"); err != nil {
+			t.Fatalf("add f.txt: %v", err)
+		}
+	}
+	tag := func(name string, h plumbing.Hash) {
+		t.Helper()
+		if _, err := repo.CreateTag(name, h, nil); err != nil {
+			t.Fatalf("tag %s: %v", name, err)
 		}
 	}
 
-	git("init", "-b", "main")
+	// Commit 1: base on main
+	writeAdd("1")
+	base := goCommit(t, wt, "base")
+	tag("v0.0.1", base)
 
-	// Commit 1: base
-	os.WriteFile(filepath.Join(dir, "f.txt"), []byte("1"), 0o644)
-	git("add", "f.txt")
-	git("commit", "-m", "base")
-	git("tag", "v0.0.1")
-
-	// Branch off
-	git("checkout", "-b", "other")
-	os.WriteFile(filepath.Join(dir, "f.txt"), []byte("other"), 0o644)
-	git("add", "f.txt")
-	git("commit", "-m", "other branch")
-	git("tag", "v0.9.0") // higher version, not on main's history
+	// Branch off to 'other' with a higher version tag not on main's history
+	if err := wt.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("other"),
+		Create: true,
+	}); err != nil {
+		t.Fatalf("checkout other: %v", err)
+	}
+	writeAdd("other")
+	other := goCommit(t, wt, "other branch")
+	tag("v0.9.0", other) // higher version, not on main's history
 
 	// Back to main
-	git("checkout", "main")
-	os.WriteFile(filepath.Join(dir, "f.txt"), []byte("2"), 0o644)
-	git("add", "f.txt")
-	git("commit", "-m", "main commit")
-	git("tag", "v0.1.0")
+	if err := wt.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("main"),
+	}); err != nil {
+		t.Fatalf("checkout main: %v", err)
+	}
+	writeAdd("2")
+	mainCommit := goCommit(t, wt, "main commit")
+	tag("v0.1.0", mainCommit)
 
 	// v0.9.0 exists but is NOT an ancestor of v0.1.0
 	got, err := PreviousReleaseTag(dir, "v0.1.0", []string{`^v?\d+\.\d+\.\d+$`})
