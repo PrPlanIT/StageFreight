@@ -335,8 +335,11 @@ func (bx *Buildx) buildArgs(step build.BuildStep) []string {
 		args = append(args, "--tag", tag)
 	}
 
-	// Metadata file for digest capture
-	if step.MetadataFile != "" && step.Push {
+	// Metadata file for digest capture. Emitted whenever a metadata file is
+	// set, NOT only on push builds: the OCI image index digest
+	// (containerimage.digest) is materialized at build completion in load mode
+	// too, and artifact identity must exist independently of publication.
+	if step.MetadataFile != "" {
 		args = append(args, "--metadata-file", step.MetadataFile)
 	}
 

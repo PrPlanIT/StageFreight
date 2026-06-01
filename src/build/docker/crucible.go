@@ -411,6 +411,12 @@ func runCrucibleMode(req Request) error {
 						}
 					}
 
+					// Materialize artifact identity (OCI index digest) from the
+					// publish pass's buildx metadata into the frozen outputs
+					// manifest before write. writeManifests re-finalizes, so the
+					// digest is folded into the manifest checksum.
+					captureArtifactDigests(publishPlan, &outputs)
+
 					if _, err := writeManifests(rootDir, &outputs, rb); err != nil {
 						publishPassed = false
 						publishErr = err

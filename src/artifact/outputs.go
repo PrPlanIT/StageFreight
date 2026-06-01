@@ -52,12 +52,35 @@ type Artifact struct {
 	Name    string     `json:"name"`
 	Version string     `json:"version,omitempty"`
 
+	// Digest is the content-addressable identity of the produced artifact,
+	// materialized at build completion (NOT at publish). For docker artifacts
+	// this is the OCI image index digest as reported by buildx
+	// `containerimage.digest` — the identity a registry serves for the tag and
+	// the thing publish projects, stable across the multi-platform case. For
+	// binary/archive artifacts it is the sha256 of the produced bytes.
+	//
+	// Digest is the sole identity primitive: it is derived from bytes, never
+	// from daemon state (NOT docker inspect {{.Id}}, which is a per-platform
+	// config ID that diverges from the index digest on multi-platform builds).
+	//
+	// Phase 1 status: Digest is authoritative identity but NOT yet load-bearing
+	// for any approval decision — review still resolves its scan target from
+	// publication outcomes until a persistence layer (CAS) can retrieve and
+	// re-hash these bytes. A digest without retrievable bytes is a claim, not a
+	// verified identity; do not gate approval on it until persistence exists.
+	Digest Digest `json:"digest,omitempty"`
+
 	Docker  *DockerDescriptor  `json:"docker,omitempty"`
 	Binary  *BinaryDescriptor  `json:"binary,omitempty"`
 	Archive *ArchiveDescriptor `json:"archive,omitempty"`
 
 	Targets []Target `json:"targets"`
 }
+
+// Digest is a content-addressable artifact identity ("sha256:..."). Named
+// primitive (not bare string) so "this is computed identity" is legible at
+// every call site and a registry tag cannot be passed where a digest belongs.
+type Digest string
 
 // DockerDescriptor describes a docker image to be built.
 type DockerDescriptor struct {

@@ -31,6 +31,42 @@ func extractExitCode(err error) int {
 	return 1
 }
 
+// captureArtifactDigests reads the OCI index digest from each image step's
+// buildx metadata file and writes it onto the matching artifact in the frozen
+// outputs manifest, keyed by step name. This is where artifact identity is
+// materialized at build completion, independent of publication.
+//
+// Identity is sourced ONLY from containerimage.digest (the OCI index digest).
+// It is never read from docker inspect {{.Id}}, which is a per-platform image
+// config ID that coincides with the index digest only for trivial
+// single-platform images and diverges on multi-platform builds.
+//
+// Best-effort: a step whose metadata is absent or unparseable simply leaves
+// Digest empty. WriteOutputsManifest re-finalizes, so any captured digest is
+// folded into the manifest checksum.
+func captureArtifactDigests(plan *build.BuildPlan, outputs *artifact.OutputsManifest) {
+	if plan == nil || outputs == nil {
+		return
+	}
+	digestByName := make(map[string]artifact.Digest)
+	for _, step := range plan.Steps {
+		if step.Output != build.OutputImage || step.MetadataFile == "" {
+			continue
+		}
+		if d, err := ParseMetadataDigest(step.MetadataFile); err == nil && d != "" {
+			digestByName[step.Name] = artifact.Digest(d)
+		}
+	}
+	for i := range outputs.Artifacts {
+		if outputs.Artifacts[i].Kind != "docker" {
+			continue
+		}
+		if d, ok := digestByName[outputs.Artifacts[i].Name]; ok {
+			outputs.Artifacts[i].Digest = d
+		}
+	}
+}
+
 // newPushFailure converts a PushTags error into a runtime-agnostic PushFailure.
 // This is the single boundary where Docker-specific PushError is consumed.
 func newPushFailure(err error, fallbackStderr string) postbuild.PushFailure {
@@ -144,16 +180,24 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 				}
 			}
 
-			// Set up metadata files for digest capture on push builds
+			// Set up metadata files for digest capture on every image step —
+			// push AND load. The OCI index digest (containerimage.digest) is
+			// materialized at build completion regardless of output mode, and
+			// artifact identity must exist independently of publication. Push
+			// steps additionally use this file for the publish-outcome digest.
 			var metadataCleanup []string
 			for i := range plan.Steps {
-				if plan.Steps[i].Push {
-					metaFile, tmpErr := os.CreateTemp("", "buildx-metadata-*.json")
-					if tmpErr == nil {
-						plan.Steps[i].MetadataFile = metaFile.Name()
-						metaFile.Close()
-						metadataCleanup = append(metadataCleanup, metaFile.Name())
-					}
+				if plan.Steps[i].Output != build.OutputImage {
+					continue
+				}
+				if !plan.Steps[i].Push && !plan.Steps[i].Load {
+					continue
+				}
+				metaFile, tmpErr := os.CreateTemp("", "buildx-metadata-*.json")
+				if tmpErr == nil {
+					plan.Steps[i].MetadataFile = metaFile.Name()
+					metaFile.Close()
+					metadataCleanup = append(metadataCleanup, metaFile.Name())
 				}
 			}
 			defer func() {
@@ -248,6 +292,15 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 				}
 			}
 			buildElapsed := time.Since(buildStart)
+
+			// Capture artifact identity (OCI index digest) from buildx metadata
+			// and patch it into the frozen outputs manifest, keyed by step name.
+			// Identity is materialized at build completion — independent of
+			// publication. Sourced ONLY from containerimage.digest, never from
+			// docker inspect {{.Id}} (a per-platform config ID that diverges
+			// from the index digest on multi-platform builds). WriteOutputsManifest
+			// re-finalizes, so the digest is folded into the manifest checksum.
+			captureArtifactDigests(plan, outputsOut)
 
 			// Post-push hooks (scan triggers, etc.) after multi-platform push
 			for _, step := range plan.Steps {
