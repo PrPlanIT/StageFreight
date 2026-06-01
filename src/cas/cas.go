@@ -23,6 +23,7 @@ package cas
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -56,6 +57,13 @@ var ErrIntegrity = errors.New("cas: stored bytes do not match digest (integrity 
 // it only after proving the named blob re-hashes to the key. There is no
 // "trust the store" path — every Resolve verifies.
 type Store interface {
+	// RequiresOCIExport reports whether perform must export an OCI layout for
+	// this store to retain. This is a CAPABILITY query, not an implementation
+	// check: perform asks the store whether to pay the export cost, and never
+	// branches on concrete store type. A store that retains nothing (NoopStore)
+	// returns false so no layout is exported and discarded.
+	RequiresOCIExport() bool
+
 	// Put retains the OCI layout rooted at layoutDir under digest, and returns
 	// the absolute path to the stored layout. The digest MUST name a blob present
 	// in the layout (blobs/sha256/<hash>); Put verifies this before retaining, so
@@ -67,6 +75,33 @@ type Store interface {
 	// ErrNotFound if absent, ErrIntegrity if the stored bytes have drifted.
 	Resolve(digest Digest) (storedDir string, err error)
 }
+
+// NoopStore is the inert Store: it retains nothing and requires no OCI export.
+// Selecting it makes a deployment's perform path behave exactly as before
+// Phase 2 (daemon --load only, no layout export, empty PersistenceHandle).
+// It exists so the store is always non-nil and the capability boundary is the
+// single switch — perform never special-cases "no store".
+type NoopStore struct{}
+
+// NewNoopStore returns the inert store.
+func NewNoopStore() *NoopStore { return &NoopStore{} }
+
+// RequiresOCIExport is false: nothing is retained, so no layout is exported.
+func (*NoopStore) RequiresOCIExport() bool { return false }
+
+// Put is a no-op that retains nothing and returns an empty stored dir. It does
+// not error: a deployment with persistence disabled is valid, not a failure.
+func (*NoopStore) Put(_ Digest, _ string) (string, error) { return "", nil }
+
+// Resolve always reports not-found: the noop store retains nothing, so any
+// resolve is a loud miss rather than a silent empty success.
+func (*NoopStore) Resolve(digest Digest) (string, error) {
+	return "", fmt.Errorf("%w: digest %s (noop store retains nothing)", ErrNotFound, digest)
+}
+
+// RequiresOCIExport is true for the filesystem store: perform must export an
+// OCI layout for FSStore to retain it.
+func (*FSStore) RequiresOCIExport() bool { return true }
 
 // FSStore is a filesystem-backed Store. Layouts live under
 // root/<algo>/<hash>/ as ordinary OCI layout directories. The store is keyed
@@ -105,35 +140,104 @@ func splitDigest(d Digest) (algo, hexHash string, err error) {
 	return algo, hexHash, nil
 }
 
-// verifyNamedBlob proves that blobs/<algo>/<hex> inside layoutDir hashes to the
-// digest. This is the identity check: the digest names a real blob in the
-// layout (the manifest/index buildx reported), and that blob's bytes must hash
-// to it. NOT a hash of the whole directory or a tarball — that would never
-// match the OCI digest.
-func verifyNamedBlob(layoutDir string, digest Digest) error {
-	algo, hexHash, err := splitDigest(digest)
-	if err != nil {
+// ociIndex is the minimal shape of an OCI layout index.json that the store
+// needs: the list of manifest descriptors it points at.
+type ociIndex struct {
+	Manifests []struct {
+		MediaType string `json:"mediaType"`
+		Digest    string `json:"digest"`
+	} `json:"manifests"`
+}
+
+// verifyLayout proves an OCI layout in layoutDir corresponds to digest, with
+// two independent checks:
+//
+//  1. Identity binding: digest is the descriptor the layout's index.json points
+//     at (index.json.manifests[*].digest). This is what ties the build's
+//     reported containerimage.digest to these bytes. Buildx may report a
+//     "virtual" index digest (under --load + --output type=oci together) that is
+//     referenced in index.json but not written as a standalone blob — so the
+//     binding is checked against the index's manifest list, not against the
+//     presence of a single named blob.
+//
+//  2. Content integrity: every file under blobs/sha256/ re-hashes to its own
+//     filename. This proves the stored bytes have not drifted/been tampered;
+//     it is the verify-on-read guarantee over the whole content closure.
+//
+// Together these mean: "these exact bytes are intact AND they are the artifact
+// the build reported as digest." Neither a whole-directory hash nor a single
+// blob hash would be correct — the OCI digest names a descriptor, and integrity
+// lives across the blob set.
+func verifyLayout(layoutDir string, digest Digest) error {
+	if err := verifyIdentityBinding(layoutDir, digest); err != nil {
 		return err
 	}
-	blobPath := filepath.Join(layoutDir, "blobs", algo, hexHash)
-	f, err := os.Open(blobPath)
+	return verifyBlobIntegrity(layoutDir)
+}
+
+// verifyIdentityBinding checks digest appears in index.json's manifest list.
+func verifyIdentityBinding(layoutDir string, digest Digest) error {
+	if _, _, err := splitDigest(digest); err != nil {
+		return err
+	}
+	indexPath := filepath.Join(layoutDir, "index.json")
+	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("%w: digest %s names no blob at %s", ErrIntegrity, digest, blobPath)
+			return fmt.Errorf("%w: no index.json at %s (not an OCI layout)", ErrIntegrity, indexPath)
 		}
-		return fmt.Errorf("cas: opening blob for %s: %w", digest, err)
+		return fmt.Errorf("cas: reading index.json: %w", err)
 	}
-	defer f.Close()
+	var idx ociIndex
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return fmt.Errorf("%w: index.json is not valid JSON: %v", ErrIntegrity, err)
+	}
+	for _, m := range idx.Manifests {
+		if m.Digest == string(digest) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: digest %s is not referenced by index.json (layout describes a different artifact)", ErrIntegrity, digest)
+}
 
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("cas: hashing blob for %s: %w", digest, err)
+// verifyBlobIntegrity re-hashes every blob under blobs/<algo>/ and confirms it
+// matches its filename. A missing blobs dir is an integrity failure (a layout
+// with no content closure cannot be trusted).
+func verifyBlobIntegrity(layoutDir string) error {
+	blobsRoot := filepath.Join(layoutDir, "blobs")
+	info, err := os.Stat(blobsRoot)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("%w: no blobs/ directory in layout %s", ErrIntegrity, layoutDir)
 	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if got != hexHash {
-		return fmt.Errorf("%w: blob for %s hashes to sha256:%s", ErrIntegrity, digest, got)
-	}
-	return nil
+	return filepath.Walk(blobsRoot, func(path string, fi os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		algo := filepath.Base(filepath.Dir(path))
+		if algo != "sha256" {
+			// Only sha256 blobs are understood; an unexpected algo dir means a
+			// layout we can't verify, so refuse it.
+			return fmt.Errorf("%w: blob under unsupported algorithm dir %q", ErrIntegrity, algo)
+		}
+		want := fi.Name()
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("cas: opening blob %s: %w", path, err)
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			return fmt.Errorf("cas: hashing blob %s: %w", path, err)
+		}
+		got := hex.EncodeToString(h.Sum(nil))
+		if got != want {
+			return fmt.Errorf("%w: blob %s hashes to sha256:%s", ErrIntegrity, want, got)
+		}
+		return nil
+	})
 }
 
 func (s *FSStore) dirFor(digest Digest) (string, error) {
@@ -146,7 +250,7 @@ func (s *FSStore) dirFor(digest Digest) (string, error) {
 
 // Put retains the OCI layout, verifying the digest names a real blob first.
 func (s *FSStore) Put(digest Digest, layoutDir string) (string, error) {
-	if err := verifyNamedBlob(layoutDir, digest); err != nil {
+	if err := verifyLayout(layoutDir, digest); err != nil {
 		return "", fmt.Errorf("cas: refusing to store layout that does not match its digest: %w", err)
 	}
 
@@ -158,7 +262,7 @@ func (s *FSStore) Put(digest Digest, layoutDir string) (string, error) {
 	// Already stored (idempotent) — verify the existing copy still matches and
 	// return it rather than rewriting.
 	if _, statErr := os.Stat(dest); statErr == nil {
-		if verifyErr := verifyNamedBlob(dest, digest); verifyErr != nil {
+		if verifyErr := verifyLayout(dest, digest); verifyErr != nil {
 			return "", fmt.Errorf("cas: existing stored layout for %s failed verification: %w", digest, verifyErr)
 		}
 		return dest, nil
@@ -172,7 +276,7 @@ func (s *FSStore) Put(digest Digest, layoutDir string) (string, error) {
 	}
 
 	// Re-verify after copy: the bytes that will actually be read back must match.
-	if err := verifyNamedBlob(dest, digest); err != nil {
+	if err := verifyLayout(dest, digest); err != nil {
 		return "", fmt.Errorf("cas: stored copy failed post-write verification: %w", err)
 	}
 	return dest, nil
@@ -190,7 +294,7 @@ func (s *FSStore) Resolve(digest Digest) (string, error) {
 		}
 		return "", fmt.Errorf("cas: stat store dir for %s: %w", digest, statErr)
 	}
-	if err := verifyNamedBlob(dest, digest); err != nil {
+	if err := verifyLayout(dest, digest); err != nil {
 		return "", err
 	}
 	return dest, nil

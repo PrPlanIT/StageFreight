@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
@@ -26,4 +27,11 @@ type Request struct {
 	ConfigFile string // forwarded by crucible to inner build
 	Stdout     io.Writer
 	Stderr     io.Writer
+
+	// Store is the content-addressed artifact store that retains build bytes for
+	// cross-phase transport. When nil, perform treats it as cas.NewNoopStore()
+	// (no OCI export, no persistence — pre-Phase-2 behavior). Selection is a
+	// system/runtime decision: one store per deployment, never per-pipeline, so
+	// artifact identity semantics stay uniform.
+	Store cas.Store
 }

@@ -33,6 +33,7 @@ type BuildStep struct {
 	Push         bool             // --push to registries
 	SavePath     string           // save image tarball here after build (for security scanning)
 	MetadataFile string           // temp file for buildx --metadata-file (digest capture)
+	OCILayoutDir string           // --output type=oci,dest=<dir> for content-store persistence; additive to Load/Push
 	CacheFrom    []CacheRef        // --cache-from references
 	CacheTo      []CacheRef        // --cache-to references
 }

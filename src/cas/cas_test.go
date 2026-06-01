@@ -4,15 +4,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// writeLayout writes a minimal OCI-layout-shaped directory whose single blob
-// has content `blob` and returns (layoutDir, digest) where digest is the real
-// sha256 of blob. This lets the tests exercise the rehash invariant
-// (sha256(blobs/sha256/<X>) == X) without a docker build.
+// writeLayout writes a minimal but VALID OCI layout directory: the manifest
+// blob `blob` is stored under blobs/sha256/<hash>, and index.json references
+// that digest in its manifest list. Returns (layoutDir, digest) where digest is
+// the manifest blob's sha256. This mirrors a real buildx OCI layout closely
+// enough to exercise both verification checks (identity binding via index.json,
+// content integrity via blob rehash) without a docker build.
 func writeLayout(t *testing.T, blob []byte) (string, Digest) {
 	t.Helper()
 	sum := sha256.Sum256(blob)
@@ -25,10 +29,12 @@ func writeLayout(t *testing.T, blob []byte) (string, Digest) {
 	if err := os.WriteFile(filepath.Join(blobDir, hexHash), blob, 0o644); err != nil {
 		t.Fatalf("write blob: %v", err)
 	}
-	// minimal index.json + oci-layout marker, so the stored thing looks like a
-	// real layout (not strictly needed for the rehash check, but realistic).
 	if err := os.WriteFile(filepath.Join(dir, "oci-layout"), []byte(`{"imageLayoutVersion":"1.0.0"}`), 0o644); err != nil {
 		t.Fatalf("write oci-layout: %v", err)
+	}
+	index := fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%s","size":%d}]}`, hexHash, len(blob))
+	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte(index), 0o644); err != nil {
+		t.Fatalf("write index.json: %v", err)
 	}
 	return dir, Digest("sha256:" + hexHash)
 }
@@ -122,6 +128,31 @@ func TestFSStore_Idempotent(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("idempotent Put returned different dirs: %q vs %q", first, second)
+	}
+}
+
+func TestNoopStore_RequiresNoExportAndRetainsNothing(t *testing.T) {
+	var s Store = NewNoopStore()
+	if s.RequiresOCIExport() {
+		t.Error("NoopStore.RequiresOCIExport() = true, want false (nothing retained → no export)")
+	}
+	digest := Digest("sha256:" + strings.Repeat("a", 64))
+	stored, err := s.Put(digest, "/nonexistent")
+	if err != nil {
+		t.Errorf("NoopStore.Put should not error (persistence-disabled is valid): %v", err)
+	}
+	if stored != "" {
+		t.Errorf("NoopStore.Put stored dir = %q, want empty", stored)
+	}
+	if _, err := s.Resolve(digest); err == nil {
+		t.Error("NoopStore.Resolve returned nil error — must be a loud miss")
+	}
+}
+
+func TestFSStore_RequiresOCIExport(t *testing.T) {
+	var s Store = NewFSStore(t.TempDir())
+	if !s.RequiresOCIExport() {
+		t.Error("FSStore.RequiresOCIExport() = false, want true")
 	}
 }
 

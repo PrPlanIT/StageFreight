@@ -354,6 +354,16 @@ func (bx *Buildx) buildArgs(step build.BuildStep) []string {
 		args = append(args, "--output", "type=local,dest=.")
 	}
 
+	// OCI layout export for content-store persistence. Additive: a second
+	// --output alongside --load/--push so the same single build both serves the
+	// daemon/registry AND emits a portable, content-addressed layout for CAS.
+	// tar=false writes a real layout DIRECTORY (blobs/ + index.json + oci-layout)
+	// rather than a tarball, so the content store can address blobs by digest
+	// directly. (Proven: buildx accepts --load + --output type=oci in one run.)
+	if step.OCILayoutDir != "" {
+		args = append(args, "--output", "type=oci,tar=false,dest="+step.OCILayoutDir)
+	}
+
 	// Cache flags
 	for _, cf := range step.CacheFrom {
 		args = append(args, "--cache-from", cf.Flag())

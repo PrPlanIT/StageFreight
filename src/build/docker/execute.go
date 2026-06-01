@@ -15,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
+	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
@@ -63,6 +64,57 @@ func captureArtifactDigests(plan *build.BuildPlan, outputs *artifact.OutputsMani
 		}
 		if d, ok := digestByName[outputs.Artifacts[i].Name]; ok {
 			outputs.Artifacts[i].Digest = d
+		}
+	}
+}
+
+// persistArtifacts retains each docker artifact's exact OCI layout bytes in the
+// content store and records the persistence handle on the matching artifact.
+// This is the transport floor: build once, carry the bytes forward, prove
+// identity by content digest.
+//
+// It runs only for stores that required OCI export (layouts were emitted);
+// NoopStore exports nothing, so the step/layout map is empty and every handle
+// stays at its zero value. cas.Put verifies the layout matches the digest
+// before retaining, so a layout/digest mismatch fails loudly here rather than
+// surfacing as a phantom artifact later.
+//
+// The handle is written but NOT consumed by any decision in this phase — review
+// and publish do not read it yet. Presence of a handle must never be read as
+// implicit trust; it becomes load-bearing only when a later phase resolves and
+// re-hashes through it.
+func persistArtifacts(plan *build.BuildPlan, outputs *artifact.OutputsManifest, store cas.Store, w io.Writer, color bool) {
+	if plan == nil || outputs == nil || store == nil || !store.RequiresOCIExport() {
+		return
+	}
+	layoutByName := make(map[string]string)
+	for _, step := range plan.Steps {
+		if step.Output == build.OutputImage && step.OCILayoutDir != "" {
+			layoutByName[step.Name] = step.OCILayoutDir
+		}
+	}
+	for i := range outputs.Artifacts {
+		a := &outputs.Artifacts[i]
+		if a.Kind != "docker" || a.Digest == "" {
+			continue
+		}
+		layoutDir, ok := layoutByName[a.Name]
+		if !ok {
+			continue
+		}
+		storedDir, err := store.Put(cas.Digest(a.Digest), layoutDir)
+		if err != nil {
+			// Persistence failure is loud but non-fatal to the build: the image
+			// was built and (if push/load) is available; what's lost is the
+			// transport guarantee for this artifact. Surface it so it is never
+			// silently assumed present downstream.
+			fmt.Fprintf(w, "    %s persistence failed for %s: %v\n",
+				output.StatusIcon("warn", color), a.Name, err)
+			continue
+		}
+		a.Persistence = artifact.PersistenceHandle{
+			Kind:      artifact.PersistenceOCILayout,
+			OCILayout: &artifact.OCILayoutRef{Path: storedDir},
 		}
 	}
 }
@@ -206,6 +258,38 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 				}
 			}()
 
+			// Set up OCI layout export dirs when the content store requires it.
+			// The store is asked via its capability (RequiresOCIExport), never by
+			// concrete type, so perform pays the export cost only for a store that
+			// will retain the bytes. NoopStore returns false → no export, no
+			// dormant layout produced and discarded. One temp layout dir per
+			// image step; cas.Put copies it into the store after a successful build.
+			store := req.Store
+			if store == nil {
+				store = cas.NewNoopStore()
+			}
+			var ociLayoutCleanup []string
+			if store.RequiresOCIExport() {
+				for i := range plan.Steps {
+					if plan.Steps[i].Output != build.OutputImage {
+						continue
+					}
+					if !plan.Steps[i].Push && !plan.Steps[i].Load {
+						continue
+					}
+					layoutDir, tmpErr := os.MkdirTemp("", "sf-oci-layout-*")
+					if tmpErr == nil {
+						plan.Steps[i].OCILayoutDir = layoutDir
+						ociLayoutCleanup = append(ociLayoutCleanup, layoutDir)
+					}
+				}
+			}
+			defer func() {
+				for _, d := range ociLayoutCleanup {
+					os.RemoveAll(d)
+				}
+			}()
+
 			// Build each step
 			var result build.BuildResult
 			for _, step := range plan.Steps {
@@ -301,6 +385,13 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 			// from the index digest on multi-platform builds). WriteOutputsManifest
 			// re-finalizes, so the digest is folded into the manifest checksum.
 			captureArtifactDigests(plan, outputsOut)
+
+			// Retain the exact build bytes in the content store (transport floor)
+			// and record the persistence handle on each artifact. Only runs when
+			// the store required OCI export (so layouts exist); NoopStore is a
+			// no-op and leaves handles empty. The handle is written but consumed
+			// by NOTHING yet — review and publish do not read it in this phase.
+			persistArtifacts(plan, outputsOut, store, pc.Writer, pc.Color)
 
 			// Post-push hooks (scan triggers, etc.) after multi-platform push
 			for _, step := range plan.Steps {
