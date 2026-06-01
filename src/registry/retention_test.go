@@ -56,8 +56,13 @@ func TestApplyRetention_DigestProtection(t *testing.T) {
 		Protect:  []string{"latest-dev"},
 	}
 
-	// Tag patterns: only dev-* tags are retention candidates.
-	tagPatterns := []string{"^dev-"}
+	// Tag patterns: only dev-* tags are retention candidates. These are tag
+	// TEMPLATES (the form reg.TagPatterns carries in production — unresolved
+	// templates per build.BuildPlan.TagPatterns), not raw regexes. ApplyRetention
+	// runs them through TemplatesToPatterns, so "dev-{sha}" becomes "^dev-.+$".
+	// A raw regex like "^dev-" would be regex-escaped to "^\^dev-$" and match
+	// nothing.
+	tagPatterns := []string{"dev-{sha}"}
 
 	result, err := ApplyRetention(context.Background(), reg, "prplanit/test", tagPatterns, policy)
 	if err != nil {
