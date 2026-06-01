@@ -70,6 +70,20 @@ type Artifact struct {
 	// verified identity; do not gate approval on it until persistence exists.
 	Digest Digest `json:"digest,omitempty"`
 
+	// Persistence is how StageFreight retrieves the artifact's exact bytes in a
+	// later phase (review, publish) without re-deriving them. It is a retrieval
+	// handle, NOT a distribution location: by construction there is no variant
+	// that names a user-facing registry, so "already published" is unexpressible
+	// here. The bytes are reachable only through StageFreight-controlled
+	// resolution (the cas store), never directly by an external system.
+	//
+	// Phase 2 status: this handle is written by perform once the build's bytes
+	// are retained in the content store, but it is consumed by NOTHING yet — no
+	// review or publish decision reads it. It becomes load-bearing only when the
+	// review inversion (a later phase) resolves and re-hashes through it. A
+	// present handle must never be read as implicit trust.
+	Persistence PersistenceHandle `json:"persistence,omitempty"`
+
 	Docker  *DockerDescriptor  `json:"docker,omitempty"`
 	Binary  *BinaryDescriptor  `json:"binary,omitempty"`
 	Archive *ArchiveDescriptor `json:"archive,omitempty"`
@@ -81,6 +95,37 @@ type Artifact struct {
 // primitive (not bare string) so "this is computed identity" is legible at
 // every call site and a registry tag cannot be passed where a digest belongs.
 type Digest string
+
+// PersistenceKind enumerates how an artifact's bytes are retained for later
+// phases. Closed set by design: a registry/distribution variant is
+// deliberately absent so the persistence handle can never express "lives in a
+// user-facing registry" — persistence is not distribution.
+type PersistenceKind string
+
+const (
+	// PersistenceNone means no bytes are retained (e.g. plan-time, or an
+	// artifact whose persistence has not been wired). The zero value.
+	PersistenceNone PersistenceKind = ""
+	// PersistenceOCILayout means the bytes are an OCI image layout retained in
+	// the StageFreight content store, addressed by Digest.
+	PersistenceOCILayout PersistenceKind = "oci_layout"
+)
+
+// PersistenceHandle is an inert, serializable retrieval handle: data that tells
+// StageFreight where to get an artifact's exact bytes, resolved only through
+// the content store. It is a closed union (exactly one variant pointer set,
+// matching Kind); it carries no behavior and no external-fetch capability.
+type PersistenceHandle struct {
+	Kind      PersistenceKind `json:"kind,omitempty"`
+	OCILayout *OCILayoutRef   `json:"oci_layout,omitempty"`
+}
+
+// OCILayoutRef points at an OCI layout retained in the content store. Path is
+// store-relative; it is resolved only by the cas store, never consumed as a
+// remotely-fetchable address.
+type OCILayoutRef struct {
+	Path string `json:"path"`
+}
 
 // DockerDescriptor describes a docker image to be built.
 type DockerDescriptor struct {
