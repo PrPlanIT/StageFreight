@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,4 +117,46 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 		t.Fatalf("PUBLISHED DIGEST != PERFORM DIGEST: published %q, perform recorded %q", published, meta.Digest)
 	}
 	t.Logf("end-to-end proof: perform digest == published digest == %s", meta.Digest)
+}
+
+// TestPromoteArtifacts_PartialFailureReportsAll proves the failure semantics:
+// when a tag fails, promotion does NOT abandon the rest half-done — it attempts
+// every tag and aggregates the failures, so an operator can re-run (promotion is
+// idempotent) to converge rather than guess at a half-published state. Uses an
+// unreachable host so no registry is needed; the point is that BOTH tags are
+// attempted and reported, not that one fails.
+func TestPromoteArtifacts_PartialFailureReportsAll(t *testing.T) {
+	root := t.TempDir()
+	layoutDir, digest := writeValidLayout(t, []byte("partial-failure-manifest"))
+	m := artifact.OutputsManifest{
+		Artifacts: []artifact.Artifact{{
+			Kind:        "docker",
+			Name:        "app",
+			Digest:      digest,
+			Docker:      &artifact.DockerDescriptor{Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"}},
+			Persistence: artifact.PersistenceHandle{Kind: artifact.PersistenceOCILayout, OCILayout: &artifact.OCILayoutRef{Path: layoutDir}},
+			Targets: []artifact.Target{{
+				Kind:     "registry",
+				Registry: &artifact.RegistryTarget{Host: "127.0.0.1:1", Path: "x/app", Tags: []string{"a", "b"}},
+			}},
+		}},
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".stagefreight"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := artifact.WriteOutputsManifest(root, m); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := promoteArtifacts(context.Background(), &config.Config{}, root, io.Discard)
+	if err == nil {
+		t.Fatal("expected an aggregated error for unreachable targets")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "x/app:a") {
+		t.Errorf("error does not reference tag a — did promotion stop early? %v", msg)
+	}
+	if !strings.Contains(msg, "x/app:b") {
+		t.Errorf("error does not reference tag b — did promotion stop early? %v", msg)
+	}
 }

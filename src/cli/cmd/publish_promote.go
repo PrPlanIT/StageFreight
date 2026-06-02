@@ -36,6 +36,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		return 0, nil
 	}
 
+	var failures []string
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
 			continue
@@ -64,12 +65,27 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 				ref := t.Registry.Host + "/" + t.Registry.Path + ":" + tag
 				res, pErr := promote.LayoutToRegistry(ctx, layoutDir, ref, string(a.Digest), auth)
 				if pErr != nil {
-					return promoted, fmt.Errorf("promoting %s to %s: %w", a.Name, ref, pErr)
+					// Continue past a per-tag failure rather than abandoning the
+					// rest half-distributed. Promotion is digest-preserving and
+					// idempotent (re-pushing the same digest to the same tag is a
+					// no-op), so a later retry safely converges — but only if we
+					// don't silently leave some tags done and others not. Record
+					// every failure and surface them all at the end.
+					fmt.Fprintf(w, "    publish: FAILED to promote %s → %s: %v\n", a.Name, ref, pErr)
+					failures = append(failures, fmt.Sprintf("%s→%s: %v", a.Name, ref, pErr))
+					continue
 				}
 				fmt.Fprintf(w, "    publish: promoted %s → %s @ %s (digest preserved, no rebuild)\n", a.Name, res.Ref, res.Digest)
 				promoted++
 			}
 		}
+	}
+	if len(failures) > 0 {
+		// Partial distribution: report exactly which tags succeeded (promoted)
+		// and which failed, so an operator can re-run (idempotent) to converge
+		// rather than guess at a half-published state.
+		return promoted, fmt.Errorf("publish promotion: %d tag(s) succeeded, %d failed: %v",
+			promoted, len(failures), failures)
 	}
 	return promoted, nil
 }
