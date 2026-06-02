@@ -809,7 +809,11 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		tag = ciCtx.Tag
 	}
 	if tag == "" {
-		renderReleaseSkip(ciCtx, releaseSkipNoTag, "no tag context")
+		// No tag = a forge release is simply not applicable to this build. Branch
+		// pipelines are the common case, so rendering a full "nothing to release"
+		// card here would contradict the Distribution card on EVERY non-tag run and
+		// drown the one thing publish did do. Record the not-applicable state for
+		// the pipeline summary, but emit no card — publish shows only Distribution.
 		if ciCtx.IsCI() {
 			if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.RecordSubsystem(cistate.SubsystemState{

@@ -55,6 +55,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	// content store with no rebuild and the digest preserved.
 	type distTag struct {
 		ref    string
+		digest string // digest the registry served on post-push re-read (verified == recorded)
 		ok     bool
 		errMsg string
 	}
@@ -122,7 +123,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 					recordedResults = true
 					continue
 				}
-				dist.tags = append(dist.tags, distTag{ref: res.Ref, ok: true})
+				dist.tags = append(dist.tags, distTag{ref: res.Ref, digest: res.Digest, ok: true})
 				rb.Record(artifactID, artifact.Outcome{
 					Type:   artifact.OutcomeTypePush,
 					Target: target,
@@ -140,32 +141,63 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		dists = append(dists, dist)
 	}
 
-	// Render the distribution evidence as a dedicated section per artifact.
+	// Render the distribution as an EVENT, not a state readout. Publish is the only
+	// phase authorized to mutate external systems, so the log must answer "what was
+	// published?" first and carry the digest proof beneath it — not present a digest
+	// and leave the operator to infer that a mutation occurred. The headline is the
+	// mutation (PUBLISHED); each tag states the external change ("registry now serves
+	// <digest>"), which is a fact, not a hope: promote.LayoutToRegistry re-reads the
+	// tag off the registry after writing and errors unless the remote resolves to
+	// exactly the recorded digest, so a ✓ is the registry's own acknowledgement.
+	color := output.UseColor()
 	for _, d := range dists {
-		sec := output.NewSection(w, "Distribution (publish)", 0, output.UseColor())
-		sec.Row("%-12s%s", "artifact", d.name)
-		sec.Row("%-12s%s", "digest", d.digest)
+		sec := output.NewSection(w, "Distribution (publish)", 0, color)
+		sec.Row("%-10s%s", "artifact", d.name)
+		sec.Row("%-10s%s", "digest", d.digest)
+
 		if d.verifySkip != "" {
 			sec.Separator()
-			sec.Row("%s  content-store layout failed verification — NOT distributed",
-				output.StatusIcon("failed", output.UseColor()))
-			sec.Row("%-12s%s", "error", d.verifySkip)
+			sec.Row("NOT DISTRIBUTED")
+			sec.Row("%s  content-store layout failed verification", output.StatusIcon("failed", color))
+			sec.Row("%-10s%s", "reason", d.verifySkip)
 			sec.Close()
 			continue
 		}
-		sec.Separator()
+
+		published, failed := 0, 0
 		for _, tg := range d.tags {
 			if tg.ok {
-				sec.Row("%s  %s", output.StatusIcon("success", output.UseColor()), tg.ref)
+				published++
 			} else {
-				sec.Row("%s  %s — %s", output.StatusIcon("failed", output.UseColor()), tg.ref, tg.errMsg)
+				failed++
 			}
 		}
+
 		sec.Separator()
-		sec.Row("%-12s%s", "source", "content store")
-		sec.Row("%-12s%s", "action", "promoted")
-		sec.Row("%-12s%s", "rebuild", "no")
-		sec.Row("%-12s%s", "digest", "preserved")
+		switch {
+		case failed == 0:
+			sec.Row("PUBLISHED")
+		case published == 0:
+			sec.Row("PUBLISH FAILED")
+		default:
+			sec.Row("PARTIALLY PUBLISHED")
+		}
+		for _, tg := range d.tags {
+			if tg.ok {
+				sec.Row("%s  %s", output.StatusIcon("success", color), tg.ref)
+				sec.Row("     registry now serves %s", tg.digest)
+			} else {
+				sec.Row("%s  %s", output.StatusIcon("failed", color), tg.ref)
+				sec.Row("     NOT published — %s", tg.errMsg)
+			}
+		}
+
+		sec.Separator()
+		sec.Row("summary")
+		sec.Row("  %d of %d tag(s) published", published, len(d.tags))
+		sec.Row("  %d tag(s) verified against recorded digest", published)
+		sec.Row("  digest preserved")
+		sec.Row("  rebuild not required")
 		sec.Close()
 	}
 
