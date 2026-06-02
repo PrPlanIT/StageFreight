@@ -12,6 +12,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/promote"
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
@@ -46,6 +47,23 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	rb := build.NewResultsBuilder()
 	recordedResults := false
 
+	// Per-artifact distribution evidence, collected then rendered as a first-class
+	// section. Publish is now the sole phase that mutates registries, so it must
+	// emit the STRONGEST distribution evidence in the pipeline — not bury it in
+	// informational log lines. Each block states the digest distributed, every
+	// registry ref it reached (✓/✗), and that the bytes were promoted from the
+	// content store with no rebuild and the digest preserved.
+	type distTag struct {
+		ref    string
+		ok     bool
+		errMsg string
+	}
+	type distArtifact struct {
+		name, digest, verifySkip string
+		tags                     []distTag
+	}
+	var dists []distArtifact
+
 	var failures []string
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
@@ -62,10 +80,15 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		// the recorded digest. A handle that fails verification is skipped, not
 		// trusted.
 		if vErr := cas.VerifyLayoutAt(layoutDir, cas.Digest(a.Digest)); vErr != nil {
-			fmt.Fprintf(w, "    publish: content-store layout for %s failed verification, skipping promotion: %v\n", a.Name, vErr)
+			dists = append(dists, distArtifact{
+				name:       a.Name,
+				digest:     string(a.Digest),
+				verifySkip: vErr.Error(),
+			})
 			continue
 		}
 
+		dist := distArtifact{name: a.Name, digest: string(a.Digest)}
 		artifactID := artifact.NewArtifactID(a.Kind, a.Name)
 		for _, t := range a.Targets {
 			if t.Kind != "registry" || t.Registry == nil {
@@ -85,7 +108,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 					// no-op), so a later retry safely converges — but only if we
 					// don't silently leave some tags done and others not. Record
 					// every failure and surface them all at the end.
-					fmt.Fprintf(w, "    publish: FAILED to promote %s → %s: %v\n", a.Name, ref, pErr)
+					dist.tags = append(dist.tags, distTag{ref: ref, ok: false, errMsg: pErr.Error()})
 					failures = append(failures, fmt.Sprintf("%s→%s: %v", a.Name, ref, pErr))
 					rb.Record(artifactID, artifact.Outcome{
 						Type:   artifact.OutcomeTypePush,
@@ -99,7 +122,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 					recordedResults = true
 					continue
 				}
-				fmt.Fprintf(w, "    publish: promoted %s → %s @ %s (digest preserved, no rebuild)\n", a.Name, res.Ref, res.Digest)
+				dist.tags = append(dist.tags, distTag{ref: res.Ref, ok: true})
 				rb.Record(artifactID, artifact.Outcome{
 					Type:   artifact.OutcomeTypePush,
 					Target: target,
@@ -114,6 +137,36 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 				promoted++
 			}
 		}
+		dists = append(dists, dist)
+	}
+
+	// Render the distribution evidence as a dedicated section per artifact.
+	for _, d := range dists {
+		sec := output.NewSection(w, "Distribution (publish)", 0, output.UseColor())
+		sec.Row("%-12s%s", "artifact", d.name)
+		sec.Row("%-12s%s", "digest", d.digest)
+		if d.verifySkip != "" {
+			sec.Separator()
+			sec.Row("%s  content-store layout failed verification — NOT distributed",
+				output.StatusIcon("failed", output.UseColor()))
+			sec.Row("%-12s%s", "error", d.verifySkip)
+			sec.Close()
+			continue
+		}
+		sec.Separator()
+		for _, tg := range d.tags {
+			if tg.ok {
+				sec.Row("%s  %s", output.StatusIcon("success", output.UseColor()), tg.ref)
+			} else {
+				sec.Row("%s  %s — %s", output.StatusIcon("failed", output.UseColor()), tg.ref, tg.errMsg)
+			}
+		}
+		sec.Separator()
+		sec.Row("%-12s%s", "source", "content store")
+		sec.Row("%-12s%s", "action", "promoted")
+		sec.Row("%-12s%s", "rebuild", "no")
+		sec.Row("%-12s%s", "digest", "preserved")
+		sec.Close()
 	}
 
 	// Write published.json from the publish phase — the observed publication

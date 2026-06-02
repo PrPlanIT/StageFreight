@@ -1,11 +1,71 @@
 package docker
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 )
+
+// TestBuildArgs_TransportRetainEmitsNoPush is the structural safety property the
+// whole "publish is the sole distributor" invariant rests on, asserted at the
+// ONLY place a registry write originates in crucible perform: buildArgs. Crucible
+// mode routes exclusively through executeBuildPass → BuildWithLayers → buildArgs;
+// it never reaches the executePhase PushTags path. So if buildArgs emits no
+// `--push` for a retain-shaped step (Push=false + OCILayoutDir set — exactly what
+// the transport branch of the crucible publish pass produces), then no registry
+// mutation is REACHABLE from perform under transport, regardless of what any log
+// line says. This test fails loudly if a future change reintroduces a push lever.
+func TestBuildArgs_TransportRetainEmitsNoPush(t *testing.T) {
+	bx := NewBuildx(false)
+	base := build.BuildStep{
+		Name:       "stagefreight",
+		Output:     build.OutputImage,
+		Platforms:  []string{"linux/amd64"},
+		Registries: []build.RegistryTarget{{URL: "docker.io", Path: "org/app", Tags: []string{"latest"}}},
+		Tags:       []string{"docker.io/org/app:latest"},
+	}
+
+	// Retain shape: the exact flags the crucible publish pass sets when transport
+	// is active (crucible.go: Push=false, Load=false, OCILayoutDir set).
+	retain := base
+	retain.Push = false
+	retain.Load = false
+	retain.OCILayoutDir = t.TempDir()
+	args := bx.buildArgs(retain)
+	for _, a := range args {
+		if a == "--push" {
+			t.Fatalf("transport-retain step emitted --push — perform CAN mutate a registry; the safety property is broken. args=%v", args)
+		}
+	}
+	// The retain must still EXPORT the OCI layout, or nothing is carried to the
+	// content store and the test would pass vacuously for a do-nothing step.
+	hasOCIExport := false
+	for _, a := range args {
+		if strings.Contains(a, "type=oci") {
+			hasOCIExport = true
+		}
+	}
+	if !hasOCIExport {
+		t.Fatalf("transport-retain step did not export an OCI layout — nothing retained; test is vacuous. args=%v", args)
+	}
+
+	// Contrast: the legacy push shape DOES emit --push, so this test genuinely
+	// distinguishes retain from distribute (it is not trivially always-green).
+	push := base
+	push.Push = true
+	pushArgs := bx.buildArgs(push)
+	emitsPush := false
+	for _, a := range pushArgs {
+		if a == "--push" {
+			emitsPush = true
+		}
+	}
+	if !emitsPush {
+		t.Fatalf("legacy push step did not emit --push; test no longer distinguishes retain from distribute. args=%v", pushArgs)
+	}
+}
 
 // TestTransportActive_ReportsStoreCapability pins the predicate that gates
 // whether perform distributes: only a store requiring OCI export (FSStore)

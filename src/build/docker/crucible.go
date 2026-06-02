@@ -671,11 +671,27 @@ func executeBuildPass(ctx context.Context, w io.Writer, color, verbose bool, std
 		sec.Separator()
 		sec.Row("result  %s", resultTag)
 	} else {
-		// Publish pass — show pushed tags from the step results.
+		// Publish pass disposition, rendered HONESTLY by execution shape. A retain
+		// step (transport active: Push=false + OCILayoutDir set) contacted NO
+		// registry — buildArgs emitted only `--output type=oci`, never `--push`.
+		// Under the "publish is the sole distributor" invariant, perform must print
+		// NOTHING that resembles a successful registry push: listing the registry
+		// refs here (even as ✓) is precisely the lie that made distribution look
+		// like it happened in perform. So a retained step prints only a deferral
+		// note; the digest + content-store evidence is rendered by the dedicated
+		// "Content Store (retained — not pushed)" section (persistArtifacts), and
+		// the registry refs appear only in publish's "Distribution" section, where
+		// the push actually occurs. Only a genuinely pushed step (legacy fallback,
+		// Push=true) lists its tags as pushed.
 		sec.Separator()
 		for _, step := range plan.Steps {
+			if !step.Push && step.OCILayoutDir != "" {
+				sec.Row("%s  retained — distribution deferred to publish phase",
+					output.StatusIcon("skipped", color))
+				continue
+			}
 			for _, tag := range step.Tags {
-				sec.Row("%s  %s", output.StatusIcon("success", color), tag)
+				sec.Row("%s  %s  (pushed)", output.StatusIcon("success", color), tag)
 			}
 		}
 	}
