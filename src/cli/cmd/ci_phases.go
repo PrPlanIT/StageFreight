@@ -156,6 +156,17 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	case "gitops", "governance":
 		return phaseNotApplicable(rootDir, "publish", mode)
 	default:
+		// Distribute content-store artifacts (digest-preserving promotion) before
+		// release metadata. This is where image distribution happens in publish:
+		// the bytes perform built and review verified are promoted to their
+		// registry targets without rebuilding. No-op when transport produced
+		// nothing to promote (the existing perform-time push remains the fallback
+		// until promotion is proven and that path is removed).
+		if n, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
+			return fmt.Errorf("publish promotion: %w", err)
+		} else if n > 0 {
+			fmt.Fprintf(os.Stdout, "  publish: %d artifact tag(s) promoted from content store\n", n)
+		}
 		return releaseRunner(ctx, appCfg, ciCtx, opts)
 	}
 }
