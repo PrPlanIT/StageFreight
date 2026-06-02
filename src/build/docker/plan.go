@@ -76,6 +76,15 @@ func planPhase(req Request) pipeline.Phase {
 			//   Single-platform: --load into daemon, then docker push each remote tag.
 			//   Multi-platform:  --push directly (can't --load multi-platform in buildx).
 			//   --local flag:    force --load, no push regardless.
+			//
+			// Transport active (content store retains the bytes): perform does NOT
+			// push. Distribution is the publish phase's sole authority — perform
+			// builds and retains, publish promotes the retained bytes. This makes
+			// "publish is the sole phase permitted to mutate external distribution
+			// targets" true in behavior, not just intent. A multi-platform build
+			// that cannot --load is built to the OCI layout only (no daemon image),
+			// which is fine: the layout is the artifact publish distributes.
+			transport := transportActive(req)
 			for i := range plan.Steps {
 				step := &plan.Steps[i]
 				if pc.Local {
@@ -88,6 +97,14 @@ func planPhase(req Request) pipeline.Phase {
 					step.Load = true
 					if len(step.Tags) == 0 {
 						step.Tags = []string{"stagefreight:dev"}
+					}
+				} else if transport {
+					// Retain-only: no perform push. Single-platform still loads for
+					// any daemon-based verification; multi-platform relies on the
+					// OCI layout export alone.
+					step.Push = false
+					if !IsMultiPlatform(*step) {
+						step.Load = true
 					}
 				} else if IsMultiPlatform(*step) {
 					step.Push = true

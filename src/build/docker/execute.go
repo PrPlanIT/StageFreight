@@ -32,6 +32,15 @@ func extractExitCode(err error) int {
 	return 1
 }
 
+// transportActive reports whether the content store is active for this request:
+// a non-nil store that requires OCI export (FSStore), as opposed to the nil /
+// NoopStore default. When transport is active, perform retains the built bytes
+// and does NOT distribute — publish promotes the retained bytes — so external
+// distribution occurs only during publish.
+func transportActive(req Request) bool {
+	return req.Store != nil && req.Store.RequiresOCIExport()
+}
+
 // captureArtifactDigests reads the OCI index digest from each image step's
 // buildx metadata file and writes it onto the matching artifact in the frozen
 // outputs manifest, keyed by step name. This is where artifact identity is

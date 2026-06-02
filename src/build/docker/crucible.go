@@ -45,7 +45,8 @@ func resolveBuildMode(req Request) string {
 // runCrucibleMode orchestrates the consolidated two-pass crucible build.
 //
 // Flow: Lint → Detect → Plan → Builder → Cache → Build (pass 1) →
-//       Rebuild (pass 2) → Verify → Publish → Retention → Provenance → Verdict
+//
+//	Rebuild (pass 2) → Verify → Publish → Retention → Provenance → Verdict
 //
 // Single execution context. One backend. No docker run. No separate container.
 // Both passes use the same buildkitd/DinD backend with shared cache.
@@ -316,19 +317,32 @@ func runCrucibleMode(req Request) error {
 	}
 
 	// ── Publish (verified artifact: pass 2) ──────────────────────
-	// Rebuild with real tags + --push. Everything is cached from pass 2,
-	// so the "build" is instant — it's really just a push from BuildKit to registries.
+	// Transport active: build the real-tagged artifact and RETAIN it to the
+	// content store (no --push). Distribution is the publish phase's sole
+	// authority — it promotes the retained bytes. Transport inactive (legacy
+	// fallback): rebuild with --push directly from BuildKit, as before.
+	transport := transportActive(req)
 	publishPassed := false
 	var publishResult *build.BuildResult
 	if cruciblePassed && (verification == nil || !verification.HasHardFailure()) {
 		publishPlan := clonePlan(plan)
 
-		// Restore push semantics with real tags from config.
-		// The plan was created from engine.Plan() which has the real tags + registries.
-		// We only overrode tags/push for pass 1/2 — the original plan is the source of truth.
+		// Restore real tags from config (the plan from engine.Plan() carries the
+		// real tags + registries; pass 1/2 overrode tags/push).
 		for i := range publishPlan.Steps {
-			publishPlan.Steps[i].Load = false
-			publishPlan.Steps[i].Push = true
+			if transport {
+				// Retain-only: emit the OCI layout for the content store, do not
+				// push. A temp layout dir is set so persistArtifacts retains it.
+				publishPlan.Steps[i].Load = false
+				publishPlan.Steps[i].Push = false
+				if layoutDir, tmpErr := os.MkdirTemp("", "crucible-oci-layout-*"); tmpErr == nil {
+					publishPlan.Steps[i].OCILayoutDir = layoutDir
+					defer os.RemoveAll(layoutDir)
+				}
+			} else {
+				publishPlan.Steps[i].Load = false
+				publishPlan.Steps[i].Push = true
+			}
 			// Restore cache-to — original plan had Push=false so CacheTo was never set.
 			publishPlan.Steps[i].CacheTo = publishCacheTo
 			// Set up metadata file for structured publish result extraction.
@@ -416,6 +430,12 @@ func runCrucibleMode(req Request) error {
 					// manifest before write. writeManifests re-finalizes, so the
 					// digest is folded into the manifest checksum.
 					captureArtifactDigests(publishPlan, &outputs)
+
+					// Retain the verified bytes to the content store and record the
+					// persistence handle, so the publish phase can promote them.
+					// When transport is active this is how the crucible-verified
+					// artifact reaches its registry — perform no longer pushes.
+					persistArtifacts(publishPlan, &outputs, req.Store, w, color)
 
 					if _, err := writeManifests(rootDir, &outputs, rb); err != nil {
 						publishPassed = false
@@ -702,4 +722,3 @@ func checkStatusIcon(status string, color bool) string {
 		return output.StatusIcon("skipped", color)
 	}
 }
-
