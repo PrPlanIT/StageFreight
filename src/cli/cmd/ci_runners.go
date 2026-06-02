@@ -206,14 +206,27 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 				count++
 			}
 		}
+		// Count images retained to the content store. Under transport, perform
+		// RETAINS the built image to CAS and pushes nothing — distribution is the
+		// publish phase's job. Such an artifact is unequivocally PRODUCED (it is the
+		// exact bytes review scans and publish promotes), even though PublishedCount
+		// is 0. ProducedImages must reflect production, not publication, or review's
+		// pre-flight gate skips the scan whenever transport is active — exactly when
+		// the carried layout is the only scannable target. (Produced != published.)
+		retained := 0
+		for _, a := range outputs.Artifacts {
+			if a.Kind == "docker" && a.Persistence.Kind == artifact.PersistenceOCILayout && a.Persistence.OCILayout != nil {
+				retained++
+			}
+		}
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
-			st.Build.ProducedImages = count > 0
+			st.Build.ProducedImages = count > 0 || retained > 0
 			st.Build.PublishedCount = count
-			if count > 0 {
+			if count > 0 || retained > 0 {
 				st.Build.ManifestPath = artifact.OutputsManifestPath
 			}
 			reason := ""
-			if count == 0 {
+			if count == 0 && retained == 0 {
 				reason = "manifests exist but no successful publications"
 			}
 			st.RecordSubsystem(cistate.SubsystemState{
