@@ -120,9 +120,18 @@ func NewNoopStore() *NoopStore { return &NoopStore{} }
 // AssertStoreCapabilities enforces the Store capability invariant: a store may
 // not require an OCI export while providing no cross-phase transport (the
 // forbidden quadrant). Such a store would make perform pay the export cost for
-// bytes nothing carries forward. Callers that accept a pluggable store should
-// assert this at construction/registration so a misconfigured implementation
-// fails loudly rather than silently wasting work.
+// bytes nothing carries forward.
+//
+// Enforcement today is CONSUMPTION-time: the build calls this where a store
+// enters execution (src/build/docker, execute.go). For the two current stores
+// (FSStore, NoopStore) the quadrant is fixed in source, so a construction-time
+// check would be tautological — there is no store factory/registry, hence no
+// registration boundary to guard. When a pluggable store with runtime-decided
+// capabilities is added (the documented Transport=true/RequiresOCIExport=false
+// quadrant), its constructor SHOULD call this so an invalid configuration fails
+// loudly at construction rather than only at first use — moving enforcement
+// from consumption-time toward construction-time as soon as there is a
+// construction boundary worth guarding.
 func AssertStoreCapabilities(s Store) error {
 	if s == nil {
 		return nil
