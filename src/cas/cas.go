@@ -56,6 +56,26 @@ var ErrIntegrity = errors.New("cas: stored bytes do not match digest (integrity 
 // Put and Resolve are the whole contract: Put retains a layout, Resolve returns
 // it only after proving the named blob re-hashes to the key. There is no
 // "trust the store" path — every Resolve verifies.
+//
+// Transport and RequiresOCIExport are two independent capability axes (policy
+// vs mechanism). Of their four combinations, three are valid and one is
+// forbidden:
+//
+//	Transport  RequiresOCIExport  meaning
+//	false      false              NoopStore — no transport, nothing retained.
+//	true       true               FSStore — transport via a retained OCI layout.
+//	true       false              valid future store — provides transport by a
+//	                              mechanism other than perform exporting a layout
+//	                              (e.g. a registry-/object-backed CAS that ingests
+//	                              the image itself). Lifecycle treats it as
+//	                              transport-active without perform paying the OCI
+//	                              export cost.
+//	false      true               FORBIDDEN — a store that demands perform export
+//	                              an OCI layout but provides no cross-phase
+//	                              transport would make perform pay the export cost
+//	                              for bytes nothing carries forward. Implementations
+//	                              MUST NOT land here; AssertStoreCapabilities
+//	                              enforces it.
 type Store interface {
 	// Transport reports whether this store provides cross-phase artifact
 	// transport — i.e. whether the deployment's lifecycle should treat
@@ -96,6 +116,22 @@ type NoopStore struct{}
 
 // NewNoopStore returns the inert store.
 func NewNoopStore() *NoopStore { return &NoopStore{} }
+
+// AssertStoreCapabilities enforces the Store capability invariant: a store may
+// not require an OCI export while providing no cross-phase transport (the
+// forbidden quadrant). Such a store would make perform pay the export cost for
+// bytes nothing carries forward. Callers that accept a pluggable store should
+// assert this at construction/registration so a misconfigured implementation
+// fails loudly rather than silently wasting work.
+func AssertStoreCapabilities(s Store) error {
+	if s == nil {
+		return nil
+	}
+	if s.RequiresOCIExport() && !s.Transport() {
+		return fmt.Errorf("cas: invalid store capabilities — RequiresOCIExport without Transport: perform would export layouts that nothing carries forward")
+	}
+	return nil
+}
 
 // Transport is false: the noop store provides no cross-phase transport, so
 // distribution remains wherever it was (perform's legacy push fallback).

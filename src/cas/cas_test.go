@@ -131,6 +131,59 @@ func TestFSStore_Idempotent(t *testing.T) {
 	}
 }
 
+// quadrantStore is a test-only Store letting us exercise every (Transport,
+// RequiresOCIExport) combination, including the forbidden quadrant, against the
+// capability invariant.
+type quadrantStore struct {
+	transport bool
+	export    bool
+}
+
+func (q quadrantStore) Transport() bool         { return q.transport }
+func (q quadrantStore) RequiresOCIExport() bool { return q.export }
+func (quadrantStore) Put(Digest, string) (string, error) {
+	return "", nil
+}
+func (quadrantStore) Resolve(Digest) (string, error) { return "", ErrNotFound }
+
+// TestStoreCapabilityQuadrants pins the documented invariant: three of the four
+// (Transport, RequiresOCIExport) combinations are valid; the (false, true)
+// quadrant is forbidden and AssertStoreCapabilities rejects it. The two real
+// stores must occupy valid quadrants.
+func TestStoreCapabilityQuadrants(t *testing.T) {
+	cases := []struct {
+		name      string
+		store     Store
+		wantValid bool
+	}{
+		{"noop (false,false)", quadrantStore{transport: false, export: false}, true},
+		{"fsstore-shape (true,true)", quadrantStore{transport: true, export: true}, true},
+		{"future-transport (true,false)", quadrantStore{transport: true, export: false}, true},
+		{"forbidden (false,true)", quadrantStore{transport: false, export: true}, false},
+	}
+	for _, c := range cases {
+		err := AssertStoreCapabilities(c.store)
+		if c.wantValid && err != nil {
+			t.Errorf("%s: want valid, got error: %v", c.name, err)
+		}
+		if !c.wantValid && err == nil {
+			t.Errorf("%s: want forbidden, got nil error", c.name)
+		}
+	}
+
+	// The real stores must be valid.
+	if err := AssertStoreCapabilities(NewNoopStore()); err != nil {
+		t.Errorf("NoopStore is invalid: %v", err)
+	}
+	if err := AssertStoreCapabilities(NewFSStore(t.TempDir())); err != nil {
+		t.Errorf("FSStore is invalid: %v", err)
+	}
+	// nil is tolerated (non-lifecycle callers).
+	if err := AssertStoreCapabilities(nil); err != nil {
+		t.Errorf("nil store should be tolerated: %v", err)
+	}
+}
+
 func TestNoopStore_RequiresNoExportAndRetainsNothing(t *testing.T) {
 	var s Store = NewNoopStore()
 	if s.RequiresOCIExport() {
