@@ -100,6 +100,30 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 		t.Fatalf("promoted %d tags, want 1", n)
 	}
 
+	// 4b. PUBLISH OWNS PUBLICATION OUTCOMES: published.json now records the
+	// promotion result, written BY the publish phase (not perform). Confirm it
+	// exists and records a successful push of the recorded digest.
+	results, rErr := artifact.ReadResultsManifest(rootDir)
+	if rErr != nil {
+		t.Fatalf("published.json not written by publish promotion: %v", rErr)
+	}
+	if len(results.Results) != 1 || len(results.Results[0].Outcomes) != 1 {
+		t.Fatalf("expected 1 result with 1 outcome, got %+v", results.Results)
+	}
+	po := results.Results[0].Outcomes[0]
+	if po.Type != artifact.OutcomeTypePush || po.Push == nil {
+		t.Fatalf("expected a push outcome, got %+v", po)
+	}
+	if po.Push.Status != artifact.OutcomeSuccess {
+		t.Fatalf("push outcome status = %q, want success", po.Push.Status)
+	}
+	if po.Push.Digest != meta.Digest {
+		t.Fatalf("recorded outcome digest %q != promoted digest %q", po.Push.Digest, meta.Digest)
+	}
+	if po.Push.ObservedBy != "promote" {
+		t.Fatalf("outcome ObservedBy = %q, want promote (publish-phase observation)", po.Push.ObservedBy)
+	}
+
 	// 5. THE PROOF: registry serves exactly the digest perform recorded.
 	// promoteArtifacts already performed an internal post-push verify (it errors
 	// if the registry-served digest != recorded digest), so reaching here with

@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
@@ -36,6 +37,15 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		return 0, nil
 	}
 
+	// Publish owns publication outcome records: it is the only phase that mutates
+	// registries, so it is the only phase that can truthfully record what was
+	// distributed. Promotion outcomes are accumulated here and written to
+	// published.json (the results manifest) from the publish phase — replacing
+	// the empty results perform writes under transport. Build() binds these
+	// observations to the reviewed intent via the outputs checksum.
+	rb := build.NewResultsBuilder()
+	recordedResults := false
+
 	var failures []string
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
@@ -56,6 +66,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 			continue
 		}
 
+		artifactID := artifact.NewArtifactID(a.Kind, a.Name)
 		for _, t := range a.Targets {
 			if t.Kind != "registry" || t.Registry == nil {
 				continue
@@ -63,6 +74,9 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 			auth := resolvePromoteAuth(appCfg, t.Registry.Host)
 			for _, tag := range t.Registry.Tags {
 				ref := t.Registry.Host + "/" + t.Registry.Path + ":" + tag
+				target := &artifact.OutcomeTarget{
+					Kind: "registry", Host: t.Registry.Host, Path: t.Registry.Path, Tag: tag,
+				}
 				res, pErr := promote.LayoutToRegistry(ctx, layoutDir, ref, string(a.Digest), auth)
 				if pErr != nil {
 					// Continue past a per-tag failure rather than abandoning the
@@ -73,11 +87,46 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 					// every failure and surface them all at the end.
 					fmt.Fprintf(w, "    publish: FAILED to promote %s → %s: %v\n", a.Name, ref, pErr)
 					failures = append(failures, fmt.Sprintf("%s→%s: %v", a.Name, ref, pErr))
+					rb.Record(artifactID, artifact.Outcome{
+						Type:   artifact.OutcomeTypePush,
+						Target: target,
+						Push: &artifact.PushOutcome{
+							Status: artifact.OutcomeFailed,
+							Digest: string(a.Digest),
+							Error:  pErr.Error(),
+						},
+					})
+					recordedResults = true
 					continue
 				}
 				fmt.Fprintf(w, "    publish: promoted %s → %s @ %s (digest preserved, no rebuild)\n", a.Name, res.Ref, res.Digest)
+				rb.Record(artifactID, artifact.Outcome{
+					Type:   artifact.OutcomeTypePush,
+					Target: target,
+					Push: &artifact.PushOutcome{
+						Status:         artifact.OutcomeSuccess,
+						Digest:         res.Digest,
+						ObservedDigest: res.Digest,
+						ObservedBy:     "promote",
+					},
+				})
+				recordedResults = true
 				promoted++
 			}
+		}
+	}
+
+	// Write published.json from the publish phase — the observed publication
+	// outcome, owned by the phase that performed the distribution. Only when
+	// promotion actually recorded outcomes (transport active); otherwise the
+	// legacy perform-written results manifest stands.
+	if recordedResults {
+		results, bErr := rb.Build(outputs)
+		if bErr != nil {
+			return promoted, fmt.Errorf("building publication results manifest: %w", bErr)
+		}
+		if wErr := artifact.WriteResultsManifest(rootDir, results); wErr != nil {
+			return promoted, fmt.Errorf("writing publication results manifest: %w", wErr)
 		}
 	}
 	if len(failures) > 0 {
