@@ -3,10 +3,8 @@ package dependency
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
-	"time"
 )
 
 // Verify runs post-update verification (go test + govulncheck) on the
@@ -43,10 +41,7 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 
 	for _, dir := range dirs {
 		if runTests {
-			fmt.Fprintf(os.Stderr, "[deps:diag] verify: go test ./... start (%s)\n", dir)
-			t0 := time.Now()
 			testLog, err := runGoTest(ctx, dir, runGo)
-			fmt.Fprintf(os.Stderr, "[deps:diag] verify: go test ./... done (%s, err=%v)\n", time.Since(t0).Round(time.Millisecond), err)
 			log.WriteString(fmt.Sprintf("=== go test ./... (%s) ===\n", dir))
 			log.WriteString(testLog)
 			log.WriteString("\n")
@@ -56,10 +51,7 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 		}
 
 		if runVulncheck {
-			fmt.Fprintf(os.Stderr, "[deps:diag] verify: govulncheck ./... start (%s)\n", dir)
-			t0 := time.Now()
 			vulnLog, err := runGovulncheck(ctx, dir, runGo)
-			fmt.Fprintf(os.Stderr, "[deps:diag] verify: govulncheck ./... done (%s, err=%v)\n", time.Since(t0).Round(time.Millisecond), err)
 			if vulnLog != "" {
 				log.WriteString(fmt.Sprintf("=== govulncheck ./... (%s) ===\n", dir))
 				log.WriteString(vulnLog)

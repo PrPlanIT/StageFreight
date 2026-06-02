@@ -516,6 +516,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		Vulncheck:  true,
 		Ecosystems: ecosystems,
 		Policy:     "all",
+		Writer:     w, // render the Dependencies card alongside the other phase cards
 	}
 
 	result, err := dependency.Update(ctx, updateCfg, deps)

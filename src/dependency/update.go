@@ -3,6 +3,7 @@ package dependency
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,45 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/output"
 )
+
+// depStep is one rendered row in the Dependencies card. status is "ok"/"fail"
+// for pass/fail steps (icon shown) or "" for an informational value row.
+type depStep struct {
+	label  string
+	detail string
+	status string
+	dur    time.Duration
+}
+
+// renderDepsCard renders the collected dependency-update steps as a single
+// output.Section — the same card idiom the rest of the pipeline uses — instead
+// of the raw "[deps:diag]" stderr stream. Rendered once via defer so it covers
+// every return path (success, early skip, error) and never interleaves with the
+// live toolchain panel that prints mid-run.
+func renderDepsCard(w io.Writer, steps []depStep, total time.Duration) {
+	if len(steps) == 0 {
+		return
+	}
+	color := output.UseColor()
+	sec := output.NewSection(w, "Dependencies", total, color)
+	for _, s := range steps {
+		dur := ""
+		if s.dur > 0 {
+			dur = "  (" + s.dur.Round(time.Millisecond).String() + ")"
+		}
+		switch s.status {
+		case "ok":
+			sec.Row("%-16s%s  %s%s", s.label, output.StatusIcon("success", color), s.detail, dur)
+		case "fail":
+			sec.Row("%-16s%s  %s%s", s.label, output.StatusIcon("failed", color), s.detail, dur)
+		default:
+			sec.Row("%-16s%s%s", s.label, s.detail, dur)
+		}
+	}
+	sec.Close()
+}
 
 // UpdateResult holds the outcome of a dependency update run.
 type UpdateResult struct {
@@ -43,6 +82,14 @@ type AppliedUpdate struct {
 func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
+	w := cfg.Writer
+	if w == nil {
+		w = os.Stderr
+	}
+	var steps []depStep
+	overall := time.Now()
+	defer func() { renderDepsCard(w, steps, time.Since(overall)) }()
+
 	// 1. Discover repo root
 	repoRoot, err := discoverRepoRoot(cfg.RootDir)
 	if err != nil {
@@ -51,43 +98,43 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 
 	// 2. Check tracked files are clean
 	t0 := time.Now()
-	fmt.Fprintln(os.Stderr, "[deps:diag] step: checkGitClean")
 	if err := checkGitClean(ctx, repoRoot); err != nil {
+		steps = append(steps, depStep{label: "git clean", status: "fail", detail: err.Error()})
 		return result, err
 	}
-	fmt.Fprintf(os.Stderr, "[deps:diag] step: checkGitClean done (%s)\n", time.Since(t0).Round(time.Millisecond))
+	steps = append(steps, depStep{label: "git clean", status: "ok", dur: time.Since(t0)})
 
 	// 3. Detect git-tracked files
 	t0 = time.Now()
-	fmt.Fprintln(os.Stderr, "[deps:diag] step: gitTrackedFiles")
 	trackedFiles, err := gitTrackedFiles(ctx, repoRoot)
 	if err != nil {
+		steps = append(steps, depStep{label: "tracked files", status: "fail", detail: err.Error()})
 		return result, fmt.Errorf("listing tracked files: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "[deps:diag] step: gitTrackedFiles done (%s, %d files)\n", time.Since(t0).Round(time.Millisecond), len(trackedFiles))
+	steps = append(steps, depStep{label: "tracked files", detail: fmt.Sprintf("%d", len(trackedFiles)), dur: time.Since(t0)})
 
 	// 4. Filter update candidates
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
-	fmt.Fprintf(os.Stderr, "[deps:diag] candidates: %d go-mod, filtering from %d deps\n", len(candidates), len(deps))
+	steps = append(steps, depStep{label: "candidates", detail: fmt.Sprintf("%d go-mod (from %d deps)", len(candidates), len(deps))})
 
 	if len(candidates) == 0 {
-		fmt.Fprintln(os.Stderr, "[deps:diag] no candidates — skipping apply+verify")
+		steps = append(steps, depStep{label: "apply", detail: "no candidates — skipped"})
 		return result, nil
 	}
 
 	// 5. Group by ecosystem and apply
 	gomodDeps, dockerDeps, toolchainDeps := groupByEcosystem(candidates)
-	fmt.Fprintf(os.Stderr, "[deps:diag] apply: %d gomod deps, %d docker deps, %d toolchain deps\n", len(gomodDeps), len(dockerDeps), len(toolchainDeps))
+	steps = append(steps, depStep{label: "apply", detail: fmt.Sprintf("%d gomod · %d docker · %d toolchain", len(gomodDeps), len(dockerDeps), len(toolchainDeps))})
 
 	if len(gomodDeps) > 0 {
 		t0 = time.Now()
-		fmt.Fprintln(os.Stderr, "[deps:diag] step: applyGoUpdates")
 		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, repoRoot)
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: applyGoUpdates done (%s, touched dirs: %v)\n", time.Since(t0).Round(time.Millisecond), touchedDirs)
 		if err != nil {
+			steps = append(steps, depStep{label: "go updates", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Go updates: %w", err)
 		}
+		steps = append(steps, depStep{label: "go updates", status: "ok", detail: fmt.Sprintf("touched: %s", strings.Join(touchedDirs, ", ")), dur: time.Since(t0)})
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, goSkipped...)
 		result.TouchedModuleDirs = touchedDirs
@@ -96,12 +143,12 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 
 	if len(dockerDeps) > 0 {
 		t0 = time.Now()
-		fmt.Fprintln(os.Stderr, "[deps:diag] step: applyDockerfileUpdates")
 		applied, dkSkipped, touchedFiles, err := applyDockerfileUpdates(dockerDeps, repoRoot)
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: applyDockerfileUpdates done (%s)\n", time.Since(t0).Round(time.Millisecond))
 		if err != nil {
+			steps = append(steps, depStep{label: "dockerfile", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Dockerfile updates: %w", err)
 		}
+		steps = append(steps, depStep{label: "dockerfile", status: "ok", dur: time.Since(t0)})
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, dkSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
@@ -109,12 +156,12 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 
 	if len(toolchainDeps) > 0 {
 		t0 = time.Now()
-		fmt.Fprintln(os.Stderr, "[deps:diag] step: applyToolchainDesiredUpdates")
 		applied, tcSkipped, touchedFiles, err := applyToolchainDesiredUpdates(toolchainDeps, repoRoot)
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: applyToolchainDesiredUpdates done (%s)\n", time.Since(t0).Round(time.Millisecond))
 		if err != nil {
+			steps = append(steps, depStep{label: "toolchain", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying toolchain updates: %w", err)
 		}
+		steps = append(steps, depStep{label: "toolchain", status: "ok", dur: time.Since(t0)})
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, tcSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
@@ -136,11 +183,11 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 
 	if len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0 {
 		t0 = time.Now()
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: syncGoDirectives (%d targets, %d conflicted)\n", len(syncResolved.Targets), len(syncResolved.Conflicted))
 		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved); err != nil {
+			steps = append(steps, depStep{label: "sync directives", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("syncing go directives: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: syncGoDirectives done (%s)\n", time.Since(t0).Round(time.Millisecond))
+		steps = append(steps, depStep{label: "sync directives", status: "ok", detail: fmt.Sprintf("%d target · %d conflicted", len(syncResolved.Targets), len(syncResolved.Conflicted)), dur: time.Since(t0)})
 		result.Toolchains = collectToolchainDepsFromResolved(syncResolved, result.Applied)
 	}
 
@@ -150,10 +197,13 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 		for _, d := range result.TouchedModuleDirs {
 			absDirs = append(absDirs, filepath.Join(repoRoot, d))
 		}
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: Verify (%d module dirs: %v)\n", len(absDirs), result.TouchedModuleDirs)
 		t0 = time.Now()
 		log, verifyErr := Verify(ctx, absDirs, repoRoot, true, cfg.Vulncheck)
-		fmt.Fprintf(os.Stderr, "[deps:diag] step: Verify done (%s)\n", time.Since(t0).Round(time.Millisecond))
+		status, detail := "ok", "go test ./... + govulncheck"
+		if verifyErr != nil {
+			status, detail = "fail", "go test ./... + govulncheck — "+verifyErr.Error()
+		}
+		steps = append(steps, depStep{label: "verify", status: status, detail: detail, dur: time.Since(t0)})
 		result.Verified = true
 		result.VerifyLog = log
 		result.VerifyErr = verifyErr
