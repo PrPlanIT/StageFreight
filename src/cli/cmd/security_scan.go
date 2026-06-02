@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/security"
@@ -68,6 +69,51 @@ func init() {
 		"fail if scan is partial, target lacks digest identity, or artifact verification fails")
 
 	securityCmd.AddCommand(securityScanCmd)
+}
+
+// resolveCASTarget is the Phase 3 review-inversion resolver: it scans the exact
+// bytes perform carried forward in the content store, not a published image.
+//
+// It reads outputs.json (intent + identity), picks the first docker artifact
+// that has both a content digest AND a persistence handle pointing at a stored
+// OCI layout, then RE-HASHES that layout before trusting it (cas.VerifyLayoutAt).
+// Only a digest whose bytes are present and verify is returned — identity is
+// never trusted as a bare claim. Returns ok=false (no error) when there is
+// nothing to resolve this way (no store active, no handle, or verification
+// fails), so the caller falls back to the legacy publication-derived path
+// without changing existing behavior.
+func resolveCASTarget(rootDir string, w io.Writer) (security.ScanTarget, string, bool) {
+	outputs, err := artifact.ReadOutputsManifest(rootDir)
+	if err != nil {
+		return security.ScanTarget{}, "", false
+	}
+	for _, a := range outputs.Artifacts {
+		if a.Kind != "docker" || a.Digest == "" {
+			continue
+		}
+		if a.Persistence.Kind != artifact.PersistenceOCILayout || a.Persistence.OCILayout == nil {
+			continue
+		}
+		layoutDir := a.Persistence.OCILayout.Path
+		if layoutDir == "" {
+			continue
+		}
+		// Re-hash the carried bytes before trusting them. A handle that cannot
+		// be verified is treated as absent — never scanned on faith.
+		if err := cas.VerifyLayoutAt(layoutDir, cas.Digest(a.Digest)); err != nil {
+			fmt.Fprintf(w, "  security: content-store layout for %s failed verification, falling back: %v\n", a.Name, err)
+			continue
+		}
+		fmt.Fprintf(w, "  security: scanning content-store artifact %s @ %s (carried from perform, re-hash verified)\n", a.Name, a.Digest)
+		return security.ScanTarget{
+			Ref:             string(a.Digest),
+			Digest:          string(a.Digest),
+			Source:          security.TargetSource("content_store"),
+			SelectionReason: "content-store layout carried from perform (re-hash verified)",
+			Stability:       security.StabilityDigest,
+		}, layoutDir, true
+	}
+	return security.ScanTarget{}, "", false
 }
 
 // resolveTarget determines the scan target with full provenance tracking.
@@ -253,12 +299,6 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		return nil
 	}
 
-	target, err := resolveTarget(req.RootDir, req.Image, nil)
-	if err != nil {
-		return err
-	}
-	imageRef := target.Ref
-
 	w := req.Writer
 	if w == nil {
 		w = os.Stdout
@@ -268,6 +308,32 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		ctx = context.Background()
 	}
 
+	// Review inversion (Phase 3): when no explicit --image is given, prefer the
+	// content-store path — scan the exact bytes perform carried forward, proven
+	// by re-hash, rather than depending on a successful publication. This is the
+	// trust-correct target: review approves the same bytes that will be
+	// published, with no requirement that a push has happened.
+	//
+	// Falls back to the legacy publication-derived resolveTarget when there is
+	// no persisted layout to scan (e.g. content store not active, or running
+	// against an already-published image by --image). The fallback preserves
+	// existing behavior exactly.
+	var target security.ScanTarget
+	var ociLayoutDir string
+	if req.Image == "" {
+		if t, dir, ok := resolveCASTarget(req.RootDir, w); ok {
+			target, ociLayoutDir = t, dir
+		}
+	}
+	if ociLayoutDir == "" {
+		var err error
+		target, err = resolveTarget(req.RootDir, req.Image, nil)
+		if err != nil {
+			return err
+		}
+	}
+	imageRef := target.Ref
+
 	// Merge request fields with config defaults
 	scanCfg := security.ScanConfig{
 		Enabled:        !req.Skip,
@@ -276,6 +342,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		SBOMEnabled:    req.SBOM,
 		FailOnCritical: req.FailOnCritical || req.Config.Security.FailOnCritical,
 		ImageRef:       imageRef,
+		OCILayoutDir:   ociLayoutDir,
 		OutputDir:      req.OutputDir,
 		RootDir:              req.RootDir,
 		ToolchainDesired:     req.Config.Toolchains.Desired,

@@ -300,6 +300,15 @@ func (s *FSStore) Resolve(digest Digest) (string, error) {
 	return dest, nil
 }
 
+// VerifyLayoutAt verifies that the OCI layout at dir corresponds to digest:
+// the digest is bound by index.json and every blob re-hashes to its name. This
+// is the read-side proof a consumer (e.g. review) performs before trusting bytes
+// resolved through a persistence handle — identity is never trusted without
+// re-hashing the actual bytes. Returns nil on success, ErrIntegrity otherwise.
+func VerifyLayoutAt(dir string, digest Digest) error {
+	return verifyLayout(dir, digest)
+}
+
 // copyTree recursively copies src into dst (files and dirs). OCI layouts are
 // small trees of regular files; no special device handling.
 func copyTree(src, dst string) error {
