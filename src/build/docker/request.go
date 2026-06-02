@@ -29,9 +29,16 @@ type Request struct {
 	Stderr     io.Writer
 
 	// Store is the content-addressed artifact store that retains build bytes for
-	// cross-phase transport. When nil, perform treats it as cas.NewNoopStore()
-	// (no OCI export, no persistence — pre-Phase-2 behavior). Selection is a
-	// system/runtime decision: one store per deployment, never per-pipeline, so
-	// artifact identity semantics stay uniform.
+	// cross-phase transport. Transport is a mandatory part of the deployment
+	// lifecycle: the CI perform stage always supplies a real store (FSStore
+	// today), so review and publish operate on the exact reviewed bytes. FSStore
+	// is merely the current implementation — the guarantee is mandatory, the
+	// backing store is replaceable (registry-/object-storage-backed CAS may
+	// follow) behind this interface.
+	//
+	// A nil Store falls back to cas.NewNoopStore() purely as memory-safety for
+	// direct docker.Run callers outside the lifecycle (e.g. the standalone
+	// `docker build` CLI). Nil is NOT a supported way to disable transport in a
+	// deployment pipeline — there is intentionally no config knob for that.
 	Store cas.Store
 }

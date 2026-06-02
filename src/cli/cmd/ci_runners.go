@@ -5,28 +5,30 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
+	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/dependency"
-	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runner"
-	"github.com/PrPlanIT/StageFreight/src/trace"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
+	"github.com/PrPlanIT/StageFreight/src/trace"
+	"github.com/spf13/cobra"
 )
 
 // buildCIRegistry returns a registry of all CI subsystem runners.
@@ -135,6 +137,13 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		}
 	}
 	if hasDockerBuilds {
+		// Activate the content store (transport floor): perform retains each
+		// built image's OCI layout under .stagefreight/objects/, keyed by its
+		// content digest. .stagefreight/ is carried between CI phases as
+		// artifacts, so review and publish resolve these exact bytes — proving
+		// the same artifact flows through all phases rather than being rebuilt.
+		// Default-on: one store mode per deployment, uniform identity semantics.
+		store := cas.NewFSStore(filepath.Join(rootDir, ".stagefreight", "objects"))
 		if err := docker.Run(docker.Request{
 			Context:  ctx,
 			RootDir:  rootDir,
@@ -143,6 +152,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			Stdout:   os.Stdout,
 			Stderr:   os.Stderr,
 			SkipLint: true, // lint ran in deps stage
+			Store:    store,
 		}); err != nil {
 			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 				st.RecordSubsystem(cistate.SubsystemState{
@@ -699,7 +709,6 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	return nil
 }
-
 
 // isDocsAutoCommit detects if the current commit was created by StageFreight's docs subsystem.
 // Uses Cue trailer for deterministic detection — not fuzzy message matching.
