@@ -57,11 +57,22 @@ var ErrIntegrity = errors.New("cas: stored bytes do not match digest (integrity 
 // it only after proving the named blob re-hashes to the key. There is no
 // "trust the store" path — every Resolve verifies.
 type Store interface {
+	// Transport reports whether this store provides cross-phase artifact
+	// transport — i.e. whether the deployment's lifecycle should treat
+	// distribution as the publish phase's sole authority (perform retains
+	// instead of pushing). This is the POLICY question ("is transport active?"),
+	// deliberately separate from the MECHANISM question RequiresOCIExport
+	// ("must perform emit an OCI layout?"). They are equivalent for FSStore today
+	// but a future store (e.g. registry-backed) could provide transport without
+	// the same export mechanism; policy decisions must key on Transport, never on
+	// RequiresOCIExport, so the mechanism does not leak into policy.
+	Transport() bool
+
 	// RequiresOCIExport reports whether perform must export an OCI layout for
-	// this store to retain. This is a CAPABILITY query, not an implementation
-	// check: perform asks the store whether to pay the export cost, and never
-	// branches on concrete store type. A store that retains nothing (NoopStore)
-	// returns false so no layout is exported and discarded.
+	// this store to retain. This is a MECHANISM query: perform asks the store
+	// whether to pay the export cost, and never branches on concrete store type.
+	// A store that retains nothing (NoopStore) returns false so no layout is
+	// exported and discarded.
 	RequiresOCIExport() bool
 
 	// Put retains the OCI layout rooted at layoutDir under digest, and returns
@@ -86,6 +97,10 @@ type NoopStore struct{}
 // NewNoopStore returns the inert store.
 func NewNoopStore() *NoopStore { return &NoopStore{} }
 
+// Transport is false: the noop store provides no cross-phase transport, so
+// distribution remains wherever it was (perform's legacy push fallback).
+func (*NoopStore) Transport() bool { return false }
+
 // RequiresOCIExport is false: nothing is retained, so no layout is exported.
 func (*NoopStore) RequiresOCIExport() bool { return false }
 
@@ -98,6 +113,10 @@ func (*NoopStore) Put(_ Digest, _ string) (string, error) { return "", nil }
 func (*NoopStore) Resolve(digest Digest) (string, error) {
 	return "", fmt.Errorf("%w: digest %s (noop store retains nothing)", ErrNotFound, digest)
 }
+
+// Transport is true: the filesystem store carries artifacts across phases, so
+// distribution becomes the publish phase's sole authority.
+func (*FSStore) Transport() bool { return true }
 
 // RequiresOCIExport is true for the filesystem store: perform must export an
 // OCI layout for FSStore to retain it.
