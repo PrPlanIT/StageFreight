@@ -46,8 +46,15 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Commands: []string{"stagefreight ci run perform"},
 				Source:   model.SourceSpec{FullClone: true},
 				Artifacts: model.ArtifactSpec{
+					// perform's .stagefreight/ carries the content store
+					// (objects/ = the built OCI layouts) that publish resolves and
+					// promotes. The transport guarantee depends on these bytes
+					// surviving until publish runs — which may be gated/queued/
+					// retried hours after perform. 2h was tuned for manifests only
+					// and is too tight once the layout rides along; 1 day covers a
+					// realistic perform→publish gap including a manual publish gate.
 					Paths:    []string{".stagefreight/"},
-					ExpireIn: "2 hours",
+					ExpireIn: "1 day",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
 				Routing:      model.RoutingSpec{Labels: cfg.CI.Routing.Perform.Labels},
