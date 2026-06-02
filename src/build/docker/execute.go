@@ -278,6 +278,14 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 			if store == nil {
 				store = cas.NewNoopStore()
 			}
+			// Enforce the store capability invariant at the point a store enters
+			// the build — the forbidden quadrant (export demanded, no transport)
+			// must fail loudly here, not silently waste work. This is the single
+			// real call site that makes AssertStoreCapabilities enforcement rather
+			// than documentation.
+			if capErr := cas.AssertStoreCapabilities(store); capErr != nil {
+				return nil, capErr
+			}
 			var ociLayoutCleanup []string
 			if store.RequiresOCIExport() {
 				for i := range plan.Steps {
@@ -506,7 +514,16 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 			output.SectionEnd(pc.Writer, "sf_build")
 
 			// --- Push (single-platform load-then-push) ---
-			remoteTags := collectRemoteTags(plan)
+			// Suppressed under active transport: perform must not distribute.
+			// collectRemoteTags returns tags for Load && !Push steps, which is
+			// exactly the state transport sets for single-platform builds — so
+			// without this guard perform would still push them. Distribution is
+			// the publish phase's sole authority; publish promotes the retained
+			// layout instead.
+			var remoteTags []string
+			if !transportActive(req) {
+				remoteTags = collectRemoteTags(plan)
+			}
 			var pushSummary string
 			if len(remoteTags) > 0 {
 				output.SectionStart(pc.Writer, "sf_push", "Push")
