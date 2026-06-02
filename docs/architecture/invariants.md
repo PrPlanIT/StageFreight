@@ -121,3 +121,17 @@ Before adding a new invariant here:
 3. Then document it here
 
 An invariant that lives only in this file is not an invariant — it is a wish.
+
+---
+
+## Related: not-yet-enforced design models
+
+Some constraints are known but cannot yet be enforced because the code that would
+violate them does not exist. These live as design models, not invariants, until
+there is something to enforce against:
+
+- [`persistence-identity.md`](persistence-identity.md) — the persistence-handle
+  algebra and the cross-phase transformation constraints a **second content
+  store** must satisfy. Records a discovered coupling (the capability axis and the
+  handle-representation axis must evolve together) that is real but unenforceable
+  until a second store exists. Read before implementing one.
