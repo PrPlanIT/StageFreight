@@ -29,6 +29,7 @@ type ScanConfig struct {
 	SBOMEnabled    bool      // generate SBOM
 	FailOnCritical bool      // fail if critical vulns found
 	ImageRef       string    // image reference or tarball path to scan
+	OCILayoutDir   string    // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
 	OutputDir      string    // directory for scan artifacts
 	RootDir              string               // workspace root for toolchain resolution
 	ToolchainDesired     map[string]config.ToolPinConfig // from appCfg.Toolchains.Desired
@@ -142,6 +143,14 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 
 	if cfg.OutputDir == "" {
 		cfg.OutputDir = "."
+	}
+
+	// Scan target: an OCI layout directory takes precedence over an image
+	// reference. When set, scanners read the exact bytes carried from perform
+	// via the content store — no daemon, no registry. The ociLayoutPrefix marks
+	// the target so the run* helpers select each scanner's native layout mode.
+	if cfg.OCILayoutDir != "" {
+		cfg.ImageRef = ociLayoutPrefix + cfg.OCILayoutDir
 	}
 
 	// Best-effort engine version (silent capture, no stdout/stderr connection).
@@ -594,7 +603,7 @@ func runTrivy(ctx context.Context, binPath, imageRef, format, output, cacheDir s
 	if cacheDir != "" {
 		args = append(args, "--cache-dir", cacheDir)
 	}
-	args = append(args, imageRef)
+	args = appendTrivyTarget(args, imageRef)
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	cmd.Env = toolchain.CleanEnv()
 	cmd.Stdout = os.Stderr
@@ -602,8 +611,34 @@ func runTrivy(ctx context.Context, binPath, imageRef, format, output, cacheDir s
 	return cmd.Run()
 }
 
+// ociLayoutPrefix marks a scan target as an OCI layout directory rather than an
+// image reference. Scan sets it on the target string when OCILayoutDir is
+// configured; the run* helpers translate it to each scanner's native layout
+// input mode. This keeps the scanner-input format a property of the target, not
+// a separate flag threaded through every call site.
+const ociLayoutPrefix = "oci-layout:"
+
+// appendTrivyTarget appends the scan target to trivy args, using --input <dir>
+// for an OCI layout (trivy reads the layout directly, no daemon/registry) or a
+// bare image reference otherwise.
+func appendTrivyTarget(args []string, target string) []string {
+	if dir, ok := strings.CutPrefix(target, ociLayoutPrefix); ok {
+		return append(args, "--input", dir)
+	}
+	return append(args, target)
+}
+
+// grypeTarget translates a scan target to grype's source syntax: oci-dir:<dir>
+// for an OCI layout, or the bare image reference otherwise.
+func grypeTarget(target string) string {
+	if dir, ok := strings.CutPrefix(target, ociLayoutPrefix); ok {
+		return "oci-dir:" + dir
+	}
+	return target
+}
+
 func runSyft(ctx context.Context, binPath, imageRef, format, output string) error {
-	cmd := exec.CommandContext(ctx, binPath, imageRef, "-o", format, "-v")
+	cmd := exec.CommandContext(ctx, binPath, grypeTarget(imageRef), "-o", format, "-v")
 	cmd.Env = toolchain.CleanEnv()
 	outFile, err := os.Create(output)
 	if err != nil {
@@ -694,7 +729,7 @@ func parseTrivyVulnerabilities(jsonPath string, result *ScanResult) error {
 }
 
 func runGrype(ctx context.Context, binPath, imageRef, format, output, cacheDir string) error {
-	args := []string{imageRef, "-o", format, "--file", output, "-v"}
+	args := []string{grypeTarget(imageRef), "-o", format, "--file", output, "-v"}
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	env := toolchain.CleanEnv()
 	if cacheDir != "" {
