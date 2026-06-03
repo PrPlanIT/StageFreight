@@ -325,7 +325,11 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 					if !plan.Steps[i].Push && !plan.Steps[i].Load {
 						continue
 					}
-					layoutDir, tmpErr := os.MkdirTemp("", "sf-oci-layout-*")
+					// Stage on the same filesystem as the store (workspace
+					// .stagefreight/) so persistArtifacts hardlinks rather than copies.
+					stage := filepath.Join(pc.RootDir, ".stagefreight")
+					_ = os.MkdirAll(stage, 0o755)
+					layoutDir, tmpErr := os.MkdirTemp(stage, "oci-layout-*")
 					if tmpErr == nil {
 						plan.Steps[i].OCILayoutDir = layoutDir
 						ociLayoutCleanup = append(ociLayoutCleanup, layoutDir)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/ci/render"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
@@ -166,6 +167,15 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 			return fmt.Errorf("publish promotion: %w", err)
 		} else if n > 0 {
 			fmt.Fprintf(os.Stdout, "  publish: %d artifact tag(s) promoted from content store\n", n)
+			// Retire the content store: publish is its terminal reader, so once the
+			// reviewed bytes are distributed the store's job is done. The CAS is a
+			// workspace-scoped transient — RETIRED here by deterministic ownership,
+			// not swept by a background GC. cas.Retire deletes only THIS pipeline's
+			// store (never a concurrent project's). Non-fatal: the workspace wipe is
+			// the backstop if it fails.
+			if rErr := cas.Retire(rootDir); rErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: content store retire: %v\n", rErr)
+			}
 		}
 		return releaseRunner(ctx, appCfg, ciCtx, opts)
 	}

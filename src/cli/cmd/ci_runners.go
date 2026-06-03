@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -143,7 +142,7 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		// artifacts, so review and publish resolve these exact bytes — proving
 		// the same artifact flows through all phases rather than being rebuilt.
 		// Default-on: one store mode per deployment, uniform identity semantics.
-		store := cas.NewFSStore(filepath.Join(rootDir, ".stagefreight", "objects"))
+		store := cas.NewWorkspaceStore(rootDir)
 		if err := docker.Run(docker.Request{
 			Context:  ctx,
 			RootDir:  rootDir,

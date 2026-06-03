@@ -332,10 +332,15 @@ func runCrucibleMode(req Request) error {
 		for i := range publishPlan.Steps {
 			if transport {
 				// Retain-only: emit the OCI layout for the content store, do not
-				// push. A temp layout dir is set so persistArtifacts retains it.
+				// push. Stage the export under the workspace .stagefreight/ — the
+				// SAME filesystem as the store — so persistArtifacts hardlinks it in
+				// instead of making a second full copy. (A /tmp export would be a
+				// different fs and force a copy, doubling perform's disk.)
 				publishPlan.Steps[i].Load = false
 				publishPlan.Steps[i].Push = false
-				if layoutDir, tmpErr := os.MkdirTemp("", "crucible-oci-layout-*"); tmpErr == nil {
+				stage := filepath.Join(rootDir, ".stagefreight")
+				_ = os.MkdirAll(stage, 0o755)
+				if layoutDir, tmpErr := os.MkdirTemp(stage, "oci-layout-*"); tmpErr == nil {
 					publishPlan.Steps[i].OCILayoutDir = layoutDir
 					defer os.RemoveAll(layoutDir)
 				}

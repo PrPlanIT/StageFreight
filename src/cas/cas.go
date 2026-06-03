@@ -185,6 +185,36 @@ func NewFSStore(root string) *FSStore {
 // Root returns the store's root directory.
 func (s *FSStore) Root() string { return s.root }
 
+// WorkspaceObjectsDir is the one place the content-store path is derived: ALWAYS
+// under the job workspace, never a shared or runner-scoped volume. This is the
+// safety boundary — because the store is inside the per-job workspace, every
+// lifecycle operation is bounded to one pipeline and cannot touch another
+// project's store.
+func WorkspaceObjectsDir(workspaceRoot string) string {
+	return filepath.Join(workspaceRoot, ".stagefreight", "objects")
+}
+
+// NewWorkspaceStore returns the content store for a job workspace. Callers pass
+// the WORKSPACE ROOT, not an arbitrary path, so the store can only ever live
+// inside that workspace — the structural guard against relocating the CAS onto a
+// shared volume, which would turn cleanup into a cross-tenant footgun. Use this
+// on the lifecycle path; NewFSStore(arbitraryPath) is for tests and inert stores.
+func NewWorkspaceStore(workspaceRoot string) *FSStore {
+	return &FSStore{root: WorkspaceObjectsDir(workspaceRoot)}
+}
+
+// Retire deletes a workspace's content store after its last reader (publish) has
+// consumed it. The CAS is RETIRED by publish — deterministic ownership — not
+// swept by a background GC. It is strictly workspace-scoped: RemoveAll of THIS
+// workspace's objects dir only, never a runner-wide path, so it can never reach a
+// concurrent pipeline's store. Idempotent: no error if already gone.
+func Retire(workspaceRoot string) error {
+	if err := os.RemoveAll(WorkspaceObjectsDir(workspaceRoot)); err != nil {
+		return fmt.Errorf("cas: retiring workspace store: %w", err)
+	}
+	return nil
+}
+
 // splitDigest parses "sha256:abc..." into ("sha256", "abc..."). Only sha256 is
 // supported (the algorithm buildx/OCI emit); anything else is rejected so an
 // unexpected algorithm can't silently bypass verification.
@@ -375,6 +405,13 @@ func VerifyLayoutAt(dir string, digest Digest) error {
 
 // copyTree recursively copies src into dst (files and dirs). OCI layouts are
 // small trees of regular files; no special device handling.
+// copyTree replicates the layout tree from src into dst, preferring a HARDLINK
+// per file. When src and dst share a filesystem — which they do, because the OCI
+// export temp is staged under the same workspace .stagefreight/ as the store —
+// hardlinking shares inodes, so the layout occupies disk ONCE instead of being a
+// second full copy. That is the difference between a transient ~2x image-size
+// disk spike during perform (which has crashed tight runners) and none. It falls
+// back to a byte copy across filesystems (EXDEV) or any other link error.
 func copyTree(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -391,19 +428,24 @@ func copyTree(src, dst string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		in, err := os.Open(path)
-		if err != nil {
-			return err
+		if linkErr := os.Link(path, target); linkErr == nil {
+			return nil
 		}
-		defer in.Close()
-		out, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		defer out.Close()
-		if _, err := io.Copy(out, in); err != nil {
-			return err
-		}
-		return nil
+		return copyFile(path, target)
 	})
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
