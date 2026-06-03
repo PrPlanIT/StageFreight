@@ -21,6 +21,7 @@
 - [`docs`](#config-docs)
 - [`manifest`](#config-manifest)
 - [`release`](#config-release)
+- [`ci`](#config-ci)
 - [`lifecycle`](#config-lifecycle)
 - [`governance`](#config-governance)
 - [`gitops`](#config-gitops)
@@ -29,6 +30,7 @@
 - [`glossary`](#config-glossary)
 - [`presentation`](#config-presentation)
 - [`tag`](#config-tag)
+- [`toolchains`](#config-toolchains)
 
 ---
 
@@ -539,6 +541,16 @@ commit:
 
 ---
 
+<a id="config-ci" name="config-ci"></a>
+### ci
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `image` | `image` | string | Yes | — | string value |
+| `labels` | `routing.perform.labels` | []string | No | — | []string value |
+
+---
+
 <a id="config-lifecycle" name="config-lifecycle"></a>
 ### lifecycle
 
@@ -690,6 +702,15 @@ commit:
 | `push` | `defaults.push` | bool | Yes | — | bool value |
 | `mode` | `message.mode` | string | Yes | — | string value |
 | `empty_strategy` | `message.empty_strategy` | string | Yes | — | string value |
+
+---
+
+<a id="config-toolchains" name="config-toolchains"></a>
+### toolchains
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `desired` | `desired` | map[string]object | No | — | map[string]object value |
 
 ---
 
