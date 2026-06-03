@@ -22,10 +22,10 @@ import (
 // ErrNotSupported rather than being faked; tagging, PRs, commits, and content
 // reads map to the Azure DevOps Git REST API (7.1).
 //
-// FIRST-PASS: endpoints and auth follow the documented Azure DevOps REST API, but
-// this client has not yet been exercised against a live Azure DevOps instance.
-// Treat live behavior as needing validation, the same way the azure-pipelines
-// render backend's runtime specifics do.
+// TODO(azure-live-validation): endpoints and auth follow the documented Azure
+// DevOps REST API but have NOT been exercised against a live instance. Run a real
+// end-to-end pass (render → build → every client op) before treating this client
+// as production-ready; until then it is experimental.
 type AzureDevOpsForge struct {
 	// BaseURL is the organization collection URL, e.g. "https://dev.azure.com/myorg"
 	// (Azure DevOps Services) or "https://server/tfs/DefaultCollection" (Server).
