@@ -13,6 +13,8 @@ func DetectProvider(remoteURL string) Provider {
 	switch {
 	case strings.Contains(lower, "github.com"):
 		return GitHub
+	case strings.Contains(lower, "dev.azure.com") || strings.Contains(lower, "visualstudio.com"):
+		return AzureDevOps
 	case strings.Contains(lower, "gitlab"):
 		return GitLab
 	// Codeberg runs Forgejo; treat forgejo/codeberg hosts as first-class Forgejo.

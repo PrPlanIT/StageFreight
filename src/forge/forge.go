@@ -50,11 +50,12 @@ func isConflict(err error) bool {
 type Provider string
 
 const (
-	GitLab  Provider = "gitlab"
-	GitHub  Provider = "github"
-	Gitea   Provider = "gitea"
-	Forgejo Provider = "forgejo"
-	Unknown Provider = "unknown"
+	GitLab      Provider = "gitlab"
+	GitHub      Provider = "github"
+	Gitea       Provider = "gitea"
+	Forgejo     Provider = "forgejo"
+	AzureDevOps Provider = "azuredevops"
+	Unknown     Provider = "unknown"
 )
 
 // Forge is the interface every platform implements.
@@ -272,6 +273,19 @@ func NewFromAccessory(provider, baseURL, projectID, credPrefix string) (Forge, e
 			fj.Repo = repo
 		}
 		return fj, nil
+	case AzureDevOps:
+		// baseURL is the org collection URL; projectID is "project/repo".
+		ad := NewAzureDevOps(baseURL)
+		ad.Token = token
+		if projectID != "" {
+			project, repo, err := splitOwnerRepo(projectID)
+			if err != nil {
+				return nil, fmt.Errorf("accessory %s (%s): %w", provider, projectID, err)
+			}
+			ad.Project = project
+			ad.Repo = repo
+		}
+		return ad, nil
 	default:
 		return nil, fmt.Errorf("accessory: unknown provider %q", provider)
 	}

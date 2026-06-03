@@ -1104,6 +1104,8 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 		return forge.NewGitea(baseURL), nil
 	case forge.Forgejo:
 		return forge.NewForgejo(baseURL), nil
+	case forge.AzureDevOps:
+		return forge.NewAzureDevOps(baseURL), nil
 	default:
 		return nil, fmt.Errorf("unknown forge provider: %s", provider)
 	}
