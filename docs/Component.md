@@ -1,18 +1,27 @@
-# StageFreight — GitLab CI Component
+# StageFreight — GitLab CI Component (deprecated)
 
-StageFreight ships as a GitLab CI component that wraps the CLI into a thin,
-reusable pipeline template. One `include:` gives you the full
-detect → lint → build → push → scan → release → retention pipeline.
+> **Deprecated — do not build on this.** Driving StageFreight via a GitLab CI
+> Component is no longer supported and is not developed further. StageFreight
+> still *publishes* a component to the GitLab Catalog so the project stays
+> discoverable there, but it is a demo stub, not the adoption path.
+>
+> **Use render instead** — one config, every forge:
+>
+> ```bash
+> stagefreight ci render gitlab --write
+> git add .gitlab-ci.yml && git commit
+> ```
+>
+> Why deprecated: a driver-component's `inputs` are a 1:1, hand-maintained replica
+> of `.stagefreight.yml` that drifts on every change, and the component format is
+> GitLab-specific — both against StageFreight's one-config-many-forges design.
+> See [`templates/README.md`](../templates/README.md) and the
+> [integrations matrix](../integrations/README.md).
 
-```yaml
-include:
-  - component: gitlab.prplanit.com/components/stagefreight/stagefreight@main
-    inputs:
-      security_scan: true
-      release_enabled: true
-```
+## Inputs (published demo component)
 
-## Inputs
+Retained for Catalog discoverability only; the inputs below are not a supported
+configuration surface.
 
 <!-- sf:component:start -->
 ## `stagefreight`
