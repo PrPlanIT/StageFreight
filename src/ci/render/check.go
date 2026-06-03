@@ -18,6 +18,8 @@ func ForgeTarget(forge string) (string, error) {
 		return ".gitea/workflows/stagefreight.yml", nil
 	case "forgejo":
 		return ".forgejo/workflows/stagefreight.yml", nil
+	case "azuredevops":
+		return "azure-pipelines.yml", nil
 	default:
 		return "", fmt.Errorf("unsupported forge %q", forge)
 	}

@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 
+	"github.com/PrPlanIT/StageFreight/src/ci/render/azuredevops"
 	"github.com/PrPlanIT/StageFreight/src/ci/render/forgejo"
 	"github.com/PrPlanIT/StageFreight/src/ci/render/gitea"
 	"github.com/PrPlanIT/StageFreight/src/ci/render/github"
@@ -11,7 +12,7 @@ import (
 )
 
 // SupportedForges lists forges with render support.
-var SupportedForges = []string{"gitlab", "github", "gitea", "forgejo"}
+var SupportedForges = []string{"gitlab", "github", "gitea", "forgejo", "azuredevops"}
 
 // Emit dispatches to the appropriate forge's emitter. One forge, one package,
 // one identity — the dispatch names forges only, never a serialization backend.
@@ -26,6 +27,8 @@ func Emit(forge string, p model.Pipeline) ([]byte, error) {
 		return gitea.Emit(p)
 	case "forgejo":
 		return forgejo.Emit(p)
+	case "azuredevops":
+		return azuredevops.Emit(p)
 	default:
 		return nil, fmt.Errorf("unsupported forge %q (supported: %v)", forge, SupportedForges)
 	}
