@@ -93,15 +93,38 @@ func ResolveAuth(remoteURL string) (transport.AuthMethod, error) {
 	)
 }
 
-// ResolveHTTPAuth returns HTTP basic auth for a remote URL.
-// Currently returns nil (no auth) for public HTTPS repositories.
+// ResolveHTTPAuth returns HTTP basic auth for an HTTPS remote, resolving a
+// credential from the environment so CI write-back (e.g. the deps auto-commit
+// push) authenticates instead of failing with "HTTP Basic: Access denied".
 //
-// TODO: implement credential resolution for private HTTPS remotes.
-// Private GitLab/GitHub/Gitea repos using HTTPS will fail silently
-// without credentials here. Planned: STAGEFREIGHT_GIT_USERNAME +
-// STAGEFREIGHT_GIT_PASSWORD env vars, mirroring the GIT_ASKPASS pattern
-// used in the git_mirror sync path.
+// Resolution order (first match wins):
+//  1. STAGEFREIGHT_GIT_USERNAME + STAGEFREIGHT_GIT_PASSWORD — explicit override.
+//  2. GITLAB_TOKEN — a Personal/Project Access Token (username "oauth2").
+//  3. GITHUB_TOKEN — username "x-access-token".
+//  4. CI_JOB_TOKEN — GitLab's per-job token (username "gitlab-ci-token"). LAST
+//     resort: it is read-only for repository writes by default, so a push needs
+//     a write-scoped token from (1)/(2); the job token only authenticates reads.
+//
+// Returns (nil, nil) when nothing is set — preserving anonymous access to public
+// HTTPS repos. A nil return is not an error: SSH remotes never reach here, and an
+// unauthenticated push to a private remote fails loudly at push time.
 func ResolveHTTPAuth(_ string) (*githttp.BasicAuth, error) {
+	if pass := os.Getenv("STAGEFREIGHT_GIT_PASSWORD"); pass != "" {
+		user := os.Getenv("STAGEFREIGHT_GIT_USERNAME")
+		if user == "" {
+			user = "oauth2"
+		}
+		return &githttp.BasicAuth{Username: user, Password: pass}, nil
+	}
+	if tok := os.Getenv("GITLAB_TOKEN"); tok != "" {
+		return &githttp.BasicAuth{Username: "oauth2", Password: tok}, nil
+	}
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		return &githttp.BasicAuth{Username: "x-access-token", Password: tok}, nil
+	}
+	if tok := os.Getenv("CI_JOB_TOKEN"); tok != "" {
+		return &githttp.BasicAuth{Username: "gitlab-ci-token", Password: tok}, nil
+	}
 	return nil, nil
 }
 
