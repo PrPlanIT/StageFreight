@@ -15,11 +15,15 @@ func DetectProvider(remoteURL string) Provider {
 		return GitHub
 	case strings.Contains(lower, "gitlab"):
 		return GitLab
-	case strings.Contains(lower, "gitea") || strings.Contains(lower, "forgejo") || strings.Contains(lower, "codeberg"):
+	// Codeberg runs Forgejo; treat forgejo/codeberg hosts as first-class Forgejo.
+	case strings.Contains(lower, "forgejo") || strings.Contains(lower, "codeberg"):
+		return Forgejo
+	case strings.Contains(lower, "gitea"):
 		return Gitea
 	default:
 		// Self-hosted instances without obvious domain hints.
-		// Future: probe the API to detect (GitLab /api/v4, GitHub /api/v3, Gitea /api/v1).
+		// Future: probe the API to detect (GitLab /api/v4, GitHub /api/v3,
+		// Gitea/Forgejo /api/v1 + the server's version banner).
 		return Unknown
 	}
 }

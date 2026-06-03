@@ -53,6 +53,7 @@ const (
 	GitLab  Provider = "gitlab"
 	GitHub  Provider = "github"
 	Gitea   Provider = "gitea"
+	Forgejo Provider = "forgejo"
 	Unknown Provider = "unknown"
 )
 
@@ -259,6 +260,18 @@ func NewFromAccessory(provider, baseURL, projectID, credPrefix string) (Forge, e
 			gt.Repo = repo
 		}
 		return gt, nil
+	case Forgejo:
+		fj := NewForgejo(baseURL)
+		fj.Token = token
+		if projectID != "" {
+			owner, repo, err := splitOwnerRepo(projectID)
+			if err != nil {
+				return nil, fmt.Errorf("accessory %s (%s): %w", provider, projectID, err)
+			}
+			fj.Owner = owner
+			fj.Repo = repo
+		}
+		return fj, nil
 	default:
 		return nil, fmt.Errorf("accessory: unknown provider %q", provider)
 	}

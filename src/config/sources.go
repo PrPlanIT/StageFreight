@@ -86,7 +86,7 @@ func ForgeRawBase(provider, baseURL, projectID, branch string) (string, error) {
 	case "gitlab":
 		// Works for subgroups: gitlab.com/group/subgroup/repo/-/raw/main
 		return fmt.Sprintf("%s/%s/-/raw/%s", baseURL, projectID, branch), nil
-	case "gitea":
+	case "gitea", "forgejo": // Forgejo shares Gitea's raw-content URL scheme.
 		return fmt.Sprintf("%s/%s/raw/branch/%s", baseURL, projectID, branch), nil
 	default:
 		return "", fmt.Errorf("unsupported forge provider %q for raw URL derivation", provider)
@@ -104,7 +104,7 @@ func ForgeLinkBase(provider, baseURL, projectID, branch string) (string, error) 
 		return fmt.Sprintf("%s/%s/blob/%s", baseURL, projectID, branch), nil
 	case "gitlab":
 		return fmt.Sprintf("%s/%s/-/blob/%s", baseURL, projectID, branch), nil
-	case "gitea":
+	case "gitea", "forgejo": // Forgejo shares Gitea's blob/src URL scheme.
 		return fmt.Sprintf("%s/%s/src/branch/%s", baseURL, projectID, branch), nil
 	default:
 		return "", fmt.Errorf("unsupported forge provider %q for link base derivation", provider)
@@ -133,7 +133,10 @@ func ParseForgeURL(rawURL string) (provider, baseURL, projectID string, err erro
 	if strings.Contains(u.Host, "gitlab") {
 		return "gitlab", base, path, nil
 	}
-	if strings.Contains(u.Host, "gitea") || strings.Contains(u.Host, "codeberg") {
+	if strings.Contains(u.Host, "forgejo") || strings.Contains(u.Host, "codeberg") {
+		return "forgejo", base, path, nil
+	}
+	if strings.Contains(u.Host, "gitea") {
 		return "gitea", base, path, nil
 	}
 	return "", "", "", fmt.Errorf(
