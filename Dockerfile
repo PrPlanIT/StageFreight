@@ -1,5 +1,5 @@
 # ---- Go build stage ----
-FROM docker.io/library/golang:1.26.1-alpine3.23 AS builder
+FROM docker.io/library/golang:1.26.4-alpine3.23 AS builder
 
 RUN apk add --no-cache git chafa
 
@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -o /out/stagefreight ./src/cli
 
 # ---- Runtime image ----
-FROM docker.io/library/alpine:3.23.3
+FROM docker.io/library/alpine:3.23.4
 
 LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
       org.opencontainers.image.title="StageFreight" \
@@ -65,7 +65,7 @@ ENV LANG=C.UTF-8
 # All other tools (trivy, syft, grype, osv-scanner, cosign, flux, kubectl, go)
 # are resolved at runtime by the StageFreight toolchain subsystem:
 # downloaded, checksum-verified, cached, and executed by absolute path.
-ENV BUILDX_VERSION=v0.33.0 \
+ENV BUILDX_VERSION=v0.34.1 \
     DOCKER_VERSION=29.3.1
 
 # Install docker CLI (static binary — execution substrate for DinD)
