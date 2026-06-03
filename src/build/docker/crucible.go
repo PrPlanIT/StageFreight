@@ -343,8 +343,15 @@ func runCrucibleMode(req Request) error {
 				publishPlan.Steps[i].Load = false
 				publishPlan.Steps[i].Push = true
 			}
-			// Restore cache-to — original plan had Push=false so CacheTo was never set.
-			publishPlan.Steps[i].CacheTo = publishCacheTo
+			// Restore cache-to — ONLY on the legacy push path. Under transport perform
+			// retains LOCALLY and must not populate the registry build cache: buildkit's
+			// cache exporter pushes to the registry, which has failed against Harbor
+			// (401 / 404 "blob upload invalid" / "transport is closing"), coupling the
+			// local retain to registry write reliability. Registry I/O is the publish
+			// phase's job; under transport perform contacts no registry at all.
+			if !transport {
+				publishPlan.Steps[i].CacheTo = publishCacheTo
+			}
 			// Set up metadata file for structured publish result extraction.
 			metaFile, tmpErr := os.CreateTemp("", "crucible-publish-metadata-*.json")
 			if tmpErr == nil {
@@ -362,41 +369,27 @@ func runCrucibleMode(req Request) error {
 		)
 		build.InjectLabels(publishPlan, publishLabels)
 
-		// Login to registries. Under transport this pass does NOT push the image
-		// (Push=false, retain-only) — BUT it still exports build cache to the
-		// registry (CacheTo, set above), and that push needs auth. So login is
-		// required either way; only the FAILURE handling differs:
-		//   - legacy push path: a login failure is fatal (no unauthenticated publish).
-		//   - transport: the retain is a LOCAL OCI-layout export that needs no
-		//     registry, so a login failure is non-fatal — drop the registry cache
-		//     export (the only thing that needed auth) and proceed with the retain,
-		//     rather than block all of review+publish on a registry perform's
-		//     distribution never touches (e.g. an expired-cert/unreachable registry).
+		// Login to registries — ONLY on the legacy push path. Under transport this
+		// pass pushes nothing (Push=false) and exports no registry cache (CacheTo is
+		// not set above), so it contacts no registry at all; requiring a login here
+		// would couple the local retain to a registry it never touches. The legacy
+		// path hard-fails on login error to avoid an unauthenticated publish.
 		loginFailed := false
-		loginBx := NewBuildx(false)
-		loginBx.Stdout = io.Discard
-		loginBx.Stderr = io.Discard
-		for _, step := range publishPlan.Steps {
-			if hasRemoteRegistries(step.Registries) {
-				if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
-					if transport {
-						// Non-fatal: keep the retain, drop the registry cache export.
-						for i := range publishPlan.Steps {
-							publishPlan.Steps[i].CacheTo = nil
-						}
-						publishSec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
-						publishSec.Row("%-14s%s", "registry", "login failed — retaining locally, registry cache export skipped")
-						publishSec.Row("%-14s%v", "detail", loginErr)
-						publishSec.Close()
-					} else {
+		if !transport {
+			loginBx := NewBuildx(false)
+			loginBx.Stdout = io.Discard
+			loginBx.Stderr = io.Discard
+			for _, step := range publishPlan.Steps {
+				if hasRemoteRegistries(step.Registries) {
+					if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
 						loginFailed = true
 						publishSec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
 						publishSec.Row("%-14s%s", "status", "blocked — registry login failed")
 						publishSec.Row("%-14s%v", "error", loginErr)
 						publishSec.Close()
 					}
+					break
 				}
-				break
 			}
 		}
 
