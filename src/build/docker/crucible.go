@@ -362,30 +362,41 @@ func runCrucibleMode(req Request) error {
 		)
 		build.InjectLabels(publishPlan, publishLabels)
 
-		// Login to registries — ONLY when this pass will actually push. Under
-		// transport the publish pass RETAINS the verified bytes to the content store
-		// (Push=false) and contacts no registry at all, so requiring a login here
-		// couples perform's retention to a system it never touches: an unreachable or
-		// expired-cert registry would block the retain (and thus all of review +
-		// publish downstream) even though distribution is the publish phase's sole
-		// job. Skip login under transport; only the legacy push path needs it, and
-		// it hard-fails there to avoid an unauthenticated publish.
+		// Login to registries. Under transport this pass does NOT push the image
+		// (Push=false, retain-only) — BUT it still exports build cache to the
+		// registry (CacheTo, set above), and that push needs auth. So login is
+		// required either way; only the FAILURE handling differs:
+		//   - legacy push path: a login failure is fatal (no unauthenticated publish).
+		//   - transport: the retain is a LOCAL OCI-layout export that needs no
+		//     registry, so a login failure is non-fatal — drop the registry cache
+		//     export (the only thing that needed auth) and proceed with the retain,
+		//     rather than block all of review+publish on a registry perform's
+		//     distribution never touches (e.g. an expired-cert/unreachable registry).
 		loginFailed := false
-		if !transport {
-			loginBx := NewBuildx(false)
-			loginBx.Stdout = io.Discard
-			loginBx.Stderr = io.Discard
-			for _, step := range publishPlan.Steps {
-				if hasRemoteRegistries(step.Registries) {
-					if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
+		loginBx := NewBuildx(false)
+		loginBx.Stdout = io.Discard
+		loginBx.Stderr = io.Discard
+		for _, step := range publishPlan.Steps {
+			if hasRemoteRegistries(step.Registries) {
+				if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
+					if transport {
+						// Non-fatal: keep the retain, drop the registry cache export.
+						for i := range publishPlan.Steps {
+							publishPlan.Steps[i].CacheTo = nil
+						}
+						publishSec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
+						publishSec.Row("%-14s%s", "registry", "login failed — retaining locally, registry cache export skipped")
+						publishSec.Row("%-14s%v", "detail", loginErr)
+						publishSec.Close()
+					} else {
 						loginFailed = true
 						publishSec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
 						publishSec.Row("%-14s%s", "status", "blocked — registry login failed")
 						publishSec.Row("%-14s%v", "error", loginErr)
 						publishSec.Close()
 					}
-					break
 				}
+				break
 			}
 		}
 
