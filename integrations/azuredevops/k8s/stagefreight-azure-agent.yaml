@@ -1,0 +1,132 @@
+# StageFreight Azure DevOps self-hosted agent — DinD + persistent buildkitd (k8s)
+#
+# The k8s analog of integrations/gitlab/runner-compose.buildkitd.yml. Compose
+# shares one network; here one pod shares localhost, so the same trust split holds:
+#
+#   agent        → runs Azure DevOps jobs (the stagefreight CI image as the job container)
+#   build jobs   → BUILDKIT_HOST=tcp://127.0.0.1:1234 (mTLS, independent PKI)
+#   docker jobs  → DOCKER_HOST=tcp://127.0.0.1:2376 (DinD TLS)
+#   other jobs   → no daemon access
+#
+# Fill in: AZP_URL (org URL, e.g. https://dev.azure.com/yourorg), AZP_TOKEN (PAT
+# with Agent Pools read&manage), AZP_POOL (the agent pool you created), and the
+# stagefreight image. Then: kubectl apply -f stagefreight-azure-agent.yaml
+#
+# EXPERIMENTAL: this mirrors the proven GitLab topology but has not been validated
+# on a live Azure DevOps run. Two things to verify (see README): the agent must be
+# able to run the `container: ci` job with access to localhost:1234/:2376, and the
+# DinD cert dir must be ready before the agent first builds.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stagefreight-ci
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azp-agent
+  namespace: stagefreight-ci
+type: Opaque
+stringData:
+  # Azure DevOps organization URL and a PAT with "Agent Pools (read, manage)".
+  AZP_URL: "https://dev.azure.com/REPLACE_ORG"
+  AZP_TOKEN: "REPLACE_WITH_PAT"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stagefreight-azure-agent
+  namespace: stagefreight-ci
+  labels: { app: stagefreight-azure-agent }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: stagefreight-azure-agent }
+  template:
+    metadata:
+      labels: { app: stagefreight-azure-agent }
+    spec:
+      initContainers:
+        # Independent BuildKit mTLS PKI — identical to the gitlab compose
+        # buildkitd-certs step. SAN includes 127.0.0.1 so the agent can reach
+        # buildkitd over localhost in this shared pod.
+        - name: buildkit-pki
+          image: docker.io/library/alpine:3
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              [ -f /bk/server/cert.pem ] && { echo "PKI exists"; exit 0; }
+              apk add --no-cache openssl >/dev/null 2>&1
+              mkdir -p /bk/ca /bk/server /bk/client
+              openssl genrsa -out /bk/ca/key.pem 4096 2>/dev/null
+              openssl req -new -x509 -key /bk/ca/key.pem -out /bk/ca/cert.pem -days 3650 -subj "/CN=BuildKit CA" 2>/dev/null
+              openssl genrsa -out /bk/server/key.pem 4096 2>/dev/null
+              openssl req -new -key /bk/server/key.pem -out /tmp/s.csr -subj "/CN=buildkitd" 2>/dev/null
+              printf "[v3]\nsubjectAltName=DNS:buildkitd,DNS:localhost,IP:127.0.0.1" > /tmp/ext.cnf
+              openssl x509 -req -in /tmp/s.csr -CA /bk/ca/cert.pem -CAkey /bk/ca/key.pem -CAcreateserial -out /bk/server/cert.pem -days 3650 -extensions v3 -extfile /tmp/ext.cnf 2>/dev/null
+              openssl genrsa -out /bk/client/key.pem 4096 2>/dev/null
+              openssl req -new -key /bk/client/key.pem -out /tmp/c.csr -subj "/CN=buildkit-client" 2>/dev/null
+              openssl x509 -req -in /tmp/c.csr -CA /bk/ca/cert.pem -CAkey /bk/ca/key.pem -CAcreateserial -out /bk/client/cert.pem -days 3650 2>/dev/null
+              cp /bk/ca/cert.pem /bk/client/ca.pem
+              echo "BuildKit PKI generated"
+          volumeMounts:
+            - { name: bk-certs, mountPath: /bk }
+      containers:
+        # ── DinD: DOCKER_HOST=tcp://127.0.0.1:2376, TLS auto-generated into /certs ──
+        - name: dind
+          image: docker:dind
+          securityContext: { privileged: true }
+          env:
+            - { name: DOCKER_TLS_CERTDIR, value: /certs }
+            - { name: DOCKER_TLS_SAN, value: "DNS:dind,DNS:localhost,IP:127.0.0.1" }
+          volumeMounts:
+            - { name: docker-certs, mountPath: /certs }
+            - { name: dind-storage, mountPath: /var/lib/docker }
+            - { name: sf-cache, mountPath: /stagefreight }
+        # ── buildkitd: BUILDKIT_HOST=tcp://127.0.0.1:1234, mTLS ──
+        - name: buildkitd
+          image: moby/buildkit:latest
+          securityContext: { privileged: true }
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --tlscacert=/certs/ca/cert.pem
+            - --tlscert=/certs/server/cert.pem
+            - --tlskey=/certs/server/key.pem
+            - --oci-worker-gc=true
+            - --oci-worker-gc-keepstorage=35000
+          volumeMounts:
+            - { name: bk-certs, mountPath: /certs, readOnly: true }
+            - { name: bk-state, mountPath: /var/lib/buildkit }
+            - { name: sf-cache, mountPath: /stagefreight }
+        # ── Azure DevOps agent (replaces gitlab-runner) ──
+        # Build a self-hosted agent image per Microsoft's docs
+        # (https://learn.microsoft.com/azure/devops/pipelines/agents/docker), or use
+        # a maintained one. It must register from AZP_URL/AZP_TOKEN/AZP_POOL.
+        - name: agent
+          image: REPLACE_WITH_AZP_AGENT_IMAGE   # e.g. your-registry/azp-agent:ubuntu
+          env:
+            - { name: AZP_URL, valueFrom: { secretKeyRef: { name: azp-agent, key: AZP_URL } } }
+            - { name: AZP_TOKEN, valueFrom: { secretKeyRef: { name: azp-agent, key: AZP_TOKEN } } }
+            - { name: AZP_POOL, value: "stagefreight" }
+            - { name: AZP_AGENT_NAME, value: "stagefreight-azure-k8s" }
+            # StageFreight build wiring — surface these to the job too (pipeline
+            # variables or agent capabilities), so `stagefreight ci run perform`
+            # finds the builders on localhost.
+            - { name: BUILDKIT_HOST, value: "tcp://127.0.0.1:1234" }
+            - { name: DOCKER_HOST, value: "tcp://127.0.0.1:2376" }
+            - { name: DOCKER_TLS_VERIFY, value: "1" }
+            - { name: DOCKER_CERT_PATH, value: "/certs/client" }
+          volumeMounts:
+            - { name: docker-certs, mountPath: /certs, readOnly: true }       # DinD client certs at /certs/client
+            - { name: bk-certs, mountPath: /buildkit-certs, subPath: client, readOnly: true } # BuildKit client certs (ca.pem/cert.pem/key.pem)
+            - { name: sf-cache, mountPath: /stagefreight }
+      volumes:
+        - { name: bk-certs, emptyDir: {} }
+        - { name: docker-certs, emptyDir: {} }
+        - { name: sf-cache, emptyDir: {} }       # swap for a PVC to persist the cache across restarts
+        - { name: dind-storage, emptyDir: {} }   # swap for a PVC for a persistent image store
+        - { name: bk-state, emptyDir: {} }       # swap for a PVC for a persistent build cache
