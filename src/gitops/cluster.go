@@ -154,10 +154,27 @@ func envPrefix(name string) string {
 // kubectlRun runs a kubectl command using a toolchain-resolved binary.
 func kubectlRun(binPath string, args ...string) error {
 	cmd := exec.Command(binPath, args...)
-	cmd.Env = toolchain.CleanEnv()
+	cmd.Env = kubectlEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// kubectlEnv is the environment for kubectl invocations: a clean, deterministic
+// base (CleanEnv forces HOME=/tmp, empty PATH) PLUS the current KUBECONFIG.
+//
+// Forwarding KUBECONFIG is load-bearing: BuildKubeconfig points it at the
+// isolated temp kubeconfig, and the `kubectl config` writes MUST land in that
+// same file. CleanEnv alone strips KUBECONFIG, so kubectl would write to
+// $HOME/.kube/config (/tmp/.kube/config) while flux — which inherits KUBECONFIG —
+// reads the now-empty temp file and falls back to http://localhost:8080. kubectl
+// (writer) and flux (reader) must agree on one file.
+func kubectlEnv() []string {
+	env := toolchain.CleanEnv()
+	if kubeconfig := os.Getenv("KUBECONFIG"); kubeconfig != "" {
+		env = append(env, "KUBECONFIG="+kubeconfig)
+	}
+	return env
 }
