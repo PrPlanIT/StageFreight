@@ -362,21 +362,30 @@ func runCrucibleMode(req Request) error {
 		)
 		build.InjectLabels(publishPlan, publishLabels)
 
-		// Login to registries — hard fail on login failure. No unauthenticated publish attempts.
-		loginBx := NewBuildx(false)
-		loginBx.Stdout = io.Discard
-		loginBx.Stderr = io.Discard
+		// Login to registries — ONLY when this pass will actually push. Under
+		// transport the publish pass RETAINS the verified bytes to the content store
+		// (Push=false) and contacts no registry at all, so requiring a login here
+		// couples perform's retention to a system it never touches: an unreachable or
+		// expired-cert registry would block the retain (and thus all of review +
+		// publish downstream) even though distribution is the publish phase's sole
+		// job. Skip login under transport; only the legacy push path needs it, and
+		// it hard-fails there to avoid an unauthenticated publish.
 		loginFailed := false
-		for _, step := range publishPlan.Steps {
-			if hasRemoteRegistries(step.Registries) {
-				if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
-					loginFailed = true
-					publishSec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
-					publishSec.Row("%-14s%s", "status", "blocked — registry login failed")
-					publishSec.Row("%-14s%v", "error", loginErr)
-					publishSec.Close()
+		if !transport {
+			loginBx := NewBuildx(false)
+			loginBx.Stdout = io.Discard
+			loginBx.Stderr = io.Discard
+			for _, step := range publishPlan.Steps {
+				if hasRemoteRegistries(step.Registries) {
+					if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
+						loginFailed = true
+						publishSec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
+						publishSec.Row("%-14s%s", "status", "blocked — registry login failed")
+						publishSec.Row("%-14s%v", "error", loginErr)
+						publishSec.Close()
+					}
+					break
 				}
-				break
 			}
 		}
 
