@@ -10,17 +10,28 @@ what's universal, and what's special per provider.
 `stagefreight ci render <forge>` generates a native, audition-enforced pipeline
 from your config; the forge client handles releases/PRs/commits over the API.
 
-| Forge | CI render | releases | PRs / MRs | catalog component | badges + README inject |
-|-------------|:---:|:---:|:---:|:---:|:---:|
-| GitLab | ✓ | ✓ | ✓ | ✓ publish + release link | ✓ |
-| GitHub | ✓ | ✓ | ✓ | — | ✓ |
-| Gitea | ✓ | ✓ | ✓ | — | ✓ |
-| Forgejo | ✓ | ✓ | ✓ | — | ✓ |
-| Azure DevOps | ✓ | —¹ | ✓ | — | ✓ |
+**Maturity** is honest about live validation, not implementation completeness:
+- **supported** — run end-to-end on the live platform.
+- **experimental** — implemented and golden-tested, **not yet** run on a live
+  instance of that forge. The render is deterministic and inspectable; the runtime
+  (OIDC, runner/agent, DinD) is what a real run proves.
+
+| Forge | maturity | CI render | releases | PRs / MRs | catalog component | badges + README inject |
+|-------------|---|:---:|:---:|:---:|:---:|:---:|
+| GitLab | **supported** | ✓ | ✓ | ✓ | ✓ publish + release link | ✓ |
+| GitHub | experimental | ✓ | ✓ | ✓ | — | ✓ |
+| Gitea | experimental | ✓ | ✓ | ✓ | — | ✓ |
+| Forgejo | experimental | ✓ | ✓ | ✓ | — | ✓ |
+| Azure DevOps | experimental | ✓ | —¹ | ✓ | — | ✓ |
+
+GitLab is supported because StageFreight builds itself on it. GitHub/Gitea/Forgejo
+share one golden-tested Actions backend (so validating one largely validates the
+three), but none has had a live run yet. Azure is experimental on both fronts
+(its own render backend + an unvalidated client). Maturity graduates with a real
+end-to-end run, not more code — the integration folders carry the checklists.
 
 ¹ Azure DevOps has no native git-release object; release surfaces return
-`ErrNotSupported` by design (use tags). Azure client is **experimental** until
-live-validated — see [`azuredevops/`](azuredevops/). Render is native and stable.
+`ErrNotSupported` by design (use tags) — see [`azuredevops/`](azuredevops/).
 
 **GitLab standout:** StageFreight can publish a GitLab **CI Catalog component**
 and link it from the release. (Driving StageFreight *via* a component is
