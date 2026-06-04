@@ -33,6 +33,15 @@ builds:
     build_mode: crucible
     platforms: [linux/amd64]
 
+  - id: stagefreight-bin
+    kind: binary
+    builder: go
+    from: ./src/cli
+    output: stagefreight
+    env: { CGO_ENABLED: "0" }
+    args: ["-tags", "banner_art"]
+    platforms: [linux/amd64, linux/arm64]
+
 forges:
   - id: gitlab
     provider: gitlab
@@ -133,10 +142,28 @@ targets:
     spec_files: ["templates/stagefreight.yml"]
     catalog: true
 
-  # ── Primary release (rolling git tag aliases) ────────────────────
+  # ── Binary archives: linux amd64/arm64 + SHA256SUMS ──────────────
+  - id: stagefreight-binaries
+    kind: binary-archive
+    build: stagefreight-bin
+    name: "stagefreight-{version}-{os}-{arch}"
+    format: auto
+    checksums: true
+    when: { git_tags: [stable], events: [tag] }
+
+  # ── Primary release (rolling git tag aliases + binaries) ─────────
   - id: primary-release
     kind: release
+    archives: stagefreight-binaries
     aliases: ["v{version}", "latest"]
+    when: { git_tags: [stable], events: [tag] }
+
+  # ── GitHub release (mirror) with binaries ────────────────────────
+  - id: github-release
+    kind: release
+    mirror: github-mirror
+    sync_release: true
+    archives: stagefreight-binaries
     when: { git_tags: [stable], events: [tag] }
 
 build_cache:
