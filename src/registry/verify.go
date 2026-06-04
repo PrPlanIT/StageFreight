@@ -123,9 +123,21 @@ func CheckManifestDigest(ctx context.Context, host, path, tag string, credResolv
 
 // checkManifest performs a HEAD (fallback GET) on the OCI manifest endpoint.
 // Returns the Docker-Content-Digest header value if available.
+// manifestAcceptHeader is the Accept sent on every manifest HEAD/GET. It MUST
+// list every manifest media type a published artifact can have — including the
+// single-arch OCI image manifest. A registry that strictly honors Accept (Harbor)
+// returns 404 for a stored manifest whose type is absent here, while a lenient one
+// (Docker Hub) returns it anyway — so an omission shows up as a registry-specific
+// false "image not found". The four types below cover index + single image for
+// both OCI and Docker schema 2.
+const manifestAcceptHeader = "application/vnd.oci.image.index.v1+json, " +
+	"application/vnd.oci.image.manifest.v1+json, " +
+	"application/vnd.docker.distribution.manifest.list.v2+json, " +
+	"application/vnd.docker.distribution.manifest.v2+json"
+
 func checkManifest(ctx context.Context, host, path, tag string, credResolver func(string) (string, string), credRef string) (string, error) {
 	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", host, path, tag)
-	accept := "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json"
+	accept := manifestAcceptHeader
 
 	// Try HEAD first
 	digest, err := doManifestRequest(ctx, "HEAD", url, accept, host, credResolver, credRef)

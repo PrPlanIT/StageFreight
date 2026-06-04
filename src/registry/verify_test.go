@@ -43,6 +43,41 @@ func TestVerifyImageSuccess(t *testing.T) {
 	}
 }
 
+// TestVerifyImageStrictAcceptOCIManifest reproduces the v0.6.0 release failure:
+// a strict registry (Harbor) 404s a stored manifest whose media type is absent
+// from the Accept header. A single-arch OCI image manifest
+// (application/vnd.oci.image.manifest.v1+json) must be accepted, or such images
+// (which Docker Hub serves leniently) falsely verify as "image not found".
+func TestVerifyImageStrictAcceptOCIManifest(t *testing.T) {
+	const ociImageManifest = "application/vnd.oci.image.manifest.v1+json"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Strict registry: only serve if the client said it accepts our type.
+		if !strings.Contains(r.Header.Get("Accept"), ociImageManifest) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Docker-Content-Digest", "sha256:ociimg")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "https://")
+	origClient := http.DefaultClient
+	http.DefaultClient = srv.Client()
+	defer func() { http.DefaultClient = origClient }()
+
+	results, _ := VerifyImages(context.Background(),
+		[]ImageVerifyTarget{{ArtifactID: "docker:app", Host: host, Path: "org/app", Tag: "1.0.0"}}, nil)
+	if !results[0].Verified {
+		t.Fatalf("single-arch OCI image manifest must verify against a strict-Accept registry; got: %v", results[0].Err)
+	}
+
+	// Guard the constant itself so the type can't silently drop out again.
+	if !strings.Contains(manifestAcceptHeader, ociImageManifest) {
+		t.Fatalf("manifestAcceptHeader must include %q", ociImageManifest)
+	}
+}
+
 func TestVerifyImageNotFound(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
