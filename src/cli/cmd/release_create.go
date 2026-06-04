@@ -1284,17 +1284,22 @@ func normalizeRegistryHost(s string) string {
 	return strings.ToLower(s)
 }
 
-// providerFromHost is a presentation-only classification of a registry
-// host. Per the v2 contract, Provider is NOT stored in PublicationView or
-// anywhere in the truth model — it is derived at consumer time.
+// providerFromHost is a presentation-time classification of a registry host.
+// Per the v2 contract, Provider is NOT stored in PublicationView or anywhere in
+// the truth model — it is derived at consumer time for release-notes display.
 //
-// IMPORTANT: this string is consumed ONLY by the release-notes display
-// (rt.DisplayName / rt.RepoURL via release.ImageRow). All routing/auth
-// decisions in this codebase read Provider from RegistryConfig or
-// ResolvedRegistry instead — those are the config-resolved authoritative
-// source. Anyone introducing a new behavioral dependency on the result
-// of this function should redirect that call to the config-resolved
-// Provider, not extend this heuristic.
+// It MUST return a CANONICAL provider token from the same set
+// ResolvedRegistryTarget.Provider uses (see registry/urls.go), because its
+// result feeds rt.DisplayName / rt.RepoURL / rt.TagURL — and RepoURL/TagURL
+// PANIC on an unrecognized provider. The `generic` fallback guarantees every
+// returned token is one those builders handle. (A host the heuristic can't
+// classify therefore renders as a neutral generic link, never a crash — e.g.
+// a Harbor host whose name doesn't embed "harbor".)
+//
+// IMPORTANT: routing/auth decisions read Provider from RegistryConfig /
+// ResolvedRegistry — the config-resolved authoritative source — never from this
+// heuristic. For *accurate* per-host providers in release notes (vs. the neutral
+// fallback), redirect to the config-resolved Provider rather than extending this.
 //
 // Substring matches for self-hosted vendor variants (gitea, harbor, jfrog)
 // are intentional: they classify hosts whose names embed the vendor name
@@ -1306,9 +1311,9 @@ func providerFromHost(host string) string {
 	h := strings.ToLower(host)
 	switch {
 	case h == "docker.io" || strings.HasSuffix(h, ".docker.io"):
-		return "dockerhub"
+		return "docker"
 	case h == "ghcr.io" || strings.HasSuffix(h, ".ghcr.io"):
-		return "ghcr"
+		return "github"
 	case strings.HasSuffix(h, ".gitlab.io") || strings.HasPrefix(h, "registry.gitlab") || strings.Contains(h, "gitlab"):
 		return "gitlab"
 	case strings.HasSuffix(h, ".gitea.io") || strings.Contains(h, "gitea"):
@@ -1320,6 +1325,6 @@ func providerFromHost(host string) string {
 	case h == "quay.io" || strings.HasSuffix(h, ".quay.io"):
 		return "quay"
 	}
-	return "registry"
+	return "generic"
 }
 
