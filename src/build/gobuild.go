@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 // GoBuild wraps Go compilation commands.
@@ -90,15 +93,57 @@ func (g *GoBuild) Build(ctx context.Context, opts GoBuildOpts) (*GoBuildResult, 
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 
-	cmd.Stdout = g.Stdout
-	cmd.Stderr = g.Stderr
+	// Capture rather than stream: `go build` emits a flood of "go: downloading …"
+	// lines on a cold module cache that would taint StageFreight's structured
+	// output. We render it compactly instead — collapsed (expandable) in CI,
+	// quiet locally unless verbose — and surface real diagnostics on failure.
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
 
 	if g.Verbose {
-		fmt.Fprintf(g.Stderr, "exec: go %s\n", strings.Join(args, " "))
+		fmt.Fprintf(g.Stderr, "exec: %s %s\n", goBin, strings.Join(args, " "))
 	}
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("go build failed: %w", err)
+	runErr := cmd.Run()
+
+	raw := buf.String()
+	var downloads int
+	var diagLines []string
+	for _, ln := range strings.Split(raw, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), "go: downloading ") {
+			downloads++
+			continue
+		}
+		if strings.TrimSpace(ln) != "" {
+			diagLines = append(diagLines, ln)
+		}
+	}
+
+	if strings.TrimSpace(raw) != "" {
+		if output.IsGitLabCI() {
+			label := fmt.Sprintf("go build · %s/%s", opts.GOOS, opts.GOARCH)
+			if downloads > 0 {
+				label = fmt.Sprintf("%s · %d module(s) downloaded", label, downloads)
+			}
+			secID := fmt.Sprintf("sf_gobuild_%s_%s", opts.GOOS, opts.GOARCH)
+			output.SectionStartCollapsed(g.Stdout, secID, label)
+			fmt.Fprint(g.Stdout, raw)
+			if !strings.HasSuffix(raw, "\n") {
+				fmt.Fprintln(g.Stdout)
+			}
+			output.SectionEnd(g.Stdout, secID)
+		} else if g.Verbose {
+			fmt.Fprint(g.Stdout, raw)
+		}
+	}
+
+	if runErr != nil {
+		// Surface the real diagnostics (compile errors), never the download spam.
+		if diag := strings.TrimSpace(strings.Join(diagLines, "\n")); diag != "" {
+			return nil, fmt.Errorf("go build failed: %w\n%s", runErr, diag)
+		}
+		return nil, fmt.Errorf("go build failed: %w", runErr)
 	}
 
 	// Compute size and checksum
