@@ -3,11 +3,13 @@ package engines
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 func init() {
@@ -127,10 +129,19 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 
 	start := time.Now()
 
-	gb := build.NewGoBuild(false)
+	// Resolve the Go toolchain via the StageFreight toolchain subsystem — the
+	// runtime CI image has no `go` on $PATH, so we can't exec it directly.
+	// Resolve downloads + caches a checksummed Go distribution on first use
+	// (cache hit thereafter). Mirrors dependency/apply_go.go:resolveGoRunner.
+	// rootDir = cwd, which is the job workspace during the build.
+	rootDir, _ := os.Getwd()
+	goVersion := toolchain.ResolveGoVersion(".", rootDir)
+	goRes, err := toolchain.Resolve(rootDir, "go", goVersion)
+	if err != nil {
+		return nil, fmt.Errorf("binary engine: resolving go toolchain: %w", err)
+	}
 
-	// Get toolchain version for metadata
-	toolchain, _ := gb.ToolchainVersion(ctx)
+	gb := build.NewGoBuild(false)
 
 	result, err := gb.Build(ctx, build.GoBuildOpts{
 		Entry:      meta.From,
@@ -139,6 +150,7 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 		GOARCH:     step.Platform.Arch,
 		Args:       meta.Args,
 		Env:        meta.Env,
+		GoBin:      goRes.Path,
 	})
 	if err != nil {
 		return nil, err
@@ -154,7 +166,7 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 			},
 		},
 		Metadata: map[string]string{
-			"toolchain":   toolchain,
+			"toolchain":   "go" + goVersion,
 			"binary_name": meta.BinaryName,
 		},
 		Metrics: build.StepMetrics{

@@ -36,6 +36,7 @@ type GoBuildOpts struct {
 	GOARCH     string
 	Args       []string          // raw args passed before entry (e.g., ["-tags", "banner_art", "-ldflags", "..."])
 	Env        map[string]string // additional env vars (e.g., CGO_ENABLED=0)
+	GoBin      string            // resolved go binary (from the toolchain subsystem); "" falls back to "go" on $PATH
 }
 
 // GoBuildResult holds the output of a Go compilation.
@@ -68,7 +69,14 @@ func (g *GoBuild) Build(ctx context.Context, opts GoBuildOpts) (*GoBuildResult, 
 
 	args = append(args, "-o", opts.OutputPath, entry)
 
-	cmd := exec.CommandContext(ctx, "go", args...)
+	// Use the toolchain-resolved go binary when provided; the runtime CI image
+	// has no go on $PATH, so callers resolve it via the toolchain subsystem and
+	// pass the absolute path here. Bare "go" remains the local/dev fallback.
+	goBin := opts.GoBin
+	if goBin == "" {
+		goBin = "go"
+	}
+	cmd := exec.CommandContext(ctx, goBin, args...)
 
 	// Set up environment
 	cmd.Env = os.Environ()
