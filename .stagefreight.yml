@@ -39,7 +39,13 @@ builds:
     from: ./src/cli
     output: stagefreight
     env: { CGO_ENABLED: "0" }
-    args: ["-tags", "banner_art"]
+    # No -tags banner_art: the fancy ASCII banner needs a generated, gitignored
+    # file (go generate ./src/output) that the Dockerfile produces but the binary
+    # build can't. The stub gives a text banner. Version is embedded via ldflags so
+    # downloaded binaries report the real version (not "dev").
+    args:
+      - "-ldflags"
+      - "-s -w -X github.com/PrPlanIT/StageFreight/src/version.Version={version} -X github.com/PrPlanIT/StageFreight/src/version.Commit={sha} -X github.com/PrPlanIT/StageFreight/src/version.BuildDate={date}"
     platforms: [linux/amd64, linux/arm64]
 
 forges:
