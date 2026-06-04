@@ -179,19 +179,20 @@ func TestImageRefWithUnnormalizedHost(t *testing.T) {
 	}
 }
 
-func TestUnknownProviderPanics(t *testing.T) {
+func TestUnknownProviderDegradesNotPanic(t *testing.T) {
+	// A release-notes URL is presentation, not integrity: an unrecognized
+	// provider must degrade to a generic URL, never panic and fail a completed,
+	// verified publication. (Regression: providerFromHost once emitted "dockerhub"
+	// — outside the canonical set — and crashed the v0.6.0 release job.)
 	rt := ResolvedRegistryTarget{Provider: "bogus", Host: "x.io", Path: "a/b"}
-
-	assertPanics(t, "RepoURL", func() { rt.RepoURL() })
-	assertPanics(t, "TagURL", func() { rt.TagURL("v1") })
-}
-
-func assertPanics(t *testing.T, name string, fn func()) {
-	t.Helper()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatalf("%s did not panic on unknown provider", name)
-		}
-	}()
-	fn()
+	const wantGeneric = "https://x.io/a/b"
+	if got := rt.RepoURL(); got != wantGeneric {
+		t.Errorf("RepoURL on unknown provider = %q, want generic %q (must not panic)", got, wantGeneric)
+	}
+	if got := rt.TagURL("v1"); got != wantGeneric {
+		t.Errorf("TagURL on unknown provider = %q, want generic %q (must not panic)", got, wantGeneric)
+	}
+	if got := rt.DisplayName(); got != "x.io" {
+		t.Errorf("DisplayName on unknown provider = %q, want host fallback", got)
+	}
 }

@@ -111,7 +111,12 @@ func (r ResolvedRegistryTarget) RepoURL() string {
 	case "generic":
 		return fmt.Sprintf("https://%s/%s", r.Host, r.Path)
 	default:
-		panic(fmt.Sprintf("registry.RepoURL: unsupported provider %q — this is a StageFreight bug", r.Provider))
+		// Presentation layer: an unrecognized provider must NEVER crash a
+		// completed, verified publication (a release-notes URL is not on the
+		// integrity path). Degrade to a generic repo URL. The "every configured
+		// provider is supported" invariant is enforced at config-validation time,
+		// not by a runtime panic here.
+		return fmt.Sprintf("https://%s/%s", r.Host, r.Path)
 	}
 }
 
@@ -155,7 +160,9 @@ func (r ResolvedRegistryTarget) TagURL(tag string) string {
 	case "generic":
 		return fmt.Sprintf("https://%s/%s", r.Host, r.Path)
 	default:
-		panic(fmt.Sprintf("registry.TagURL: unsupported provider %q — this is a StageFreight bug", r.Provider))
+		// Presentation layer: degrade, never panic — see RepoURL. A release-notes
+		// link defect must not invalidate a completed, verified publication.
+		return fmt.Sprintf("https://%s/%s", r.Host, r.Path)
 	}
 }
 
