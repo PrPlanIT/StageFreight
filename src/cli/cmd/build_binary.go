@@ -614,6 +614,14 @@ func binaryPublishPhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 				}, nil
 			}
 
+			// Freeze the intent identity: Finalize computes outputs.Checksum over
+			// the now-complete artifact set (binaries from execute + archives from
+			// archive). The docker path does this before results are built; the
+			// binary path must too, or rb.Build rejects an unchecksummed manifest.
+			if err := outputs.Finalize(); err != nil {
+				return nil, fmt.Errorf("finalizing outputs manifest: %w", err)
+			}
+
 			if err := artifact.WriteOutputsManifest(pc.RootDir, *outputs); err != nil {
 				return nil, fmt.Errorf("writing outputs manifest: %w", err)
 			}
