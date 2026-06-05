@@ -558,6 +558,7 @@ narrator:
       # ── Image contents (from manifest inventory) ──────────────────
       - id: contents.base
         kind: build-contents
+        build: stagefreight
         section: inventories.versions
         renderer: badges
         placement:
@@ -566,6 +567,7 @@ narrator:
 
       - id: contents.apk
         kind: build-contents
+        build: stagefreight
         section: inventories.apk
         renderer: badges
         placement:

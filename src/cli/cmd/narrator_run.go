@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/component"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -17,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/props"
 	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -455,7 +455,6 @@ func buildModulesV2(appCfg *config.Config, items []config.NarratorItem, linkBase
 	return modules, nil
 }
 
-
 // resolveBadgeItemV2 resolves a v2 badge NarratorItem to a BadgeModule for markdown composition.
 // Uses the badge's Output path (SVG file) with rawBase to construct the image URL.
 func resolveBadgeItemV2(item config.NarratorItem, linkBase, rawBase string) narrator.Module {
@@ -491,16 +490,24 @@ func resolveBuildContentsManifest(appCfg *config.Config, item config.NarratorIte
 		return m
 	}
 
-	// Generate manifest from config (current scope).
-	// With multiple builds and no explicit source, this is ambiguous.
-	if len(appCfg.Builds) > 1 {
-		fmt.Fprintf(os.Stderr, "narrator: build-contents: multiple builds configured — set source to explicit manifest path or use a single-build config\n")
-		return nil
-	}
-	buildID := manifest.FindDefaultBuildID(appCfg)
+	// Determine which build owns this inventory. Ownership is declared, never
+	// inferred from build-list position.
+	buildID := item.Build
 	if buildID == "" {
-		fmt.Fprintf(os.Stderr, "narrator: build-contents: no builds configured\n")
-		return nil
+		switch len(appCfg.Builds) {
+		case 0:
+			fmt.Fprintf(os.Stderr, "narrator: build-contents: no builds configured\n")
+			return nil
+		case 1:
+			// Single build is unambiguous — backward-compatible default.
+			buildID = appCfg.Builds[0].ID
+		default:
+			// Multiple builds with no declared owner. Validation requires build:
+			// here, so this is reachable only if validation was bypassed; refuse
+			// to guess rather than couple doc output to build ordering.
+			fmt.Fprintf(os.Stderr, "narrator: build-contents: multiple builds configured — set build: to the owning build id\n")
+			return nil
+		}
 	}
 
 	// Try loading existing manifest first

@@ -71,6 +71,15 @@ type NarratorItem struct {
 
 	// ── kind: build-contents ────────────────────────────────────────────
 
+	// Build is the id of the build whose manifest this item renders
+	// (kind: build-contents). Ownership is declared, never inferred from build
+	// list position: when more than one build is configured this is required, so
+	// reordering or adding builds can never silently change which build's
+	// inventory a doc section renders. Optional only for single-build configs
+	// (backward compatibility), where the sole build is unambiguous. Ignored when
+	// Source is set (an explicit manifest path is even more specific).
+	Build string `yaml:"build,omitempty"`
+
 	// Source is an optional path to a manifest JSON file (kind: build-contents).
 	// If omitted, uses the current scope manifest.
 	Source string `yaml:"source,omitempty"`

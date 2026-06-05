@@ -303,7 +303,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				itemIDs[item.ID] = true
 			}
 
-			ierrs := validateNarratorItem(item, ipath)
+			ierrs := validateNarratorItem(item, ipath, buildIDs)
 			errs = append(errs, ierrs...)
 		}
 	}
@@ -665,7 +665,7 @@ func validateWhen(w TargetCondition, path string, versioning VersioningConfig, m
 }
 
 // validateNarratorItem checks kind, placement, and field constraints for a narrator item.
-func validateNarratorItem(item NarratorItem, path string) []string {
+func validateNarratorItem(item NarratorItem, path string, buildIDs map[string]bool) []string {
 	var errs []string
 
 	// Kind validation
@@ -735,6 +735,15 @@ func validateNarratorItem(item NarratorItem, path string) []string {
 	case "build-contents":
 		if item.Section == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires section (dot-path into manifest)", path))
+		}
+		// Build ownership must be explicit, never inferred from build-list order.
+		// An explicit source path (its own manifest) sidesteps build selection.
+		if item.Build != "" {
+			if !buildIDs[item.Build] {
+				errs = append(errs, fmt.Sprintf("%s: build %q is not a configured build", path, item.Build))
+			}
+		} else if item.Source == "" && len(buildIDs) > 1 {
+			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires build (owning build id) when multiple builds are configured", path))
 		}
 		if item.Renderer == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires renderer (table, list, or kv)", path))
