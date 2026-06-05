@@ -328,6 +328,7 @@ Content composition for file targets. Composes badges, shields, text, includes, 
 | `content` | `items.content` | string | No | — | Raw text/markdown content. Supports template variables. `kind: text` only. |
 | `spec` | `items.spec` | string | No | — | Component spec file path. `kind: component` only. |
 | `path` | `items.path` | string | No | — | File path to include verbatim. `kind: include` only. |
+| `build` | `items.build` | string | No | — | string value |
 | `source` | `items.source` | string | No | — | string value |
 | `section` | `items.section` | string | No | — | string value |
 | `renderer` | `items.renderer` | string | No | — | string value |
