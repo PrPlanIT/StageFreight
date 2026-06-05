@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
+	_ "github.com/PrPlanIT/StageFreight/src/build/contributors" // register build-strategy contributors
+	"github.com/PrPlanIT/StageFreight/src/build/domains"
 	_ "github.com/PrPlanIT/StageFreight/src/build/engines" // register binary engine
+	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -38,7 +40,7 @@ var buildBinaryCmd = &cobra.Command{
 
 Compiles Go binaries using go build, cross-compiling for all configured platforms.
 Injects version, commit, and build date via ldflags.`,
-	RunE: runBuildBinary,
+	RunE: runBuildBinaryDomains,
 }
 
 func init() {
@@ -79,23 +81,95 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 	var outputs artifact.OutputsManifest
 	rb := build.NewResultsBuilder()
 
-	p := &pipeline.Pipeline{
-		Phases: []pipeline.Phase{
+	return runBinaryPipeline(pc, &outputs, rb, false)
+}
+
+// runBuildBinaryDomains is the standalone `build binary` entrypoint on the
+// domain runner: one identity/executor/lint, then the contributor domains with
+// only the binary contributor active. --dry-run still uses the legacy plan path.
+func runBuildBinaryDomains(cmd *cobra.Command, args []string) error {
+	if bbDryRun {
+		return runBuildBinary(cmd, args)
+	}
+	rootDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	var outputs artifact.OutputsManifest
+	rb := build.NewResultsBuilder()
+	rc := &domains.RunContext{
+		Ctx:       context.Background(),
+		RootDir:   rootDir,
+		Config:    cfg,
+		Writer:    os.Stdout,
+		Color:     output.UseColor(),
+		Verbose:   verbose,
+		SkipLint:  bbSkipLint,
+		Local:     bbLocal,
+		Platforms: bbPlatforms,
+		BuildID:   bbBuildID,
+		Only:      []string{"binary"},
+		Outputs:   &outputs,
+		RB:        rb,
+	}
+	return domains.Run(rc)
+}
+
+// runBinaryPipeline runs the binary build pipeline against the given shared
+// manifest state. When suppressIdentity is true (the perform domain spine path),
+// the banner + executor phases are omitted — the spine renders identity and one
+// strict executor check once for the whole perform run. Whether the pipeline
+// renders its own Summary box is governed separately by pc.Embedded (the spine
+// sets it and renders one merged Summary across both engines).
+func runBinaryPipeline(pc *pipeline.PipelineContext, outputs *artifact.OutputsManifest, rb *build.ResultsBuilder, suppressIdentity bool) error {
+	var phases []pipeline.Phase
+	if !suppressIdentity {
+		phases = append(phases,
 			pipeline.BannerPhase(),
 			pipeline.ExecutorPreflightPhase(runner.Options{DockerRequired: false}),
-			pipeline.LintPhase(),
-			binaryDetectPhase(),
-			binaryPlanPhase(),
-			pipeline.DryRunGate(renderBinaryPlan),
-			binaryExecutePhase(&outputs, rb),
-			binaryArchivePhase(&outputs, rb),
-			binaryPublishPhase(&outputs, rb),
-		},
+		)
+	}
+	phases = append(phases,
+		pipeline.LintPhase(),
+		binaryDetectPhase(),
+		binaryPlanPhase(),
+		pipeline.DryRunGate(renderBinaryPlan),
+		binaryExecutePhase(outputs, rb),
+		binaryArchivePhase(outputs, rb),
+		binaryPublishPhase(outputs, rb),
+	)
+	p := &pipeline.Pipeline{
+		Phases: phases,
 		Hooks: []pipeline.PostBuildHook{
 			postbuild.BadgeHook(cfg, cmdBadgeRunner(cfg)),
 		},
 	}
 	return p.Run(pc)
+}
+
+// performBinaryEmbedded runs the binary pipeline as a contribution to the perform
+// domain spine: identity + executor are suppressed (the spine renders them once),
+// and pc.Embedded suppresses this pipeline's own Summary box (the spine renders
+// one merged Summary). It returns the pipeline context so the spine can read
+// pc.Results for that merged Summary.
+func performBinaryEmbedded(ctx context.Context, rootDir string, outputs *artifact.OutputsManifest, rb *build.ResultsBuilder) (*pipeline.PipelineContext, error) {
+	pc := &pipeline.PipelineContext{
+		Ctx:           ctx,
+		RootDir:       rootDir,
+		Config:        cfg,
+		Writer:        os.Stdout,
+		Color:         output.UseColor(),
+		CI:            output.IsCI(),
+		Verbose:       verbose,
+		SkipLint:      bbSkipLint,
+		DryRun:        bbDryRun,
+		Local:         bbLocal,
+		PipelineStart: time.Now(),
+		Scratch:       make(map[string]any),
+		Embedded:      true,
+	}
+	err := runBinaryPipeline(pc, outputs, rb, true)
+	return pc, err
 }
 
 // binaryDetectPhase discovers the repo and filters to binary builds.
@@ -335,26 +409,36 @@ func binaryExecutePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 			// flow for the archive phase to know which files to wrap.
 			var publishedBinaries []builtBinary
 
-			buildSec := output.NewSection(pc.Writer, "Build", 0, pc.Color)
-			for _, step := range allSteps {
+			// Execute every step first, capturing one row per step. The engine no
+			// longer streams framed output (gobuild captures + returns), so the
+			// Build box renders cleanly as a single unit AFTER the work — with the
+			// total elapsed in its header, matching the docker build pass
+			// (executeBuildPass). No section interleaves the box mid-render.
+			type buildRow struct {
+				stepID string
+				os     string
+				arch   string
+				dur    time.Duration
+				ok     bool
+			}
+			var rows []buildRow
+			var failedStep *build.UniversalStep
+			var buildErr error
+
+			for i := range allSteps {
+				step := allSteps[i]
 				result, err := engine.ExecuteStep(pc.Ctx, step)
 				if err != nil {
-					buildSec.Row("%-30s  %s/%s  %s", step.StepID, step.Platform.OS, step.Platform.Arch,
-						output.StatusIcon("failed", pc.Color))
-					buildSec.Close()
-					output.SectionEnd(pc.Writer, "sf_build")
-					return &pipeline.PhaseResult{
-						Name:    "build",
-						Status:  "failed",
-						Summary: fmt.Sprintf("step %s: %v", step.StepID, err),
-						Elapsed: time.Since(buildStart),
-					}, fmt.Errorf("step %s: %w", step.StepID, err)
+					rows = append(rows, buildRow{stepID: step.StepID, os: step.Platform.OS, arch: step.Platform.Arch})
+					failedStep = &allSteps[i]
+					buildErr = err
+					break
 				}
 
-				buildSec.Row("%-30s  %s/%s  %s  (%.1fs)", step.StepID,
-					step.Platform.OS, step.Platform.Arch,
-					output.StatusIcon("success", pc.Color),
-					result.Metrics.Duration.Seconds())
+				rows = append(rows, buildRow{
+					stepID: step.StepID, os: step.Platform.OS, arch: step.Platform.Arch,
+					dur: result.Metrics.Duration, ok: true,
+				})
 
 				binaryName := result.Metadata["binary_name"]
 				toolchain := result.Metadata["toolchain"]
@@ -403,7 +487,40 @@ func binaryExecutePhase(outputs *artifact.OutputsManifest, rb *build.ResultsBuil
 					})
 				}
 			}
+
 			buildElapsed := time.Since(buildStart)
+
+			buildSec := output.NewSection(pc.Writer, "Build", buildElapsed, pc.Color)
+			for _, r := range rows {
+				if r.ok {
+					buildSec.Row("%-30s  %s/%s  %s  (%.1fs)", r.stepID, r.os, r.arch,
+						output.StatusIcon("success", pc.Color), r.dur.Seconds())
+				} else {
+					buildSec.Row("%-30s  %s/%s  %s", r.stepID, r.os, r.arch,
+						output.StatusIcon("failed", pc.Color))
+				}
+			}
+
+			if buildErr != nil {
+				// Surface the failure inside the box (matches docker's
+				// RenderBuildError) — the engine returned diagnostics in the error.
+				output.RowStatus(buildSec, "status", "build failed", "failed", pc.Color)
+				for _, ln := range strings.Split(strings.TrimSpace(buildErr.Error()), "\n") {
+					if strings.TrimSpace(ln) == "" {
+						continue
+					}
+					buildSec.Row("  %s", ln)
+				}
+				buildSec.Close()
+				output.SectionEnd(pc.Writer, "sf_build")
+				return &pipeline.PhaseResult{
+					Name:    "build",
+					Status:  "failed",
+					Summary: fmt.Sprintf("step %s: %v", failedStep.StepID, buildErr),
+					Elapsed: buildElapsed,
+				}, fmt.Errorf("step %s: %w", failedStep.StepID, buildErr)
+			}
+
 			buildSec.Close()
 			output.SectionEnd(pc.Writer, "sf_build")
 

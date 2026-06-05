@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
-	"github.com/PrPlanIT/StageFreight/src/build/docker"
+	"github.com/PrPlanIT/StageFreight/src/build"
+	_ "github.com/PrPlanIT/StageFreight/src/build/contributors" // register build-strategy contributors
+	"github.com/PrPlanIT/StageFreight/src/build/domains"
+	_ "github.com/PrPlanIT/StageFreight/src/build/docker" // register the crucible contributor
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/ci"
@@ -72,27 +75,16 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	// Resolve build policy from config. If ANY build is required, the subsystem is required.
+	// Resolve build policy: if ANY build is required, the subsystem is required.
 	buildRequired := false
-	dockerRequired := false
-	isCrucible := false
 	for _, b := range appCfg.Builds {
 		if b.IsRequired() {
 			buildRequired = true
 		}
-		if b.Kind == "docker" {
-			dockerRequired = true
-		}
-		if b.BuildMode == "crucible" {
-			isCrucible = true
-		}
 	}
-	if len(appCfg.Builds) == 0 {
-		buildRequired = true // no builds configured = subsystem still required (will report not_applicable)
-	}
-
-	if r := executorCheck(rootDir, runner.Options{DockerRequired: dockerRequired, IsCrucible: isCrucible}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("build subsystem: substrate unhealthy")
+	hasBuilds := len(appCfg.Builds) > 0
+	if !hasBuilds {
+		buildRequired = true // no builds configured = subsystem still required (reports not_applicable)
 	}
 
 	// Initialize pipeline state with CI context
@@ -105,67 +97,8 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
 
-	// Run binary builds first (if configured) — needed for depends_on ordering
-	hasBinaryBuilds := false
-	for _, b := range appCfg.Builds {
-		if b.Kind == "binary" {
-			hasBinaryBuilds = true
-			break
-		}
-	}
-	if hasBinaryBuilds {
-		if err := runBuildBinary(buildBinaryCmd, nil); err != nil {
-			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
-				st.RecordSubsystem(cistate.SubsystemState{
-					Name: "build", Attempted: true, Required: buildRequired,
-					Outcome: "failed", Reason: "binary build: " + err.Error(),
-				})
-			}); stErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
-			}
-			return fmt.Errorf("build subsystem (binary): %w", err)
-		}
-	}
-
-	// Run docker builds (if configured)
-	hasDockerBuilds := false
-	for _, b := range appCfg.Builds {
-		if b.Kind == "docker" {
-			hasDockerBuilds = true
-			break
-		}
-	}
-	if hasDockerBuilds {
-		// Activate the content store (transport floor): perform retains each
-		// built image's OCI layout under .stagefreight/objects/, keyed by its
-		// content digest. .stagefreight/ is carried between CI phases as
-		// artifacts, so review and publish resolve these exact bytes — proving
-		// the same artifact flows through all phases rather than being rebuilt.
-		// Default-on: one store mode per deployment, uniform identity semantics.
-		store := cas.NewWorkspaceStore(rootDir)
-		if err := docker.Run(docker.Request{
-			Context:  ctx,
-			RootDir:  rootDir,
-			Config:   appCfg,
-			Verbose:  opts.Verbose,
-			Stdout:   os.Stdout,
-			Stderr:   os.Stderr,
-			SkipLint: true, // lint ran in deps stage
-			Store:    store,
-		}); err != nil {
-			if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
-				st.RecordSubsystem(cistate.SubsystemState{
-					Name: "build", Attempted: true, Required: buildRequired,
-					Outcome: "failed", Reason: err.Error(),
-				})
-			}); stErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
-			}
-			return silentExit(err)
-		}
-	}
-
-	if !hasBinaryBuilds && !hasDockerBuilds {
+	// No builds configured → not_applicable.
+	if !hasBuilds {
 		fmt.Fprintln(os.Stderr, "build: no builds configured — skipping")
 		if ciCtx.IsCI() {
 			if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
@@ -179,6 +112,37 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 			}
 		}
 		return nil
+	}
+
+	// ONE domain-ordered run: the binary and docker/crucible contributors feed
+	// the shared domains (Detect/Plan/Build/Verify/Publish); the run renders one
+	// Identity/Executor/Summary and writes the single outputs.json/published.json
+	// pair. Replaces the former two-pipeline dispatch (and its manifest clobber).
+	var runOutputs artifact.OutputsManifest
+	runRB := build.NewResultsBuilder()
+	store := cas.NewWorkspaceStore(rootDir)
+	rc := &domains.RunContext{
+		Ctx:     ctx,
+		RootDir: rootDir,
+		Config:  appCfg,
+		Writer:  os.Stdout,
+		Stderr:  os.Stderr,
+		Color:   output.UseColor(),
+		Verbose: opts.Verbose,
+		Store:   store,
+		Outputs: &runOutputs,
+		RB:      runRB,
+	}
+	if err := domains.Run(rc); err != nil {
+		if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name: "build", Attempted: true, Required: buildRequired,
+				Outcome: "failed", Reason: err.Error(),
+			})
+		}); stErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", stErr)
+		}
+		return silentExit(err)
 	}
 
 	// Read v2 manifests to determine what was produced. PublishedCount =

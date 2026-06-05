@@ -78,16 +78,21 @@ func runCrucibleMode(req Request) error {
 		gitver.SetProjectDescription(desc)
 	}
 
-	// ── Banner + Code Identity ───────────────────────────────────
-	output.Banner(w, output.NewBannerInfo(version.Version, version.Commit, ""), color)
-	output.ContextBlock(w, pipeline.CIContextKV(), color)
+	// ── Banner + Code Identity + Executor ────────────────────────
+	// In an embedded run the perform domain spine renders identity + one strict
+	// executor check once for the whole run; crucible must not re-render them
+	// (that is the duplication the spine exists to eliminate). Standalone
+	// `docker build` leaves Embedded false and renders them here as before.
+	if !req.Embedded {
+		output.Banner(w, output.NewBannerInfo(version.Version, version.Commit, ""), color)
+		output.ContextBlock(w, pipeline.CIContextKV(), color)
 
-	// ── Execution substrate (Executor panel) ───────────────────────
-	// Crucible always requires Docker; IsCrucible doubles thresholds.
-	// Note: crucible child (pass 2) is excluded via IsCrucibleChild() in
-	// ExecutorPreflightPhase — crucible.go is only reached from the outer pass.
-	if r := pipeline.ExecutorPreflightWithWriter(w, rootDir, runner.Options{DockerRequired: true, IsCrucible: true}, color); r.Health == runner.Unhealthy {
-		return fmt.Errorf("crucible: substrate unhealthy — aborting before pass 1")
+		// Crucible always requires Docker; IsCrucible doubles thresholds.
+		// Note: crucible child (pass 2) is excluded via IsCrucibleChild() in
+		// ExecutorPreflightPhase — crucible.go is only reached from the outer pass.
+		if r := pipeline.ExecutorPreflightWithWriter(w, rootDir, runner.Options{DockerRequired: true, IsCrucible: true}, color); r.Health == runner.Unhealthy {
+			return fmt.Errorf("crucible: substrate unhealthy — aborting before pass 1")
+		}
 	}
 
 	crucibleEpoch := fmt.Sprintf("%d", pipelineStart.Unix())
@@ -566,29 +571,37 @@ func runCrucibleMode(req Request) error {
 	provSec.Close()
 
 	// ── Summary ──────────────────────────────────────────────────
+	// Build the crucible's summary rows once. In a standalone run we render them
+	// in a Summary box here. In an embedded run we hand them to the spine's sink
+	// (prefixed so they don't collide with the binary engine's rows), and the
+	// spine renders ONE merged Summary for the whole perform run.
 	totalElapsed := time.Since(pipelineStart)
-	sumSec := output.NewSection(w, "Summary", 0, color)
-
-	if !req.SkipLint {
-		output.SummaryRow(w, "lint", "success", "lint gate passed", color)
-	} else {
-		output.SummaryRow(w, "lint", "skipped", "skip requested", color)
+	overallStatus := "success"
+	if !cruciblePassed {
+		overallStatus = "failed"
 	}
-	output.SummaryRow(w, "detect", "success",
-		fmt.Sprintf("%d Dockerfile(s), %s", len(det.Dockerfiles), det.Language), color)
-	output.SummaryRow(w, "plan", "success",
-		fmt.Sprintf("%d build(s), %d tag(s)", len(plan.Steps), 2), color)
+
+	var rows []pipeline.PhaseResult
+	if !req.SkipLint {
+		rows = append(rows, pipeline.PhaseResult{Name: "lint", Status: "success", Summary: "lint gate passed"})
+	} else {
+		rows = append(rows, pipeline.PhaseResult{Name: "lint", Status: "skipped", Summary: "skip requested"})
+	}
+	rows = append(rows, pipeline.PhaseResult{Name: "detect", Status: "success",
+		Summary: fmt.Sprintf("%d Dockerfile(s), %s", len(det.Dockerfiles), det.Language)})
+	rows = append(rows, pipeline.PhaseResult{Name: "plan", Status: "success",
+		Summary: fmt.Sprintf("%d build(s), %d tag(s)", len(plan.Steps), 2)})
 
 	if pass1Err == nil {
-		output.SummaryRow(w, "build", "success", "pass 1 candidate produced", color)
+		rows = append(rows, pipeline.PhaseResult{Name: "build", Status: "success", Summary: "pass 1 candidate produced"})
 	} else {
-		output.SummaryRow(w, "build", "failed", "pass 1 candidate failed", color)
+		rows = append(rows, pipeline.PhaseResult{Name: "build", Status: "failed", Summary: "pass 1 candidate failed"})
 	}
 
 	if pass2Err == nil {
-		output.SummaryRow(w, "rebuild", "success", "pass 2 self-proof verified", color)
+		rows = append(rows, pipeline.PhaseResult{Name: "rebuild", Status: "success", Summary: "pass 2 self-proof verified"})
 	} else {
-		output.SummaryRow(w, "rebuild", "failed", "pass 2 self-proof failed", color)
+		rows = append(rows, pipeline.PhaseResult{Name: "rebuild", Status: "failed", Summary: "pass 2 self-proof failed"})
 	}
 
 	if verification != nil {
@@ -596,7 +609,7 @@ func runCrucibleMode(req Request) error {
 		if verification.HasHardFailure() {
 			verStatus = "failed"
 		}
-		output.SummaryRow(w, "verification", verStatus, build.TrustLevelLabel(verification.TrustLevel), color)
+		rows = append(rows, pipeline.PhaseResult{Name: "verification", Status: verStatus, Summary: build.TrustLevelLabel(verification.TrustLevel)})
 	}
 
 	if publishPassed && publishResult != nil {
@@ -609,20 +622,29 @@ func runCrucibleMode(req Request) error {
 				pushed += len(step.Images) // fallback to raw refs
 			}
 		}
-		output.SummaryRow(w, "publish", "success", fmt.Sprintf("%d image(s) (verified artifact)", pushed), color)
+		rows = append(rows, pipeline.PhaseResult{Name: "publish", Status: "success", Summary: fmt.Sprintf("%d image(s) (verified artifact)", pushed)})
 	} else if cruciblePassed && (verification == nil || !verification.HasHardFailure()) {
-		output.SummaryRow(w, "publish", "failed", "publish failed after verification", color)
+		rows = append(rows, pipeline.PhaseResult{Name: "publish", Status: "failed", Summary: "publish failed after verification"})
 	} else if cruciblePassed {
-		output.SummaryRow(w, "publish", "failed", "verification blocked publish", color)
+		rows = append(rows, pipeline.PhaseResult{Name: "publish", Status: "failed", Summary: "verification blocked publish"})
 	}
 
-	sumSec.Separator()
-	overallStatus := "success"
-	if !cruciblePassed {
-		overallStatus = "failed"
+	if req.Embedded && req.ResultSink != nil {
+		// Namespace the docker engine's rows so the merged Summary doesn't show
+		// two "detect"/"build"/"publish" lines colliding with the binary engine.
+		for i := range rows {
+			rows[i].Name = "crucible " + rows[i].Name
+		}
+		*req.ResultSink = append(*req.ResultSink, rows...)
+	} else {
+		sumSec := output.NewSection(w, "Summary", 0, color)
+		for _, r := range rows {
+			output.SummaryRow(w, r.Name, r.Status, r.Summary, color)
+		}
+		sumSec.Separator()
+		output.SummaryTotal(w, totalElapsed, overallStatus, color)
+		sumSec.Close()
 	}
-	output.SummaryTotal(w, totalElapsed, overallStatus, color)
-	sumSec.Close()
 
 	// ── Verdict — sacred elephant law: these lines do NOT change ──
 	switch {

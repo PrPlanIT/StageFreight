@@ -11,8 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 // GoBuild wraps Go compilation commands.
@@ -93,10 +91,13 @@ func (g *GoBuild) Build(ctx context.Context, opts GoBuildOpts) (*GoBuildResult, 
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 
-	// Capture rather than stream: `go build` emits a flood of "go: downloading …"
-	// lines on a cold module cache that would taint StageFreight's structured
-	// output. We render it compactly instead — collapsed (expandable) in CI,
-	// quiet locally unless verbose — and surface real diagnostics on failure.
+	// Capture rather than stream — mirrors the docker build pass
+	// (crucible.go executeBuildPass: bx.Stdout = &stdoutBuf). `go build` emits a
+	// flood of "go: downloading …" lines on a cold module cache; an engine must
+	// never write framed output into the live stream (that breaks the Section box
+	// the presentation layer is composing). We capture into a buffer, drop it on
+	// success, and surface only the real diagnostics — via the returned error —
+	// on failure. The presentation layer owns all framing.
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -107,39 +108,18 @@ func (g *GoBuild) Build(ctx context.Context, opts GoBuildOpts) (*GoBuildResult, 
 
 	runErr := cmd.Run()
 
-	raw := buf.String()
-	var downloads int
-	var diagLines []string
-	for _, ln := range strings.Split(raw, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(ln), "go: downloading ") {
-			downloads++
-			continue
-		}
-		if strings.TrimSpace(ln) != "" {
-			diagLines = append(diagLines, ln)
-		}
-	}
-
-	if strings.TrimSpace(raw) != "" {
-		if output.IsGitLabCI() {
-			label := fmt.Sprintf("go build · %s/%s", opts.GOOS, opts.GOARCH)
-			if downloads > 0 {
-				label = fmt.Sprintf("%s · %d module(s) downloaded", label, downloads)
-			}
-			secID := fmt.Sprintf("sf_gobuild_%s_%s", opts.GOOS, opts.GOARCH)
-			output.SectionStartCollapsed(g.Stdout, secID, label)
-			fmt.Fprint(g.Stdout, raw)
-			if !strings.HasSuffix(raw, "\n") {
-				fmt.Fprintln(g.Stdout)
-			}
-			output.SectionEnd(g.Stdout, secID)
-		} else if g.Verbose {
-			fmt.Fprint(g.Stdout, raw)
-		}
-	}
-
 	if runErr != nil {
 		// Surface the real diagnostics (compile errors), never the download spam.
+		raw := buf.String()
+		var diagLines []string
+		for _, ln := range strings.Split(raw, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(ln), "go: downloading ") {
+				continue // module-download chatter — never a diagnostic
+			}
+			if strings.TrimSpace(ln) != "" {
+				diagLines = append(diagLines, ln)
+			}
+		}
 		if diag := strings.TrimSpace(strings.Join(diagLines, "\n")); diag != "" {
 			return nil, fmt.Errorf("go build failed: %w\n%s", runErr, diag)
 		}

@@ -18,17 +18,25 @@ const FailureDetailFile = ".stagefreight/failure-detail.json"
 
 // renderSummary writes the summary table from accumulated PhaseResults.
 func renderSummary(pc *PipelineContext) {
-	if len(pc.Results) == 0 {
+	RenderRunSummary(pc.Writer, pc.Color, pc.RootDir, pc.Results, time.Since(pc.PipelineStart))
+}
+
+// RenderRunSummary renders the Summary box from a result set and total elapsed.
+// Exported so the perform domain spine can aggregate results across the binary
+// and docker engines into ONE Summary — instead of each embedded pipeline
+// rendering its own. Behavior for a single pipeline is identical to the former
+// inline renderSummary (it is the same code path via the delegating wrapper).
+func RenderRunSummary(w io.Writer, color bool, rootDir string, results []PhaseResult, totalElapsed time.Duration) {
+	if len(results) == 0 {
 		return
 	}
 
-	totalElapsed := time.Since(pc.PipelineStart)
 	overallStatus := "success"
 
-	sumSec := output.NewSection(pc.Writer, "Summary", 0, pc.Color)
+	sumSec := output.NewSection(w, "Summary", 0, color)
 
 	var failure *FailureDetail
-	for _, r := range pc.Results {
+	for _, r := range results {
 		// Skip banner from summary — it's infrastructure, not a reportable phase
 		if r.Name == "banner" {
 			continue
@@ -46,12 +54,12 @@ func renderSummary(pc *PipelineContext) {
 		}
 
 		if r.Summary != "" {
-			output.SummaryRow(pc.Writer, r.Name, r.Status, r.Summary, pc.Color)
+			output.SummaryRow(w, r.Name, r.Status, r.Summary, color)
 		}
 	}
 
 	sumSec.Separator()
-	output.SummaryTotal(pc.Writer, totalElapsed, overallStatus, pc.Color)
+	output.SummaryTotal(w, totalElapsed, overallStatus, color)
 	sumSec.Close()
 
 	if failure == nil {
@@ -61,12 +69,12 @@ func renderSummary(pc *PipelineContext) {
 	// Crucible child: write FailureDetail to disk for the outer process.
 	// Do NOT render Exit Reason — the outer crucible owns that.
 	if build.IsCrucibleChild() {
-		writeFailureDetail(pc.RootDir, failure)
+		writeFailureDetail(rootDir, failure)
 		return
 	}
 
 	// Standard pipeline: render Exit Reason inline after the summary.
-	RenderExitReason(pc.Writer, failure)
+	RenderExitReason(w, failure)
 }
 
 // writeFailureDetail persists a FailureDetail as JSON for the outer crucible.

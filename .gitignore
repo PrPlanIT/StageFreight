@@ -7,3 +7,6 @@ src/output/banner_art_gen.go
 /stagefreight
 /stagefreight-bin
 *.exe
+
+# binary build output (dist/<os>-<arch>/ binaries, archives, SHA256SUMS)
+/dist/
