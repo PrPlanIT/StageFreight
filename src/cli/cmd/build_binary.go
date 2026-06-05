@@ -88,9 +88,6 @@ func runBuildBinary(cmd *cobra.Command, args []string) error {
 // domain runner: one identity/executor/lint, then the contributor domains with
 // only the binary contributor active. --dry-run still uses the legacy plan path.
 func runBuildBinaryDomains(cmd *cobra.Command, args []string) error {
-	if bbDryRun {
-		return runBuildBinary(cmd, args)
-	}
 	rootDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
@@ -105,6 +102,7 @@ func runBuildBinaryDomains(cmd *cobra.Command, args []string) error {
 		Color:     output.UseColor(),
 		Verbose:   verbose,
 		SkipLint:  bbSkipLint,
+		DryRun:    bbDryRun,
 		Local:     bbLocal,
 		Platforms: bbPlatforms,
 		BuildID:   bbBuildID,

@@ -73,6 +73,7 @@ type RunContext struct {
 	Color    bool
 	Verbose  bool
 	SkipLint bool
+	DryRun   bool // stop after Plan: render Detect+Plan, skip Build/Verify/Publish + manifests
 	Store    cas.Store
 	Target   string // optional build target (docker), ignored by strategies that don't use it
 

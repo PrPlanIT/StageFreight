@@ -81,6 +81,14 @@ func Run(rc *RunContext) error {
 			pipeline.RenderRunSummary(rc.Writer, rc.Color, rc.RootDir, results, time.Since(start))
 			return err
 		}
+		// Dry-run gate: after intent is resolved (Detect + Plan), stop before any
+		// build/publish. Preserves the standalone commands' --dry-run semantics
+		// (show the plan, build nothing) on the single lifecycle engine.
+		if d == DomainPlan && rc.DryRun {
+			fmt.Fprintf(rc.Writer, "\n    dry-run: plan complete — build / verify / publish skipped\n")
+			pipeline.RenderRunSummary(rc.Writer, rc.Color, rc.RootDir, results, time.Since(start))
+			return nil
+		}
 	}
 
 	// ── Summary (run-level, once) ───────────────────────────────
