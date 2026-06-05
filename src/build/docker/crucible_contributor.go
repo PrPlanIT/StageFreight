@@ -102,25 +102,11 @@ func (c *crucibleContributor) Detect(rc *domains.RunContext) (domains.Contributi
 	}
 	c.created = time.Unix(c.pipelineStart.Unix(), 0).UTC().Format(time.RFC3339)
 
-	w, color := rc.Writer, rc.Color
+	// Resolve the backend now; its facts (mode/passes/tags/backend) fold into the
+	// Build box as a subsection rather than a standalone Crucible Context panel.
 	backend, backendErr := ResolveBackendWithConfig(BackendCapabilities{
 		Build: true, Run: true, Filesystem: true,
 	}, rc.Config.BuildCache.Builder.Backend)
-
-	ctxSec := output.NewSection(w, "Crucible Context", 0, color)
-	ctxSec.Row("%-16s%s", "mode", "crucible")
-	ctxSec.Row("%-16s%s", "phase", "self-build verification")
-	ctxSec.Row("%-16s%s", "epoch", fmt.Sprintf("%d", c.pipelineStart.Unix()))
-	ctxSec.Row("%-16s%s", "passes", "2 (candidate → self-proof)")
-	ctxSec.Row("%-16s%s", "candidate", c.candidateTag)
-	ctxSec.Row("%-16s%s", "verify", c.verifyTag)
-	ctxSec.Row("%-16s%s", "platform", fmt.Sprintf("linux/%s", runtime.GOARCH))
-	if backendErr == nil {
-		ctxSec.Row("%-16s%s", "backend", backend.Kind)
-	} else {
-		ctxSec.Row("%-16s%s", "backend", "unavailable")
-	}
-	ctxSec.Close()
 	if backendErr != nil {
 		return domains.Contribution{}, fmt.Errorf("crucible: no coherent backend: %w", backendErr)
 	}
@@ -188,14 +174,11 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 	w, color, ctx := rc.Writer, rc.Color, rc.Ctx
 	c.buildAttempted = true // from here the Verdict is crucible's to render
 
-	// ── Builder ──
+	// Resolve builder + cache — no standalone Builder/Cache panels; their essential
+	// facts fold into the Build box (next) as a subsection.
 	c.builderInfo = ResolveBuilderInfo(EnsureBuilderWithBackend(rc.Config.BuildCache.Builder, c.backend))
-	RenderBuilderInfo(w, color, c.builderInfo)
-
-	// ── Cache ──
 	pc := &pipeline.PipelineContext{Ctx: ctx, RootDir: c.rootDir, Config: rc.Config, Writer: w, Color: color, Verbose: rc.Verbose}
 	cacheInfo := ResolveCacheInfo(pc)
-	RenderCacheInfo(w, color, cacheInfo)
 	if rc.Config.BuildCache.IsActive() {
 		versionInfo, _ := build.DetectVersion(c.rootDir, rc.Config)
 		cacheRepoID := resolveRepoIDFromContext(pc)
@@ -261,10 +244,26 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		proofIcon = output.StatusIcon("failed", color)
 		status, summary = "failed", "pass 2 self-proof failed"
 	}
+	// Build box, single domain unit: folded context/builder/cache subsection,
+	// then the candidate + self-proof result rows. (The pass-1/pass-2 layer boxes
+	// — the build log itself — still render above; they are not metadata.)
 	rows := []string{
+		fmt.Sprintf("%-9s crucible · 2-pass (candidate→verify) · platform linux/%s · backend %s",
+			"docker", runtime.GOARCH, c.backend.Kind),
+		fmt.Sprintf("%-9s builder %s (%s · buildkit %s)",
+			"docker", c.builderInfo.Name, c.builderInfo.Driver, c.builderInfo.BuildKit),
+	}
+	if cacheInfo.Mode != "" && cacheInfo.Mode != "off" {
+		cacheRow := fmt.Sprintf("%-9s cache %s", "docker", cacheInfo.Mode)
+		if cacheInfo.Branch != "" {
+			cacheRow += " (branch " + cacheInfo.Branch + ")"
+		}
+		rows = append(rows, cacheRow)
+	}
+	rows = append(rows,
 		fmt.Sprintf("%-9s crucible candidate   %s", "docker", candIcon),
 		fmt.Sprintf("%-9s crucible self-proof  %s", "docker", proofIcon),
-	}
+	)
 	// On pass-2 failure we still proceed (no error) so Publish renders provenance
 	// + verdict and fails the run there — preserving the monolith's ordering.
 	return domains.Contribution{Rows: rows, Status: status, Summary: summary}, nil
