@@ -38,14 +38,6 @@ type PipelineContext struct {
 	BuildPlan     *build.BuildPlan // set by build planning phases when applicable; nil for pipelines with no build plan
 	Results       []PhaseResult    // accumulated by pipeline runner
 
-	// Embedded marks this pipeline as one contribution to a larger domain run
-	// (the perform domain spine). When true the pipeline does NOT render its own
-	// banner/executor (the spine renders those once) and does NOT render its own
-	// Summary box or run contract enforcement — the spine owns the merged Summary
-	// and reads pc.Results to build it. Manifest finalize/write also moves to the
-	// spine. Standalone runs leave this false and behave exactly as before.
-	Embedded bool
-
 	// Trace is the truth emission collector for this pipeline run.
 	// All inputs, decisions, mutations, and side effects emit through it.
 	// Panels render from it; enforcement validates completeness at end of run.
@@ -103,9 +95,7 @@ func (p *Pipeline) Run(pc *PipelineContext) error {
 
 		if err != nil {
 			if errors.Is(err, ErrDryRunExit) {
-				if !pc.Embedded {
-					renderSummary(pc)
-				}
+				renderSummary(pc)
 				return nil
 			}
 			phaseErr = err
@@ -114,9 +104,7 @@ func (p *Pipeline) Run(pc *PipelineContext) error {
 	}
 
 	if phaseErr != nil {
-		if !pc.Embedded {
-			renderSummary(pc)
-		}
+		renderSummary(pc)
 		return phaseErr
 	}
 
@@ -143,14 +131,6 @@ func (p *Pipeline) Run(pc *PipelineContext) error {
 			})
 		}
 		// Hook errors are non-fatal — continue to next hook
-	}
-
-	// Embedded pipelines defer the Summary box and contract enforcement to the
-	// perform domain spine, which aggregates results across engines and owns the
-	// single merged Summary. Rendering them here would re-introduce the very
-	// duplication the domain spine exists to remove.
-	if pc.Embedded {
-		return nil
 	}
 
 	renderSummary(pc)
