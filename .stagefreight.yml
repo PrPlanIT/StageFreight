@@ -217,9 +217,9 @@ docs:
     push: true
     # StageFreight's own docs are project metadata, not build inputs (the image
     # is built from src/ only — README/docs are never copied in), so the docs
-    # auto-commit is synchronization output, not new source intent. Mark it
-    # [skip ci] so it does not enter the lifecycle and spawn a follow-up pipeline
-    # that auto-cancels the narrate which produced it. (Repos that ship docs IN
+    # auto-commit is synchronization output, not new source intent. Marking it
+    # skip-ci keeps it from entering the lifecycle and spawning a follow-up
+    # pipeline that auto-cancels the narrate which produced it. (Repos that ship docs IN
     # the image — e.g. FAIRER-pages — keep this false: there a docs change is a
     # real build input.) Broader X-StageFreight-Generated-keyed policy is TODO.
     skip_ci: true
