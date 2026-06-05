@@ -11,12 +11,13 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
-	_ "github.com/PrPlanIT/StageFreight/src/build/engines" // register the binary EngineV2
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
+	_ "github.com/PrPlanIT/StageFreight/src/build/engines" // register the binary EngineV2
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 func init() {
@@ -127,7 +128,22 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 		return domains.Contribution{Skip: true}, nil
 	}
 
+	// Lead with the Go cache disposition so cross-run reuse is observable, not
+	// inferred from build times. "off" means /stagefreight is unwritable and the
+	// build is paying the full cold cost into ephemeral storage every run; "warm"
+	// means the persistent GOCACHE was reused; "cold" means this run is populating
+	// it for the next. Mirrors the docker strategy's cache row.
 	var rows []string
+	if gomod, _, warm := toolchain.GoCacheStatus(); gomod == "" {
+		rows = append(rows, fmt.Sprintf("%-9s cache off — /stagefreight not writable (ephemeral $HOME)", "binary"))
+	} else {
+		state := "cold (populating)"
+		if warm {
+			state = "warm (reused)"
+		}
+		rows = append(rows, fmt.Sprintf("%-9s cache %s · %s", "binary", filepath.Dir(gomod), state))
+	}
+
 	for i := range b.steps {
 		step := b.steps[i]
 		result, err := b.engine.ExecuteStep(rc.Ctx, step)
@@ -144,7 +160,7 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 			output.StatusIcon("success", rc.Color), result.Metrics.Duration.Seconds()))
 
 		binaryName := result.Metadata["binary_name"]
-		toolchain := result.Metadata["toolchain"]
+		toolchainID := result.Metadata["toolchain"] // local; avoid shadowing the toolchain package
 		for _, out := range result.Artifacts {
 			artifactName := uniqueBinaryArtifactName(binaryName, step.Platform.OS, step.Platform.Arch)
 			artifactID := artifact.NewArtifactID("binary", artifactName)
@@ -153,7 +169,7 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 				Name:    artifactName,
 				Version: b.version.Version,
 				Binary: &artifact.BinaryDescriptor{
-					OS: step.Platform.OS, Arch: step.Platform.Arch, Path: out.Path, Toolchain: toolchain,
+					OS: step.Platform.OS, Arch: step.Platform.Arch, Path: out.Path, Toolchain: toolchainID,
 				},
 			})
 			rc.RB.Record(artifactID, artifact.Outcome{

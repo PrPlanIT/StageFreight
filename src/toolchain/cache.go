@@ -93,6 +93,28 @@ func isWritable(dir string) bool {
 	return true
 }
 
+// GoCacheStatus returns the resolved GOMODCACHE/GOCACHE plus whether the build
+// cache is already warm (a prior run populated it). gomod=="" means no
+// persistent mount is available, so the build will fall back to Go's ephemeral
+// $HOME caches — surfaced as an explicit "cache off" row. warm=true means the
+// persistent GOCACHE already holds compiled packages, so this build reuses them
+// (the fast path); cold means the build is populating the cache for next time.
+func GoCacheStatus() (gomod, gocache string, warm bool) {
+	gomod, gocache = GoCacheDirs()
+	if gocache == "" {
+		return "", "", false
+	}
+	// Go's build cache stores compiled objects under hashed subdirectories; the
+	// presence of any subdir means a previous build wrote into this cache.
+	entries, _ := os.ReadDir(gocache)
+	for _, e := range entries {
+		if e.IsDir() {
+			return gomod, gocache, true
+		}
+	}
+	return gomod, gocache, false
+}
+
 // ensureWritableDir creates dir (and parents) and reports whether it is
 // writable. Unlike isWritable it does NOT require dir to pre-exist: the
 // persistent /stagefreight volume is mounted empty, so its subdirs must be
