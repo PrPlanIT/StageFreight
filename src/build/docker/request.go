@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
@@ -42,17 +41,4 @@ type Request struct {
 	// `docker build` CLI). Nil is NOT a supported way to disable transport in a
 	// deployment pipeline — there is intentionally no config knob for that.
 	Store cas.Store
-
-	// Embedded marks this docker run as one contribution to the perform domain
-	// spine (which runs the binary engine + the docker engine as one cohesive
-	// run). When true, the docker run does NOT render its own banner/Code,
-	// executor, or Summary box — the spine renders identity/executor once and
-	// owns the single merged Summary. The Crucible Verdict still renders inline.
-	Embedded bool
-
-	// ResultSink, when non-nil, receives this run's phase results (lint, detect,
-	// plan, build, verification, publish) instead of the docker run rendering its
-	// own Summary box. The spine appends these to the binary engine's results and
-	// renders one Summary for the whole perform run. Only consulted when Embedded.
-	ResultSink *[]pipeline.PhaseResult
 }
