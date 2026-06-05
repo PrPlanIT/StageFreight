@@ -304,6 +304,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 	transport := transportActive(c.req)
 	publishPassed := false
 	var publishResult *build.BuildResult
+	var storeRows []string // Content Store evidence, folded into the Publish box
 
 	if c.cruciblePassed && (c.verification == nil || !c.verification.HasHardFailure()) {
 		publishPlan := clonePlan(c.plan)
@@ -377,7 +378,10 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 						}
 					}
 					captureArtifactDigests(publishPlan, &outputs)
-					persistArtifacts(publishPlan, &outputs, rc.Store, w, color)
+					// Retain to the content store and fold the evidence (digest +
+					// "deferred to publish") into the Publish box instead of a
+					// standalone Content Store panel.
+					storeRows = contentStoreRows(persistArtifactsRecords(publishPlan, &outputs, rc.Store))
 					// Merge into the run's single shared manifest — the run finalizes
 					// + writes outputs.json/published.json once, so binary and docker
 					// artifacts coexist (the former clobber is gone).
@@ -413,14 +417,14 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		_, _ = postbuild.RunRetentionSection(ctx, w, output.IsCI(), color, c.plan)
 	}
 
-	// ── Provenance ──
-	c.writeProvenance(w, color)
+	// ── Provenance (folded into the Publish box, no standalone panel) ──
+	provRows := c.provenanceRows()
 
 	// Verdict moved to Conclude() — rendered by the run AFTER the Summary.
 	if !c.cruciblePassed {
-		return domains.Contribution{
-			Rows: []string{fmt.Sprintf("%-9s self-build failed", "docker")}, Status: "failed", Summary: "crucible failed",
-		}, fmt.Errorf("crucible: self-build failed")
+		rows := append([]string{fmt.Sprintf("%-9s self-build failed", "docker")}, provRows...)
+		return domains.Contribution{Rows: rows, Status: "failed", Summary: "crucible failed"},
+			fmt.Errorf("crucible: self-build failed")
 	}
 	if publishPassed && publishResult != nil {
 		pushed := 0
@@ -435,15 +439,32 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		if pushed > 0 {
 			detail = fmt.Sprintf("%-9s %d image(s) (verified artifact)", "docker", pushed)
 		}
-		return domains.Contribution{Rows: []string{detail}, Status: "success", Summary: "verified artifact"}, nil
+		rows := append([]string{detail}, storeRows...)
+		rows = append(rows, provRows...)
+		return domains.Contribution{Rows: rows, Status: "success", Summary: "verified artifact"}, nil
 	}
-	return domains.Contribution{
-		Rows: []string{fmt.Sprintf("%-9s publish blocked", "docker")}, Status: "failed", Summary: "publish failed after verification",
-	}, nil
+	rows := append([]string{fmt.Sprintf("%-9s publish blocked", "docker")}, provRows...)
+	return domains.Contribution{Rows: rows, Status: "failed", Summary: "publish failed after verification"}, nil
 }
 
-// writeProvenance renders the Provenance box (unchanged from the monolith).
-func (c *crucibleContributor) writeProvenance(w io.Writer, color bool) {
+// contentStoreRows folds the content-store retention evidence into Publish rows
+// (was the standalone "Content Store (retained — not pushed)" panel).
+func contentStoreRows(records []RetainedArtifact) []string {
+	var rows []string
+	for _, r := range records {
+		if r.Failure != "" {
+			rows = append(rows, fmt.Sprintf("%-9s content-store ✗ %s (%s)", "docker", r.Name, r.Failure))
+			continue
+		}
+		rows = append(rows, fmt.Sprintf("%-9s retained %s · %s · deferred to publish", "docker", r.Name, r.Digest))
+	}
+	return rows
+}
+
+// provenanceRows writes the provenance statement and returns its row for folding
+// into the Publish box (was a standalone Provenance panel). The statement content
+// is unchanged from the monolith.
+func (c *crucibleContributor) provenanceRows() []string {
 	trust := "failed"
 	reproducible := false
 	if c.cruciblePassed && c.verification != nil {
@@ -479,13 +500,10 @@ func (c *crucibleContributor) writeProvenance(w io.Writer, color bool) {
 			},
 		},
 	}
-	provSec := output.NewSection(w, "Provenance", 0, color)
-	if provErr := build.WriteProvenance(provPath, stmt); provErr == nil {
-		provSec.Row("✓  %s", provPath)
-	} else {
-		provSec.Row("✗  %s", provErr.Error())
+	if provErr := build.WriteProvenance(provPath, stmt); provErr != nil {
+		return []string{fmt.Sprintf("%-9s provenance ✗ %s", "docker", provErr.Error())}
 	}
-	provSec.Close()
+	return []string{fmt.Sprintf("%-9s provenance ✓ %s", "docker", provPath)}
 }
 
 // Conclude renders the Crucible Verdict — the run's final word, AFTER the

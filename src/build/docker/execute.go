@@ -93,9 +93,21 @@ func captureArtifactDigests(plan *build.BuildPlan, outputs *artifact.OutputsMani
 // and publish do not read it yet. Presence of a handle must never be read as
 // implicit trust; it becomes load-bearing only when a later phase resolves and
 // re-hashes through it.
-func persistArtifacts(plan *build.BuildPlan, outputs *artifact.OutputsManifest, store cas.Store, w io.Writer, color bool) {
+// RetainedArtifact is the present-line evidence that perform retained an
+// artifact's bytes to the content store (and therefore did not distribute them):
+// name → exact digest now stored → on-disk handle publish will resolve.
+type RetainedArtifact struct {
+	Name, Digest, Path, Failure string
+}
+
+// persistArtifactsRecords retains each docker artifact's OCI layout to the
+// content store and records the persistence handle on the manifest. It returns
+// one record per retained artifact and does NOT render — callers either render a
+// Content Store box (persistArtifacts, the fallback path) or fold the records as
+// rows under the Publish domain box (the crucible contributor).
+func persistArtifactsRecords(plan *build.BuildPlan, outputs *artifact.OutputsManifest, store cas.Store) []RetainedArtifact {
 	if plan == nil || outputs == nil || store == nil || !store.RequiresOCIExport() {
-		return
+		return nil
 	}
 	layoutByName := make(map[string]string)
 	for _, step := range plan.Steps {
@@ -103,17 +115,7 @@ func persistArtifacts(plan *build.BuildPlan, outputs *artifact.OutputsManifest, 
 			layoutByName[step.Name] = step.OCILayoutDir
 		}
 	}
-	// Collect a positive retention record. Without it, a successful transport
-	// retain produces NO visible output — the non-push is only inferable from the
-	// absence of a push line, which is not proof. The rendered section below is the
-	// present-line evidence that perform retained the bytes (and therefore did not
-	// distribute them): each block binds an artifact name to the exact digest now
-	// in the content store, the on-disk handle publish will resolve, and an
-	// explicit statement that distribution is deferred to the publish phase.
-	type retained struct {
-		name, digest, path, failure string
-	}
-	var records []retained
+	var records []RetainedArtifact
 	for i := range outputs.Artifacts {
 		a := &outputs.Artifacts[i]
 		if a.Kind != "docker" || a.Digest == "" {
@@ -129,15 +131,22 @@ func persistArtifacts(plan *build.BuildPlan, outputs *artifact.OutputsManifest, 
 			// was built and (if push/load) is available; what's lost is the
 			// transport guarantee for this artifact. Surface it so it is never
 			// silently assumed present downstream.
-			records = append(records, retained{name: a.Name, failure: err.Error()})
+			records = append(records, RetainedArtifact{Name: a.Name, Failure: err.Error()})
 			continue
 		}
 		a.Persistence = artifact.PersistenceHandle{
 			Kind:      artifact.PersistenceOCILayout,
 			OCILayout: &artifact.OCILayoutRef{Path: storedDir},
 		}
-		records = append(records, retained{name: a.Name, digest: string(a.Digest), path: storedDir})
+		records = append(records, RetainedArtifact{Name: a.Name, Digest: string(a.Digest), Path: storedDir})
 	}
+	return records
+}
+
+// persistArtifacts is the box-rendering wrapper (used by the runCrucibleMode
+// fallback). The contributor uses persistArtifactsRecords + folds the rows.
+func persistArtifacts(plan *build.BuildPlan, outputs *artifact.OutputsManifest, store cas.Store, w io.Writer, color bool) {
+	records := persistArtifactsRecords(plan, outputs, store)
 	if len(records) == 0 {
 		return
 	}
@@ -146,14 +155,14 @@ func persistArtifacts(plan *build.BuildPlan, outputs *artifact.OutputsManifest, 
 		if idx > 0 {
 			sec.Separator()
 		}
-		if r.failure != "" {
-			sec.Row("%s  %-14s%s", output.StatusIcon("warn", color), "FAILED", r.name)
-			sec.Row("%-16s%s", "error", r.failure)
+		if r.Failure != "" {
+			sec.Row("%s  %-14s%s", output.StatusIcon("warn", color), "FAILED", r.Name)
+			sec.Row("%-16s%s", "error", r.Failure)
 			continue
 		}
-		sec.Row("%-14s%s", "retained", r.name)
-		sec.Row("%-14s%s", "digest", r.digest)
-		sec.Row("%-14s%s", "content-store", r.path)
+		sec.Row("%-14s%s", "retained", r.Name)
+		sec.Row("%-14s%s", "digest", r.Digest)
+		sec.Row("%-14s%s", "content-store", r.Path)
 		sec.Row("%-14s%s", "distribution", "deferred to publish")
 	}
 	sec.Close()
