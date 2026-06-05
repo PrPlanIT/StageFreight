@@ -79,6 +79,7 @@ func Run(rc *RunContext) error {
 		}
 		if err != nil {
 			pipeline.RenderRunSummary(rc.Writer, rc.Color, rc.RootDir, results, time.Since(start))
+			concludeAll(rc, active)
 			return err
 		}
 		// Dry-run gate: after intent is resolved (Detect + Plan), stop before any
@@ -94,11 +95,25 @@ func Run(rc *RunContext) error {
 	// ── Summary (run-level, once) ───────────────────────────────
 	pipeline.RenderRunSummary(rc.Writer, rc.Color, rc.RootDir, results, time.Since(start))
 
+	// ── Conclusions (run's final word — e.g. crucible Verdict) ──
+	concludeAll(rc, active)
+
 	// ── Single manifest pair (run owns truth; fixes the clobber) ──
 	if err := finalizeManifests(rc); err != nil {
 		return err
 	}
 	return nil
+}
+
+// concludeAll renders each active contributor's closing flourish after the
+// Summary (crucible's Verdict). Contributors that don't implement Concluder
+// contribute nothing.
+func concludeAll(rc *RunContext, active []Contributor) {
+	for _, c := range active {
+		if x, ok := c.(Concluder); ok {
+			x.Conclude(rc)
+		}
+	}
 }
 
 // runDomain renders ONE box for a domain, gathering rows from every contributor

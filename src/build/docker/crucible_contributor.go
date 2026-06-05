@@ -48,6 +48,7 @@ type crucibleContributor struct {
 	builderInfo   BuilderInfo
 	cacheTo       []build.CacheRef
 
+	buildAttempted bool // crucible reached its self-build (gates the Verdict)
 	cruciblePassed bool
 	verification   *CrucibleVerification
 }
@@ -185,6 +186,7 @@ func (c *crucibleContributor) Plan(rc *domains.RunContext) (domains.Contribution
 // render exactly as before; the candidate→self-proof sequence is ATOMIC here.
 func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contribution, error) {
 	w, color, ctx := rc.Writer, rc.Color, rc.Ctx
+	c.buildAttempted = true // from here the Verdict is crucible's to render
 
 	// ── Builder ──
 	c.builderInfo = ResolveBuilderInfo(EnsureBuilderWithBackend(rc.Config.BuildCache.Builder, c.backend))
@@ -225,8 +227,6 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 	_, pass1Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Build (pass 1: candidate)", pass1Plan, c.candidateTag)
 	if pass1Err != nil {
-		crucibleVerdict(w, "the calf is not yet mature",
-			"Self-build failed; leadership remains with the current tribe leader.")
 		row := fmt.Sprintf("%-9s crucible candidate   %s", "docker", output.StatusIcon("failed", color))
 		return domains.Contribution{Rows: []string{row}, Status: "failed", Summary: "pass 1 candidate failed"}, pass1Err
 	}
@@ -417,19 +417,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 	// ── Provenance ──
 	c.writeProvenance(w, color)
 
-	// ── Verdict (unchanged text) ──
-	switch {
-	case !c.cruciblePassed:
-		crucibleVerdict(w, "the calf is not yet mature",
-			"Self-build failed; leadership remains with the current tribe leader.")
-	case c.verification != nil && c.verification.HasHardFailure():
-		crucibleVerdict(w, "self-awareness remains incomplete",
-			"The calf's self-assessment differs from the judgment of the tribe leader.")
-	default:
-		crucibleVerdict(w, "the calf has proven its maturity",
-			"This build now leads the tribe.")
-	}
-
+	// Verdict moved to Conclude() — rendered by the run AFTER the Summary.
 	if !c.cruciblePassed {
 		return domains.Contribution{
 			Rows: []string{fmt.Sprintf("%-9s self-build failed", "docker")}, Status: "failed", Summary: "crucible failed",
@@ -499,4 +487,25 @@ func (c *crucibleContributor) writeProvenance(w io.Writer, color bool) {
 		provSec.Row("✗  %s", provErr.Error())
 	}
 	provSec.Close()
+}
+
+// Conclude renders the Crucible Verdict — the run's final word, AFTER the
+// Summary. The sacred text is unchanged; only its position moved (it was inline
+// at the end of Publish). Gated on buildAttempted so a failure that happened
+// before crucible ran (e.g. the binary contributor) renders no verdict.
+func (c *crucibleContributor) Conclude(rc *domains.RunContext) {
+	if !c.buildAttempted {
+		return
+	}
+	switch {
+	case !c.cruciblePassed:
+		crucibleVerdict(rc.Writer, "the calf is not yet mature",
+			"Self-build failed; leadership remains with the current tribe leader.")
+	case c.verification != nil && c.verification.HasHardFailure():
+		crucibleVerdict(rc.Writer, "self-awareness remains incomplete",
+			"The calf's self-assessment differs from the judgment of the tribe leader.")
+	default:
+		crucibleVerdict(rc.Writer, "the calf has proven its maturity",
+			"This build now leads the tribe.")
+	}
 }

@@ -133,3 +133,12 @@ type SubstrateNeeds interface {
 	NeedsDocker() bool
 	NeedsCrucible() bool
 }
+
+// Concluder lets a contributor render a closing flourish AFTER the run Summary
+// (e.g. crucible's Verdict). The run calls it on every active contributor that
+// implements it, once, after the Summary — on both the success and the
+// build-failure paths — so the Verdict reads as the run's final word rather than
+// appearing mid-Publish.
+type Concluder interface {
+	Conclude(rc *RunContext)
+}
