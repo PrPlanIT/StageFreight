@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -16,11 +17,20 @@ var (
 )
 
 var ciRenderCmd = &cobra.Command{
-	Use:   "render <forge>",
-	Short: "Render forge-native CI pipeline from .stagefreight.yml",
-	Long: `Generate a forge-native CI pipeline file from StageFreight configuration.
+	Use:       "render <forge>",
+	Short:     "Render forge-native CI pipeline from .stagefreight.yml",
+	ValidArgs: render.SupportedForges,
+	Args:      cobra.ExactArgs(1),
+	RunE:      runCIRender,
+}
 
-Supported forges: gitlab
+func init() {
+	// Help text is derived from render.SupportedForges so it can never drift from
+	// what the dispatcher actually supports — it previously claimed gitlab-only
+	// while the code shipped gitlab/github/gitea/forgejo/azuredevops.
+	ciRenderCmd.Long = fmt.Sprintf(`Generate a forge-native CI pipeline file from StageFreight configuration.
+
+Supported forges: %s  (azuredevops is experimental)
 
 The rendered file is a committed generated artifact. StageFreight owns the
 pipeline document — it is not hand-maintained.
@@ -28,12 +38,8 @@ pipeline document — it is not hand-maintained.
 Modes:
   --write   Write the rendered pipeline to the repo (e.g. .gitlab-ci.yml)
   --check   Verify the committed pipeline matches what would be rendered (exit 1 if stale)
-  (default) Print the rendered pipeline to stdout`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCIRender,
-}
+  (default) Print the rendered pipeline to stdout`, strings.Join(render.SupportedForges, ", "))
 
-func init() {
 	ciRenderCmd.Flags().BoolVar(&ciRenderWrite, "write", false, "write rendered pipeline to repo")
 	ciRenderCmd.Flags().BoolVar(&ciRenderCheck, "check", false, "verify committed pipeline is up to date")
 
