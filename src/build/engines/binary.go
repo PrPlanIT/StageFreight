@@ -143,13 +143,29 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 
 	gb := build.NewGoBuild(false)
 
+	// Persist the Go module + build caches on the runner's /stagefreight mount so
+	// a binary build reuses downloaded modules and compiled packages across CI
+	// jobs instead of re-paying the full cold-cache cost (download + cross-compile)
+	// every run — the same cross-run reuse the docker/crucible strategy already
+	// gets from buildkit cache mounts. Empty dirs (no persistent mount, e.g. local
+	// dev) leave Go's $HOME-based defaults untouched. The build's own Env overlays
+	// these, so an explicit GOMODCACHE/GOCACHE in config still wins.
+	env := map[string]string{}
+	if gomod, gocache := toolchain.GoCacheDirs(); gomod != "" {
+		env["GOMODCACHE"] = gomod
+		env["GOCACHE"] = gocache
+	}
+	for k, v := range meta.Env {
+		env[k] = v
+	}
+
 	result, err := gb.Build(ctx, build.GoBuildOpts{
 		Entry:      meta.From,
 		OutputPath: meta.OutputPath,
 		GOOS:       step.Platform.OS,
 		GOARCH:     step.Platform.Arch,
 		Args:       meta.Args,
-		Env:        meta.Env,
+		Env:        env,
 		GoBin:      goRes.Path,
 	})
 	if err != nil {

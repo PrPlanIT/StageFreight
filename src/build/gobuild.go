@@ -31,8 +31,8 @@ func NewGoBuild(verbose bool) *GoBuild {
 
 // GoBuildOpts holds the parameters for a single Go compilation.
 type GoBuildOpts struct {
-	Entry      string            // main package path (e.g., "cmd/planedc/main.go" or "./cmd/planedc")
-	OutputPath string            // output binary path
+	Entry      string // main package path (e.g., "cmd/planedc/main.go" or "./cmd/planedc")
+	OutputPath string // output binary path
 	GOOS       string
 	GOARCH     string
 	Args       []string          // raw args passed before entry (e.g., ["-tags", "banner_art", "-ldflags", "..."])
@@ -79,17 +79,23 @@ func (g *GoBuild) Build(ctx context.Context, opts GoBuildOpts) (*GoBuildResult, 
 	}
 	cmd := exec.CommandContext(ctx, goBin, args...)
 
-	// Set up environment
-	cmd.Env = os.Environ()
+	// Set up environment. Overrides (GOOS/GOARCH and opts.Env — including the
+	// persistent GOMODCACHE/GOCACHE the binary engine injects) must *win* over the
+	// inherited process environment. A blind append is not enough: Go's getenv
+	// returns the FIRST occurrence of a key, so a pre-existing GOMODCACHE in the
+	// container env would shadow our appended one. composeEnv drops any inherited
+	// occurrence of an overridden key before appending ours.
+	overrides := map[string]string{}
 	if opts.GOOS != "" {
-		cmd.Env = append(cmd.Env, "GOOS="+opts.GOOS)
+		overrides["GOOS"] = opts.GOOS
 	}
 	if opts.GOARCH != "" {
-		cmd.Env = append(cmd.Env, "GOARCH="+opts.GOARCH)
+		overrides["GOARCH"] = opts.GOARCH
 	}
 	for k, v := range opts.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
+		overrides[k] = v
 	}
+	cmd.Env = composeEnv(os.Environ(), overrides)
 
 	// Capture rather than stream — mirrors the docker build pass
 	// (crucible.go executeBuildPass: bx.Stdout = &stdoutBuf). `go build` emits a
@@ -144,6 +150,29 @@ func (g *GoBuild) Build(ctx context.Context, opts GoBuildOpts) (*GoBuildResult, 
 		Size:   info.Size(),
 		SHA256: hash,
 	}, nil
+}
+
+// composeEnv returns base with every overridden key removed, then the overrides
+// appended — guaranteeing the override value is the sole occurrence of its key.
+// This matters because Go's getenv resolves a key to its FIRST occurrence, so an
+// inherited value cannot be superseded by merely appending the new one.
+func composeEnv(base []string, overrides map[string]string) []string {
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, kv := range base {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, overridden := overrides[kv[:eq]]; overridden {
+			continue // drop inherited value; the override is appended below
+		}
+		out = append(out, kv)
+	}
+	for k, v := range overrides {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 // DetectMainPackages scans a Go project for main packages.
