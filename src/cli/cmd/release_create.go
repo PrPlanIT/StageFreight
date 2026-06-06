@@ -34,6 +34,7 @@ type ReleaseCreateRequest struct {
 	RootDir         string
 	Config          *config.Config
 	Tag             string
+	Ref             string // commit/branch the forge mints a synthesized tag from (e.g. dev-{sha8} on a push)
 	Name            string
 	NotesFile       string
 	SecuritySummary string
@@ -530,6 +531,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 
 	rel, createErr := forgeClient.CreateRelease(ctx, forge.ReleaseOptions{
 		TagName:     tag,
+		Ref:         req.Ref, // mint the tag at this commit when it doesn't already exist (synthesized dev tags)
 		Name:        name,
 		Description: notes,
 		Draft:       req.Draft,
@@ -723,7 +725,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			if req.ReadOnly {
 				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] mirror:%s: would project canonical release %s", m.ID, tag), OK: true})
 			} else {
-				syncResults = append(syncResults, projectToMirror(ctx, *m, tag, name, notes, req.Draft, req.Prerelease)...)
+				syncResults = append(syncResults, projectToMirror(ctx, *m, tag, name, notes, req.Ref, req.Draft, req.Prerelease)...)
 			}
 		}
 
@@ -1125,7 +1127,7 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 // projectToMirror projects a canonical release to a mirror destination.
 // Mirrors are first-class sources, not synthetic targets. Forge identity
 // comes directly from the mirror config.
-func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, notes string, draft, prerelease bool) []actionResult {
+func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, notes, ref string, draft, prerelease bool) []actionResult {
 	var results []actionResult
 	label := "mirror:" + m.ID
 
@@ -1138,6 +1140,7 @@ func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, note
 
 	rel, err := client.CreateRelease(ctx, forge.ReleaseOptions{
 		TagName:     tag,
+		Ref:         ref,
 		Name:        name,
 		Description: notes,
 		Draft:       draft,
@@ -1167,6 +1170,7 @@ func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreat
 	if t.SyncRelease {
 		syncRel, err := syncClient.CreateRelease(ctx, forge.ReleaseOptions{
 			TagName:     tag,
+			Ref:         req.Ref,
 			Name:        name,
 			Description: notes,
 			Draft:       req.Draft,

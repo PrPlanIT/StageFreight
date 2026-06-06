@@ -24,6 +24,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -786,6 +787,13 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		tag = ciCtx.Tag
 	}
 	if tag == "" {
+		// No CI tag, but a push may still trigger a release CHANNEL. Synthesize the
+		// channel tag (e.g. dev-{sha8}) from a matching release target and proceed.
+		// Synthesized LOCALLY — SF_CI_TAG is never set — so build/security runners'
+		// IsTag() gates stay false; only the release runner treats this as releasable.
+		tag = synthesizeChannelTag(appCfg, rootDir)
+	}
+	if tag == "" {
 		// No tag = a forge release is simply not applicable to this build. Branch
 		// pipelines are the common case, so rendering a full "nothing to release"
 		// card here would contradict the Distribution card on EVERY non-tag run and
@@ -835,6 +843,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		RootDir:         rootDir,
 		Config:          appCfg,
 		Tag:             tag,
+		Ref:             ciCtx.SHA, // mint a synthesized channel tag at the build commit
 		SecuritySummary: appCfg.Release.SecuritySummary,
 		RegistryLinks:   appCfg.Release.RegistryLinks,
 		CatalogLinks:    appCfg.Release.CatalogLinks,
@@ -938,7 +947,7 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 
 	hasConstraints := false
 	for _, t := range releaseTargets {
-		if len(t.When.GitTags) == 0 && len(t.When.Branches) == 0 {
+		if len(t.When.GitTags) == 0 && len(t.When.Branches) == 0 && len(t.When.Events) == 0 {
 			continue
 		}
 		hasConstraints = true
@@ -948,6 +957,43 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 	}
 
 	return !hasConstraints
+}
+
+// channelTagTarget returns the first kind:release target that declares a Tag
+// pattern (a release channel) and whose when: matches the current CI environment.
+// Used to detect a push-triggered release channel when there is no CI tag.
+// Returns nil if none applies.
+func channelTagTarget(appCfg *config.Config) *config.TargetConfig {
+	for i := range appCfg.Targets {
+		t := appCfg.Targets[i]
+		if t.Kind != "release" || strings.TrimSpace(t.Tag) == "" {
+			continue
+		}
+		if config.TargetMatchesEnv(t, appCfg) {
+			return &appCfg.Targets[i]
+		}
+	}
+	return nil
+}
+
+// synthesizeChannelTag resolves a channel target's Tag pattern (e.g. dev-{sha:8})
+// to a concrete tag for a push-triggered release. Resolved LOCALLY and never
+// exported to SF_CI_TAG, so other runners' tag gates are unaffected. Returns ""
+// if no channel target applies or version detection fails.
+func synthesizeChannelTag(appCfg *config.Config, rootDir string) string {
+	t := channelTagTarget(appCfg)
+	if t == nil {
+		return ""
+	}
+	vi, err := build.DetectVersion(rootDir, appCfg)
+	if err != nil {
+		return ""
+	}
+	resolved := gitver.ResolveTags([]string{t.Tag}, vi)
+	if len(resolved) == 0 || resolved[0] == "" {
+		return ""
+	}
+	return resolved[0]
 }
 
 // tagMatchesReleasePolicy returns true if the tag matches any git_tags policy
