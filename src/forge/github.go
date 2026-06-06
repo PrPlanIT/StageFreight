@@ -56,6 +56,20 @@ func NewGitHub(baseURL string) *GitHubForge {
 
 func (g *GitHubForge) Provider() Provider { return GitHub }
 
+// GitHub has no generic package registry (GitHub Packages is typed-only:
+// npm/maven/container/etc.). Binary distribution uses kind: release instead.
+func (g *GitHubForge) PublishPackageFile(ctx context.Context, opts PublishPackageOptions) (*PublishedPackage, error) {
+	return nil, fmt.Errorf("generic-package: GitHub has no generic package registry — use kind: release for binary distribution: %w", ErrNotSupported)
+}
+
+func (g *GitHubForge) ListPackageVersions(ctx context.Context, packageName string) ([]PackageVersion, error) {
+	return nil, fmt.Errorf("generic-package: GitHub has no generic package registry: %w", ErrNotSupported)
+}
+
+func (g *GitHubForge) DeletePackageVersion(ctx context.Context, packageName, version string) error {
+	return fmt.Errorf("generic-package: GitHub has no generic package registry: %w", ErrNotSupported)
+}
+
 func (g *GitHubForge) apiURL(path string) string {
 	return fmt.Sprintf("%s/repos/%s/%s%s", g.BaseURL, g.Owner, g.Repo, path)
 }

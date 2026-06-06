@@ -117,6 +117,19 @@ type Forge interface {
 
 	// DefaultBranch returns the default branch name for the repo.
 	DefaultBranch(ctx context.Context) (string, error)
+
+	// PublishPackageFile uploads a single file to the forge's generic package
+	// registry under (package, version, filename). Returns the published reference.
+	// Forges without a generic package registry return ErrNotSupported.
+	PublishPackageFile(ctx context.Context, opts PublishPackageOptions) (*PublishedPackage, error)
+
+	// ListPackageVersions returns the versions of a generic package, newest first.
+	// Forges without a generic package registry return ErrNotSupported.
+	ListPackageVersions(ctx context.Context, packageName string) ([]PackageVersion, error)
+
+	// DeletePackageVersion removes a single version of a generic package (used by
+	// retention). Forges without a generic package registry return ErrNotSupported.
+	DeletePackageVersion(ctx context.Context, packageName, version string) error
 }
 
 // Factory creates Forge instances for target repos.
@@ -222,6 +235,31 @@ type ReleaseInfo struct {
 	Draft       bool
 	Prerelease  bool
 	CreatedAt   time.Time
+}
+
+// PublishPackageOptions configures a generic package file publish.
+type PublishPackageOptions struct {
+	PackageName string
+	Version     string
+	FileName    string
+	FilePath    string // local file to upload
+}
+
+// PublishedPackage is the result of publishing a generic package file.
+type PublishedPackage struct {
+	PackageName string
+	Version     string
+	FileName    string
+	PullURL     string // direct download URL (tokenless on public projects)
+}
+
+// PackageVersion describes one version of a generic package. ID is the stable
+// forge handle used for deletion (e.g. the GitLab package id); Version is the
+// human-facing version label.
+type PackageVersion struct {
+	ID        string
+	Version   string
+	CreatedAt time.Time
 }
 
 // NewFromAccessory creates a forge client from an accessory config.

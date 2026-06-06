@@ -439,6 +439,98 @@ func (g *GitLabForge) DeleteTag(ctx context.Context, tagName string) error {
 	return g.doJSON(ctx, "DELETE", g.apiURL(fmt.Sprintf("/repository/tags/%s", url.PathEscape(tagName))), nil, nil)
 }
 
+// ── Generic package registry ───────────────────────────────────────────────
+
+// PublishPackageFile uploads one file to GitLab's generic package registry via
+// PUT .../packages/generic/{pkg}/{ver}/{file}. The raw request body is the file
+// bytes (octet-stream), not multipart. PullURL is the same path served by GET —
+// tokenless on public projects.
+func (g *GitLabForge) PublishPackageFile(ctx context.Context, opts PublishPackageOptions) (*PublishedPackage, error) {
+	f, err := os.Open(opts.FilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	path := fmt.Sprintf("/packages/generic/%s/%s/%s",
+		url.PathEscape(opts.PackageName),
+		url.PathEscape(opts.Version),
+		url.PathEscape(opts.FileName),
+	)
+	pullURL := g.apiURL(path)
+	putURL := pullURL + "?select=package_file"
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", putURL, f)
+	if err != nil {
+		return nil, err
+	}
+	g.setAuthHeader(req)
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, &APIError{Method: "PUT", URL: putURL, StatusCode: resp.StatusCode, Body: string(body)}
+	}
+
+	return &PublishedPackage{
+		PackageName: opts.PackageName,
+		Version:     opts.Version,
+		FileName:    opts.FileName,
+		PullURL:     pullURL,
+	}, nil
+}
+
+// ListPackageVersions returns generic-package versions newest-first. Each GitLab
+// package id maps to one (name, version); that id is the deletion handle.
+func (g *GitLabForge) ListPackageVersions(ctx context.Context, packageName string) ([]PackageVersion, error) {
+	var out []PackageVersion
+	page := 1
+	for {
+		path := fmt.Sprintf("/packages?package_type=generic&package_name=%s&per_page=100&page=%d&order_by=created_at&sort=desc",
+			url.QueryEscape(packageName), page)
+
+		var packages []struct {
+			ID        int    `json:"id"`
+			Version   string `json:"version"`
+			CreatedAt string `json:"created_at"`
+		}
+		if err := g.doJSON(ctx, "GET", g.apiURL(path), nil, &packages); err != nil {
+			return out, err
+		}
+		for _, p := range packages {
+			pv := PackageVersion{ID: fmt.Sprintf("%d", p.ID), Version: p.Version}
+			pv.CreatedAt, _ = parseTime(p.CreatedAt)
+			out = append(out, pv)
+		}
+		if len(packages) < 100 {
+			break
+		}
+		page++
+	}
+	return out, nil
+}
+
+// DeletePackageVersion deletes a generic-package version by resolving it to its
+// GitLab package id and DELETE-ing that package. Not-found is treated as success
+// (idempotent prune).
+func (g *GitLabForge) DeletePackageVersion(ctx context.Context, packageName, version string) error {
+	versions, err := g.ListPackageVersions(ctx, packageName)
+	if err != nil {
+		return err
+	}
+	for _, v := range versions {
+		if v.Version == version {
+			return g.doJSON(ctx, "DELETE", g.apiURL("/packages/"+v.ID), nil, nil)
+		}
+	}
+	return nil // not found — idempotent
+}
+
 func (g *GitLabForge) projectWebURL() string {
 	// CI_PROJECT_PATH is already "group/project", just join with base
 	return fmt.Sprintf("%s/%s", g.BaseURL, g.ProjectID)

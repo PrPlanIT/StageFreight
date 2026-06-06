@@ -64,6 +64,20 @@ func NewAzureDevOps(baseURL string) *AzureDevOpsForge {
 // Provider reports Azure DevOps.
 func (a *AzureDevOpsForge) Provider() Provider { return AzureDevOps }
 
+// Azure DevOps has no generic package registry analogous to GitLab's; binary
+// distribution there is out of scope for generic-package.
+func (a *AzureDevOpsForge) PublishPackageFile(ctx context.Context, opts PublishPackageOptions) (*PublishedPackage, error) {
+	return nil, fmt.Errorf("generic-package: Azure DevOps generic package publishing not supported: %w", ErrNotSupported)
+}
+
+func (a *AzureDevOpsForge) ListPackageVersions(ctx context.Context, packageName string) ([]PackageVersion, error) {
+	return nil, fmt.Errorf("generic-package: Azure DevOps generic package listing not supported: %w", ErrNotSupported)
+}
+
+func (a *AzureDevOpsForge) DeletePackageVersion(ctx context.Context, packageName, version string) error {
+	return fmt.Errorf("generic-package: Azure DevOps generic package deletion not supported: %w", ErrNotSupported)
+}
+
 // gitURL builds a Git REST API URL for this repo and appends api-version.
 func (a *AzureDevOpsForge) gitURL(path, query string) string {
 	u := fmt.Sprintf("%s/%s/_apis/git/repositories/%s%s", a.BaseURL, a.Project, a.Repo, path)

@@ -63,6 +63,21 @@ func NewGitea(baseURL string) *GiteaForge {
 
 func (g *GiteaForge) Provider() Provider { return Gitea }
 
+// Generic package registry support is deferred for Gitea/Forgejo. Both DO have a
+// generic package API; it is simply not wired yet. (ForgejoForge inherits these
+// via its embedded *GiteaForge.)
+func (g *GiteaForge) PublishPackageFile(ctx context.Context, opts PublishPackageOptions) (*PublishedPackage, error) {
+	return nil, fmt.Errorf("generic-package: Gitea/Forgejo generic package publishing not yet implemented: %w", ErrNotSupported)
+}
+
+func (g *GiteaForge) ListPackageVersions(ctx context.Context, packageName string) ([]PackageVersion, error) {
+	return nil, fmt.Errorf("generic-package: Gitea/Forgejo generic package listing not yet implemented: %w", ErrNotSupported)
+}
+
+func (g *GiteaForge) DeletePackageVersion(ctx context.Context, packageName, version string) error {
+	return fmt.Errorf("generic-package: Gitea/Forgejo generic package deletion not yet implemented: %w", ErrNotSupported)
+}
+
 func (g *GiteaForge) apiURL(path string) string {
 	return fmt.Sprintf("%s/api/v1/repos/%s/%s%s", g.BaseURL, g.Owner, g.Repo, path)
 }
