@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 )
 
@@ -89,5 +91,40 @@ func TestPublishPackageTarget_ImmutableExistsSkipsButRefreshesAlias(t *testing.T
 	}
 	if len(fc.deleted) != 1 || fc.deleted[0] != "latest-dev" {
 		t.Fatalf("alias should be deleted-then-published, deleted=%v", fc.deleted)
+	}
+}
+
+// Retention candidate set is the dev-* family from the version template; the
+// rolling alias is never pruned.
+func TestPrunePackageTarget_PrunesDevFamilyProtectsAlias(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	fc := &fakePackageForge{versions: []forge.PackageVersion{
+		{ID: "5", Version: "dev-005", CreatedAt: base.Add(5 * time.Hour)},
+		{ID: "4", Version: "dev-004", CreatedAt: base.Add(4 * time.Hour)},
+		{ID: "3", Version: "dev-003", CreatedAt: base.Add(3 * time.Hour)},
+		{ID: "2", Version: "dev-002", CreatedAt: base.Add(2 * time.Hour)},
+		{ID: "1", Version: "dev-001", CreatedAt: base.Add(1 * time.Hour)},
+		{ID: "L", Version: "latest-dev", CreatedAt: base.Add(6 * time.Hour)}, // newest, but an alias
+	}}
+	policy := config.RetentionPolicy{KeepLast: 2}
+
+	res, err := prunePackageTarget(context.Background(), fc, "app", "dev-{sha:8}", []string{"latest-dev"}, policy)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	// candidates = dev-005..dev-001; keep_last 2 keeps dev-005/dev-004, prunes 3.
+	if len(res.Deleted) != 3 {
+		t.Fatalf("deleted = %v, want 3", res.Deleted)
+	}
+	for _, d := range fc.deleted {
+		if d == "latest-dev" {
+			t.Fatal("latest-dev must never be pruned")
+		}
+		if !strings.HasPrefix(d, "dev-") {
+			t.Fatalf("pruned a non-dev version: %s", d)
+		}
+		if d == "dev-005" || d == "dev-004" {
+			t.Fatalf("newest dev versions must be kept, but pruned %s", d)
+		}
 	}
 }

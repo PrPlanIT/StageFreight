@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/retention"
 )
 
 // packagePublishResult captures what one generic-package target published, for
@@ -28,6 +29,7 @@ type packagePublishResult struct {
 	Aliases          []string // rolling versions refreshed
 	Files            []string // file names published
 	PullURLs         []string // example pull URLs (immutable preferred)
+	Pruned           []string // immutable versions pruned by retention
 }
 
 // packagePublishRunner publishes kind: generic-package targets to a forge generic
@@ -104,6 +106,16 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 		if perr != nil {
 			return fmt.Errorf("package subsystem: target %s: %w", t.ID, perr)
 		}
+
+		// Retention: prune old immutable versions, protecting rolling aliases.
+		if t.Retention != nil && t.Retention.Active() {
+			pruneRes, prerr := prunePackageTarget(ctx, fc, packageName, t.Version, t.Aliases, *t.Retention)
+			if prerr != nil {
+				return fmt.Errorf("package subsystem: target %s: retention: %w", t.ID, prerr)
+			}
+			res.Pruned = pruneRes.Deleted
+		}
+
 		results = append(results, *res)
 	}
 
@@ -113,8 +125,12 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 		if r.ImmutableSkipped {
 			verb = "refreshed (immutable exists)"
 		}
-		fmt.Fprintf(os.Stdout, "  package: %s %s %s%s → %d file(s)\n",
-			verb, r.PackageName, r.ImmutableVersion, aliasSuffix(r.Aliases), len(assets))
+		pruned := ""
+		if len(r.Pruned) > 0 {
+			pruned = fmt.Sprintf(", pruned %d", len(r.Pruned))
+		}
+		fmt.Fprintf(os.Stdout, "  package: %s %s %s%s → %d file(s)%s\n",
+			verb, r.PackageName, r.ImmutableVersion, aliasSuffix(r.Aliases), len(assets), pruned)
 	}
 
 	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
@@ -188,6 +204,44 @@ func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, package
 	}
 
 	return res, nil
+}
+
+// packageStore adapts a forge's generic package registry to the retention.Store
+// interface. Items are keyed by version string; deletion goes through the forge,
+// which resolves the version to its stable package id internally.
+type packageStore struct {
+	forge       forge.Forge
+	packageName string
+}
+
+func (s *packageStore) List(ctx context.Context) ([]retention.Item, error) {
+	versions, err := s.forge.ListPackageVersions(ctx, s.packageName)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]retention.Item, 0, len(versions))
+	for _, v := range versions {
+		items = append(items, retention.Item{Name: v.Version, CreatedAt: v.CreatedAt})
+	}
+	return items, nil
+}
+
+func (s *packageStore) Delete(ctx context.Context, name string) error {
+	return s.forge.DeletePackageVersion(ctx, s.packageName, name)
+}
+
+// prunePackageTarget applies retention to one generic package. The candidate set
+// is the IMMUTABLE version family derived from the version template (e.g.
+// "dev-{sha:8}" → "^dev-.+$") — never the aliases and never a concrete resolved
+// version. Rolling aliases are added to the policy's protect set so they are
+// never pruned (they don't match the dev family either, but protect makes the
+// guarantee explicit and survives template changes).
+func prunePackageTarget(ctx context.Context, fc forge.Forge, packageName, versionTemplate string, aliasTemplates []string, policy config.RetentionPolicy) (*retention.Result, error) {
+	patterns := retention.TemplatesToPatterns([]string{versionTemplate})
+	effective := policy
+	effective.Protect = append(append([]string{}, policy.Protect...), aliasTemplates...)
+	store := &packageStore{forge: fc, packageName: packageName}
+	return retention.Apply(ctx, store, patterns, effective)
 }
 
 // aliasSuffix renders " (+ a, b)" for a non-empty alias list, else "".
