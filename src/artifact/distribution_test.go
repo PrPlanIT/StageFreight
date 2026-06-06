@@ -1,0 +1,92 @@
+package artifact
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestSuccessfulArchiveAssets_FiltersAndPreservesOrder(t *testing.T) {
+	views := []ArchiveExecutionView{
+		{ArtifactID: "archive:a", ArtifactName: "a.tar.gz", Path: "dist/a.tar.gz", SHA256: "sha:a", Size: 10, BuildStatus: OutcomeSuccess, Sources: []ArtifactID{"binary:x"}},
+		{ArtifactID: "archive:b", ArtifactName: "b.tar.gz", Path: "dist/b.tar.gz", BuildStatus: OutcomeFailed},
+		{ArtifactID: "archive:c", ArtifactName: "c.tar.gz", Path: "dist/c.tar.gz", SHA256: "sha:c", Size: 30, BuildStatus: OutcomeSuccess},
+	}
+	got := SuccessfulArchiveAssets(views)
+	if len(got) != 2 {
+		t.Fatalf("got %d assets, want 2 (failed excluded)", len(got))
+	}
+	if got[0].ArtifactID != "archive:a" || got[1].ArtifactID != "archive:c" {
+		t.Fatalf("order/identity wrong: %+v", got)
+	}
+	if got[0].Name != "a.tar.gz" || got[0].Path != "dist/a.tar.gz" || got[0].SHA256 != "sha:a" || got[0].Size != 10 {
+		t.Fatalf("field mapping wrong: %+v", got[0])
+	}
+	if len(got[0].Sources) != 1 || got[0].Sources[0] != "binary:x" {
+		t.Fatalf("sources not carried: %+v", got[0].Sources)
+	}
+}
+
+// TestResolveSuccessfulArchiveAssets_ManifestSourced is the non-negotiable
+// invariant for the shared archive-resolution helper: assets derive SOLELY from
+// the manifests. A stray archive on disk that is NOT in the manifests must never
+// appear (no globbing), and a failed archive must be excluded.
+func TestResolveSuccessfulArchiveAssets_ManifestSourced(t *testing.T) {
+	dir := t.TempDir()
+
+	outputs := OutputsManifest{
+		Commit: "deadbeef",
+		Artifacts: []Artifact{
+			{Kind: "archive", Name: "good.tar.gz", Version: "1.0.0", Archive: &ArchiveDescriptor{Format: "tar.gz", Path: "dist/good.tar.gz"}},
+			{Kind: "archive", Name: "bad.tar.gz", Version: "1.0.0", Archive: &ArchiveDescriptor{Format: "tar.gz", Path: "dist/bad.tar.gz"}},
+		},
+	}
+	if err := outputs.Finalize(); err != nil {
+		t.Fatalf("outputs Finalize: %v", err)
+	}
+	if err := WriteOutputsManifest(dir, outputs); err != nil {
+		t.Fatalf("write outputs: %v", err)
+	}
+
+	results := ResultsManifest{
+		IntentChecksum: outputs.Checksum,
+		Results: []Result{
+			{ArtifactID: "archive:good.tar.gz", ArtifactName: "good.tar.gz", Kind: "archive",
+				Outcomes: []Outcome{{Type: OutcomeTypeArchive, Archive: &ArchiveOutcome{Status: OutcomeSuccess, SHA256: "sha:good", Path: "dist/good.tar.gz", Size: 100}}}},
+			{ArtifactID: "archive:bad.tar.gz", ArtifactName: "bad.tar.gz", Kind: "archive",
+				Outcomes: []Outcome{{Type: OutcomeTypeArchive, Archive: &ArchiveOutcome{Status: OutcomeFailed, Error: "boom"}}}},
+		},
+	}
+	if err := results.Finalize(); err != nil {
+		t.Fatalf("results Finalize: %v", err)
+	}
+	if err := WriteResultsManifest(dir, results); err != nil {
+		t.Fatalf("write results: %v", err)
+	}
+
+	// Stray archive on disk, NOT in any manifest. Must be ignored.
+	distDir := filepath.Join(dir, ".stagefreight", "dist")
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "stray.tar.gz"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	assets, err := ResolveSuccessfulArchiveAssets(dir)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("got %d assets, want 1 (good only; bad failed, stray not in manifest): %+v", len(assets), assets)
+	}
+	a := assets[0]
+	if a.ArtifactID != "archive:good.tar.gz" || a.Name != "good.tar.gz" || a.SHA256 != "sha:good" || a.Size != 100 {
+		t.Fatalf("resolved asset wrong: %+v", a)
+	}
+	for _, x := range assets {
+		if x.Name == "stray.tar.gz" {
+			t.Fatal("stray on-disk file leaked into resolution — archive resolution is not manifest-sourced")
+		}
+	}
+}

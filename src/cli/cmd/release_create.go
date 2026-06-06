@@ -384,22 +384,22 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		coveredIDs := make(map[artifact.ArtifactID]struct{})
 		var assets []releaseAsset
 
-		for _, av := range archiveViews {
-			if av.BuildStatus != artifact.OutcomeSuccess {
-				continue
-			}
-			for _, sourceID := range av.Sources {
+		// Successful archives via the shared distribution helper (same source of
+		// truth used by kind: generic-package). coveredIDs and the row's display
+		// platform stay release-local; the helper only supplies the typed asset list.
+		for _, a := range artifact.SuccessfulArchiveAssets(archiveViews) {
+			for _, sourceID := range a.Sources {
 				coveredIDs[sourceID] = struct{}{}
 			}
 			assets = append(assets, releaseAsset{
 				Kind:       "archive",
-				ArtifactID: av.ArtifactID,
-				AssetPath:  av.Path,
+				ArtifactID: a.ArtifactID,
+				AssetPath:  a.Path,
 				Row: release.BinaryRow{
-					Name:     av.ArtifactName,
-					Platform: archivePlatform(av, binaryByID),
-					Size:     av.Size,
-					SHA256:   av.SHA256,
+					Name:     a.Name,
+					Platform: archivePlatform(a.Sources, binaryByID),
+					Size:     a.Size,
+					SHA256:   a.SHA256,
 				},
 			})
 		}
@@ -1332,9 +1332,9 @@ type releaseAsset struct {
 // semantically misleading; surfacing multi-platform reality directly is
 // more accurate.
 // No sources resolvable: empty string.
-func archivePlatform(av artifact.ArchiveExecutionView, binaryByID map[artifact.ArtifactID]artifact.BinaryExecutionView) string {
-	resolved := make([]string, 0, len(av.Sources))
-	for _, sourceID := range av.Sources {
+func archivePlatform(sources []artifact.ArtifactID, binaryByID map[artifact.ArtifactID]artifact.BinaryExecutionView) string {
+	resolved := make([]string, 0, len(sources))
+	for _, sourceID := range sources {
 		if bv, ok := binaryByID[sourceID]; ok {
 			resolved = append(resolved, bv.OS+"/"+bv.Arch)
 		}
