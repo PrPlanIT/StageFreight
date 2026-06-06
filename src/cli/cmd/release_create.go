@@ -893,6 +893,9 @@ func findRemoteReleaseTargets(cfg *config.Config) []config.TargetConfig {
 // targetWhenMatches checks if a target's when conditions match the current CI environment.
 // Resolves policy names from the provided policies config.
 func targetWhenMatches(t config.TargetConfig, currentTag string, tagPatterns map[string]string, branchPatterns map[string]string) bool {
+	if !config.EventMatches(t.When.Events, resolveEventFromEnv()) {
+		return false
+	}
 	if len(t.When.GitTags) > 0 && currentTag != "" {
 		resolved := resolveWhenPatternsFromCfg(t.When.GitTags, tagPatterns)
 		if !config.MatchPatterns(resolved, currentTag) {
@@ -1069,6 +1072,22 @@ func projectPathFromRemote(remoteURL string) string {
 }
 
 // resolveBranchFromEnv resolves the current branch from CI environment variables.
+// resolveEventFromEnv determines the CI event (push/tag/…) for when-matching.
+// Tag presence (CI_COMMIT_TAG / SF_CI_TAG) is the authoritative push-vs-tag
+// signal: GitLab reports CI_PIPELINE_SOURCE=push even for tag pushes, and the dev
+// channel synthesizes its tag locally (never exporting SF_CI_TAG), so a tag
+// *string* is not a reliable event signal — env tag presence is. Explicit
+// non-push/tag events (schedule, merge_request, manual) are honored verbatim.
+func resolveEventFromEnv() string {
+	if os.Getenv("SF_CI_TAG") != "" || os.Getenv("CI_COMMIT_TAG") != "" {
+		return "tag"
+	}
+	if e := os.Getenv("SF_CI_EVENT"); e != "" && e != "push" && e != "tag" {
+		return e
+	}
+	return "push"
+}
+
 func resolveBranchFromEnv() string {
 	if b := os.Getenv("CI_COMMIT_BRANCH"); b != "" {
 		return b
