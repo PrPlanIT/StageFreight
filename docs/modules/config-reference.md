@@ -230,6 +230,8 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `spec_files` | `spec_files` | []string | No | — | Component spec file paths. `kind: gitlab-component` only. |
 | `catalog` | `catalog` | bool | No | — | Enable GitLab Catalog registration. `kind: gitlab-component` only. |
 | `aliases` | `aliases` | []string | No | — | Rolling git tag aliases. `kind: release` only. |
+| `tag` | `tag` | string | No | — | string value |
+| `prerelease` | `prerelease` | bool | No | — | bool value |
 | `project_id` | `project_id` | string | No | — | Project identifier (`owner/repo` or numeric ID). `kind: release`, remote targets only. |
 | `mirror` | `mirror` | string | No | — | string value |
 | `sync_release` | `sync_release` | bool | No | — | Sync release notes + tags to a remote forge. `kind: release`, remote targets only. |
