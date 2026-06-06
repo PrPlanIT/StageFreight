@@ -701,17 +701,17 @@ func gitCommitBody(repoDir, _ string) string {
 	// rev is always "HEAD" at all current call sites.
 	repo, err := gitstate.OpenRepo(repoDir)
 	if err != nil {
-		diag.Debug(true, "gitCommitBody: could not open repo at %s: %v", repoDir, err)
+		diag.Debug(diag.Verbose(),"gitCommitBody: could not open repo at %s: %v", repoDir, err)
 		return ""
 	}
 	head, err := repo.Head()
 	if err != nil {
-		diag.Debug(true, "gitCommitBody: could not resolve HEAD: %v", err)
+		diag.Debug(diag.Verbose(),"gitCommitBody: could not resolve HEAD: %v", err)
 		return ""
 	}
 	c, err := repo.CommitObject(head.Hash())
 	if err != nil {
-		diag.Debug(true, "gitCommitBody: could not load HEAD commit: %v", err)
+		diag.Debug(diag.Verbose(),"gitCommitBody: could not load HEAD commit: %v", err)
 		return ""
 	}
 	return strings.TrimSpace(c.Message)

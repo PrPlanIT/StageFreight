@@ -57,11 +57,11 @@ func ResolveContext() *CIContext {
 	if ctx.SHA == "" || (ctx.Branch == "" && ctx.Tag == "") {
 		repo, repoErr := gitstate.OpenRepo(ctx.Workspace)
 		if repoErr != nil {
-			diag.Debug(true, "ci context: could not open repo at %s: %v", ctx.Workspace, repoErr)
+			diag.Debug(diag.Verbose(),"ci context: could not open repo at %s: %v", ctx.Workspace, repoErr)
 		} else {
 			head, headErr := repo.Head()
 			if headErr != nil {
-				diag.Debug(true, "ci context: could not resolve HEAD: %v", headErr)
+				diag.Debug(diag.Verbose(),"ci context: could not resolve HEAD: %v", headErr)
 			} else {
 				if ctx.SHA == "" {
 					ctx.SHA = head.Hash().String()
@@ -77,7 +77,7 @@ func ResolveContext() *CIContext {
 						// SF_CI_* env is set (local dev), and in CI SF_CI_TAG/BRANCH
 						// are authoritative so it never fires for channel builds.
 						if tag, tagErr := gitstate.ExactTagAtHEAD(repo); tagErr != nil {
-							diag.Debug(true, "ci context: could not resolve tag at HEAD: %v", tagErr)
+							diag.Debug(diag.Verbose(),"ci context: could not resolve tag at HEAD: %v", tagErr)
 						} else {
 							ctx.Tag = tag
 						}

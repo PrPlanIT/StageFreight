@@ -24,10 +24,18 @@ func Info(format string, args ...any) {
 }
 
 // Debug writes a verbose trace to stderr when enabled.
-// Use for exec traces, internal state, fallback reasoning.
+// Use for exec traces, internal state, fallback reasoning. Gate calls with
+// Verbose() so traces stay out of normal structured output: Debug(Verbose(), ...).
 func Debug(verbose bool, format string, args ...any) {
 	if !verbose {
 		return
 	}
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+
+// Verbose reports whether debug tracing is enabled, via the SF_DEBUG env var
+// (any non-empty value). It is the single toggle for Debug() calls so internal
+// traces are silent in normal runs and appear only when debugging.
+func Verbose() bool {
+	return os.Getenv("SF_DEBUG") != ""
 }

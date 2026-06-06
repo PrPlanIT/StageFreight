@@ -166,7 +166,8 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		if n, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
 			return fmt.Errorf("publish promotion: %w", err)
 		} else if n > 0 {
-			fmt.Fprintf(os.Stdout, "  publish: %d artifact tag(s) promoted from content store\n", n)
+			// (The Distribution box already reports "N of N tag(s) published"; no
+			// extra raw line here — keep the publish output cleanly boxed.)
 			// Retire the content store: publish is its terminal reader, so once the
 			// reviewed bytes are distributed the store's job is done. The CAS is a
 			// workspace-scoped transient — RETIRED here by deterministic ownership,
