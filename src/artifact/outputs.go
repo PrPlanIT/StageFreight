@@ -192,6 +192,58 @@ const (
 	OutputsSchemaVersion = "2"
 )
 
+// ManagedRoot is the single repo-relative directory that holds all
+// StageFreight-managed transferable state — manifests, deps, security, the cas
+// store, binary build output (build.DistDir), etc. It is the Perform→Publish
+// boundary: CI forwards only this prefix between jobs, so any artifact a later
+// phase must open from the filesystem MUST live beneath it. A producer that
+// writes a publish-consumed file outside ManagedRoot reopens the seam where
+// publish receives manifest metadata for files it does not possess (the
+// v0.6.1 "binary archives didn't attach" failure). See the boundary tests.
+const ManagedRoot = ".stagefreight"
+
+// WithinManagedRoot reports whether path p (relative to repoRoot, or absolute)
+// resolves to a location at or beneath repoRoot/.stagefreight. It is the
+// predicate behind the Perform→Publish boundary invariant. A "..": escape, or
+// any path that lands outside ManagedRoot, returns false.
+func WithinManagedRoot(repoRoot, p string) bool {
+	rel := p
+	if filepath.IsAbs(p) {
+		r, err := filepath.Rel(repoRoot, p)
+		if err != nil {
+			return false
+		}
+		rel = r
+	}
+	rel = filepath.Clean(rel)
+	if rel == ManagedRoot {
+		return true
+	}
+	return strings.HasPrefix(rel, ManagedRoot+string(filepath.Separator))
+}
+
+// LocalFilesystemPaths returns the on-disk paths of every artifact whose bytes a
+// later phase retrieves directly from the filesystem (binary, archive) or the
+// content store (oci_layout persistence). These are exactly the paths the
+// Perform→Publish boundary governs — docker image identity travels by Digest,
+// not a filesystem path, so it is intentionally excluded. The result is keyed
+// by ArtifactID so a boundary violation names the offending artifact.
+func (m *OutputsManifest) LocalFilesystemPaths() map[ArtifactID]string {
+	out := make(map[ArtifactID]string)
+	for _, a := range m.Artifacts {
+		switch {
+		case a.Binary != nil && a.Binary.Path != "":
+			out[a.ID] = a.Binary.Path
+		case a.Archive != nil && a.Archive.Path != "":
+			out[a.ID] = a.Archive.Path
+		}
+		if a.Persistence.Kind == PersistenceOCILayout && a.Persistence.OCILayout != nil && a.Persistence.OCILayout.Path != "" {
+			out[a.ID] = a.Persistence.OCILayout.Path
+		}
+	}
+	return out
+}
+
 var (
 	ErrOutputsManifestNotFound = errors.New("outputs manifest not found")
 	ErrOutputsManifestInvalid  = errors.New("outputs manifest invalid")

@@ -88,12 +88,9 @@ func (e *binaryEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build
 			physicalName += ".exe"
 		}
 
-		// Output path: dist/{os}-{arch}/{binary_name}
-		outputPath := fmt.Sprintf("dist/%s-%s/%s", plat.OS, plat.Arch, physicalName)
-		if cfg.Version != nil && cfg.Version.Version != "" {
-			// Include version in path when available
-			outputPath = fmt.Sprintf("dist/%s-%s/%s", plat.OS, plat.Arch, physicalName)
-		}
+		// Output path: <DistDir>/{os}-{arch}/{binary_name}, under .stagefreight/
+		// so binaries ride the perform→publish CI artifact boundary (see build.DistDir).
+		outputPath := fmt.Sprintf("%s/%s-%s/%s", build.DistDir, plat.OS, plat.Arch, physicalName)
 
 		stepID := build.StepIDForPlatform(cfg.ID, plat)
 

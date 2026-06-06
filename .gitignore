@@ -8,5 +8,7 @@ src/output/banner_art_gen.go
 /stagefreight-bin
 *.exe
 
-# binary build output (dist/<os>-<arch>/ binaries, archives, SHA256SUMS)
+# binary build output (.stagefreight/dist/<os>-<arch>/ binaries, archives,
+# SHA256SUMS) is already covered by the .stagefreight/* rule above. The bare
+# /dist/ guard remains for legacy/`--output-dir dist` local builds.
 /dist/

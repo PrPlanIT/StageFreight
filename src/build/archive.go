@@ -15,6 +15,15 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 )
 
+// DistDir is the StageFreight-managed output root for binary builds and their
+// archives, relative to the repo root. It lives under .stagefreight/ on purpose:
+// CI forwards only .stagefreight/ across the perform→publish job boundary, and
+// the publish phase must be able to open the archive files its manifest
+// references. Binaries, archives, and SHA256SUMS all live beneath this single
+// root — splitting them (e.g. a bare top-level dist/) reopens the seam where
+// publish receives metadata for files it does not possess.
+const DistDir = ".stagefreight/dist"
+
 // ArchiveOpts holds configuration for archive creation.
 type ArchiveOpts struct {
 	// Format is "tar.gz", "zip", or "auto" (zip for windows, tar.gz otherwise).

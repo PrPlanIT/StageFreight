@@ -218,7 +218,7 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 			}
 			archResult, err := build.CreateArchive(build.ArchiveOpts{
 				Format:       t.Format,
-				OutputDir:    filepath.Join(rc.RootDir, "dist"),
+				OutputDir:    filepath.Join(rc.RootDir, build.DistDir),
 				NameTemplate: nameTemplate,
 				BinaryPath:   pb.Path,
 				BinaryName:   archiveBinaryName,
@@ -258,7 +258,7 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 		}
 
 		if t.Checksums && len(targetArchives) > 0 {
-			checksumPath, err := build.WriteChecksums(filepath.Join(rc.RootDir, "dist"), targetArchives)
+			checksumPath, err := build.WriteChecksums(filepath.Join(rc.RootDir, build.DistDir), targetArchives)
 			if err != nil {
 				return domains.Contribution{Rows: rows, Status: "failed", Summary: "checksums failed"},
 					fmt.Errorf("writing checksums: %w", err)
