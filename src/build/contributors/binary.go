@@ -203,6 +203,11 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 	var rows []string
 	archiveCount := 0
 	for _, t := range archiveTargets {
+		// Gate on when: — a binary-archive only builds for its configured event/
+		// branch/tag (e.g. a dev archive on main-push, a stable archive on tag).
+		if !config.TargetMatchesEnv(t, rc.Config) {
+			continue
+		}
 		var targetArchives []*build.ArchiveResult
 		for _, pb := range b.built {
 			if t.Build != pb.BuildID {
