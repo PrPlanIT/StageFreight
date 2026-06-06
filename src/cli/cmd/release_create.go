@@ -510,8 +510,11 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		return err
 	}
 
-	// Collect release targets from config
-	primaryRelease := findPrimaryReleaseTarget(req.Config)
+	// Collect release targets from config. The "active" release target is the
+	// first non-remote release whose when: matches THIS build's event, so a dev
+	// channel rolls latest-dev on a push while a stable target rolls latest on a
+	// tag — even when both are configured.
+	primaryRelease := activeReleaseTarget(req.Config)
 	remoteReleases := findRemoteReleaseTargets(req.Config)
 
 	// ── Collect all results ──
@@ -760,33 +763,53 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		}
 	}
 
-	// ── Retention section (from primary release target) ──
-	if primaryRelease != nil && primaryRelease.Retention != nil && primaryRelease.Retention.Active() {
-		retStart := time.Now()
-		var patterns []string
-		if len(primaryRelease.Aliases) > 0 {
-			patterns = retention.TemplatesToPatterns(primaryRelease.Aliases)
+	// ── Retention section (per active release target) ──
+	// Each non-remote release target matching THIS event prunes its OWN releases:
+	// a channel (Tag set) scopes candidates to its immutable dev-{sha} releases and
+	// prunes the git tag too (pruneTags), protecting rolling aliases; a stable
+	// target falls back to alias-pattern scope with tags kept. Per-target stores
+	// never share a candidate set, so one target's retention can't touch another's.
+	type retOutcome struct {
+		id  string
+		res *retention.Result
+		err error
+	}
+	var retOutcomes []retOutcome
+	retStart := time.Now()
+	for _, t := range pipeline.CollectTargetsByKind(req.Config, "release") {
+		if t.IsRemoteRelease() || t.Retention == nil || !t.Retention.Active() {
+			continue
 		}
-		store := &forgeStore{forge: forgeClient}
-		result, retErr := retention.Apply(ctx, store, patterns, *primaryRelease.Retention)
-
-		retElapsed := time.Since(retStart)
-
+		if !config.TargetMatchesEnv(t, req.Config) {
+			continue
+		}
+		var patterns []string
+		if t.Tag != "" {
+			patterns = retention.TemplatesToPatterns([]string{t.Tag})
+		} else if len(t.Aliases) > 0 {
+			patterns = retention.TemplatesToPatterns(t.Aliases)
+		}
+		pol := *t.Retention
+		// Rolling aliases are never pruned.
+		pol.Protect = append(append([]string{}, pol.Protect...), retention.TemplatesToPatterns(t.Aliases)...)
+		store := &forgeStore{forge: forgeClient, pruneTags: t.Tag != ""}
+		res, err := retention.Apply(ctx, store, patterns, pol)
+		retOutcomes = append(retOutcomes, retOutcome{id: t.ID, res: res, err: err})
+	}
+	if len(retOutcomes) > 0 {
 		output.SectionStart(w, "sf_retention", "Retention")
-		retSec := output.NewSection(w, "Retention", retElapsed, color)
-
-		if retErr != nil {
-			retSec.Row("error: %v", retErr)
-			fmt.Fprintf(os.Stderr, "warning: release retention: %v\n", retErr)
-		} else {
-			retSec.Row("%-16s%d", "matched", result.Matched)
-			retSec.Row("%-16s%d", "kept", result.Kept)
-			retSec.Row("%-16s%d", "pruned", len(result.Deleted))
-			for _, d := range result.Deleted {
+		retSec := output.NewSection(w, "Retention", time.Since(retStart), color)
+		for _, o := range retOutcomes {
+			if o.err != nil {
+				retSec.Row("%-16s%s", o.id, "error: "+o.err.Error())
+				fmt.Fprintf(os.Stderr, "warning: release retention (%s): %v\n", o.id, o.err)
+				continue
+			}
+			retSec.Row("%-16skept=%d pruned=%d", o.id, o.res.Kept, len(o.res.Deleted))
+			for _, d := range o.res.Deleted {
 				retSec.Row("  - %s", d)
 			}
 		}
-
 		retSec.Close()
 		output.SectionEnd(w, "sf_retention")
 	}
@@ -890,6 +913,27 @@ func findPrimaryReleaseTarget(cfg *config.Config) *config.TargetConfig {
 		}
 	}
 	return nil
+}
+
+// activeReleaseTarget returns the first non-remote release target whose when:
+// matches the current CI event — the channel being released on THIS build (dev on
+// a push, stable on a tag). Falls back to the first non-remote release target if
+// none matches (e.g. a manual run), preserving legacy single-target behavior.
+func activeReleaseTarget(cfg *config.Config) *config.TargetConfig {
+	var first *config.TargetConfig
+	for i := range cfg.Targets {
+		t := cfg.Targets[i]
+		if t.Kind != "release" || t.IsRemoteRelease() {
+			continue
+		}
+		if first == nil {
+			first = &cfg.Targets[i]
+		}
+		if config.TargetMatchesEnv(t, cfg) {
+			return &cfg.Targets[i]
+		}
+	}
+	return first
 }
 
 // findRemoteReleaseTargets returns all release targets with remote forge fields set.

@@ -166,6 +166,10 @@ func runReleasePruneDryRun(ctx context.Context, w *os.File, color bool, f forge.
 // forgeStore adapts forge.Forge to the retention.Store interface.
 type forgeStore struct {
 	forge forge.Forge
+	// pruneTags also deletes the git tag when a release is pruned. Set for channel
+	// targets, whose refs (e.g. dev-{sha8}) are ephemeral carriers — so a pruned
+	// release leaves no orphan tag. Off for stable releases, whose tags persist.
+	pruneTags bool
 }
 
 func (s *forgeStore) List(ctx context.Context) ([]retention.Item, error) {
@@ -185,7 +189,15 @@ func (s *forgeStore) List(ctx context.Context) ([]retention.Item, error) {
 }
 
 func (s *forgeStore) Delete(ctx context.Context, name string) error {
-	return s.forge.DeleteRelease(ctx, name)
+	if err := s.forge.DeleteRelease(ctx, name); err != nil {
+		return err
+	}
+	if s.pruneTags {
+		// Best-effort: some forges remove the tag with the release, and the tag
+		// may already be gone — a missing tag must not fail the prune.
+		_ = s.forge.DeleteTag(ctx, name)
+	}
+	return nil
 }
 
 // matchesPatterns is a thin wrapper for dry-run pattern matching.
