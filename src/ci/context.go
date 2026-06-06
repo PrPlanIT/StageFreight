@@ -70,7 +70,12 @@ func ResolveContext() *CIContext {
 					if head.Name().IsBranch() {
 						ctx.Branch = head.Name().Short()
 					} else {
-						// Detached HEAD — check if at a tag
+						// Detached HEAD — check if at a tag.
+						// NOTE (release channels): this local fallback can read a
+						// minted channel ref (e.g. dev-{sha8}) at HEAD as the tag.
+						// It is acceptably defensive: this path runs ONLY when no
+						// SF_CI_* env is set (local dev), and in CI SF_CI_TAG/BRANCH
+						// are authoritative so it never fires for channel builds.
 						if tag, tagErr := gitstate.ExactTagAtHEAD(repo); tagErr != nil {
 							diag.Debug(true, "ci context: could not resolve tag at HEAD: %v", tagErr)
 						} else {

@@ -398,13 +398,14 @@ func renderVersionFormat(format string, v *VersionInfo) string {
 	return out
 }
 
-// headAtTag returns true if HEAD is exactly at the given tag.
+// headAtTag returns true if HEAD is exactly at the given tag. It checks the
+// SPECIFIC chosen tag (not "any tag at HEAD"), so a co-located channel ref —
+// e.g. a minted dev-{sha8} sitting on the same commit as a release tag — cannot
+// flip a real release to IsRelease=false. A channel ref is a name in the naming
+// layer, never an identity; this keeps version detection blind to it.
 func headAtTag(repo *git.Repository, tag string) bool {
-	tagAtHEAD, err := gitstate.ExactTagAtHEAD(repo)
-	if err != nil {
-		return false
-	}
-	return tagAtHEAD == tag
+	at, err := gitstate.TagPointsAtHEAD(repo, tag)
+	return err == nil && at
 }
 
 // splitLines splits git command output into a clean list of non-empty lines.

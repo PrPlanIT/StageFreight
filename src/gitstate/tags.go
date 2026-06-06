@@ -104,6 +104,28 @@ func ExactTagAtHEAD(repo *git.Repository) (string, error) {
 	return result, nil
 }
 
+// TagPointsAtHEAD reports whether the named tag resolves to the same commit as
+// HEAD. Unlike ExactTagAtHEAD (which returns whichever tag it happens to find
+// first at HEAD), this checks a SPECIFIC tag — so a co-located channel ref (e.g.
+// a minted dev-{sha8}) cannot mask a real release tag that is also at HEAD. A
+// missing tag is not an error here; it simply does not point at HEAD.
+func TagPointsAtHEAD(repo *git.Repository, tagName string) (bool, error) {
+	head, err := repo.Head()
+	if err != nil {
+		return false, fmt.Errorf("resolving HEAD: %w", err)
+	}
+	ref, err := repo.Tag(tagName)
+	if err != nil {
+		return false, nil // tag absent → not at HEAD
+	}
+	commitHash := ref.Hash()
+	// Dereference annotated tags to their target commit.
+	if tagObj, err := repo.TagObject(ref.Hash()); err == nil {
+		commitHash = tagObj.Target
+	}
+	return commitHash == head.Hash(), nil
+}
+
 // ResolveRef resolves any git ref (tag, branch, commit SHA, HEAD) to a commit SHA.
 // Equivalent to `git rev-parse --verify <ref>^{commit}`.
 func ResolveRef(repo *git.Repository, ref string) (string, error) {
