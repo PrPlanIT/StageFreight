@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/retention"
 )
 
@@ -119,18 +120,42 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 		results = append(results, *res)
 	}
 
-	// Minimal summary (the boxed Distribution (package) card lands in B6).
+	// Distribution (package) card — one per published target. Each row states an
+	// external fact: the registry now serves this version (the publish PUT is
+	// confirmed by the forge), and a curl-able pull URL.
+	color := output.UseColor()
+	w := os.Stdout
 	for _, r := range results {
-		verb := "published"
+		output.SectionStart(w, "sf_package", "Distribution (package)")
+		sec := output.NewSection(w, "Distribution (package)", 0, color)
+		sec.Row("%-12s%s", "package", r.PackageName)
+		sec.Separator()
+		sec.Row("PUBLISHED")
 		if r.ImmutableSkipped {
-			verb = "refreshed (immutable exists)"
+			sec.Row("%s  %s (already published — immutable, not overwritten)", output.StatusIcon("success", color), r.ImmutableVersion)
+		} else {
+			sec.Row("%s  %s (%d file(s))", output.StatusIcon("success", color), r.ImmutableVersion, len(r.Files))
 		}
-		pruned := ""
+		for _, a := range r.Aliases {
+			sec.Row("%s  %s → %s (rolling)", output.StatusIcon("success", color), a, r.ImmutableVersion)
+		}
+		if len(r.PullURLs) > 0 {
+			sec.Separator()
+			sec.Row("pull")
+			for _, u := range r.PullURLs {
+				sec.Row("  %s", u)
+			}
+		}
 		if len(r.Pruned) > 0 {
-			pruned = fmt.Sprintf(", pruned %d", len(r.Pruned))
+			sec.Separator()
+			sec.Row("retention")
+			sec.Row("  pruned %d old version(s)", len(r.Pruned))
+			for _, p := range r.Pruned {
+				sec.Row("  - %s", p)
+			}
 		}
-		fmt.Fprintf(os.Stdout, "  package: %s %s %s%s → %d file(s)%s\n",
-			verb, r.PackageName, r.ImmutableVersion, aliasSuffix(r.Aliases), len(assets), pruned)
+		sec.Close()
+		output.SectionEnd(w, "sf_package")
 	}
 
 	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
@@ -171,7 +196,7 @@ func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, package
 		}
 	}
 	if !res.ImmutableSkipped {
-		for _, a := range assets {
+		for i, a := range assets {
 			pub, perr := fc.PublishPackageFile(ctx, forge.PublishPackageOptions{
 				PackageName: packageName,
 				Version:     immutableVersion,
@@ -182,7 +207,9 @@ func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, package
 				return nil, fmt.Errorf("publishing %s@%s: %w", filepath.Base(a.Path), immutableVersion, perr)
 			}
 			res.Files = append(res.Files, pub.FileName)
-			res.PullURLs = append(res.PullURLs, pub.PullURL)
+			if i == 0 {
+				res.PullURLs = append(res.PullURLs, pub.PullURL) // representative curl target
+			}
 		}
 	}
 
@@ -191,14 +218,18 @@ func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, package
 		if derr := fc.DeletePackageVersion(ctx, packageName, alias); derr != nil {
 			return nil, fmt.Errorf("refreshing alias %s: deleting old: %w", alias, derr)
 		}
-		for _, a := range assets {
-			if _, perr := fc.PublishPackageFile(ctx, forge.PublishPackageOptions{
+		for i, a := range assets {
+			pub, perr := fc.PublishPackageFile(ctx, forge.PublishPackageOptions{
 				PackageName: packageName,
 				Version:     alias,
 				FileName:    filepath.Base(a.Path),
 				FilePath:    a.Path,
-			}); perr != nil {
+			})
+			if perr != nil {
 				return nil, fmt.Errorf("publishing %s@%s: %w", filepath.Base(a.Path), alias, perr)
+			}
+			if i == 0 {
+				res.PullURLs = append(res.PullURLs, pub.PullURL) // representative curl target
 			}
 		}
 	}
@@ -244,17 +275,3 @@ func prunePackageTarget(ctx context.Context, fc forge.Forge, packageName, versio
 	return retention.Apply(ctx, store, patterns, effective)
 }
 
-// aliasSuffix renders " (+ a, b)" for a non-empty alias list, else "".
-func aliasSuffix(aliases []string) string {
-	if len(aliases) == 0 {
-		return ""
-	}
-	s := " (+ "
-	for i, a := range aliases {
-		if i > 0 {
-			s += ", "
-		}
-		s += a
-	}
-	return s + ")"
-}
