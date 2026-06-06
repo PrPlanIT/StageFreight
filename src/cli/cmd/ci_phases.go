@@ -178,6 +178,16 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 				fmt.Fprintf(os.Stderr, "warning: content store retire: %v\n", rErr)
 			}
 		}
+		// Remote registry tag retention — publish is the only phase allowed to
+		// mutate external distribution targets, and only here (post-push) is the
+		// final remote tag set known. Local-daemon retention stays in perform.
+		// Best-effort cleanup: a prune failure must not fail the pipeline.
+		if ci.IsBranchHeadFresh(ciCtx) {
+			if err := pruneRemoteRegistries(ctx, appCfg, rootDir, os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: registry retention: %v\n", err)
+			}
+		}
+
 		if err := releaseRunner(ctx, appCfg, ciCtx, opts); err != nil {
 			return err
 		}

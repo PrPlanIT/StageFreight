@@ -40,7 +40,7 @@ func TestRetentionHook_SkipsWhenNoActiveRetention(t *testing.T) {
 	}
 }
 
-func TestRetentionHook_ConditionTrueWhenActiveRetention(t *testing.T) {
+func TestRetentionHook_ConditionTrueWhenActiveLocalRetention(t *testing.T) {
 	hook := RetentionHook()
 	pc := makePC()
 	pc.BuildPlan = &build.BuildPlan{
@@ -50,9 +50,9 @@ func TestRetentionHook_ConditionTrueWhenActiveRetention(t *testing.T) {
 				Push: false,
 				Registries: []build.RegistryTarget{
 					{
-						URL:      "docker.io",
+						URL:      "local",
 						Path:     "prplanit/example",
-						Provider: "docker",
+						Provider: "local",
 						Retention: config.RetentionPolicy{
 							KeepLast: 5,
 						},
@@ -62,11 +62,35 @@ func TestRetentionHook_ConditionTrueWhenActiveRetention(t *testing.T) {
 		},
 	}
 	if !hook.Condition(pc) {
-		t.Error("Condition() = false when BuildPlan has active retention; want true")
+		t.Error("Condition() = false when BuildPlan has active LOCAL retention; want true")
 	}
 }
 
-func TestHasRetention_LoadOnlyWithRegistries(t *testing.T) {
+// Remote registry retention is a publish-phase concern; perform must not run it.
+func TestRetentionHook_RemoteRetentionNotCountedInPerform(t *testing.T) {
+	hook := RetentionHook()
+	pc := makePC()
+	pc.BuildPlan = &build.BuildPlan{
+		Steps: []build.BuildStep{
+			{
+				Load: true,
+				Registries: []build.RegistryTarget{
+					{
+						URL:       "docker.io",
+						Path:      "prplanit/example",
+						Provider:  "docker", // remote
+						Retention: config.RetentionPolicy{KeepLast: 5},
+					},
+				},
+			},
+		},
+	}
+	if hook.Condition(pc) {
+		t.Error("Condition() = true for REMOTE retention in perform; want false (publish owns it)")
+	}
+}
+
+func TestHasRetention_LocalRegistry(t *testing.T) {
 	plan := &build.BuildPlan{
 		Steps: []build.BuildStep{
 			{
@@ -74,9 +98,9 @@ func TestHasRetention_LoadOnlyWithRegistries(t *testing.T) {
 				Push: false,
 				Registries: []build.RegistryTarget{
 					{
-						URL:      "docker.io",
+						URL:      "local",
 						Path:     "prplanit/example",
-						Provider: "docker",
+						Provider: "local",
 						Retention: config.RetentionPolicy{
 							KeepLast: 5,
 						},
@@ -87,7 +111,29 @@ func TestHasRetention_LoadOnlyWithRegistries(t *testing.T) {
 	}
 
 	if !HasRetention(plan) {
-		t.Error("HasRetention() = false for load-only step with registries; want true")
+		t.Error("HasRetention() = false for local registry with retention; want true")
+	}
+}
+
+func TestHasRetention_RemoteRegistryNotCounted(t *testing.T) {
+	plan := &build.BuildPlan{
+		Steps: []build.BuildStep{
+			{
+				Load: true,
+				Registries: []build.RegistryTarget{
+					{
+						URL:       "docker.io",
+						Path:      "prplanit/example",
+						Provider:  "docker",
+						Retention: config.RetentionPolicy{KeepLast: 5},
+					},
+				},
+			},
+		},
+	}
+
+	if HasRetention(plan) {
+		t.Error("HasRetention() = true for remote registry; want false (publish owns remote retention)")
 	}
 }
 

@@ -12,14 +12,17 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
-// HasRetention returns true if any step has a registry with retention configured.
+// HasRetention returns true if any LOCAL-daemon registry has retention configured.
+//
+// Remote registry tag deletion is a mutation of an external distribution target,
+// so it belongs to the publish phase (after the push, when the final remote tag
+// set is known) — see pruneRemoteRegistries. Perform owns only local Docker
+// daemon hygiene: deleting images from the build daemon is workspace cleanup, not
+// distribution, and the daemon does not survive into the separate publish job.
 func HasRetention(plan *build.BuildPlan) bool {
 	for _, step := range plan.Steps {
-		if len(step.Registries) == 0 {
-			continue
-		}
 		for _, reg := range step.Registries {
-			if reg.Retention.Active() {
+			if reg.Provider == "local" && reg.Retention.Active() {
 				return true
 			}
 		}
@@ -45,10 +48,13 @@ func RetentionHook() pipeline.PostBuildHook {
 	}
 }
 
-// RunRetentionSection applies tag retention with section-formatted output.
-// Returns a summary string and elapsed time for the summary table.
+// RunRetentionSection applies LOCAL-daemon image retention with section-formatted
+// output. Returns a summary string and elapsed time for the summary table.
+// Remote registries are intentionally skipped here — their retention runs in the
+// publish phase (pruneRemoteRegistries), the only phase permitted to mutate
+// external distribution targets.
 func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, plan *build.BuildPlan) (string, time.Duration) {
-	output.SectionStartCollapsed(w, "sf_retention", "Retention")
+	output.SectionStartCollapsed(w, "sf_retention", "Retention (local images)")
 	retStart := time.Now()
 
 	var totalDeleted int
@@ -63,8 +69,8 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 			continue
 		}
 		for _, reg := range step.Registries {
-			if !reg.Retention.Active() {
-				continue
+			if reg.Provider != "local" || !reg.Retention.Active() {
+				continue // remote registry retention runs in publish, not perform
 			}
 
 			client, err := registry.NewRegistry(reg.Provider, reg.URL, reg.Credentials)
@@ -103,10 +109,10 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 
 	retElapsed := time.Since(retStart)
 
-	sec := output.NewSection(w, "Retention", retElapsed, color)
+	sec := output.NewSection(w, "Retention (local images)", retElapsed, color)
 	for _, step := range plan.Steps {
 		for _, reg := range step.Registries {
-			if !reg.Retention.Active() {
+			if reg.Provider != "local" || !reg.Retention.Active() {
 				continue
 			}
 			sec.Row("%-40skept %d, pruned %d", reg.URL+"/"+reg.Path, totalKept, totalDeleted)
