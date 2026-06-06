@@ -223,6 +223,20 @@ func ValidateTargetRegistryRefs(targets []TargetConfig, registries []RegistryCon
 	return errs
 }
 
+// ValidateTargetRepoRefs checks that targets referencing a repo (kind: generic-package)
+// resolve to a declared repos[] entry. Mirrors ValidateTargetRegistryRefs.
+func ValidateTargetRepoRefs(targets []TargetConfig, repos []RepoConfig) []string {
+	var errs []string
+	for _, t := range targets {
+		if t.Kind == "generic-package" && t.Repo != "" {
+			if FindRepoByID(repos, t.Repo) == nil {
+				errs = append(errs, fmt.Sprintf("targets[%s]: repo %q not found in repos", t.ID, t.Repo))
+			}
+		}
+	}
+	return errs
+}
+
 // FindForgeByID returns the forge with the given id, or nil.
 func FindForgeByID(forges []ForgeConfig, id string) *ForgeConfig {
 	for i := range forges {

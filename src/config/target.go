@@ -11,6 +11,7 @@ package config
 //   - docker-readme: Sync README to a container registry (standalone)
 //   - gitlab-component: Publish to GitLab CI component catalog (standalone)
 //   - release: Create forge release + rolling git tags (standalone)
+//   - generic-package: Publish archives to a forge generic package registry (standalone)
 type TargetConfig struct {
 	// ID is the unique identifier for this target (logging, status, enable/disable).
 	ID string `yaml:"id"`
@@ -126,7 +127,7 @@ type TargetConfig struct {
 
 	// ── kind: binary-archive ──────────────────────────────────────────────
 
-	// Archives references a binary-archive target ID (kind: release only).
+	// Archives references a binary-archive target ID (kind: release and generic-package).
 	Archives string `yaml:"archives,omitempty"`
 
 	// BinaryName overrides the binary name inside the archive (kind: binary-archive).
@@ -147,6 +148,24 @@ type TargetConfig struct {
 
 	// Checksums generates a SHA256SUMS file alongside archives (kind: binary-archive).
 	Checksums bool `yaml:"checksums,omitempty"`
+
+	// ── kind: generic-package ─────────────────────────────────────────────
+
+	// Repo references a repos[].id (kind: generic-package). The forge identity
+	// (provider, url, project, credentials) is resolved from the repo; the package
+	// is published to that forge's generic package registry.
+	Repo string `yaml:"repo,omitempty"`
+
+	// Package is the generic package name (kind: generic-package).
+	// Defaults to the repo project's basename if empty.
+	Package string `yaml:"package,omitempty"`
+
+	// Version is the immutable package version pattern (kind: generic-package).
+	// Resolved against version info like Aliases ({version}, {sha:8}, ...), e.g.
+	// "dev-{sha:8}". Published once, never overwritten. Distinct from a release Tag
+	// (a git ref): this names a package *version*, not a git tag. Required — every
+	// rolling Alias must have an immutable Version behind it.
+	Version string `yaml:"version,omitempty"`
 }
 
 // IsRemoteRelease returns true if this release target references a remote forge,
@@ -182,6 +201,7 @@ var validTargetKinds = map[string]bool{
 	"gitlab-component": true,
 	"release":          true,
 	"binary-archive":   true,
+	"generic-package":  true,
 }
 
 // validArchiveFormats enumerates all recognized archive formats.

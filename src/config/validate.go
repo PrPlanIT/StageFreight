@@ -469,6 +469,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	if len(cfg.Forges) > 0 || len(cfg.Repos) > 0 || len(cfg.Registries) > 0 {
 		errs = append(errs, ValidateIdentityGraph(cfg.Forges, cfg.Repos, cfg.Registries)...)
 		errs = append(errs, ValidateTargetRegistryRefs(cfg.Targets, cfg.Registries)...)
+		errs = append(errs, ValidateTargetRepoRefs(cfg.Targets, cfg.Repos)...)
 	}
 
 	// ── Unused matcher warning (high signal, low cost) ──────────────────
@@ -612,6 +613,40 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		}
 		if len(t.Tags) > 0 {
 			errs = append(errs, fmt.Sprintf("%s: tags is not valid for kind binary-archive (use name template)", path))
+		}
+
+	case "generic-package":
+		// Forge identity comes from repo; archives supply the files.
+		if t.Repo == "" {
+			errs = append(errs, fmt.Sprintf("%s: kind generic-package requires repo", path))
+		}
+		if t.Archives == "" {
+			errs = append(errs, fmt.Sprintf("%s: kind generic-package requires archives", path))
+		}
+		// Version is the immutable package version (mandatory). Every mutable alias
+		// must have an immutable version behind it — alias-only publication loses
+		// history and weakens traceability, so it is rejected.
+		if t.Version == "" {
+			errs = append(errs, fmt.Sprintf("%s: kind generic-package requires version (immutable version; alias-only publication is not allowed)", path))
+		}
+		// Reject fields that belong to other kinds or restate forge identity.
+		if t.Build != "" {
+			errs = append(errs, fmt.Sprintf("%s: build is not valid for kind generic-package", path))
+		}
+		if t.Mirror != "" {
+			errs = append(errs, fmt.Sprintf("%s: mirror is not valid for kind generic-package (forge identity comes from repo)", path))
+		}
+		if t.Provider != "" || t.URL != "" || t.ProjectID != "" || t.Credentials != "" {
+			errs = append(errs, fmt.Sprintf("%s: provider/url/project_id/credentials are not valid for kind generic-package (resolved from repo)", path))
+		}
+		if t.Tag != "" {
+			errs = append(errs, fmt.Sprintf("%s: tag is not valid for kind generic-package (use version)", path))
+		}
+		if t.Path != "" {
+			errs = append(errs, fmt.Sprintf("%s: path is not valid for kind generic-package", path))
+		}
+		if len(t.Tags) > 0 {
+			errs = append(errs, fmt.Sprintf("%s: tags is not valid for kind generic-package (use version/aliases)", path))
 		}
 	}
 
