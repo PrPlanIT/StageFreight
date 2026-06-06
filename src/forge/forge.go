@@ -167,6 +167,12 @@ type ReleaseLink struct {
 	Name     string // display name (e.g., "Docker Hub 1.3.0")
 	URL      string // target URL
 	LinkType string // "image", "package", "other"
+
+	// DirectAssetPath, when set (GitLab only), yields a permanent download URL
+	// at /-/releases/<tag>/downloads/<DirectAssetPath> that redirects to URL.
+	// Leading-slash relative path (e.g. "/dwiz-windows-amd64.zip"). Ignored by
+	// forges whose assets are natively addressable (GitHub/Gitea blobs).
+	DirectAssetPath string
 }
 
 // CommitFileOptions configures a file commit via forge API.

@@ -107,6 +107,10 @@ func (g *GitLabForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*
 	if opts.Ref != "" {
 		payload["ref"] = opts.Ref
 	}
+	// NOTE: GitLab Releases have no native draft/prerelease flag (unlike
+	// GitHub/Gitea), so opts.Draft/opts.Prerelease are intentionally not sent —
+	// adding unknown fields would 400. Channel pre-release semantics are honored
+	// on forges that support them; on GitLab the release is created normally.
 
 	var resp struct {
 		TagName string `json:"tag_name"`
@@ -172,11 +176,13 @@ func (g *GitLabForge) UploadAsset(ctx context.Context, releaseID string, asset A
 		return err
 	}
 
-	// Link the uploaded file to the release
+	// Link the uploaded file to the release, with a permanent download permalink
+	// (/-/releases/<tag>/downloads/<name>) so consumers can curl a stable URL.
 	return g.AddReleaseLink(ctx, releaseID, ReleaseLink{
-		Name:     asset.Name,
-		URL:      g.BaseURL + uploadResp.URL,
-		LinkType: "other",
+		Name:            asset.Name,
+		URL:             g.BaseURL + uploadResp.URL,
+		LinkType:        "other",
+		DirectAssetPath: "/" + asset.Name,
 	})
 }
 
@@ -185,6 +191,10 @@ func (g *GitLabForge) AddReleaseLink(ctx context.Context, releaseID string, link
 		"name":      link.Name,
 		"url":       link.URL,
 		"link_type": link.LinkType,
+	}
+	if link.DirectAssetPath != "" {
+		// Permanent permalink: /-/releases/<tag>/downloads/<direct_asset_path> → url.
+		payload["direct_asset_path"] = link.DirectAssetPath
 	}
 	linkURL := g.apiURL(fmt.Sprintf("/releases/%s/assets/links", url.PathEscape(releaseID)))
 	return g.doJSON(ctx, "POST", linkURL, payload, nil)
