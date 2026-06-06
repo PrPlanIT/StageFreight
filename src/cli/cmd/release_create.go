@@ -640,6 +640,17 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 					}
 				}
 				report.Tags = append(report.Tags, actionResult{Name: rt, OK: true})
+
+				// Channel aliases (target has a Tag pattern) are also refreshed as
+				// pullable RELEASES with assets, so e.g. latest-dev resolves at
+				// /-/releases/latest-dev/downloads/... Stable targets (no Tag) keep
+				// rolling-tag-only behavior, unchanged.
+				if primaryRelease.Tag != "" {
+					if err := refreshRollingRelease(ctx, forgeClient, rt, req.Ref, rt, notes, primaryRelease.Prerelease, allAssets); err != nil {
+						report.Tags = append(report.Tags, actionResult{Name: rt + " (release)", Err: err})
+						fmt.Fprintf(os.Stderr, "warning: rolling release %s: %v\n", rt, err)
+					}
+				}
 			}
 		}
 	}
@@ -1121,6 +1132,31 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 	default:
 		return nil, fmt.Errorf("unknown forge provider: %s", provider)
 	}
+}
+
+// refreshRollingRelease (re)creates a release at a rolling alias (e.g. latest-dev)
+// and re-attaches its assets, so the alias is a pullable release that always
+// points at the newest build. The Forge has no UpdateRelease, so this is
+// delete-then-create; DeleteRelease tolerates a missing release (first run).
+// Asset upload failures warn but do not abort the refresh.
+func refreshRollingRelease(ctx context.Context, fc forge.Forge, alias, ref, name, notes string, prerelease bool, assets []string) error {
+	_ = fc.DeleteRelease(ctx, alias) // ignore not-found — this is a refresh
+	rel, err := fc.CreateRelease(ctx, forge.ReleaseOptions{
+		TagName:     alias,
+		Ref:         ref,
+		Name:        name,
+		Description: notes,
+		Prerelease:  prerelease,
+	})
+	if err != nil {
+		return err
+	}
+	for _, assetPath := range assets {
+		if err := fc.UploadAsset(ctx, rel.ID, forge.Asset{Name: filepath.Base(assetPath), FilePath: assetPath}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: rolling asset %s → %s: %v\n", filepath.Base(assetPath), alias, err)
+		}
+	}
+	return nil
 }
 
 // newSyncForgeClientFromTarget creates a forge client for a remote release target.
