@@ -41,6 +41,97 @@ func sampleOutputs(t *testing.T) *artifact.OutputsManifest {
 	return &m
 }
 
+// TestPromotionPreservesArchiveOutcomes is the regression guard for the clobber
+// bug: publish promotion must EXTEND published.json (add docker push outcomes),
+// not replace it with a docker-only manifest. If it replaces, the archive BUILD
+// outcomes perform recorded vanish and release-asset discovery attaches nothing.
+func TestPromotionPreservesArchiveOutcomes(t *testing.T) {
+	// outputs: a docker image (promoted in publish) + an archive (built in perform).
+	out := artifact.OutputsManifest{
+		Artifacts: []artifact.Artifact{
+			{
+				Kind: "docker", Name: "sf",
+				Docker:  &artifact.DockerDescriptor{Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"}},
+				Targets: []artifact.Target{{Kind: "registry", Registry: &artifact.RegistryTarget{Host: "docker.io", Path: "prplanit/sf", Tags: []string{"latest-dev"}}}},
+			},
+			{
+				Kind: "archive", Name: "sf-linux-amd64.tar.gz", Version: "1.0.0",
+				Archive: &artifact.ArchiveDescriptor{Format: "tar.gz", Path: ".stagefreight/dist/sf-linux-amd64.tar.gz"},
+			},
+		},
+	}
+	if err := out.Finalize(); err != nil {
+		t.Fatalf("Finalize outputs: %v", err)
+	}
+
+	// perform-written results: the archive built successfully.
+	perform := artifact.ResultsManifest{
+		IntentChecksum: out.Checksum,
+		Results: []artifact.Result{
+			{
+				ArtifactID: "archive:sf-linux-amd64.tar.gz", ArtifactName: "sf-linux-amd64.tar.gz", Kind: "archive",
+				Outcomes: []artifact.Outcome{{
+					Type:    artifact.OutcomeTypeArchive,
+					Archive: &artifact.ArchiveOutcome{Status: artifact.OutcomeSuccess, SHA256: "sha256:arc", Path: ".stagefreight/dist/sf-linux-amd64.tar.gz", Format: "tar.gz", Size: 100},
+				}},
+			},
+		},
+	}
+	if err := perform.Finalize(); err != nil {
+		t.Fatalf("Finalize perform results: %v", err)
+	}
+
+	dockerPush := artifact.Outcome{
+		Type:   artifact.OutcomeTypePush,
+		Target: &artifact.OutcomeTarget{Kind: "registry", Host: "docker.io", Path: "prplanit/sf", Tag: "latest-dev"},
+		Push:   &artifact.PushOutcome{Status: artifact.OutcomeSuccess, Digest: "sha256:img"},
+	}
+
+	// Promotion: seed from perform, add the docker push outcome (the fix).
+	rb := ResultsBuilderFromManifest(&perform)
+	rb.Record("docker:sf", dockerPush)
+	merged, err := rb.Build(&out)
+	if err != nil {
+		t.Fatalf("Build merged: %v", err)
+	}
+
+	// Invariant 1: the archive build outcome survives → discovery still sees it.
+	views := artifact.BuildArchiveExecutionViews(&out, &merged)
+	if len(views) != 1 || views[0].BuildStatus != artifact.OutcomeSuccess {
+		t.Fatalf("archive outcome did not survive promotion — release would attach nothing: %+v", views)
+	}
+
+	// Invariant 2: the docker push outcome was added.
+	foundPush := false
+	for _, r := range merged.Results {
+		if r.ArtifactID != "docker:sf" {
+			continue
+		}
+		for _, o := range r.Outcomes {
+			if o.Type == artifact.OutcomeTypePush {
+				foundPush = true
+			}
+		}
+	}
+	if !foundPush {
+		t.Fatal("docker push outcome missing from merged manifest")
+	}
+
+	// Negative control: the OLD behavior (fresh builder, docker-only) yields NO
+	// successful archive view — the exact failure this test guards against.
+	old := NewResultsBuilder()
+	old.Record("docker:sf", dockerPush)
+	oldResults, err := old.Build(&out)
+	if err != nil {
+		t.Fatalf("Build old: %v", err)
+	}
+	for _, v := range artifact.BuildArchiveExecutionViews(&out, &oldResults) {
+		if v.BuildStatus == artifact.OutcomeSuccess {
+			t.Fatal("negative control: docker-only manifest must NOT yield a successful archive view")
+		}
+	}
+}
+
 func TestResultsBuilderRecordAndBuild(t *testing.T) {
 	out := sampleOutputs(t)
 	rb := NewResultsBuilder()

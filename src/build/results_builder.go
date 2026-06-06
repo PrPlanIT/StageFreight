@@ -33,6 +33,27 @@ func NewResultsBuilder() *ResultsBuilder {
 	}
 }
 
+// ResultsBuilderFromManifest returns a builder pre-seeded with an existing
+// manifest's outcomes, so a later phase EXTENDS recorded history rather than
+// replacing it. published.json is cumulative observed truth (build outcomes
+// recorded by perform, push outcomes by publish) — a phase that re-records its
+// own outcomes into a fresh builder would clobber the earlier facts (e.g. drop
+// archive build outcomes that release-asset discovery depends on). Outcomes are
+// re-recorded in manifest order; the caller then Records this phase's new
+// outcomes on top before Build(). A nil manifest yields an empty builder.
+func ResultsBuilderFromManifest(m *artifact.ResultsManifest) *ResultsBuilder {
+	b := NewResultsBuilder()
+	if m == nil {
+		return b
+	}
+	for _, res := range m.Results {
+		for _, o := range res.Outcomes {
+			b.Record(res.ArtifactID, o)
+		}
+	}
+	return b
+}
+
 // Record appends an outcome for an artifact. Append-only. Caller is
 // responsible for calling Record exactly once per (artifact, target) tuple
 // with the final outcome already fully populated (digest, attestation,

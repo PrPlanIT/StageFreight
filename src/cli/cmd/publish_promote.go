@@ -44,7 +44,15 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	// published.json (the results manifest) from the publish phase — replacing
 	// the empty results perform writes under transport. Build() binds these
 	// observations to the reviewed intent via the outputs checksum.
-	rb := build.NewResultsBuilder()
+	// Seed from the perform-written results so promotion EXTENDS recorded history
+	// rather than replacing it. published.json is cumulative observed truth: perform
+	// records binary/archive/docker-build outcomes there, and release-asset discovery
+	// (BuildArchiveExecutionViews) reads the archive BUILD outcomes from it. Writing a
+	// fresh docker-push-only manifest here clobbered those and dropped every release
+	// asset (the binaries never attached). Seeding makes promotion ADD push outcomes
+	// on top of the existing facts.
+	existingResults, _ := artifact.ReadResultsManifest(rootDir)
+	rb := build.ResultsBuilderFromManifest(existingResults)
 	recordedResults := false
 
 	// Per-artifact distribution evidence, collected then rendered as a first-class
