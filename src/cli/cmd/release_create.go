@@ -19,6 +19,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
@@ -475,9 +476,22 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			tagPatterns = append(tagPatterns, ts.Pattern)
 		}
 
+		// A synthesized channel tag (e.g. dev-{sha8}) is not yet a git ref — it is
+		// minted by CreateRelease via Ref. For the changelog range, fall back to the
+		// build commit, which points at the same place and always resolves. Existing
+		// tags (stable releases) keep their tag semantics, so behavior is unchanged.
+		toRef := tag
+		if req.Ref != "" {
+			if repo, oerr := gitstate.OpenRepo(rootDir); oerr == nil {
+				if _, rerr := gitstate.ResolveRef(repo, tag); rerr != nil {
+					toRef = req.Ref
+				}
+			}
+		}
+
 		input := release.NotesInput{
 			RepoDir:      rootDir,
-			ToRef:        tag,
+			ToRef:        toRef,
 			TagPatterns:  tagPatterns,
 			SecurityTile: secTile,
 			SecurityBody: secBody,
