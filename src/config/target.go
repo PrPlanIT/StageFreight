@@ -99,6 +99,17 @@ type TargetConfig struct {
 	// Named "aliases" to avoid collision with Tags (image tags) and git_tags (policy filters).
 	Aliases []string `yaml:"aliases,omitempty"`
 
+	// Tag is the immutable identity pattern for a release channel (kind: release).
+	// Distinct from Aliases (rolling): Tag names one immutable release per build, e.g.
+	// "dev-{sha:8}". Resolved against version info like Aliases ({version}, {sha:8}, ...).
+	// When the triggering event is not itself a ref (a branch push), the release runner
+	// mints this tag so the channel release has a stable anchor. Empty = no channel tag.
+	Tag string `yaml:"tag,omitempty"`
+
+	// Prerelease marks the forge release as a pre-release (kind: release).
+	// Honored natively by GitHub/Gitea; best-effort on GitLab (no native prerelease flag).
+	Prerelease bool `yaml:"prerelease,omitempty"`
+
 	// ProjectID is the "owner/repo" or numeric ID for remote forge targets (kind: release).
 	ProjectID string `yaml:"project_id,omitempty"`
 
