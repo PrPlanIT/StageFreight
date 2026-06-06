@@ -218,7 +218,7 @@ func parseCLIItems(args []string) ([]config.NarratorItem, error) {
 //	badge:release,output:.stagefreight/badges/release.svg,link:https://example.com
 //	shield:docker/pulls/myorg/myrepo,link:https://hub.docker.com
 //	text:Hello World
-//	component:templates/stagefreight.yml
+//	component:templates/my-component.yml
 //	break:
 func parseCLIItem(arg string) (config.NarratorItem, error) {
 	var item config.NarratorItem

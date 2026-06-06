@@ -45,7 +45,6 @@ func DefaultDocsConfig() DocsConfig {
 				"README.md",
 				"docs/modules",
 				"docs/reference",
-				"docs/Component.md",
 				".stagefreight/badges",
 			},
 			Push:   true,

@@ -112,7 +112,7 @@ documentation into wrapper pages.
 ```yaml
 - id: component-docs
   kind: component
-  spec: "templates/stagefreight.yml"
+  spec: "templates/my-component.yml"
 ```
 
 Parses a GitLab CI component spec file and generates input documentation.

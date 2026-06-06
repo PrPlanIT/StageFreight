@@ -141,13 +141,6 @@ targets:
     file: "README.md"
     description: "A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest"
 
-  # ── GitLab component catalog ─────────────────────────────────────
-  - id: gitlab-catalog
-    kind: gitlab-component
-    when: { branches: [main], events: [push] }
-    spec_files: ["templates/stagefreight.yml"]
-    catalog: true
-
   # ── Binary archives: linux amd64/arm64 + SHA256SUMS ──────────────
   - id: stagefreight-binaries
     kind: binary-archive
@@ -236,7 +229,6 @@ docs:
       - "README.md"
       - "docs/modules"
       - "docs/reference"
-      - "docs/Component.md"
       - ".stagefreight/badges"
     push: true
     # StageFreight's own docs are project metadata, not build inputs (the image
@@ -292,7 +284,6 @@ release:
   enabled: true
   security_summary: ".stagefreight/security"
   registry_links: true
-  catalog_links: true
 
 security:
   enabled: true
@@ -604,15 +595,6 @@ narrator:
         placement:
           between: ["<!-- sf:contents-apk:start -->", "<!-- sf:contents-apk:end -->"]
           mode: replace
-
-  - file: "docs/Component.md"
-    items:
-      - id: component-docs
-        kind: component
-        placement:
-          between: ["<!-- sf:component:start -->", "<!-- sf:component:end -->"]
-          mode: replace
-        spec: "templates/stagefreight.yml"
 
   - file: "docs/reference/CLI.md"
     items:

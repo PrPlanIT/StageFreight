@@ -40,7 +40,7 @@ A declarative lifecycle runtime that governs Git as the source of truth, enforci
 | Config Reference    | [Full Config Schema](docs/reference/Config.md)                 |
 | Manifest Examples   | [24 Example Configs](docs/config/README.md) · [Quick Examples](docs/examples/) |
 | Roadmap             | [Full Vision](docs/RoadMap.md)                                  |
-| GitLab CI Component | [Component Reference](docs/Component.md) · [Template](templates/stagefreight.yml) |
+| GitLab Components | [Publishing GitLab Components](docs/GitLab-Components.md) |
 
 ---
 

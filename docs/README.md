@@ -18,7 +18,7 @@ Feature-focused guides with concepts, examples, and workflows:
 - [Security Scanning](Security.md) — vulnerability scanning, SBOM, detail levels
 - [Linter Configuration](Linter.md) — 9 lint modules, cache TTL contract, freshness
 - [Dependency Update](DependencyUpdate.md) — `dependency update` command, Go toolchain strategies
-- [Component Docs](Component.md) — GitLab CI component spec parsing and documentation
+- [GitLab Components](GitLab-Components.md) — publishing GitLab CI components for your projects (and why StageFreight no longer ships itself as one)
 - [Known Issues](KnownIssues.md) — active bugs and workarounds
 
 ## Examples
