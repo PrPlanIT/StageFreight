@@ -178,7 +178,12 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 				fmt.Fprintf(os.Stderr, "warning: content store retire: %v\n", rErr)
 			}
 		}
-		return releaseRunner(ctx, appCfg, ciCtx, opts)
+		if err := releaseRunner(ctx, appCfg, ciCtx, opts); err != nil {
+			return err
+		}
+		// Generic package registry distribution (kind: generic-package) runs
+		// alongside releases — no-op when no package target matches the event.
+		return packagePublishRunner(ctx, appCfg, ciCtx, opts)
 	}
 }
 
