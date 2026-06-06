@@ -259,6 +259,9 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `name` | `name` | string | No | — | string value |
 | `include` | `include` | []string | No | — | []string value |
 | `checksums` | `checksums` | bool | No | — | bool value |
+| `repo` | `repo` | string | No | — | string value |
+| `package` | `package` | string | No | — | string value |
+| `version` | `version` | string | No | — | string value |
 
 **`kind` allowed values:** `registry`, `docker-readme`, `gitlab-component`, `release`
 
