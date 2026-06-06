@@ -14,6 +14,7 @@ Feature-focused guides with concepts, examples, and workflows:
 - [CI Integration](CI.md) — provider skeletons, required tokens and scopes, cross-pipeline advisory bridge
 - [Docker Build](Docker.md) — `builds:` + `targets:` for container images, cache, retention, build strategy
 - [Release Management](Release.md) — `kind: release` targets, rolling tags, cross-forge sync
+- [Package Distribution](Package-Distribution.md) — `kind: generic-package`, curl-pullable dev binaries, immutable vs rolling versions
 - [Narrator & Badges](Narrator.md) — content composition, badge generation, `kind: include`
 - [Security Scanning](Security.md) — vulnerability scanning, SBOM, detail levels
 - [Linter Configuration](Linter.md) — 9 lint modules, cache TTL contract, freshness
