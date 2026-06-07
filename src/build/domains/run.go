@@ -10,7 +10,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runner"
-	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
 // Run executes a build run as a single domain-ordered narrative. Identity,
@@ -29,8 +28,15 @@ func Run(rc *RunContext) error {
 	start := time.Now()
 
 	// ── Identity (run-level, once) ──────────────────────────────
-	output.Banner(rc.Writer, output.NewBannerInfo(version.Version, version.Commit, ""), rc.Color)
-	output.ContextBlock(rc.Writer, pipeline.CIContextKV(), rc.Color)
+	// Standalone runs (build binary, crucible docker build) get the full logo
+	// banner. The perform lifecycle phase sets HeaderSlim so only a one-line
+	// provenance stamp prints here — the logo lives in audition.
+	if rc.Header == HeaderSlim {
+		output.IdentityLine(rc.Writer, pipeline.IdentityInfo(), rc.Color)
+	} else {
+		output.Banner(rc.Writer, pipeline.IdentityInfo(), rc.Color)
+		output.ContextBlock(rc.Writer, pipeline.CIContextKV(), rc.Color)
+	}
 
 	// Gather the active contributors first — the Executor strictness and every
 	// domain are driven by who actually runs, not by raw config.

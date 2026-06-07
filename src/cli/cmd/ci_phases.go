@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/ci/render"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 // ── CI Lifecycle Phase Runners ───────────────────────────────────────────────
@@ -71,10 +73,29 @@ func phaseNotApplicable(rootDir, phase, mode string) error {
 	return nil
 }
 
+// renderAuditionBanner prints the full logo banner + code identity block. The
+// audition phase is the sole place the logo appears — it is the readiness/proving
+// phase at the head of the pipeline.
+func renderAuditionBanner() {
+	color := output.UseColor()
+	output.Banner(os.Stdout, pipeline.IdentityInfo(), color)
+	output.ContextBlock(os.Stdout, pipeline.CIContextKV(), color)
+}
+
+// renderPhaseIdentity prints the slim one-line provenance stamp (version · commit
+// · branch) for a non-audition phase. Every job log carries its own identity so
+// it is self-describing when read in isolation, without repeating the logo.
+func renderPhaseIdentity() {
+	output.IdentityLine(os.Stdout, pipeline.IdentityInfo(), output.UseColor())
+}
+
 // auditionPhaseRunner is the proving phase. Owns: CI freshness check,
 // executorPreflight (full panel), runConfigPhase, lint, crucible bootstrap test.
 // Dispatches to depsRunner for image mode or validateRunner for gitops/governance.
 func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	// Full logo banner — audition is the only phase that shows it.
+	renderAuditionBanner()
+
 	// ── CI freshness check ─────────────────────────────────────────────
 	// Verify the committed CI file matches what the current binary would
 	// render. Runs before mode dispatch — CI freshness is universal.
@@ -124,6 +145,9 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
 	switch mode {
 	case "gitops", "governance":
+		// Reconcile has no build engine to stamp identity — render it here.
+		// (The build path's stamp comes from the engine via HeaderSlim.)
+		renderPhaseIdentity()
 		return reconcileRunner(ctx, appCfg, ciCtx, opts)
 	default:
 		return buildRunner(ctx, appCfg, ciCtx, opts)
@@ -132,6 +156,7 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 
 // reviewPhaseRunner inspects perform output. Not applicable for gitops/governance.
 func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	renderPhaseIdentity()
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "review"); err != nil {
 		return err
@@ -148,6 +173,7 @@ func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIC
 // publishPhaseRunner is the sole phase authorized to distribute artifacts.
 // Not applicable for gitops/governance.
 func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	renderPhaseIdentity()
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "publish"); err != nil {
 		return err
@@ -199,6 +225,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 
 // narratePhaseRunner renders truth from prior phase state. Runs for all modes.
 func narratePhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	renderPhaseIdentity()
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "narrate"); err != nil {
 		return err

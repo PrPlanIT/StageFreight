@@ -67,6 +67,37 @@ func buildIdentityText(info BannerInfo, color bool) []string {
 	return items
 }
 
+// IdentityLine prints a single compact identity line — no logo art. It is the
+// per-phase provenance stamp for perform / review / publish / narrate, so each
+// job log is self-describing ("which StageFreight version, commit, branch?")
+// without cross-referencing the audition job (which renders the full Banner).
+// The Date field is intentionally omitted — it belongs to the full banner.
+func IdentityLine(w io.Writer, info BannerInfo, color bool) {
+	cyan := func(s string) string {
+		if color {
+			return "\033[36m" + s + "\033[0m"
+		}
+		return s
+	}
+	head := "StageFreight"
+	if color {
+		head = "\033[1;36mStageFreight\033[0m"
+	}
+	if info.Version != "" {
+		head += " " + cyan(info.Version)
+	}
+	parts := []string{head}
+	if info.SHA != "" {
+		parts = append(parts, cyan(info.SHA))
+	}
+	if info.Branch != "" {
+		parts = append(parts, cyan(info.Branch))
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, strings.Join(parts, " · "))
+	fmt.Fprintln(w)
+}
+
 // printBanner composites text items (left) with art lines (right), vertically centered.
 func printBanner(w io.Writer, artLines, textItems []string) {
 	// Calculate max visible text width for column alignment.

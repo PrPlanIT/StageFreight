@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
 // CIContextKV returns the code identity KV pairs for the ContextBlock.
@@ -26,4 +27,35 @@ func CIContextKV() []output.DomainKV {
 	}
 
 	return kv
+}
+
+// IdentityInfo builds the StageFreight identity (version + commit + branch) used
+// by both the full banner (audition / standalone commands) and the slim
+// per-phase identity line. SHA and branch come from the CI environment when
+// present, falling back to the build-time commit for local/standalone runs so
+// the identity is never blank. The single source keeps every phase's stamp
+// consistent.
+func IdentityInfo() output.BannerInfo {
+	return output.NewBannerInfo(version.Version, identitySHA(), identityBranch())
+}
+
+// identitySHA returns the short commit SHA from the CI environment, falling back
+// to the build-time injected commit when not running in CI.
+func identitySHA() string {
+	if sha := os.Getenv("CI_COMMIT_SHORT_SHA"); sha != "" {
+		return sha
+	}
+	if sha := os.Getenv("CI_COMMIT_SHA"); len(sha) >= 8 {
+		return sha[:8]
+	}
+	return version.Commit
+}
+
+// identityBranch returns the branch (or tag) from the CI environment, or empty
+// when neither is set (standalone/local runs).
+func identityBranch() string {
+	if branch := os.Getenv("CI_COMMIT_BRANCH"); branch != "" {
+		return branch
+	}
+	return os.Getenv("CI_COMMIT_TAG")
 }

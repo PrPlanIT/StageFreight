@@ -73,6 +73,13 @@ type RunContext struct {
 	Color    bool
 	Verbose  bool
 	SkipLint bool
+
+	// Header selects how the run-level identity is rendered. Default (HeaderFull)
+	// prints the full logo banner + code block — correct for standalone commands
+	// (`build binary`, crucible `docker build`). The perform lifecycle phase sets
+	// HeaderSlim so the engine prints a one-line provenance stamp instead; the
+	// full logo lives in audition. See output.Banner / output.IdentityLine.
+	Header HeaderMode
 	DryRun   bool // stop after Plan: render Detect+Plan, skip Build/Verify/Publish + manifests
 	Store    cas.Store
 	Target   string // optional build target (docker), ignored by strategies that don't use it
@@ -94,6 +101,19 @@ type RunContext struct {
 	Outputs *artifact.OutputsManifest
 	RB      *build.ResultsBuilder
 }
+
+// HeaderMode controls how Run renders the run-level identity. The lifecycle
+// owns identity placement (full logo banner in audition; slim one-line stamp in
+// perform/review/publish/narrate), so perform suppresses the heavy banner via
+// HeaderSlim. Standalone commands leave the zero value (HeaderFull).
+type HeaderMode int
+
+const (
+	// HeaderFull renders the full logo banner plus the code identity block.
+	HeaderFull HeaderMode = iota
+	// HeaderSlim renders a single compact version · commit · branch line.
+	HeaderSlim
+)
 
 // Contribution is what a contributor returns for one domain call: pre-formatted
 // content rows to render under the domain box (the renderer owns the box

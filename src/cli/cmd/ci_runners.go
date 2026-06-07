@@ -133,6 +133,9 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		Store:   store,
 		Outputs: &runOutputs,
 		RB:      runRB,
+		// Perform prints a slim one-line provenance stamp; the full logo banner
+		// belongs to audition. (Standalone build commands leave HeaderFull.)
+		Header: domains.HeaderSlim,
 	}
 	if err := domains.Run(rc); err != nil {
 		if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {

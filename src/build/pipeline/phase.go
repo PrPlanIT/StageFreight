@@ -16,7 +16,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/trace"
-	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
 // FailureDetail captures operator-meaningful error context for the Exit Reason section.
@@ -58,7 +57,7 @@ func BannerPhase() Phase {
 	return Phase{
 		Name: "banner",
 		Run: func(pc *PipelineContext) (*PhaseResult, error) {
-			output.Banner(pc.Writer, output.NewBannerInfo(version.Version, version.Commit, ""), pc.Color)
+			output.Banner(pc.Writer, IdentityInfo(), pc.Color)
 			output.ContextBlock(pc.Writer, CIContextKV(), pc.Color)
 			return &PhaseResult{
 				Name:   "banner",
