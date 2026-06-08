@@ -258,22 +258,6 @@ func TestPipeline_NilWriterDefaultsToStdout(t *testing.T) {
 	}
 }
 
-// --- LintPhase ---
-
-func TestLintPhase_SkipWhenFlagSet(t *testing.T) {
-	pc := makePC()
-	pc.SkipLint = true
-
-	phase := LintPhase()
-	result, err := phase.Run(pc)
-	if err != nil {
-		t.Fatalf("LintPhase.Run() returned error: %v", err)
-	}
-	if result.Status != "skipped" {
-		t.Errorf("LintPhase status = %q; want %q", result.Status, "skipped")
-	}
-}
-
 // --- DryRunGate ---
 
 func TestDryRunGate_ExitsWhenDryRun(t *testing.T) {

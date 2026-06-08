@@ -18,7 +18,6 @@ var (
 	bbLocal     bool
 	bbPlatforms []string
 	bbBuildID   string
-	bbSkipLint  bool
 	bbDryRun    bool
 	bbOutputDir string
 )
@@ -37,7 +36,6 @@ func init() {
 	buildBinaryCmd.Flags().BoolVar(&bbLocal, "local", false, "build for current platform only")
 	buildBinaryCmd.Flags().StringSliceVar(&bbPlatforms, "platform", nil, "override platforms (comma-separated)")
 	buildBinaryCmd.Flags().StringVar(&bbBuildID, "build", "", "build specific entry by ID (default: all)")
-	buildBinaryCmd.Flags().BoolVar(&bbSkipLint, "skip-lint", false, "skip pre-build lint gate")
 	buildBinaryCmd.Flags().BoolVar(&bbDryRun, "dry-run", false, "show plan without executing")
 	buildBinaryCmd.Flags().StringVar(&bbOutputDir, "output-dir", "", "override output directory")
 
@@ -63,7 +61,6 @@ func runBuildBinaryDomains(cmd *cobra.Command, args []string) error {
 		Writer:    os.Stdout,
 		Color:     output.UseColor(),
 		Verbose:   verbose,
-		SkipLint:  bbSkipLint,
 		DryRun:    bbDryRun,
 		Local:     bbLocal,
 		Platforms: bbPlatforms,

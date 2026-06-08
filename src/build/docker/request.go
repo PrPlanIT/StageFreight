@@ -21,7 +21,6 @@ type Request struct {
 	Tags       []string
 	Target     string
 	BuildID    string
-	SkipLint   bool
 	DryRun     bool
 	BuildMode  string
 	ConfigFile string // forwarded by crucible to inner build

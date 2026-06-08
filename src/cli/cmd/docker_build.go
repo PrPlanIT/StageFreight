@@ -14,7 +14,6 @@ var (
 	dbTags      []string
 	dbTarget    string
 	dbBuildID   string
-	dbSkipLint  bool
 	dbDryRun    bool
 	dbBuildMode string
 )
@@ -24,8 +23,7 @@ var dockerBuildCmd = &cobra.Command{
 	Short: "Build and push container images",
 	Long: `Build container images using docker buildx.
 
-Detects Dockerfiles, resolves tags from git, and pushes to configured registries.
-Runs lint as a pre-build gate unless --skip-lint is set.`,
+Detects Dockerfiles, resolves tags from git, and pushes to configured registries.`,
 	RunE: runDockerBuild,
 }
 
@@ -35,7 +33,6 @@ func init() {
 	dockerBuildCmd.Flags().StringSliceVar(&dbTags, "tag", nil, "override/add tags")
 	dockerBuildCmd.Flags().StringVar(&dbTarget, "target", "", "override Dockerfile target stage")
 	dockerBuildCmd.Flags().StringVar(&dbBuildID, "build", "", "build a specific entry by ID (default: all)")
-	dockerBuildCmd.Flags().BoolVar(&dbSkipLint, "skip-lint", false, "skip pre-build lint")
 	dockerBuildCmd.Flags().BoolVar(&dbDryRun, "dry-run", false, "show the plan without executing")
 	dockerBuildCmd.Flags().StringVar(&dbBuildMode, "build-mode", "", "build execution strategy: crucible (self-proving self-build)")
 
@@ -61,7 +58,6 @@ func runDockerBuild(cmd *cobra.Command, args []string) error {
 		Tags:       dbTags,
 		Target:     dbTarget,
 		BuildID:    dbBuildID,
-		SkipLint:   dbSkipLint,
 		DryRun:     dbDryRun,
 		BuildMode:  dbBuildMode,
 		ConfigFile: cfgFile,

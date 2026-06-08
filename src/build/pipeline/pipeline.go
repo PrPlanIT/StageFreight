@@ -31,7 +31,6 @@ type PipelineContext struct {
 	Color         bool
 	CI            bool
 	Verbose       bool
-	SkipLint      bool
 	DryRun        bool
 	Local         bool
 	PipelineStart time.Time

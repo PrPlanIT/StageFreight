@@ -324,40 +324,10 @@ func runnerHealthStatus(h runner.HealthGrade) string {
 	}
 }
 
-// LintPhase runs the pre-build lint gate.
-// Returns a phase that skips if pc.SkipLint is true.
-func LintPhase() Phase {
-	return Phase{
-		Name: "lint",
-		Run: func(pc *PipelineContext) (*PhaseResult, error) {
-			if pc.SkipLint {
-				return &PhaseResult{
-					Name:    "lint",
-					Status:  "skipped",
-					Summary: "--skip-lint",
-				}, nil
-			}
-
-			output.SectionStart(pc.Writer, "sf_lint", "Lint")
-			summary, err := runPreBuildLintImpl(pc.Ctx, pc.RootDir, pc.Config, pc.CI, pc.Color, pc.Verbose, pc.Writer)
-			output.SectionEnd(pc.Writer, "sf_lint")
-
-			if err != nil {
-				return &PhaseResult{
-					Name:    "lint",
-					Status:  "failed",
-					Summary: summary,
-				}, err
-			}
-
-			return &PhaseResult{
-				Name:    "lint",
-				Status:  "success",
-				Summary: summary,
-			}, nil
-		},
-	}
-}
+// Lint is not a build-pipeline phase. It is a readiness gate owned by the
+// audition phase (via RunLint) and the standalone `stagefreight lint` command —
+// both call runPreBuildLintImpl directly. The build engine never lints, so there
+// is no LintPhase wrapper and no SkipLint plumbing.
 
 // runPreBuildLintImpl is the extracted lint logic, independent of package-level vars.
 func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Config, ci bool, color bool, isVerbose bool, w io.Writer) (string, error) {

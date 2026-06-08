@@ -61,22 +61,6 @@ func Run(rc *RunContext) error {
 
 	var results []pipeline.PhaseResult
 
-	// ── Lint (run-level, once) ──────────────────────────────────
-	if !rc.SkipLint {
-		pc := &pipeline.PipelineContext{
-			Ctx: rc.Ctx, RootDir: rc.RootDir, Config: rc.Config,
-			Writer: rc.Writer, Color: rc.Color, Verbose: rc.Verbose,
-		}
-		lintRes, lintErr := pipeline.LintPhase().Run(pc)
-		if lintRes != nil {
-			results = append(results, *lintRes)
-		}
-		if lintErr != nil {
-			pipeline.RenderRunSummary(rc.Writer, rc.Color, rc.RootDir, results, time.Since(start))
-			return fmt.Errorf("perform lint gate: %w", lintErr)
-		}
-	}
-
 	// ── Contributor domains ─────────────────────────────────────
 	for _, d := range orderedDomains {
 		res, rendered, err := runDomain(rc, d, active)

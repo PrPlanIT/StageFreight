@@ -72,7 +72,6 @@ type RunContext struct {
 	Stderr   io.Writer
 	Color    bool
 	Verbose  bool
-	SkipLint bool
 
 	// Header selects how the run-level identity is rendered. Default (HeaderFull)
 	// prints the full logo banner + code block — correct for standalone commands
