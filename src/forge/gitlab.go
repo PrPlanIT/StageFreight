@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // GitLabForge implements the Forge interface for GitLab instances.
@@ -182,8 +183,32 @@ func (g *GitLabForge) UploadAsset(ctx context.Context, releaseID string, asset A
 		Name:            asset.Name,
 		URL:             g.BaseURL + uploadResp.URL,
 		LinkType:        "other",
-		DirectAssetPath: "/" + asset.Name,
+		DirectAssetPath: gitlabDirectAssetPath(asset.Name),
 	})
+}
+
+// gitlabDirectAssetPath converts an asset file name into a valid GitLab
+// direct_asset_path. GitLab restricts that path to [A-Za-z0-9._-] (plus '/'),
+// and rejects anything else — notably the SemVer build-metadata '+' in a name
+// like "stagefreight-0.6.1-dev+6e376f2-linux-amd64.tar.gz" — with
+// "Filepath is in an invalid format". Disallowed runes are replaced with '-' so
+// the permalink stays valid and readable; the result always has a single
+// leading slash. This is cosmetic only — the asset still downloads via the link
+// URL — so liberal substitution is safe.
+func gitlabDirectAssetPath(name string) string {
+	var b strings.Builder
+	b.Grow(len(name) + 1)
+	b.WriteByte('/')
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 func (g *GitLabForge) AddReleaseLink(ctx context.Context, releaseID string, link ReleaseLink) error {
