@@ -226,7 +226,6 @@ Injects version, commit, and build date via ldflags.
 | `--local` | bool | — | build for current platform only |
 | `--output-dir` | string | — | override output directory |
 | `--platform` | stringSlice | — | override platforms (comma-separated) |
-| `--skip-lint` | bool | — | skip pre-build lint gate |
 
 **Inherited flags:**
 
@@ -796,7 +795,6 @@ Docker lifecycle intelligence and container image management.
 Build container images using docker buildx.
 
 Detects Dockerfiles, resolves tags from git, and pushes to configured registries.
-Runs lint as a pre-build gate unless --skip-lint is set.
 
 **Flags:**
 
@@ -807,7 +805,6 @@ Runs lint as a pre-build gate unless --skip-lint is set.
 | `--dry-run` | bool | — | show the plan without executing |
 | `--local` | bool | — | build for current platform, load into daemon |
 | `--platform` | stringSlice | — | override platforms (comma-separated) |
-| `--skip-lint` | bool | — | skip pre-build lint |
 | `--tag` | stringSlice | — | override/add tags |
 | `--target` | string | — | override Dockerfile target stage |
 
