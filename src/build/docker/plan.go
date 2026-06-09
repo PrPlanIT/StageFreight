@@ -13,6 +13,43 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
+// applyImageBuildStrategy sets the Load/Push disposition on each image step from
+// the platform shape + flags, shared by the standalone plan phase and the image
+// contributor so both decide retain-vs-push identically:
+//   - local: --load only, never push.
+//   - no registries: --load (a build-only image).
+//   - transport active: never push (publish distributes); single-platform still
+//     loads, multi-platform relies on the OCI layout export alone.
+//   - multi-platform: --push directly (buildx can't --load multi-platform).
+//   - single-platform: --load (the caller pushes the loaded tags afterward).
+func applyImageBuildStrategy(plan *build.BuildPlan, transport, local bool) {
+	for i := range plan.Steps {
+		step := &plan.Steps[i]
+		switch {
+		case local:
+			step.Load = true
+			step.Push = false
+			if len(step.Tags) == 0 {
+				step.Tags = []string{"stagefreight:dev"}
+			}
+		case len(step.Registries) == 0:
+			step.Load = true
+			if len(step.Tags) == 0 {
+				step.Tags = []string{"stagefreight:dev"}
+			}
+		case transport:
+			step.Push = false
+			if !IsMultiPlatform(*step) {
+				step.Load = true
+			}
+		case IsMultiPlatform(*step):
+			step.Push = true
+		default:
+			step.Load = true
+		}
+	}
+}
+
 // planPhase resolves registry targets, tags, platforms, and build strategy.
 func planPhase(req Request) pipeline.Phase {
 	return pipeline.Phase{
@@ -72,46 +109,9 @@ func planPhase(req Request) pipeline.Phase {
 				}
 			}
 
-			// Build strategy:
-			//   Single-platform: --load into daemon, then docker push each remote tag.
-			//   Multi-platform:  --push directly (can't --load multi-platform in buildx).
-			//   --local flag:    force --load, no push regardless.
-			//
-			// Transport active (content store retains the bytes): perform does NOT
-			// push. Distribution is the publish phase's sole authority — perform
-			// builds and retains, publish promotes the retained bytes. This makes
-			// "publish is the sole phase permitted to mutate external distribution
-			// targets" true in behavior, not just intent. A multi-platform build
-			// that cannot --load is built to the OCI layout only (no daemon image),
-			// which is fine: the layout is the artifact publish distributes.
-			transport := transportActive(req)
-			for i := range plan.Steps {
-				step := &plan.Steps[i]
-				if pc.Local {
-					step.Load = true
-					step.Push = false
-					if len(step.Tags) == 0 {
-						step.Tags = []string{"stagefreight:dev"}
-					}
-				} else if len(step.Registries) == 0 {
-					step.Load = true
-					if len(step.Tags) == 0 {
-						step.Tags = []string{"stagefreight:dev"}
-					}
-				} else if transport {
-					// Retain-only: no perform push. Single-platform still loads for
-					// any daemon-based verification; multi-platform relies on the
-					// OCI layout export alone.
-					step.Push = false
-					if !IsMultiPlatform(*step) {
-						step.Load = true
-					}
-				} else if IsMultiPlatform(*step) {
-					step.Push = true
-				} else {
-					step.Load = true
-				}
-			}
+			// Build strategy (shared with the image contributor): retain under
+			// transport, else load (single-platform) or push (multi-platform).
+			applyImageBuildStrategy(plan, transportActive(req), pc.Local)
 
 			planElapsed := time.Since(planStart)
 

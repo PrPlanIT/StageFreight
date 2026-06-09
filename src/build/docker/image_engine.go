@@ -272,27 +272,33 @@ func resolveWhenPatterns(entries []string, policyMap map[string]string) []string
 	return resolved
 }
 
-// resolveBranch determines the current branch from detection, version info,
-// or CI environment variables (for detached HEAD in CI).
+// resolveBranch determines the current branch.
 // Priority cascade:
-//  1. Git detection (branch from local .git)
-//  2. Version info (uses git rev-parse which may work when detection doesn't)
-//  3. CI env vars (CI_COMMIT_BRANCH, GITHUB_REF_NAME — needed for detached HEAD in CI)
+//  1. Git detection (branch from local .git).
+//  2. CI-provided branch (SF_CI_BRANCH, then CI_COMMIT_BRANCH, GITHUB_REF_NAME).
+//  3. Version-info branch — only if it is a real branch.
+//
+// The CI vars come BEFORE the version-info branch: when git is not on PATH in the
+// build env (common in CI build containers), DetectVersion substitutes a synthetic
+// VersionInfo{Branch:"unknown"}. If that "unknown" were allowed to win, branch-
+// gated targets (when:{branches:[main]}) would never match and NO registry tags
+// would resolve — the image would build but never publish. So a real CI branch
+// (SF_CI_BRANCH is what the perform job exports) takes precedence, and the
+// version-info branch is honored only when it is neither "HEAD" nor "unknown".
 func resolveBranch(det *build.Detection, v *build.VersionInfo) string {
-	// 1. Git detection — most reliable when available
+	// 1. Git detection — most reliable when available.
 	if det.GitInfo != nil && det.GitInfo.Branch != "" {
 		return det.GitInfo.Branch
 	}
-	// 2. Version info — uses git rev-parse which may work when detection doesn't
-	if v != nil && v.Branch != "" && v.Branch != "HEAD" {
+	// 2. CI-provided branch — authoritative in detached-HEAD / git-less CI.
+	for _, env := range []string{"SF_CI_BRANCH", "CI_COMMIT_BRANCH", "GITHUB_REF_NAME"} {
+		if b := os.Getenv(env); b != "" {
+			return b
+		}
+	}
+	// 3. Version-info branch — only a real branch, never synthetic "unknown"/"HEAD".
+	if v != nil && v.Branch != "" && v.Branch != "HEAD" && v.Branch != "unknown" {
 		return v.Branch
-	}
-	// 3. CI env vars — needed for detached HEAD in CI pipelines
-	if b := os.Getenv("CI_COMMIT_BRANCH"); b != "" {
-		return b
-	}
-	if b := os.Getenv("GITHUB_REF_NAME"); b != "" {
-		return b
 	}
 	return ""
 }

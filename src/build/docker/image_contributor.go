@@ -2,12 +2,14 @@ package docker
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
+	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -17,21 +19,17 @@ func init() {
 }
 
 // imageContributor builds plain container images (kind: docker WITHOUT
-// build_mode: crucible) and pushes them to their registry targets, as a domain
-// contributor in the perform spine.
+// build_mode: crucible) and distributes them through the perform domain spine,
+// the lifecycle counterpart of the standalone `stagefreight docker build`.
 //
-// It is the lifecycle counterpart of the standalone `stagefreight docker build`
-// command: it drives the SAME "image" engine through Detect → Plan → Build so a
-// normal application — one that does NOT self-build — gets its image built in
-// perform, alongside (or instead of) binary builds. The three valid shapes all
-// work: binary-only (binaryContributor), image-only (this), and binary+image
-// (both, ordered binary→image). Crucible self-builds (build_mode: crucible) are
-// owned by crucibleContributor; this contributor deliberately skips them.
-//
-// The image engine builds AND pushes in Build (the documented perform-time push),
-// so there is no Verify/Publish to add — Build records each published image into
-// the shared run manifest (rc.Outputs/rc.RB) the same way crucible does, so the
-// run Summary and outputs.json/published.json reflect the images.
+// It shares the SAME transport-correct build core as executePhase and the
+// crucible contributor — applyImageBuildStrategy (retain-vs-push), executeBuildPass
+// (structured, buffered build output), setupTransportPlan (metadata + OCI export),
+// captureArtifactDigests, persistArtifactsRecords (content-store retain), and
+// recordPublicationOutcomes — rather than duplicating any of it. The three valid
+// shapes all build in the lifecycle: binary-only, image-only, binary+image.
+// Crucible self-builds (build_mode: crucible) are owned by crucibleContributor;
+// this contributor skips them.
 //
 // State is run-scoped: one instance threads Detect → Plan → Build.
 type imageContributor struct {
@@ -62,8 +60,7 @@ func (c *imageContributor) Applies(rc *domains.RunContext) bool {
 
 // plainDockerConfig returns a shallow copy of the run config whose Builds contain
 // only plain (non-crucible) docker entries, so the image engine never processes a
-// crucible build (those belong to crucibleContributor). Non-docker builds are
-// dropped too — the image engine ignores them, and dropping keeps the plan clean.
+// crucible build (those belong to crucibleContributor).
 func (c *imageContributor) plainDockerConfig(rc *domains.RunContext) *config.Config {
 	cfg := *rc.Config
 	var builds []config.BuildConfig
@@ -142,61 +139,97 @@ func (c *imageContributor) Plan(rc *domains.RunContext) (domains.Contribution, e
 	}, nil
 }
 
-// Build executes the image build(s) (build + push to matching registry targets)
-// and records each published image into the shared run manifest so the run
-// Summary and outputs.json/published.json reflect them.
+// Build executes the image build(s) through the shared transport-correct path:
+// apply the retain-vs-push strategy, stage transport (metadata + OCI export),
+// build with structured/buffered output (executeBuildPass — raw log shown only
+// collapsed-on-failure), capture digests, retain to the content store, and record
+// any pushed images into the shared run manifest. Under transport the image is
+// retained (not pushed) and publish promotes it; otherwise it is pushed here.
 func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, error) {
 	if c.plan == nil || len(c.plan.Steps) == 0 {
 		return domains.Contribution{Skip: true}, nil
 	}
 
-	result, execErr := c.engine.Execute(rc.Ctx, c.plan)
+	// imageEngine.Plan does not set Push/Load — the strategy lives here, shared
+	// with the standalone plan phase so both decide retain-vs-push identically.
+	transport := rc.Store != nil && rc.Store.Transport()
+	applyImageBuildStrategy(c.plan, transport, rc.Local)
 
-	var rows []string
-	for _, step := range result.Steps {
-		state := "built (local)"
-		if len(step.Publications) > 0 {
-			state = fmt.Sprintf("pushed %d tag(s)", len(step.Publications))
+	// The buildx builder must exist before executeBuildPass (which does not
+	// ensure it).
+	builderInfo := ResolveBuilderInfo(EnsureBuilder(rc.Config.BuildCache.Builder))
+
+	store := rc.Store
+	if store == nil {
+		store = cas.NewNoopStore()
+	}
+	if capErr := cas.AssertStoreCapabilities(store); capErr != nil {
+		return domains.Contribution{Status: "failed", Summary: "store capability"}, capErr
+	}
+
+	cleanupTransport := setupTransportPlan(c.plan, store, rc.RootDir, func(s build.BuildStep) bool {
+		return s.Push || s.Load || s.OCILayoutDir != ""
+	})
+	defer cleanupTransport()
+
+	// Login to remote registries for any push step (executeBuildPass does not).
+	for _, step := range c.plan.Steps {
+		if step.Push && hasRemoteRegistries(step.Registries) {
+			loginBx := NewBuildx(false)
+			loginBx.Stdout = io.Discard
+			loginBx.Stderr = io.Discard
+			if err := loginBx.Login(rc.Ctx, step.Registries); err != nil {
+				return domains.Contribution{Status: "failed", Summary: "registry login failed"}, err
+			}
+			break
 		}
-		rows = append(rows, fmt.Sprintf("%-9s %-28s %s  %s",
-			"image", step.Name, output.StatusIcon("success", rc.Color), state))
-	}
-	if execErr != nil {
-		rows = append(rows, fmt.Sprintf("%-9s %s  build failed", "image", output.StatusIcon("failed", rc.Color)))
-		return domains.Contribution{Rows: rows, Status: "failed", Summary: "image build failed"},
-			fmt.Errorf("image build: %w", execErr)
 	}
 
-	// Record published images into the shared run manifest — mirrors crucible's
-	// publish recording, minus the 2-pass self-proof (the image engine pushes
-	// during Build). Push outcomes feed published.json; the artifact descriptors
-	// feed outputs.json.
-	pushed := 0
-	if outputs, planErr := build.PlanToOutputs(c.plan, build.PlanToOutputsOpts{
+	result, execErr := executeBuildPass(rc.Ctx, rc.Writer, rc.Color, rc.Verbose, rc.Stderr, "Image", c.plan, "")
+	if execErr != nil {
+		return domains.Contribution{
+			Rows:    []string{fmt.Sprintf("%-9s %s  build failed", "image", output.StatusIcon("failed", rc.Color))},
+			Status:  "failed",
+			Summary: "image build failed",
+		}, execErr
+	}
+
+	// Record into the single shared run manifest (the run finalizes + writes
+	// outputs.json/published.json once). Mirrors crucible's publish recording.
+	outputs, planErr := build.PlanToOutputs(c.plan, build.PlanToOutputsOpts{
 		Commit:   os.Getenv("CI_COMMIT_SHA"),
 		Pipeline: &artifact.Pipeline{ID: os.Getenv("CI_PIPELINE_ID"), Provider: "gitlab"},
-	}); planErr == nil {
-		for _, step := range result.Steps {
-			artifactID := artifact.NewArtifactID("docker", step.Name)
-			for _, obs := range step.Publications {
-				rc.RB.Record(artifactID, artifact.Outcome{
-					Type:   artifact.OutcomeTypePush,
-					Target: &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag},
-					Push: &artifact.PushOutcome{
-						Status: artifact.OutcomeSuccess, Digest: obs.Digest,
-						ObservedDigest: obs.Digest, ObservedBy: "buildx",
-					},
-				})
-				pushed++
-			}
-		}
+	})
+	var storeRows []string
+	pushed := 0
+	if planErr == nil {
 		captureArtifactDigests(c.plan, &outputs)
+		storeRows = contentStoreRows(persistArtifactsRecords(c.plan, &outputs, store))
+		pushed = recordPublicationOutcomes(rc.RB, result.Steps)
 		rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, outputs.Artifacts...)
 	}
 
+	rows := []string{
+		fmt.Sprintf("%-9s builder %s (%s · buildkit %s)", "image", builderInfo.Name, builderInfo.Driver, builderInfo.BuildKit),
+	}
+	for _, step := range result.Steps {
+		state := "built (local)"
+		switch {
+		case transport:
+			state = "retained — distribution deferred to publish phase"
+		case len(step.Publications) > 0:
+			state = fmt.Sprintf("pushed %d tag(s)", len(step.Publications))
+		}
+		rows = append(rows, fmt.Sprintf("%-9s %-28s %s  %s", "image", step.Name, output.StatusIcon("success", rc.Color), state))
+	}
+	rows = append(rows, storeRows...)
+
 	summary := fmt.Sprintf("%d image(s)", len(result.Steps))
-	if pushed > 0 {
+	switch {
+	case pushed > 0:
 		summary += fmt.Sprintf(", %d tag(s) pushed", pushed)
+	case transport:
+		summary += ", retained for publish"
 	}
 	return domains.Contribution{Rows: rows, Status: "success", Summary: summary}, nil
 }

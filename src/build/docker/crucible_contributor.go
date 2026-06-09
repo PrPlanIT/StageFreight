@@ -309,28 +309,18 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 	if c.cruciblePassed && (c.verification == nil || !c.verification.HasHardFailure()) {
 		publishPlan := clonePlan(c.plan)
 		for i := range publishPlan.Steps {
+			publishPlan.Steps[i].Load = false
 			if transport {
-				publishPlan.Steps[i].Load = false
 				publishPlan.Steps[i].Push = false
-				stage := filepath.Join(c.rootDir, ".stagefreight")
-				_ = os.MkdirAll(stage, 0o755)
-				if layoutDir, tmpErr := os.MkdirTemp(stage, "oci-layout-*"); tmpErr == nil {
-					publishPlan.Steps[i].OCILayoutDir = layoutDir
-					defer os.RemoveAll(layoutDir)
-				}
 			} else {
-				publishPlan.Steps[i].Load = false
 				publishPlan.Steps[i].Push = true
-			}
-			if !transport {
 				publishPlan.Steps[i].CacheTo = c.cacheTo
 			}
-			if metaFile, tmpErr := os.CreateTemp("", "crucible-publish-metadata-*.json"); tmpErr == nil {
-				publishPlan.Steps[i].MetadataFile = metaFile.Name()
-				metaFile.Close()
-				defer os.Remove(metaFile.Name())
-			}
 		}
+		// Shared transport setup: digest-capture metadata (always) + OCI layout for
+		// content-store retain (when the store requires export — i.e. transport).
+		cleanupTransport := setupTransportPlan(publishPlan, rc.Store, c.rootDir, func(build.BuildStep) bool { return true })
+		defer cleanupTransport()
 		build.InjectLabels(publishPlan, build.StandardLabels(
 			build.NormalizeBuildPlan(publishPlan), version.Version, version.Commit, "crucible-verified", c.created))
 
@@ -362,21 +352,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 					Pipeline: &artifact.Pipeline{ID: os.Getenv("CI_PIPELINE_ID"), Provider: "gitlab"},
 				})
 				if planErr == nil {
-					for _, step := range pubResult.Steps {
-						artifactID := artifact.NewArtifactID("docker", step.Name)
-						for _, obs := range step.Publications {
-							rc.RB.Record(artifactID, artifact.Outcome{
-								Type: artifact.OutcomeTypePush,
-								Target: &artifact.OutcomeTarget{
-									Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag,
-								},
-								Push: &artifact.PushOutcome{
-									Status: artifact.OutcomeSuccess, Digest: obs.Digest,
-									ObservedDigest: obs.Digest, ObservedBy: "buildx",
-								},
-							})
-						}
-					}
+					recordPublicationOutcomes(rc.RB, pubResult.Steps)
 					captureArtifactDigests(publishPlan, &outputs)
 					// Retain to the content store and fold the evidence (digest +
 					// "deferred to publish") into the Publish box instead of a

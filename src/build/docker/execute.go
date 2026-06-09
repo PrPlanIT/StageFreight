@@ -216,6 +216,54 @@ func collectPushRegistries(plan *build.BuildPlan) []build.RegistryTarget {
 	return regs
 }
 
+// setupTransportPlan stages digest-capture metadata and content-store OCI export
+// onto every image step the predicate selects, returning a cleanup func the
+// caller defers. For each Output==Image step where want(step): a temp buildx
+// metadata file is created (the OCI index digest is captured at build completion
+// for load AND push); and when store.RequiresOCIExport(), an OCI layout dir is
+// staged under rootDir/.stagefreight (so persistArtifacts hardlinks rather than
+// copies). It sets only MetadataFile/OCILayoutDir — never Push/Load, so the
+// retain-vs-push strategy stays with the caller and the identity invariant
+// (digest sourced only from containerimage.digest) is preserved. Shared by
+// executePhase, the crucible contributor, and the image contributor: one
+// transport-correct build core, not three drifting copies.
+func setupTransportPlan(plan *build.BuildPlan, store cas.Store, rootDir string, want func(build.BuildStep) bool) func() {
+	var metaCleanup, layoutCleanup []string
+	for i := range plan.Steps {
+		if plan.Steps[i].Output != build.OutputImage || !want(plan.Steps[i]) {
+			continue
+		}
+		if metaFile, err := os.CreateTemp("", "buildx-metadata-*.json"); err == nil {
+			plan.Steps[i].MetadataFile = metaFile.Name()
+			metaFile.Close()
+			metaCleanup = append(metaCleanup, metaFile.Name())
+		}
+	}
+	if store != nil && store.RequiresOCIExport() {
+		for i := range plan.Steps {
+			if plan.Steps[i].Output != build.OutputImage || !want(plan.Steps[i]) {
+				continue
+			}
+			// Stage on the same filesystem as the store (workspace .stagefreight/)
+			// so persistArtifacts hardlinks rather than copies.
+			stage := filepath.Join(rootDir, ".stagefreight")
+			_ = os.MkdirAll(stage, 0o755)
+			if layoutDir, err := os.MkdirTemp(stage, "oci-layout-*"); err == nil {
+				plan.Steps[i].OCILayoutDir = layoutDir
+				layoutCleanup = append(layoutCleanup, layoutDir)
+			}
+		}
+	}
+	return func() {
+		for _, f := range metaCleanup {
+			os.Remove(f)
+		}
+		for _, d := range layoutCleanup {
+			os.RemoveAll(d)
+		}
+	}
+}
+
 // executePhase builds images via buildx, pushes, and emits push/attestation
 // events. Build + push + sign share buildx state; signing is per-target,
 // inline with the push, never post-hoc. Outcomes flow into the supplied
@@ -281,38 +329,12 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 				}
 			}
 
-			// Set up metadata files for digest capture on every image step —
-			// push AND load. The OCI index digest (containerimage.digest) is
-			// materialized at build completion regardless of output mode, and
-			// artifact identity must exist independently of publication. Push
-			// steps additionally use this file for the publish-outcome digest.
-			var metadataCleanup []string
-			for i := range plan.Steps {
-				if plan.Steps[i].Output != build.OutputImage {
-					continue
-				}
-				if !plan.Steps[i].Push && !plan.Steps[i].Load {
-					continue
-				}
-				metaFile, tmpErr := os.CreateTemp("", "buildx-metadata-*.json")
-				if tmpErr == nil {
-					plan.Steps[i].MetadataFile = metaFile.Name()
-					metaFile.Close()
-					metadataCleanup = append(metadataCleanup, metaFile.Name())
-				}
-			}
-			defer func() {
-				for _, f := range metadataCleanup {
-					os.Remove(f)
-				}
-			}()
-
-			// Set up OCI layout export dirs when the content store requires it.
+			// Stage digest-capture metadata + content-store OCI export onto every
+			// image step built here (push or load), via the shared transport setup
+			// so the crucible and image contributors retain through the SAME path.
 			// The store is asked via its capability (RequiresOCIExport), never by
 			// concrete type, so perform pays the export cost only for a store that
-			// will retain the bytes. NoopStore returns false → no export, no
-			// dormant layout produced and discarded. One temp layout dir per
-			// image step; cas.Put copies it into the store after a successful build.
+			// will retain the bytes.
 			store := req.Store
 			if store == nil {
 				store = cas.NewNoopStore()
@@ -325,31 +347,10 @@ func executePhase(req Request, outputsOut *artifact.OutputsManifest, rb *build.R
 			if capErr := cas.AssertStoreCapabilities(store); capErr != nil {
 				return nil, capErr
 			}
-			var ociLayoutCleanup []string
-			if store.RequiresOCIExport() {
-				for i := range plan.Steps {
-					if plan.Steps[i].Output != build.OutputImage {
-						continue
-					}
-					if !plan.Steps[i].Push && !plan.Steps[i].Load {
-						continue
-					}
-					// Stage on the same filesystem as the store (workspace
-					// .stagefreight/) so persistArtifacts hardlinks rather than copies.
-					stage := filepath.Join(pc.RootDir, ".stagefreight")
-					_ = os.MkdirAll(stage, 0o755)
-					layoutDir, tmpErr := os.MkdirTemp(stage, "oci-layout-*")
-					if tmpErr == nil {
-						plan.Steps[i].OCILayoutDir = layoutDir
-						ociLayoutCleanup = append(ociLayoutCleanup, layoutDir)
-					}
-				}
-			}
-			defer func() {
-				for _, d := range ociLayoutCleanup {
-					os.RemoveAll(d)
-				}
-			}()
+			cleanupTransport := setupTransportPlan(plan, store, pc.RootDir, func(s build.BuildStep) bool {
+				return s.Push || s.Load
+			})
+			defer cleanupTransport()
 
 			// Build each step
 			var result build.BuildResult
