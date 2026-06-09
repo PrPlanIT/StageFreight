@@ -108,6 +108,25 @@ var semverRe = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(?:-(.+))?$`)
 //
 // If you think you need to do that, you are wrong.
 // Fix the config, not the algorithm.
+// SyntheticVersion builds a best-effort dev VersionInfo from the CI environment,
+// for when git version detection is unavailable — no repo, or (common for a new
+// project) no tag lineage to derive a base from. The commit SHA and branch come
+// from the CI vars the runner exports (SF_CI_SHA / SF_CI_BRANCH), then the native
+// CI vars, falling back to "unknown" only when nothing is set. Callers use this
+// instead of hardcoding SHA/Branch:"unknown", so dev tags like dev-{sha:8} resolve
+// to the real commit even before the first version tag exists.
+func SyntheticVersion() *VersionInfo {
+	sha := firstEnv("SF_CI_SHA", "CI_COMMIT_SHA", "GITHUB_SHA")
+	if sha == "" {
+		sha = "unknown"
+	}
+	branch := firstEnv("SF_CI_BRANCH", "CI_COMMIT_BRANCH", "GITHUB_REF_NAME")
+	if branch == "" {
+		branch = "unknown"
+	}
+	return &VersionInfo{Version: "dev", Base: "0.0.0", SHA: sha, Branch: branch}
+}
+
 func DetectVersionWithOpts(rootDir string, opts *VersioningOpts) (*VersionInfo, error) {
 	if opts == nil {
 		return nil, fmt.Errorf("versioning opts required (nil opts is forbidden)")

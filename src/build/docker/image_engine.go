@@ -38,12 +38,9 @@ func (e *imageEngine) Plan(ctx context.Context, cfgRaw interface{}, det *build.D
 	// Resolve version for templates (tags, paths, URLs)
 	versionInfo, _ := build.DetectVersion(det.RootDir, cfg)
 	if versionInfo == nil {
-		versionInfo = &build.VersionInfo{
-			Version: "dev",
-			Base:    "0.0.0",
-			SHA:     "unknown",
-			Branch:  "unknown",
-		}
+		// No repo, or no tag lineage yet (new project): keep the real commit SHA +
+		// branch from the CI env so dev-{sha:8} resolves instead of "dev-unknown".
+		versionInfo = gitver.SyntheticVersion()
 	}
 
 	// Resolve current branch and tag for target filtering

@@ -62,7 +62,8 @@ func (b *binaryContributor) Detect(rc *domains.RunContext) (domains.Contribution
 
 	v, _ := build.DetectVersion(rc.RootDir, rc.Config)
 	if v == nil {
-		v = &gitver.VersionInfo{Version: "dev", Base: "0.0.0", SHA: "unknown", Branch: "unknown"}
+		// No repo / no tag lineage: keep the real CI commit + branch, not "unknown".
+		v = gitver.SyntheticVersion()
 	}
 	b.version = v
 
