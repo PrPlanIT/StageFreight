@@ -501,4 +501,13 @@ func (c *crucibleContributor) Conclude(rc *domains.RunContext) {
 		crucibleVerdict(rc.Writer, "the calf has proven its maturity",
 			"This build now leads the tribe.")
 	}
+
+	// The candidate + verify images are Perform-owned execution intermediates —
+	// never published (the verify artifact is re-tagged to its real release tags
+	// during Publish, which has already run by Conclude), never retained, never
+	// referenced by users. Remove them here: Conclude fires on BOTH the success and
+	// build-failure paths, so every exit is covered. Best-effort — a leftover image
+	// must never downgrade the verdict. Without this the temp tags accumulated
+	// ~644 MB/run on the builder (CleanupCrucibleImages existed but had no caller).
+	_ = CleanupCrucibleImages(rc.Ctx, c.candidateTag, c.verifyTag)
 }
