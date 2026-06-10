@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -242,6 +243,12 @@ func listRemoteRefs(ctx context.Context, repo *git.Repository, auth transport.Au
 	}
 
 	remoteRefList, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	if errors.Is(err, transport.ErrEmptyRemoteRepository) {
+		// A freshly-created mirror has no refs yet — this is the bootstrap case,
+		// not a failure. Return an empty ref set so the caller force-pushes every
+		// local head + tag to populate it (nothing to prune).
+		return map[string]bool{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

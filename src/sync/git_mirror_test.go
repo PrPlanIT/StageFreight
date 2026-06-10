@@ -12,7 +12,6 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
@@ -344,13 +343,12 @@ func mirrorPushDirect(t *testing.T, worktreeDir, remoteDir string) *MirrorResult
 	if err != nil {
 		t.Fatalf("collect local refs: %v", err)
 	}
-	// An empty bare remote (first push / bootstrap) has no refs to enumerate;
-	// go-git surfaces that as ErrEmptyRemoteRepository. Treat it as "no remote
-	// refs" rather than a failure, so prune simply has nothing to delete.
+	// An empty bare remote (first push / bootstrap) has no refs; listRemoteRefs
+	// returns an empty set rather than an error (it absorbs the go-git
+	// ErrEmptyRemoteRepository), so prune has nothing to delete and the bootstrap
+	// force-push populates the remote.
 	remoteRefs, err := listRemoteRefs(t.Context(), bareRepo, nil)
-	if err == transport.ErrEmptyRemoteRepository {
-		remoteRefs = map[string]bool{}
-	} else if err != nil {
+	if err != nil {
 		t.Fatalf("list remote refs: %v", err)
 	}
 	refSpecs := buildPushRefSpecs(localRefs, remoteRefs)
