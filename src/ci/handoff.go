@@ -147,7 +147,7 @@ func resolveRemoteHead(branch string) string {
 		diag.Debug(diag.Verbose(),"freshness: could not open sync session at %s: %v", workspace, err)
 		return ""
 	}
-	hash, err := gitstate.RemoteRefHash(session.Repo(), "origin", branch, session.Auth())
+	hash, err := session.RemoteRefHash("origin", branch)
 	if err != nil {
 		diag.Debug(diag.Verbose(),"freshness: remote ref lookup failed for %s: %v", branch, err)
 		return ""

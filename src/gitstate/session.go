@@ -5,27 +5,31 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
-// SyncSession is opened once per sync/push operation.
-// State is resolved once at Open() and explicitly refreshed only after
-// state-changing operations (Fetch, FastForward). Remote polling never
-// happens opportunistically.
+// SyncSession is opened once per sync/push operation. State is resolved once at
+// Open() and explicitly refreshed only after state-changing operations (Fetch,
+// FastForward). Remote polling never happens opportunistically.
+//
+// The network surface (Fetch, FastForward, Push, RemoteRefHash) is delegated to a
+// Transport chosen once at Open(): the system git binary for repository-local
+// workflows, or in-process go-git when StageFreight holds an explicit credential
+// or no git is available. A single session therefore never mixes transports, and
+// the credential never escapes the transport boundary.
 type SyncSession struct {
 	repo      *git.Repository
 	rootDir   string
 	state     RepoState
-	auth      transport.AuthMethod
-	httpAuth  *githttp.BasicAuth
+	transport Transport
 	fetched   bool // true after Fetch() invalidates ahead/behind
 }
 
-// OpenSyncSession opens a SyncSession for the repository at rootDir.
-// Reads repo state and resolves auth once; both are reused throughout the session.
-// Returns an error if the remote URL uses SSH and auth cannot be resolved.
+// OpenSyncSession opens a SyncSession for the repository at rootDir. Reads repo
+// state and resolves the transport authority once; both are reused throughout the
+// session. The transport decision is centralized in ResolveTransport — and when it
+// selects system git, no go-git credential is resolved (so none can fail with the
+// wrong key), because Git owns authentication.
 func OpenSyncSession(rootDir string) (*SyncSession, error) {
 	repo, err := OpenRepo(rootDir)
 	if err != nil {
@@ -37,13 +41,9 @@ func OpenSyncSession(rootDir string) (*SyncSession, error) {
 		return nil, fmt.Errorf("reading repo state: %w", err)
 	}
 
-	var auth transport.AuthMethod
-	var httpAuth *githttp.BasicAuth
-
-	// Resolve auth for the effective remote. When no upstream is configured
-	// (first push), RemoteName is empty — fall back to "origin" so auth is
-	// always resolved before Push is called. go-git has no auth fallback of
-	// its own and will error with "SSH agent not found" if auth is nil.
+	// Resolve the transport for the effective remote. When no upstream is
+	// configured (first push), RemoteName is empty — fall back to "origin" so the
+	// decision is always made against a concrete remote.
 	effectiveRemote := state.RemoteName
 	if effectiveRemote == "" {
 		effectiveRemote = "origin"
@@ -52,31 +52,17 @@ func OpenSyncSession(rootDir string) (*SyncSession, error) {
 	if remoteErr != nil {
 		return nil, fmt.Errorf("resolving remote URL for %s: %w", effectiveRemote, remoteErr)
 	}
-	if isSSHURL(remoteURL) {
-		// SSH transport: auth failure is fatal — no silent nil
-		sshAuth, authErr := ResolveAuth(remoteURL)
-		if authErr != nil {
-			return nil, fmt.Errorf("resolving SSH auth for %s: %w", remoteURL, authErr)
-		}
-		auth = sshAuth
-	} else {
-		// HTTPS transport: nil auth is acceptable (public repos)
-		ha, authErr := ResolveHTTPAuth(remoteURL)
-		if authErr != nil {
-			return nil, fmt.Errorf("resolving HTTP auth for %s: %w", remoteURL, authErr)
-		}
-		httpAuth = ha
-		if ha != nil {
-			auth = ha
-		}
+
+	dec, err := ResolveTransport(remoteURL)
+	if err != nil {
+		return nil, fmt.Errorf("resolving transport for %s: %w", remoteURL, err)
 	}
 
 	return &SyncSession{
-		repo:     repo,
-		rootDir:  rootDir,
-		state:    state,
-		auth:     auth,
-		httpAuth: httpAuth,
+		repo:      repo,
+		rootDir:   rootDir,
+		state:     state,
+		transport: selectTransport(repo, rootDir, dec),
 	}, nil
 }
 
@@ -85,14 +71,9 @@ func (s *SyncSession) State() RepoState {
 	return s.state
 }
 
-// Repo returns the underlying git.Repository.
+// Repo returns the underlying git.Repository for local (non-transport) reads.
 func (s *SyncSession) Repo() *git.Repository {
 	return s.repo
-}
-
-// Auth returns the resolved transport auth (may be nil for public HTTPS remotes).
-func (s *SyncSession) Auth() transport.AuthMethod {
-	return s.auth
 }
 
 // Refresh re-reads repo state after a mutation (fetch, fast-forward, reset).
@@ -105,72 +86,46 @@ func (s *SyncSession) Refresh() error {
 	return nil
 }
 
-// Fetch fetches from the configured remote using targeted refspecs.
-// Only fetches refs/heads/* to avoid fetching tags or other namespaces implicitly.
-// Updates fetched flag and refreshes state.
+// Fetch fetches branch heads from the remote via the session transport, then
+// refreshes state.
 func (s *SyncSession) Fetch(remote string) error {
-	// Explicit refspec: only fetch branch heads, not tags or other namespaces
-	refspec := gitconfig.RefSpec(fmt.Sprintf("+refs/heads/*:refs/remotes/%s/*", remote))
-
-	err := s.repo.Fetch(&git.FetchOptions{
-		RemoteName: remote,
-		RefSpecs:   []gitconfig.RefSpec{refspec},
-		Auth:       s.auth,
-	})
-	if err == git.NoErrAlreadyUpToDate {
-		s.fetched = true
-		return nil
-	}
-	if err != nil {
+	if err := s.transport.Fetch(remote); err != nil {
 		return fmt.Errorf("fetch %s: %w", remote, err)
 	}
 	s.fetched = true
 	return s.Refresh()
 }
 
-// FastForward performs a fast-forward pull from the tracked upstream.
-// Returns git.ErrNonFastForwardUpdate if the histories have diverged.
+// FastForward fast-forwards the tracked upstream via the session transport. The
+// commit engine only reaches it from CLEAN_BEHIND (a state guard), so a
+// non-fast-forward case is unreachable here — the embedded and system transports
+// are therefore semantically equivalent even though their error types differ
+// (no caller matches the typed go-git ErrNonFastForwardUpdate).
 func (s *SyncSession) FastForward(remote string) error {
-	wt, err := s.repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("opening worktree: %w", err)
-	}
-	err = wt.Pull(&git.PullOptions{
-		RemoteName: remote,
-		Auth:       s.auth,
-	})
-	if err == git.NoErrAlreadyUpToDate {
-		return s.Refresh()
-	}
-	if err != nil {
-		return err // includes git.ErrNonFastForwardUpdate
+	if err := s.transport.FastForward(remote); err != nil {
+		return err
 	}
 	return s.Refresh()
 }
 
-// Push pushes to remote. When setUpstream is true, also configures branch tracking.
+// Push pushes to remote via the session transport. When setUpstream is true it
+// also configures branch tracking in .git/config — a local write, transport-
+// agnostic, so it applies under both system git and embedded transport.
 func (s *SyncSession) Push(remote, refspec string, setUpstream bool) error {
-	pushOpts := &git.PushOptions{
-		RemoteName: remote,
-		Auth:       s.auth,
+	if err := s.transport.Push(remote, refspec); err != nil {
+		return err
 	}
-	if refspec != "" {
-		pushOpts.RefSpecs = []gitconfig.RefSpec{gitconfig.RefSpec(refspec)}
-	}
-
-	err := s.repo.Push(pushOpts)
-	if err == git.NoErrAlreadyUpToDate {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("push to %s: %w", remote, err)
-	}
-
-	// Configure upstream tracking when pushing a new branch
 	if setUpstream && s.state.Branch != "" {
 		_ = s.configureUpstream(remote, s.state.Branch)
 	}
 	return nil
+}
+
+// RemoteRefHash resolves a branch head on the remote through the session
+// transport (system git ls-remote, or embedded go-git). Keeping remote reads
+// behind the boundary is why no credential accessor leaks out of the session.
+func (s *SyncSession) RemoteRefHash(remote, ref string) (plumbing.Hash, error) {
+	return s.transport.RemoteRefHash(remote, ref)
 }
 
 // configureUpstream sets the upstream tracking branch in .git/config.

@@ -128,6 +128,86 @@ func ResolveHTTPAuth(_ string) (*githttp.BasicAuth, error) {
 	return nil, nil
 }
 
+// TransportPreference expresses who owns the Git transport for a remote. It is the
+// centralized output of credential resolution — transport SELECTION consumes it
+// and never re-scans the environment in another package.
+type TransportPreference int
+
+const (
+	// PreferSystemGit delegates transport to the system git binary, the authority
+	// for repository-local workflows: it already honors ~/.ssh/config, credential
+	// helpers, agents, SSH certs, ProxyJump, Include, and enterprise auth that
+	// StageFreight would otherwise have to reimplement — and be less capable than.
+	PreferSystemGit TransportPreference = iota
+	// RequireEmbeddedTransport uses in-process go-git with a StageFreight-supplied
+	// credential. Chosen only when StageFreight was explicitly handed a credential
+	// to act as, independent of the user's Git environment.
+	RequireEmbeddedTransport
+)
+
+// TransportDecision is the centralized transport-authority decision: which
+// transport to use and, when embedded, the resolved credential to use with it.
+type TransportDecision struct {
+	Preference TransportPreference
+	Auth       transport.AuthMethod
+}
+
+// ResolveTransport decides who owns the Git transport for remoteURL. The question
+// is not "where are we running" but "was StageFreight explicitly entrusted with a
+// credential to act independently of the user's Git environment?" For an SSH
+// remote that credential is SSH_PRIVATE_KEY; for HTTPS it is one of the HTTP-token
+// envs ResolveHTTPAuth reads. Absent an explicit credential, the repository's own
+// Git is the transport authority (PreferSystemGit) — so credential helpers,
+// config-mapped keys, agents, certs, and enterprise auth all work, because Git
+// (not StageFreight) handles them.
+//
+// Both conditions for system git live here so the decision is one model in one
+// place: a git binary must be available to delegate to, AND no credential was
+// injected. Selection never re-derives either half.
+func ResolveTransport(remoteURL string) (TransportDecision, error) {
+	if gitAvailable() && !injectedCredential(remoteURL) {
+		return TransportDecision{Preference: PreferSystemGit}, nil
+	}
+	// Embedded: StageFreight holds an explicit credential, or there is no git to
+	// delegate to. Resolve the credential go-git will carry.
+	auth, err := resolveEmbeddedAuth(remoteURL)
+	if err != nil {
+		return TransportDecision{}, err
+	}
+	return TransportDecision{Preference: RequireEmbeddedTransport, Auth: auth}, nil
+}
+
+// injectedCredential reports whether StageFreight has been explicitly handed a
+// credential to act as for remoteURL — an in-memory SSH key for an SSH remote, or
+// an HTTP token for an HTTPS remote. An SSH agent or on-disk key is NOT injected:
+// it belongs to the user's Git environment, which system git uses directly.
+func injectedCredential(remoteURL string) bool {
+	if isSSHURL(remoteURL) {
+		return os.Getenv("SSH_PRIVATE_KEY") != ""
+	}
+	return os.Getenv("STAGEFREIGHT_GIT_PASSWORD") != "" ||
+		os.Getenv("GITLAB_TOKEN") != "" ||
+		os.Getenv("GITHUB_TOKEN") != "" ||
+		os.Getenv("CI_JOB_TOKEN") != ""
+}
+
+// resolveEmbeddedAuth resolves the credential the embedded (go-git) transport will
+// carry for remoteURL. Returns a nil auth (anonymous) for an HTTPS remote with no
+// token — valid for public repos.
+func resolveEmbeddedAuth(remoteURL string) (transport.AuthMethod, error) {
+	if isSSHURL(remoteURL) {
+		return ResolveAuth(remoteURL)
+	}
+	httpAuth, err := ResolveHTTPAuth(remoteURL)
+	if err != nil {
+		return nil, err
+	}
+	if httpAuth == nil {
+		return nil, nil
+	}
+	return httpAuth, nil
+}
+
 // sshUser extracts the SSH username from a remote URL.
 // git@host:path → "git", ssh://user@host:port/path → "user"
 func sshUser(remoteURL string) string {
