@@ -195,6 +195,16 @@ build_cache:
     target: harbor-dev
     path: "cache"
     fallback: "main"
+  local:
+    # Cap the BuildKit builder cache below the 15GB default — enforced by
+    # `buildx prune --keep-storage` after each successful build. The runner's
+    # 45GB disk is shared with the toolchain caches, and an uncapped builder cache
+    # took it to 100%. NOTE: buildkitd is shared across projects on the runner, so
+    # this only holds after a StageFreight build; for a uniform cap, match max_size
+    # in the other projects' configs (or lower DefaultBuildCacheConfig).
+    retention:
+      max_age: "7d"
+      max_size: "8GB"
 
 commit:
   default_type: docs
