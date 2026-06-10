@@ -153,7 +153,8 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 	// imageEngine.Plan does not set Push/Load — the strategy lives here, shared
 	// with the standalone plan phase so both decide retain-vs-push identically.
 	transport := rc.Store != nil && rc.Store.Transport()
-	applyImageBuildStrategy(c.plan, transport, rc.Local)
+	retainViaCAS := rc.Store != nil && rc.Store.RequiresOCIExport()
+	applyImageBuildStrategy(c.plan, transport, rc.Local, retainViaCAS)
 
 	// The buildx builder must exist before executeBuildPass (which does not
 	// ensure it).

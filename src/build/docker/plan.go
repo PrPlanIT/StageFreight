@@ -18,11 +18,18 @@ import (
 // contributor so both decide retain-vs-push identically:
 //   - local: --load only, never push.
 //   - no registries: --load (a build-only image).
-//   - transport active: never push (publish distributes); single-platform still
-//     loads, multi-platform relies on the OCI layout export alone.
+//   - transport + retained via CAS: never push (publish promotes the retained CAS
+//     layout); nothing loads — a daemon copy would be a SECOND, unconsumed copy of
+//     the same artifact (the path multi-platform already takes).
+//   - transport without CAS retention: single-platform loads (the daemon copy is
+//     then the retained artifact); multi-platform relies on the export.
 //   - multi-platform: --push directly (buildx can't --load multi-platform).
 //   - single-platform: --load (the caller pushes the loaded tags afterward).
-func applyImageBuildStrategy(plan *build.BuildPlan, transport, local bool) {
+//
+// retainViaCAS is the invariant the decision turns on — "the artifact is retained
+// to a CAS-backed OCI layout that survives until Publish." Callers derive it; the
+// strategy never re-derives it from storage internals.
+func applyImageBuildStrategy(plan *build.BuildPlan, transport, local, retainViaCAS bool) {
 	for i := range plan.Steps {
 		step := &plan.Steps[i]
 		switch {
@@ -39,7 +46,12 @@ func applyImageBuildStrategy(plan *build.BuildPlan, transport, local bool) {
 			}
 		case transport:
 			step.Push = false
-			if !IsMultiPlatform(*step) {
+			// Load a single-platform daemon copy ONLY when the artifact is not
+			// retained via the CAS layout — there the daemon copy IS the retained
+			// bytes. With CAS retention active (multi-platform's path), nothing
+			// reads the daemon copy (digest=metadata, scan=layout, publish=cache),
+			// so loading it just creates a second, unconsumed copy.
+			if !IsMultiPlatform(*step) && !retainViaCAS {
 				step.Load = true
 			}
 		case IsMultiPlatform(*step):
@@ -111,7 +123,8 @@ func planPhase(req Request) pipeline.Phase {
 
 			// Build strategy (shared with the image contributor): retain under
 			// transport, else load (single-platform) or push (multi-platform).
-			applyImageBuildStrategy(plan, transportActive(req), pc.Local)
+			retainViaCAS := req.Store != nil && req.Store.RequiresOCIExport()
+			applyImageBuildStrategy(plan, transportActive(req), pc.Local, retainViaCAS)
 
 			planElapsed := time.Since(planStart)
 
