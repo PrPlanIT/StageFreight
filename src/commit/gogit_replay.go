@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -266,8 +267,30 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 		}
 	}
 
-	// Commit, preserving original Author; Committer timestamp = now (replay time)
-	// No hooks — replay is machine-generated; hooks were already run on the original commit.
+	// Path-integrity guard (data-corruption defense). The replay reconstructs files
+	// from a diff; a wrong-field path bug (object.File.Name basename vs ChangeEntry
+	// full path) silently writes nested files to the repo root, producing a commit
+	// with the wrong tree — or an empty one. Verify the STAGED path-set equals the
+	// source commit's CHANGE path-set. A non-empty source replaying to empty fails
+	// here too (empty set != non-empty set). On mismatch the caller hard-resets to
+	// originalHEAD, so corruption can never become a commit, let alone a push.
+	sourceEmpty := len(changes) == 0
+	if !sourceEmpty {
+		expected := changePathSet(changes)
+		actual := stagedPathSet(status)
+		if !equalStringSet(expected, actual) {
+			return &ErrReplayCorruption{
+				Commit:   c.Hash.String()[:8],
+				Expected: sortedKeys(expected),
+				Actual:   sortedKeys(actual),
+			}
+		}
+	}
+
+	// Commit, preserving original Author; Committer timestamp = now (replay time).
+	// No hooks — replay is machine-generated. AllowEmptyCommits is true ONLY when the
+	// source commit was itself empty; a non-empty source replaying to empty was
+	// already rejected by the path-integrity guard above.
 	now := time.Now()
 	_, err = wt.Commit(c.Message, &git.CommitOptions{
 		Author: &object.Signature{
@@ -280,7 +303,7 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 			Email: c.Committer.Email,
 			When:  now,
 		},
-		AllowEmptyCommits: true,
+		AllowEmptyCommits: sourceEmpty,
 	})
 	if err != nil {
 		return fmt.Errorf("creating replayed commit: %w", err)
@@ -289,7 +312,75 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 	return nil
 }
 
+// ErrReplayCorruption signals that a replayed commit's staged path-set did not
+// match the source commit's change path-set — a structural corruption (e.g. nested
+// files written to the repo root by basename). It is never committed or pushed.
+type ErrReplayCorruption struct {
+	Commit   string
+	Expected []string
+	Actual   []string
+}
+
+func (e *ErrReplayCorruption) Error() string {
+	return fmt.Sprintf("replay corruption in commit %s: staged paths %v != source change paths %v",
+		e.Commit, e.Actual, e.Expected)
+}
+
+// changePathSet is the set of full repo-relative paths a commit's diff touches,
+// taken from the ChangeEntry (From/To.Name) — the authoritative full tree path,
+// never object.File.Name (a basename).
+func changePathSet(changes object.Changes) map[string]bool {
+	set := make(map[string]bool, len(changes))
+	for _, ch := range changes {
+		if ch.From.Name != "" {
+			set[ch.From.Name] = true
+		}
+		if ch.To.Name != "" {
+			set[ch.To.Name] = true
+		}
+	}
+	return set
+}
+
+// stagedPathSet is the set of paths the worktree has actually staged.
+func stagedPathSet(status git.Status) map[string]bool {
+	set := make(map[string]bool)
+	for path, s := range status {
+		switch s.Staging {
+		case git.Added, git.Modified, git.Deleted:
+			set[path] = true
+		}
+	}
+	return set
+}
+
+func equalStringSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // applyChange applies a single tree change to the worktree filesystem.
+//
+// CRITICAL: filesystem paths MUST come from change.From.Name / change.To.Name —
+// the ChangeEntry's FULL tree path. object.File.Name (from change.Files()) is the
+// entry BASENAME, not the path; using it writes nested files to the repo root,
+// which is a data-corruption bug. The *object.File is used ONLY for content/mode.
 func applyChange(repoRoot string, change *object.Change) error {
 	action, err := change.Action()
 	if err != nil {
@@ -301,59 +392,63 @@ func applyChange(repoRoot string, change *object.Change) error {
 		return fmt.Errorf("getting change files: %w", err)
 	}
 
+	fromPath := change.From.Name // full tree path (NOT from.Name basename)
+	toPath := change.To.Name     // full tree path (NOT to.Name basename)
+
 	switch action {
 	case merkletrie.Insert:
 		if to == nil {
 			return nil
 		}
-		return writeFile(repoRoot, to)
+		return writeFile(repoRoot, toPath, to)
 
 	case merkletrie.Delete:
 		if from == nil {
 			return nil
 		}
-		if err := checkPathSafe(repoRoot, from.Name); err != nil {
+		if err := checkPathSafe(repoRoot, fromPath); err != nil {
 			return err
 		}
-		dest := filepath.Join(repoRoot, from.Name)
+		dest := filepath.Join(repoRoot, fromPath)
 		// For existing paths, verify the real parent dir hasn't been redirected
 		// by a pre-existing symlink to outside the repo root.
-		if err := checkRealPathSafe(repoRoot, filepath.Dir(dest), from.Name); err != nil {
+		if err := checkRealPathSafe(repoRoot, filepath.Dir(dest), fromPath); err != nil {
 			return err
 		}
 		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("deleting %s: %w", from.Name, err)
+			return fmt.Errorf("deleting %s: %w", fromPath, err)
 		}
 
 	case merkletrie.Modify:
 		// Rename: delete old path, write new path
-		if from != nil && to != nil && from.Name != to.Name {
-			if err := checkPathSafe(repoRoot, from.Name); err != nil {
+		if from != nil && to != nil && fromPath != toPath {
+			if err := checkPathSafe(repoRoot, fromPath); err != nil {
 				return err
 			}
-			oldPath := filepath.Join(repoRoot, from.Name)
-			if err := checkRealPathSafe(repoRoot, filepath.Dir(oldPath), from.Name); err != nil {
+			oldPath := filepath.Join(repoRoot, fromPath)
+			if err := checkRealPathSafe(repoRoot, filepath.Dir(oldPath), fromPath); err != nil {
 				return err
 			}
 			if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("removing old path %s: %w", from.Name, err)
+				return fmt.Errorf("removing old path %s: %w", fromPath, err)
 			}
 		}
 		if to != nil {
-			return writeFile(repoRoot, to)
+			return writeFile(repoRoot, toPath, to)
 		}
 	}
 
 	return nil
 }
 
-// writeFile writes a file object from the git object store to the filesystem.
-// Handles regular files, executable files, and symlinks.
-func writeFile(repoRoot string, f *object.File) error {
-	if err := checkPathSafe(repoRoot, f.Name); err != nil {
+// writeFile writes a file object's content to path (a full repo-relative tree
+// path) under repoRoot. path is authoritative for the destination; f supplies
+// only content and mode. Handles regular files, executable files, and symlinks.
+func writeFile(repoRoot, path string, f *object.File) error {
+	if err := checkPathSafe(repoRoot, path); err != nil {
 		return err
 	}
-	dest := filepath.Join(repoRoot, f.Name)
+	dest := filepath.Join(repoRoot, path)
 
 	switch f.Mode {
 	case filemode.Symlink:
@@ -362,7 +457,7 @@ func writeFile(repoRoot string, f *object.File) error {
 		// does not escape the repository root.
 		content, err := f.Contents()
 		if err != nil {
-			return fmt.Errorf("reading symlink target for %s: %w", f.Name, err)
+			return fmt.Errorf("reading symlink target for %s: %w", path, err)
 		}
 		target := strings.TrimSpace(content)
 
@@ -377,12 +472,12 @@ func writeFile(repoRoot string, f *object.File) error {
 		// The resolved target must stay within the repo root
 		rootWithSep := repoRoot + string(os.PathSeparator)
 		if resolvedTarget != repoRoot && !strings.HasPrefix(resolvedTarget, rootWithSep) {
-			return &gitstate.ErrPathTraversal{Path: f.Name + " -> " + target}
+			return &gitstate.ErrPathTraversal{Path: path + " -> " + target}
 		}
 
 		_ = os.Remove(dest) // remove any existing file
 		if err := os.Symlink(target, dest); err != nil {
-			return fmt.Errorf("creating symlink %s: %w", f.Name, err)
+			return fmt.Errorf("creating symlink %s: %w", path, err)
 		}
 
 	default:
@@ -393,24 +488,24 @@ func writeFile(repoRoot string, f *object.File) error {
 		}
 		parentDir := filepath.Dir(dest)
 		if err := os.MkdirAll(parentDir, 0o755); err != nil {
-			return fmt.Errorf("creating parent dirs for %s: %w", f.Name, err)
+			return fmt.Errorf("creating parent dirs for %s: %w", path, err)
 		}
 		// Post-MkdirAll: resolve symlinks in the real parent dir to catch
 		// pre-existing symlinked directories that escape the repo root.
-		if err := checkRealPathSafe(repoRoot, parentDir, f.Name); err != nil {
+		if err := checkRealPathSafe(repoRoot, parentDir, path); err != nil {
 			return err
 		}
 		reader, err := f.Blob.Reader()
 		if err != nil {
-			return fmt.Errorf("reading blob for %s: %w", f.Name, err)
+			return fmt.Errorf("reading blob for %s: %w", path, err)
 		}
 		data, err := io.ReadAll(reader)
 		reader.Close()
 		if err != nil {
-			return fmt.Errorf("reading blob data for %s: %w", f.Name, err)
+			return fmt.Errorf("reading blob data for %s: %w", path, err)
 		}
 		if err := os.WriteFile(dest, data, osMode); err != nil {
-			return fmt.Errorf("writing %s: %w", f.Name, err)
+			return fmt.Errorf("writing %s: %w", path, err)
 		}
 	}
 	return nil
