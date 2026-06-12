@@ -189,7 +189,19 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		// registry targets without rebuilding. No-op when transport produced
 		// nothing to promote (the existing perform-time push remains the fallback
 		// until promotion is proven and that path is removed).
-		if n, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
+		//
+		// Mutation safety: promotion can move ROLLING registry tags (e.g.
+		// latest-dev), and a stale pipeline moving those backward is the hazard.
+		// Conservative policy for now: a superseded branch pipeline skips the
+		// WHOLE promotion — including its immutable per-sha tags, which are not
+		// themselves dangerous (that commit is moot) — via the same gate that
+		// guards the retention prune below. A future refinement could let
+		// freshness-safe immutable tags through while still blocking rolling
+		// moves; today we take the simple, safe path. Tag pipelines are immutable
+		// and exempt (ci.IsBranchHeadFresh returns true for tags).
+		if !ci.IsBranchHeadFresh(ciCtx) {
+			fmt.Fprintln(os.Stdout, "  publish: distribution skipped — pipeline SHA is not branch HEAD (a newer pipeline will ship)")
+		} else if n, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
 			return fmt.Errorf("publish promotion: %w", err)
 		} else if n > 0 {
 			// (The Distribution box already reports "N of N tag(s) published"; no

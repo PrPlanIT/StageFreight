@@ -108,10 +108,28 @@ func EvaluateHandoff(ciCtx *CIContext, handoff config.DependencyHandoff, commitS
 	return result
 }
 
-// IsBranchHeadFresh returns true if the CI SHA still matches the remote branch HEAD.
-// Shipping actions (release, docs sync, catalog publish) must call this before
-// performing externally visible mutations. Returns true when not in CI or when
-// the branch cannot be resolved (fail-open for local runs).
+// IsBranchHeadFresh reports whether this pipeline's commit is still the remote
+// branch HEAD. It is the mutation-safety gate, and the INVARIANT it serves is
+// about state, not operations: mutating shared or MOVING state — a rolling
+// registry tag (latest/latest-dev), generated docs/badges committed back to the
+// repo, registry retention/prune, a rolling release/package channel — requires
+// freshness, so a superseded branch pipeline (one that lost the HEAD race) never
+// drags shared state backward; the pipeline now at HEAD does that work instead.
+// Immutable publications (a digest, a version-pinned tag, a v1.2.3 release) are
+// inherently freshness-INDEPENDENT.
+//
+// CURRENT POLICY is deliberately conservative and coarse-grained — it does not
+// yet classify mutability per target. Mutability is approximated by event: a tag
+// pipeline is always fresh (IsTag → true); a branch pipeline is HEAD-checked, and
+// callers gate their WHOLE operation on the result, so a stale branch pipeline
+// skips even the immutable per-sha tags it would have published. That is a safe
+// simplification, NOT a claim that immutable publication is unsafe; a future
+// refinement may let freshness-safe immutable publications through while still
+// blocking moves of rolling state, without changing this contract.
+//
+// Returns true when not in CI or when the branch cannot be resolved (fail-open
+// for local runs). Orthogonal to config.TargetEligibility (when:-routing):
+// eligibility asks "should this fire?", freshness asks "is it safe to mutate?".
 func IsBranchHeadFresh(ciCtx *CIContext) bool {
 	if !ciCtx.IsCI() {
 		return true // local runs are always "fresh"
