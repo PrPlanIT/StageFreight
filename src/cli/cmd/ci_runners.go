@@ -12,8 +12,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	_ "github.com/PrPlanIT/StageFreight/src/build/contributors" // register build-strategy contributors
+	_ "github.com/PrPlanIT/StageFreight/src/build/docker"       // register the crucible contributor
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
-	_ "github.com/PrPlanIT/StageFreight/src/build/docker" // register the crucible contributor
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/ci"
@@ -704,17 +704,17 @@ func gitCommitBody(repoDir, _ string) string {
 	// rev is always "HEAD" at all current call sites.
 	repo, err := gitstate.OpenRepo(repoDir)
 	if err != nil {
-		diag.Debug(diag.Verbose(),"gitCommitBody: could not open repo at %s: %v", repoDir, err)
+		diag.Debug(diag.Verbose(), "gitCommitBody: could not open repo at %s: %v", repoDir, err)
 		return ""
 	}
 	head, err := repo.Head()
 	if err != nil {
-		diag.Debug(diag.Verbose(),"gitCommitBody: could not resolve HEAD: %v", err)
+		diag.Debug(diag.Verbose(), "gitCommitBody: could not resolve HEAD: %v", err)
 		return ""
 	}
 	c, err := repo.CommitObject(head.Hash())
 	if err != nil {
-		diag.Debug(diag.Verbose(),"gitCommitBody: could not load HEAD commit: %v", err)
+		diag.Debug(diag.Verbose(), "gitCommitBody: could not load HEAD commit: %v", err)
 		return ""
 	}
 	return strings.TrimSpace(c.Message)
@@ -950,7 +950,7 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 
 	hasConstraints := false
 	for _, t := range releaseTargets {
-		if len(t.When.GitTags) == 0 && len(t.When.Branches) == 0 && len(t.When.Events) == 0 {
+		if config.TargetIsUnconditional(t) {
 			continue
 		}
 		hasConstraints = true

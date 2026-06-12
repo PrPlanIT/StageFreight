@@ -113,6 +113,24 @@ If you are about to violate one of these, stop. Discuss it first.
 
 ---
 
+## 7. Target eligibility has exactly one interpreter
+
+> Outside `src/config`, code may ask whether a target matches (`TargetMatches` / `TargetMatchesEnv`) or whether it is unconditional (`TargetIsUnconditional`), but may NOT read `When.Events`, `When.Branches`, or `When.GitTags` directly.
+
+**What this means:**
+- `when:` routing — events, branches, git_tags, named patterns, `re:` inline regex, `!` negation — is interpreted in exactly one place: `src/config` (`TargetMatches` / `TargetMatchesEnv`, `ResolvePatterns`, `TargetIsUnconditional`)
+- Every capability (docker, binary archives, release, retention, sync, package, and each future one) consumes that API; none inspects the `When` fields itself
+- A new eligibility dimension is added to the matcher, never bolted onto a caller
+
+**Why:**
+- Per-capability interpreters drift. Docker's former `targetAllowed` gated branch and tag but not the event, so a manual pipeline distributed an image while every event-gated capability correctly skipped. Each new capability is another chance to reintroduce that divergence.
+- One interpreter means `events`/`branches`/`git_tags`/named-pattern/negation mean the same thing everywhere, and a routing fix lands once
+
+**Enforcement:**
+- `src/config/eligibility_routing_test.go` (`TestNoDirectWhenAccessOutsideConfig`) walks the source tree and fails CI on any non-test `When.{Events,Branches,GitTags}` access outside `src/config`
+
+---
+
 ## Adding a new invariant
 
 Before adding a new invariant here:
@@ -135,3 +153,23 @@ there is something to enforce against:
   store** must satisfy. Records a discovered coupling (the capability axis and the
   handle-representation axis must evolve together) that is real but unenforceable
   until a second store exists. Read before implementing one.
+
+- **Mutation safety — the second of two distribution concerns.** A distribution
+  capability answers two independent questions, with one home for each: (1) *should
+  this fire?* — eligibility, Invariant 7, mechanically enforced; (2) *is it safe to
+  mutate?* — mutation safety, recorded here because it is not statically detectable.
+  The PROPERTY: a mutation of **mutable shared state** — a rolling registry tag
+  like `latest-dev`, a package channel, a repository write-back (docs/badges),
+  retention/prune — must be freshness-safe, whereas **immutable** publications (a
+  digest, a version-pinned tag, a `v1.2.3` release) are inherently freshness-
+  independent. The abstraction is mutable shared pointer/state vs. immutable
+  artifact, not any release/package concept. This is stated as a property on purpose, deliberately NOT bound to a
+  mechanism: `ci.IsBranchHeadFresh` is the *current* implementation (a conservative,
+  whole-operation, event-level approximation that gates the whole op on a branch
+  pipeline and exempts tags), and a future per-target `MutationPolicyAllows` may make
+  it precise — letting freshness-safe immutable publications through while still
+  blocking rolling moves — without changing the property. It is not a hard invariant
+  because "mutates rolling state" cannot be detected from the AST; it lives here
+  until there is something to enforce against. Binding the rule to today's
+  `IsBranchHeadFresh` mechanism would recreate the documentation trap that the
+  freshness work itself removed.

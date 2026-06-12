@@ -96,3 +96,12 @@ func TargetMatchesEnv(t TargetConfig, cfg *Config) bool {
 	}
 	return TargetMatches(t, CIEvent(), CIBranch(), CITag(), tagPolicies, cfg.Matchers.Branches)
 }
+
+// TargetIsUnconditional reports whether a target declares no when: constraints at
+// all (no events, branches, or git_tags) — i.e. it is eligible in every CI
+// context. It exists so callers can ask this WITHOUT reading t.When.* directly:
+// an emptiness probe is still an interpretation of target constraints, and per
+// the eligibility-routing invariant there is exactly one interpreter (this package).
+func TargetIsUnconditional(t TargetConfig) bool {
+	return len(t.When.Events) == 0 && len(t.When.Branches) == 0 && len(t.When.GitTags) == 0
+}
