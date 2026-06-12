@@ -18,23 +18,33 @@ type BuildPlan struct {
 
 // BuildStep is a single build invocation.
 type BuildStep struct {
-	Name       string
-	Dockerfile string
-	Context    string
-	Target     string
-	Platforms  []string
-	BuildArgs  map[string]string
-	Labels     map[string]string // OCI labels injected via --label
-	Tags       []string
-	Output     OutputMode
-	Extract    []ExtractRule    // artifact mode only
-	Registries []RegistryTarget // image mode only
-	Load         bool             // --load into daemon
-	Push         bool             // --push to registries
-	MetadataFile string           // temp file for buildx --metadata-file (digest capture)
-	OCILayoutDir string           // --output type=oci,dest=<dir> for content-store persistence; additive to Load/Push
-	CacheFrom    []CacheRef        // --cache-from references
-	CacheTo      []CacheRef        // --cache-to references
+	Name           string
+	Dockerfile     string
+	Context        string
+	Target         string
+	Platforms      []string
+	BuildArgs      map[string]string
+	Labels         map[string]string // OCI labels injected via --label
+	Tags           []string
+	Output         OutputMode
+	Extract        []ExtractRule    // artifact mode only
+	Registries     []RegistryTarget // image mode only
+	Load           bool             // --load into daemon
+	Push           bool             // --push to registries
+	MetadataFile   string           // temp file for buildx --metadata-file (digest capture)
+	OCILayoutDir   string           // --output type=oci,dest=<dir> for content-store persistence; additive to Load/Push
+	CacheFrom      []CacheRef       // --cache-from references
+	CacheTo        []CacheRef       // --cache-to references
+	SkippedTargets []TargetSkip     // registry targets excluded by when:, with the matcher's reason (narrated)
+}
+
+// TargetSkip records a registry target excluded at plan time and the matcher's
+// reason. It is narrated so a "built but not distributed" outcome explains
+// itself rather than looking like a bug. The Reason comes from the eligibility
+// decision (config.MatchResult), never re-derived by a caller.
+type TargetSkip struct {
+	TargetID string
+	Reason   string
 }
 
 // CacheRef is a structured build cache reference.

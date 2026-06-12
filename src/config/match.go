@@ -251,8 +251,11 @@ func CompilePatternsWithWarnings(patterns []string, policyMap map[string]string)
 
 // ResolvePatterns resolves named tokens in a pattern list to their regex
 // values from the provided name→regex map (e.g. matchers.branches or a
-// flattened tag_sources map). Direct regex patterns pass through unchanged.
-// Negation prefix (!) is preserved.
+// flattened tag_sources map). It is the single resolver for the full when:
+// pattern vocabulary: named policies, bare/`re:`-prefixed regex, and `!`
+// negation. A "re:" prefix forces inline-regex interpretation, bypassing
+// named-pattern lookup; bare patterns pass through unchanged; negation is
+// preserved.
 func ResolvePatterns(patterns []string, patternMap map[string]string) []string {
 	if len(patterns) == 0 {
 		return nil
@@ -267,8 +270,15 @@ func ResolvePatterns(patterns []string, patternMap map[string]string) []string {
 			raw = raw[1:]
 		}
 
-		// Try to resolve as a named pattern
-		val, _ := resolveTokenWithWarning(raw, patternMap)
+		// "re:" is an explicit inline-regex escape — bypass named-pattern
+		// resolution (the regex may contain ':' or metachars that would
+		// otherwise be misread as a token). Otherwise resolve as a named pattern.
+		var val string
+		if strings.HasPrefix(raw, "re:") {
+			val = raw[3:]
+		} else {
+			val, _ = resolveTokenWithWarning(raw, patternMap)
+		}
 
 		prefix := ""
 		if negate {

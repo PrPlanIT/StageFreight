@@ -133,8 +133,16 @@ func (c *imageContributor) Plan(rc *domains.RunContext) (domains.Contribution, e
 		plist = append(plist, p)
 	}
 	row := fmt.Sprintf("%-9s %d build(s) · %s · %d tag(s)", "image", len(plan.Steps), strings.Join(plist, ", "), tags)
+	rows := []string{row}
+	// Narrate eligibility skips so a "built but not distributed" outcome explains
+	// itself. The reason is the matcher's own — carried on the step, not guessed.
+	for _, s := range plan.Steps {
+		for _, sk := range s.SkippedTargets {
+			rows = append(rows, fmt.Sprintf("%-9s %-28s not distributed — %s", "image", sk.TargetID, sk.Reason))
+		}
+	}
 	return domains.Contribution{
-		Rows:    []string{row},
+		Rows:    rows,
 		Status:  "success",
 		Summary: fmt.Sprintf("%d image step(s)", len(plan.Steps)),
 	}, nil

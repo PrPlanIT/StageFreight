@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
@@ -25,6 +24,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/registry"
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/PrPlanIT/StageFreight/src/retention"
+	"github.com/spf13/cobra"
 )
 
 // ReleaseCreateRequest is the explicit input contract for RunReleaseCreate.
@@ -961,42 +961,11 @@ func findRemoteReleaseTargets(cfg *config.Config) []config.TargetConfig {
 	return targets
 }
 
-// targetWhenMatches checks if a target's when conditions match the current CI environment.
-// Resolves policy names from the provided policies config.
+// targetWhenMatches reports whether a release target's when: conditions match the
+// current CI environment. It delegates to the canonical config.TargetMatches — it
+// does NOT interpret when: itself — threading the release path's resolved tag.
 func targetWhenMatches(t config.TargetConfig, currentTag string, tagPatterns map[string]string, branchPatterns map[string]string) bool {
-	if !config.EventMatches(t.When.Events, resolveEventFromEnv()) {
-		return false
-	}
-	if len(t.When.GitTags) > 0 && currentTag != "" {
-		resolved := resolveWhenPatternsFromCfg(t.When.GitTags, tagPatterns)
-		if !config.MatchPatterns(resolved, currentTag) {
-			return false
-		}
-	}
-	if len(t.When.Branches) > 0 {
-		branch := resolveBranchFromEnv()
-		resolved := resolveWhenPatternsFromCfg(t.When.Branches, branchPatterns)
-		if !config.MatchPatterns(resolved, branch) {
-			return false
-		}
-	}
-	return true
-}
-
-// resolveWhenPatternsFromCfg resolves when condition entries to regex patterns.
-// "re:" prefixed entries are inline regex, others are policy name lookups.
-func resolveWhenPatternsFromCfg(entries []string, policyMap map[string]string) []string {
-	resolved := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if len(entry) > 3 && entry[:3] == "re:" {
-			resolved = append(resolved, entry[3:])
-		} else if regex, ok := policyMap[entry]; ok {
-			resolved = append(resolved, regex)
-		} else {
-			resolved = append(resolved, entry)
-		}
-	}
-	return resolved
+	return config.TargetMatches(t, config.CIEvent(), config.CIBranch(), currentTag, tagPatterns, branchPatterns)
 }
 
 // renderCheckpoint renders a checkpoint line with pass/fail count, expanding failures.
@@ -1139,24 +1108,6 @@ func projectPathFromRemote(remoteURL string) string {
 		}
 	}
 
-	return ""
-}
-
-// resolveBranchFromEnv resolves the current branch from CI environment variables.
-// resolveEventFromEnv determines the CI event (push/tag/…) for when-matching.
-// Single-sourced in config.CIEvent so the release runner and the build
-// contributors derive the event identically.
-func resolveEventFromEnv() string {
-	return config.CIEvent()
-}
-
-func resolveBranchFromEnv() string {
-	if b := os.Getenv("CI_COMMIT_BRANCH"); b != "" {
-		return b
-	}
-	if b := os.Getenv("GITHUB_REF_NAME"); b != "" {
-		return b
-	}
 	return ""
 }
 
@@ -1435,4 +1386,3 @@ func providerFromHost(host string) string {
 	}
 	return "generic"
 }
-

@@ -124,6 +124,7 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 	// Collect registry targets that reference this build
 	var tags []string
 	var registries []build.RegistryTarget
+	var skipped []build.TargetSkip
 
 	// CRITICAL:
 	// tag_sources as map is ONLY for when.git_tags lookup on target conditions.
@@ -139,8 +140,11 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 			continue
 		}
 
-		// Check when conditions
-		if !targetAllowed(t, currentBranch, currentGitTag, tagPatternMap, cfg.Matchers.Branches) {
+		// Eligibility via the single canonical matcher (events, then git_tags,
+		// then branches). Docker does not interpret when: itself. A skip carries
+		// the matcher's own reason for narration — never re-derived here.
+		if elig := config.TargetEligibility(t, config.CIEvent(), currentBranch, currentGitTag, tagPatternMap, cfg.Matchers.Branches); !elig.Eligible {
+			skipped = append(skipped, build.TargetSkip{TargetID: t.ID, Reason: elig.Reason})
 			continue
 		}
 
@@ -213,60 +217,19 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 	buildArgs = autoInjectBuildArgs(buildArgs, det, versionInfo, dockerfile)
 
 	step := &build.BuildStep{
-		Name:       b.ID,
-		Dockerfile: dockerfile,
-		Context:    buildContext,
-		Target:     b.Target,
-		Platforms:  platforms,
-		BuildArgs:  buildArgs,
-		Tags:       tags,
-		Output:     build.OutputImage,
-		Registries: registries,
+		Name:           b.ID,
+		Dockerfile:     dockerfile,
+		Context:        buildContext,
+		Target:         b.Target,
+		Platforms:      platforms,
+		BuildArgs:      buildArgs,
+		Tags:           tags,
+		Output:         build.OutputImage,
+		Registries:     registries,
+		SkippedTargets: skipped,
 	}
 
 	return step, nil
-}
-
-// targetAllowed checks if the current branch and git tag permit executing a target.
-// Uses pattern matching for when.branches and when.git_tags.
-func targetAllowed(t config.TargetConfig, branch, gitTag string, tagPatterns, branchPatterns map[string]string) bool {
-	// Resolve when.branches patterns
-	if len(t.When.Branches) > 0 {
-		resolved := resolveWhenPatterns(t.When.Branches, branchPatterns)
-		if !config.MatchPatterns(resolved, branch) {
-			return false
-		}
-	}
-
-	// Resolve when.git_tags patterns against versioning.tags
-	if len(t.When.GitTags) > 0 {
-		resolved := resolveWhenPatterns(t.When.GitTags, tagPatterns)
-		if gitTag == "" || !config.MatchPatterns(resolved, gitTag) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// resolveWhenPatterns resolves when condition entries to regex patterns.
-// Entries prefixed with "re:" are inline regex (strip prefix).
-// Other entries are looked up as policy names.
-func resolveWhenPatterns(entries []string, policyMap map[string]string) []string {
-	resolved := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if len(entry) > 3 && entry[:3] == "re:" {
-			// Inline regex
-			resolved = append(resolved, entry[3:])
-		} else if regex, ok := policyMap[entry]; ok {
-			// Policy name lookup
-			resolved = append(resolved, regex)
-		} else {
-			// Pass through as-is (may be treated as regex by MatchPatterns)
-			resolved = append(resolved, entry)
-		}
-	}
-	return resolved
 }
 
 // resolveBranch determines the current branch.
