@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
 
 // resolveBuildMode determines the active build mode.
@@ -32,6 +34,48 @@ func resolveBuildMode(req Request) string {
 	return ""
 }
 
+// buildStepWithRecovery builds one step, retrying once on a recoverable push
+// failure (vendor recovery) and once more without cache export if export failed.
+// Buffers are reset before each attempt; the returned StepResult is never nil.
+func buildStepWithRecovery(ctx context.Context, bx *Buildx, step build.BuildStep, stdoutBuf, stderrBuf *bytes.Buffer) (*build.StepResult, error) {
+	stdoutBuf.Reset()
+	stderrBuf.Reset()
+	stepResult, layers, err := bx.BuildWithLayers(ctx, step)
+	if stepResult == nil {
+		stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
+	}
+	stepResult.Layers = layers
+
+	if err != nil && step.Push {
+		failure := postbuild.PushFailure{Err: err, ExitCode: extractExitCode(err), Stderr: stdoutBuf.String() + "\n" + stderrBuf.String()}
+		if rec := postbuild.RecoverPushFailure(ctx, step.Registries, failure); rec.Retry {
+			diag.Info(rec.Message)
+			stdoutBuf.Reset()
+			stderrBuf.Reset()
+			stepResult, layers, err = bx.BuildWithLayers(ctx, step)
+			if stepResult == nil {
+				stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
+			}
+			stepResult.Layers = layers
+		}
+	}
+
+	if err != nil && len(step.CacheTo) > 0 && isCacheExportError(err, stdoutBuf.String()+"\n"+stderrBuf.String()) {
+		diag.Warn("cache export failed — retrying build without cache export")
+		retry := step
+		retry.CacheTo = nil
+		stdoutBuf.Reset()
+		stderrBuf.Reset()
+		stepResult, layers, err = bx.BuildWithLayers(ctx, retry)
+		if stepResult == nil {
+			stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
+		}
+		stepResult.Layers = layers
+	}
+
+	return stepResult, err
+}
+
 // executeBuildPass runs a single build pass and renders structured output.
 // resultTag: if non-empty, shows "result <tag>". If empty, shows pushed tags from plan steps.
 func executeBuildPass(ctx context.Context, w io.Writer, color, verbose bool, stderr io.Writer,
@@ -50,13 +94,7 @@ func executeBuildPass(ctx context.Context, w io.Writer, color, verbose bool, std
 
 	var result build.BuildResult
 	for _, step := range plan.Steps {
-		stdoutBuf.Reset()
-		stderrBuf.Reset()
-		stepResult, layers, err := bx.BuildWithLayers(ctx, step)
-		if stepResult == nil {
-			stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
-		}
-		stepResult.Layers = layers
+		stepResult, err := buildStepWithRecovery(ctx, bx, step, &stdoutBuf, &stderrBuf)
 		result.Steps = append(result.Steps, *stepResult)
 		if err != nil {
 			elapsed := time.Since(buildStart)
@@ -78,18 +116,9 @@ func executeBuildPass(ctx context.Context, w io.Writer, color, verbose bool, std
 		sec.Separator()
 		sec.Row("result  %s", resultTag)
 	} else {
-		// Publish pass disposition, rendered HONESTLY by execution shape. A retain
-		// step (transport active: Push=false + OCILayoutDir set) contacted NO
-		// registry — buildArgs emitted only `--output type=oci`, never `--push`.
-		// Under the "publish is the sole distributor" invariant, perform must print
-		// NOTHING that resembles a successful registry push: listing the registry
-		// refs here (even as ✓) is precisely the lie that made distribution look
-		// like it happened in perform. So a retained step prints only a deferral
-		// note; the digest + content-store evidence is rendered by the dedicated
-		// "Content Store (retained — not pushed)" section (persistArtifacts), and
-		// the registry refs appear only in publish's "Distribution" section, where
-		// the push actually occurs. Only a genuinely pushed step (legacy fallback,
-		// Push=true) lists its tags as pushed.
+		// Disposition rendered by execution shape: a retained step (transport:
+		// Push=false + OCILayoutDir) prints only a deferral note — it contacted no
+		// registry, so it must not appear pushed. Only a Push=true step lists tags.
 		sec.Separator()
 		for _, step := range plan.Steps {
 			if !step.Push && step.OCILayoutDir != "" {

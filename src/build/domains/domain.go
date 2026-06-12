@@ -65,13 +65,13 @@ func (d Domain) title() string {
 // and the run writes the one manifest pair once at the end (fixing the prior
 // clobber where two pipelines each wrote outputs.json/published.json).
 type RunContext struct {
-	Ctx      context.Context
-	RootDir  string
-	Config   *config.Config
-	Writer   io.Writer
-	Stderr   io.Writer
-	Color    bool
-	Verbose  bool
+	Ctx     context.Context
+	RootDir string
+	Config  *config.Config
+	Writer  io.Writer
+	Stderr  io.Writer
+	Color   bool
+	Verbose bool
 
 	// Header selects how the run-level identity is rendered. Default (HeaderFull)
 	// prints the full logo banner + code block — correct for standalone commands
@@ -79,9 +79,9 @@ type RunContext struct {
 	// HeaderSlim so the engine prints a one-line provenance stamp instead; the
 	// full logo lives in audition. See output.Banner / output.IdentityLine.
 	Header HeaderMode
-	DryRun   bool // stop after Plan: render Detect+Plan, skip Build/Verify/Publish + manifests
-	Store    cas.Store
-	Target   string // optional build target (docker), ignored by strategies that don't use it
+	DryRun bool // stop after Plan: render Detect+Plan, skip Build/Verify/Publish + manifests
+	Store  cas.Store
+	Target string // optional build target (docker), ignored by strategies that don't use it
 
 	// Generic build-selection options understood by every strategy. Set by the
 	// command entrypoint; contributors read them in Plan.
@@ -137,11 +137,21 @@ type Contributor interface {
 // Per-domain interfaces. A contributor implements only the domains it joins;
 // the runner type-asserts to discover participation.
 type (
-	Detector  interface{ Detect(rc *RunContext) (Contribution, error) }
-	Planner   interface{ Plan(rc *RunContext) (Contribution, error) }
-	Builder   interface{ Build(rc *RunContext) (Contribution, error) }
-	Verifier  interface{ Verify(rc *RunContext) (Contribution, error) }
-	Publisher interface{ Publish(rc *RunContext) (Contribution, error) }
+	Detector interface {
+		Detect(rc *RunContext) (Contribution, error)
+	}
+	Planner interface {
+		Plan(rc *RunContext) (Contribution, error)
+	}
+	Builder interface {
+		Build(rc *RunContext) (Contribution, error)
+	}
+	Verifier interface {
+		Verify(rc *RunContext) (Contribution, error)
+	}
+	Publisher interface {
+		Publish(rc *RunContext) (Contribution, error)
+	}
 )
 
 // SubstrateNeeds lets a contributor declare what the run's single Executor check

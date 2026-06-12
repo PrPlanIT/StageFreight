@@ -8,92 +8,17 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
-	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 // LocalRetentionResult records what the local cache retention executor did.
 type LocalRetentionResult struct {
-	Dir         string
+	Dir           string
 	EntriesBefore int
-	Pruned      int
-	PrunedBytes int64
-	Reason      string // "" if nothing to do
-}
-
-// localCacheRetentionPhase enforces cache retention post-build.
-// Backend-aware: if the builder is buildkitd, prunes via buildx prune.
-// Otherwise prunes the local export directory by age then size.
-func localCacheRetentionPhase() pipeline.Phase {
-	return pipeline.Phase{
-		Name: "cache-retention-local",
-		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			if !pc.Config.BuildCache.IsActive() {
-				return nil, nil
-			}
-			localCfg := pc.Config.BuildCache.Local
-			if localCfg.Retention.MaxAge == "" && localCfg.Retention.MaxSize == "" {
-				return nil, nil
-			}
-
-			// BuildKit cache lives inside the daemon (remote or docker-container driver).
-			// Prune via buildx prune instead of filesystem operations.
-			// Prune failure = retention policy not enforced = build failure.
-			if info, ok := pc.Scratch["docker.builderInfo"].(BuilderInfo); ok && (info.Driver == "remote" || info.Driver == "docker-container") {
-				pruneResult := pruneBuildkitCache(info.Name, localCfg.Retention, pc.Verbose)
-				renderBuildkitPrune(pc.Writer, pc.Color, pruneResult, pc.Verbose)
-
-				if pruneResult.Error != nil {
-					return &pipeline.PhaseResult{
-						Name:    "cache-retention-local",
-						Status:  "failed",
-						Summary: "cache prune failed — retention policy not enforced",
-					}, fmt.Errorf("buildkit cache prune failed: %w", pruneResult.Error)
-				}
-
-				summary := fmt.Sprintf("reclaimed %s", pruneResult.Reclaimed)
-				if pruneResult.Skipped {
-					summary = pruneResult.SkipReason
-				}
-				return &pipeline.PhaseResult{
-					Name:    "cache-retention-local",
-					Status:  "success",
-					Summary: summary,
-				}, nil
-			}
-
-			// Local export directory — prune by age then size.
-			repoID := resolveRepoIDFromContext(pc)
-			dir := LocalCacheDir(repoID, localCfg)
-
-			result := enforceLocalRetention(dir, localCfg.Retention)
-			renderLocalRetention(pc.Writer, pc.Color, result)
-
-			// Record in pipeline state for governance/diagnostics.
-			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
-				st.Retention.Local = &cistate.LocalRetentionRecord{
-					Dir:           result.Dir,
-					EntriesBefore: result.EntriesBefore,
-					Pruned:        result.Pruned,
-					PrunedBytes:   result.PrunedBytes,
-				}
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: retention state write failed: %v\n", err)
-			}
-
-			summary := fmt.Sprintf("pruned %d entries", result.Pruned)
-			if result.Pruned == 0 {
-				summary = "within limits"
-			}
-
-			return &pipeline.PhaseResult{
-				Name:    "cache-retention-local",
-				Status:  "success",
-				Summary: summary,
-			}, nil
-		},
-	}
+	Pruned        int
+	PrunedBytes   int64
+	Reason        string // "" if nothing to do
 }
 
 // enforceLocalRetention prunes local BuildKit cache by age then size.

@@ -53,9 +53,9 @@ func ParseBuildErrors(stderr string) ([]BuildErrorEntry, []string) {
 // Shared between execute.go and crucible.go — one failure rendering contract.
 //
 // Three-layer guarantee:
-//   1. Structured parse (best) — file, line, tool, message
-//   2. Generic parse (ok) — error line with partial metadata
-//   3. Raw fallback (always works) — last N lines, never empty
+//  1. Structured parse (best) — file, line, tool, message
+//  2. Generic parse (ok) — error line with partial metadata
+//  3. Raw fallback (always works) — last N lines, never empty
 //
 // The fallback MUST NEVER be removed. It is the guarantee that errors are always visible.
 func RenderBuildError(sec *output.Section, stderr string) {

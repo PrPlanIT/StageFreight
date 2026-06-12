@@ -167,9 +167,10 @@ type Target struct {
 
 // RegistryTarget describes a container registry destination.
 type RegistryTarget struct {
-	Host string   `json:"host"`
-	Path string   `json:"path"`
-	Tags []string `json:"tags"`
+	Host       string   `json:"host"`
+	Path       string   `json:"path"`
+	Tags       []string `json:"tags"`
+	NativeScan bool     `json:"nativeScan,omitempty"` // trigger the registry's built-in scan after a successful push (Publish-owned)
 }
 
 // ForgeReleaseAssetTarget describes a forge release asset destination

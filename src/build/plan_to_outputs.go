@@ -81,9 +81,10 @@ func PlanToOutputs(plan *BuildPlan, opts PlanToOutputsOpts) (artifact.OutputsMan
 				targets = append(targets, artifact.Target{
 					Kind: "registry",
 					Registry: &artifact.RegistryTarget{
-						Host: reg.URL,
-						Path: reg.Path,
-						Tags: tags,
+						Host:       reg.URL,
+						Path:       reg.Path,
+						Tags:       tags,
+						NativeScan: reg.NativeScan,
 					},
 				})
 			}

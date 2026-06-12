@@ -2,11 +2,9 @@ package docker
 
 import (
 	"fmt"
-	"io"
-	"os"
 	"strings"
+	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
 	"github.com/PrPlanIT/StageFreight/src/cas"
@@ -33,10 +31,13 @@ func init() {
 //
 // State is run-scoped: one instance threads Detect → Plan → Build.
 type imageContributor struct {
-	engine build.Engine
-	det    *build.Detection
-	plan   *build.BuildPlan
-	builds []config.BuildConfig
+	engine      build.Engine
+	det         *build.Detection
+	plan        *build.BuildPlan
+	builds      []config.BuildConfig
+	builderInfo BuilderInfo
+	backend     *Backend
+	buildStart  time.Time
 }
 
 func (c *imageContributor) Name() string { return "image" }
@@ -157,8 +158,13 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 	applyImageBuildStrategy(c.plan, transport, rc.Local, retainViaCAS)
 
 	// The buildx builder must exist before executeBuildPass (which does not
-	// ensure it).
-	builderInfo := ResolveBuilderInfo(EnsureBuilder(rc.Config.BuildCache.Builder))
+	// ensure it). The backend resolves the post-build retention path (buildkit
+	// prune vs local); a failed resolve leaves it nil and runPostBuildRetention
+	// falls back to local retention.
+	c.builderInfo = ResolveBuilderInfo(EnsureBuilder(rc.Config.BuildCache.Builder))
+	c.backend, _ = ResolveBackendWithConfig(BackendCapabilities{
+		Build: true, Run: true, Filesystem: true,
+	}, rc.Config.BuildCache.Builder.Backend)
 
 	store := rc.Store
 	if store == nil {
@@ -168,25 +174,15 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 		return domains.Contribution{Status: "failed", Summary: "store capability"}, capErr
 	}
 
-	cleanupTransport := setupTransportPlan(c.plan, store, rc.RootDir, func(s build.BuildStep) bool {
-		return s.Push || s.Load || s.OCILayoutDir != ""
-	})
-	defer cleanupTransport()
-
 	// Login to remote registries for any push step (executeBuildPass does not).
-	for _, step := range c.plan.Steps {
-		if step.Push && hasRemoteRegistries(step.Registries) {
-			loginBx := NewBuildx(false)
-			loginBx.Stdout = io.Discard
-			loginBx.Stderr = io.Discard
-			if err := loginBx.Login(rc.Ctx, step.Registries); err != nil {
-				return domains.Contribution{Status: "failed", Summary: "registry login failed"}, err
-			}
-			break
-		}
+	if err := loginForPushSteps(rc.Ctx, c.plan.Steps); err != nil {
+		return domains.Contribution{Status: "failed", Summary: "registry login failed"}, err
 	}
 
-	result, execErr := executeBuildPass(rc.Ctx, rc.Writer, rc.Color, rc.Verbose, rc.Stderr, "Image", c.plan, "")
+	// Shared transport-correct retain core (unconditional OCI-export predicate)
+	// + manifest recording, identical to crucible's publish pass.
+	c.buildStart = time.Now()
+	result, storeRows, pushed, execErr := buildRetainRecord(rc, c.plan, "Image")
 	if execErr != nil {
 		return domains.Contribution{
 			Rows:    []string{fmt.Sprintf("%-9s %s  build failed", "image", output.StatusIcon("failed", rc.Color))},
@@ -195,23 +191,8 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 		}, execErr
 	}
 
-	// Record into the single shared run manifest (the run finalizes + writes
-	// outputs.json/published.json once). Mirrors crucible's publish recording.
-	outputs, planErr := build.PlanToOutputs(c.plan, build.PlanToOutputsOpts{
-		Commit:   os.Getenv("CI_COMMIT_SHA"),
-		Pipeline: &artifact.Pipeline{ID: os.Getenv("CI_PIPELINE_ID"), Provider: "gitlab"},
-	})
-	var storeRows []string
-	pushed := 0
-	if planErr == nil {
-		captureArtifactDigests(c.plan, &outputs)
-		storeRows = contentStoreRows(persistArtifactsRecords(c.plan, &outputs, store))
-		pushed = recordPublicationOutcomes(rc.RB, result.Steps)
-		rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, outputs.Artifacts...)
-	}
-
 	rows := []string{
-		fmt.Sprintf("%-9s builder %s (%s · buildkit %s)", "image", builderInfo.Name, builderInfo.Driver, builderInfo.BuildKit),
+		fmt.Sprintf("%-9s builder %s (%s · buildkit %s)", "image", c.builderInfo.Name, c.builderInfo.Driver, c.builderInfo.BuildKit),
 	}
 	for _, step := range result.Steps {
 		state := "built (local)"
@@ -233,4 +214,49 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 		summary += ", retained for publish"
 	}
 	return domains.Contribution{Rows: rows, Status: "success", Summary: summary}, nil
+}
+
+// Publish runs the plain image's post-build housekeeping — cache/image retention
+// and a build-provenance statement — via the shared helpers. The retained bytes
+// are distributed later by the publish phase's promoteArtifacts.
+func (c *imageContributor) Publish(rc *domains.RunContext) (domains.Contribution, error) {
+	if c.plan == nil || len(c.plan.Steps) == 0 {
+		return domains.Contribution{Skip: true}, nil
+	}
+
+	runPostBuildRetention(rc, c.plan, c.backend, c.builderInfo.Name)
+
+	planSHA := build.NormalizeBuildPlan(c.plan)
+	shortID := planSHA
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+	subject := c.plan.Steps[0].Name
+	if len(c.plan.Steps[0].Tags) > 0 {
+		subject = c.plan.Steps[0].Tags[0]
+	}
+	started := c.buildStart
+	if started.IsZero() {
+		started = time.Now()
+	}
+	provRows := writeBuildProvenance(provenanceInput{
+		rootDir:   rc.RootDir,
+		name:      "docker-" + shortID,
+		subject:   subject,
+		buildType: "https://stagefreight.dev/build/docker/v1",
+		builderID: "pkg:docker/stagefreight/image",
+		params: map[string]any{
+			"build_id":  rc.BuildID,
+			"target":    rc.Target,
+			"platforms": rc.Platforms,
+			"local":     rc.Local,
+		},
+		env:          nil,
+		started:      started,
+		finished:     time.Now(),
+		reproducible: false,
+		trustLevel:   "",
+		planSHA:      planSHA,
+	})
+	return domains.Contribution{Rows: provRows, Status: "success", Summary: "provenance"}, nil
 }

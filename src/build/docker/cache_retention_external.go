@@ -3,13 +3,10 @@ package docker
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
-	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
@@ -24,54 +21,6 @@ type ExternalRetentionResult struct {
 	Pruned   int
 	Kept     int
 	Errors   []string
-}
-
-// externalCacheRetentionHook enforces external cache retention post-build.
-// Runs only on success. Prunes stale branch cache refs by age and count.
-// Only touches refs that match StageFreight's deterministic cache naming contract.
-func externalCacheRetentionHook() pipeline.PostBuildHook {
-	return pipeline.PostBuildHook{
-		Name: "cache-retention-external",
-		Condition: func(pc *pipeline.PipelineContext) bool {
-			if !pc.Config.BuildCache.IsActive() {
-				return false
-			}
-			ext := pc.Config.BuildCache.External
-			return ext.Target != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "")
-		},
-		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			ext := pc.Config.BuildCache.External
-			repoID := resolveRepoIDFromContext(pc)
-
-			result := enforceExternalRetention(pc.Ctx, ext, repoID, pc.Config.Targets, pc.Config.Registries, pc.Config.Vars)
-			renderExternalRetention(pc.Writer, pc.Color, result)
-
-			// Record in pipeline state for governance/diagnostics.
-			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
-				st.Retention.External = &cistate.ExternalRetentionRecord{
-					Registry: result.Registry,
-					Prefix:   result.Prefix,
-					Total:    result.Total,
-					Pruned:   result.Pruned,
-					Kept:     result.Kept,
-					Errors:   result.Errors,
-				}
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: retention state write failed: %v\n", err)
-			}
-
-			summary := fmt.Sprintf("pruned %d/%d cache refs", result.Pruned, result.Total)
-			if result.Pruned == 0 {
-				summary = fmt.Sprintf("%d cache refs within limits", result.Total)
-			}
-
-			return &pipeline.PhaseResult{
-				Name:    "cache-retention-external",
-				Status:  "success",
-				Summary: summary,
-			}, nil
-		},
-	}
 }
 
 // enforceExternalRetention lists cache tags on the registry and prunes stale ones.

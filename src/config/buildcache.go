@@ -23,8 +23,7 @@ type BuildCacheConfig struct {
 	// External configures registry-backed shared cache.
 	External ExternalCacheConfig `yaml:"external,omitempty"`
 
-	// Cleanup configures host hygiene — residue pruning, not cache.
-	// Only executes when Mode is active (not empty, not off).
+	// Cleanup is governance-owned host-hygiene policy — see HostCleanupConfig.
 	Cleanup HostCleanupConfig `yaml:"cleanup,omitempty"`
 }
 
@@ -118,6 +117,9 @@ type ExternalRetention struct {
 
 // HostCleanupConfig defines host hygiene — classification-first pruning.
 // Not cache — residue cleanup. Object classes match DD-UI's operation types.
+//
+// Governance-owned policy, currently INACTIVE: the legacy executor was removed
+// with the standalone build pipeline. Retained pending a perform-phase consumer.
 type HostCleanupConfig struct {
 	// Enabled controls whether cleanup runs. Independent of cache mode.
 	Enabled bool `yaml:"enabled,omitempty"`

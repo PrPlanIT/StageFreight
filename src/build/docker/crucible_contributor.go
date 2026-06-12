@@ -2,13 +2,11 @@ package docker
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
@@ -317,84 +315,65 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 				publishPlan.Steps[i].CacheTo = c.cacheTo
 			}
 		}
-		// Shared transport setup: digest-capture metadata (always) + OCI layout for
-		// content-store retain (when the store requires export — i.e. transport).
-		cleanupTransport := setupTransportPlan(publishPlan, rc.Store, c.rootDir, func(build.BuildStep) bool { return true })
-		defer cleanupTransport()
 		build.InjectLabels(publishPlan, build.StandardLabels(
 			build.NormalizeBuildPlan(publishPlan), version.Version, version.Commit, "crucible-verified", c.created))
 
 		loginFailed := false
 		if !transport {
-			loginBx := NewBuildx(false)
-			loginBx.Stdout = io.Discard
-			loginBx.Stderr = io.Discard
-			for _, step := range publishPlan.Steps {
-				if hasRemoteRegistries(step.Registries) {
-					if loginErr := loginBx.Login(ctx, step.Registries); loginErr != nil {
-						loginFailed = true
-						sec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
-						sec.Row("%-14s%s", "status", "blocked — registry login failed")
-						sec.Row("%-14s%v", "error", loginErr)
-						sec.Close()
-					}
-					break
-				}
+			if err := loginForPushSteps(ctx, publishPlan.Steps); err != nil {
+				loginFailed = true
+				sec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
+				sec.Row("%-14s%s", "status", "blocked — registry login failed")
+				sec.Row("%-14s%v", "error", err)
+				sec.Close()
 			}
 		}
 
 		if !loginFailed {
-			pubResult, publishErr := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
-				"Publish (verified artifact: pass 2)", publishPlan, "")
-			if publishErr == nil {
-				outputs, planErr := build.PlanToOutputs(publishPlan, build.PlanToOutputsOpts{
-					Commit:   os.Getenv("CI_COMMIT_SHA"),
-					Pipeline: &artifact.Pipeline{ID: os.Getenv("CI_PIPELINE_ID"), Provider: "gitlab"},
-				})
-				if planErr == nil {
-					recordPublicationOutcomes(rc.RB, pubResult.Steps)
-					captureArtifactDigests(publishPlan, &outputs)
-					// Retain to the content store and fold the evidence (digest +
-					// "deferred to publish") into the Publish box instead of a
-					// standalone Content Store panel.
-					storeRows = contentStoreRows(persistArtifactsRecords(publishPlan, &outputs, rc.Store))
-					// Merge into the run's single shared manifest — the run finalizes
-					// + writes outputs.json/published.json once, so binary and docker
-					// artifacts coexist (the former clobber is gone).
-					rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, outputs.Artifacts...)
-					publishPassed = true
-					publishResult = pubResult
-				}
-			}
+			// Shared transport-correct retain core (unconditional OCI-export
+			// predicate) + manifest recording. buildRetainRecord runs
+			// setupTransportPlan with the same return-true predicate crucible
+			// used inline, so retention/distribution behavior is preserved.
+			pubResult, pubStoreRows, _, pErr := buildRetainRecord(rc, publishPlan, "Publish (verified artifact: pass 2)")
+			publishPassed = pErr == nil
+			publishResult = pubResult
+			storeRows = pubStoreRows
 		}
 	}
 
-	// ── Cache Retention / prune (success only) ──
+	// ── Cache + Image Retention (success only) — shared standard housekeeping ──
 	if c.cruciblePassed {
-		repoID := resolveRepoIDFromContext(&pipeline.PipelineContext{Ctx: ctx, RootDir: c.rootDir, Config: rc.Config, Writer: w, Color: color, Verbose: rc.Verbose})
-		if c.backend.IsBuildkit() {
-			pruneResult := pruneBuildkitCache(c.builderInfo.Name, rc.Config.BuildCache.Local.Retention, rc.Verbose)
-			renderBuildkitPrune(w, color, pruneResult, rc.Verbose)
-			if pruneResult.Error != nil {
-				fmt.Fprintf(w, "    ⚠ cache prune failed — retention policy not enforced: %v\n", pruneResult.Error)
-			}
-		} else {
-			renderLocalRetention(w, color, enforceLocalRetention(
-				LocalCacheDir(repoID, rc.Config.BuildCache.Local), rc.Config.BuildCache.Local.Retention))
-		}
-		ext := rc.Config.BuildCache.External
-		if ext.Target != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {
-			renderExternalRetention(w, color, enforceExternalRetention(ctx, ext, repoID, rc.Config.Targets, rc.Config.Registries, rc.Config.Vars))
-		}
-	}
-
-	// ── Image Retention ──
-	if c.cruciblePassed && c.plan != nil && postbuild.HasRetention(c.plan) {
-		_, _ = postbuild.RunRetentionSection(ctx, w, output.IsCI(), color, c.plan)
+		runPostBuildRetention(rc, c.plan, c.backend, c.builderInfo.Name)
 	}
 
 	// ── Provenance (folded into the Publish box, no standalone panel) ──
-	provRows := c.provenanceRows()
+	// Crucible supplies its trust-level + reproducible facts into the shared
+	// provenance writer; the statement shape is identical to the monolith's.
+	trust := "failed"
+	reproducible := false
+	if c.cruciblePassed && c.verification != nil {
+		trust = build.TrustLevelLabel(c.verification.TrustLevel)
+		reproducible = c.verification.TrustLevel == build.TrustReproducible
+	}
+	provRows := writeBuildProvenance(provenanceInput{
+		rootDir:   c.rootDir,
+		name:      "crucible-" + c.runID,
+		subject:   c.verifyTag,
+		buildType: "https://stagefreight.dev/build/crucible/v1",
+		builderID: "pkg:docker/stagefreight/crucible",
+		params: map[string]any{
+			"mode": "crucible", "build_id": c.req.BuildID, "target": c.req.Target,
+			"platforms": c.req.Platforms, "local": c.req.Local, "backend": c.backend.Kind,
+		},
+		env: map[string]any{
+			"run_id": c.runID, "candidate": c.candidateTag, "verify": c.verifyTag,
+		},
+		started:      c.pipelineStart,
+		finished:     time.Now(),
+		reproducible: reproducible,
+		trustLevel:   trust,
+		planSHA:      build.NormalizeBuildPlan(c.plan),
+	})
 
 	// Verdict moved to Conclude() — rendered by the run AFTER the Summary.
 	if !c.cruciblePassed {
@@ -421,65 +400,6 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 	}
 	rows := append([]string{fmt.Sprintf("%-9s publish blocked", "docker")}, provRows...)
 	return domains.Contribution{Rows: rows, Status: "failed", Summary: "publish failed after verification"}, nil
-}
-
-// contentStoreRows folds the content-store retention evidence into Publish rows
-// (was the standalone "Content Store (retained — not pushed)" panel).
-func contentStoreRows(records []RetainedArtifact) []string {
-	var rows []string
-	for _, r := range records {
-		if r.Failure != "" {
-			rows = append(rows, fmt.Sprintf("%-9s content-store ✗ %s (%s)", "docker", r.Name, r.Failure))
-			continue
-		}
-		rows = append(rows, fmt.Sprintf("%-9s retained %s · %s · deferred to publish", "docker", r.Name, r.Digest))
-	}
-	return rows
-}
-
-// provenanceRows writes the provenance statement and returns its row for folding
-// into the Publish box (was a standalone Provenance panel). The statement content
-// is unchanged from the monolith.
-func (c *crucibleContributor) provenanceRows() []string {
-	trust := "failed"
-	reproducible := false
-	if c.cruciblePassed && c.verification != nil {
-		trust = build.TrustLevelLabel(c.verification.TrustLevel)
-		reproducible = c.verification.TrustLevel == build.TrustReproducible
-	}
-	provPath := filepath.Join(c.rootDir, ".stagefreight", "provenance", fmt.Sprintf("crucible-%s.json", c.runID))
-	stmt := build.ProvenanceStatement{
-		Type:          "https://in-toto.io/Statement/v1",
-		PredicateType: "https://slsa.dev/provenance/v1",
-		Subject:       []build.ProvenanceSubject{{Name: c.verifyTag}},
-		Predicate: build.ProvenancePredicate{
-			BuildType: "https://stagefreight.dev/build/crucible/v1",
-			Builder:   build.ProvenanceBuilder{ID: "pkg:docker/stagefreight/crucible"},
-			Invocation: build.ProvenanceInvocation{
-				Parameters: map[string]any{
-					"mode": "crucible", "build_id": c.req.BuildID, "target": c.req.Target,
-					"platforms": c.req.Platforms, "local": c.req.Local, "backend": c.backend.Kind,
-				},
-				Environment: map[string]any{
-					"run_id": c.runID, "candidate": c.candidateTag, "verify": c.verifyTag,
-				},
-			},
-			Metadata: build.ProvenanceMetadata{
-				BuildStartedOn:  c.pipelineStart.UTC().Format(time.RFC3339),
-				BuildFinishedOn: time.Now().UTC().Format(time.RFC3339),
-				Completeness:    map[string]bool{"parameters": true, "environment": true, "materials": false},
-				Reproducible:    reproducible,
-			},
-			StageFreight: map[string]any{
-				"trust_level": trust, "version": version.Version, "commit": version.Commit,
-				"plan_sha256": build.NormalizeBuildPlan(c.plan),
-			},
-		},
-	}
-	if provErr := build.WriteProvenance(provPath, stmt); provErr != nil {
-		return []string{fmt.Sprintf("%-9s provenance ✗ %s", "docker", provErr.Error())}
-	}
-	return []string{fmt.Sprintf("%-9s provenance ✓ %s", "docker", provPath)}
 }
 
 // Conclude renders the Crucible Verdict — the run's final word, AFTER the

@@ -133,20 +133,11 @@ func TestPerformDoesNotPushWhenTransportActive(t *testing.T) {
 		t.Error("single-platform step pushes under active transport — perform must not distribute")
 	}
 
-	// Single-platform under transport is Load && !Push — the exact shape
-	// collectRemoteTags selects for the load-then-push path. That path must be
-	// suppressed under transport (the execute loop guards it with
-	// !transportActive), or perform would distribute single-platform images
-	// despite step.Push being false. Assert the plan-level fact the guard relies
-	// on: the single-platform transport step IS a collectRemoteTags candidate, so
-	// the guard — not the step flags — is what prevents the push.
-	sp := apply(singlePlatform, true)
-	if !sp.Load || sp.Push {
+	// Single-platform under transport is Load && !Push: perform loads the image
+	// into the daemon for the crucible self-proof but never marks it Push, so no
+	// registry mutation originates here — distribution is deferred to publish.
+	if sp := apply(singlePlatform, true); !sp.Load || sp.Push {
 		t.Fatalf("single-platform transport step expected Load && !Push, got Load=%v Push=%v", sp.Load, sp.Push)
-	}
-	candidatePlan := &build.BuildPlan{Steps: []build.BuildStep{sp}}
-	if len(collectRemoteTags(candidatePlan)) == 0 {
-		t.Error("single-platform transport step is not a collectRemoteTags candidate — the !transportActive guard would be vacuous; the suppression must come from the guard, and this test must stay meaningful")
 	}
 
 	// Transport inactive (legacy fallback): multi-platform still pushes (the old

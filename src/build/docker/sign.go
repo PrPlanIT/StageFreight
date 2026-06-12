@@ -12,6 +12,9 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
+// TODO: signing belongs to Publish. These primitives are retained pending
+// publish-phase signing integration.
+
 // CosignSign signs an image digest ref using cosign.
 // The digestRef must be in the form repo@sha256:... — tags are never used.
 func CosignSign(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef, keyPath string, multiArch bool) error {

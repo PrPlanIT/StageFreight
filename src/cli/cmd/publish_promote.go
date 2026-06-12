@@ -13,6 +13,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/postbuild"
 	"github.com/PrPlanIT/StageFreight/src/promote"
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
@@ -74,6 +75,12 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	var dists []distArtifact
 
 	var failures []string
+
+	// Post-distribution native scans, collected per (host,path) and fired only for
+	// tags that actually pushed. Publish owns post-distribution registry actions.
+	type scanKey struct{ host, path string }
+	scanTags := map[scanKey][]string{}
+
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
 			continue
@@ -132,6 +139,10 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 					continue
 				}
 				dist.tags = append(dist.tags, distTag{ref: res.Ref, digest: res.Digest, ok: true})
+				if t.Registry.NativeScan {
+					k := scanKey{t.Registry.Host, t.Registry.Path}
+					scanTags[k] = append(scanTags[k], tag)
+				}
 				rb.Record(artifactID, artifact.Outcome{
 					Type:   artifact.OutcomeTypePush,
 					Target: target,
@@ -147,6 +158,27 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 			}
 		}
 		dists = append(dists, dist)
+	}
+
+	// Post-distribution: trigger each successfully-pushed native-scan registry's
+	// own scanner (Harbor's built-in Trivy). Best-effort — never fails publish.
+	if len(scanTags) > 0 {
+		var nativeScan []build.RegistryTarget
+		for k, tags := range scanTags {
+			reg := findRegistryByHost(appCfg, k.host)
+			if reg == nil {
+				continue
+			}
+			nativeScan = append(nativeScan, build.RegistryTarget{
+				URL:         k.host,
+				Path:        k.path,
+				Tags:        tags,
+				Provider:    reg.Provider,
+				Credentials: reg.Credentials,
+				NativeScan:  true,
+			})
+		}
+		postbuild.PostPushHooks(ctx, nativeScan)
 	}
 
 	// Render the distribution as an EVENT, not a state readout. Publish is the only
@@ -253,6 +285,18 @@ func resolvePromoteAuth(appCfg *config.Config, host string) authn.Authenticator 
 			Username: cred.User,
 			Password: cred.Secret,
 		})
+	}
+	return nil
+}
+
+// findRegistryByHost returns the configured registry whose URL matches host (or
+// nil) — used to recover provider/credentials for post-distribution actions.
+func findRegistryByHost(appCfg *config.Config, host string) *config.RegistryConfig {
+	normHost := registry.NormalizeHost(host)
+	for i := range appCfg.Registries {
+		if registry.NormalizeHost(appCfg.Registries[i].URL) == normHost {
+			return &appCfg.Registries[i]
+		}
 	}
 	return nil
 }
