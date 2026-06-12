@@ -14,7 +14,6 @@ type Engine interface {
 	Name() string
 	Detect(ctx context.Context, rootDir string) (*Detection, error)
 	Plan(ctx context.Context, cfg interface{}, det *Detection) (*BuildPlan, error)
-	Execute(ctx context.Context, plan *BuildPlan) (*BuildResult, error)
 }
 
 // ImagePlanInput bundles the config needed for image build planning.

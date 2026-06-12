@@ -70,7 +70,7 @@ func InjectLabels(plan *BuildPlan, labels map[string]string) {
 //   - BuildStep.Tags (output naming, not build-affecting)
 //   - BuildStep.Registries (output destinations, not build-affecting)
 //   - BuildStep.Output (always "image" for docker)
-//   - BuildStep.Load, Push, SavePath (runtime strategy decisions)
+//   - BuildStep.Load, Push (runtime strategy decisions)
 //   - BuildStep.Labels (metadata, not build-affecting)
 //   - BuildStep.Extract (artifact mode only)
 //   - RegistryTarget.Credentials (auth, not build-affecting)

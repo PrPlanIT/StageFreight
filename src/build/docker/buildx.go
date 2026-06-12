@@ -491,23 +491,6 @@ func (bx *Buildx) Login(ctx context.Context, registries []build.RegistryTarget) 
 	return nil
 }
 
-// Save exports a loaded image as a tarball for downstream scanning and attestation.
-// The image must be loaded into the daemon first (--load or docker load).
-func (bx *Buildx) Save(ctx context.Context, imageRef string, outputPath string) error {
-	if bx.Verbose {
-		fmt.Fprintf(bx.Stderr, "exec: docker save -o %s %s\n", outputPath, imageRef)
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", "save", "-o", outputPath, imageRef)
-	cmd.Stdout = bx.Stderr
-	cmd.Stderr = bx.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker save %s: %w", imageRef, err)
-	}
-	return nil
-}
-
 // ResolveDigest queries the registry for the manifest digest of a pushed image.
 func ResolveDigest(ctx context.Context, ref string) (string, error) {
 	out, err := exec.CommandContext(ctx, "docker", "buildx", "imagetools",
