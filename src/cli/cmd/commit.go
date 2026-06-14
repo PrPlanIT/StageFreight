@@ -298,44 +298,55 @@ func shouldUseForge(plan *commit.Plan, configBackend string) bool {
 	return output.IsCI()
 }
 
-// resolveForgeProvider picks the forge provider and the API base URL using the
-// authority order: an explicitly configured provider (the primary repo's forge) wins
-// over the URL heuristic. The configured forge is API identity ("which semantics to
-// speak"); the git remote is only transport ("how to reach the repo") — so a reverse
-// proxy / SSH alias / IP remote that DetectProvider can't classify still resolves when
-// provider: is declared in config. Falls back to DetectProvider(remoteURL) only when
-// there is no usable configured provider. (A future middle step: probe the API.)
-func resolveForgeProvider(remoteURL string, cfg *config.Config) (forge.Provider, string) {
-	if cfg != nil {
-		if primary, err := config.ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars); err == nil && primary != nil {
-			if p := forge.ParseProvider(primary.Provider); p != forge.Unknown {
-				clientURL := remoteURL
-				if primary.BaseURL != "" {
-					clientURL = primary.BaseURL // configured API endpoint, transport-independent
-				}
-				return p, clientURL
-			}
-		}
+// forgeIdentityFromConfig returns the resolved primary repo when config declares a
+// known provider — the SINGLE authoritative source of push-target identity (provider,
+// base URL, project), independent of the git remote (transport) and of CI env. Returns
+// nil to signal the caller to fall back to remote/CI heuristics. Identity resolves
+// WITHOUT a token: credentials are a separate concern, handled at client construction.
+func forgeIdentityFromConfig(cfg *config.Config) *config.ResolvedRepo {
+	if cfg == nil {
+		return nil
 	}
-	return forge.DetectProvider(remoteURL), remoteURL
+	primary, err := config.ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars)
+	if err != nil || primary == nil || forge.ParseProvider(primary.Provider) == forge.Unknown {
+		return nil
+	}
+	return primary
 }
 
-// detectForgeForPush detects the forge platform and resolves the target branch
-// for forge-based push.
-func detectForgeForPush(rootDir string, plan *commit.Plan, cfg *config.Config) (forge.Forge, string, error) {
+// resolveForgeClient builds the push target's forge client from ONE authoritative
+// object — the resolved primary repo (provider + baseURL + project + credentials), the
+// same NewFromAccessory model release/package/mirror operations already use. It falls
+// back to git-remote + CI-env heuristics only when config declares no primary forge, so
+// forge identity is never assembled from unrelated sources (URL for provider, CI for
+// project, env for token). A missing token then surfaces as a clear credentials error
+// at construction — not as a projects// 404 from an empty project.
+func resolveForgeClient(rootDir string, cfg *config.Config) (forge.Forge, error) {
+	if id := forgeIdentityFromConfig(cfg); id != nil {
+		fc, err := forge.NewFromAccessory(id.Provider, id.BaseURL, id.Project, id.Credentials)
+		if err != nil {
+			return nil, fmt.Errorf("forge %q for project %q: %w", id.Provider, id.Project, err)
+		}
+		return fc, nil
+	}
+
 	remoteURL, err := detectRemoteURL(rootDir)
 	if err != nil {
-		return nil, "", fmt.Errorf("no git remote URL found: %w", err)
+		return nil, fmt.Errorf("no git remote URL found: %w", err)
 	}
-
-	provider, clientURL := resolveForgeProvider(remoteURL, cfg)
+	provider := forge.DetectProvider(remoteURL)
 	if provider == forge.Unknown {
-		return nil, "", fmt.Errorf("unknown forge provider for remote %s (set forges[].provider to declare it explicitly)", remoteURL)
+		return nil, fmt.Errorf("unknown forge provider for remote %s (declare forges[].provider to set it explicitly)", remoteURL)
 	}
+	return newForgeClient(provider, remoteURL)
+}
 
-	fc, err := newForgeClient(provider, clientURL)
+// detectForgeForPush resolves the forge client (config identity first, else remote/CI)
+// and the target branch for a forge-based push.
+func detectForgeForPush(rootDir string, plan *commit.Plan, cfg *config.Config) (forge.Forge, string, error) {
+	fc, err := resolveForgeClient(rootDir, cfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s forge client init failed: %w", provider, err)
+		return nil, "", err
 	}
 
 	branch := commit.BranchFromRefspec(plan.Push.Refspec)

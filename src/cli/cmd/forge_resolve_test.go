@@ -4,80 +4,58 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/forge"
 )
 
-// cfgWithForge builds a minimal config with one forge and one primary repo —
-// the shape resolveForgeProvider reads via config.ResolvePrimary.
-func cfgWithForge(provider, url string) *config.Config {
+// cfgPrimary builds a minimal config: one forge plus one primary repo on it —
+// the shape forgeIdentityFromConfig reads via config.ResolvePrimary.
+func cfgPrimary(provider, url, project string) *config.Config {
 	return &config.Config{
-		Forges: []config.ForgeConfig{{ID: "f", Provider: provider, URL: url}},
-		Repos:  []config.RepoConfig{{ID: "primary", Forge: "f", Roles: []string{"primary"}}},
+		Forges: []config.ForgeConfig{{ID: "f", Provider: provider, URL: url, Credentials: "GITLAB"}},
+		Repos:  []config.RepoConfig{{ID: "primary", Forge: "f", Project: project, Roles: []string{"primary"}}},
 	}
 }
 
-// TestResolveForgeProvider locks in the authority order: a DECLARED provider wins
-// over the URL heuristic, so forge-backend pushes work behind reverse proxies, SSH
-// aliases, and IP-based remotes the heuristic can't classify. Guards against any
-// future reintroduction of URL-coupled provider selection.
-func TestResolveForgeProvider(t *testing.T) {
-	const ipRemote = "ssh://git@10.30.1.123:2424/SoFMeRight/dungeon.git"
+// TestForgeIdentityFromConfig locks in that push-target identity comes from the
+// resolved primary repo (provider + base URL + project) — config-driven, independent
+// of the git remote and CI env. Regression guard for the dungeon case: a declared
+// provider:gitlab + project resolve regardless of an IP/proxy/SSH-alias remote that the
+// URL heuristic can't classify, and without needing a token (auth is a later concern).
+func TestForgeIdentityFromConfig(t *testing.T) {
+	t.Run("declared primary forge resolves full identity", func(t *testing.T) {
+		got := forgeIdentityFromConfig(cfgPrimary("gitlab", "https://gitlab.prplanit.com", "SoFMeRight/dungeon"))
+		if got == nil {
+			t.Fatal("expected resolved identity, got nil")
+		}
+		if got.Provider != "gitlab" {
+			t.Errorf("provider = %q, want gitlab", got.Provider)
+		}
+		if got.Project != "SoFMeRight/dungeon" {
+			t.Errorf("project = %q, want SoFMeRight/dungeon", got.Project)
+		}
+		if got.BaseURL != "https://gitlab.prplanit.com" {
+			t.Errorf("baseURL = %q, want https://gitlab.prplanit.com", got.BaseURL)
+		}
+	})
 
-	tests := []struct {
-		name         string
-		remoteURL    string
-		cfg          *config.Config
-		wantProvider forge.Provider
-		wantURL      string
-	}{
-		{
-			// The regression: declared provider:gitlab must win over an IP remote the
-			// heuristic returns Unknown for. This is exactly the dungeon case.
-			name:         "configured provider overrides unclassifiable IP remote",
-			remoteURL:    ipRemote,
-			cfg:          cfgWithForge("gitlab", "https://gitlab.prplanit.com"),
-			wantProvider: forge.GitLab,
-			wantURL:      "https://gitlab.prplanit.com", // configured API endpoint, not the IP
-		},
-		{
-			name:         "no config falls back to URL heuristic",
-			remoteURL:    "ssh://git@gitlab.example.com/g/r.git",
-			cfg:          nil,
-			wantProvider: forge.GitLab,
-			wantURL:      "ssh://git@gitlab.example.com/g/r.git",
-		},
-		{
-			name:         "no config plus opaque IP remote is Unknown",
-			remoteURL:    ipRemote,
-			cfg:          nil,
-			wantProvider: forge.Unknown,
-			wantURL:      ipRemote,
-		},
-		{
-			name:         "invalid configured provider falls back to URL heuristic",
-			remoteURL:    "https://github.com/o/r.git",
-			cfg:          cfgWithForge("bogus", "https://example.com"),
-			wantProvider: forge.GitHub,
-			wantURL:      "https://github.com/o/r.git",
-		},
-		{
-			name:         "configured provider without a URL keeps the remote as API base",
-			remoteURL:    ipRemote,
-			cfg:          cfgWithForge("gitlab", ""),
-			wantProvider: forge.GitLab,
-			wantURL:      ipRemote,
-		},
-	}
+	t.Run("nil config falls back to remote heuristics (nil)", func(t *testing.T) {
+		if got := forgeIdentityFromConfig(nil); got != nil {
+			t.Errorf("expected nil, got %+v", got)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotProvider, gotURL := resolveForgeProvider(tt.remoteURL, tt.cfg)
-			if gotProvider != tt.wantProvider {
-				t.Errorf("provider = %q, want %q", gotProvider, tt.wantProvider)
-			}
-			if gotURL != tt.wantURL {
-				t.Errorf("clientURL = %q, want %q", gotURL, tt.wantURL)
-			}
-		})
-	}
+	t.Run("unknown declared provider falls back (nil)", func(t *testing.T) {
+		if got := forgeIdentityFromConfig(cfgPrimary("bogus", "https://x", "g/r")); got != nil {
+			t.Errorf("expected nil for unknown provider, got %+v", got)
+		}
+	})
+
+	t.Run("no primary repo falls back (nil)", func(t *testing.T) {
+		cfg := &config.Config{
+			Forges: []config.ForgeConfig{{ID: "f", Provider: "gitlab", URL: "https://x"}},
+			Repos:  []config.RepoConfig{{ID: "m", Forge: "f", Roles: []string{"mirror"}}},
+		}
+		if got := forgeIdentityFromConfig(cfg); got != nil {
+			t.Errorf("expected nil with no primary repo, got %+v", got)
+		}
+	})
 }
