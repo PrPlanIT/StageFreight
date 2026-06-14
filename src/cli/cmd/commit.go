@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/commit"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -142,7 +143,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	case commitDryRun:
 		backend = &commit.DryRunBackend{RootDir: rootDir}
 	case shouldUseForge(plan, cfg.Commit.Backend):
-		fc, branch, err := detectForgeForPush(rootDir, plan)
+		fc, branch, err := detectForgeForPush(rootDir, plan, cfg)
 		if err != nil {
 			if cfg.Commit.Backend == "forge" {
 				return fmt.Errorf("forge backend requested but detection failed: %w", err)
@@ -297,20 +298,42 @@ func shouldUseForge(plan *commit.Plan, configBackend string) bool {
 	return output.IsCI()
 }
 
+// resolveForgeProvider picks the forge provider and the API base URL using the
+// authority order: an explicitly configured provider (the primary repo's forge) wins
+// over the URL heuristic. The configured forge is API identity ("which semantics to
+// speak"); the git remote is only transport ("how to reach the repo") — so a reverse
+// proxy / SSH alias / IP remote that DetectProvider can't classify still resolves when
+// provider: is declared in config. Falls back to DetectProvider(remoteURL) only when
+// there is no usable configured provider. (A future middle step: probe the API.)
+func resolveForgeProvider(remoteURL string, cfg *config.Config) (forge.Provider, string) {
+	if cfg != nil {
+		if primary, err := config.ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars); err == nil && primary != nil {
+			if p := forge.ParseProvider(primary.Provider); p != forge.Unknown {
+				clientURL := remoteURL
+				if primary.BaseURL != "" {
+					clientURL = primary.BaseURL // configured API endpoint, transport-independent
+				}
+				return p, clientURL
+			}
+		}
+	}
+	return forge.DetectProvider(remoteURL), remoteURL
+}
+
 // detectForgeForPush detects the forge platform and resolves the target branch
 // for forge-based push.
-func detectForgeForPush(rootDir string, plan *commit.Plan) (forge.Forge, string, error) {
+func detectForgeForPush(rootDir string, plan *commit.Plan, cfg *config.Config) (forge.Forge, string, error) {
 	remoteURL, err := detectRemoteURL(rootDir)
 	if err != nil {
 		return nil, "", fmt.Errorf("no git remote URL found: %w", err)
 	}
 
-	provider := forge.DetectProvider(remoteURL)
+	provider, clientURL := resolveForgeProvider(remoteURL, cfg)
 	if provider == forge.Unknown {
-		return nil, "", fmt.Errorf("unknown forge provider for remote %s", remoteURL)
+		return nil, "", fmt.Errorf("unknown forge provider for remote %s (set forges[].provider to declare it explicitly)", remoteURL)
 	}
 
-	fc, err := newForgeClient(provider, remoteURL)
+	fc, err := newForgeClient(provider, clientURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("%s forge client init failed: %w", provider, err)
 	}

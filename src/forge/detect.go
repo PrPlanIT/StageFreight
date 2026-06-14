@@ -30,6 +30,29 @@ func DetectProvider(remoteURL string) Provider {
 	}
 }
 
+// ParseProvider maps a DECLARED provider string (case-insensitive) to a known
+// Provider, or Unknown when unrecognized. Unlike DetectProvider — which guesses the
+// provider from a transport URL — this is the authoritative path: the operator has
+// stated the forge type in config, so it is trusted over any URL heuristic. The git
+// remote is transport identity (how to reach the repo); the provider is forge identity
+// (which API to speak), and the two are not coupled (proxies, SSH aliases, IP remotes).
+func ParseProvider(s string) Provider {
+	switch Provider(strings.ToLower(strings.TrimSpace(s))) {
+	case GitLab:
+		return GitLab
+	case GitHub:
+		return GitHub
+	case Gitea:
+		return Gitea
+	case Forgejo:
+		return Forgejo
+	case AzureDevOps:
+		return AzureDevOps
+	default:
+		return Unknown
+	}
+}
+
 // BaseURL extracts the forge base URL from a git remote URL.
 // Handles SSH (git@host:path) and HTTPS (https://host/path) formats.
 func BaseURL(remoteURL string) string {

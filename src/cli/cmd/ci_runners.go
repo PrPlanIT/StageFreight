@@ -1215,7 +1215,7 @@ func autoCommitViaPlanner(ctx context.Context, appCfg *config.Config, rootDir st
 
 	var backend commit.Backend
 	if useForge {
-		fc, branch, fErr := detectForgeForPush(rootDir, plan)
+		fc, branch, fErr := detectForgeForPush(rootDir, plan, appCfg)
 		if fErr != nil {
 			if appCfg.Commit.Backend == "forge" {
 				return nil, fmt.Errorf("auto-commit: forge backend requested but detection failed: %w", fErr)
