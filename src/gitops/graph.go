@@ -223,6 +223,30 @@ func BuildRoots(graph *FluxGraph) []string {
 // nodes that cannot be topologically placed are appended in lexical order so
 // reconcile still covers the whole estate rather than silently dropping them.
 func ReconcileOrder(graph *FluxGraph) []KustomizationKey {
+	order, placed := kahn(graph)
+
+	// Cycle remainder — append anything unplaced in lexical order so coverage
+	// is never silently reduced by a dependency cycle.
+	if len(order) < len(graph.Kustomizations) {
+		var rest []KustomizationKey
+		for key := range graph.Kustomizations {
+			if !placed[key] {
+				rest = append(rest, key)
+			}
+		}
+		SortKeys(rest)
+		order = append(order, rest...)
+	}
+
+	return order
+}
+
+// kahn runs Kahn's topological sort over the graph, deps-first with a lexical
+// tiebreak at each depth (deterministic). It returns the placeable order and the
+// set of nodes that were placed. Nodes absent from `placed` are unorderable — in,
+// or downstream of, a dependency cycle. DependsOn edges to kustomizations not in
+// the graph are ignored (Flux tolerates cross-source deps).
+func kahn(graph *FluxGraph) (order []KustomizationKey, placed map[KustomizationKey]bool) {
 	indeg := make(map[KustomizationKey]int, len(graph.Kustomizations))
 	for key, node := range graph.Kustomizations {
 		n := 0
@@ -242,8 +266,8 @@ func ReconcileOrder(graph *FluxGraph) []KustomizationKey {
 	}
 	SortKeys(ready)
 
-	order := make([]KustomizationKey, 0, len(graph.Kustomizations))
-	placed := make(map[KustomizationKey]bool, len(graph.Kustomizations))
+	order = make([]KustomizationKey, 0, len(graph.Kustomizations))
+	placed = make(map[KustomizationKey]bool, len(graph.Kustomizations))
 	for len(ready) > 0 {
 		k := ready[0]
 		ready = ready[1:]
@@ -265,21 +289,38 @@ func ReconcileOrder(graph *FluxGraph) []KustomizationKey {
 			SortKeys(ready)
 		}
 	}
+	return order, placed
+}
 
-	// Cycle remainder — append anything unplaced in lexical order so coverage
-	// is never silently reduced by a dependency cycle.
-	if len(order) < len(graph.Kustomizations) {
-		var rest []KustomizationKey
-		for key := range graph.Kustomizations {
-			if !placed[key] {
-				rest = append(rest, key)
+// CycleNodes returns the set of kustomizations that cannot be topologically
+// placed — those in, or downstream of, a dependency cycle. These are the keys a
+// validation verdict marks as failed with a cycle reason: the dependency intent
+// is incoherent and Flux itself would deadlock on them.
+func CycleNodes(graph *FluxGraph) map[KustomizationKey]bool {
+	_, placed := kahn(graph)
+	cycle := map[KustomizationKey]bool{}
+	for key := range graph.Kustomizations {
+		if !placed[key] {
+			cycle[key] = true
+		}
+	}
+	return cycle
+}
+
+// DanglingDeps returns, per kustomization, the dependsOn references that point at
+// a kustomization not present in the discovered graph. The referrer is the key a
+// validation verdict marks — its declared dependency cannot be satisfied from
+// this repository.
+func DanglingDeps(graph *FluxGraph) map[KustomizationKey][]KustomizationKey {
+	out := map[KustomizationKey][]KustomizationKey{}
+	for key, node := range graph.Kustomizations {
+		for _, d := range node.DependsOn {
+			if _, ok := graph.Kustomizations[d]; !ok {
+				out[key] = append(out[key], d)
 			}
 		}
-		SortKeys(rest)
-		order = append(order, rest...)
 	}
-
-	return order
+	return out
 }
 
 // Orphans returns kustomizations with no dependents and no dependencies.

@@ -128,3 +128,35 @@ func TestBuildRoots_EmptyGraph(t *testing.T) {
 		t.Fatalf("expected no roots, got %v", got)
 	}
 }
+
+func TestCycleNodes_OnlyCycleMembers(t *testing.T) {
+	// a<->b cycle; c and d are acyclic (d depends on c).
+	g := mkGraph(node("a", "a", "b"), node("b", "b", "a"), node("c", "c"), node("d", "d", "c"))
+	cycle := CycleNodes(g)
+	if !cycle[k("a")] || !cycle[k("b")] {
+		t.Errorf("expected a and b flagged as cycle nodes, got %v", cycle)
+	}
+	if cycle[k("c")] || cycle[k("d")] {
+		t.Errorf("acyclic c/d must not be flagged, got %v", cycle)
+	}
+}
+
+func TestCycleNodes_None(t *testing.T) {
+	g := mkGraph(node("a", "a"), node("b", "b", "a"))
+	if got := CycleNodes(g); len(got) != 0 {
+		t.Fatalf("expected no cycle nodes, got %v", got)
+	}
+}
+
+func TestDanglingDeps_ReferrerOnly(t *testing.T) {
+	// b depends on a (present) and ghost (absent); a is clean.
+	g := mkGraph(node("a", "a"), node("b", "b", "a", "ghost"))
+	dangling := DanglingDeps(g)
+	if _, ok := dangling[k("a")]; ok {
+		t.Errorf("a has no dangling deps, should be absent: %v", dangling)
+	}
+	missing := dangling[k("b")]
+	if len(missing) != 1 || missing[0] != k("ghost") {
+		t.Errorf("expected b -> [ghost], got %v", missing)
+	}
+}
