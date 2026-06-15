@@ -106,6 +106,15 @@ strands the good roots.
     until the dependency is healthy. The graph informs *efficiency* (skip pointless triggers); Flux
     enforces *safety*.
 
+**Acceleration policy is a future seam, deliberately not abstracted yet.** What perform does with a
+FAIL is an *operator policy* that consumes the (durable) evidence — distinct from the evidence
+itself. Today only one policy is real (skip-invalid), so it stays hardcoded inline in
+`FluxBackend.Plan`; abstracting an interface before a second consumer exists would be premature
+(the litmus test — "can you name two real consumers?" — fails today). When `permissive` (accelerate
+all, ignore FAIL) or `strict` (any FAIL → accelerate nothing) become concrete needs, extract a
+`gitops.acceleration.policy` knob. The evidence model (`proof-results.json`) is the durable decision;
+the policy consuming it is where variability belongs and may evolve.
+
 **Open question (gates Increment 3):** is there a real operator scenario that wants "if any root in
 this commit is bad, accelerate *nothing*"? Current position: **no** — post-merge never blocks. If a
 genuine coordinated-rollout case appears, it would be the one reason to reintroduce a post-merge

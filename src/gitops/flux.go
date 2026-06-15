@@ -97,6 +97,14 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	// and mirrors how Flux itself sequences convergence.
 	order := ReconcileOrder(graph)
 
+	// ACCELERATION POLICY (currently hardcoded "skip-invalid"). This inline block
+	// IS the policy that consumes the evidence — the future seam where an operator
+	// knob (gitops.acceleration.policy: permissive | skip-invalid | strict) would
+	// live. It is deliberately NOT abstracted yet: skip-invalid is the only real
+	// consumer today, and extracting an interface before a second policy is real
+	// would be premature. Extract when permissive/strict become concrete needs.
+	// See docs/architecture/gitops-fluxcd-validation.md.
+	//
 	// Skip-invalid, FAIL-CLOSED: accelerate a kustomization ONLY when audition
 	// recorded an explicit non-fail verdict for it. The verdict comes from the
 	// proof-results artifact the operator reviewed — perform does NOT re-validate.
