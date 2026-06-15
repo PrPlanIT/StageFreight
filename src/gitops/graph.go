@@ -190,6 +190,98 @@ func DuplicatePaths(graph *FluxGraph) map[string][]KustomizationKey {
 	return dupes
 }
 
+// BuildRoots returns the unique, normalized, non-empty kustomization paths in
+// the graph — the set of directories to `kustomize build` exactly once. Multiple
+// Flux Kustomizations pointing at the same path collapse to a single root, so
+// shared manifests are not rendered (and re-validated) once per owner.
+// Deterministic: lexically sorted.
+func BuildRoots(graph *FluxGraph) []string {
+	seen := map[string]bool{}
+	var roots []string
+	for _, node := range graph.Kustomizations {
+		if node.Path == "" || seen[node.Path] {
+			continue
+		}
+		seen[node.Path] = true
+		roots = append(roots, node.Path)
+	}
+	sort.Strings(roots)
+	return roots
+}
+
+// ReconcileOrder returns the kustomizations in dependency order: a
+// kustomization's dependencies always appear before it. This is what Flux's own
+// controller honors via spec.dependsOn — reconciling in this order accelerates
+// convergence and makes the reconcile output read top-down instead of randomly.
+//
+// Order is deterministic: ties at the same dependency depth are broken lexically
+// by namespace/name, so identical graphs always produce identical sequences
+// (the property FluxBackend.Plan claimed but a map range could never deliver).
+//
+// DependsOn edges to kustomizations not present in the graph are ignored (Flux
+// tolerates cross-source dependencies). Cycles are broken deterministically: any
+// nodes that cannot be topologically placed are appended in lexical order so
+// reconcile still covers the whole estate rather than silently dropping them.
+func ReconcileOrder(graph *FluxGraph) []KustomizationKey {
+	indeg := make(map[KustomizationKey]int, len(graph.Kustomizations))
+	for key, node := range graph.Kustomizations {
+		n := 0
+		for _, d := range node.DependsOn {
+			if _, ok := graph.Kustomizations[d]; ok {
+				n++
+			}
+		}
+		indeg[key] = n
+	}
+
+	var ready []KustomizationKey
+	for key, n := range indeg {
+		if n == 0 {
+			ready = append(ready, key)
+		}
+	}
+	SortKeys(ready)
+
+	order := make([]KustomizationKey, 0, len(graph.Kustomizations))
+	placed := make(map[KustomizationKey]bool, len(graph.Kustomizations))
+	for len(ready) > 0 {
+		k := ready[0]
+		ready = ready[1:]
+		order = append(order, k)
+		placed[k] = true
+
+		var newlyReady []KustomizationKey
+		for _, dependent := range graph.ReverseDeps[k] {
+			if placed[dependent] {
+				continue
+			}
+			indeg[dependent]--
+			if indeg[dependent] == 0 {
+				newlyReady = append(newlyReady, dependent)
+			}
+		}
+		if len(newlyReady) > 0 {
+			ready = append(ready, newlyReady...)
+			SortKeys(ready)
+		}
+	}
+
+	// Cycle remainder — append anything unplaced in lexical order so coverage
+	// is never silently reduced by a dependency cycle.
+	if len(order) < len(graph.Kustomizations) {
+		var rest []KustomizationKey
+		for key := range graph.Kustomizations {
+			if !placed[key] {
+				rest = append(rest, key)
+			}
+		}
+		SortKeys(rest)
+		order = append(order, rest...)
+	}
+
+	return order
+}
+
 // Orphans returns kustomizations with no dependents and no dependencies.
 func Orphans(graph *FluxGraph) []KustomizationKey {
 	var orphans []KustomizationKey

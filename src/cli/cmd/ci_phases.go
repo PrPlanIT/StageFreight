@@ -145,6 +145,14 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
 	switch mode {
 	case "gitops", "governance":
+		// Reconcile binds to ACCEPTED state — a commit on the default branch, the
+		// desired cluster state the controller converges to. Proposed intent (a
+		// merge request, feature branch, or tag) must not be enacted; audition has
+		// already validated it. Reconcile only when provably on the default branch.
+		if !acceptedState(ciCtx) {
+			renderCISkip("Perform", time.Now(), "reconcile binds to accepted state — not_applicable off the default branch (merge request / feature branch / tag)")
+			return nil
+		}
 		// Reconcile has no build engine to stamp identity — render it here.
 		// (The build path's stamp comes from the engine via HeaderSlim.)
 		renderPhaseIdentity()
@@ -152,6 +160,25 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	default:
 		return buildRunner(ctx, appCfg, ciCtx, opts)
 	}
+}
+
+// acceptedState reports whether the CI context represents accepted desired
+// state — a commit on the default branch — the only state a controller should
+// reconcile. The check is POSITIVE and fails closed: reconcile only when the
+// pipeline is provably on the default branch; everything else (merge request,
+// feature branch, tag, detached HEAD, or any context where the branch can't be
+// confirmed) is treated as not-accepted and skipped, rather than risk enacting
+// off-branch or unmerged state.
+//
+// This deliberately does NOT trust the event string: branch/event population
+// varies by forge (GitLab reports "merge_request_event" and leaves
+// CI_COMMIT_BRANCH empty on MR and tag pipelines; GitHub/Gitea use
+// "pull_request"; Azure uses "PullRequest"). branch == default-branch is the one
+// signal every provider reports consistently, and failing closed is the safe bias.
+func acceptedState(ciCtx *ci.CIContext) bool {
+	branch := strings.TrimSpace(ciCtx.Branch)
+	def := strings.TrimSpace(ciCtx.DefaultBranch)
+	return branch != "" && def != "" && branch == def
 }
 
 // reviewPhaseRunner inspects perform output. Not applicable for gitops/governance.

@@ -122,6 +122,38 @@ var registry = map[string]ToolDef{
 		},
 		Format: "binary",
 	},
+	// kustomize renders Flux build roots offline for the gitops audition gate.
+	// Release tags are prefixed "kustomize/" — %2F is the URL-encoded slash.
+	"kustomize": {
+		Name:        "kustomize",
+		BinaryName:  "kustomize",
+		DefaultVer:  "5.5.0",
+		GitHubOwner: "kubernetes-sigs",
+		GitHubRepo:  "kustomize",
+		DownloadURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/kustomize_v%s_linux_amd64.tar.gz", ver, ver)
+		},
+		ChecksumURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/checksums.txt", ver)
+		},
+		Format: "tar.gz",
+	},
+	// kubeconform schema-validates rendered manifests offline (built-ins + the
+	// datree CRD catalog) for the gitops audition gate.
+	"kubeconform": {
+		Name:        "kubeconform",
+		BinaryName:  "kubeconform",
+		DefaultVer:  "0.6.7",
+		GitHubOwner: "yannh",
+		GitHubRepo:  "kubeconform",
+		DownloadURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/yannh/kubeconform/releases/download/v%s/kubeconform-linux-amd64.tar.gz", ver)
+		},
+		ChecksumURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/yannh/kubeconform/releases/download/v%s/CHECKSUMS", ver)
+		},
+		Format: "tar.gz",
+	},
 }
 
 // LookupTool returns the ToolDef for a named tool.

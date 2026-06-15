@@ -90,10 +90,11 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	// Flux reconcile is idempotent: unchanged kustomizations converge instantly.
 	// Pre-filtering by changed files misses drift from manual changes,
 	// failed previous reconciles, or operator mutations.
-	reconcileSet := make([]KustomizationKey, 0, len(graph.Kustomizations))
-	for _, ks := range graph.Kustomizations {
-		reconcileSet = append(reconcileSet, ks.Key)
-	}
+	//
+	// Order by the dependency graph (deps first) — not map-iteration order, which
+	// is random and ignores spec.dependsOn. Topological order is deterministic
+	// and mirrors how Flux itself sequences convergence.
+	reconcileSet := ReconcileOrder(graph)
 	f.reconcileSet = reconcileSet
 
 	// Build planned actions.

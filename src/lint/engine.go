@@ -19,12 +19,13 @@ import (
 
 // Engine orchestrates lint modules across files.
 type Engine struct {
-	Config            config.LintConfig
-	RootDir           string
-	Modules           []Module
-	Cache             *Cache
-	Verbose           bool
-	ToolchainDesired  map[string]config.ToolPinConfig
+	Config           config.LintConfig
+	RootDir          string
+	Modules          []Module
+	RepoModules      []RepositoryModule
+	Cache            *Cache
+	Verbose          bool
+	ToolchainDesired map[string]config.ToolPinConfig
 
 	CacheHits   atomic.Int64
 	CacheMisses atomic.Int64
@@ -38,24 +39,39 @@ func NewEngine(cfg config.LintConfig, rootDir string, moduleNames []string, skip
 	}
 
 	var modules []Module
+	var repoModules []RepositoryModule
+
+	// enabledByConfig applies the explicit enable/disable override and the
+	// DefaultEnabled fallback shared by file and repository modules.
+	enabledByConfig := func(name string, defaultEnabled bool) bool {
+		mc, hasCfg := cfg.Modules[name]
+		if hasCfg && mc.Enabled != nil {
+			return *mc.Enabled // explicit wins, either direction
+		}
+		return defaultEnabled
+	}
 
 	if len(moduleNames) > 0 {
-		// Explicit module selection
+		// Explicit selection — a name is a file module or a repository module.
 		for _, name := range moduleNames {
 			if skipSet[name] {
 				continue
 			}
-			m, err := Get(name)
+			if m, err := Get(name); err == nil {
+				if err := configureModule(m, cfg, name); err != nil {
+					return nil, err
+				}
+				modules = append(modules, m)
+				continue
+			}
+			rm, err := GetRepository(name)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("lint: unknown module: %s", name)
 			}
-			if err := configureModule(m, cfg, name); err != nil {
-				return nil, err
-			}
-			modules = append(modules, m)
+			repoModules = append(repoModules, rm)
 		}
 	} else {
-		// All default-enabled modules minus skipped
+		// All default-enabled modules minus skipped.
 		for _, name := range All() {
 			if skipSet[name] {
 				continue
@@ -64,26 +80,30 @@ func NewEngine(cfg config.LintConfig, rootDir string, moduleNames []string, skip
 			if err != nil {
 				return nil, err
 			}
-
-			// Check config for explicit enable/disable override
-			mc, hasCfg := cfg.Modules[name]
-			if hasCfg && mc.Enabled != nil {
-				if !*mc.Enabled {
-					continue // explicitly disabled
-				}
-				// explicitly enabled — include regardless of DefaultEnabled
-			} else if !m.DefaultEnabled() {
-				continue // not configured and not default-enabled
+			if !enabledByConfig(name, m.DefaultEnabled()) {
+				continue
 			}
-
 			if err := configureModule(m, cfg, name); err != nil {
 				return nil, err
 			}
 			modules = append(modules, m)
 		}
+		for _, name := range AllRepository() {
+			if skipSet[name] {
+				continue
+			}
+			rm, err := GetRepository(name)
+			if err != nil {
+				return nil, err
+			}
+			if !enabledByConfig(name, rm.DefaultEnabled()) {
+				continue
+			}
+			repoModules = append(repoModules, rm)
+		}
 	}
 
-	if len(modules) == 0 {
+	if len(modules) == 0 && len(repoModules) == 0 {
 		return nil, fmt.Errorf("no lint modules selected")
 	}
 
@@ -92,11 +112,12 @@ func NewEngine(cfg config.LintConfig, rootDir string, moduleNames []string, skip
 	// it via applyToolchainDesired() called from Run().
 
 	return &Engine{
-		Config:  cfg,
-		RootDir: rootDir,
-		Modules: modules,
-		Cache:   cache,
-		Verbose: verbose,
+		Config:      cfg,
+		RootDir:     rootDir,
+		Modules:     modules,
+		RepoModules: repoModules,
+		Cache:       cache,
+		Verbose:     verbose,
 	}, nil
 }
 
@@ -118,10 +139,20 @@ func (e *Engine) Run(ctx context.Context, files []FileInfo) ([]Finding, error) {
 
 // RunWithStats executes all modules and returns findings plus per-module statistics.
 func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding, []ModuleStats, error) {
-	// Propagate toolchain config to modules that need it.
+	// Propagate toolchain config to modules that need it. Use an inline interface
+	// (not ToolchainAwareModule, which embeds Module) so it applies to both
+	// file modules and repository modules.
 	if e.ToolchainDesired != nil {
+		type toolchainAware interface {
+			SetToolchainDesired(map[string]config.ToolPinConfig)
+		}
 		for _, m := range e.Modules {
-			if ta, ok := m.(ToolchainAwareModule); ok {
+			if ta, ok := m.(toolchainAware); ok {
+				ta.SetToolchainDesired(e.ToolchainDesired)
+			}
+		}
+		for _, rm := range e.RepoModules {
+			if ta, ok := rm.(toolchainAware); ok {
 				ta.SetToolchainDesired(e.ToolchainDesired)
 			}
 		}
@@ -260,6 +291,36 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 
 	wg.Wait()
 
+	// Repository-scoped modules: one invocation over the repo root each, run
+	// SERIALLY after the per-file pass. This is an intentional execution contract
+	// for now — repo modules are few (flux-validate today) and the serial,
+	// after-files ordering keeps the model simple. If a slow repo module lands
+	// (e.g. a migrated OSV taking 30–60s), parallelize this loop and/or overlap it
+	// with the file pass; nothing here depends on the serial ordering.
+	//
+	// Not file-cached — their result depends on repository content, not a single
+	// file's bytes; repo-scoped caching is a deliberate follow-up rather than a
+	// misattributed file key. Safe to touch the shared slices directly here: all
+	// per-file goroutines have joined.
+	for _, rm := range e.RepoModules {
+		ms := ModuleStats{Name: rm.Name(), Files: 1}
+		results, rErr := rm.CheckRepository(ctx, e.RootDir)
+		if rErr != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", rm.Name(), rErr))
+		}
+		for _, r := range results {
+			ms.Findings++
+			switch r.Severity {
+			case SeverityCritical:
+				ms.Critical++
+			case SeverityWarning:
+				ms.Warnings++
+			}
+		}
+		findings = append(findings, results...)
+		modStats = append(modStats, ms)
+	}
+
 	if len(errs) > 0 {
 		return findings, modStats, fmt.Errorf("%d module errors (first: %w)", len(errs), errs[0])
 	}
@@ -317,9 +378,12 @@ func (e *Engine) CollectFiles() ([]FileInfo, error) {
 
 // ModuleNames returns the names of all active modules in this engine.
 func (e *Engine) ModuleNames() []string {
-	names := make([]string, len(e.Modules))
-	for i, m := range e.Modules {
-		names[i] = m.Name()
+	names := make([]string, 0, len(e.Modules)+len(e.RepoModules))
+	for _, m := range e.Modules {
+		names = append(names, m.Name())
+	}
+	for _, rm := range e.RepoModules {
+		names = append(names, rm.Name())
 	}
 	return names
 }
