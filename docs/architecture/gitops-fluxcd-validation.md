@@ -93,6 +93,12 @@ strands the good roots.
 - audition validates; perform reads the verdict map and **accelerates the non-`Fail` roots in
   `ReconcileOrder`, declines the `Fail` roots** ("skipped (invalid): … — Flux will reconcile on
   poll").
+- **Fail-closed on unvalidated state.** perform accelerates a root ONLY when it
+  has an explicit non-fail verdict. A *missing* verdict, an unreadable/absent
+  artifact, or a whole-run `Skipped` (a tool was unavailable, so nothing was
+  structurally validated) all decline — never silently "go ahead". A pass verdict
+  produced under a skipped run is not trusted. StageFreight never accelerates
+  state it could not verify; Flux still reconciles declined roots on its poll.
 - **Always per-Kustomization skip-invalid. Never all-or-nothing. Never override Git.**
   - *Never all-or-nothing*, because withholding a valid root is downtime for a minor unrelated
     failure, and imposing atomicity Flux does not natively provide is actor #2 drift.

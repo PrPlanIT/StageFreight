@@ -82,7 +82,11 @@ func runLint(cmd *cobra.Command, args []string) error {
 	engine.ToolchainDesired = cfg.Toolchains.Desired
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "modules: %v\n", engine.ModuleNames())
+		names := make([]string, len(engine.Modules))
+		for i, m := range engine.Modules {
+			names[i] = m.Name()
+		}
+		fmt.Fprintf(os.Stderr, "modules: %v\n", names)
 	}
 
 	// Collect all files

@@ -3,8 +3,6 @@
 package modules
 
 import (
-	// Register the flux-validate repository module.
-	_ "github.com/PrPlanIT/StageFreight/src/lint/modules/fluxvalidate"
 	// Register the freshness sub-package module.
 	_ "github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	// Register the osv sub-package module.

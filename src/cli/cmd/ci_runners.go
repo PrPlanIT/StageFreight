@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/auditionproof"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	_ "github.com/PrPlanIT/StageFreight/src/build/contributors" // register build-strategy contributors
 	_ "github.com/PrPlanIT/StageFreight/src/build/docker"       // register the crucible contributor
@@ -23,6 +24,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/dependency"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/gitops"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -1438,13 +1440,7 @@ func sanitizeBranchPrefix(raw string) string {
 }
 
 // ── validate runner ─────────────────────────────────────────────────────────
-func validateRunner(_ context.Context, appCfg *config.Config, ciCtx *ci.CIContext, _ ci.RunOptions) error {
-	start := time.Now()
-	if strings.TrimSpace(string(appCfg.Lint.Level)) == "" {
-		renderCISkip("Validate", start, "no validation configured")
-		return nil
-	}
-
+func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, _ ci.RunOptions) error {
 	rootDir := resolveWorkspace(ciCtx)
 
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
@@ -1454,8 +1450,130 @@ func validateRunner(_ context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 		return fmt.Errorf("validate subsystem: %w", err)
 	}
 
-	// Thin shim: delegate to existing lint command.
-	return runLint(&cobra.Command{}, []string{})
+	// GitOps manifest validation is the audition readiness proof for a Flux repo.
+	// It runs here directly — NOT as a lint module — for two reasons: its verdict
+	// is a phase artifact that perform consumes (skip-invalid reconcile), so there
+	// must be a single producer of a single verdict; and it must run independently
+	// of whether generic file-linting is configured. Content-gated (inert with no
+	// Flux resources).
+	valErr := runFluxValidation(ctx, appCfg, rootDir)
+
+	// Generic file-lint stays opt-in via lint.level.
+	var lintErr error
+	if strings.TrimSpace(string(appCfg.Lint.Level)) != "" {
+		lintErr = runLint(&cobra.Command{}, []string{})
+	}
+
+	if valErr != nil {
+		return valErr
+	}
+	return lintErr
+}
+
+// runFluxValidation validates the repository's Flux manifests, persists the
+// per-Kustomization verdicts as audition proof results (the single source of
+// truth perform later consumes), and renders the outcome. Advisory: a failing
+// verdict returns an error so the audition job surfaces it (allow_failure keeps
+// the pipeline moving).
+func runFluxValidation(ctx context.Context, appCfg *config.Config, rootDir string) error {
+	start := time.Now()
+	verdicts, meta, err := gitops.ValidateManifests(ctx, rootDir, appCfg.Toolchains.Desired)
+	if err != nil {
+		return fmt.Errorf("gitops validation: %w", err)
+	}
+	if len(verdicts) == 0 {
+		return nil // no Flux content — inert
+	}
+
+	if werr := writeFluxProofResults(rootDir, verdicts, meta); werr != nil {
+		fmt.Fprintf(os.Stderr, "warning: proof-results write failed: %v\n", werr)
+	}
+	renderFluxValidation(start, verdicts, meta)
+
+	failed := 0
+	for _, v := range verdicts {
+		if v.Status == gitops.Fail {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("gitops validation: %d kustomization(s) failed validation", failed)
+	}
+	return nil
+}
+
+// writeFluxProofResults maps gitops verdicts into the audition proof-results
+// artifact, preserving any other proofs already recorded for this run.
+func writeFluxProofResults(rootDir string, verdicts map[gitops.KustomizationKey]gitops.Verdict, meta *gitops.ValidationMeta) error {
+	fv := &auditionproof.FluxValidate{
+		Roots:    meta.Roots,
+		Skipped:  meta.Skipped,
+		Verdicts: make(map[string]auditionproof.Verdict, len(verdicts)),
+		NoSchema: meta.NoSchema,
+	}
+	for key, v := range verdicts {
+		fv.Verdicts[key.String()] = auditionproof.Verdict{Status: v.Status.String(), Reasons: v.Reasons}
+	}
+	r, err := auditionproof.Read(rootDir)
+	if err != nil {
+		r = &auditionproof.Results{}
+	}
+	r.FluxValidate = fv
+	return auditionproof.Write(rootDir, r)
+}
+
+func renderFluxValidation(start time.Time, verdicts map[gitops.KustomizationKey]gitops.Verdict, meta *gitops.ValidationMeta) {
+	color := output.UseColor()
+	sec := output.NewSection(os.Stdout, "GitOps Validation", time.Since(start), color)
+
+	if meta.Skipped != "" {
+		sec.Row("%-14s%s", "status", "skipped")
+		sec.Row("%-14s%s", "reason", meta.Skipped)
+		sec.Close()
+		return
+	}
+
+	validated := 0
+	for _, n := range meta.Validated {
+		validated += n
+	}
+	failed := 0
+	for _, v := range verdicts {
+		if v.Status == gitops.Fail {
+			failed++
+		}
+	}
+
+	sec.Row("%-14s%d roots   %d kustomizations   %d validated resources", "scope", meta.Roots, len(verdicts), validated)
+	if meta.KustomizeVer != "" {
+		sec.Row("%-14skustomize %s   kubeconform %s", "tools", meta.KustomizeVer, meta.KubeconformVer)
+	}
+
+	keys := make([]gitops.KustomizationKey, 0, len(verdicts))
+	for kk := range verdicts {
+		keys = append(keys, kk)
+	}
+	gitops.SortKeys(keys)
+	for _, kk := range keys {
+		v := verdicts[kk]
+		if v.Status != gitops.Fail {
+			continue
+		}
+		for _, reason := range v.Reasons {
+			sec.Row("%-14s%s: %s", "FAIL", kk.String(), reason)
+		}
+	}
+	for _, kind := range gitops.SortedKinds(meta.NoSchema) {
+		sec.Row("%-14s%s (%d) — no schema", "coverage", kind, meta.NoSchema[kind])
+	}
+
+	sec.Separator()
+	if failed > 0 {
+		sec.Row("%-14s%d kustomization(s) failed", "result", failed)
+	} else {
+		sec.Row("%-14sall %d kustomization(s) valid", "result", len(verdicts))
+	}
+	sec.Close()
 }
 
 // ── reconcile runner ────────────────────────────────────────────────────────

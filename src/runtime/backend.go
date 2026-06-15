@@ -57,7 +57,11 @@ type LifecyclePlan struct {
 	Mode    string
 	Backend string
 	Actions []PlannedAction
-	DryRun  bool
+	// Declined are units the backend deliberately did NOT act on (e.g. Flux
+	// kustomizations that failed audition validation under skip-invalid policy).
+	// They are reported, not executed — Execute never touches them.
+	Declined []PlannedAction
+	DryRun   bool
 }
 
 // PlannedAction describes a single action to be executed.

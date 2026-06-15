@@ -108,7 +108,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 func renderGitopsPlan(w *os.File, plan *runtime.LifecyclePlan, result *runtime.LifecycleResult, dryRun bool, elapsed time.Duration, color bool) {
 	sec := output.NewSection(w, "Reconcile", elapsed, color)
 
-	if plan == nil || len(plan.Actions) == 0 {
+	if plan == nil || (len(plan.Actions) == 0 && len(plan.Declined) == 0) {
 		sec.Row("No affected kustomizations — nothing to reconcile.")
 		sec.Close()
 		return
@@ -146,11 +146,22 @@ func renderGitopsPlan(w *os.File, plan *runtime.LifecyclePlan, result *runtime.L
 		}
 	}
 
+	// Declined — failed audition validation; not accelerated (skip-invalid).
+	for _, d := range plan.Declined {
+		output.RowStatus(sec, fmt.Sprintf("declined %s", d.Name), "", "warning", color)
+		if d.Description != "" {
+			fmt.Fprintf(w, "    │   %s\n", d.Description)
+		}
+	}
+
 	sec.Separator()
 	if dryRun {
 		sec.Row("%d actions planned (dry-run)", len(plan.Actions))
 	} else {
 		sec.Row("%d/%d succeeded", succeeded, len(plan.Actions))
+	}
+	if len(plan.Declined) > 0 {
+		sec.Row("%d declined — failed validation; Flux will reconcile on poll", len(plan.Declined))
 	}
 	sec.Close()
 }

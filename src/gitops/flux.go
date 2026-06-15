@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/auditionproof"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
@@ -94,24 +95,88 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	// Order by the dependency graph (deps first) — not map-iteration order, which
 	// is random and ignores spec.dependsOn. Topological order is deterministic
 	// and mirrors how Flux itself sequences convergence.
-	reconcileSet := ReconcileOrder(graph)
+	order := ReconcileOrder(graph)
+
+	// Skip-invalid, FAIL-CLOSED: accelerate a kustomization ONLY when audition
+	// recorded an explicit non-fail verdict for it. The verdict comes from the
+	// proof-results artifact the operator reviewed — perform does NOT re-validate.
+	// A failed verdict is declined with its reason. Anything UNVALIDATED is ALSO
+	// declined — no artifact, validation skipped (tool unavailable), or simply no
+	// verdict for this root: StageFreight never accelerates state it could not
+	// verify. A missing verdict must not become "go ahead". Flux still reconciles
+	// every declined root on its own poll; declining a root never withholds a
+	// validated one (no all-or-nothing).
+	validated, failReasons, unavailable := reconcileVerdicts(rctx.RepoRoot)
+
+	reconcileSet := make([]KustomizationKey, 0, len(order))
+	actions := make([]runtime.PlannedAction, 0, len(order))
+	var declined []runtime.PlannedAction
+	for _, k := range order {
+		ks := k.String()
+		var reason string
+		switch {
+		case unavailable != "":
+			reason = "validation unavailable (" + unavailable + ") — not accelerated"
+		case failReasons[ks] != "":
+			reason = failReasons[ks] + " — declined"
+		case validated[ks]:
+			reconcileSet = append(reconcileSet, k)
+			actions = append(actions, runtime.PlannedAction{
+				Name:        ks,
+				Description: fmt.Sprintf("reconcile source + kustomization %s", k),
+				Order:       len(actions) + 1,
+			})
+			continue
+		default:
+			reason = "not validated — not accelerated"
+		}
+		declined = append(declined, runtime.PlannedAction{
+			Name:        ks,
+			Description: reason + "; Flux will reconcile on poll",
+			Action:      "declined",
+		})
+	}
 	f.reconcileSet = reconcileSet
 
-	// Build planned actions.
-	actions := make([]runtime.PlannedAction, len(reconcileSet))
-	for i, k := range reconcileSet {
-		actions[i] = runtime.PlannedAction{
-			Name:        k.String(),
-			Description: fmt.Sprintf("reconcile source + kustomization %s", k),
-			Order:       i + 1,
+	return &runtime.LifecyclePlan{
+		Mode:     "gitops",
+		Backend:  "flux",
+		Actions:  actions,
+		Declined: declined,
+	}, nil
+}
+
+// reconcileVerdicts reads audition's proof results and classifies kustomizations
+// for skip-invalid reconcile, FAIL-CLOSED. It distinguishes the three states that
+// matter: validated-and-passed (safe to accelerate), validated-and-failed
+// (declined with reason), and NOT VALIDATED. The last is reported via a non-empty
+// `unavailable` when validation did not run for the repository at all (no
+// artifact, unreadable, or validation skipped because a tool was missing) — in
+// which case nothing should be accelerated. A per-root absence (a key not in the
+// returned `validated`/`failReasons`) is likewise treated as not-validated by the
+// caller. A pass verdict produced under a skipped run is NOT trusted, because
+// `Skipped` short-circuits before any per-root verdict is consulted.
+func reconcileVerdicts(rootDir string) (validated map[string]bool, failReasons map[string]string, unavailable string) {
+	results, err := auditionproof.Read(rootDir)
+	if err != nil {
+		return nil, nil, "proof results unreadable"
+	}
+	if results.FluxValidate == nil {
+		return nil, nil, "no validation evidence"
+	}
+	if results.FluxValidate.Skipped != "" {
+		return nil, nil, results.FluxValidate.Skipped
+	}
+	validated = map[string]bool{}
+	failReasons = map[string]string{}
+	for key, v := range results.FluxValidate.Verdicts {
+		if v.Status == "fail" {
+			failReasons[key] = strings.Join(v.Reasons, "; ")
+		} else {
+			validated[key] = true
 		}
 	}
-
-	return &runtime.LifecyclePlan{
-		Mode:    "gitops",
-		Backend: "flux",
-		Actions: actions,
-	}, nil
+	return validated, failReasons, ""
 }
 
 // Execute runs flux reconcile on the planned set.
