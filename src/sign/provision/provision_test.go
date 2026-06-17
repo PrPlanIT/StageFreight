@@ -97,6 +97,53 @@ func TestEnsureIdentity_FatalOnCorruptRecord(t *testing.T) {
 	}
 }
 
+func TestEnsureIdentity_ReTightensKeyPerms(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := EnsureIdentity(context.Background(), dir, &fakeGen{}, "t0"); err != nil {
+		t.Fatal(err)
+	}
+	kp := filepath.Join(dir, keyFile)
+	if err := os.Chmod(kp, 0o644); err != nil { // simulate a perms drift (backup/restore)
+		t.Fatal(err)
+	}
+	if _, err := EnsureIdentity(context.Background(), dir, &fakeGen{}, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(kp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("private key not re-tightened to 0600 on reuse: %o", fi.Mode().Perm())
+	}
+}
+
+func TestGuardStateDir(t *testing.T) {
+	repo := t.TempDir()
+	if err := GuardStateDir(filepath.Join(repo, "sub", "signing"), repo); err == nil {
+		t.Error("a state dir inside the repo must be refused (key could be committed/baked/published)")
+	}
+	if err := GuardStateDir(repo, repo); err == nil {
+		t.Error("state dir == repo root must be refused")
+	}
+	if err := GuardStateDir(t.TempDir(), repo); err != nil {
+		t.Errorf("a state dir outside the repo must be allowed: %v", err)
+	}
+}
+
+func TestIsPrivateKeyPath(t *testing.T) {
+	for _, p := range []string{"x/cosign.key", "identity.json", "/state/foo.key"} {
+		if !IsPrivateKeyPath(p) {
+			t.Errorf("%q should be flagged as key material", p)
+		}
+	}
+	for _, p := range []string{"SHA256SUMS.sig", "cosign.pub", "x/archive.tar.gz"} {
+		if IsPrivateKeyPath(p) {
+			t.Errorf("%q must NOT be flagged", p)
+		}
+	}
+}
+
 func TestEnsureIdentity_FatalOnOrphanKeyMaterial(t *testing.T) {
 	dir := t.TempDir()
 	// Key material with no identity record (e.g. a half-restored backup) — refuse.

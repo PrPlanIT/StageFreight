@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -572,6 +573,15 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	allAssets := append(manifestAssets, req.Assets...)
 	for _, assetPath := range allAssets {
 		assetName := filepath.Base(assetPath)
+
+		// Defensive boundary: NEVER publish private signing-key material, no matter
+		// how it reached the asset list. Structurally only public signatures are
+		// added; this guards against a future regression at the external edge.
+		if provision.IsPrivateKeyPath(assetPath) {
+			fmt.Fprintf(os.Stderr, "refusing to upload signing key material as a release asset: %s\n", assetName)
+			report.Assets = append(report.Assets, actionResult{Name: assetName, Err: fmt.Errorf("blocked: private key material")})
+			continue
+		}
 
 		if err := forgeClient.UploadAsset(ctx, rel.ID, forge.Asset{
 			Name:     assetName,

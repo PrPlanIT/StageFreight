@@ -30,6 +30,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -84,6 +85,9 @@ func EnsureIdentity(ctx context.Context, stateDir string, gen KeyGenerator, now 
 	if err := gen.GenerateKeyPair(ctx, stateDir, keyFile, pubFile); err != nil {
 		return nil, fmt.Errorf("provisioning Tier-0 signing key: %w", err)
 	}
+	if err := secureKey(filepath.Join(stateDir, keyFile)); err != nil {
+		return nil, err
+	}
 	fp, err := fingerprint(filepath.Join(stateDir, pubFile))
 	if err != nil {
 		return nil, err
@@ -129,6 +133,11 @@ func loadAndValidate(stateDir string) (*Identity, error) {
 	if !keyOK || !pubOK {
 		return nil, fmt.Errorf("signing identity %s is partial (private key present=%v, public key present=%v) — refusing to regenerate; restore the missing material or reset deliberately", id.Fingerprint, keyOK, pubOK)
 	}
+	// Re-tighten the private key on every reuse — defends against a perms drift
+	// (a backup/restore or volume remount that loosened it).
+	if err := secureKey(filepath.Join(stateDir, id.KeyFile)); err != nil {
+		return nil, err
+	}
 
 	fp, err := fingerprint(filepath.Join(stateDir, id.PubFile))
 	if err != nil {
@@ -170,4 +179,47 @@ func fingerprint(pubPath string) (string, error) {
 func exists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// secureKey enforces owner-only (0600) permissions on a persisted private key —
+// the file is the protection boundary for a Tier-0 (empty-password) key, so it must
+// never be group/world readable.
+func secureKey(keyPath string) error {
+	if err := os.Chmod(keyPath, 0o600); err != nil {
+		return fmt.Errorf("securing private key permissions (%s): %w", keyPath, err)
+	}
+	return nil
+}
+
+// GuardStateDir refuses a signing state dir that lives inside the repository / build
+// context (repoRoot). Persisting a private signing key in the source tree risks it
+// being committed, baked into a docker image layer, or swept into a published
+// artifact — the key MUST live on a durable volume outside the repo. Callers invoke
+// this before provisioning.
+func GuardStateDir(stateDir, repoRoot string) error {
+	sd, err := filepath.Abs(stateDir)
+	if err != nil {
+		return fmt.Errorf("resolving signing state dir: %w", err)
+	}
+	rr, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return fmt.Errorf("resolving repo root: %w", err)
+	}
+	rel, err := filepath.Rel(rr, sd)
+	if err != nil {
+		return nil // different volumes / unrelatable → genuinely outside, fine
+	}
+	if rel == "." || !strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("signing state dir %q is inside the repository (%q) — refusing to persist a private signing key in the source tree; set signing.state_dir to a durable path outside the repo", sd, rr)
+	}
+	return nil
+}
+
+// IsPrivateKeyPath reports whether path looks like signing key material — a
+// defensive tripwire so a private key (or the identity record) is never accidentally
+// uploaded/published as an artifact. Belt-and-suspenders: structurally, only public
+// signatures/anchors are ever added to asset lists, but this guards future mistakes.
+func IsPrivateKeyPath(path string) bool {
+	base := filepath.Base(path)
+	return base == keyFile || base == identityFile || strings.HasSuffix(base, ".key")
 }

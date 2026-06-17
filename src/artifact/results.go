@@ -123,6 +123,7 @@ type PushOutcome struct {
 // phase's job); recording them now is pure serialization-of-facts.
 type TrustEvidence struct {
 	TrustClass       string `json:"trust_class,omitempty"`       // key | oidc | kms | hardware
+	Tier             string `json:"tier,omitempty"`              // assurance tier, e.g. "tier0-software" (auto-provisioned); empty = operator-supplied
 	PhysicalPresence bool   `json:"physical_presence,omitempty"` // signer demonstrated physical presence
 	NonExportable    bool   `json:"non_exportable,omitempty"`    // signing key was hardware-bound / non-exportable
 	Transparency     bool   `json:"transparency,omitempty"`      // recorded in a transparency log
