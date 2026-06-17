@@ -292,7 +292,7 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 	// source commit was itself empty; a non-empty source replaying to empty was
 	// already rejected by the path-integrity guard above.
 	now := time.Now()
-	_, err = wt.Commit(c.Message, &git.CommitOptions{
+	newHash, err := wt.Commit(c.Message, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  c.Author.Name,
 			Email: c.Author.Email,
@@ -309,12 +309,38 @@ func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *ob
 		return fmt.Errorf("creating replayed commit: %w", err)
 	}
 
+	// Change-set equivalence gate — the authoritative tree-identity check, beyond
+	// the path-set guard above. The delta the replayed commit introduces over its
+	// base (diff(baseTree, replayedTree)) MUST equal the source commit's delta
+	// entry-for-entry: operation kind, old/new path, blob OID, and file mode. Both
+	// deltas share the same base tree, so identical structured change-sets prove the
+	// resulting trees are bit-identical — collapsing blob-content, mode, exec-bit,
+	// symlink, rename, and subtree-composition corruption into one invariant that
+	// path-set equivalence alone cannot see. Authoritative and publish-blocking: on
+	// mismatch the caller (Replay loop) hard-resets to originalHEAD, so a
+	// non-equivalent replay can never become a commit that is pushed.
+	if !sourceEmpty {
+		replayed, derr := replayedDelta(repo, newHash)
+		if derr != nil {
+			return fmt.Errorf("computing replayed delta for verification: %w", derr)
+		}
+		if !equalChangeSets(changes, replayed) {
+			return &ErrReplayCorruption{
+				Commit:   c.Hash.String()[:8],
+				Expected: changeSignatures(changes),
+				Actual:   changeSignatures(replayed),
+			}
+		}
+	}
+
 	return nil
 }
 
-// ErrReplayCorruption signals that a replayed commit's staged path-set did not
-// match the source commit's change path-set — a structural corruption (e.g. nested
-// files written to the repo root by basename). It is never committed or pushed.
+// ErrReplayCorruption signals that a replayed commit's delta did not match the
+// source commit's delta — a structural corruption. Raised by both the pre-commit
+// path-set guard (e.g. nested files written to the repo root by basename) and the
+// post-commit change-set equivalence gate (blob/mode/op divergence at preserved
+// paths). Expected/Actual hold the source vs replayed signatures. Never pushed.
 type ErrReplayCorruption struct {
 	Commit   string
 	Expected []string
@@ -322,8 +348,84 @@ type ErrReplayCorruption struct {
 }
 
 func (e *ErrReplayCorruption) Error() string {
-	return fmt.Sprintf("replay corruption in commit %s: staged paths %v != source change paths %v",
+	return fmt.Sprintf("replay corruption in commit %s: replayed delta %v != source delta %v",
 		e.Commit, e.Actual, e.Expected)
+}
+
+// replayedDelta returns the change-set a replayed commit introduces over its
+// parent — diff(baseTree, replayedTree). Compared to the source commit's delta,
+// equality (same base) proves the resulting trees are identical.
+func replayedDelta(repo *git.Repository, commitHash plumbing.Hash) (object.Changes, error) {
+	c, err := repo.CommitObject(commitHash)
+	if err != nil {
+		return nil, fmt.Errorf("loading replayed commit: %w", err)
+	}
+	tree, err := c.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("loading replayed tree: %w", err)
+	}
+	if c.NumParents() == 0 {
+		return (&object.Tree{}).Diff(tree)
+	}
+	parent, err := c.Parent(0)
+	if err != nil {
+		return nil, fmt.Errorf("loading replay base commit: %w", err)
+	}
+	baseTree, err := parent.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("loading replay base tree: %w", err)
+	}
+	return baseTree.Diff(tree)
+}
+
+// changeSignature renders one change as a structured, object-layer identity:
+// operation kind, old path, new path, blob OIDs, and file modes — NOT patch text.
+// Change-sets with equal signature multisets describe identical tree deltas.
+func changeSignature(ch *object.Change) string {
+	action, _ := ch.Action()
+	return fmt.Sprintf("%s|%s->%s|%s->%s|%s->%s",
+		action,
+		ch.From.Name, ch.To.Name,
+		ch.From.TreeEntry.Hash, ch.To.TreeEntry.Hash,
+		ch.From.TreeEntry.Mode, ch.To.TreeEntry.Mode,
+	)
+}
+
+// equalChangeSets reports whether two change-sets are identical as multisets of
+// structured change signatures: same operations, paths, blob OIDs, and modes —
+// no extra, no missing.
+func equalChangeSets(a, b object.Changes) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, ch := range a {
+		counts[changeSignature(ch)]++
+	}
+	for _, ch := range b {
+		sig := changeSignature(ch)
+		counts[sig]--
+		if counts[sig] < 0 {
+			return false
+		}
+	}
+	for _, n := range counts {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// changeSignatures returns the sorted structured signatures of a change-set, for
+// corruption diagnostics.
+func changeSignatures(changes object.Changes) []string {
+	out := make([]string, 0, len(changes))
+	for _, ch := range changes {
+		out = append(out, changeSignature(ch))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // changePathSet is the set of full repo-relative paths a commit's diff touches,
