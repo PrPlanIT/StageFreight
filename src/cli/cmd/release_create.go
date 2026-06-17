@@ -441,6 +441,15 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			manifestAssets[i] = a.AssetPath
 		}
 
+		// Detached blob signatures (e.g. SHA256SUMS.sig) — manifest-sourced from the
+		// blob_signature outcomes — upload as release assets so consumers can verify.
+		// They are NOT added to the Downloads table (no platform/size/checksum); the
+		// Verification section presents them. Without this, a produced signature is
+		// stranded in DistDir and never reaches the release.
+		for _, s := range artifact.SuccessfulBlobSignatureAssets(results) {
+			manifestAssets = append(manifestAssets, s.Path)
+		}
+
 	case errors.Is(outputsErr, artifact.ErrOutputsManifestNotFound) ||
 		errors.Is(resultsErr, artifact.ErrResultsManifestNotFound):
 		// No v2 truth artifacts — fallback to config targets for image rows

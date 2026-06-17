@@ -43,6 +43,44 @@ func SuccessfulArchiveAssets(views []ArchiveExecutionView) []ResolvedArchiveAsse
 	return out
 }
 
+// ResolvedSignatureAsset is a successfully-produced detached signature (e.g.
+// SHA256SUMS.sig) ready for distribution. Manifest-sourced: ArtifactID + Path come
+// from the results manifest's blob_signature outcomes — never a filesystem glob.
+type ResolvedSignatureAsset struct {
+	ArtifactID ArtifactID
+	Path       string // the detached signature (.sig) path
+	BlobPath   string // the signed blob it covers (e.g. SHA256SUMS)
+	TrustClass string // resolved trust class that signed it (display/provenance)
+}
+
+// SuccessfulBlobSignatureAssets extracts the successful detached blob signatures
+// from a results manifest, preserving order. Pure + manifest-sourced — same
+// non-globbing invariant as SuccessfulArchiveAssets; the .sig path is recorded by
+// the signer, never reconstructed from a name.
+func SuccessfulBlobSignatureAssets(results *ResultsManifest) []ResolvedSignatureAsset {
+	var out []ResolvedSignatureAsset
+	if results == nil {
+		return out
+	}
+	for _, r := range results.Results {
+		for _, o := range r.Outcomes {
+			if o.Type != OutcomeTypeBlobSignature || o.BlobSignature == nil {
+				continue
+			}
+			if o.BlobSignature.Status != OutcomeSuccess || o.BlobSignature.SignaturePath == "" {
+				continue
+			}
+			out = append(out, ResolvedSignatureAsset{
+				ArtifactID: r.ArtifactID,
+				Path:       o.BlobSignature.SignaturePath,
+				BlobPath:   o.BlobSignature.BlobPath,
+				TrustClass: o.BlobSignature.TrustClass,
+			})
+		}
+	}
+	return out
+}
+
 // ResolveSuccessfulArchiveAssets reads the v2 manifests and returns the archives
 // that built successfully. This is the shared archive-resolution entry point for
 // distribution backends that don't already hold the views.

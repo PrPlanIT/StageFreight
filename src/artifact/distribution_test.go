@@ -27,6 +27,40 @@ func TestSuccessfulArchiveAssets_FiltersAndPreservesOrder(t *testing.T) {
 	}
 }
 
+func TestSuccessfulBlobSignatureAssets_FiltersSuccessOnly(t *testing.T) {
+	results := &ResultsManifest{
+		IntentChecksum: "abc",
+		Results: []Result{
+			{ArtifactID: "checksums:SHA256SUMS", ArtifactName: "SHA256SUMS", Kind: "checksums",
+				Outcomes: []Outcome{{
+					Type: OutcomeTypeBlobSignature,
+					BlobSignature: &BlobSignatureOutcome{
+						Status: OutcomeSuccess, Kind: "cosign",
+						BlobPath: "dist/SHA256SUMS", SignaturePath: "dist/SHA256SUMS.sig",
+						TrustEvidence: TrustEvidence{TrustClass: "key"},
+					},
+				}}},
+			{ArtifactID: "checksums:OTHER", ArtifactName: "OTHER", Kind: "checksums",
+				Outcomes: []Outcome{{
+					Type:          OutcomeTypeBlobSignature,
+					BlobSignature: &BlobSignatureOutcome{Status: OutcomeFailed, Error: "boom"},
+				}}},
+			{ArtifactID: "archive:x", ArtifactName: "x", Kind: "archive",
+				Outcomes: []Outcome{{Type: OutcomeTypeArchive, Archive: &ArchiveOutcome{Status: OutcomeSuccess, SHA256: "s", Path: "dist/x.tar.gz"}}}},
+		},
+	}
+	got := SuccessfulBlobSignatureAssets(results)
+	if len(got) != 1 {
+		t.Fatalf("want 1 successful signature (failed + non-signature excluded), got %d: %+v", len(got), got)
+	}
+	if got[0].Path != "dist/SHA256SUMS.sig" || got[0].TrustClass != "key" || got[0].ArtifactID != "checksums:SHA256SUMS" {
+		t.Errorf("field mapping wrong: %+v", got[0])
+	}
+	if SuccessfulBlobSignatureAssets(nil) != nil {
+		t.Errorf("nil manifest must yield nil")
+	}
+}
+
 // TestResolveSuccessfulArchiveAssets_ManifestSourced is the non-negotiable
 // invariant for the shared archive-resolution helper: assets derive SOLELY from
 // the manifests. A stray archive on disk that is NOT in the manifests must never
