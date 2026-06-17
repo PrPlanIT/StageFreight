@@ -1,0 +1,114 @@
+package provision
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// fakeGen writes deterministic key material so the continuity state machine can be
+// exercised without a real cosign.
+type fakeGen struct {
+	calls int
+	pub   string // pub bytes to write (varies per call when set)
+}
+
+func (f *fakeGen) GenerateKeyPair(_ context.Context, dir, keyFile, pubFile string) error {
+	f.calls++
+	pub := "PUBKEY-A"
+	if f.pub != "" {
+		pub = f.pub
+	}
+	if err := os.WriteFile(filepath.Join(dir, keyFile), []byte("PRIVKEY"), 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, pubFile), []byte(pub), 0o644)
+}
+
+func TestEnsureIdentity_ProvisionsOnceThenReuses(t *testing.T) {
+	dir := t.TempDir()
+	gen := &fakeGen{}
+
+	id1, err := EnsureIdentity(context.Background(), dir, gen, "2026-06-17T00:00:00Z")
+	if err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if id1.Tier != TierSoftware || !id1.AutoProvisioned || id1.Fingerprint == "" {
+		t.Fatalf("unexpected identity: %+v", id1)
+	}
+
+	// Second call with a DIFFERENT timestamp must reuse — not regenerate.
+	id2, err := EnsureIdentity(context.Background(), dir, gen, "2099-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("reuse: %v", err)
+	}
+	if gen.calls != 1 {
+		t.Errorf("identity regenerated (calls=%d) — continuity broken", gen.calls)
+	}
+	if id2.Fingerprint != id1.Fingerprint || id2.CreatedAt != id1.CreatedAt {
+		t.Errorf("identity changed across runs: %+v vs %+v", id2, id1)
+	}
+}
+
+func TestEnsureIdentity_FatalOnFingerprintDrift(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := EnsureIdentity(context.Background(), dir, &fakeGen{}, "t0"); err != nil {
+		t.Fatal(err)
+	}
+	// Tamper the public key so its fingerprint no longer matches the record.
+	if err := os.WriteFile(filepath.Join(dir, pubFile), []byte("PUBKEY-TAMPERED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := EnsureIdentity(context.Background(), dir, &fakeGen{}, "t1")
+	if err == nil || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("expected fatal drift error, got: %v", err)
+	}
+}
+
+func TestEnsureIdentity_FatalOnPartialState(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := EnsureIdentity(context.Background(), dir, &fakeGen{}, "t0"); err != nil {
+		t.Fatal(err)
+	}
+	// Lose the private key — must NOT silently re-mint a new identity.
+	if err := os.Remove(filepath.Join(dir, keyFile)); err != nil {
+		t.Fatal(err)
+	}
+	gen := &fakeGen{}
+	_, err := EnsureIdentity(context.Background(), dir, gen, "t1")
+	if err == nil || !strings.Contains(err.Error(), "partial") {
+		t.Fatalf("expected fatal partial-state error, got: %v", err)
+	}
+	if gen.calls != 0 {
+		t.Errorf("regenerated over partial state (calls=%d)", gen.calls)
+	}
+}
+
+func TestEnsureIdentity_FatalOnCorruptRecord(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, identityFile), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := EnsureIdentity(context.Background(), dir, &fakeGen{}, "t0")
+	if err == nil || !strings.Contains(err.Error(), "corrupt") {
+		t.Fatalf("expected fatal corrupt-record error, got: %v", err)
+	}
+}
+
+func TestEnsureIdentity_FatalOnOrphanKeyMaterial(t *testing.T) {
+	dir := t.TempDir()
+	// Key material with no identity record (e.g. a half-restored backup) — refuse.
+	if err := os.WriteFile(filepath.Join(dir, keyFile), []byte("PRIVKEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gen := &fakeGen{}
+	_, err := EnsureIdentity(context.Background(), dir, gen, "t0")
+	if err == nil || !strings.Contains(err.Error(), "no identity record") {
+		t.Fatalf("expected fatal orphan-material error, got: %v", err)
+	}
+	if gen.calls != 0 {
+		t.Errorf("provisioned over orphan material (calls=%d)", gen.calls)
+	}
+}
