@@ -614,14 +614,33 @@ safety net** — if builds reproduce and signing events are logged, a forged sig
 that *won't reproduce from source*, so misuse is **detectable**. An always-on key needn't be unstealable;
 its *misuse* must be **detectable**. Trust and reproducibility are one feature, not two.
 
-**Default behavior (gated target):** on first build with signing enabled (**the default**), StageFreight
-**auto-provisions** a persistent signing identity into a custodian in the durable state-dir (O.6),
-**auto-publishes** the public key once, and signs every build thereafter — *no secret the operator ever
-touches*. The custodian is a **ladder with identical consumer verification**:
+**Enablement — opt-out signing, opt-IN identity creation (SHIPPED: `src/config` signing block,
+`src/sign/autosign`, `src/sign/provision`).** Two *separate* toggles in the `signing:` config block,
+because "signing is encouraged" and "the system minted an identity on my behalf" are NOT the same thing —
+collapsing them would weaken the trust model:
+- **`enabled`** (`*bool`, default **true**) — the global kill switch; `false` disables all signing.
+- **`auto_provision`** (`bool`, default **false**) — explicit consent to *create/manage* a Tier-0
+  identity; requires a `state_dir`. **Off by default: with no config, StageFreight mints nothing** and
+  signs only with an explicit key/profile (today's behavior).
+- **`state_dir`** (`{type: volume|host_path, name|path}`) — the durable home (O.5).
+
+So **StageFreight core never silently creates a trust root.** "Always-on for the world" is delivered at
+the **runner/distribution config layer** — the freightyard runner ships a *visible, editable* default
+`signing: {enabled: true, auto_provision: true, state_dir: {volume}}` — mirroring the
+framework-vs-project-policy separation. Under that consent, the first build auto-provisions the Tier-0
+identity (continuity-fatal on drift/partial/orphan — O.5), reuses it forever, and signs every build; the
+operator touches no secret. Auto-publishing the anchor is the remaining piece (O.9-#4 tail).
+
+**Visible advisory (SHIPPED):** when signing is enabled and artifacts were published but **no signer
+resolved**, a prominent warning fires with the precise reason (no profile/key · auto_provision off · no
+state_dir) — an operator never silently ships unsigned artifacts believing signing is on. Silent
+downgrade to unsigned is exactly the trap avoided.
+
+The custodian is a **ladder with identical consumer verification**:
 
 | Tier | Custodian | Non-exportable | Effort | Role |
 |---|---|---|---|---|
-| 0 (default) | auto-gen software key in the state-dir | no — **misuse detectable** via repro + transparency | zero | "always-on for everyone" floor |
+| 0 (consented default) | auto-gen software key in the state-dir | no — **misuse detectable** via repro + transparency | zero (opt-in once) | "always-on" floor |
 | 1 | SoftHSM / signing-agent (PKCS#11) | API-level | near-zero (ships in runner) | better floor, turnkey |
 | 2 (recommended) | **Vault/OpenBao transit, bound to the runner's existing OIDC identity** | yes, server-side | low (reuses existing OIDC→Vault plumbing) | the real tier |
 | 3 | TPM-bound | hardware | host setup | if runners have a TPM |
@@ -747,20 +766,23 @@ once to verify all releases). Surface both, in the right places:
 
 - **Dev-build images:** real now — signed on push, stored+backed-up in the registry, surfaced in notes —
   once `COSIGN_KEY`/`COSIGN_PASSWORD` (or Vault transit) are set.
-- **Releases:** `SHA256SUMS.sig` is *produced but stranded* (not uploaded, not in notes, no verify doc).
-- **Always-on / self-hosted custody / `stagefreight sign` / private Sigstore / object-store:** designed
-  here, not built.
+- **Releases:** `SHA256SUMS.sig` is produced **and uploaded** to the forge release (O.9-#1 ✅).
+- **Consent-gated always-on:** the `signing:` block (`enabled`/`auto_provision`/`state_dir`), the
+  continuity-fatal Tier-0 provisioner, the consent-gated `autosign` resolver, the leak guards, the
+  recorded assurance tier, and the visible "enabled-but-unsigned" advisory are **SHIPPED**. Remaining:
+  auto-publish the anchor, the runner-config default + volume mount, and the custody ladder above Tier 0.
+- **`stagefreight sign` / private Sigstore / object-store:** designed here, not built.
 
 ### O.9 Gap-closure roadmap (ordered; each gated on sign-off)
 
-1. **Blob-signature asset view** — upload `SHA256SUMS.sig` to the forge release. *Small, fully testable
-   now; the difference between "we sign it" and "you can get the signature."*
+1. ✅ **Blob-signature asset view** — `SHA256SUMS.sig` uploads to the forge release.
 2. **Release-notes Verification section + `BinaryRow` signature surfacing**; a `SECURITY.md`/verification
-   doc with the pinned anchor + recipe; `signing_profiles` docsgen override.
-3. **The durable state-dir primitive** (O.5 Tier 0) — outside `/stagefreight`, the home for persistent
-   identity.
-4. **Always-on default: auto-provision + auto-publish** the Tier-0 software identity — flips signing to
-   *on by default* with zero friction (the highest-leverage item for adoption).
+   doc with the pinned anchor + recipe. *(`signing_profiles` docsgen override ✅.)*
+3. ✅ **Durable state-dir primitive** (O.5 Tier 0) — `signing.state_dir` (volume|host_path), resolved
+   outside `/stagefreight`; the runner volume *mount* is the remaining infra piece.
+4. **Always-on default** — ✅ auto-provision (continuity-fatal, consent-gated) + the advisory shipped;
+   **remaining: auto-publish the anchor** (the pubkey to the release + a well-known path) and the runner
+   ships the visible `auto_provision: true` default.
 5. **`stagefreight sign` command** (O.4-A) — unlocks YubiKey (human-gated) and covers key/kms/oidc;
    *built by us, hardware-validated by the operator.*
 6. **Vault-transit-via-workload-identity** (Tier 2) — auto-provision + OIDC auth onto the existing `kms`

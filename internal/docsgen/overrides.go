@@ -76,6 +76,24 @@ var sectionOverrides = map[string]SectionOverride{
 			"The `when` block controls routing: all non-empty fields must match (AND logic).",
 		},
 	},
+	"signing": {
+		Summary: "Operational signing configuration (distinct from `signing_profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — \"signing is encouraged\" and \"the system minted an identity for me\" are not the same thing.",
+		Example: `signing:
+  enabled: true            # global kill switch (default true)
+  auto_provision: false    # explicit consent to create/manage a Tier-0 key (default false)
+  state_dir:
+    type: volume           # volume | host_path
+    name: stagefreight-signing
+    # type: host_path
+    # path: /srv/stagefreight/signing`,
+		Notes: []string{
+			"`enabled: false` disables ALL signing regardless of profiles/keys.",
+			"`auto_provision: true` requires a `state_dir` — with no durable storage an ephemeral key would break trust continuity every run.",
+			"With `auto_provision: false` (default), StageFreight never creates key material — it signs only with an explicit COSIGN_KEY/profile. Opinionated always-on belongs in a runner/distribution config, not core.",
+			"The Tier-0 identity is created once and NEVER silently regenerated: drift, partial state, or an orphan key is fatal.",
+			"The state_dir must live outside the repository (a key there could be committed, baked into an image, or published).",
+		},
+	},
 	"signing_profiles": {
 		Summary: "Named trust profiles for signing release artifacts and images. A profile declares a trust CLASS (`requires`: `key` | `oidc` | `kms` | `hardware`) and assurance requirements — never a device, vendor, or cosign flag. Targets reference a profile by id via `signing_profile: <id>` (same pattern as `registry:`). With no profile, the implicit `legacy` default signs images when `COSIGN_KEY` resolves; checksum blobs (SHA256SUMS) sign only under an explicit profile.",
 		Example: `signing_profiles:
