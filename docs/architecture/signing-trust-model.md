@@ -8,9 +8,10 @@
 > validation and the pure IR + `Compile` (`9da9deb`), and the cosign renderer `Render`/`Env`/
 > `resolveKMSURI` (`6e539d2`). The cosign **executors** + their wiring (`df73062`) are also SHIPPED:
 > images are signed after push and `SHA256SUMS` after `WriteChecksums`, proven end-to-end against
-> cosign v3.0.6 by `cosign.TestSignBlobEndToEnd`. **Still open:** OIDC-keyless + hardware proven only
-> at unit level (no device/CI-OIDC e2e); a dedicated signature **artifact descriptor** for release
-> upload; and the Commit-2 SHA256SUMS-view/release-asset polish. Terminology: the config object is a **`signing_profile`**
+> cosign v3.0.6 by `cosign.TestSignBlobEndToEnd`. **Operational target (gated):** the full
+> self-hosted / always-on / managed-infrastructure plan — and the ordered gap-closure roadmap that
+> makes it real — is **Part O ("Operational trust model")** below; release `SHA256SUMS.sig` is
+> currently produced-but-stranded (O.6/O.9-#1). Terminology: the config object is a **`signing_profile`**
 > (was "signing_policy"); assurance is **flat** (`physical_presence`/`non_exportable` keywords on the
 > profile), not a nested capabilities block. Sections below are tagged ✅ SHIPPED / ⏳ PENDING.
 
@@ -555,6 +556,230 @@ All three trust layers are orthogonal and compose on the **unchanged** v1 seam:
 - Attested Build Provenance (reserved) — *how it was built*, independently attestable.
 Signing simply binds trust over both the artifact digest **and** the provenance statement; neither
 reserved layer changes `SignPlan` or the renderer. **Reserved as design; not implemented in Commit 1/2.**
+
+## Operational trust model — self-hosted paths, always-on signing, managed infrastructure (DESIGN; gated)
+
+The Commit 1/2 seam answers *"how is one signature produced."* This part answers the questions that
+decide whether signing is **actually adopted**: which trust methods, self-hosted with no 3rd-party
+reliance, *always on by default* without a human in the loop, with signatures persisted where the
+operator chooses and never leaked into the repo, and documented so a consumer can verify. It is the
+frozen target; implementation is gated and sequenced in **O.9**.
+
+### O.1 The split that organizes everything — key-custody vs identity-attested
+
+Two families. Conflating them is what makes signing feel like a toy:
+
+- **Key-custody trust (`key`, `kms`, `hardware`)** — the signature verifies against a **public key**.
+  No CA, no transparency service, no 3rd party; offline-capable. This is `--use-signing-config=false
+  --tlog-upload=false` (already emitted). cosign-key, Vault/OpenBao, YubiKey/Titan, SoftHSM, TPM all
+  live here. **Fully self-hostable today** — the gap is workflow + custody + docs, not cryptography.
+- **Identity-attested trust (`oidc` keyless)** — the signature is bound to an OIDC identity by
+  **Fulcio** (a CA) and logged in **Rekor** (transparency). Self-hosting means running the Sigstore
+  stack (Fulcio + Rekor + CT + a TUF root). ZITADEL/Keycloak/GitLab are *issuers* feeding it, useless
+  without the CA. This is the genuinely large project.
+
+Verification stays uniform across both: a consumer pins **a public key** (key-custody) or **an
+`(issuer, subject)` identity + the Fulcio root** (keyless). Climbing tiers never breaks consumers.
+
+### O.2 The signing paths and where each stands
+
+| Path | Class | Self-hosted | Reality | Gap to real |
+|---|---|---|---|---|
+| cosign key/password | key | ✅ | works (proven e2e) | docs |
+| Vault / OpenBao (transit) | kms | ✅ | `kms.ref → hashivault://` resolves now | auto-provision + workload-identity binding + docs |
+| YubiKey / Titan | hardware | ✅ | renderer emits `--sk`/`--key pkcs11:` | human-gated `sign` command + PIN/touch + hardware validation |
+| SoftHSM / network HSM | hardware | ✅ | same `pkcs11:` path | custody standup + docs |
+| TPM-bound | hardware | ✅ | same key-custody render | host wiring |
+| Private Sigstore (+ ZITADEL/Keycloak/GitLab issuer) | oidc | ✅ ops-heavy | renderer points at public TUF only | deployment endpoint wiring + stand-up guide |
+| Public Sigstore (gitlab.com/GH) | oidc | ❌ 3rd party | n/a self-hosted | "cool to have," not the target |
+
+**cosign key + password mechanics:** a keypair is `cosign.key` (private, *always* scrypt+nacl-encrypted,
+even empty password) + `cosign.pub`. cosign reads the key via `--key <path|ref>` and decrypts with
+`COSIGN_PASSWORD` (now forwarded by `signEnv`). In our model the legacy ref `env:COSIGN_KEY` resolves
+to the `--key` value (a path or a `hashivault://` ref). A raw key in CI is the **weakest** class
+(exportable) — prefer Vault transit, where the key never leaves the custodian.
+
+**OIDC keyless mechanics:** OIDC token → Fulcio mints a ~10-min cert binding `(issuer, subject)` to an
+ephemeral key → sign → log to Rekor → verify against the Fulcio root + expected identity. The issuer is
+**GitLab CI ID tokens** (`id_tokens:`, workload identity — same family as GitLab→k8s/Vault auth) for
+unattended CI, or **ZITADEL** for human-attributed signing. **Public Fulcio trusts only public issuers
+(gitlab.com, GitHub, Google) — never `gitlab.prplanit.com`/ZITADEL** — so self-hosted keyless REQUIRES
+a private Sigstore trusting your issuers, with the renderer pointed at *those* URLs (O.4-B).
+
+### O.3 Always-on signing — the default, and why it's honest
+
+The adoption problem: secure options (KMS/YubiKey) cost effort *per build*; the easy option (key in CI
+vars) is forge-forever-on-leak; so everyone ships unsigned. The unlock is that **reproducibility is the
+safety net** — if builds reproduce and signing events are logged, a forged signature signs a digest
+that *won't reproduce from source*, so misuse is **detectable**. An always-on key needn't be unstealable;
+its *misuse* must be **detectable**. Trust and reproducibility are one feature, not two.
+
+**Default behavior (gated target):** on first build with signing enabled (**the default**), StageFreight
+**auto-provisions** a persistent signing identity into a custodian in the durable state-dir (O.6),
+**auto-publishes** the public key once, and signs every build thereafter — *no secret the operator ever
+touches*. The custodian is a **ladder with identical consumer verification**:
+
+| Tier | Custodian | Non-exportable | Effort | Role |
+|---|---|---|---|---|
+| 0 (default) | auto-gen software key in the state-dir | no — **misuse detectable** via repro + transparency | zero | "always-on for everyone" floor |
+| 1 | SoftHSM / signing-agent (PKCS#11) | API-level | near-zero (ships in runner) | better floor, turnkey |
+| 2 (recommended) | **Vault/OpenBao transit, bound to the runner's existing OIDC identity** | yes, server-side | low (reuses existing OIDC→Vault plumbing) | the real tier |
+| 3 | TPM-bound | hardware | host setup | if runners have a TPM |
+| 4 | KMS / YubiKey | hardware | per-release human/setup | official releases |
+
+Friction killers, all StageFreight's job: **auto-provision (never copy-paste a key); auto-publish the
+anchor; uniform `cosign verify` across the ladder; one-line upgrade** (`custodian: vault` swaps Tier 0→2,
+zero consumer impact); **bounded blast radius** (non-exportable custody = sign-during-window not
+steal-forever; transparency + reproducibility make even that detectable; rotation bounds lifetime).
+
+**Honest limit:** Tier 0's software key is readable by a root-level runner compromise — the defense is
+*detectability, not unstealability*, and the ramp to non-exportable (Tier 2) is one config line reusing
+infra you already run. The "same fingerprint" is the **published public key** (stable across releases;
+rotation, when added, publishes a signed chain so old signatures still verify — the identity is stable,
+the key may rotate under it, mirroring the alias→identity rule in the release-channels design).
+
+### O.4 The architectural unlocks (shared by every path)
+
+**(A) A separable `stagefreight sign` Publish command.** Inline signing-during-build (shipped) is right
+for *unattended* classes (key/kms in CI). YubiKey is *human-in-the-loop* — build in CI, sign later with a
+finger on the key — which demands a **detached action over already-built artifacts**. `stagefreight sign
+<release|ref>` loads the artifacts (SHA256SUMS, image digests from the manifest/content-store), runs the
+configured profile (prompting for touch/PIN on hardware, silent for key/kms/oidc), and attaches/uploads
+the signatures. One command unlocks YubiKey, hosts the future Trust-Composition "attach stronger evidence
+later," and works for every class. Publish owns this orchestration (foundational invariant 4).
+
+**(B) Deployment-wiring config for endpoints.** Profiles stay abstract (`requires: oidc`, never URLs).
+Fulcio/Rekor/issuer URLs and `hashivault://` KMS URIs are **deployment wiring**, resolved at render time
+— extending the existing `resolveKMSURI` (`SF_SIGN_KMS_<REF>`) pattern with
+`SF_SIGN_SIGSTORE_{FULCIO,REKOR,ISSUER,TRUSTED_ROOT}` threaded into the renderer's transparency path
+(`--fulcio-url --rekor-url --oidc-issuer --trusted-root`). Keeps profiles portable while an operator says
+"…via *my* Fulcio." (Env for secrets/URLs; a structured block only if it grows structure.)
+
+**(C) Human-interactive signing — your OIDC platform as identity, or as a convenience gate.** `stagefreight
+sign` (A) is the home for *interactive* signing where a human authenticates to the org's OIDC
+(ZITADEL/Keycloak) at sign time. Operators **will** ask for this; StageFreight enables it and labels its
+trust honestly — the framework serves the operator's chosen model, it does not police it. Two distinct
+postures:
+- **(C1) OIDC-as-identity (human keyless).** Interactive issuer login (browser / device-flow) → token →
+  Fulcio → cert bound to the *human's* `(issuer, subject)` → sign. The signature is **attributed to the
+  human**. Strongest attribution; rides the private-Sigstore endpoints (B); `requires: oidc`.
+- **(C2) OIDC-as-authorization (gate to a custodial key).** The human authenticates via OIDC only to be
+  *authorized* to invoke a custodial signer (e.g. Vault's OIDC auth method → a transit sign). The
+  signature's identity is the **custodial key** (`requires: key|kms|hardware`), **not** the human;
+  per-human accountability lives in the OIDC/Vault audit log, not the signature. Convenient (SSO, no
+  per-human key, no Fulcio) but **weaker attribution** — the honest "not ideal, but who-are-we-to-police-it"
+  tier the operator opts into knowingly.
+
+The model boundary this introduces — **authorization is orthogonal to trust class.** `requires` still
+names *who cryptographically vouches* (the key/identity); a new optional **`authorization`** facet (e.g.
+`authorization: oidc`) names *who is allowed to invoke the signer* — a deployment/access concern, never
+the trust anchor. (C1) puts OIDC in `requires` (it *is* the identity); (C2) puts OIDC in `authorization`
+(it gates a key-custody class). Conflating the two — treating an authz gate as the trust identity — is
+precisely the soundness error invariants 6/9 forbid; keeping them separate is what lets StageFreight
+offer (C2)'s convenience without lying about what the signature attests.
+
+### O.5 Managed signing infrastructure — the durable state-dir + tiered standup
+
+Signing material is **durable trust state**, categorically different from ephemeral build state. Today
+everything StageFreight writes is under `/stagefreight` (`.stagefreight/dist` cleared, `.stagefreight/
+objects` clearable). Trust roots must not live there.
+
+- **Tier 0 — the state-dir primitive:** a runner-config `signing.state_dir` (or named volume
+  `stagefreight-signing`) defaulting **outside** the build mount (e.g. `/var/lib/stagefreight/signing`),
+  the home for all persistent signing material — keys, Vault data, Sigstore state, trusted roots, agent
+  sockets. Solves "don't clear it by accident" by construction; the natural per-operator backup unit.
+  (Shape: named volume with an operator-overridable host path.)
+- **Tier 1 — custodial standup** (Vault/OpenBao, key-agent sidecar, `pcscd`/PKCS#11, SoftHSM-for-dev)
+  via runner compose against the state-dir. Collocation with the runner is a pragmatic convenience: the
+  key material is operator-held, the build talks to the custodian over a socket, the key never enters
+  build scratch.
+- **Tier 2 — CA/transparency (private Sigstore, or simpler BYO-PKI: static CA, no tlog).**
+
+**The one trust line:** the build executor must never *become* the trust root (invariant 8). A CA that
+runs *on the build runner* means a compromised runner can forge any signature. So Sigstore wants a
+**separate deployment** (the dungeon/k8s, runner just points at it); a runner-collocated Sigstore is a
+**documented dev/single-host convenience**, never the default for real releases. And **production
+trust-root key generation is a deliberate ceremony, not an automatic side effect** — auto-provisioning a
+*dev* root is fine; silently generating the root that anchors real release trust is not.
+
+StageFreight **owns the state-dir primitive** and **ships standup scaffolding** (compose/k8s fragments +
+renderer wiring) as **opt-in**; the **recommended path stays "point at infra you run."** Service
+lifecycles (upgrade, backup, root ceremony) remain the operator's.
+
+### O.6 Persistence — where signatures live, operator-chosen, backed up, never in the repo
+
+`.stagefreight/*` is gitignored, so signatures **cannot** land in the repo tree by construction —
+they must flow to a publish destination. By family:
+
+- **Image signatures — solved + operator-chosen.** cosign attaches the sig to the **registry** as an OCI
+  referrer (`sha256-<digest>.sig`), beside the image; the operator already picks the registry (your
+  Harbor/mirror topology); backup = the registry's backup. `release_create` already discovers it
+  (`registry.DiscoverAllArtifacts` → `ImageRow.Signature`, `release/notes.go`) and surfaces it.
+- **Blob signatures (`SHA256SUMS.sig`) — the stranded gap.** Written to `DistDir` (gitignored, ephemeral),
+  recorded as a `blob_signature` *outcome* — but `release_create` uploads assets **only from the
+  manifests** (`release_create.go` ~386-442), so a `.sig` in `DistDir` is *ignored* and never reaches the
+  release. **Fix (O.9-#1):** a `BuildBlobSignatureViews` → `releaseAsset{Kind:"signature"}` so it flows
+  into the existing `UploadAsset` loop. Durable home = the **forge release** (operator storage,
+  forge-backed-up, outside the repo).
+- **Operator-chosen storage beyond the forge (e.g. your Ceph RGW bucket):** the `cas.Store` interface
+  already reserves the non-OCI/object-store quadrant (`cas/cas.go` ~68-72) — *designed, not built*. A
+  future object-store `Store` backend persists artifacts+sigs to an operator bucket with RGW backup.
+
+### O.7 Verification surface — the stable anchor + documentation
+
+Separate the **per-release signature** (different every release — signs different bytes) from the
+**stable verification anchor** (the public key fingerprint, or `(issuer, subject)` — invariant 8, pinned
+once to verify all releases). Surface both, in the right places:
+
+- **Stable anchor → a durable `SECURITY.md` / verification doc** (the pubkey/identity + the
+  `cosign verify-blob --key <pinned> --signature SHA256SUMS.sig SHA256SUMS` recipe). Not generated today;
+  hand-authored or a small generator emitting the recipe from the configured profiles.
+- **Per-release → a "Verification" section in release notes** (`release/notes.go:renderNotes`).
+  `ImageRow.Signature` already surfaces image sigs; **`BinaryRow` lacks a signature field** and there is
+  **no Verification section** — both to add, referencing the pinned anchor.
+- **Config reference auto-docs:** `signing_profiles` is a config section, so `stagefreight docs generate`
+  (struct-reflection + `internal/docsgen` override map) auto-documents it once an override entry is added;
+  new signing CLI flags auto-doc via Cobra.
+- **Badge:** `.stagefreight/badges/` is the one non-gitignored `.stagefreight` path — a "signed" badge can
+  be emitted there (separate from docsgen).
+
+### O.8 What is true today vs the target
+
+- **Dev-build images:** real now — signed on push, stored+backed-up in the registry, surfaced in notes —
+  once `COSIGN_KEY`/`COSIGN_PASSWORD` (or Vault transit) are set.
+- **Releases:** `SHA256SUMS.sig` is *produced but stranded* (not uploaded, not in notes, no verify doc).
+- **Always-on / self-hosted custody / `stagefreight sign` / private Sigstore / object-store:** designed
+  here, not built.
+
+### O.9 Gap-closure roadmap (ordered; each gated on sign-off)
+
+1. **Blob-signature asset view** — upload `SHA256SUMS.sig` to the forge release. *Small, fully testable
+   now; the difference between "we sign it" and "you can get the signature."*
+2. **Release-notes Verification section + `BinaryRow` signature surfacing**; a `SECURITY.md`/verification
+   doc with the pinned anchor + recipe; `signing_profiles` docsgen override.
+3. **The durable state-dir primitive** (O.5 Tier 0) — outside `/stagefreight`, the home for persistent
+   identity.
+4. **Always-on default: auto-provision + auto-publish** the Tier-0 software identity — flips signing to
+   *on by default* with zero friction (the highest-leverage item for adoption).
+5. **`stagefreight sign` command** (O.4-A) — unlocks YubiKey (human-gated) and covers key/kms/oidc;
+   *built by us, hardware-validated by the operator.*
+6. **Vault-transit-via-workload-identity** (Tier 2) — auto-provision + OIDC auth onto the existing `kms`
+   class; the recommended real tier.
+7. **Deployment endpoint wiring** (O.4-B, `SF_SIGN_SIGSTORE_*`) + renderer flags — turns on private
+   Sigstore once the operator stands one up.
+8. **Human-interactive OIDC signing** (O.4-C) — interactive `stagefreight sign` modes + the `authorization`
+   profile facet: **C1** (OIDC-as-identity, human keyless via #7) and **C2** (OIDC-as-authorization gate to
+   a custodial key, e.g. Vault OIDC auth → transit). Built on #5+#6+#7; the operator's-own-IdP convenience
+   tier, honestly labeled.
+9. **Transparency hook** (self-hosted Rekor or a minimal append-only signed log) — turns "detectable in
+   principle" into "detectable in practice," pairing with reproducibility.
+10. **Object-store `cas.Store` backend** — sigs/artifacts in an operator RGW bucket (the fullest
+    "operator chooses storage + backs it up").
+11. **Private Sigstore stand-up scaffolding** (separate deployment) + operator guide — mostly ops;
+    StageFreight side largely done by #7.
+
+Constraints: YubiKey (#5) and Sigstore (#7/#8/#11) cannot be validated in a container — built correctly,
+confirmed by the operator on real hardware/infra. Private Sigstore is ~80% ops, ~20% StageFreight code.
 
 ## Design framing & watch-points
 
