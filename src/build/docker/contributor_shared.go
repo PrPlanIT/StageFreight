@@ -13,8 +13,12 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
+	"github.com/PrPlanIT/StageFreight/src/sign"
+	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -48,9 +52,69 @@ func buildRetainRecord(rc *domains.RunContext, plan *build.BuildPlan, label stri
 		captureArtifactDigests(plan, &outputs)
 		storeRows = contentStoreRows(persistArtifactsRecords(plan, &outputs, store))
 		pushed = recordPublicationOutcomes(rc.RB, result.Steps)
+		signImages(rc, plan, result.Steps)
 		rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, outputs.Artifacts...)
 	}
 	return result, storeRows, pushed, nil
+}
+
+// signImages signs each successfully published image digest under its target's
+// resolved signing profile. Unlike blob signing, the `legacy` default DOES sign
+// images when COSIGN_KEY resolves — preserving implicit image signing. Best-effort
+// and loud: a failure is recorded as a failed attestation outcome and warned, but
+// never aborts the build; whether a missing signature blocks a release is Publish's
+// policy. Signing belongs to Publish — this is that step within the publish phase.
+func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.StepResult) {
+	// Index each registry endpoint's profile + multi-arch flag by host/path —
+	// the join key back from a buildx PushObservation to its lowered target.
+	type sigTarget struct {
+		profile   *config.ResolvedSigningProfile
+		multiArch bool
+	}
+	byEndpoint := map[string]sigTarget{}
+	for _, st := range plan.Steps {
+		for _, reg := range st.Registries {
+			byEndpoint[reg.URL+"/"+reg.Path] = sigTarget{reg.SigningProfile, len(st.Platforms) > 1}
+		}
+	}
+
+	for _, step := range steps {
+		artifactID := artifact.NewArtifactID("docker", step.Name)
+		for _, obs := range step.Publications {
+			if obs.Digest == "" {
+				continue
+			}
+			tgt, ok := byEndpoint[obs.Host+"/"+obs.Path]
+			if !ok || tgt.profile == nil {
+				continue
+			}
+			signPlan := sign.Compile(tgt.profile)
+			if !sign.Enabled(signPlan) {
+				continue // e.g. legacy default with no COSIGN_KEY present
+			}
+			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
+			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
+			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.Env{}, sign.SignOptions{MultiArch: tgt.multiArch})
+			if err != nil {
+				diag.Warn("image signing %s: %v", digestRef, err)
+				rc.RB.Record(artifactID, artifact.Outcome{
+					Type: artifact.OutcomeTypeAttestation, Target: target,
+					Attestation: &artifact.AttestationOutcome{
+						Status: artifact.OutcomeFailed, Kind: "cosign",
+						VerifiedDigest: obs.Digest, Error: err.Error(),
+					},
+				})
+				continue
+			}
+			rc.RB.Record(artifactID, artifact.Outcome{
+				Type: artifact.OutcomeTypeAttestation, Target: target,
+				Attestation: &artifact.AttestationOutcome{
+					Status: artifact.OutcomeSuccess, Kind: "cosign",
+					SignatureRef: digestRef, VerifiedDigest: obs.Digest,
+				},
+			})
+		}
+	}
 }
 
 // runPostBuildRetention enforces cache retention (buildkit/local/external) and

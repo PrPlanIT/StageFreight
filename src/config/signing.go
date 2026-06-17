@@ -137,13 +137,21 @@ func NormalizeSigning(profiles []SigningProfile) []SigningProfile {
 		}
 	}
 	if FindSigningProfileByID(profiles, legacySigningProfileID) == nil {
-		profiles = append(profiles, SigningProfile{
-			ID:       legacySigningProfileID,
-			Requires: StringOrList{TrustKey},
-			Key:      &KeyTrust{Ref: "env:COSIGN_KEY"},
-		})
+		profiles = append(profiles, legacyProfile())
 	}
 	return profiles
+}
+
+// legacyProfile is the synthesized implicit default — key-class signing from
+// COSIGN_KEY. The single source of the legacy shape, shared by NormalizeSigning
+// (canonical synthesis) and ResolveSigningProfileForTarget (robust fallback when
+// a config was built without Normalize, e.g. in tests).
+func legacyProfile() SigningProfile {
+	return SigningProfile{
+		ID:       legacySigningProfileID,
+		Requires: StringOrList{TrustKey},
+		Key:      &KeyTrust{Ref: "env:COSIGN_KEY"},
+	}
 }
 
 // ResolvedSigningProfile is the flattened, validated view consumed by the pure
@@ -173,6 +181,13 @@ func ResolveSigningProfileForTarget(t TargetConfig, profiles []SigningProfile) (
 	}
 	p := FindSigningProfileByID(profiles, id)
 	if p == nil {
+		// The legacy default always resolves, even on a config that never went
+		// through NormalizeSigning. An explicit (non-legacy) unknown ref is still
+		// an error — that misconfiguration must surface, not be papered over.
+		if id == legacySigningProfileID {
+			lp := legacyProfile()
+			return resolveSigningProfile(&lp), nil
+		}
 		return nil, fmt.Errorf("target %s: signing_profile %q not found", t.ID, id)
 	}
 	return resolveSigningProfile(p), nil

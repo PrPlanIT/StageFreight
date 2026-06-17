@@ -65,36 +65,39 @@ type Outcome struct {
 	Type   OutcomeType    `json:"type"`
 	Target *OutcomeTarget `json:"target,omitempty"`
 
-	Push        *PushOutcome        `json:"push,omitempty"`
-	Attestation *AttestationOutcome `json:"attestation,omitempty"`
-	Binary      *BinaryOutcome      `json:"binary,omitempty"`
-	Archive     *ArchiveOutcome     `json:"archive,omitempty"`
+	Push          *PushOutcome          `json:"push,omitempty"`
+	Attestation   *AttestationOutcome   `json:"attestation,omitempty"`
+	Binary        *BinaryOutcome        `json:"binary,omitempty"`
+	Archive       *ArchiveOutcome       `json:"archive,omitempty"`
+	BlobSignature *BlobSignatureOutcome `json:"blob_signature,omitempty"`
 }
 
 // OutcomeType discriminates the Outcome sub-kind. Closed enum.
 type OutcomeType string
 
 const (
-	OutcomeTypePush        OutcomeType = "push"
-	OutcomeTypeAttestation OutcomeType = "attestation"
-	OutcomeTypeBinaryBuild OutcomeType = "binary_build"
-	OutcomeTypeArchive     OutcomeType = "archive_build"
+	OutcomeTypePush          OutcomeType = "push"
+	OutcomeTypeAttestation   OutcomeType = "attestation"
+	OutcomeTypeBinaryBuild   OutcomeType = "binary_build"
+	OutcomeTypeArchive       OutcomeType = "archive_build"
+	OutcomeTypeBlobSignature OutcomeType = "blob_signature"
 )
 
 // Valid reports whether t is one of the defined OutcomeType values.
 func (t OutcomeType) Valid() bool {
 	switch t {
-	case OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive:
+	case OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive,
+		OutcomeTypeBlobSignature:
 		return true
 	}
 	return false
 }
 
 // outcomeTypeHasTarget reports whether Type requires a non-nil Target.
-// Push and attestation are target-scoped (registry endpoint); binary and
-// archive are un-targeted by design (the build artifact is the truth,
-// distribution targets are decided at release time in a separate
-// subsystem).
+// Push and attestation are target-scoped (registry endpoint); binary,
+// archive, and blob_signature are un-targeted by design (the build artifact
+// — or its detached signature — is the truth; distribution targets are
+// decided at release time in a separate subsystem).
 func outcomeTypeHasTarget(t OutcomeType) bool {
 	switch t {
 	case OutcomeTypePush, OutcomeTypeAttestation:
@@ -123,6 +126,21 @@ type AttestationOutcome struct {
 	AttestationRef string        `json:"attestation_ref,omitempty"`
 	VerifiedDigest string        `json:"verified_digest,omitempty"`
 	Error          string        `json:"error,omitempty"`
+}
+
+// BlobSignatureOutcome is the result of signing a detached blob (e.g.
+// SHA256SUMS) with cosign sign-blob. Un-targeted by design — a blob signature
+// is the truth about the file's bytes, not about any registry endpoint, so it
+// carries the blob + detached-signature paths and the trust class that signed
+// it, never an OutcomeTarget. Class is the resolved trust class (key | oidc |
+// kms | hardware), so a consumer can tell *how* the bytes were vouched for.
+type BlobSignatureOutcome struct {
+	Status        OutcomeStatus `json:"status"`
+	Kind          string        `json:"kind,omitempty"` // signer mechanism, e.g. "cosign"
+	BlobPath      string        `json:"blob_path,omitempty"`
+	SignaturePath string        `json:"signature_path,omitempty"`
+	Class         string        `json:"class,omitempty"` // resolved trust class
+	Error         string        `json:"error,omitempty"`
 }
 
 // BinaryOutcome is the result of building one binary artifact. The
@@ -388,6 +406,9 @@ func validateOutcome(o *Outcome, artifactID ArtifactID, idx int, errType error) 
 	if o.Archive != nil {
 		set = append(set, string(OutcomeTypeArchive))
 	}
+	if o.BlobSignature != nil {
+		set = append(set, string(OutcomeTypeBlobSignature))
+	}
 	if len(set) == 0 {
 		return fmt.Errorf("%w: result %q outcome[%d]: no sub-outcome set (expected %q)",
 			errType, artifactID, idx, o.Type)
@@ -421,6 +442,11 @@ func validateOutcome(o *Outcome, artifactID ArtifactID, idx int, errType error) 
 		if !o.Archive.Status.Valid() {
 			return fmt.Errorf("%w: result %q outcome[%d]: archive.status invalid %q",
 				errType, artifactID, idx, o.Archive.Status)
+		}
+	case OutcomeTypeBlobSignature:
+		if !o.BlobSignature.Status.Valid() {
+			return fmt.Errorf("%w: result %q outcome[%d]: blob_signature.status invalid %q",
+				errType, artifactID, idx, o.BlobSignature.Status)
 		}
 	}
 	return nil

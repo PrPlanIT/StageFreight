@@ -315,7 +315,7 @@ func TestOutcomeStatusValid(t *testing.T) {
 }
 
 func TestOutcomeTypeValid(t *testing.T) {
-	for _, ty := range []OutcomeType{OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive} {
+	for _, ty := range []OutcomeType{OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive, OutcomeTypeBlobSignature} {
 		if !ty.Valid() {
 			t.Errorf("%q should be valid", ty)
 		}
@@ -324,6 +324,32 @@ func TestOutcomeTypeValid(t *testing.T) {
 		if ty.Valid() {
 			t.Errorf("%q should be invalid", ty)
 		}
+	}
+}
+
+// A blob signature is about a file's bytes, not a registry endpoint — so it is
+// un-targeted: valid with no Target, rejected with one (the symmetric schema rule).
+func TestBlobSignatureOutcomeIsUntargeted(t *testing.T) {
+	dir := t.TempDir()
+	r := Result{
+		ArtifactID:   "checksums:SHA256SUMS",
+		ArtifactName: "SHA256SUMS",
+		Kind:         "checksums",
+		Outcomes: []Outcome{{
+			Type: OutcomeTypeBlobSignature,
+			BlobSignature: &BlobSignatureOutcome{
+				Status: OutcomeSuccess, Kind: "cosign",
+				BlobPath: "dist/SHA256SUMS", SignaturePath: "dist/SHA256SUMS.sig", Class: "key",
+			},
+		}},
+	}
+	if err := WriteResultsManifest(dir, ResultsManifest{IntentChecksum: "abc", Results: []Result{r}}); err != nil {
+		t.Fatalf("an un-targeted blob signature must be valid: %v", err)
+	}
+	// Attaching a target is forbidden — blob signatures carry no endpoint.
+	r.Outcomes[0].Target = &OutcomeTarget{Kind: "registry", Host: "docker.io", Path: "org/x"}
+	if err := WriteResultsManifest(dir, ResultsManifest{IntentChecksum: "abc", Results: []Result{r}}); !errors.Is(err, ErrResultsManifestInvalid) {
+		t.Fatalf("a blob signature with a target must be rejected, got %v", err)
 	}
 }
 

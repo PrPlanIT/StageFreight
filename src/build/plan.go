@@ -91,4 +91,10 @@ type RegistryTarget struct {
 	Retention   config.RetentionPolicy // restic-style retention policy
 	TagPatterns []string               // original unresolved tag templates for pattern matching during retention
 	NativeScan  bool                   // trigger registry's own built-in scan after push (Harbor: built-in Trivy)
+
+	// SigningProfile is the resolved trust profile published images are signed
+	// under — the synthesized `legacy` default (implicit COSIGN_KEY signing) when
+	// the target names no signing_profile. Resolved at lowering, consumed by the
+	// publish-phase image signer.
+	SigningProfile *config.ResolvedSigningProfile
 }

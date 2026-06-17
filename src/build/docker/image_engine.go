@@ -182,15 +182,24 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 			retention = *t.Retention
 		}
 
+		// Resolve the trust profile this target signs published images under
+		// (the `legacy` default when unset). Ref validity is already gated at
+		// audition; a set-but-unknown ref here is a hard config error.
+		signProfile, err := config.ResolveSigningProfileForTarget(t, cfg.Signing)
+		if err != nil {
+			return nil, fmt.Errorf("target[%d] %q: %w", i, t.ID, err)
+		}
+
 		target := build.RegistryTarget{
-			URL:         resolvedURL,
-			Path:        resolvedPath,
-			Tags:        resolvedTags,
-			Credentials: resolved.Credentials,
-			Provider:    provider,
-			Retention:   retention,
-			TagPatterns: t.Tags,
-			NativeScan:  t.NativeScan,
+			URL:            resolvedURL,
+			Path:           resolvedPath,
+			Tags:           resolvedTags,
+			Credentials:    resolved.Credentials,
+			Provider:       provider,
+			Retention:      retention,
+			TagPatterns:    t.Tags,
+			NativeScan:     t.NativeScan,
+			SigningProfile: signProfile,
 		}
 		registries = append(registries, target)
 
