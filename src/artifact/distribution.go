@@ -1,5 +1,15 @@
 package artifact
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
 // distribution.go holds the shared archive-resolution plumbing used by every
 // binary distribution backend — forge release assets, generic package registries,
 // and (future) OCI artifacts. The backends differ in their *identity model* (a
@@ -79,6 +89,47 @@ func SuccessfulBlobSignatureAssets(results *ResultsManifest) []ResolvedSignature
 		}
 	}
 	return out
+}
+
+// ValidateRecordedDigests recomputes each successfully-built archive's SHA-256 and
+// confirms it matches the results manifest — refusing to attach a signature to an
+// artifact that drifted (or vanished) since the build. Files are located by base
+// name under distDir, so it works whether signing runs on the build host or a
+// separate signer host. This is the "refuse unsigned artifact drift" guard for the
+// additive `stagefreight sign` flow.
+func ValidateRecordedDigests(results *ResultsManifest, distDir string) error {
+	if results == nil {
+		return nil
+	}
+	for _, r := range results.Results {
+		for _, o := range r.Outcomes {
+			if o.Archive == nil || o.Archive.Status != OutcomeSuccess || o.Archive.SHA256 == "" {
+				continue
+			}
+			path := filepath.Join(distDir, filepath.Base(o.Archive.Path))
+			sum, err := sha256File(path)
+			if err != nil {
+				return fmt.Errorf("artifact %s: %v (drift: missing or unreadable since build)", r.ArtifactID, err)
+			}
+			if sum != strings.TrimPrefix(o.Archive.SHA256, "sha256:") {
+				return fmt.Errorf("artifact %s digest drift: %s on disk != %s recorded at build — refusing to sign", r.ArtifactID, sum, o.Archive.SHA256)
+			}
+		}
+	}
+	return nil
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // ResolveSuccessfulArchiveAssets reads the v2 manifests and returns the archives

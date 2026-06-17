@@ -128,6 +128,7 @@ type TrustEvidence struct {
 	NonExportable    bool   `json:"non_exportable,omitempty"`    // signing key was hardware-bound / non-exportable
 	Transparency     bool   `json:"transparency,omitempty"`      // recorded in a transparency log
 	SignerRef        string `json:"signer_ref,omitempty"`        // signer identity material (key/kms ref, oidc identity)
+	SignedAt         string `json:"signed_at,omitempty"`         // RFC3339 timestamp the signature was produced
 }
 
 // AttestationOutcome is the result of attempting to sign or attest an

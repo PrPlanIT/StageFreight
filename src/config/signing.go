@@ -200,6 +200,21 @@ func ResolveSigningProfileForTarget(t TargetConfig, profiles []SigningProfile) (
 	return resolveSigningProfile(p), nil
 }
 
+// ResolveSigningProfileByID resolves a profile by id for explicit signing flows
+// (e.g. `stagefreight sign --profile <id>`). Unknown id → error; the reserved
+// `legacy` id resolves to the synthesized default.
+func ResolveSigningProfileByID(profiles []SigningProfile, id string) (*ResolvedSigningProfile, error) {
+	if id == legacySigningProfileID {
+		lp := legacyProfile()
+		return resolveSigningProfile(&lp), nil
+	}
+	p := FindSigningProfileByID(profiles, id)
+	if p == nil {
+		return nil, fmt.Errorf("signing_profile %q not found", id)
+	}
+	return resolveSigningProfile(p), nil
+}
+
 func resolveSigningProfile(p *SigningProfile) *ResolvedSigningProfile {
 	r := &ResolvedSigningProfile{
 		ID:               p.ID,

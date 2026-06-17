@@ -124,3 +124,29 @@ func TestResolveSuccessfulArchiveAssets_ManifestSourced(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRecordedDigests_RefusesDrift(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.tar.gz"), []byte("HELLO"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum, _ := sha256File(filepath.Join(dir, "a.tar.gz"))
+
+	good := &ResultsManifest{Results: []Result{{ArtifactID: "archive:a",
+		Outcomes: []Outcome{{Type: OutcomeTypeArchive, Archive: &ArchiveOutcome{Status: OutcomeSuccess, Path: "dist/a.tar.gz", SHA256: sum}}}}}}
+	if err := ValidateRecordedDigests(good, dir); err != nil {
+		t.Fatalf("matching digest must pass: %v", err)
+	}
+
+	drifted := &ResultsManifest{Results: []Result{{ArtifactID: "archive:a",
+		Outcomes: []Outcome{{Type: OutcomeTypeArchive, Archive: &ArchiveOutcome{Status: OutcomeSuccess, Path: "dist/a.tar.gz", SHA256: "deadbeef"}}}}}}
+	if err := ValidateRecordedDigests(drifted, dir); err == nil {
+		t.Error("digest drift must be refused before signing")
+	}
+
+	missing := &ResultsManifest{Results: []Result{{ArtifactID: "archive:gone",
+		Outcomes: []Outcome{{Type: OutcomeTypeArchive, Archive: &ArchiveOutcome{Status: OutcomeSuccess, Path: "dist/gone.tar.gz", SHA256: sum}}}}}}
+	if err := ValidateRecordedDigests(missing, dir); err == nil {
+		t.Error("a vanished artifact must be refused")
+	}
+}

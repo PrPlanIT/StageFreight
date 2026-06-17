@@ -48,19 +48,16 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolP
 	return run(ctx, rootDir, desired, plan, "attest", args)
 }
 
-// SignBlob signs a detached blob (e.g. SHA256SUMS) per the plan, writing a
-// detached signature at <blobPath>.sig and returning its path.
-func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, blobPath string, plan sign.SignPlan, env Env) (string, error) {
+// SignBlob signs a detached blob (e.g. SHA256SUMS) per the plan, writing the
+// detached signature to sigPath. The caller chooses sigPath so additive,
+// multi-tier signing can write distinct files (never clobbering a lower-tier sig).
+func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, blobPath, sigPath string, plan sign.SignPlan, env Env) error {
 	args, err := Render(plan, sign.OpSignBlob, env)
 	if err != nil {
-		return "", fmt.Errorf("cosign sign-blob: %w", err)
+		return fmt.Errorf("cosign sign-blob: %w", err)
 	}
-	sigPath := blobPath + ".sig"
 	args = append(args, "--output-signature", sigPath, blobPath)
-	if err := run(ctx, rootDir, desired, plan, "sign-blob", args); err != nil {
-		return "", err
-	}
-	return sigPath, nil
+	return run(ctx, rootDir, desired, plan, "sign-blob", args)
 }
 
 // Available reports whether cosign can be resolved via the toolchain.
