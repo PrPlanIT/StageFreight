@@ -776,11 +776,11 @@ once to verify all releases). Surface both, in the right places:
 ### O.9 Gap-closure roadmap (ordered; each gated on sign-off)
 
 1. ✅ **Blob-signature asset view** — `SHA256SUMS.sig` uploads to the forge release.
-2. ✅ **Release-notes Verification section** (tier disclosed explicitly + verify recipe) and ✅ **anchor
-   publication** (cosign.pub attached per release, fingerprint pinned). *(docsgen overrides ✅.)*
-   **Remaining: `SECURITY.md`** — the committed, stable, raw-URL-discoverable trust anchor the section
-   references (fork: whole-file vs a narrator-style managed section; written on publish vs a
-   `stagefreight signing anchor` command).
+2. ✅ **Consumer discoverability loop complete** — release-notes Verification section (tier disclosed
+   explicitly + verify recipe), anchor publication (cosign.pub attached per release, stable fingerprint
+   pinned), and **`stagefreight signing anchor`** → a managed, idempotent `SECURITY.md` section
+   (`<!-- sf:signing-anchor -->`, operator owns surrounding prose; explicit generation, never on
+   publish). *(docsgen overrides ✅.)* Room left for historical fingerprints (rotation) without building it.
 3. ✅ **Durable state-dir primitive** (O.5 Tier 0) — `signing.state_dir` (volume|host_path), resolved
    outside `/stagefreight`; the runner volume *mount* is the remaining infra piece.
 4. **Always-on default** — ✅ auto-provision (continuity-fatal, consent-gated) + the advisory shipped;
