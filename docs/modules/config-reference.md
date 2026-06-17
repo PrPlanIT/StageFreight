@@ -8,6 +8,7 @@
 - [`forges`](#config-forges)
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
+- [`signing_profiles`](#config-signing_profiles)
 - [`versioning`](#config-versioning)
 - [`matchers`](#config-matchers)
 - [`builds`](#config-builds)
@@ -118,6 +119,24 @@ vars:
 
 ---
 
+<a id="config-signing_profiles" name="config-signing_profiles"></a>
+### signing_profiles
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `id` | `id` | string | Yes | — | string value |
+| `requires` | `requires` | []string | Yes | — | []string value |
+| `ref` | `key.ref` | string | Yes | — | string value |
+| `issuer` | `oidc.issuer` | string | No | — | string value |
+| `identity` | `oidc.identity` | string | No | — | string value |
+| `ref` | `kms.ref` | string | Yes | — | string value |
+| `physical_presence` | `physical_presence` | string | No | — | string value |
+| `non_exportable` | `non_exportable` | string | No | — | string value |
+| `transparency_log` | `transparency_log` | bool | No | — | bool value |
+| `attestation` | `attestation` | bool | No | — | bool value |
+
+---
+
 <a id="config-versioning" name="config-versioning"></a>
 ### versioning
 
@@ -212,6 +231,7 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `mismatch` | `run_from.mismatch` | string | No | — | string value |
 | `select_tags` | `select_tags` | []string | No | — | []string value |
 | `registry` | `registry` | string | No | — | string value |
+| `signing_profile` | `signing_profile` | string | No | — | string value |
 | `url` | `url` | string | No | — | Registry or forge hostname. |
 | `provider` | `provider` | string | No | — | Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets. |
 | `path` | `path` | string | No | — | Image path within the registry. |
