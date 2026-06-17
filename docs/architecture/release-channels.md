@@ -454,6 +454,50 @@ user as "we tag every commit."
   The model is intended to extend here unchanged — identity + alias + retention — but each backend
   ships separately with its own materialization conformance.
 
+## Self-update freshness hint — a deferred *consumer* of channel resolution (UX, not security)
+
+Surfaced by the 2026-06 replay-corruption incident, whose root cause was simply: *an operator
+unknowingly ran an outdated-but-valid executable lineage against a newer repository lineage.* This is
+**advisory UX, not correctness infrastructure** — distinct from the TUF anti-rollback goal below
+(that is security). The correct model is one question, nothing more:
+
+> *Am I executing a build that is behind my configured publish-origin lineage for my resolved release channel?*
+
+Not "do I contain capability X?" (build/CI guarantees that — runtime self-interrogation is
+self-referential), not "is there a newer version anywhere?" (a parallel update mechanism). The
+boundary is a single trivial primitive — resist turning it into a capability framework, release
+taxonomy, provenance subsystem, or runtime policy layer:
+
+```go
+func MaybeWarnOutdatedBinary(ctx PublishContext) error
+//   1. resolve configured publish-origin (from the binary's embedded {origin, channel, commit})
+//   2. resolve the effective update lineage (publish-origin DEFAULT-BRANCH HEAD — tags are
+//      snapshots; HEAD is the live moving target, e.g. latest-dev *is* default-branch HEAD)
+//   3. compare embedded build lineage vs remote lineage, within the resolved channel only
+//   4. emit an advisory warning if behind
+//   5. silent no-op on: no network · no publish-origin · unresolved lineage · unstamped build ·
+//      forge failure · ambiguous config
+```
+
+Hard constraints, each peeled away during design:
+
+- **Channel comes from config, never from the version string.** Inferring `stable` vs `dev` from
+  `vX.Y.Z` vs `dev-<sha>` bakes an invariant `.stagefreight.yml` can invalidate. Channel =
+  `ResolveReleaseChannel(cfg)` or **absent → silent no-op, no fallback heuristics**. Cross-channel
+  suggestions forbidden (a `vX.Y.Z` user is never nudged to a `dev-<sha>`).
+- **The keystone — whose config?** It is about **StageFreight's own** publish-origin, not the cwd
+  project's `.stagefreight.yml`. So StageFreight's build embeds *its own* `{publish-origin, channel,
+  commit}` into the binary (beside `version.Commit`); the runtime reads the embedded values and works
+  anywhere. The one *real* consumer of an embedded provenance manifest — not capability-marker theater.
+
+Properties: **publish-path-gated** (before push/replay/docker-push — never every command, never a
+startup assertion), **best-effort**, **silent on failure**, **advisory only**, **disposable** if it
+becomes annoying. TTL is UX, never correctness.
+
+**Deferred deliberately:** depends on `ResolveReleaseChannel` (this capability) *and* a build-embed
+step. Building before either exists yields an inert stub or the banned version-string heuristic — so
+it ships *with* release-channels, ~15 lines, not before.
+
 ## Striven-for goals — deferred is not abandoned (the high-assurance trajectory)
 
 These move StageFreight from *on-par* to *best-in-class* on supply chain. They are **explicit,
