@@ -42,3 +42,25 @@ func TestAppendOutcome_IsAdditive(t *testing.T) {
 		t.Errorf("a new artifact should add a Result, got %d", len(results.Results))
 	}
 }
+
+// A digest pushed under several tags is signed once; failed/digest-less pushes skip.
+func TestImageTargets_DedupsByDigest(t *testing.T) {
+	reg := func(tag string) *artifact.OutcomeTarget {
+		return &artifact.OutcomeTarget{Kind: "registry", Host: "docker.io", Path: "org/app", Tag: tag}
+	}
+	results := &artifact.ResultsManifest{Results: []artifact.Result{{
+		ArtifactID: "docker:app", ArtifactName: "app", Kind: "docker",
+		Outcomes: []artifact.Outcome{
+			{Type: artifact.OutcomeTypePush, Target: reg("v1"), Push: &artifact.PushOutcome{Status: artifact.OutcomeSuccess, Digest: "sha256:abc"}},
+			{Type: artifact.OutcomeTypePush, Target: reg("latest"), Push: &artifact.PushOutcome{Status: artifact.OutcomeSuccess, Digest: "sha256:abc"}}, // same digest
+			{Type: artifact.OutcomeTypePush, Target: reg("bad"), Push: &artifact.PushOutcome{Status: artifact.OutcomeFailed}},                            // failed → skip
+		},
+	}}}
+	got := imageTargets(results)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 deduped image target, got %d", len(got))
+	}
+	if got[0].digestRef != "docker.io/org/app@sha256:abc" {
+		t.Errorf("digestRef = %q", got[0].digestRef)
+	}
+}
