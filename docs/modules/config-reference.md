@@ -9,6 +9,7 @@
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
 - [`signing_profiles`](#config-signing_profiles)
+- [`signing`](#config-signing)
 - [`versioning`](#config-versioning)
 - [`matchers`](#config-matchers)
 - [`builds`](#config-builds)
@@ -157,6 +158,40 @@ signing_profiles:
   - id: org-kms
     requires: kms
     kms: { ref: release-signing-key }   # logical ref, bound to a URI at render time
+```
+
+---
+
+<a id="config-signing" name="config-signing"></a>
+### signing
+
+Operational signing configuration (distinct from `signing_profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — "signing is encouraged" and "the system minted an identity for me" are not the same thing.
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `enabled` | `enabled` | bool | No | — | bool value |
+| `auto_provision` | `auto_provision` | bool | No | — | bool value |
+| `type` | `state_dir.type` | string | No | — | string value |
+| `name` | `state_dir.name` | string | No | — | string value |
+| `path` | `state_dir.path` | string | No | — | string value |
+
+> `enabled: false` disables ALL signing regardless of profiles/keys.
+> `auto_provision: true` requires a `state_dir` — with no durable storage an ephemeral key would break trust continuity every run.
+> With `auto_provision: false` (default), StageFreight never creates key material — it signs only with an explicit COSIGN_KEY/profile. Opinionated always-on belongs in a runner/distribution config, not core.
+> The Tier-0 identity is created once and NEVER silently regenerated: drift, partial state, or an orphan key is fatal.
+> The state_dir must live outside the repository (a key there could be committed, baked into an image, or published).
+
+**Example:**
+
+```yaml
+signing:
+  enabled: true            # global kill switch (default true)
+  auto_provision: false    # explicit consent to create/manage a Tier-0 key (default false)
+  state_dir:
+    type: volume           # volume | host_path
+    name: stagefreight-signing
+    # type: host_path
+    # path: /srv/stagefreight/signing
 ```
 
 ---
