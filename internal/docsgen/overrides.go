@@ -76,6 +76,26 @@ var sectionOverrides = map[string]SectionOverride{
 			"The `when` block controls routing: all non-empty fields must match (AND logic).",
 		},
 	},
+	"signing_profiles": {
+		Summary: "Named trust profiles for signing release artifacts and images. A profile declares a trust CLASS (`requires`: `key` | `oidc` | `kms` | `hardware`) and assurance requirements — never a device, vendor, or cosign flag. Targets reference a profile by id via `signing_profile: <id>` (same pattern as `registry:`). With no profile, the implicit `legacy` default signs images when `COSIGN_KEY` resolves; checksum blobs (SHA256SUMS) sign only under an explicit profile.",
+		Example: `signing_profiles:
+  - id: release-key
+    requires: key
+    key: { ref: "env:COSIGN_KEY" }      # path or env:VAR
+  - id: maintainer
+    requires: hardware                  # non-exportable key + physical presence
+    physical_presence: required
+    non_exportable: required
+  - id: org-kms
+    requires: kms
+    kms: { ref: release-signing-key }   # logical ref, bound to a URI at render time`,
+		Notes: []string{
+			"`requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.",
+			"Assurance keywords `physical_presence` / `non_exportable` (value `required`) are valid only for `requires: hardware`.",
+			"`enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).",
+			"Aliases normalized at load: `keyless` → `oidc`, `yubikey` → `hardware`.",
+		},
+	},
 	"narrator": {
 		Summary: "Content composition for file targets. Composes badges, shields, text, includes, and components into managed `<!-- sf:markers -->` sections in any file.",
 		Example: `narrator:
