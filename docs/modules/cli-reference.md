@@ -1942,14 +1942,19 @@ Safety:
 
 **Usage:** `stagefreight version version`
 
-Print the version
+Print the version. --verbose adds build + runtime provenance (Go version, executable SHA-256, replay-guard capability) so a stale binary cannot masquerade as a guarded build.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--verbose` | bool | — | show full build + runtime provenance |
 
 **Inherited flags:**
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--config` | string | — | config file (default: .stagefreight.yml) |
-| `-v, --verbose` | bool | — | verbose output |
 
 **See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight badge`](#cli-stagefreight-badge) · [`stagefreight build`](#cli-stagefreight-build) · [`stagefreight ci`](#cli-stagefreight-ci) · [`stagefreight commit`](#cli-stagefreight-commit) · [`stagefreight completion`](#cli-stagefreight-completion) · [`stagefreight component`](#cli-stagefreight-component) · [`stagefreight config`](#cli-stagefreight-config) · [`stagefreight dependency`](#cli-stagefreight-dependency) · [`stagefreight docker`](#cli-stagefreight-docker) · [`stagefreight docs`](#cli-stagefreight-docs) · [`stagefreight gitops`](#cli-stagefreight-gitops) · [`stagefreight glossary`](#cli-stagefreight-glossary) · [`stagefreight governance`](#cli-stagefreight-governance) · [`stagefreight help`](#cli-stagefreight-help) · [`stagefreight lint`](#cli-stagefreight-lint) · [`stagefreight manifest`](#cli-stagefreight-manifest) · [`stagefreight migrate`](#cli-stagefreight-migrate) · [`stagefreight narrator`](#cli-stagefreight-narrator) · [`stagefreight props`](#cli-stagefreight-props) · [`stagefreight push`](#cli-stagefreight-push) · [`stagefreight reconcile`](#cli-stagefreight-reconcile) · [`stagefreight release`](#cli-stagefreight-release) · [`stagefreight security`](#cli-stagefreight-security) · [`stagefreight tag`](#cli-stagefreight-tag) · [`stagefreight toolchain`](#cli-stagefreight-toolchain)
 
