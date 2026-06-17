@@ -149,6 +149,18 @@ func loadAndValidate(stateDir string) (*Identity, error) {
 	return &id, nil
 }
 
+// LoadIdentity reads the persisted identity record (read-only; no provisioning) so
+// the publish phase can obtain the public anchor + fingerprint to attach and
+// disclose. Returns (nil, nil) when the state dir has no identity, and validates
+// the same continuity invariants as the provisioning path (a partial/drifted
+// identity must not be published as if intact).
+func LoadIdentity(stateDir string) (*Identity, error) {
+	if stateDir == "" {
+		return nil, nil
+	}
+	return loadAndValidate(stateDir)
+}
+
 // KeyPath returns the absolute path to the persisted private key for this identity.
 func (id *Identity) KeyPath(stateDir string) string {
 	return filepath.Join(stateDir, id.KeyFile)

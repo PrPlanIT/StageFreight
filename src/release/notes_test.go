@@ -3,6 +3,7 @@ package release
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,5 +317,46 @@ func TestCompileReleaseTagMatchers_EmptyFallback(t *testing.T) {
 	}
 	if matchers[0].MatchString("latest") {
 		t.Error("default matcher should NOT match latest")
+	}
+}
+
+func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
+	out := renderVerification(&Verification{
+		TierLabel:        "Tier-0 (persistent software key)",
+		Fingerprint:      "sha256:abc123",
+		AnchorAsset:      "cosign.pub",
+		ChecksumSig:      "SHA256SUMS.sig",
+		Transparency:     false,
+		NonExportable:    false,
+		PhysicalPresence: false,
+		Continuity:       true,
+	})
+	for _, want := range []string{
+		"## Verification",
+		"Tier-0 (persistent software key)",
+		"sha256:abc123",
+		"Signer continuity | stable",
+		"Non-exportable key | no",
+		"cosign verify-blob",
+		"--key cosign.pub",
+		"--signature SHA256SUMS.sig",
+		"--insecure-ignore-tlog=true", // no transparency → ignore tlog
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("verification section missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
+	out := renderVerification(&Verification{
+		TierLabel: "oidc keyless", Fingerprint: "", AnchorAsset: "cosign.pub",
+		ChecksumSig: "SHA256SUMS.sig", Transparency: true,
+	})
+	if strings.Contains(out, "--insecure-ignore-tlog") {
+		t.Errorf("transparency-backed verify must not skip the tlog:\n%s", out)
+	}
+	if !strings.Contains(out, "Transparency log | yes") {
+		t.Errorf("transparency should be disclosed yes:\n%s", out)
 	}
 }

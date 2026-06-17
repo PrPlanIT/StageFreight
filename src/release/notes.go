@@ -80,6 +80,21 @@ type BinaryRow struct {
 	SHA256   string // hex-encoded checksum
 }
 
+// Verification discloses HOW a release is signed and how to verify it — stating the
+// assurance tier EXPLICITLY so "signed" never collapses distinct trust models into
+// one badge. A consumer reading this can answer: what identity do I trust, where do
+// I get it, how do I verify, and what guarantees does this tier actually provide.
+type Verification struct {
+	TierLabel        string // human label, e.g. "Tier-0 (persistent software key)"
+	Fingerprint      string // public-key fingerprint to pin (sha256:...)
+	AnchorAsset      string // release-asset filename for the public key (e.g. "cosign.pub")
+	ChecksumSig      string // detached checksum signature asset (e.g. "SHA256SUMS.sig")
+	Transparency     bool   // recorded in a transparency log
+	NonExportable    bool   // signing key is hardware-bound / non-exportable
+	PhysicalPresence bool   // a human authorized the signature
+	Continuity       bool   // identity is persistent/stable across releases
+}
+
 // NotesInput holds all data needed to render release notes.
 type NotesInput struct {
 	RepoDir      string         // git repository directory
@@ -96,6 +111,7 @@ type NotesInput struct {
 	IsPrerelease bool           // true if version has prerelease suffix
 	Images       []ImageRow     // resolved registry image rows for availability table
 	Downloads    []BinaryRow    // binary/archive artifacts for downloads table
+	Verify       *Verification  // signing/verification disclosure (nil = nothing signed)
 }
 
 // GenerateNotes produces markdown release notes from git log between two refs.
@@ -296,6 +312,47 @@ func bulletize(text string) string {
 }
 
 // formatBytes formats a byte count as a human-readable size.
+// renderVerification renders the "## Verification" section — the assurance tier
+// stated plainly plus the concrete verify recipe, so a consumer knows exactly what
+// guarantees they receive (not just "signed").
+func renderVerification(v *Verification) string {
+	yn := func(t bool) string {
+		if t {
+			return "yes"
+		}
+		return "no"
+	}
+	var b strings.Builder
+	b.WriteString("## Verification\n\n")
+	b.WriteString("| Property | Value |\n|---|---|\n")
+	b.WriteString(fmt.Sprintf("| Signing tier | %s |\n", v.TierLabel))
+	if v.Fingerprint != "" {
+		b.WriteString(fmt.Sprintf("| Public key fingerprint | `%s` |\n", v.Fingerprint))
+	}
+	b.WriteString(fmt.Sprintf("| Transparency log | %s |\n", yn(v.Transparency)))
+	continuity := "unknown"
+	if v.Continuity {
+		continuity = "stable"
+	}
+	b.WriteString(fmt.Sprintf("| Signer continuity | %s |\n", continuity))
+	b.WriteString(fmt.Sprintf("| Human authorization required | %s |\n", yn(v.PhysicalPresence)))
+	b.WriteString(fmt.Sprintf("| Non-exportable key | %s |\n\n", yn(v.NonExportable)))
+
+	if v.AnchorAsset != "" && v.ChecksumSig != "" {
+		tlog := " \\\n  --insecure-ignore-tlog=true"
+		if v.Transparency {
+			tlog = ""
+		}
+		b.WriteString("Verify the release checksums against the published public key:\n\n")
+		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --signature %s%s \\\n  SHA256SUMS\n```\n\n",
+			v.AnchorAsset, v.ChecksumSig, tlog))
+		if v.Fingerprint != "" {
+			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", v.Fingerprint))
+		}
+	}
+	return b.String()
+}
+
 func formatBytes(b int64) string {
 	const (
 		kb = 1024
@@ -538,6 +595,12 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 			b.WriteString(fmt.Sprintf("%s  %s\n", dl.SHA256, dl.Name))
 		}
 		b.WriteString("```\n</details>\n\n")
+	}
+
+	// 3c. Verification — disclose the signing tier + how to verify, explicitly, so
+	// "signed" never collapses distinct trust models into one badge.
+	if input.Verify != nil {
+		b.WriteString(renderVerification(input.Verify))
 	}
 
 	// 4. Highlights (tag message)

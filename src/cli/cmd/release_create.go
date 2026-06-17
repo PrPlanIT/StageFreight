@@ -212,6 +212,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	var imageRows []release.ImageRow
 	var downloadRows []release.BinaryRow
 	var manifestAssets []string
+	var verify *release.Verification
 
 	switch {
 	case outputsErr == nil && resultsErr == nil:
@@ -451,6 +452,17 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			manifestAssets = append(manifestAssets, s.Path)
 		}
 
+		// Publish the canonical public trust anchor (Tier-0 auto-provisioned key)
+		// and the Verification disclosure: attach cosign.pub as a release asset and
+		// state the assurance tier explicitly. Anchor + fingerprint come from the
+		// state dir; the verify recipe + tier disclosure render in the notes.
+		if v, anchorPath := buildVerification(req.Config.SigningSetup, results, rootDir); v != nil {
+			verify = v
+			if anchorPath != "" {
+				manifestAssets = append(manifestAssets, anchorPath)
+			}
+		}
+
 	case errors.Is(outputsErr, artifact.ErrOutputsManifestNotFound) ||
 		errors.Is(resultsErr, artifact.ErrResultsManifestNotFound):
 		// No v2 truth artifacts — fallback to config targets for image rows
@@ -510,6 +522,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			IsPrerelease: versionInfo.IsPrerelease,
 			Images:       imageRows,
 			Downloads:    downloadRows,
+			Verify:       verify,
 		}
 		notes, err = release.GenerateNotes(input)
 		if err != nil {
@@ -1278,6 +1291,67 @@ func newSyncForgeClientFromTarget(t config.TargetConfig, cfg *config.Config) (fo
 	}
 
 	return nil, fmt.Errorf("release target %s: mirror: is required for remote release targets", t.ID)
+}
+
+// buildVerification assembles the publish-phase trust disclosure for a Tier-0
+// auto-provisioned identity: the public anchor to attach (cosign.pub from the state
+// dir) and the Verification block disclosing the assurance tier. Manifest-sourced —
+// it acts only when the results manifest records a successful Tier-0 signature and
+// the state dir holds a valid (continuity-checked) identity. Explicit-key signing is
+// operator-managed and not auto-disclosed here. Returns (nil, "") when inapplicable.
+func buildVerification(cfg config.SigningConfig, results *artifact.ResultsManifest, repoRoot string) (*release.Verification, string) {
+	if results == nil || !cfg.StateDir.Configured() {
+		return nil, ""
+	}
+	ev, ok := tier0Evidence(results)
+	if !ok {
+		return nil, ""
+	}
+	stateDir, err := cfg.StateDir.Resolve()
+	if err != nil {
+		return nil, ""
+	}
+	if err := provision.GuardStateDir(stateDir, repoRoot); err != nil {
+		return nil, ""
+	}
+	id, err := provision.LoadIdentity(stateDir)
+	if err != nil || id == nil {
+		return nil, ""
+	}
+	v := &release.Verification{
+		TierLabel:        tierLabel(ev.Tier),
+		Fingerprint:      id.Fingerprint,
+		AnchorAsset:      "cosign.pub",
+		ChecksumSig:      "SHA256SUMS.sig",
+		Transparency:     ev.Transparency,
+		NonExportable:    ev.NonExportable,
+		PhysicalPresence: ev.PhysicalPresence,
+		Continuity:       true, // a persistent, continuity-enforced identity
+	}
+	return v, id.PubPath(stateDir)
+}
+
+// tier0Evidence finds the trust evidence of a successful Tier-0 signature in the
+// results manifest (image attestation or blob signature), if any.
+func tier0Evidence(results *artifact.ResultsManifest) (artifact.TrustEvidence, bool) {
+	for _, r := range results.Results {
+		for _, o := range r.Outcomes {
+			switch {
+			case o.BlobSignature != nil && o.BlobSignature.Status == artifact.OutcomeSuccess && o.BlobSignature.Tier == provision.TierSoftware:
+				return o.BlobSignature.TrustEvidence, true
+			case o.Attestation != nil && o.Attestation.Status == artifact.OutcomeSuccess && o.Attestation.Tier == provision.TierSoftware:
+				return o.Attestation.TrustEvidence, true
+			}
+		}
+	}
+	return artifact.TrustEvidence{}, false
+}
+
+func tierLabel(tier string) string {
+	if tier == provision.TierSoftware {
+		return "Tier-0 (persistent software key)"
+	}
+	return tier
 }
 
 // releaseAsset carries a download row, its on-disk asset path, the typed
