@@ -15,7 +15,7 @@ func TestRender_KeyClass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	want := []string{"sign", "--key", "/keys/cosign.key", "--tlog-upload=false", "--yes"}
+	want := []string{"sign", "--key", "/keys/cosign.key", "--use-signing-config=false", "--tlog-upload=false", "--yes"}
 	if !slices.Equal(args, want) {
 		t.Errorf("args = %v, want %v", args, want)
 	}
@@ -38,8 +38,11 @@ func TestRender_OIDCKeyless(t *testing.T) {
 	if slices.Contains(args, "--key") {
 		t.Errorf("keyless render must not emit --key: %v", args)
 	}
-	if !slices.Contains(args, "--tlog-upload=true") {
-		t.Errorf("oidc must upload to the transparency log: %v", args)
+	if !slices.Contains(args, "--use-signing-config=true") {
+		t.Errorf("oidc must use the signing-config (transparency log): %v", args)
+	}
+	if slices.Contains(args, "--tlog-upload=false") {
+		t.Errorf("transparency-required render must not disable the tlog: %v", args)
 	}
 }
 

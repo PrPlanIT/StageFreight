@@ -158,10 +158,17 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 	case sign.ClassOIDC:
 		// keyless — no --key flag
 	}
+	// Transparency-log control (cosign v3 semantics). cosign v3 defaults to a
+	// TUF-provided signing-config that includes Rekor, and the legacy
+	// --tlog-upload flag is deprecated + rejected alongside it. So:
+	//   - transparency required → let the signing-config supply Rekor.
+	//   - no transparency       → disable the signing-config so cosign never
+	//                             reaches for Rekor, and skip the tlog explicitly
+	//                             (the offline key/kms/hardware path).
 	if p.TransparencyRequired {
-		args = append(args, "--tlog-upload=true")
+		args = append(args, "--use-signing-config=true")
 	} else {
-		args = append(args, "--tlog-upload=false")
+		args = append(args, "--use-signing-config=false", "--tlog-upload=false")
 	}
 	// Image ops attach the signature/attestation to the registry; sign-blob is
 	// detached and takes no --upload.

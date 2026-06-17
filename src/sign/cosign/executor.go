@@ -100,6 +100,10 @@ func signEnv(plan sign.SignPlan) []string {
 	}
 	env := append(toolchain.CleanEnv(), "COSIGN_YES=1")
 	switch plan.TrustClass {
+	case sign.ClassKey:
+		// A cosign key is always password-encrypted (even with an empty password),
+		// so COSIGN_PASSWORD must reach the subprocess for the key to be usable.
+		env = append(env, forwardByPrefix(keyEnvPrefixes)...)
 	case sign.ClassOIDC:
 		env = append(env, forwardByPrefix(oidcEnvPrefixes)...)
 	case sign.ClassKMS:
@@ -107,6 +111,10 @@ func signEnv(plan sign.SignPlan) []string {
 	}
 	return env
 }
+
+// keyEnvPrefixes: the password (and any COSIGN_ tuning) needed to read an
+// encrypted key file. The key PATH itself is passed via --key, not the env.
+var keyEnvPrefixes = []string{"COSIGN_PASSWORD"}
 
 // oidcEnvPrefixes: sigstore keyless config + the CI workload-identity token vars
 // (GitHub Actions, GitLab CI) cosign uses to fetch an ambient OIDC token.

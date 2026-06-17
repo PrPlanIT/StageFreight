@@ -6,8 +6,11 @@
 >
 > **Commit 1 — the signer seam — is SHIPPED through the renderer (1a–1e):** config schema + graph +
 > validation and the pure IR + `Compile` (`9da9deb`), and the cosign renderer `Render`/`Env`/
-> `resolveKMSURI` (`6e539d2`). **Still open:** the cosign *executors* + Publish wiring (1e executors,
-> 1f–1g) and **Commit 2** (sign `SHA256SUMS`). Terminology: the config object is a **`signing_profile`**
+> `resolveKMSURI` (`6e539d2`). The cosign **executors** + their wiring (`df73062`) are also SHIPPED:
+> images are signed after push and `SHA256SUMS` after `WriteChecksums`, proven end-to-end against
+> cosign v3.0.6 by `cosign.TestSignBlobEndToEnd`. **Still open:** OIDC-keyless + hardware proven only
+> at unit level (no device/CI-OIDC e2e); a dedicated signature **artifact descriptor** for release
+> upload; and the Commit-2 SHA256SUMS-view/release-asset polish. Terminology: the config object is a **`signing_profile`**
 > (was "signing_policy"); assurance is **flat** (`physical_presence`/`non_exportable` keywords on the
 > profile), not a nested capabilities block. Sections below are tagged ✅ SHIPPED / ⏳ PENDING.
 
@@ -354,7 +357,9 @@ A **capability-satisfaction emitter**, not a mode selector. No interface, no reg
   error, never a profile field. Hardware is where `Env` genuinely enumerates multiple physical
   witnesses, so the principal-grouping is load-bearing there; `key`/`kms` resolve their single
   referenced key; `oidc` is keyless (no `--key`). `Render` emits **trust + policy flags only** —
-  `sign`/`attest`/`sign-blob`, `--key`/`--sk`, `--tlog-upload=<bool>`, and `--yes` for image
+  `sign`/`attest`/`sign-blob`, `--key`/`--sk`, the cosign-v3 transparency flags
+  (`--use-signing-config=false --tlog-upload=false` offline, `--use-signing-config=true` when a
+  transparency log is required), and `--yes` for image
   ops; the op target (image digest, blob path, `--predicate`) is appended by the executor, which
   keeps `Render` pure and table-testable.
 - Internally `Render` is `selectMechanism` (plan + env → the one satisfying mechanism) then `emit`
@@ -364,14 +369,17 @@ A **capability-satisfaction emitter**, not a mode selector. No interface, no reg
   `sign`'s `env:VAR`/path resolution at render time. The concrete URI/key never enters the profile
   or `SignPlan`.
 
-**⏳ PENDING — the next slice: executors + invocation.** Concrete functions (not interface methods):
-`SignImage(ctx, rootDir, desired, digestRef, plan, opts)`, `Attest(...)`, `SignBlob(ctx, …,
-blobPath, plan)`, `Available(env)`. Each calls `Render`, then execs cosign via
-`toolchain.Resolve("cosign", …)` with `COSIGN_YES=1` and a class-specific `signEnv(p)` (hermetic
-`CleanEnv` for key; OIDC/KMS/PKCS#11 env forwarded per class). Hardware is interactive (device +
-presence/PIN) — wired but not unattended-CI-runnable. **These executors, and invoking them from
-Publish (1f/1g), are the orchestration boundary — Publish owns signing orchestration (foundational
-invariant 4); the renderer does not.**
+**✅ SHIPPED (`df73062`): executors + invocation.** Concrete functions (not interface methods):
+`SignImage(ctx, rootDir, desired, digestRef, plan, env, opts)`, `Attest(...)`, `SignBlob(ctx, …,
+blobPath, plan, env) (sigPath, err)`, `Available(env)`. Each calls `Render`, then execs cosign via
+`toolchain.Resolve("cosign", …)` with a class-specific `signEnv(p)`: hermetic `CleanEnv`+`COSIGN_YES=1`
+for `key` (forwarding `COSIGN_PASSWORD` so an encrypted key is usable), plus sigstore/CI-OIDC token
+vars for `oidc`, cloud-cred vars for `kms`, and the full host env for `hardware` (interactive — wired,
+not unattended-CI-runnable). Invoked from the publish phase: `signImages` after a successful push
+(maps each buildx `PushObservation` back to its target's profile by host/path; legacy default signs
+when `COSIGN_KEY` resolves) and `signChecksums` after `WriteChecksums` (explicit profile only — the
+legacy default never auto-signs blobs). **Publish owns this orchestration (foundational invariant 4);
+the renderer does not.** Best-effort + loud: a failure records a failed outcome and warns, never aborts.
 
 ### 1f. Refactor call sites onto the compiler — `src/build/docker`
 The cosign functions in `docker/sign.go` (`CosignSign`/`CosignAttest`/`CosignAvailable`, :15-93)
@@ -399,9 +407,11 @@ primitive the renderer reuses.
   `plan := sign.Compile(profile)`; guard `if !sign.Enabled(plan) || digest == ""`; then
   `cosign.SignImage(...plan...)` / `cosign.Attest(...plan...)`.
 - **Back-compat guarantee:** no `signing_profiles:` and no `signing_profile` ⇒ `legacy` profile ⇒
-  `class:key`/`env:COSIGN_KEY` ⇒ the shipped renderer emits `sign --key <path> --tlog-upload=false
-  --yes`, matching today's invocation. The dogfood build (verification, below) is what proves the
-  refactor is behavior-preserving once 1f/1g wires the renderer in.
+  `class:key`/`env:COSIGN_KEY` ⇒ the shipped renderer emits `sign --key <path>
+  --use-signing-config=false --tlog-upload=false --yes` (cosign v3 offline key signing). Proven
+  end-to-end by `cosign.TestSignBlobEndToEnd` (`-tags integration`): the executor signs a blob with a
+  generated key and `cosign verify-blob` confirms it. (Signing was previously dormant — there is no
+  live legacy invocation to be byte-identical to; the bar is "produces a verifiable signature.")
 
 ### Commit 1 verification
 - Unit: `sign.Compile` (config profile → `SignPlan` requirements, every class, legacy default —
