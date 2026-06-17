@@ -786,11 +786,11 @@ once to verify all releases). Surface both, in the right places:
 4. **Always-on default** — ✅ auto-provision (continuity-fatal, consent-gated) + the advisory shipped;
    **remaining: auto-publish the anchor** (the pubkey to the release + a well-known path) and the runner
    ships the visible `auto_provision: true` default.
-5. ✅ **`stagefreight sign` command** (O.4-A) — additive, manifest-sourced human signing: refuses digest
-   drift, writes a distinct sig (preserves lower tiers), extends the manifest with tier+timestamp.
-   Generic (interactivity emerges from the class; hardware prompts for touch). Unlocks YubiKey. *Blob
-   (SHA256SUMS) path shipped + tested; image attestation is the follow-up; the real touch flow needs
-   operator hardware validation.*
+5. ✅ **`stagefreight sign` command** (O.4-A) — additive, manifest-sourced human signing across **both
+   release blobs and image digests**: refuses digest drift, writes distinct sigs (preserves lower
+   tiers), extends the manifest with tier+timestamp, dedupes image digests. Generic (interactivity
+   emerges from the class; hardware prompts per artifact). Unlocks YubiKey. *Shipped + tested; the real
+   touch + registry round-trip needs operator hardware validation.*
 6. **Vault-transit-via-workload-identity** (Tier 2) — auto-provision + OIDC auth onto the existing `kms`
    class; the recommended real tier.
 7. **Deployment endpoint wiring** (O.4-B, `SF_SIGN_SIGSTORE_*`) + renderer flags — turns on private
