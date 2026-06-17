@@ -472,6 +472,10 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, ValidateTargetRepoRefs(cfg.Targets, cfg.Repos)...)
 	}
 
+	// ── Signing trust profiles (policy-level; the single validation layer) ──
+	errs = append(errs, ValidateSigningProfiles(cfg.Signing)...)
+	errs = append(errs, ValidateTargetSigningProfileRefs(cfg.Targets, cfg.Signing)...)
+
 	// ── Unused matcher warning (high signal, low cost) ──────────────────
 	//
 	// Cross-check declared branch matchers against references. If a matcher

@@ -14,6 +14,11 @@ import (
 //
 // Called once after load+validate, before any consumer reads the config.
 func Normalize(cfg *Config) error {
+	// Signing: alias canonicalization (keyless→oidc, yubikey→hardware) + legacy
+	// profile synthesis are independent of {var:} templating and must run even
+	// when no vars are defined — so they precede the vars short-circuit.
+	cfg.Signing = NormalizeSigning(cfg.Signing)
+
 	if len(cfg.Vars) == 0 {
 		return nil
 	}

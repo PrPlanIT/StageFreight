@@ -35,6 +35,11 @@ type Config struct {
 	// Registries declares OCI registry hosts. Referenced by targets.
 	Registries []RegistryConfig `yaml:"registries,omitempty"`
 
+	// Signing declares named trust profiles (generic primitives). Referenced
+	// per-target by signing_profile: <id>. "Releases require hardware" is project
+	// policy (the target's selection), never encoded in the framework.
+	Signing []SigningProfile `yaml:"signing_profiles,omitempty"`
+
 	// Versioning controls how version identity is derived from git state.
 	Versioning VersioningConfig `yaml:"versioning"`
 

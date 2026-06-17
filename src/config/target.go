@@ -38,6 +38,11 @@ type TargetConfig struct {
 	// Path can still be overridden on the target (overrides registry default_path).
 	Registry string `yaml:"registry,omitempty"`
 
+	// SigningProfile references a signing_profiles[].id — the trust profile this
+	// target signs under. Empty = the synthesized `legacy` profile (key-signing,
+	// inert unless a key resolves). Reference-by-id, same pattern as Registry.
+	SigningProfile string `yaml:"signing_profile,omitempty"`
+
 	// ── Shared fields (used by multiple kinds, legacy when registry: is set) ──
 
 	// URL is the registry/forge hostname (kind: registry, docker-readme, release).
