@@ -116,6 +116,19 @@ type PushOutcome struct {
 	Error          string        `json:"error,omitempty"`
 }
 
+// TrustEvidence is the resolved assurance a signature actually carried, recorded
+// at sign time so a consumer can answer "what did this signature attest?" from the
+// manifest alone — never reducing a signing event to signed=true. These are facts
+// resolved from the SignPlan, not a re-adjudication (that is the verification
+// phase's job); recording them now is pure serialization-of-facts.
+type TrustEvidence struct {
+	TrustClass       string `json:"trust_class,omitempty"`       // key | oidc | kms | hardware
+	PhysicalPresence bool   `json:"physical_presence,omitempty"` // signer demonstrated physical presence
+	NonExportable    bool   `json:"non_exportable,omitempty"`    // signing key was hardware-bound / non-exportable
+	Transparency     bool   `json:"transparency,omitempty"`      // recorded in a transparency log
+	SignerRef        string `json:"signer_ref,omitempty"`        // signer identity material (key/kms ref, oidc identity)
+}
+
 // AttestationOutcome is the result of attempting to sign or attest an
 // already-published reference. Linked to the corresponding PushOutcome via
 // shared ArtifactID + Target — never embedded inside it.
@@ -125,7 +138,8 @@ type AttestationOutcome struct {
 	SignatureRef   string        `json:"signature_ref,omitempty"`
 	AttestationRef string        `json:"attestation_ref,omitempty"`
 	VerifiedDigest string        `json:"verified_digest,omitempty"`
-	Error          string        `json:"error,omitempty"`
+	TrustEvidence
+	Error string `json:"error,omitempty"`
 }
 
 // BlobSignatureOutcome is the result of signing a detached blob (e.g.
@@ -139,8 +153,8 @@ type BlobSignatureOutcome struct {
 	Kind          string        `json:"kind,omitempty"` // signer mechanism, e.g. "cosign"
 	BlobPath      string        `json:"blob_path,omitempty"`
 	SignaturePath string        `json:"signature_path,omitempty"`
-	Class         string        `json:"class,omitempty"` // resolved trust class
-	Error         string        `json:"error,omitempty"`
+	TrustEvidence
+	Error string `json:"error,omitempty"`
 }
 
 // BinaryOutcome is the result of building one binary artifact. The

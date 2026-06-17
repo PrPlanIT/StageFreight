@@ -277,8 +277,12 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 
 			// Sign the checksum bundle when the target names an explicit
 			// signing_profile — the trust anchor for every archive it covers.
-			if row := b.signChecksums(rc, t, checksumPath); row != "" {
+			row, serr := b.signChecksums(rc, t, checksumPath)
+			if row != "" {
 				rows = append(rows, row)
+			}
+			if serr != nil {
+				return domains.Contribution{Rows: rows, Status: "failed", Summary: "checksum signing failed"}, serr
 			}
 		}
 		archiveCount += len(targetArchives)
@@ -293,51 +297,68 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 
 // signChecksums signs SHA256SUMS with cosign when the target names an EXPLICIT
 // signing_profile. The synthesized `legacy` default never auto-signs blobs (locked
-// back-compat decision) — so an empty signing_profile is a deliberate skip, not a
-// gap. Returns a status row, or "" when nothing was signed. Best-effort: a signing
-// failure is recorded as a failed blob_signature outcome and surfaced as a row, but
-// does not fail the build — whether a missing checksum signature blocks a release is
-// Publish's policy, not the binary contributor's.
-func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.TargetConfig, checksumPath string) string {
+// back-compat decision) — so an empty signing_profile is a deliberate skip. Returns
+// a status row (or "") and a fatal error: by default a signing failure is recorded
+// + surfaced but non-fatal (Publish owns block-vs-proceed); a profile with
+// `enforce: true` makes it fatal. The recorded outcome carries the resolved trust
+// evidence, never a bare signed=true.
+func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.TargetConfig, checksumPath string) (string, error) {
 	if t.SigningProfile == "" {
-		return "" // legacy default does not auto-sign blobs
+		return "", nil // legacy default does not auto-sign blobs
 	}
 	profile, err := config.ResolveSigningProfileForTarget(t, rc.Config.Signing)
 	if err != nil {
 		diag.Warn("checksum signing for %s: %v", t.ID, err)
-		return ""
+		return "", nil
 	}
 	plan := sign.Compile(profile)
 	if !sign.Enabled(plan) {
-		return "" // e.g. a key profile whose key reference does not resolve
+		return "", nil // e.g. a key profile whose key reference does not resolve
 	}
 
 	artifactID := artifact.NewArtifactID("checksums", filepath.Base(checksumPath))
+	evidence := planEvidence(plan)
 	sigPath, err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, plan, cosign.Env{})
 	if err != nil {
 		rc.RB.Record(artifactID, artifact.Outcome{
 			Type: artifact.OutcomeTypeBlobSignature,
 			BlobSignature: &artifact.BlobSignatureOutcome{
 				Status: artifact.OutcomeFailed, Kind: "cosign",
-				BlobPath: checksumPath, Class: string(plan.TrustClass), Error: err.Error(),
+				BlobPath: checksumPath, TrustEvidence: evidence, Error: err.Error(),
 			},
 		})
-		return fmt.Sprintf("%-9s %-40s %s  signature failed",
+		row := fmt.Sprintf("%-9s %-40s %s  signature failed",
 			"binary", filepath.Base(checksumPath)+".sig", output.StatusIcon("failed", rc.Color))
+		if profile.Enforce {
+			return row, fmt.Errorf("signing checksums for %s (enforce): %w", t.ID, err)
+		}
+		return row, nil
 	}
 
 	// The detached signature lands in DistDir beside SHA256SUMS (so release upload
-	// ships it); its authoritative record is the blob_signature outcome below. A
-	// dedicated signature artifact-descriptor is a separate change.
+	// ships it); its authoritative record is the blob_signature outcome below.
 	rc.RB.Record(artifactID, artifact.Outcome{
 		Type: artifact.OutcomeTypeBlobSignature,
 		BlobSignature: &artifact.BlobSignatureOutcome{
 			Status: artifact.OutcomeSuccess, Kind: "cosign",
-			BlobPath: checksumPath, SignaturePath: sigPath, Class: string(plan.TrustClass),
+			BlobPath: checksumPath, SignaturePath: sigPath, TrustEvidence: evidence,
 		},
 	})
 	return fmt.Sprintf("%-9s %-40s %s  signature",
-		"binary", filepath.Base(sigPath), output.StatusIcon("success", rc.Color))
+		"binary", filepath.Base(sigPath), output.StatusIcon("success", rc.Color)), nil
+}
+
+// planEvidence projects a resolved SignPlan to the trust evidence recorded for a
+// signing outcome — the assurance facts + signer identity material, captured so the
+// manifest answers "what did this signature attest?" without re-deriving it.
+func planEvidence(plan sign.SignPlan) artifact.TrustEvidence {
+	return artifact.TrustEvidence{
+		TrustClass:       string(plan.TrustClass),
+		PhysicalPresence: plan.RequiresPhysicalPresence,
+		NonExportable:    plan.RequiresNonExportableKey,
+		Transparency:     plan.TransparencyRequired,
+		SignerRef:        sign.SignerRef(plan),
+	}
 }
 
 // ── relocated binary helpers (were cmd-local) ────────────────────────────────

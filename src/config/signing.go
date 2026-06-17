@@ -38,6 +38,12 @@ type SigningProfile struct {
 
 	// Attestation also emits a provenance attestation alongside the signature.
 	Attestation bool `yaml:"attestation,omitempty"`
+
+	// Enforce makes a signing failure fatal to the phase (default: best-effort —
+	// warn + record a failed outcome, let the build proceed). An orchestration
+	// policy, NOT a trust requirement — it never enters the SignPlan; Publish reads
+	// it to decide block-vs-proceed (foundational invariant 4).
+	Enforce bool `yaml:"enforce,omitempty"`
 }
 
 // KeyTrust is a key reference — "path" or "env:VAR". A reference, not a mechanism.
@@ -168,6 +174,7 @@ type ResolvedSigningProfile struct {
 	NonExportable    bool
 	TransparencyLog  *bool // nil = use the class default
 	Attestation      bool
+	Enforce          bool // signing failure is fatal (orchestration policy, not trust)
 }
 
 // ResolveSigningProfileForTarget returns the resolved profile a target signs
@@ -198,6 +205,7 @@ func resolveSigningProfile(p *SigningProfile) *ResolvedSigningProfile {
 		ID:               p.ID,
 		TransparencyLog:  p.TransparencyLog,
 		Attestation:      p.Attestation,
+		Enforce:          p.Enforce,
 		PhysicalPresence: strings.EqualFold(p.PhysicalPresence, assuranceRequired),
 		NonExportable:    strings.EqualFold(p.NonExportable, assuranceRequired),
 	}

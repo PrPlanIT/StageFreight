@@ -52,7 +52,9 @@ func buildRetainRecord(rc *domains.RunContext, plan *build.BuildPlan, label stri
 		captureArtifactDigests(plan, &outputs)
 		storeRows = contentStoreRows(persistArtifactsRecords(plan, &outputs, store))
 		pushed = recordPublicationOutcomes(rc.RB, result.Steps)
-		signImages(rc, plan, result.Steps)
+		if serr := signImages(rc, plan, result.Steps); serr != nil {
+			return result, storeRows, pushed, serr
+		}
 		rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, outputs.Artifacts...)
 	}
 	return result, storeRows, pushed, nil
@@ -64,7 +66,7 @@ func buildRetainRecord(rc *domains.RunContext, plan *build.BuildPlan, label stri
 // and loud: a failure is recorded as a failed attestation outcome and warned, but
 // never aborts the build; whether a missing signature blocks a release is Publish's
 // policy. Signing belongs to Publish — this is that step within the publish phase.
-func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.StepResult) {
+func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.StepResult) error {
 	// Index each registry endpoint's profile + multi-arch flag by host/path —
 	// the join key back from a buildx PushObservation to its lowered target.
 	type sigTarget struct {
@@ -94,6 +96,13 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 			}
 			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
+			evidence := artifact.TrustEvidence{
+				TrustClass:       string(signPlan.TrustClass),
+				PhysicalPresence: signPlan.RequiresPhysicalPresence,
+				NonExportable:    signPlan.RequiresNonExportableKey,
+				Transparency:     signPlan.TransparencyRequired,
+				SignerRef:        sign.SignerRef(signPlan),
+			}
 			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.Env{}, sign.SignOptions{MultiArch: tgt.multiArch})
 			if err != nil {
 				diag.Warn("image signing %s: %v", digestRef, err)
@@ -101,20 +110,24 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 					Type: artifact.OutcomeTypeAttestation, Target: target,
 					Attestation: &artifact.AttestationOutcome{
 						Status: artifact.OutcomeFailed, Kind: "cosign",
-						VerifiedDigest: obs.Digest, Error: err.Error(),
+						VerifiedDigest: obs.Digest, TrustEvidence: evidence, Error: err.Error(),
 					},
 				})
+				if tgt.profile.Enforce {
+					return fmt.Errorf("signing image %s (enforce): %w", digestRef, err)
+				}
 				continue
 			}
 			rc.RB.Record(artifactID, artifact.Outcome{
 				Type: artifact.OutcomeTypeAttestation, Target: target,
 				Attestation: &artifact.AttestationOutcome{
 					Status: artifact.OutcomeSuccess, Kind: "cosign",
-					SignatureRef: digestRef, VerifiedDigest: obs.Digest,
+					SignatureRef: digestRef, VerifiedDigest: obs.Digest, TrustEvidence: evidence,
 				},
 			})
 		}
 	}
+	return nil
 }
 
 // runPostBuildRetention enforces cache retention (buildkit/local/external) and

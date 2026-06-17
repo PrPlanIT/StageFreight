@@ -33,13 +33,18 @@ func SignImage(ctx context.Context, rootDir string, desired map[string]config.To
 	return run(ctx, rootDir, desired, plan, "sign", args)
 }
 
-// Attest binds a predicate (SLSA provenance) to an image digest ref per the plan.
-func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef, predicatePath string, plan sign.SignPlan, env Env) error {
+// Attest binds a predicate to an image digest ref per the plan. The predicate
+// path AND type are caller-supplied (opts) — the executor serializes them, it
+// never defaults a predicate semantic of its own.
+func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
+	if opts.PredicatePath == "" || opts.PredicateType == "" {
+		return fmt.Errorf("cosign attest: predicate path and type are required (the executor never defaults them)")
+	}
 	args, err := Render(plan, sign.OpAttest, env)
 	if err != nil {
 		return fmt.Errorf("cosign attest: %w", err)
 	}
-	args = append(args, "--predicate", predicatePath, "--type", "slsaprovenance", digestRef)
+	args = append(args, "--predicate", opts.PredicatePath, "--type", opts.PredicateType, digestRef)
 	return run(ctx, rootDir, desired, plan, "attest", args)
 }
 

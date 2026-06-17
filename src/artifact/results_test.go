@@ -339,7 +339,8 @@ func TestBlobSignatureOutcomeIsUntargeted(t *testing.T) {
 			Type: OutcomeTypeBlobSignature,
 			BlobSignature: &BlobSignatureOutcome{
 				Status: OutcomeSuccess, Kind: "cosign",
-				BlobPath: "dist/SHA256SUMS", SignaturePath: "dist/SHA256SUMS.sig", Class: "key",
+				BlobPath: "dist/SHA256SUMS", SignaturePath: "dist/SHA256SUMS.sig",
+				TrustEvidence: TrustEvidence{TrustClass: "key", NonExportable: true, SignerRef: "env:COSIGN_KEY"},
 			},
 		}},
 	}

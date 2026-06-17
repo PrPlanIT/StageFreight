@@ -66,6 +66,24 @@ type SignPlan struct {
 type SignOptions struct {
 	MultiArch     bool
 	PredicatePath string
+	PredicateType string // attestation predicate type (e.g. "slsaprovenance"); caller-set, never executor-defaulted
+}
+
+// SignerRef returns the signer identity material a plan signs under, for
+// recording as trust evidence (never for execution). Key/kms: the logical ref;
+// oidc: the (issuer, subject) identity; empty when nothing identifies the signer.
+func SignerRef(p SignPlan) string {
+	switch p.TrustClass {
+	case ClassKey:
+		return p.KeyRef
+	case ClassKMS:
+		return p.KMSRef
+	case ClassOIDC:
+		if p.Identity.Issuer != "" || p.Identity.Subject != "" {
+			return p.Identity.Issuer + "/" + p.Identity.Subject
+		}
+	}
+	return ""
 }
 
 // SignatureResult is the structured outcome of a signing operation (Commit 2
