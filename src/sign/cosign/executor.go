@@ -106,8 +106,11 @@ func signEnv(plan sign.SignPlan) []string {
 	env := append(toolchain.CleanEnv(), "COSIGN_YES=1")
 	switch plan.TrustClass {
 	case sign.ClassKey:
-		// A cosign key is always password-encrypted (even with an empty password),
-		// so COSIGN_PASSWORD must reach the subprocess for the key to be usable.
+		// A cosign key is always password-encrypted (even with an empty password).
+		// Default COSIGN_PASSWORD="" — Tier-0 auto-provisioned keys use an empty
+		// password (the durable state dir is the protection boundary) — then forward
+		// an operator-set value, which overrides (last entry wins in the exec env).
+		env = append(env, "COSIGN_PASSWORD=")
 		env = append(env, forwardByPrefix(keyEnvPrefixes)...)
 	case sign.ClassOIDC:
 		env = append(env, forwardByPrefix(oidcEnvPrefixes)...)

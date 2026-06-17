@@ -38,7 +38,8 @@ type Config struct {
 	// Signing declares named trust profiles (generic primitives). Referenced
 	// per-target by signing_profile: <id>. "Releases require hardware" is project
 	// policy (the target's selection), never encoded in the framework.
-	Signing []SigningProfile `yaml:"signing_profiles,omitempty"`
+	Signing      []SigningProfile `yaml:"signing_profiles,omitempty"`
+	SigningSetup SigningConfig    `yaml:"signing,omitempty"`
 
 	// Versioning controls how version identity is derived from git state.
 	Versioning VersioningConfig `yaml:"versioning"`

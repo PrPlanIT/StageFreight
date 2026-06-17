@@ -475,6 +475,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// ── Signing trust profiles (policy-level; the single validation layer) ──
 	errs = append(errs, ValidateSigningProfiles(cfg.Signing)...)
 	errs = append(errs, ValidateTargetSigningProfileRefs(cfg.Targets, cfg.Signing)...)
+	errs = append(errs, ValidateSigningConfig(cfg.SigningSetup)...)
 
 	// ── Unused matcher warning (high signal, low cost) ──────────────────
 	//

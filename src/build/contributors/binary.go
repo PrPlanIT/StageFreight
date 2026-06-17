@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -19,6 +20,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/sign"
+	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -303,21 +305,36 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 // `enforce: true` makes it fatal. The recorded outcome carries the resolved trust
 // evidence, never a bare signed=true.
 func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.TargetConfig, checksumPath string) (string, error) {
-	if t.SigningProfile == "" {
-		return "", nil // legacy default does not auto-sign blobs
-	}
-	profile, err := config.ResolveSigningProfileForTarget(t, rc.Config.Signing)
-	if err != nil {
-		diag.Warn("checksum signing for %s: %v", t.ID, err)
-		return "", nil
-	}
-	plan := sign.Compile(profile)
-	if !sign.Enabled(plan) {
-		return "", nil // e.g. a key profile whose key reference does not resolve
+	cfg := rc.Config.SigningSetup
+	if !cfg.SigningEnabled() {
+		return "", nil // global kill switch
 	}
 
+	// Explicit profile if the target names one; otherwise nil — checksums sign
+	// without a profile ONLY under consented Tier-0 auto-provision (the legacy
+	// default never auto-signs blobs).
+	var profile *config.ResolvedSigningProfile
+	if t.SigningProfile != "" {
+		p, err := config.ResolveSigningProfileForTarget(t, rc.Config.Signing)
+		if err != nil {
+			diag.Warn("checksum signing for %s: %v", t.ID, err)
+			return "", nil
+		}
+		profile = p
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	plan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+	if serr != nil {
+		return "", serr // FATAL (continuity / state-dir guard)
+	}
+	if !doSign {
+		return "", nil // no profile + no consented Tier-0 → deliberate skip
+	}
+	enforce := profile != nil && profile.Enforce
+
 	artifactID := artifact.NewArtifactID("checksums", filepath.Base(checksumPath))
-	evidence := planEvidence(plan)
+	evidence := planEvidence(plan, tier)
 	sigPath, err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, plan, cosign.Env{})
 	if err != nil {
 		rc.RB.Record(artifactID, artifact.Outcome{
@@ -329,7 +346,7 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 		})
 		row := fmt.Sprintf("%-9s %-40s %s  signature failed",
 			"binary", filepath.Base(checksumPath)+".sig", output.StatusIcon("failed", rc.Color))
-		if profile.Enforce {
+		if enforce {
 			return row, fmt.Errorf("signing checksums for %s (enforce): %w", t.ID, err)
 		}
 		return row, nil
@@ -348,12 +365,13 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 		"binary", filepath.Base(sigPath), output.StatusIcon("success", rc.Color)), nil
 }
 
-// planEvidence projects a resolved SignPlan to the trust evidence recorded for a
-// signing outcome — the assurance facts + signer identity material, captured so the
+// planEvidence projects a resolved SignPlan (+ assurance tier) to recorded trust
+// evidence — the assurance facts + signer identity material, captured so the
 // manifest answers "what did this signature attest?" without re-deriving it.
-func planEvidence(plan sign.SignPlan) artifact.TrustEvidence {
+func planEvidence(plan sign.SignPlan, tier string) artifact.TrustEvidence {
 	return artifact.TrustEvidence{
 		TrustClass:       string(plan.TrustClass),
+		Tier:             tier,
 		PhysicalPresence: plan.RequiresPhysicalPresence,
 		NonExportable:    plan.RequiresNonExportableKey,
 		Transparency:     plan.TransparencyRequired,

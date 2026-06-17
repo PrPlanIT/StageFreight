@@ -18,6 +18,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
 	"github.com/PrPlanIT/StageFreight/src/sign"
+	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
@@ -67,6 +68,11 @@ func buildRetainRecord(rc *domains.RunContext, plan *build.BuildPlan, label stri
 // never aborts the build; whether a missing signature blocks a release is Publish's
 // policy. Signing belongs to Publish — this is that step within the publish phase.
 func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.StepResult) error {
+	cfg := rc.Config.SigningSetup
+	if !cfg.SigningEnabled() {
+		return nil // global kill switch — no signing this run
+	}
+
 	// Index each registry endpoint's profile + multi-arch flag by host/path —
 	// the join key back from a buildx PushObservation to its lowered target.
 	type sigTarget struct {
@@ -80,24 +86,29 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 		}
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+	pushedAny, attemptedAny := false, false
 	for _, step := range steps {
 		artifactID := artifact.NewArtifactID("docker", step.Name)
 		for _, obs := range step.Publications {
 			if obs.Digest == "" {
 				continue
 			}
-			tgt, ok := byEndpoint[obs.Host+"/"+obs.Path]
-			if !ok || tgt.profile == nil {
+			pushedAny = true
+			tgt := byEndpoint[obs.Host+"/"+obs.Path]
+			signPlan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+			if serr != nil {
+				return serr // FATAL (continuity / state-dir guard)
+			}
+			if !doSign {
 				continue
 			}
-			signPlan := sign.Compile(tgt.profile)
-			if !sign.Enabled(signPlan) {
-				continue // e.g. legacy default with no COSIGN_KEY present
-			}
+			attemptedAny = true
 			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
 			evidence := artifact.TrustEvidence{
 				TrustClass:       string(signPlan.TrustClass),
+				Tier:             tier,
 				PhysicalPresence: signPlan.RequiresPhysicalPresence,
 				NonExportable:    signPlan.RequiresNonExportableKey,
 				Transparency:     signPlan.TransparencyRequired,
@@ -113,7 +124,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 						VerifiedDigest: obs.Digest, TrustEvidence: evidence, Error: err.Error(),
 					},
 				})
-				if tgt.profile.Enforce {
+				if tgt.profile != nil && tgt.profile.Enforce {
 					return fmt.Errorf("signing image %s (enforce): %w", digestRef, err)
 				}
 				continue
@@ -126,6 +137,13 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 				},
 			})
 		}
+	}
+
+	// Visible advisory: signing is enabled and images were published, but NO signer
+	// resolved — so the operator does not silently ship unsigned images believing
+	// signing is on. (Per-image signing FAILURES are warned separately above.)
+	if pushedAny && !attemptedAny {
+		diag.Warn("signing is enabled but no images were signed — %s", autosign.InactiveReason(cfg))
 	}
 	return nil
 }
