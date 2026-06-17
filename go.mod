@@ -8,7 +8,7 @@ require (
 	github.com/google/go-containerregistry v0.21.6
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/moby/patternmatcher v0.6.1
-	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/pelletier/go-toml/v2 v2.4.0
 	github.com/sergi/go-diff v1.4.0
 	github.com/skeema/knownhosts v1.3.2
 	github.com/spf13/cobra v1.10.2
