@@ -39,7 +39,7 @@ const sfGeneratedTrailer = "X-StageFreight-Generated: true"
 //
 // Hooks are NOT run during replay — replay commits are machine-generated
 // re-applications; running hooks again would double-execute side effects.
-func Replay(session *gitstate.SyncSession) error {
+func Replay(session *gitstate.SyncSession) (err error) {
 	repo := session.Repo()
 	state := session.State()
 
@@ -62,14 +62,11 @@ func Replay(session *gitstate.SyncSession) error {
 		return gitstate.ErrNoUpstream
 	}
 
-	// Pre-condition: worktree must be clean
-	wtStatus, err := wt.Status()
-	if err != nil {
-		return fmt.Errorf("checking worktree status: %w", err)
-	}
-	if !wtStatus.IsClean() {
-		return gitstate.ErrDirtyWorktree
-	}
+	// Uncommitted worktree changes are NOT a pre-condition failure. `git push`
+	// never touches the working tree; this replay hard-resets it, so it must
+	// preserve the operator's in-progress edits rather than refuse (or discard)
+	// them — git rebase --autostash semantics. Snapshot is taken just before the
+	// reset (below) and restored on every exit path.
 
 	originalHEAD := state.HeadHash
 
@@ -137,6 +134,31 @@ func Replay(session *gitstate.SyncSession) error {
 
 	// Get repo root for filesystem operations
 	repoRoot := wt.Filesystem.Root()
+
+	// Autostash: snapshot uncommitted changes before the reset, restore after the
+	// rebase (and on any failure path). A snapshotted path the rebase also touched
+	// is a conflict — reported, never silently overwriting the rebased content.
+	stash, err := captureWorktree(wt, repoRoot)
+	if err != nil {
+		return fmt.Errorf("snapshotting uncommitted changes: %w", err)
+	}
+	rebasePaths, err := changedPaths(commits)
+	if err != nil {
+		return fmt.Errorf("computing rebase paths: %w", err)
+	}
+	// Abort BEFORE any mutation if an uncommitted change conflicts with the rebase
+	// — the worktree is untouched, so the operator's work is never lost (no
+	// silent clobber, no half-applied stash). They commit/set aside and retry.
+	if conflicts := stashConflicts(stash, rebasePaths); len(conflicts) > 0 {
+		return fmt.Errorf("uncommitted changes to %s conflict with the rebase onto upstream — commit or set them aside first, then retry", strings.Join(conflicts, ", "))
+	}
+	// Restore the (now conflict-free) snapshot on every exit path — a failed
+	// rebase must not lose the operator's uncommitted work either.
+	defer func() {
+		if rerr := restoreWorktree(repoRoot, stash); rerr != nil && err == nil {
+			err = rerr
+		}
+	}()
 
 	// 5. Hard reset to upstream — mutation begins here
 	if err := wt.Reset(&git.ResetOptions{
@@ -652,4 +674,130 @@ func firstLine(s string) string {
 		s = s[:72] + "…"
 	}
 	return s
+}
+
+// ── Autostash: preserve uncommitted worktree changes across the rebase ────────
+// `git push` never touches the working tree; this replay hard-resets it, so it
+// must snapshot the operator's in-progress edits and restore them afterward
+// (git rebase --autostash). Refusing on a dirty tree, or discarding it, is a
+// regression over git that does not help operators.
+
+type stashedFile struct {
+	path    string
+	content []byte
+	mode    os.FileMode
+	deleted bool
+}
+
+// captureWorktree snapshots uncommitted changes to TRACKED files — the ones a
+// hard reset would discard. Untracked files survive a reset and are left alone.
+func captureWorktree(wt *git.Worktree, repoRoot string) ([]stashedFile, error) {
+	st, err := wt.Status()
+	if err != nil {
+		return nil, err
+	}
+	var out []stashedFile
+	for path, s := range st {
+		if s.Worktree == git.Untracked {
+			continue // survives a hard reset; not ours to manage
+		}
+		if s.Staging == git.Unmodified && s.Worktree == git.Unmodified {
+			continue
+		}
+		full := filepath.Join(repoRoot, path)
+		info, serr := os.Stat(full)
+		if serr != nil {
+			if os.IsNotExist(serr) {
+				out = append(out, stashedFile{path: path, deleted: true})
+				continue
+			}
+			return nil, serr
+		}
+		data, rerr := os.ReadFile(full)
+		if rerr != nil {
+			return nil, rerr
+		}
+		out = append(out, stashedFile{path: path, content: data, mode: info.Mode().Perm()})
+	}
+	return out, nil
+}
+
+// changedPaths is the union of repo-relative paths the given commits modify (each
+// vs its first parent) — the paths the rebase will touch, used to detect a stash
+// conflict (a snapshotted path that the rebase also changed).
+func changedPaths(commits []*object.Commit) (map[string]bool, error) {
+	paths := map[string]bool{}
+	for _, c := range commits {
+		ct, err := c.Tree()
+		if err != nil {
+			return nil, err
+		}
+		var parentTree *object.Tree
+		if c.NumParents() > 0 {
+			p, perr := c.Parent(0)
+			if perr != nil {
+				return nil, perr
+			}
+			if parentTree, err = p.Tree(); err != nil {
+				return nil, err
+			}
+		}
+		var changes object.Changes
+		if parentTree != nil {
+			changes, err = parentTree.Diff(ct)
+		} else {
+			changes, err = (&object.Tree{}).Diff(ct)
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, ch := range changes {
+			if ch.From.Name != "" {
+				paths[ch.From.Name] = true
+			}
+			if ch.To.Name != "" {
+				paths[ch.To.Name] = true
+			}
+		}
+	}
+	return paths, nil
+}
+
+// stashConflicts returns the snapshotted paths the rebase also modifies — the
+// cases where re-applying the snapshot would clobber rebased content. Detected
+// before any mutation so the replay can abort with the worktree intact.
+func stashConflicts(stash []stashedFile, rebasePaths map[string]bool) []string {
+	var c []string
+	for _, f := range stash {
+		if rebasePaths[f.path] {
+			c = append(c, f.path)
+		}
+	}
+	sort.Strings(c)
+	return c
+}
+
+// restoreWorktree re-applies the (conflict-free) autostash onto the current
+// worktree — the operator's uncommitted edits, back on top of the rebased state.
+func restoreWorktree(repoRoot string, stash []stashedFile) error {
+	for _, f := range stash {
+		full := filepath.Join(repoRoot, f.path)
+		if f.deleted {
+			if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("restoring (delete) %s: %w", f.path, err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return fmt.Errorf("restoring %s: %w", f.path, err)
+		}
+		mode := f.mode
+		if mode == 0 {
+			mode = 0o644
+		}
+		if err := os.WriteFile(full, f.content, mode); err != nil {
+			return fmt.Errorf("restoring %s: %w", f.path, err)
+		}
+	}
+	return nil
 }
