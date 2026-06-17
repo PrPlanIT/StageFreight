@@ -21,8 +21,8 @@ func TestWriteReadRoundtrip(t *testing.T) {
 			Roots: 3,
 			Verdicts: map[string]Verdict{
 				"flux-system/apps":    {Status: "pass"},
-				"flux-system/gitlab":  {Status: "fail", Reasons: []string{"HelmRelease/gitlab: schema error"}},
-				"flux-system/storage": {Status: "fail", Reasons: []string{"in or downstream of a dependsOn cycle"}},
+				"flux-system/gitlab":  {Status: "fail", Findings: []Finding{{Severity: "fail", Source: "core-schema", Message: "HelmRelease/gitlab: schema error"}}},
+				"flux-system/storage": {Status: "fail", Findings: []Finding{{Severity: "fail", Source: "graph", Message: "in or downstream of a dependsOn cycle"}}},
 			},
 			NoSchema: map[string]int{"FooController": 2},
 		},
@@ -40,7 +40,8 @@ func TestWriteReadRoundtrip(t *testing.T) {
 	if out.FluxValidate.Verdicts["flux-system/gitlab"].Status != "fail" {
 		t.Errorf("gitlab verdict not preserved: %+v", out.FluxValidate.Verdicts)
 	}
-	if len(out.FluxValidate.Verdicts["flux-system/gitlab"].Reasons) != 1 {
-		t.Errorf("reasons not preserved: %+v", out.FluxValidate.Verdicts["flux-system/gitlab"])
+	gl := out.FluxValidate.Verdicts["flux-system/gitlab"]
+	if len(gl.Findings) != 1 || gl.Findings[0].Source != "core-schema" || gl.Findings[0].Severity != "fail" {
+		t.Errorf("findings/provenance not preserved: %+v", gl)
 	}
 }

@@ -39,9 +39,19 @@ type FluxValidate struct {
 }
 
 // Verdict is one Kustomization's outcome. Status is "pass" | "warn" | "fail".
+// Findings carry the per-item severity and provenance so a consumer can tell an
+// authoritative core-schema failure from an advisory CRD-catalog one.
 type Verdict struct {
-	Status  string   `json:"status"`
-	Reasons []string `json:"reasons,omitempty"`
+	Status   string    `json:"status"`
+	Findings []Finding `json:"findings,omitempty"`
+}
+
+// Finding is one evidence item. Severity is "warn" | "fail"; Source is the
+// provenance ("graph" | "render" | "core-schema" | "crd-catalog").
+type Finding struct {
+	Severity string `json:"severity"`
+	Source   string `json:"source"`
+	Message  string `json:"message"`
 }
 
 // Read returns the proof results from the workspace. A missing file is not an

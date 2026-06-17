@@ -48,16 +48,36 @@ func (s Status) String() string {
 	}
 }
 
-// Verdict is the validation outcome for one Flux Kustomization.
-type Verdict struct {
-	Status  Status
-	Reasons []string
+// Finding is one piece of evidence against a Kustomization. Severity carries its
+// authority class and Source its provenance, so operators can distinguish
+// "Kubernetes will reject this" (authoritative) from "a community catalog thinks
+// this might be wrong" (heuristic). Sources: "graph" (dependsOn integrity),
+// "render" (kustomize build / raw-manifest stream), "core-schema" (built-in
+// Kubernetes schemas — authoritative), "crd-catalog" (datreeio CRD catalog —
+// advisory; see docs/architecture/gitops-fluxcd-validation.md).
+type Finding struct {
+	Severity Status
+	Source   string
+	Message  string
 }
 
-func (v *Verdict) fail(reason string) {
-	v.Status = Fail
-	v.Reasons = append(v.Reasons, reason)
+// Verdict is the validation outcome for one Flux Kustomization.
+type Verdict struct {
+	Status   Status
+	Findings []Finding
 }
+
+// add records a finding and raises the verdict to its severity (never lowers it:
+// a heuristic Warn cannot mask an authoritative Fail).
+func (v *Verdict) add(f Finding) {
+	if f.Severity > v.Status {
+		v.Status = f.Severity
+	}
+	v.Findings = append(v.Findings, f)
+}
+
+func (v *Verdict) fail(source, msg string) { v.add(Finding{Severity: Fail, Source: source, Message: msg}) }
+func (v *Verdict) warn(source, msg string) { v.add(Finding{Severity: Warn, Source: source, Message: msg}) }
 
 // ValidationMeta carries repository-scoped facts that are not per-Kustomization
 // verdicts: tool versions, a skip reason, and schema coverage (kinds checked vs
@@ -124,17 +144,18 @@ func ValidateManifests(ctx context.Context, rootDir string, desired map[string]c
 		rendered, rerr := renderRoot(ctx, kustomizeBin, absRoot)
 		if rerr != nil {
 			for _, k := range keys {
-				verdicts[k].fail(fmt.Sprintf("kustomize build failed: %s", rerr.Error()))
+				verdicts[k].fail("render", fmt.Sprintf("kustomize build failed: %s", rerr.Error()))
 			}
 			continue
 		}
 		if len(bytes.TrimSpace(rendered)) == 0 {
 			continue
 		}
-		invalid := schemaCheck(ctx, kubeconformBin, rendered, meta)
-		for _, msg := range invalid {
+		// schemaCheck returns severity- and source-tagged findings: authoritative
+		// core-schema breakage as Fail, advisory CRD-catalog mismatches as Warn.
+		for _, f := range schemaCheck(ctx, kubeconformBin, rendered, meta) {
 			for _, k := range keys {
-				verdicts[k].fail(msg)
+				verdicts[k].add(f)
 			}
 		}
 	}
@@ -152,11 +173,11 @@ func graphVerdicts(graph *FluxGraph) map[KustomizationKey]*Verdict {
 		verdicts[key] = &Verdict{Status: Pass}
 	}
 	for key := range CycleNodes(graph) {
-		verdicts[key].fail("in or downstream of a dependsOn cycle")
+		verdicts[key].fail("graph", "in or downstream of a dependsOn cycle")
 	}
 	for key, missing := range DanglingDeps(graph) {
 		for _, m := range missing {
-			verdicts[key].fail(fmt.Sprintf("dependsOn references unknown kustomization %s", m))
+			verdicts[key].fail("graph", fmt.Sprintf("dependsOn references unknown kustomization %s", m))
 		}
 	}
 	return verdicts
@@ -221,12 +242,18 @@ func hasKustomization(dir string) bool {
 	return false
 }
 
+// concatManifests joins the YAML files of a raw-manifest directory (a Flux path
+// with no kustomization.yaml) into one document stream. It must NOT introduce
+// empty documents: a separator before each file (or a file's own leading "---")
+// yields a kind-less doc that kubeconform rejects as "missing 'kind' key". So each
+// file is trimmed, a leading separator stripped, empties skipped, and the "---"
+// separator emitted only BETWEEN real documents.
 func concatManifests(dir string) ([]byte, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}
-	var buf bytes.Buffer
+	var docs [][]byte
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -239,10 +266,14 @@ func concatManifests(dir string) ([]byte, error) {
 		if rerr != nil {
 			continue
 		}
-		buf.WriteString("\n---\n")
-		buf.Write(b)
+		b = bytes.TrimSpace(b)
+		b = bytes.TrimSpace(bytes.TrimPrefix(b, []byte("---")))
+		if len(b) == 0 {
+			continue
+		}
+		docs = append(docs, b)
 	}
-	return buf.Bytes(), nil
+	return bytes.Join(docs, []byte("\n---\n")), nil
 }
 
 type kcResource struct {
@@ -257,25 +288,76 @@ type kcOutput struct {
 	Resources []kcResource `json:"resources"`
 }
 
-// schemaCheck pipes rendered manifests through kubeconform and returns the
-// human-readable messages for invalid/errored resources. Validated and
-// no-schema counts are folded into meta (coverage), not into the return.
-func schemaCheck(ctx context.Context, kubeconformBin string, rendered []byte, meta *ValidationMeta) []string {
+// schemaCheck validates rendered manifests as TWO distinct evidence classes with
+// different authority — not one undifferentiated pass/fail stream:
+//
+//   1. Authoritative (built-in Kubernetes schemas): a failure here means the API
+//      server / Flux will reject the resource. Emitted as a Fail finding
+//      (source "core-schema"). CRDs have no built-in schema and are skipped here.
+//   2. Heuristic (datreeio CRD catalog): community, OpenAPI-derived schemas that
+//      are routinely stricter-than-reality (e.g. a Vault CR the operator accepts
+//      but whose embedded corev1.Container marks `name` required). A failure here
+//      is advisory — emitted as a Warn finding (source "crd-catalog"), never a Fail.
+//
+// Keeping these separate is the trust boundary: it must NOT be re-collapsed into a
+// single pass as an "optimization". The two passes share an identical input, so
+// kubeconform reports resources in the same order — they are zipped by index to
+// merge coverage (a kind is "no schema" only when BOTH passes skip it).
+func schemaCheck(ctx context.Context, kubeconformBin string, rendered []byte, meta *ValidationMeta) []Finding {
+	core, cerr := kubeconformPass(ctx, kubeconformBin, rendered, "default")
+	if cerr != nil {
+		// Authoritative pass failed to produce parseable output — a render-level fail.
+		return []Finding{{Severity: Fail, Source: "core-schema", Message: fmt.Sprintf("kubeconform output unparseable: %s", cerr.Error())}}
+	}
+	// Heuristic pass is best-effort: if the catalog is unreachable we lose advisory
+	// evidence but never fail on it, so a pass error degrades to "no catalog schema".
+	cat, _ := kubeconformPass(ctx, kubeconformBin, rendered, datreeCatalog)
+
+	var findings []Finding
+	for i, c := range core {
+		kind := kindOf(c)
+		switch classifyStatus(c.Status) {
+		case "invalid", "error":
+			findings = append(findings, Finding{Severity: Fail, Source: "core-schema",
+				Message: fmt.Sprintf("%s/%s (%s): %s", c.Kind, c.Name, c.Version, strings.TrimSpace(c.Msg))})
+		case "valid":
+			meta.Validated[kind]++
+		case "skipped":
+			// No authoritative schema — consult the heuristic catalog (same index).
+			if i >= len(cat) {
+				meta.NoSchema[kind]++
+				continue
+			}
+			t := cat[i]
+			switch classifyStatus(t.Status) {
+			case "invalid", "error":
+				findings = append(findings, Finding{Severity: Warn, Source: "crd-catalog",
+					Message: fmt.Sprintf("%s/%s (%s): %s", t.Kind, t.Name, t.Version, strings.TrimSpace(t.Msg))})
+			case "valid":
+				meta.Validated[kind]++
+			default:
+				meta.NoSchema[kind]++ // skipped by both — no schema anywhere
+			}
+		}
+	}
+	return findings
+}
+
+// kubeconformPass runs one kubeconform invocation against a single schema location
+// and returns the per-resource results. A non-zero exit (invalid resources) is a
+// normal, parseable outcome; only unparseable output is an error.
+func kubeconformPass(ctx context.Context, kubeconformBin string, rendered []byte, schemaLocation string) ([]kcResource, error) {
 	cmd := exec.CommandContext(ctx, kubeconformBin,
 		"-ignore-missing-schemas",
 		"-verbose",
 		"-output", "json",
-		"-schema-location", "default",
-		"-schema-location", datreeCatalog,
+		"-schema-location", schemaLocation,
 		"-",
 	)
 	cmd.Stdin = bytes.NewReader(rendered)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-
-	// A non-zero exit means invalid resources — a normal result we parse, not an
-	// infrastructure failure. Unparseable output is reported as a render-level fail.
 	_ = cmd.Run()
 
 	var out kcOutput
@@ -284,21 +366,9 @@ func schemaCheck(ctx context.Context, kubeconformBin string, rendered []byte, me
 		if msg == "" {
 			msg = strings.TrimSpace(stdout.String())
 		}
-		return []string{fmt.Sprintf("kubeconform output unparseable: %s", msg)}
+		return nil, fmt.Errorf("%s", msg)
 	}
-
-	var invalid []string
-	for _, res := range out.Resources {
-		switch classifyStatus(res.Status) {
-		case "invalid", "error":
-			invalid = append(invalid, fmt.Sprintf("%s/%s (%s): %s", res.Kind, res.Name, res.Version, strings.TrimSpace(res.Msg)))
-		case "skipped":
-			meta.NoSchema[kindOf(res)]++
-		case "valid":
-			meta.Validated[kindOf(res)]++
-		}
-	}
-	return invalid
+	return out.Resources, nil
 }
 
 func kindOf(r kcResource) string {

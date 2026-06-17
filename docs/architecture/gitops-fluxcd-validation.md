@@ -51,11 +51,41 @@ graph already use, so the data model is just:
 
 ```go
 type Verdict struct {
-    Status  Status   // Pass | Warn | Fail
-    Reasons []string // human-readable: schema error, render failure, cycle, dangling dependsOn, …
+    Status   Status    // Pass | Warn | Fail
+    Findings []Finding // each carries its own authority + provenance
+}
+type Finding struct {
+    Severity Status // Warn (advisory) | Fail (authoritative)
+    Source   string // "graph" | "render" | "core-schema" | "crd-catalog"
+    Message  string
 }
 // ValidateManifests → map[KustomizationKey]Verdict
 ```
+
+## Two evidence classes, not one pass/fail stream
+
+Validation evidence has **different classes of authority**, and collapsing them into one
+undifferentiated stream is a policy distortion:
+
+- **Authoritative** — `kustomize build`, **built-in Kubernetes schemas**, malformed YAML, invalid
+  apiVersion/kind. A failure here means the API server / Flux *will* reject the resource. → **Fail**
+  (acceleration-affecting; withholds reconcile under skip-invalid).
+- **Heuristic** — the **datreeio CRD catalog** and other OpenAPI-derived partial CRD schemas. These
+  are community artifacts built on incomplete information and are routinely *stricter than reality*
+  (e.g. a Vault CR the operator happily accepts, but whose embedded `corev1.Container` marks `name`
+  required). → **Warn** (advisory evidence; never withholds reconcile).
+
+> **Community CRD catalogs are advisory evidence, not authoritative compatibility guarantees.**
+
+This is implemented as two kubeconform passes — core schemas (Fail) and catalog (Warn) — and must
+**not** be re-collapsed into a single pass as an "optimization": the separation *is* the trust
+boundary. Every `Finding` records its `Source` so an operator can tell "Kubernetes will reject this"
+from "a community catalog thinks this might be wrong."
+
+**Render-mode provenance (future):** `renderRoot` has two modes — `kustomize build` for a directory
+with a `kustomization.yaml`, and a raw-manifest stream (`concatManifests`) for a Flux path without
+one (Flux applies these natively). Build semantics differ by root type, so the evidence model should
+eventually record render mode (`kustomize` vs `raw-manifest-stream`) for reproducibility/debugging.
 
 ## Graph-integrity proofs localize — there is no separate repo tier
 

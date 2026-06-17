@@ -1512,7 +1512,15 @@ func writeFluxProofResults(rootDir string, verdicts map[gitops.KustomizationKey]
 		NoSchema: meta.NoSchema,
 	}
 	for key, v := range verdicts {
-		fv.Verdicts[key.String()] = auditionproof.Verdict{Status: v.Status.String(), Reasons: v.Reasons}
+		findings := make([]auditionproof.Finding, 0, len(v.Findings))
+		for _, f := range v.Findings {
+			findings = append(findings, auditionproof.Finding{
+				Severity: f.Severity.String(),
+				Source:   f.Source,
+				Message:  f.Message,
+			})
+		}
+		fv.Verdicts[key.String()] = auditionproof.Verdict{Status: v.Status.String(), Findings: findings}
 	}
 	r, err := auditionproof.Read(rootDir)
 	if err != nil {
@@ -1537,10 +1545,13 @@ func renderFluxValidation(start time.Time, verdicts map[gitops.KustomizationKey]
 	for _, n := range meta.Validated {
 		validated += n
 	}
-	failed := 0
+	failed, warned := 0, 0
 	for _, v := range verdicts {
-		if v.Status == gitops.Fail {
+		switch v.Status {
+		case gitops.Fail:
 			failed++
+		case gitops.Warn:
+			warned++
 		}
 	}
 
@@ -1554,13 +1565,21 @@ func renderFluxValidation(start time.Time, verdicts map[gitops.KustomizationKey]
 		keys = append(keys, kk)
 	}
 	gitops.SortKeys(keys)
-	for _, kk := range keys {
-		v := verdicts[kk]
-		if v.Status != gitops.Fail {
-			continue
+	// Findings carry their own authority: FAIL (authoritative — core schema /
+	// render / graph) and WARN (advisory — CRD catalog). Surface the source so an
+	// operator can calibrate trust, and print FAILs before WARNs.
+	for _, sev := range []gitops.Status{gitops.Fail, gitops.Warn} {
+		label := "FAIL"
+		if sev == gitops.Warn {
+			label = "WARN"
 		}
-		for _, reason := range v.Reasons {
-			sec.Row("%-14s%s: %s", "FAIL", kk.String(), reason)
+		for _, kk := range keys {
+			for _, f := range verdicts[kk].Findings {
+				if f.Severity != sev {
+					continue
+				}
+				sec.Row("%-14s%s [%s] %s", label, kk.String(), f.Source, f.Message)
+			}
 		}
 	}
 	for _, kind := range gitops.SortedKinds(meta.NoSchema) {
@@ -1568,12 +1587,24 @@ func renderFluxValidation(start time.Time, verdicts map[gitops.KustomizationKey]
 	}
 
 	sec.Separator()
-	if failed > 0 {
-		sec.Row("%-14s%d kustomization(s) failed", "result", failed)
-	} else {
+	switch {
+	case failed > 0:
+		sec.Row("%-14s%d kustomization(s) failed%s", "result", failed, advisorySuffix(warned))
+	case warned > 0:
+		sec.Row("%-14sall %d kustomization(s) valid (%d with advisory warnings)", "result", len(verdicts), warned)
+	default:
 		sec.Row("%-14sall %d kustomization(s) valid", "result", len(verdicts))
 	}
 	sec.Close()
+}
+
+// advisorySuffix appends a non-gating advisory count to the result line, e.g.
+// ", 2 advisory" — surfacing heuristic warnings without implying they failed.
+func advisorySuffix(warned int) string {
+	if warned == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %d advisory", warned)
 }
 
 // ── reconcile runner ────────────────────────────────────────────────────────

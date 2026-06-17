@@ -178,8 +178,16 @@ func reconcileVerdicts(rootDir string) (validated map[string]bool, failReasons m
 	validated = map[string]bool{}
 	failReasons = map[string]string{}
 	for key, v := range results.FluxValidate.Verdicts {
+		// Only an authoritative Fail withholds reconcile. Warn verdicts (advisory
+		// CRD-catalog evidence) reconcile normally — they are not acceleration-affecting.
 		if v.Status == "fail" {
-			failReasons[key] = strings.Join(v.Reasons, "; ")
+			var reasons []string
+			for _, f := range v.Findings {
+				if f.Severity == "fail" {
+					reasons = append(reasons, f.Message)
+				}
+			}
+			failReasons[key] = strings.Join(reasons, "; ")
 		} else {
 			validated[key] = true
 		}

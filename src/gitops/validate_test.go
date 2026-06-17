@@ -64,14 +64,76 @@ func TestGraphVerdicts_Attribution(t *testing.T) {
 		t.Errorf("b should Fail (cycle), got %v", v[k("b")].Status)
 	}
 	if v[k("c")].Status != Pass {
-		t.Errorf("c should Pass, got %v (%v)", v[k("c")].Status, v[k("c")].Reasons)
+		t.Errorf("c should Pass, got %v (%v)", v[k("c")].Status, v[k("c")].Findings)
 	}
 	d := v[k("d")]
 	if d.Status != Fail {
 		t.Errorf("d should Fail (dangling dep), got %v", d.Status)
 	}
-	if !strings.Contains(strings.Join(d.Reasons, " "), "ghost") {
-		t.Errorf("d's reason should name the dangling dep 'ghost', got %v", d.Reasons)
+	var dmsgs []string
+	for _, f := range d.Findings {
+		dmsgs = append(dmsgs, f.Message)
+		if f.Source != "graph" {
+			t.Errorf("d's finding source should be 'graph', got %q", f.Source)
+		}
+	}
+	if !strings.Contains(strings.Join(dmsgs, " "), "ghost") {
+		t.Errorf("d's reason should name the dangling dep 'ghost', got %v", d.Findings)
+	}
+}
+
+// concatManifests must never emit empty/kind-less documents — a separator before
+// each file (or a file's own leading "---") used to produce phantom "missing
+// 'kind' key" failures for raw-manifest Flux roots (no kustomization.yaml).
+func TestConcatManifests_NoEmptyDocs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.yaml"), "---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: a\n")
+	writeFile(t, filepath.Join(dir, "b.yaml"), "apiVersion: v1\nkind: Secret\nmetadata:\n  name: b\n")
+	writeFile(t, filepath.Join(dir, "empty.yaml"), "\n---\n  \n") // separator/whitespace only
+	writeFile(t, filepath.Join(dir, "ignore.txt"), "not yaml")
+
+	out, err := concatManifests(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.HasPrefix(s, "---") || strings.HasPrefix(s, "\n") {
+		t.Errorf("output must not start with a separator (would be an empty doc): %q", s)
+	}
+	for _, doc := range strings.Split(s, "\n---\n") {
+		if strings.TrimSpace(doc) == "" {
+			t.Errorf("empty document in concat output:\n%q", s)
+		}
+		if !strings.Contains(doc, "kind:") {
+			t.Errorf("document missing kind:\n%q", doc)
+		}
+	}
+	if !strings.Contains(s, "name: a") || !strings.Contains(s, "name: b") {
+		t.Errorf("real documents were dropped: %q", s)
+	}
+}
+
+// add raises a verdict to the highest finding severity and never lowers it: an
+// advisory Warn must not mask an authoritative Fail.
+func TestVerdictAdd_SeverityMonotonic(t *testing.T) {
+	var v Verdict
+	v.warn("crd-catalog", "advisory")
+	if v.Status != Warn {
+		t.Fatalf("warn should raise Pass→Warn, got %v", v.Status)
+	}
+	v.fail("core-schema", "authoritative")
+	if v.Status != Fail {
+		t.Fatalf("fail should raise Warn→Fail, got %v", v.Status)
+	}
+	v.warn("crd-catalog", "more advisory")
+	if v.Status != Fail {
+		t.Fatalf("a later warn must not mask Fail, got %v", v.Status)
+	}
+	if len(v.Findings) != 3 {
+		t.Fatalf("all findings retained, got %d", len(v.Findings))
+	}
+	if v.Findings[0].Source != "crd-catalog" || v.Findings[1].Source != "core-schema" {
+		t.Errorf("provenance not preserved per finding: %+v", v.Findings)
 	}
 }
 

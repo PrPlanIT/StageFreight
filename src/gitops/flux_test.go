@@ -11,7 +11,7 @@ func TestReconcileVerdicts_Classifies(t *testing.T) {
 	if err := auditionproof.Write(dir, &auditionproof.Results{FluxValidate: &auditionproof.FluxValidate{
 		Verdicts: map[string]auditionproof.Verdict{
 			"flux-system/a": {Status: "pass"},
-			"flux-system/b": {Status: "fail", Reasons: []string{"HelmRelease/x: schema error"}},
+			"flux-system/b": {Status: "fail", Findings: []auditionproof.Finding{{Severity: "fail", Source: "core-schema", Message: "HelmRelease/x: schema error"}}},
 			"flux-system/c": {Status: "warn"},
 		},
 	}}); err != nil {
