@@ -151,6 +151,7 @@ vars:
 | `non_exportable` | `non_exportable` | string | No | — | string value |
 | `transparency_log` | `transparency_log` | bool | No | — | bool value |
 | `attestation` | `attestation` | bool | No | — | bool value |
+| `enforce` | `enforce` | bool | No | — | bool value |
 
 ---
 
