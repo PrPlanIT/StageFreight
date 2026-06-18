@@ -85,15 +85,20 @@ type BinaryRow struct {
 // one badge. A consumer reading this can answer: what identity do I trust, where do
 // I get it, how do I verify, and what guarantees does this tier actually provide.
 type Verification struct {
-	TierLabel        string // human label, e.g. "Tier-0 (persistent software key)"
-	Fingerprint      string // public-key fingerprint to pin (sha256:...)
-	AnchorAsset      string // release-asset filename for the public key (e.g. "cosign.pub")
-	ChecksumSig      string // detached checksum signature asset (e.g. "SHA256SUMS.sig")
+	TierLabel        string   // human label, e.g. "Tier-0 (persistent software key)"
+	Fingerprint      string   // public-key fingerprint to pin (sha256:...)
+	AnchorAsset      string   // release-asset filename for the public key (e.g. "cosign.pub")
+	ChecksumSig      string   // detached checksum signature asset (e.g. "SHA256SUMS.sig")
 	Transparency     bool     // recorded in a transparency log
 	NonExportable    bool     // signing key is hardware-bound / non-exportable
 	PhysicalPresence bool     // a human authorized the signature
 	Continuity       bool     // identity is persistent/stable across releases
 	AdditionalLayers []string // higher-assurance signatures layered on top (e.g. "hardware · SHA256SUMS.maintainer.sig")
+	// ProvenanceAttestations describes provenance predicates cryptographically
+	// attached to published image digests (cosign attest), each with the tier that
+	// authorized it. Kept DISTINCT from signatures: "signed artifact" and "provenance
+	// attested by tier X" are materially different trust statements.
+	ProvenanceAttestations []string
 }
 
 // NotesInput holds all data needed to render release notes.
@@ -357,6 +362,16 @@ func renderVerification(v *Verification) string {
 			b.WriteString(fmt.Sprintf("- %s\n", l))
 		}
 		b.WriteString("\nObtain those signers' public keys from the maintainer / `SECURITY.md` — they are not the auto-provisioned anchor above.\n\n")
+	}
+	// Provenance attestations are disclosed SEPARATELY from signatures: a signature
+	// vouches for the artifact's bytes; a provenance attestation vouches for HOW it
+	// was built, authorized by a named tier. Conflating them would overstate trust.
+	if len(v.ProvenanceAttestations) > 0 {
+		b.WriteString("Build provenance is cryptographically attested on the published image(s) — authenticated by the trust tier shown, not merely generated:\n\n")
+		for _, a := range v.ProvenanceAttestations {
+			b.WriteString(fmt.Sprintf("- %s\n", a))
+		}
+		b.WriteString("\nVerify with `cosign verify-attestation --type slsaprovenance --key <key> <image>@<digest>`.\n\n")
 	}
 	return b.String()
 }

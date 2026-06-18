@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -101,6 +102,14 @@ func signEnv(plan sign.SignPlan) []string {
 		return append(os.Environ(), "COSIGN_YES=1")
 	}
 	env := append(toolchain.CleanEnv(), "COSIGN_YES=1")
+	// Image operations (sign-image, attest) push to a registry and need its
+	// credentials; the hermetic CleanEnv (HOME=/tmp) would otherwise hide them.
+	// cosign/ggcr read DOCKER_CONFIG, else $HOME/.docker. Honor an explicit
+	// DOCKER_CONFIG; otherwise point it at the caller's real ~/.docker so a prior
+	// `docker login` is found. Harmless for blob signing (which ignores it).
+	// Registry auth is transport, NOT signing input — this never weakens the
+	// hermeticity of the signing material itself.
+	env = append(env, dockerConfigEnv()...)
 	switch plan.TrustClass {
 	case sign.ClassKey:
 		// A cosign key is always password-encrypted (even with an empty password).
@@ -132,6 +141,23 @@ var oidcEnvPrefixes = []string{
 // kmsEnvPrefixes: the major cloud-provider credential namespaces a KMS signer needs.
 var kmsEnvPrefixes = []string{
 	"COSIGN_", "AWS_", "GOOGLE_", "GCP_", "CLOUDSDK_", "AZURE_", "VAULT_",
+}
+
+// dockerConfigEnv returns a DOCKER_CONFIG entry pointing at the registry
+// credentials a cosign image operation needs, or nil when none can be located.
+// An explicit DOCKER_CONFIG wins; otherwise the caller's real ~/.docker is used
+// iff it actually holds a config.json (a prior `docker login`).
+func dockerConfigEnv() []string {
+	if dc, ok := os.LookupEnv("DOCKER_CONFIG"); ok && dc != "" {
+		return []string{"DOCKER_CONFIG=" + dc}
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		cfgDir := filepath.Join(home, ".docker")
+		if _, err := os.Stat(filepath.Join(cfgDir, "config.json")); err == nil {
+			return []string{"DOCKER_CONFIG=" + cfgDir}
+		}
+	}
+	return nil
 }
 
 func forwardByPrefix(prefixes []string) []string {

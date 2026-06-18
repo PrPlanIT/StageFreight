@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
-	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -25,6 +24,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/registry"
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/PrPlanIT/StageFreight/src/retention"
+	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 	"github.com/spf13/cobra"
 )
 
@@ -1327,17 +1327,62 @@ func buildVerification(cfg config.SigningConfig, results *artifact.ResultsManife
 		return nil, ""
 	}
 	v := &release.Verification{
-		TierLabel:        tierLabel(ev.Tier),
-		Fingerprint:      id.Fingerprint,
-		AnchorAsset:      "cosign.pub",
-		ChecksumSig:      "SHA256SUMS.sig",
-		Transparency:     ev.Transparency,
-		NonExportable:    ev.NonExportable,
-		PhysicalPresence: ev.PhysicalPresence,
-		Continuity:       true, // a persistent, continuity-enforced identity
-		AdditionalLayers: additionalSignatureLayers(results),
+		TierLabel:              tierLabel(ev.Tier),
+		Fingerprint:            id.Fingerprint,
+		AnchorAsset:            "cosign.pub",
+		ChecksumSig:            "SHA256SUMS.sig",
+		Transparency:           ev.Transparency,
+		NonExportable:          ev.NonExportable,
+		PhysicalPresence:       ev.PhysicalPresence,
+		Continuity:             true, // a persistent, continuity-enforced identity
+		AdditionalLayers:       additionalSignatureLayers(results),
+		ProvenanceAttestations: provenanceAttestations(results),
 	}
 	return v, id.PubPath(stateDir)
+}
+
+// provenanceAttestations describes the build-provenance predicates attested onto
+// published image digests, each with the tier that authorized it. Kept SEPARATE
+// from additionalSignatureLayers: a provenance attestation is a statement about
+// how the artifact was built, not a signature over its bytes — the Verification
+// surface must not conflate the two. Deduped.
+func provenanceAttestations(results *artifact.ResultsManifest) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range results.Results {
+		for _, o := range r.Outcomes {
+			pa := o.ProvenanceAttestation
+			if pa == nil || pa.Status != artifact.OutcomeSuccess {
+				continue
+			}
+			pt := pa.PredicateType
+			if pt == "" {
+				pt = "provenance"
+			}
+			cls := pa.TrustClass
+			if cls == "" {
+				cls = "signature"
+			}
+			desc := pt + " · " + cls
+			if pa.Tier != "" {
+				desc += " (" + tierLabel(pa.Tier) + ")"
+			}
+			if pa.PhysicalPresence {
+				desc += ", human-authorized"
+			}
+			if pa.NonExportable {
+				desc += ", non-exportable"
+			}
+			if pa.VerifiedDigest != "" {
+				desc += " · " + pa.VerifiedDigest
+			}
+			if !seen[desc] {
+				seen[desc] = true
+				out = append(out, desc)
+			}
+		}
+	}
+	return out
 }
 
 // additionalSignatureLayers describes the NON-Tier-0 signatures layered onto the

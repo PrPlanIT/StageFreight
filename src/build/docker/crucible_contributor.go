@@ -355,7 +355,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		trust = build.TrustLevelLabel(c.verification.TrustLevel)
 		reproducible = c.verification.TrustLevel == build.TrustReproducible
 	}
-	provRows := writeBuildProvenance(provenanceInput{
+	provRows, provPath := writeBuildProvenance(provenanceInput{
 		rootDir:   c.rootDir,
 		name:      "crucible-" + c.runID,
 		subject:   c.verifyTag,
@@ -396,6 +396,12 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		}
 		rows := append([]string{detail}, storeRows...)
 		rows = append(rows, provRows...)
+		// Attest the just-written provenance to each published image under the same
+		// trust tier that signed it. Fail-loud: a configured attestation must not
+		// silently degrade, so a fatal error fails the verified-artifact publish.
+		if err := attestImages(rc, c.plan, provPath); err != nil {
+			return domains.Contribution{Rows: rows, Status: "error", Summary: "verified artifact"}, err
+		}
 		return domains.Contribution{Rows: rows, Status: "success", Summary: "verified artifact"}, nil
 	}
 	rows := append([]string{fmt.Sprintf("%-9s publish blocked", "docker")}, provRows...)

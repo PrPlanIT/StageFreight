@@ -65,42 +65,44 @@ type Outcome struct {
 	Type   OutcomeType    `json:"type"`
 	Target *OutcomeTarget `json:"target,omitempty"`
 
-	Push          *PushOutcome          `json:"push,omitempty"`
-	Attestation   *AttestationOutcome   `json:"attestation,omitempty"`
-	Binary        *BinaryOutcome        `json:"binary,omitempty"`
-	Archive       *ArchiveOutcome       `json:"archive,omitempty"`
-	BlobSignature *BlobSignatureOutcome `json:"blob_signature,omitempty"`
+	Push                  *PushOutcome                  `json:"push,omitempty"`
+	Attestation           *AttestationOutcome           `json:"attestation,omitempty"`
+	Binary                *BinaryOutcome                `json:"binary,omitempty"`
+	Archive               *ArchiveOutcome               `json:"archive,omitempty"`
+	BlobSignature         *BlobSignatureOutcome         `json:"blob_signature,omitempty"`
+	ProvenanceAttestation *ProvenanceAttestationOutcome `json:"provenance_attestation,omitempty"`
 }
 
 // OutcomeType discriminates the Outcome sub-kind. Closed enum.
 type OutcomeType string
 
 const (
-	OutcomeTypePush          OutcomeType = "push"
-	OutcomeTypeAttestation   OutcomeType = "attestation"
-	OutcomeTypeBinaryBuild   OutcomeType = "binary_build"
-	OutcomeTypeArchive       OutcomeType = "archive_build"
-	OutcomeTypeBlobSignature OutcomeType = "blob_signature"
+	OutcomeTypePush                  OutcomeType = "push"
+	OutcomeTypeAttestation           OutcomeType = "attestation"
+	OutcomeTypeBinaryBuild           OutcomeType = "binary_build"
+	OutcomeTypeArchive               OutcomeType = "archive_build"
+	OutcomeTypeBlobSignature         OutcomeType = "blob_signature"
+	OutcomeTypeProvenanceAttestation OutcomeType = "provenance_attestation"
 )
 
 // Valid reports whether t is one of the defined OutcomeType values.
 func (t OutcomeType) Valid() bool {
 	switch t {
 	case OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive,
-		OutcomeTypeBlobSignature:
+		OutcomeTypeBlobSignature, OutcomeTypeProvenanceAttestation:
 		return true
 	}
 	return false
 }
 
 // outcomeTypeHasTarget reports whether Type requires a non-nil Target.
-// Push and attestation are target-scoped (registry endpoint); binary,
-// archive, and blob_signature are un-targeted by design (the build artifact
-// — or its detached signature — is the truth; distribution targets are
-// decided at release time in a separate subsystem).
+// Push, attestation, and provenance_attestation are target-scoped (a registry
+// image digest); binary, archive, and blob_signature are un-targeted by design
+// (the build artifact — or its detached signature — is the truth; distribution
+// targets are decided at release time in a separate subsystem).
 func outcomeTypeHasTarget(t OutcomeType) bool {
 	switch t {
-	case OutcomeTypePush, OutcomeTypeAttestation:
+	case OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeProvenanceAttestation:
 		return true
 	}
 	return false
@@ -155,6 +157,27 @@ type BlobSignatureOutcome struct {
 	Kind          string        `json:"kind,omitempty"` // signer mechanism, e.g. "cosign"
 	BlobPath      string        `json:"blob_path,omitempty"`
 	SignaturePath string        `json:"signature_path,omitempty"`
+	TrustEvidence
+	Error string `json:"error,omitempty"`
+}
+
+// ProvenanceAttestationOutcome is the result of cryptographically attaching a
+// build-provenance predicate to an already-published image digest (cosign
+// attest). A FIRST-CLASS evidence object, deliberately NOT an AttestationOutcome:
+// a provenance attestation is a *statement over a predicate about a subject*,
+// authorized by a trust tier — categorically distinct from "this digest was
+// signed." It records the predicate's deterministic identity (path + sha256) so
+// later adjudication never has to rediscover which provenance belongs to which
+// subject heuristically, the attested subject digest, and the same TrustEvidence
+// the artifact signature carried (the provenance is vouched for by the same tier).
+type ProvenanceAttestationOutcome struct {
+	Status         OutcomeStatus `json:"status"`
+	Kind           string        `json:"kind,omitempty"`             // attestor mechanism, e.g. "cosign"
+	PredicateType  string        `json:"predicate_type,omitempty"`   // in-toto predicateType, e.g. "slsaprovenance"
+	ProvenancePath string        `json:"provenance_path,omitempty"`  // the predicate file attested
+	ProvenanceSHA  string        `json:"provenance_sha256,omitempty"` // sha256 of the predicate bytes (deterministic identity)
+	AttestationRef string        `json:"attestation_ref,omitempty"`  // ref of the attached attestation (the subject digest ref)
+	VerifiedDigest string        `json:"verified_digest,omitempty"`  // the image manifest digest attested
 	TrustEvidence
 	Error string `json:"error,omitempty"`
 }
@@ -425,6 +448,9 @@ func validateOutcome(o *Outcome, artifactID ArtifactID, idx int, errType error) 
 	if o.BlobSignature != nil {
 		set = append(set, string(OutcomeTypeBlobSignature))
 	}
+	if o.ProvenanceAttestation != nil {
+		set = append(set, string(OutcomeTypeProvenanceAttestation))
+	}
 	if len(set) == 0 {
 		return fmt.Errorf("%w: result %q outcome[%d]: no sub-outcome set (expected %q)",
 			errType, artifactID, idx, o.Type)
@@ -458,6 +484,11 @@ func validateOutcome(o *Outcome, artifactID ArtifactID, idx int, errType error) 
 		if !o.Archive.Status.Valid() {
 			return fmt.Errorf("%w: result %q outcome[%d]: archive.status invalid %q",
 				errType, artifactID, idx, o.Archive.Status)
+		}
+	case OutcomeTypeProvenanceAttestation:
+		if !o.ProvenanceAttestation.Status.Valid() {
+			return fmt.Errorf("%w: result %q outcome[%d]: provenance_attestation.status invalid %q",
+				errType, artifactID, idx, o.ProvenanceAttestation.Status)
 		}
 	case OutcomeTypeBlobSignature:
 		if !o.BlobSignature.Status.Valid() {

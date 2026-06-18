@@ -315,7 +315,7 @@ func TestOutcomeStatusValid(t *testing.T) {
 }
 
 func TestOutcomeTypeValid(t *testing.T) {
-	for _, ty := range []OutcomeType{OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive, OutcomeTypeBlobSignature} {
+	for _, ty := range []OutcomeType{OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive, OutcomeTypeBlobSignature, OutcomeTypeProvenanceAttestation} {
 		if !ty.Valid() {
 			t.Errorf("%q should be valid", ty)
 		}
@@ -351,6 +351,39 @@ func TestBlobSignatureOutcomeIsUntargeted(t *testing.T) {
 	r.Outcomes[0].Target = &OutcomeTarget{Kind: "registry", Host: "docker.io", Path: "org/x"}
 	if err := WriteResultsManifest(dir, ResultsManifest{IntentChecksum: "abc", Results: []Result{r}}); !errors.Is(err, ErrResultsManifestInvalid) {
 		t.Fatalf("a blob signature with a target must be rejected, got %v", err)
+	}
+}
+
+// A provenance attestation attaches a predicate to a published image digest, so
+// it IS target-scoped (the symmetric rule to blob signatures): valid with a
+// registry target, rejected without one. It also records the predicate's
+// deterministic identity (path + sha256) and the same trust evidence the signature
+// carried — distinct from an AttestationOutcome (which is the signature).
+func TestProvenanceAttestationOutcomeIsTargeted(t *testing.T) {
+	dir := t.TempDir()
+	r := Result{
+		ArtifactID:   "docker:app",
+		ArtifactName: "app",
+		Kind:         "docker",
+		Outcomes: []Outcome{{
+			Type:   OutcomeTypeProvenanceAttestation,
+			Target: &OutcomeTarget{Kind: "registry", Host: "docker.io", Path: "org/app"},
+			ProvenanceAttestation: &ProvenanceAttestationOutcome{
+				Status: OutcomeSuccess, Kind: "cosign", PredicateType: "slsaprovenance",
+				ProvenancePath: ".stagefreight/provenance/docker-abc.json",
+				ProvenanceSHA:  "sha256:deadbeef", VerifiedDigest: "sha256:cafe",
+				AttestationRef: "docker.io/org/app@sha256:cafe",
+				TrustEvidence:  TrustEvidence{TrustClass: "key", Tier: "tier0-software", SignerRef: "env:COSIGN_KEY"},
+			},
+		}},
+	}
+	if err := WriteResultsManifest(dir, ResultsManifest{IntentChecksum: "abc", Results: []Result{r}}); err != nil {
+		t.Fatalf("a targeted provenance attestation must be valid: %v", err)
+	}
+	// Dropping the target is forbidden — a provenance attestation lives on an endpoint.
+	r.Outcomes[0].Target = nil
+	if err := WriteResultsManifest(dir, ResultsManifest{IntentChecksum: "abc", Results: []Result{r}}); !errors.Is(err, ErrResultsManifestInvalid) {
+		t.Fatalf("a provenance attestation without a target must be rejected, got %v", err)
 	}
 }
 

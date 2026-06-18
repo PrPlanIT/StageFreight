@@ -348,6 +348,28 @@ func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
 	}
 }
 
+// Provenance attestations must be disclosed in their OWN section, never folded
+// into the signature layers — "signed" and "provenance attested by tier X" are
+// distinct trust statements, and the verify recipe differs (verify-attestation).
+func TestRenderVerification_DisclosesProvenanceAttestationsSeparately(t *testing.T) {
+	out := renderVerification(&Verification{
+		TierLabel:    "Tier-0 (persistent software key)",
+		Transparency: false,
+		ProvenanceAttestations: []string{
+			"slsaprovenance · key (Tier-0 (persistent software key)) · sha256:cafe",
+		},
+	})
+	for _, want := range []string{
+		"Build provenance is cryptographically attested",
+		"slsaprovenance · key",
+		"cosign verify-attestation --type slsaprovenance",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("provenance attestation disclosure missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
 	out := renderVerification(&Verification{
 		TierLabel: "oidc keyless", Fingerprint: "", AnchorAsset: "cosign.pub",

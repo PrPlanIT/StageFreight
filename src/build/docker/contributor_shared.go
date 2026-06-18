@@ -153,6 +153,112 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 	return nil
 }
 
+// attestImages cryptographically attaches the build-provenance predicate to each
+// published image digest (cosign attest), authorized by the SAME trust tier that
+// signed the artifact — so "signed, with provenance attested by that tier" is a
+// genuine end-to-end statement, not two unrelated acts. It runs in Publish, AFTER
+// writeBuildProvenance, because the predicate is born there; signImages (Build)
+// cannot attest a file that does not yet exist.
+//
+// Discipline:
+//   - Only profiles that opted in (attestation: true) attest.
+//   - For an opted-in image, a MISSING provenance file is FATAL (lock 1): an enabled
+//     attestation that silently produces nothing is aspirational metadata, not an
+//     enforced integrity guarantee — same no-silent-degrade principle as signing.
+//   - Manifest-sourced from rc.Outputs.Artifacts; no post-hoc registry enumeration
+//     (lock 5). The predicate's path + sha256 are recorded (lock 2).
+//   - Binary artifacts carry no provenance, so they are honestly absent here — there
+//     is nothing to attach, and nothing is claimed.
+func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string) error {
+	cfg := rc.Config.SigningSetup
+	if !cfg.SigningEnabled() {
+		return nil // global kill switch
+	}
+
+	// profile + multi-arch by NORMALIZED endpoint — identical join to signImages,
+	// so an image's attestation resolves to the same signer that signed it.
+	type sigTarget struct {
+		profile   *config.ResolvedSigningProfile
+		multiArch bool
+	}
+	byEndpoint := map[string]sigTarget{}
+	for _, st := range plan.Steps {
+		for _, reg := range st.Registries {
+			byEndpoint[normalizeRegistryHost(reg.URL)+"/"+reg.Path] = sigTarget{reg.SigningProfile, len(st.Platforms) > 1}
+		}
+	}
+
+	// The provenance file is a full in-toto Statement, but cosign attest --predicate
+	// wants only the predicate BODY (cosign re-frames it with the IMAGE digest as the
+	// subject — which is exactly right for an image attestation). Extract the predicate
+	// ONCE; one predicate covers the whole build, so every image attests the same bytes.
+	// provSHA records the canonical statement's identity (lock 2), not the derived body.
+	predPath, provSHA, provExists := build.ExtractPredicate(provPath)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, art := range rc.Outputs.Artifacts {
+		if art.Kind != "docker" || art.Digest == "" {
+			continue // binaries/archives have no image digest + no provenance to attach
+		}
+		artifactID := artifact.NewArtifactID("docker", art.Name)
+		for _, tgt := range art.Targets {
+			if tgt.Registry == nil {
+				continue
+			}
+			host := normalizeRegistryHost(tgt.Registry.Host)
+			endpoint := host + "/" + tgt.Registry.Path
+			digestRef := endpoint + "@" + string(art.Digest)
+			st := byEndpoint[endpoint]
+			signPlan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+			if serr != nil {
+				return serr // FATAL (continuity / state-dir guard)
+			}
+			if !doSign || !signPlan.Attestation {
+				continue // no signer for this endpoint, or the profile did not opt into attestation
+			}
+			if !provExists {
+				return fmt.Errorf("attestation is enabled for %s but build provenance %q is missing or unreadable — refusing to silently skip", digestRef, provPath)
+			}
+			target := &artifact.OutcomeTarget{Kind: "registry", Host: tgt.Registry.Host, Path: tgt.Registry.Path}
+			evidence := artifact.TrustEvidence{
+				TrustClass:       string(signPlan.TrustClass),
+				Tier:             tier,
+				PhysicalPresence: signPlan.RequiresPhysicalPresence,
+				NonExportable:    signPlan.RequiresNonExportableKey,
+				Transparency:     signPlan.TransparencyRequired,
+				SignerRef:        sign.SignerRef(signPlan),
+				SignedAt:         now,
+			}
+			opts := sign.SignOptions{MultiArch: st.multiArch, PredicatePath: predPath, PredicateType: "slsaprovenance"}
+			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.EnvForPlan(signPlan), opts)
+			if err != nil {
+				diag.Warn("provenance attestation %s: %v", digestRef, err)
+				rc.RB.Record(artifactID, artifact.Outcome{
+					Type: artifact.OutcomeTypeProvenanceAttestation, Target: target,
+					ProvenanceAttestation: &artifact.ProvenanceAttestationOutcome{
+						Status: artifact.OutcomeFailed, Kind: "cosign", PredicateType: "slsaprovenance",
+						ProvenancePath: provPath, ProvenanceSHA: provSHA, VerifiedDigest: string(art.Digest),
+						TrustEvidence: evidence, Error: err.Error(),
+					},
+				})
+				if st.profile != nil && st.profile.Enforce {
+					return fmt.Errorf("attesting provenance %s (enforce): %w", digestRef, err)
+				}
+				continue
+			}
+			rc.RB.Record(artifactID, artifact.Outcome{
+				Type: artifact.OutcomeTypeProvenanceAttestation, Target: target,
+				ProvenanceAttestation: &artifact.ProvenanceAttestationOutcome{
+					Status: artifact.OutcomeSuccess, Kind: "cosign", PredicateType: "slsaprovenance",
+					ProvenancePath: provPath, ProvenanceSHA: provSHA, AttestationRef: digestRef,
+					VerifiedDigest: string(art.Digest), TrustEvidence: evidence,
+				},
+			})
+		}
+	}
+	return nil
+}
+
 // runPostBuildRetention enforces cache retention (buildkit/local/external) and
 // image retention. A nil backend skips the buildkit branch (local retention runs).
 func runPostBuildRetention(rc *domains.RunContext, plan *build.BuildPlan, backend *Backend, builderName string) {
@@ -192,8 +298,11 @@ type provenanceInput struct {
 }
 
 // writeBuildProvenance writes .stagefreight/provenance/<name>.json (in-toto/SLSA)
-// and returns the ✓/✗ evidence row. trust_level is recorded only when non-empty.
-func writeBuildProvenance(in provenanceInput) []string {
+// and returns the ✓/✗ evidence row plus the predicate path (empty on write
+// failure). The path is handed to attestImages so the provenance attestation
+// attaches the exact bytes just written — deterministic, never rediscovered.
+// trust_level is recorded only when non-empty.
+func writeBuildProvenance(in provenanceInput) ([]string, string) {
 	provPath := filepath.Join(in.rootDir, ".stagefreight", "provenance", in.name+".json")
 
 	sf := map[string]any{
@@ -226,9 +335,9 @@ func writeBuildProvenance(in provenanceInput) []string {
 		},
 	}
 	if provErr := build.WriteProvenance(provPath, stmt); provErr != nil {
-		return []string{fmt.Sprintf("%-9s provenance ✗ %s", "docker", provErr.Error())}
+		return []string{fmt.Sprintf("%-9s provenance ✗ %s", "docker", provErr.Error())}, ""
 	}
-	return []string{fmt.Sprintf("%-9s provenance ✓ %s", "docker", provPath)}
+	return []string{fmt.Sprintf("%-9s provenance ✓ %s", "docker", provPath)}, provPath
 }
 
 // contentStoreRows folds the content-store retention evidence into Publish rows

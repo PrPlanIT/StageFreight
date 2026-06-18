@@ -37,8 +37,10 @@ It is strictly ADDITIVE and manifest-sourced:
   - extends the results manifest with new trust evidence (never replaces)
 
 The operation is generic — interactivity emerges from the selected profile's trust
-class (hardware prompts for touch/PIN; key/kms/oidc are non-interactive). Today it
-signs the release SHA256SUMS; image attestation is a follow-up.`,
+class (hardware prompts for touch/PIN; key/kms/oidc are non-interactive). It signs
+the release SHA256SUMS and each published image digest; when the profile opts into
+attestation (attestation: true) it also attests the build provenance onto those
+digests under the same tier — recorded as first-class, additive evidence.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir, err := os.Getwd()
 		if err != nil {
@@ -126,6 +128,18 @@ signs the release SHA256SUMS; image attestation is a follow-up.`,
 			fmt.Printf("  ✓ %s\n", filepath.Base(outSig))
 		}
 
+		// If this profile attests provenance, resolve the single build-provenance
+		// statement up front so a misconfiguration (none, or ambiguously many) fails
+		// BEFORE any signing — never silently skipping an enabled attestation.
+		var stmtPath, predPath, provSHA string
+		if !signSkipImages && plan.Attestation {
+			sp, pp, sha, err := resolveSignProvenance(rootDir)
+			if err != nil {
+				return err
+			}
+			stmtPath, predPath, provSHA = sp, pp, sha
+		}
+
 		// 2. Published images — cosign attaches ANOTHER signature to the same
 		//    immutable digest (the registry holds multiple); record an additional
 		//    attestation outcome. The recorded digest is signed verbatim, so there is
@@ -142,6 +156,25 @@ signs the release SHA256SUMS; image attestation is a follow-up.`,
 						SignatureRef: im.digestRef, VerifiedDigest: im.digest, TrustEvidence: evidence(),
 					}})
 			fmt.Printf("  ✓ %s\n", im.digestRef)
+
+			// Same semantics as the unattended build path: attest the build provenance
+			// onto this digest under the chosen tier, recorded as a FIRST-CLASS, additive
+			// ProvenanceAttestationOutcome (distinct from the signature above).
+			if predPath != "" {
+				ev := evidence()
+				if err := cosign.Attest(cmd.Context(), rootDir, cfg.Toolchains.Desired, im.digestRef, plan, env,
+					sign.SignOptions{PredicatePath: predPath, PredicateType: "slsaprovenance"}); err != nil {
+					return fmt.Errorf("attesting provenance onto %s: %w", im.digestRef, err)
+				}
+				appendOutcome(results, im.artifactID, im.name, "docker",
+					artifact.Outcome{Type: artifact.OutcomeTypeProvenanceAttestation, Target: im.target,
+						ProvenanceAttestation: &artifact.ProvenanceAttestationOutcome{
+							Status: artifact.OutcomeSuccess, Kind: "cosign", PredicateType: "slsaprovenance",
+							ProvenancePath: stmtPath, ProvenanceSHA: provSHA, AttestationRef: im.digestRef,
+							VerifiedDigest: im.digest, TrustEvidence: ev,
+						}})
+				fmt.Printf("  ✓ %s (provenance attested)\n", im.digestRef)
+			}
 		}
 
 		if err := artifact.WriteResultsManifest(rootDir, *results); err != nil {
@@ -150,6 +183,34 @@ signs the release SHA256SUMS; image attestation is a follow-up.`,
 		fmt.Printf("✓ attached %d %s signature(s) — lower-tier signatures preserved, manifest extended\n", total, plan.TrustClass)
 		return nil
 	},
+}
+
+// resolveSignProvenance locates the build-provenance statement to attest and
+// extracts its predicate body. It is FAIL-LOUD by construction: a profile that
+// opted into attestation but finds NO provenance (it must be present alongside the
+// dist artifacts), an UNREADABLE/predicate-less one, or AMBIGUOUSLY MANY (the
+// command cannot guess which predicate belongs to which image) is a hard error —
+// an enabled attestation must never silently degrade. Returns the canonical
+// statement path (recorded identity), the extracted predicate path (handed to
+// cosign), and the statement's sha256.
+func resolveSignProvenance(rootDir string) (statementPath, predPath, sha string, err error) {
+	stmts, ferr := build.FindBuildProvenance(rootDir)
+	if ferr != nil {
+		return "", "", "", fmt.Errorf("locating build provenance: %w", ferr)
+	}
+	switch len(stmts) {
+	case 0:
+		return "", "", "", fmt.Errorf("profile requests provenance attestation but no build provenance was found under %s — it must be present alongside the release artifacts; refusing to silently skip", build.ProvenanceDir)
+	case 1:
+		// ok
+	default:
+		return "", "", "", fmt.Errorf("profile requests provenance attestation but %d provenance statements were found under %s — ambiguous which predicate to attest; refusing to guess", len(stmts), build.ProvenanceDir)
+	}
+	pp, s, ok := build.ExtractPredicate(stmts[0])
+	if !ok {
+		return "", "", "", fmt.Errorf("build provenance %q is unreadable or carries no predicate — cannot attest", stmts[0])
+	}
+	return stmts[0], pp, s, nil
 }
 
 // envForClass builds the declared capability Env the renderer consumes: key/kms/oidc

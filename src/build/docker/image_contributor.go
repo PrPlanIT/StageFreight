@@ -247,7 +247,7 @@ func (c *imageContributor) Publish(rc *domains.RunContext) (domains.Contribution
 	if started.IsZero() {
 		started = time.Now()
 	}
-	provRows := writeBuildProvenance(provenanceInput{
+	provRows, provPath := writeBuildProvenance(provenanceInput{
 		rootDir:   rc.RootDir,
 		name:      "docker-" + shortID,
 		subject:   subject,
@@ -266,5 +266,11 @@ func (c *imageContributor) Publish(rc *domains.RunContext) (domains.Contribution
 		trustLevel:   "",
 		planSHA:      planSHA,
 	})
+	// Provenance is born here; attest it to each published image digest under the
+	// same trust tier that signed the artifact. Fail-loud (a configured attestation
+	// must not silently degrade), so a fatal attestation error fails Publish.
+	if err := attestImages(rc, c.plan, provPath); err != nil {
+		return domains.Contribution{Rows: provRows, Status: "error", Summary: "provenance"}, err
+	}
 	return domains.Contribution{Rows: provRows, Status: "success", Summary: "provenance"}, nil
 }

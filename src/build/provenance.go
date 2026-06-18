@@ -1,11 +1,15 @@
 package build
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // ProvenanceStatement follows the in-toto Statement v1 / SLSA Provenance v1
@@ -26,12 +30,12 @@ type ProvenanceSubject struct {
 
 // ProvenancePredicate describes how it was built.
 type ProvenancePredicate struct {
-	BuildType    string                 `json:"buildType"`
-	Builder      ProvenanceBuilder      `json:"builder"`
-	Invocation   ProvenanceInvocation   `json:"invocation"`
-	Metadata     ProvenanceMetadata     `json:"metadata"`
-	Materials    []ProvenanceMaterial   `json:"materials,omitempty"`
-	StageFreight map[string]any         `json:"stagefreight,omitempty"`
+	BuildType    string               `json:"buildType"`
+	Builder      ProvenanceBuilder    `json:"builder"`
+	Invocation   ProvenanceInvocation `json:"invocation"`
+	Metadata     ProvenanceMetadata   `json:"metadata"`
+	Materials    []ProvenanceMaterial `json:"materials,omitempty"`
+	StageFreight map[string]any       `json:"stagefreight,omitempty"`
 }
 
 // ProvenanceBuilder identifies the build system.
@@ -73,10 +77,73 @@ func WriteProvenance(path string, stmt ProvenanceStatement) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// ProvenanceDir is where build provenance statements are written, relative to root.
+const ProvenanceDir = ".stagefreight/provenance"
+
+// ExtractPredicate reads an in-toto Statement and writes its predicate BODY to a
+// sibling `.predicate.json` for cosign attest (cosign frames the predicate with the
+// attested image as subject — so the whole statement must NOT be passed as the
+// predicate, or it would be double-wrapped). It returns the predicate path, the
+// sha256 of the CANONICAL statement (the provenance's recorded identity), and
+// ok=false when the statement is absent, unreadable, or carries no predicate —
+// "no usable provenance", so an enabled attestation can fail loud rather than
+// attaching nothing. Shared by the unattended build path and `stagefreight sign`.
+func ExtractPredicate(statementPath string) (predPath, statementSHA string, ok bool) {
+	if statementPath == "" {
+		return "", "", false
+	}
+	raw, err := os.ReadFile(statementPath)
+	if err != nil {
+		return "", "", false
+	}
+	sum := sha256.Sum256(raw)
+	statementSHA = "sha256:" + hex.EncodeToString(sum[:])
+	var stmt struct {
+		Predicate json.RawMessage `json:"predicate"`
+	}
+	if err := json.Unmarshal(raw, &stmt); err != nil || len(stmt.Predicate) == 0 {
+		return "", statementSHA, false
+	}
+	predPath = statementPath + ".predicate.json"
+	if err := os.WriteFile(predPath, stmt.Predicate, 0o644); err != nil {
+		return "", statementSHA, false
+	}
+	return predPath, statementSHA, true
+}
+
+// FindBuildProvenance returns the build-provenance statement files under rootDir's
+// provenance dir (the `.predicate.json` bodies ExtractPredicate writes are excluded).
+// Sorted for determinism. `stagefreight sign` uses this to locate the provenance to
+// attest; a build normally emits exactly one, so >1 is the caller's signal to refuse
+// rather than guess which predicate belongs to which image.
+func FindBuildProvenance(rootDir string) ([]string, error) {
+	dir := filepath.Join(rootDir, ProvenanceDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if !strings.HasSuffix(n, ".json") || strings.HasSuffix(n, ".predicate.json") {
+			continue
+		}
+		out = append(out, filepath.Join(dir, n))
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // DSSEEnvelope is a Dead Simple Signing Envelope for wrapping provenance statements.
 type DSSEEnvelope struct {
 	PayloadType string          `json:"payloadType"`
-	Payload     string          `json:"payload"`    // base64-encoded ProvenanceStatement
+	Payload     string          `json:"payload"` // base64-encoded ProvenanceStatement
 	Signatures  []DSSESignature `json:"signatures"`
 }
 
