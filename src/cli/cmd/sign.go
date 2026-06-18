@@ -12,6 +12,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/sign"
+	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 )
 
@@ -75,21 +76,19 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 		}
 		env := envForClass(plan)
 
-		signerRef := sign.SignerRef(plan)
-		if signerRef == "" {
-			signerRef = "profile:" + signProfileID
+		// sign.go resolves the signer itself (a human-chosen profile — no Tier-0
+		// fallback), then shares the CANONICAL evidence definition via SigningContext,
+		// the same one the build sites route through. `now` is the additive run's
+		// timestamp — distinct from build time, so this layer carries its own (the
+		// original signature's outcome is untouched). The profile-id SignerRef fallback
+		// is local: only this command knows the chosen profile id.
+		now := time.Now().UTC().Format(time.RFC3339)
+		sc := autosign.SigningContext{Plan: plan, Env: env, DoSign: true}
+		canonicalEv := sc.Evidence(now)
+		if canonicalEv.SignerRef == "" {
+			canonicalEv.SignerRef = "profile:" + signProfileID
 		}
-		evidence := func() artifact.TrustEvidence {
-			return artifact.TrustEvidence{
-				TrustClass:       string(plan.TrustClass),
-				PhysicalPresence: plan.RequiresPhysicalPresence,
-				NonExportable:    plan.RequiresNonExportableKey,
-				Transparency:     plan.TransparencyRequired,
-				SignerRef:        signerRef,
-				SignedAt:         time.Now().UTC().Format(time.RFC3339),
-				TrustDomain:      cosign.SigstoreDomain(plan, env),
-			}
-		}
+		evidence := func() artifact.TrustEvidence { return canonicalEv }
 
 		sumsPath := filepath.Join(distDir, "SHA256SUMS")
 		_, sumsErr := os.Stat(sumsPath)

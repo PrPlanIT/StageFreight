@@ -6,9 +6,48 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/sign"
+	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 )
 
 func bp(b bool) *bool { return &b }
+
+// SigningContext.Evidence is the single canonical projection of a realized signer to
+// trust facts. It must populate every dimension consistently — including TrustDomain
+// (the bug binary.go had: it omitted it) — and treat signedAt as a per-CALL input so
+// the same context can produce evidence for a build-phase signature and a later
+// additive signature with their OWN timestamps.
+func TestSigningContext_Evidence_Canonical(t *testing.T) {
+	plan := sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true}
+	env := cosign.Env{Sigstore: cosign.SigstoreDeployment{Domain: "internal", FulcioURL: "https://f.x"}}
+	sc := SigningContext{Plan: plan, Env: env, DoSign: true}
+
+	ev := sc.Evidence("2026-06-18T00:00:00Z")
+	if ev.TrustClass != "oidc" {
+		t.Errorf("trust class: %q", ev.TrustClass)
+	}
+	if !ev.Transparency {
+		t.Error("transparency should propagate from the plan")
+	}
+	if ev.TrustDomain != "internal" {
+		t.Errorf("trust domain must be canonicalized (the binary.go drift): %q", ev.TrustDomain)
+	}
+	if ev.SignedAt != "2026-06-18T00:00:00Z" {
+		t.Errorf("signed_at must be the per-call timestamp: %q", ev.SignedAt)
+	}
+}
+
+// Additive respect: signedAt is a caller input, never baked into the context — so a
+// build-time signature and a later additive signature from an equivalent signer carry
+// DIFFERENT timestamps (the additive layer's own), not a single shared build time.
+func TestSigningContext_Evidence_AdditiveTimestamps(t *testing.T) {
+	sc := SigningContext{Plan: sign.SignPlan{TrustClass: sign.ClassKey}, DoSign: true}
+	build := sc.Evidence("2026-01-01T00:00:00Z")
+	additive := sc.Evidence("2026-06-01T00:00:00Z")
+	if build.SignedAt == additive.SignedAt {
+		t.Fatalf("additive signing must carry its own timestamp, got identical %q", build.SignedAt)
+	}
+}
 
 // The kill switch disables signing even with a fully-consented Tier-0 config.
 func TestEffectiveSigner_KillSwitch(t *testing.T) {

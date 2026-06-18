@@ -101,26 +101,17 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 			}
 			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			tgt := byEndpoint[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
-			signPlan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
-			if !doSign {
+			if !sc.DoSign {
 				unsigned = append(unsigned, digestRef)
 				continue
 			}
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
-			signEnv := cosign.EnvForPlan(signPlan)
-			evidence := artifact.TrustEvidence{
-				TrustClass:       string(signPlan.TrustClass),
-				Tier:             tier,
-				PhysicalPresence: signPlan.RequiresPhysicalPresence,
-				NonExportable:    signPlan.RequiresNonExportableKey,
-				Transparency:     signPlan.TransparencyRequired,
-				SignerRef:        sign.SignerRef(signPlan),
-				TrustDomain:      cosign.SigstoreDomain(signPlan, signEnv),
-			}
-			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, signEnv, sign.SignOptions{MultiArch: tgt.multiArch})
+			evidence := sc.Evidence(now)
+			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, sc.Plan, sc.Env, sign.SignOptions{MultiArch: tgt.multiArch})
 			if err != nil {
 				diag.Warn("image signing %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{
@@ -211,30 +202,20 @@ func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string
 			endpoint := host + "/" + tgt.Registry.Path
 			digestRef := endpoint + "@" + string(art.Digest)
 			st := byEndpoint[endpoint]
-			signPlan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
-			if !doSign || !signPlan.Attestation {
+			if !sc.DoSign || !sc.Plan.Attestation {
 				continue // no signer for this endpoint, or the profile did not opt into attestation
 			}
 			if !provExists {
 				return fmt.Errorf("attestation is enabled for %s but build provenance %q is missing or unreadable — refusing to silently skip", digestRef, provPath)
 			}
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: tgt.Registry.Host, Path: tgt.Registry.Path}
-			attEnv := cosign.EnvForPlan(signPlan)
-			evidence := artifact.TrustEvidence{
-				TrustClass:       string(signPlan.TrustClass),
-				Tier:             tier,
-				PhysicalPresence: signPlan.RequiresPhysicalPresence,
-				NonExportable:    signPlan.RequiresNonExportableKey,
-				Transparency:     signPlan.TransparencyRequired,
-				SignerRef:        sign.SignerRef(signPlan),
-				SignedAt:         now,
-				TrustDomain:      cosign.SigstoreDomain(signPlan, attEnv),
-			}
+			evidence := sc.Evidence(now)
 			opts := sign.SignOptions{MultiArch: st.multiArch, PredicatePath: predPath, PredicateType: "slsaprovenance"}
-			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, attEnv, opts)
+			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, sc.Plan, sc.Env, opts)
 			if err != nil {
 				diag.Warn("provenance attestation %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{

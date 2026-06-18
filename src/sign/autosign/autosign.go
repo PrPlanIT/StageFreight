@@ -9,11 +9,63 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/sign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
+
+// SigningContext is the REALIZED signing semantics for a target: the resolved signer
+// plan, the declared capability Env, the assurance tier, and whether to sign. It is a
+// SEMANTIC context object, deliberately NOT an orchestration one — it holds no
+// artifact refs, no result manifests, no recorders, and no publication handles. The
+// call sites keep ownership of transport (image vs blob), phase (Build sign vs Publish
+// attest), and recording sink; this owns "what signer, what env, what evidence" so
+// every site resolves them IDENTICALLY. Adding a new evidence dimension is then a
+// one-place change here, not a synchronized edit across four hand-rolled sites.
+type SigningContext struct {
+	Plan   sign.SignPlan
+	Env    cosign.Env
+	Tier   string
+	DoSign bool
+}
+
+// ResolveSigningContext resolves the effective signer (EffectiveSigner) and binds its
+// declared capability Env in one step — the canonical path for the build sites
+// (auto-sign with consented Tier-0 fallback). DoSign==false means no signer resolved
+// (the caller skips); a non-nil error is FATAL (continuity / state-dir guard /
+// explicit-profile no-downgrade), surfaced unchanged. sign.go does NOT use this: a
+// human-chosen profile compiles directly with no Tier-0 fallback, so it builds a
+// SigningContext itself and shares only Evidence().
+func ResolveSigningContext(ctx context.Context, cfg config.SigningConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolPinConfig, now string) (SigningContext, error) {
+	plan, tier, doSign, err := EffectiveSigner(ctx, cfg, profile, rootDir, repoRoot, desired, now)
+	if err != nil {
+		return SigningContext{}, err
+	}
+	if !doSign {
+		return SigningContext{}, nil
+	}
+	return SigningContext{Plan: plan, Env: cosign.EnvForPlan(plan), Tier: tier, DoSign: true}, nil
+}
+
+// Evidence is the CANONICAL TrustEvidence for this context — the single definition of
+// how a realized signer becomes recorded trust facts. Every signing site routes
+// through here so class, tier, presence, non-exportability, transparency, signer ref,
+// and trust domain are populated consistently (the omission of any one was the exact
+// drift this consolidates). signedAt is an RFC3339 timestamp ("" to omit).
+func (c SigningContext) Evidence(signedAt string) artifact.TrustEvidence {
+	return artifact.TrustEvidence{
+		TrustClass:       string(c.Plan.TrustClass),
+		Tier:             c.Tier,
+		PhysicalPresence: c.Plan.RequiresPhysicalPresence,
+		NonExportable:    c.Plan.RequiresNonExportableKey,
+		Transparency:     c.Plan.TransparencyRequired,
+		SignerRef:        sign.SignerRef(c.Plan),
+		SignedAt:         signedAt,
+		TrustDomain:      cosign.SigstoreDomain(c.Plan, c.Env),
+	}
+}
 
 // EffectiveSigner resolves the SignPlan a target signs under. `profile` may be nil
 // (no explicit profile). Returns:

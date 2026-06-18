@@ -19,7 +19,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
-	"github.com/PrPlanIT/StageFreight/src/sign"
 	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
@@ -324,19 +323,19 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	plan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+	sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
 	if serr != nil {
 		return "", serr // FATAL (continuity / state-dir guard)
 	}
-	if !doSign {
+	if !sc.DoSign {
 		return "", nil // no profile + no consented Tier-0 → deliberate skip
 	}
 	enforce := profile != nil && profile.Enforce
 
 	artifactID := artifact.NewArtifactID("checksums", filepath.Base(checksumPath))
-	evidence := planEvidence(plan, tier)
+	evidence := sc.Evidence(now)
 	sigPath := checksumPath + ".sig"
-	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, sigPath, plan, cosign.EnvForPlan(plan))
+	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, sigPath, sc.Plan, sc.Env)
 	if err != nil {
 		rc.RB.Record(artifactID, artifact.Outcome{
 			Type: artifact.OutcomeTypeBlobSignature,
@@ -364,20 +363,6 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	})
 	return fmt.Sprintf("%-9s %-40s %s  signature",
 		"binary", filepath.Base(sigPath), output.StatusIcon("success", rc.Color)), nil
-}
-
-// planEvidence projects a resolved SignPlan (+ assurance tier) to recorded trust
-// evidence — the assurance facts + signer identity material, captured so the
-// manifest answers "what did this signature attest?" without re-deriving it.
-func planEvidence(plan sign.SignPlan, tier string) artifact.TrustEvidence {
-	return artifact.TrustEvidence{
-		TrustClass:       string(plan.TrustClass),
-		Tier:             tier,
-		PhysicalPresence: plan.RequiresPhysicalPresence,
-		NonExportable:    plan.RequiresNonExportableKey,
-		Transparency:     plan.TransparencyRequired,
-		SignerRef:        sign.SignerRef(plan),
-	}
 }
 
 // ── relocated binary helpers (were cmd-local) ────────────────────────────────
