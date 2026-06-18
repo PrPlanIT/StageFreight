@@ -138,6 +138,7 @@ Named trust profiles for signing release artifacts and images. A profile declare
 | `transparency_log` | `transparency_log` | bool | No | — | bool value |
 | `attestation` | `attestation` | bool | No | — | bool value |
 | `enforce` | `enforce` | bool | No | — | bool value |
+| `allow_fallback` | `allow_fallback` | bool | No | — | bool value |
 
 > `requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.
 > Assurance keywords `physical_presence` / `non_exportable` (value `required`) are valid only for `requires: hardware`.
