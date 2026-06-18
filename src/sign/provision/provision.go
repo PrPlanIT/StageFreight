@@ -73,6 +73,11 @@ func EnsureIdentity(ctx context.Context, stateDir string, gen KeyGenerator, now 
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return nil, fmt.Errorf("signing state dir %q: %w", stateDir, err)
 	}
+	// Re-tighten a pre-existing dir (MkdirAll leaves an existing dir's mode alone) —
+	// a private key's protection boundary requires a non-traversable parent, 0700.
+	if err := os.Chmod(stateDir, 0o700); err != nil {
+		return nil, fmt.Errorf("securing signing state dir %q: %w", stateDir, err)
+	}
 
 	id, err := loadAndValidate(stateDir)
 	if err != nil {
@@ -217,13 +222,14 @@ func secureKey(keyPath string) error {
 // context (repoRoot). Persisting a private signing key in the source tree risks it
 // being committed, baked into a docker image layer, or swept into a published
 // artifact — the key MUST live on a durable volume outside the repo. Callers invoke
-// this before provisioning.
+// this before provisioning. SYMLINK-SAFE: both paths are symlink-resolved, so a
+// symlinked state-dir (or symlinked parent) cannot smuggle the key inside the repo.
 func GuardStateDir(stateDir, repoRoot string) error {
-	sd, err := filepath.Abs(stateDir)
+	sd, err := resolveReal(stateDir)
 	if err != nil {
 		return fmt.Errorf("resolving signing state dir: %w", err)
 	}
-	rr, err := filepath.Abs(repoRoot)
+	rr, err := resolveReal(repoRoot)
 	if err != nil {
 		return fmt.Errorf("resolving repo root: %w", err)
 	}
@@ -231,17 +237,55 @@ func GuardStateDir(stateDir, repoRoot string) error {
 	if err != nil {
 		return nil // different volumes / unrelatable → genuinely outside, fine
 	}
-	if rel == "." || !strings.HasPrefix(rel, "..") {
+	// "outside" ⇔ the relative path escapes upward (".." or "../…"). Anything else
+	// (".", "sub/…") is inside the repo.
+	escapes := rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if !escapes {
 		return fmt.Errorf("signing state dir %q is inside the repository (%q) — refusing to persist a private signing key in the source tree; set signing.state_dir to a durable path outside the repo", sd, rr)
 	}
 	return nil
+}
+
+// resolveReal returns the absolute, symlink-resolved path. For a path that does not
+// exist yet, it resolves the longest existing ancestor (catching a symlinked parent)
+// and re-appends the non-existent tail lexically.
+func resolveReal(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	cur, rest := abs, ""
+	for {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(resolved, rest), nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs, nil // reached the root without resolving — lexical is best-effort
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }
 
 // IsPrivateKeyPath reports whether path looks like signing key material — a
 // defensive tripwire so a private key (or the identity record) is never accidentally
 // uploaded/published as an artifact. Belt-and-suspenders: structurally, only public
 // signatures/anchors are ever added to asset lists, but this guards future mistakes.
+// Errs toward over-blocking (a rare false positive is loud; a published key is not).
 func IsPrivateKeyPath(path string) bool {
-	base := filepath.Base(path)
-	return base == keyFile || base == identityFile || strings.HasSuffix(base, ".key")
+	base := strings.ToLower(filepath.Base(path))
+	if base == keyFile || base == identityFile {
+		return true
+	}
+	switch base {
+	case "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa":
+		return true
+	}
+	for _, ext := range []string{".key", ".pem", ".p12", ".pfx", ".gpg", ".asc", ".p8", ".jks", ".keystore"} {
+		if strings.HasSuffix(base, ext) {
+			return true
+		}
+	}
+	return false
 }

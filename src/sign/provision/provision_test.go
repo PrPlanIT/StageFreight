@@ -166,15 +166,35 @@ func TestGuardStateDir(t *testing.T) {
 }
 
 func TestIsPrivateKeyPath(t *testing.T) {
-	for _, p := range []string{"x/cosign.key", "identity.json", "/state/foo.key"} {
+	for _, p := range []string{
+		"x/cosign.key", "identity.json", "/state/foo.key",
+		"release.pem", "a.p12", "key.pfx", "id_rsa", "x/id_ed25519", "secret.asc", "k.gpg",
+	} {
 		if !IsPrivateKeyPath(p) {
 			t.Errorf("%q should be flagged as key material", p)
 		}
 	}
-	for _, p := range []string{"SHA256SUMS.sig", "cosign.pub", "x/archive.tar.gz"} {
+	for _, p := range []string{"SHA256SUMS.sig", "cosign.pub", "x/archive.tar.gz", "notes.md"} {
 		if IsPrivateKeyPath(p) {
 			t.Errorf("%q must NOT be flagged", p)
 		}
+	}
+}
+
+// A symlink that resolves INTO the repo must be refused — the guard is symlink-safe.
+func TestGuardStateDir_SymlinkIntoRepoRefused(t *testing.T) {
+	repo := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(repo, "signing")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(outside, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	if err := GuardStateDir(link, repo); err == nil {
+		t.Error("a state dir symlinked into the repo must be refused")
 	}
 }
 
