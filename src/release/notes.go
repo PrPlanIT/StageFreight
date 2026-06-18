@@ -85,15 +85,18 @@ type BinaryRow struct {
 // one badge. A consumer reading this can answer: what identity do I trust, where do
 // I get it, how do I verify, and what guarantees does this tier actually provide.
 type Verification struct {
-	TierLabel        string   // human label, e.g. "Tier-0 (persistent software key)"
-	Fingerprint      string   // public-key fingerprint to pin (sha256:...)
-	AnchorAsset      string   // release-asset filename for the public key (e.g. "cosign.pub")
+	TierLabel        string   // human label, e.g. "Tier-0 (persistent software key)" or a class label
+	TrustClass       string   // primary signer class (key | oidc | kms | hardware) — drives the verify recipe
+	TrustDomain      string   // primary oidc/keyless trust domain (Sigstore ecosystem), empty otherwise
+	SignerRef        string   // primary signer identity material (key/kms ref, oidc identity) — for the recipe pointer
+	Fingerprint      string   // public-key fingerprint to pin (sha256:...) — continuity anchor only
+	AnchorAsset      string   // release-asset filename for the public key (e.g. "cosign.pub") — continuity anchor only
 	ChecksumSig      string   // detached checksum signature asset (e.g. "SHA256SUMS.sig")
 	Transparency     bool     // recorded in a transparency log
 	NonExportable    bool     // signing key is hardware-bound / non-exportable
 	PhysicalPresence bool     // a human authorized the signature
-	Continuity       bool     // identity is persistent/stable across releases
-	AdditionalLayers []string // higher-assurance signatures layered on top (e.g. "hardware · SHA256SUMS.maintainer.sig")
+	Continuity       bool     // identity is persistent/stable across releases (continuity anchor only)
+	AdditionalLayers []string // other signatures on the same artifacts (e.g. "hardware · SHA256SUMS.maintainer.sig")
 	// ProvenanceAttestations describes provenance predicates cryptographically
 	// attached to published image digests (cosign attest), each with the tier that
 	// authorized it. Kept DISTINCT from signatures: "signed artifact" and "provenance
@@ -332,19 +335,27 @@ func renderVerification(v *Verification) string {
 	b.WriteString("## Verification\n\n")
 	b.WriteString("| Property | Value |\n|---|---|\n")
 	b.WriteString(fmt.Sprintf("| Signing tier | %s |\n", v.TierLabel))
+	if v.TrustDomain != "" {
+		b.WriteString(fmt.Sprintf("| Trust domain | %s |\n", v.TrustDomain))
+	}
 	if v.Fingerprint != "" {
 		b.WriteString(fmt.Sprintf("| Public key fingerprint | `%s` |\n", v.Fingerprint))
 	}
 	b.WriteString(fmt.Sprintf("| Transparency log | %s |\n", yn(v.Transparency)))
-	continuity := "unknown"
+	// Continuity is meaningful only for a persistent anchor identity; for other
+	// signers it is simply not asserted (not "unknown trust").
 	if v.Continuity {
-		continuity = "stable"
+		b.WriteString("| Signer continuity | stable |\n")
 	}
-	b.WriteString(fmt.Sprintf("| Signer continuity | %s |\n", continuity))
 	b.WriteString(fmt.Sprintf("| Human authorization required | %s |\n", yn(v.PhysicalPresence)))
 	b.WriteString(fmt.Sprintf("| Non-exportable key | %s |\n\n", yn(v.NonExportable)))
 
-	if v.AnchorAsset != "" && v.ChecksumSig != "" {
+	// Verify recipe — evidence-driven, NOT gated on a Tier-0 anchor. A continuity
+	// anchor (a published cosign.pub) gives the pinnable --key recipe; otherwise the
+	// recipe is class-appropriate so oidc/kms/hardware-only releases still disclose
+	// how to verify.
+	switch {
+	case v.AnchorAsset != "" && v.ChecksumSig != "":
 		tlog := " \\\n  --insecure-ignore-tlog=true"
 		if v.Transparency {
 			tlog = ""
@@ -355,13 +366,28 @@ func renderVerification(v *Verification) string {
 		if v.Fingerprint != "" {
 			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", v.Fingerprint))
 		}
+	case v.TrustClass == "oidc":
+		domain := v.TrustDomain
+		if domain == "" {
+			domain = "the Sigstore"
+		}
+		b.WriteString(fmt.Sprintf("This release is keyless-signed in **%s** trust domain — the signature is bound to an OIDC identity by Fulcio and (when transparency is on) logged in Rekor. Verify the checksums against the expected identity:\n\n", domain))
+		b.WriteString("```\ncosign verify-blob \\\n  --certificate-oidc-issuer <issuer> \\\n  --certificate-identity <signer> \\\n  --signature SHA256SUMS.sig \\\n  SHA256SUMS\n```\n\n")
+		if v.SignerRef != "" {
+			b.WriteString(fmt.Sprintf("Expected signer: `%s`. ", v.SignerRef))
+		}
+		b.WriteString("Obtain the issuer URL and (for a self-hosted domain) the Fulcio trusted-root from `SECURITY.md`.\n\n")
+	case v.SignerRef != "":
+		b.WriteString(fmt.Sprintf("This release is signed by `%s` (trust class **%s**). Verify the checksums against that signer's published public key:\n\n", v.SignerRef, v.TrustClass))
+		b.WriteString("```\ncosign verify-blob \\\n  --key <signer-public-key> \\\n  --signature SHA256SUMS.sig \\\n  SHA256SUMS\n```\n\n")
+		b.WriteString("Obtain the public key from `SECURITY.md` / the maintainer.\n\n")
 	}
 	if len(v.AdditionalLayers) > 0 {
-		b.WriteString("This release also carries higher-assurance signatures layered on the same artifacts:\n\n")
+		b.WriteString("This release also carries additional signatures on the same artifacts:\n\n")
 		for _, l := range v.AdditionalLayers {
 			b.WriteString(fmt.Sprintf("- %s\n", l))
 		}
-		b.WriteString("\nObtain those signers' public keys from the maintainer / `SECURITY.md` — they are not the auto-provisioned anchor above.\n\n")
+		b.WriteString("\nObtain those signers' public keys / identities from the maintainer / `SECURITY.md`.\n\n")
 	}
 	// Provenance attestations are disclosed SEPARATELY from signatures: a signature
 	// vouches for the artifact's bytes; a provenance attestation vouches for HOW it

@@ -1301,44 +1301,56 @@ func newSyncForgeClientFromTarget(t config.TargetConfig, cfg *config.Config) (fo
 	return nil, fmt.Errorf("release target %s: mirror: is required for remote release targets", t.ID)
 }
 
-// buildVerification assembles the publish-phase trust disclosure for a Tier-0
-// auto-provisioned identity: the public anchor to attach (cosign.pub from the state
-// dir) and the Verification block disclosing the assurance tier. Manifest-sourced —
-// it acts only when the results manifest records a successful Tier-0 signature and
-// the state dir holds a valid (continuity-checked) identity. Explicit-key signing is
-// operator-managed and not auto-disclosed here. Returns (nil, "") when inapplicable.
+// buildVerification assembles the publish-phase trust disclosure from WHATEVER trust
+// evidence the results manifest records — any signature or provenance attestation —
+// NOT gated on a Tier-0 signature. Disclosure is EVIDENCE-driven: an oidc/kms/hardware
+// -only release still discloses its tier, transparency, trust domain, provenance
+// attestations, and a class-appropriate verify recipe. Only the pinnable ANCHOR (a
+// published cosign.pub + fingerprint + continuity claim) is CONTINUITY-driven —
+// populated solely when this release carries a Tier-0 signature and the state-dir
+// identity loads (never advertise a stale anchor for a release it did not sign). Those
+// are different predicates and are deliberately decoupled. Returns (nil, "") only when
+// there is no trust evidence at all. The second return is the anchor pubkey path to
+// attach as a release asset, or "" when there is no anchor.
 func buildVerification(cfg config.SigningConfig, results *artifact.ResultsManifest, repoRoot string) (*release.Verification, string) {
-	if results == nil || !cfg.StateDir.Configured() {
+	if results == nil {
 		return nil, ""
 	}
-	ev, ok := tier0Evidence(results)
-	if !ok {
-		return nil, ""
+	sigs := collectSignatures(results)
+	provAtts := provenanceAttestations(results)
+	if len(sigs) == 0 && len(provAtts) == 0 {
+		return nil, "" // nothing worth disclosing
 	}
-	stateDir, err := cfg.StateDir.Resolve()
-	if err != nil {
-		return nil, ""
+
+	v := &release.Verification{ProvenanceAttestations: provAtts}
+	if len(sigs) > 0 {
+		p := sigs[0].ev // primary: Tier-0 first (collectSignatures sorts it ahead), else first
+		v.TierLabel = signatureTierLabel(p)
+		v.TrustClass = p.TrustClass
+		v.TrustDomain = p.TrustDomain
+		v.SignerRef = p.SignerRef
+		v.Transparency = p.Transparency
+		v.NonExportable = p.NonExportable
+		v.PhysicalPresence = p.PhysicalPresence
+		v.AdditionalLayers = describeLayers(sigs) // unique signatures beyond the primary
+		v.ChecksumSig = primaryChecksumSig(sigs)  // detached-checksum asset for the recipe
 	}
-	if err := provision.GuardStateDir(stateDir, repoRoot); err != nil {
-		return nil, ""
+
+	// Continuity-driven anchor — only when this release was Tier-0-signed AND the
+	// persistent identity loads. Decoupled from the disclosure above.
+	if hasTier0(sigs) && cfg.StateDir.Configured() {
+		if stateDir, err := cfg.StateDir.Resolve(); err == nil {
+			if err := provision.GuardStateDir(stateDir, repoRoot); err == nil {
+				if id, err := provision.LoadIdentity(stateDir); err == nil && id != nil {
+					v.Fingerprint = id.Fingerprint
+					v.AnchorAsset = "cosign.pub"
+					v.Continuity = true
+					return v, id.PubPath(stateDir)
+				}
+			}
+		}
 	}
-	id, err := provision.LoadIdentity(stateDir)
-	if err != nil || id == nil {
-		return nil, ""
-	}
-	v := &release.Verification{
-		TierLabel:              tierLabel(ev.Tier),
-		Fingerprint:            id.Fingerprint,
-		AnchorAsset:            "cosign.pub",
-		ChecksumSig:            "SHA256SUMS.sig",
-		Transparency:           ev.Transparency,
-		NonExportable:          ev.NonExportable,
-		PhysicalPresence:       ev.PhysicalPresence,
-		Continuity:             true, // a persistent, continuity-enforced identity
-		AdditionalLayers:       additionalSignatureLayers(results),
-		ProvenanceAttestations: provenanceAttestations(results),
-	}
-	return v, id.PubPath(stateDir)
+	return v, ""
 }
 
 // provenanceAttestations describes the build-provenance predicates attested onto
@@ -1388,66 +1400,120 @@ func provenanceAttestations(results *artifact.ResultsManifest) []string {
 	return out
 }
 
-// additionalSignatureLayers describes the NON-Tier-0 signatures layered onto the
-// same artifacts (e.g. a hardware sig added via `stagefreight sign`), deduped — so
-// the Verification surface discloses the strongest assurance present, never just
-// the auto-provisioned anchor.
-func additionalSignatureLayers(results *artifact.ResultsManifest) []string {
-	seen := map[string]bool{}
-	var layers []string
-	add := func(ev artifact.TrustEvidence, asset string) {
-		if ev.Tier == provision.TierSoftware {
-			return // Tier-0 is the primary, disclosed in the main table
-		}
-		cls := ev.TrustClass
-		if cls == "" {
-			cls = "signature"
-		}
-		desc := cls
-		if ev.TrustDomain != "" {
-			desc += " (trust domain: " + ev.TrustDomain + ")"
-		}
-		if ev.PhysicalPresence {
-			desc += " (human-authorized)"
-		}
-		if ev.NonExportable {
-			desc += ", non-exportable"
-		}
-		if asset != "" {
-			desc += " · " + asset
-		}
-		if !seen[desc] {
-			seen[desc] = true
-			layers = append(layers, desc)
-		}
-	}
+// sigEvidence is one successful signature's trust evidence plus its disclosure asset
+// (a detached-checksum filename for a blob signature, or the image digest ref).
+type sigEvidence struct {
+	ev     artifact.TrustEvidence
+	asset  string
+	isBlob bool
+}
+
+// collectSignatures gathers every successful signature (blob + image), Tier-0 sorted
+// FIRST so the disclosure "primary" is the continuity anchor when present, otherwise a
+// stable first signature. Provenance attestations are NOT signatures and are collected
+// separately (provenanceAttestations).
+func collectSignatures(results *artifact.ResultsManifest) []sigEvidence {
+	var sigs []sigEvidence
 	for _, r := range results.Results {
 		for _, o := range r.Outcomes {
 			switch {
 			case o.BlobSignature != nil && o.BlobSignature.Status == artifact.OutcomeSuccess:
-				add(o.BlobSignature.TrustEvidence, filepath.Base(o.BlobSignature.SignaturePath))
+				sigs = append(sigs, sigEvidence{o.BlobSignature.TrustEvidence, filepath.Base(o.BlobSignature.SignaturePath), true})
 			case o.Attestation != nil && o.Attestation.Status == artifact.OutcomeSuccess:
-				add(o.Attestation.TrustEvidence, o.Attestation.SignatureRef)
+				sigs = append(sigs, sigEvidence{o.Attestation.TrustEvidence, o.Attestation.SignatureRef, false})
 			}
 		}
 	}
-	return layers
+	sort.SliceStable(sigs, func(i, j int) bool {
+		return sigs[i].ev.Tier == provision.TierSoftware && sigs[j].ev.Tier != provision.TierSoftware
+	})
+	return sigs
 }
 
-// tier0Evidence finds the trust evidence of a successful Tier-0 signature in the
-// results manifest (image attestation or blob signature), if any.
-func tier0Evidence(results *artifact.ResultsManifest) (artifact.TrustEvidence, bool) {
-	for _, r := range results.Results {
-		for _, o := range r.Outcomes {
-			switch {
-			case o.BlobSignature != nil && o.BlobSignature.Status == artifact.OutcomeSuccess && o.BlobSignature.Tier == provision.TierSoftware:
-				return o.BlobSignature.TrustEvidence, true
-			case o.Attestation != nil && o.Attestation.Status == artifact.OutcomeSuccess && o.Attestation.Tier == provision.TierSoftware:
-				return o.Attestation.TrustEvidence, true
-			}
+// describeSignature renders one signature's disclosure line (class, tier, trust
+// domain, presence, non-exportability, asset).
+func describeSignature(ev artifact.TrustEvidence, asset string) string {
+	cls := ev.TrustClass
+	if cls == "" {
+		cls = "signature"
+	}
+	desc := cls
+	if ev.Tier != "" {
+		desc += " (" + tierLabel(ev.Tier) + ")"
+	}
+	if ev.TrustDomain != "" {
+		desc += " (trust domain: " + ev.TrustDomain + ")"
+	}
+	if ev.PhysicalPresence {
+		desc += " (human-authorized)"
+	}
+	if ev.NonExportable {
+		desc += ", non-exportable"
+	}
+	if asset != "" {
+		desc += " · " + asset
+	}
+	return desc
+}
+
+// describeLayers returns the deduped disclosure lines for every signature BEYOND the
+// primary (sigs[0]) — the primary drives the main table, so its line is dropped here.
+func describeLayers(sigs []sigEvidence) []string {
+	seen := map[string]bool{}
+	var descs []string
+	for _, s := range sigs {
+		d := describeSignature(s.ev, s.asset)
+		if !seen[d] {
+			seen[d] = true
+			descs = append(descs, d)
 		}
 	}
-	return artifact.TrustEvidence{}, false
+	if len(descs) <= 1 {
+		return nil
+	}
+	return descs[1:]
+}
+
+// primaryChecksumSig returns the detached-checksum signature asset to cite in the
+// verify recipe — the first blob signature (SHA256SUMS.sig), Tier-0 preferred.
+func primaryChecksumSig(sigs []sigEvidence) string {
+	for _, s := range sigs {
+		if s.isBlob {
+			return s.asset
+		}
+	}
+	return ""
+}
+
+// hasTier0 reports whether any collected signature is the continuity-backed Tier-0
+// identity — the gate for advertising the published anchor.
+func hasTier0(sigs []sigEvidence) bool {
+	for _, s := range sigs {
+		if s.ev.Tier == provision.TierSoftware {
+			return true
+		}
+	}
+	return false
+}
+
+// signatureTierLabel labels the primary signature for the table: its assurance tier
+// when recorded (e.g. Tier-0), else a class-based label so non-tiered signers
+// (kms/oidc/hardware) still read meaningfully.
+func signatureTierLabel(ev artifact.TrustEvidence) string {
+	if ev.Tier != "" {
+		return tierLabel(ev.Tier)
+	}
+	switch ev.TrustClass {
+	case "oidc":
+		return "keyless (OIDC identity)"
+	case "kms":
+		return "KMS / managed key"
+	case "hardware":
+		return "hardware (operator-held key)"
+	case "key":
+		return "key (operator-supplied)"
+	}
+	return "signed"
 }
 
 func tierLabel(tier string) string {

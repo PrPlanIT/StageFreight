@@ -370,6 +370,40 @@ func TestRenderVerification_DisclosesProvenanceAttestationsSeparately(t *testing
 	}
 }
 
+// A non-anchor OIDC release must still render a verify section — a keyless recipe
+// (certificate-identity / oidc-issuer), the trust domain, and NOT the --key
+// cosign.pub anchor recipe (which only applies when a continuity anchor exists).
+func TestRenderVerification_OIDCNoAnchorEmitsKeylessRecipe(t *testing.T) {
+	out := renderVerification(&Verification{
+		TierLabel: "keyless (OIDC identity)", TrustClass: "oidc", TrustDomain: "internal",
+		Transparency: true, SignerRef: "https://id.internal/subj",
+	})
+	for _, want := range []string{
+		"## Verification", "Trust domain | internal", "keyless-signed",
+		"cosign verify-blob", "--certificate-oidc-issuer",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("keyless verification missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "--key cosign.pub") {
+		t.Errorf("no anchor present → must not emit the --key cosign.pub recipe:\n%s", out)
+	}
+}
+
+// A non-anchor kms/hardware release renders a signer-pointer recipe.
+func TestRenderVerification_NoAnchorSignerPointerRecipe(t *testing.T) {
+	out := renderVerification(&Verification{
+		TierLabel: "KMS / managed key", TrustClass: "kms", NonExportable: true,
+		SignerRef: "release-signing-key",
+	})
+	for _, want := range []string{"signed by `release-signing-key`", "trust class **kms**", "SECURITY.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("signer-pointer recipe missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
 	out := renderVerification(&Verification{
 		TierLabel: "oidc keyless", Fingerprint: "", AnchorAsset: "cosign.pub",
