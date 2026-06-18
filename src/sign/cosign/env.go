@@ -6,6 +6,8 @@
 // See docs/architecture/signing-trust-model.md (1e).
 package cosign
 
+import "github.com/PrPlanIT/StageFreight/src/sign"
+
 // Principal is a stable trust-principal identity — the model's single load-bearing
 // assumption, made explicit AS DATA. For cryptographic classes it is the key's
 // public-key fingerprint (derived from key material when the Env is constructed —
@@ -59,4 +61,25 @@ type Env struct {
 	FIDO2  []FIDO2Device
 	PKCS11 []PKCS11Slot
 	OIDC   []OIDCIdentity
+}
+
+// EnvForPlan resolves a plan's logical references against the ambient environment
+// into a declared witness Env — the impure resolution boundary that keeps Render
+// itself pure over (plan, op, env). Hardware witnesses are declared externally (the
+// deployment enumerates physical devices); the caller merges those in.
+func EnvForPlan(plan sign.SignPlan) Env {
+	var env Env
+	switch plan.TrustClass {
+	case sign.ClassKey:
+		if path := sign.DerefKeyRef(plan.KeyRef); path != "" {
+			env.Keys = []KeyFile{{Path: path}}
+		}
+	case sign.ClassKMS:
+		if uri := resolveKMSURI(plan.KMSRef); uri != "" {
+			env.KMS = []KMSKey{{URI: uri}}
+		}
+	case sign.ClassOIDC:
+		env.OIDC = []OIDCIdentity{{Issuer: plan.Identity.Issuer, Subject: plan.Identity.Subject}}
+	}
+	return env
 }

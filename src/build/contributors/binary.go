@@ -336,7 +336,7 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	artifactID := artifact.NewArtifactID("checksums", filepath.Base(checksumPath))
 	evidence := planEvidence(plan, tier)
 	sigPath := checksumPath + ".sig"
-	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, sigPath, plan, cosign.Env{})
+	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, sigPath, plan, cosign.EnvForPlan(plan))
 	if err != nil {
 		rc.RB.Record(artifactID, artifact.Outcome{
 			Type: artifact.OutcomeTypeBlobSignature,

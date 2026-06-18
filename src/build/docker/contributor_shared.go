@@ -118,7 +118,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 				Transparency:     signPlan.TransparencyRequired,
 				SignerRef:        sign.SignerRef(signPlan),
 			}
-			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.Env{}, sign.SignOptions{MultiArch: tgt.multiArch})
+			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.EnvForPlan(signPlan), sign.SignOptions{MultiArch: tgt.multiArch})
 			if err != nil {
 				diag.Warn("image signing %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{

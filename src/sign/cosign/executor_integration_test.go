@@ -53,7 +53,7 @@ func TestSignBlobEndToEnd(t *testing.T) {
 	}
 
 	sigPath := blob + ".sig"
-	if err := SignBlob(context.Background(), dir, nil, blob, sigPath, keyPlan, Env{}); err != nil {
+	if err := SignBlob(context.Background(), dir, nil, blob, sigPath, keyPlan, EnvForPlan(keyPlan)); err != nil {
 		t.Fatalf("SignBlob: %v", err)
 	}
 	if _, err := os.Stat(sigPath); err != nil {

@@ -11,7 +11,7 @@ import (
 func TestRender_KeyClass(t *testing.T) {
 	t.Setenv("SF_TEST_KEY", "/keys/cosign.key")
 	p := sign.SignPlan{TrustClass: sign.ClassKey, KeyRef: "env:SF_TEST_KEY"}
-	args, err := Render(p, sign.OpSignImage, Env{})
+	args, err := Render(p, sign.OpSignImage, EnvForPlan(p))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestRender_KeyClass(t *testing.T) {
 
 func TestRender_KeyClass_UnresolvedRefErrors(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassKey, KeyRef: "env:SF_MISSING_KEY"}
-	if _, err := Render(p, sign.OpSignImage, Env{}); err == nil {
+	if _, err := Render(p, sign.OpSignImage, EnvForPlan(p)); err == nil {
 		t.Fatal("expected error for unresolved key ref")
 	}
 }
@@ -49,7 +49,7 @@ func TestRender_OIDCKeyless(t *testing.T) {
 func TestRender_KMSClass(t *testing.T) {
 	t.Setenv("SF_SIGN_KMS_RELEASE", "awskms://alias/release")
 	p := sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "release"}
-	args, err := Render(p, sign.OpSignImage, Env{})
+	args, err := Render(p, sign.OpSignImage, EnvForPlan(p))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestRender_KMSClass(t *testing.T) {
 
 func TestRender_KMSClass_UnboundRefErrors(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "release"}
-	if _, err := Render(p, sign.OpSignImage, Env{}); err == nil {
+	if _, err := Render(p, sign.OpSignImage, EnvForPlan(p)); err == nil {
 		t.Fatal("expected error for unbound kms ref")
 	}
 }
@@ -147,7 +147,7 @@ func TestRender_OpVerbs(t *testing.T) {
 		sign.OpAttest:    "attest",
 		sign.OpSignBlob:  "sign-blob",
 	} {
-		args, err := Render(p, op, Env{})
+		args, err := Render(p, op, EnvForPlan(p))
 		if err != nil {
 			t.Fatalf("render %s: %v", op, err)
 		}
@@ -158,5 +158,27 @@ func TestRender_OpVerbs(t *testing.T) {
 		if op == sign.OpSignBlob && slices.Contains(args, "--yes") {
 			t.Errorf("sign-blob must not emit --yes: %v", args)
 		}
+	}
+}
+
+func TestEnvForPlan(t *testing.T) {
+	t.Setenv("SF_TEST_KEY", "/k/cosign.key")
+	t.Setenv("SF_SIGN_KMS_REL", "hashivault://transit/keys/rel")
+
+	if env := EnvForPlan(sign.SignPlan{TrustClass: sign.ClassKey, KeyRef: "env:SF_TEST_KEY"}); len(env.Keys) != 1 || env.Keys[0].Path != "/k/cosign.key" {
+		t.Errorf("key resolution: %+v", env.Keys)
+	}
+	if env := EnvForPlan(sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "rel"}); len(env.KMS) != 1 || env.KMS[0].URI != "hashivault://transit/keys/rel" {
+		t.Errorf("kms resolution: %+v", env.KMS)
+	}
+	if env := EnvForPlan(sign.SignPlan{TrustClass: sign.ClassOIDC, Identity: sign.IdentityConstraints{Issuer: "iss", Subject: "sub"}}); len(env.OIDC) != 1 || env.OIDC[0].Issuer != "iss" {
+		t.Errorf("oidc resolution: %+v", env.OIDC)
+	}
+	// hardware witnesses are declared externally — EnvForPlan yields none.
+	if env := EnvForPlan(sign.SignPlan{TrustClass: sign.ClassHardware}); len(env.Keys)+len(env.KMS)+len(env.FIDO2) != 0 {
+		t.Errorf("hardware EnvForPlan should be empty: %+v", env)
+	}
+	if env := EnvForPlan(sign.SignPlan{TrustClass: sign.ClassKey, KeyRef: "env:SF_NOPE_XYZ"}); len(env.Keys) != 0 {
+		t.Errorf("an unresolved key must yield no witness: %+v", env.Keys)
 	}
 }

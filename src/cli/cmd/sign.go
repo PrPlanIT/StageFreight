@@ -152,19 +152,21 @@ signs the release SHA256SUMS; image attestation is a follow-up.`,
 	},
 }
 
-// envForClass builds the declared capability Env the renderer consumes. key/kms/oidc
-// need none (resolved from refs); hardware declares a single presence-required,
-// non-exportable token for the --sk path — cosign enforces the actual touch/PIN, so
-// declaring it is the operator's assertion that such a token is attached.
+// envForClass builds the declared capability Env the renderer consumes: key/kms/oidc
+// are resolved from their refs by EnvForPlan; hardware additionally declares a single
+// presence-required, non-exportable token for the --sk path — cosign enforces the
+// actual touch/PIN, so declaring it is the operator's assertion that such a token is
+// attached. (Multi-witness / PKCS#11 declaration is deferment-pending config.)
 func envForClass(plan sign.SignPlan) cosign.Env {
+	env := cosign.EnvForPlan(plan)
 	if plan.TrustClass == sign.ClassHardware {
-		return cosign.Env{FIDO2: []cosign.FIDO2Device{{
+		env.FIDO2 = []cosign.FIDO2Device{{
 			Principal:        cosign.Principal("hardware-token"),
 			PhysicalPresence: true,
 			NonExportable:    true,
-		}}}
+		}}
 	}
-	return cosign.Env{}
+	return env
 }
 
 // appendOutcome extends the results manifest additively — appending to the matching

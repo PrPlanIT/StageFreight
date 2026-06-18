@@ -86,14 +86,6 @@ func SignerRef(p SignPlan) string {
 	return ""
 }
 
-// SignatureResult is the structured outcome of a signing operation (Commit 2
-// records the full trust evidence in the results manifest).
-type SignatureResult struct {
-	SignatureRef   string // OCI ref of the attached signature (image ops)
-	AttestationRef string // OCI ref of the attestation, if any
-	SignaturePath  string // path to a detached signature (blob ops)
-}
-
 // Compile lowers a validated, resolved profile to its trust contract. It is a
 // deterministic, TOTAL transform: config.ValidateSigningProfiles is the single
 // validation layer, so Compile has no error path and never re-validates. Purity
@@ -132,18 +124,33 @@ func Enabled(p SignPlan) bool {
 	return p.TrustClass != ""
 }
 
-// resolveKeyRef resolves a key reference to a concrete value: "env:VAR" → the
-// environment value; otherwise a filesystem path, present iff it exists. An empty
-// result means unresolved (signing disabled for the legacy path).
-func resolveKeyRef(ref string) string {
+// DerefKeyRef resolves a key reference to its concrete value WITHOUT existence
+// checking: "env:VAR" → the environment value; otherwise the path verbatim. The one
+// canonical place the "env:VAR vs path" grammar is parsed — shared by Enabled (which
+// adds an existence check) and the renderer's witness resolution, so the two can
+// never diverge.
+func DerefKeyRef(ref string) string {
 	if ref == "" {
 		return ""
 	}
 	if v, ok := strings.CutPrefix(ref, "env:"); ok {
 		return os.Getenv(v)
 	}
-	if _, err := os.Stat(ref); err != nil {
+	return ref
+}
+
+// resolveKeyRef resolves a key reference and confirms it is usable: an env value is
+// returned as-is; a filesystem path is returned iff it exists. Empty = unresolved
+// (signing disabled for the legacy no-key path).
+func resolveKeyRef(ref string) string {
+	v := DerefKeyRef(ref)
+	if v == "" {
 		return ""
 	}
-	return ref
+	if !strings.HasPrefix(ref, "env:") {
+		if _, err := os.Stat(v); err != nil {
+			return ""
+		}
+	}
+	return v
 }

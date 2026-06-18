@@ -11,8 +11,10 @@ import (
 
 // Render turns a trust contract (sign.SignPlan) into a concrete cosign invocation
 // by SATISFYING its requirements against the declared Env. It is a capability-
-// satisfaction emitter, not a mode selector — and pure given (plan, op, env): a
-// constraint solver over distinct trust PRINCIPALS, then a flag emitter.
+// satisfaction emitter, not a mode selector — and genuinely pure given (plan, op,
+// env): a constraint solver over distinct trust PRINCIPALS, then a flag emitter. It
+// reads NO ambient environment — logical refs (key/kms) are resolved into Env
+// witnesses by EnvForPlan beforehand, so the env-read is isolated to that boundary.
 //
 // The load-bearing rule is the principal count |D| for the plan's class:
 //
@@ -46,18 +48,18 @@ type mechanism struct {
 func selectMechanism(p sign.SignPlan, env Env) (mechanism, error) {
 	switch p.TrustClass {
 	case sign.ClassKey:
-		path := resolveKeyRef(p.KeyRef)
-		if path == "" {
-			return mechanism{}, fmt.Errorf("key class: key reference %q does not resolve to a usable key", p.KeyRef)
+		// Read the resolved key witness from the declared Env (populated by
+		// EnvForPlan before Render) — Render itself never touches the environment.
+		if len(env.Keys) == 0 || env.Keys[0].Path == "" {
+			return mechanism{}, fmt.Errorf("key class: key reference %q did not resolve to a usable key", p.KeyRef)
 		}
-		return mechanism{class: sign.ClassKey, keyArg: path}, nil
+		return mechanism{class: sign.ClassKey, keyArg: env.Keys[0].Path}, nil
 
 	case sign.ClassKMS:
-		uri := resolveKMSURI(p.KMSRef)
-		if uri == "" {
+		if len(env.KMS) == 0 || env.KMS[0].URI == "" {
 			return mechanism{}, fmt.Errorf("kms class: ref %q is not bound to a URI (set %s)", p.KMSRef, kmsEnvVar(p.KMSRef))
 		}
-		return mechanism{class: sign.ClassKMS, keyArg: uri}, nil
+		return mechanism{class: sign.ClassKMS, keyArg: env.KMS[0].URI}, nil
 
 	case sign.ClassOIDC:
 		// Keyless: the signer is the ambient OIDC identity (CI/workload token),
@@ -190,19 +192,6 @@ func opVerb(op sign.Op) string {
 	default:
 		return string(op)
 	}
-}
-
-// resolveKeyRef mirrors sign.resolveKeyRef's logic at render time: "env:VAR" → the
-// environment value; otherwise a filesystem path passed through (existence was
-// already gated by sign.Enabled). Empty result means unresolved.
-func resolveKeyRef(ref string) string {
-	if ref == "" {
-		return ""
-	}
-	if v, ok := strings.CutPrefix(ref, "env:"); ok {
-		return os.Getenv(v)
-	}
-	return ref
 }
 
 // resolveKMSURI binds a logical KMS ref to a concrete URI by PURE env substitution:
