@@ -313,9 +313,14 @@ func ValidateSigningProfiles(profiles []SigningProfile) []string {
 			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: kms block is invalid for class %q", p.ID, class))
 		}
 
-		// Assurance properties are hardware-class-only (invariant 2).
-		if (p.PhysicalPresence != "" || p.NonExportable != "") && class != TrustHardware {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: physical_presence/non_exportable are valid only for class hardware", p.ID))
+		// Assurance keywords (invariant 2): physical_presence is hardware-only;
+		// non_exportable holds for hardware OR kms (a KMS/Vault-transit key is
+		// non-exportable by design).
+		if p.PhysicalPresence != "" && class != TrustHardware {
+			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: physical_presence is valid only for class hardware", p.ID))
+		}
+		if p.NonExportable != "" && class != TrustHardware && class != TrustKMS {
+			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: non_exportable is valid only for class hardware or kms", p.ID))
 		}
 		for name, val := range map[string]string{"physical_presence": p.PhysicalPresence, "non_exportable": p.NonExportable} {
 			if val != "" && !strings.EqualFold(val, assuranceRequired) {

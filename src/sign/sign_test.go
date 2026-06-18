@@ -65,3 +65,13 @@ func TestEnabled_NoKeyNoSigning(t *testing.T) {
 		t.Error("oidc plan must be enabled")
 	}
 }
+
+func TestCompile_KMSCarriesNonExportable(t *testing.T) {
+	plan := Compile(&config.ResolvedSigningProfile{Class: "kms", KMSRef: "rel", NonExportable: true})
+	if !plan.RequiresNonExportableKey {
+		t.Error("a kms profile asserting non_exportable must carry it (a KMS/Vault key never leaves the service)")
+	}
+	if plan.RequiresPhysicalPresence {
+		t.Error("kms must not carry physical presence")
+	}
+}

@@ -106,10 +106,12 @@ var sectionOverrides = map[string]SectionOverride{
     non_exportable: required
   - id: org-kms
     requires: kms
-    kms: { ref: release-signing-key }   # logical ref, bound to a URI at render time`,
+    kms: { ref: release-signing-key }   # logical ref, bound to a URI at render time
+    non_exportable: required            # a KMS/Vault-transit key never leaves the service`,
 		Notes: []string{
 			"`requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.",
-			"Assurance keywords `physical_presence` / `non_exportable` (value `required`) are valid only for `requires: hardware`.",
+			"`physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.",
+			"KMS/Vault ref binding is deployment wiring: set `SF_SIGN_KMS_<REF>` to the URI, e.g. `SF_SIGN_KMS_RELEASE-SIGNING-KEY=hashivault://release` (cosign's hashivault:// takes the key NAME only).",
 			"`enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).",
 			"Aliases normalized at load: `keyless` → `oidc`, `yubikey` → `hardware`.",
 		},

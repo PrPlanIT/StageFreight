@@ -99,8 +99,13 @@ func Compile(p *config.ResolvedSigningProfile) SignPlan {
 		KeyRef:      p.KeyRef,
 		KMSRef:      p.KMSRef,
 	}
+	// Physical presence is a hardware property; non-exportability holds for hardware
+	// AND kms (a KMS/Vault-transit key never leaves the service), so a kms profile
+	// may honestly assert it. Both are carried only where they are meaningful.
 	if plan.TrustClass == ClassHardware {
 		plan.RequiresPhysicalPresence = p.PhysicalPresence
+		plan.RequiresNonExportableKey = p.NonExportable
+	} else if plan.TrustClass == ClassKMS {
 		plan.RequiresNonExportableKey = p.NonExportable
 	}
 	// Transparency requirement: per-class default (on for oidc, off otherwise),

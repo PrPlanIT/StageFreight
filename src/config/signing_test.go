@@ -82,3 +82,16 @@ func TestValidateTargetSigningProfileRefs(t *testing.T) {
 		t.Errorf("expected exactly one error (target d), got %v", errs)
 	}
 }
+
+func TestValidate_NonExportableAllowedOnKMS(t *testing.T) {
+	if errs := ValidateSigningProfiles([]SigningProfile{
+		{ID: "v", Requires: StringOrList{"kms"}, KMS: &KMSTrust{Ref: "rel"}, NonExportable: "required"},
+	}); len(errs) != 0 {
+		t.Errorf("non_exportable on a kms profile must validate: %v", errs)
+	}
+	if errs := ValidateSigningProfiles([]SigningProfile{
+		{ID: "v", Requires: StringOrList{"kms"}, KMS: &KMSTrust{Ref: "rel"}, PhysicalPresence: "required"},
+	}); len(errs) == 0 {
+		t.Error("physical_presence on a kms profile must be rejected (hardware-only)")
+	}
+}

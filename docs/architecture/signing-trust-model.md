@@ -586,7 +586,7 @@ Verification stays uniform across both: a consumer pins **a public key** (key-cu
 | Path | Class | Self-hosted | Reality | Gap to real |
 |---|---|---|---|---|
 | cosign key/password | key | ✅ | works (proven e2e) | docs |
-| Vault / OpenBao (transit) | kms | ✅ | `kms.ref → hashivault://` resolves now | auto-provision + workload-identity binding + docs |
+| Vault / OpenBao (transit) | kms | ✅ | **proven e2e** (dev-Vault `cosign.TestSignBlob_VaultTransit`); non-exportable disclosed | operator runner guide; (auto-provision deferred — *usage, not custodianship*) |
 | YubiKey / Titan | hardware | ✅ | renderer emits `--sk`/`--key pkcs11:` | human-gated `sign` command + PIN/touch + hardware validation |
 | SoftHSM / network HSM | hardware | ✅ | same `pkcs11:` path | custody standup + docs |
 | TPM-bound | hardware | ✅ | same key-custody render | host wiring |
@@ -598,6 +598,23 @@ even empty password) + `cosign.pub`. cosign reads the key via `--key <path|ref>`
 `COSIGN_PASSWORD` (now forwarded by `signEnv`). In our model the legacy ref `env:COSIGN_KEY` resolves
 to the `--key` value (a path or a `hashivault://` ref). A raw key in CI is the **weakest** class
 (exportable) — prefer Vault transit, where the key never leaves the custodian.
+
+**Vault transit — the production unattended tier (operator-provided; *usage, not custodianship*).**
+Vault is "a signer, not a signing mode": it rides the existing `kms` class with no Vault-special-case
+anywhere. The operator workflow:
+- **Profile** (portable, no URL): `signing_profiles: [{ id: release, requires: kms, kms: { ref: release },
+  non_exportable: required }]`. `non_exportable: required` is now valid on `kms` and discloses honestly
+  that the key never leaves Vault.
+- **Bind the URI** (deployment wiring, not policy): `SF_SIGN_KMS_RELEASE=hashivault://release`.
+  ⚠️ **cosign's `hashivault://` takes the KEY NAME only** (it prepends `transit/keys/`) — *not*
+  `hashivault://transit/keys/release`.
+- **Auth** (operator CI, reusing existing workload identity): the runner does an OIDC/JWT login to Vault
+  → `VAULT_TOKEN` + `VAULT_ADDR`; `signEnv` forwards `VAULT_*` to cosign. StageFreight consumes the
+  token, it does not perform the auth.
+- **Continuity/anchor** stay operator-managed (the Vault key's public key + name) — StageFreight does NOT
+  fetch or provision Vault keys (that is custodianship: rotation, policy, tenancy — deliberately deferred
+  until operational experience exists). Proven end-to-end against a dev Vault by
+  `cosign.TestSignBlob_VaultTransit`.
 
 **OIDC keyless mechanics:** OIDC token → Fulcio mints a ~10-min cert binding `(issuer, subject)` to an
 ephemeral key → sign → log to Rekor → verify against the Fulcio root + expected identity. The issuer is
