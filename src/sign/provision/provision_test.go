@@ -118,6 +118,40 @@ func TestEnsureIdentity_ReTightensKeyPerms(t *testing.T) {
 	}
 }
 
+// A CRLF/trailing-newline difference in the PEM must NOT change the fingerprint
+// (it hashes the DER, not the file bytes) — otherwise a backup/checkout that
+// touches cosign.pub would spuriously trip continuity and brick signing.
+func TestFingerprint_EncodingInvariant(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.pub")
+	b := filepath.Join(dir, "b.pub")
+	c := filepath.Join(dir, "c.pub")
+	// Same key material (base64 "aGVsbG8="), LF vs CRLF + extra trailing newline.
+	mustWrite(t, a, "-----BEGIN PUBLIC KEY-----\naGVsbG8=\n-----END PUBLIC KEY-----\n")
+	mustWrite(t, b, "-----BEGIN PUBLIC KEY-----\r\naGVsbG8=\r\n-----END PUBLIC KEY-----\r\n\n")
+	mustWrite(t, c, "-----BEGIN PUBLIC KEY-----\nd29ybGQ=\n-----END PUBLIC KEY-----\n") // different material
+
+	fa, err := fingerprint(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, _ := fingerprint(b)
+	fc, _ := fingerprint(c)
+	if fa != fb {
+		t.Errorf("PEM encoding differences must not change the fingerprint: %s vs %s", fa, fb)
+	}
+	if fc == fa {
+		t.Error("different key material must yield a different fingerprint")
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGuardStateDir(t *testing.T) {
 	repo := t.TempDir()
 	if err := GuardStateDir(filepath.Join(repo, "sub", "signing"), repo); err == nil {

@@ -44,6 +44,11 @@ type SigningProfile struct {
 	// policy, NOT a trust requirement — it never enters the SignPlan; Publish reads
 	// it to decide block-vs-proceed (foundational invariant 4).
 	Enforce bool `yaml:"enforce,omitempty"`
+
+	// AllowFallback permits an explicitly-configured signer that fails to resolve to
+	// fall back to the auto-provisioned Tier-0 identity. Default false: an explicit
+	// trust expectation that is unmet fails LOUDLY, never silently downgrades.
+	AllowFallback bool `yaml:"allow_fallback,omitempty"`
 }
 
 // KeyTrust is a key reference — "path" or "env:VAR". A reference, not a mechanism.
@@ -175,6 +180,14 @@ type ResolvedSigningProfile struct {
 	TransparencyLog  *bool // nil = use the class default
 	Attestation      bool
 	Enforce          bool // signing failure is fatal (orchestration policy, not trust)
+	AllowFallback    bool // an unresolved explicit signer may fall back to Tier-0
+}
+
+// IsLegacyDefault reports whether this is the synthesized implicit default profile
+// (no explicit signing_profile on the target) — the always-on path that may fall to
+// Tier-0 or silently skip, as opposed to an explicit profile that must resolve.
+func (r *ResolvedSigningProfile) IsLegacyDefault() bool {
+	return r != nil && r.ID == legacySigningProfileID
 }
 
 // ResolveSigningProfileForTarget returns the resolved profile a target signs
@@ -221,6 +234,7 @@ func resolveSigningProfile(p *SigningProfile) *ResolvedSigningProfile {
 		TransparencyLog:  p.TransparencyLog,
 		Attestation:      p.Attestation,
 		Enforce:          p.Enforce,
+		AllowFallback:    p.AllowFallback,
 		PhysicalPresence: strings.EqualFold(p.PhysicalPresence, assuranceRequired),
 		NonExportable:    strings.EqualFold(p.NonExportable, assuranceRequired),
 	}

@@ -25,6 +25,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -179,12 +180,21 @@ func writeIdentity(stateDir string, id *Identity) error {
 	return os.WriteFile(filepath.Join(stateDir, identityFile), data, 0o600)
 }
 
+// fingerprint hashes the SEMANTIC public-key material, not the raw file bytes —
+// it decodes the PEM and hashes the DER (SPKI) block, so a CRLF/LF conversion,
+// trailing-newline change, or re-wrapping of the PEM does NOT spuriously trip the
+// continuity drift check and brick signing. A non-PEM file falls back to hashing
+// raw bytes (still deterministic).
 func fingerprint(pubPath string) (string, error) {
 	b, err := os.ReadFile(pubPath)
 	if err != nil {
 		return "", fmt.Errorf("reading public key: %w", err)
 	}
-	sum := sha256.Sum256(b)
+	material := b
+	if block, _ := pem.Decode(b); block != nil {
+		material = block.Bytes
+	}
+	sum := sha256.Sum256(material)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 

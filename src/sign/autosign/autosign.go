@@ -7,6 +7,7 @@ package autosign
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/sign"
@@ -30,14 +31,21 @@ func EffectiveSigner(ctx context.Context, cfg config.SigningConfig, profile *con
 		if sign.Enabled(plan) {
 			return plan, "", true, nil // operator-supplied signer resolves
 		}
-		// An explicit key-class profile whose key does not resolve: fill from Tier-0
-		// if consented, preserving the profile's other requirements.
-		if plan.TrustClass == sign.ClassKey {
+		// The synthesized `legacy` default (target has no explicit signing_profile)
+		// is the always-on path: fall to Tier-0 if consented, else silently skip
+		// (preserving today's no-key-no-signing).
+		if profile.IsLegacyDefault() {
 			return tier0Fill(ctx, cfg, plan, rootDir, repoRoot, desired, now)
 		}
-		return sign.SignPlan{}, "", false, nil // a non-key profile that isn't enabled
+		// An EXPLICIT profile that does not resolve is FATAL — an operator's stated
+		// trust expectation must fail loudly when unmet, never silently downgrade to
+		// a weaker auto-provisioned key. Opt in with allow_fallback to permit Tier-0.
+		if plan.TrustClass == sign.ClassKey && profile.AllowFallback {
+			return tier0Fill(ctx, cfg, plan, rootDir, repoRoot, desired, now)
+		}
+		return sign.SignPlan{}, "", false, fmt.Errorf("signing profile %q is configured but did not resolve to a usable signer — refusing to silently downgrade (set allow_fallback: true to permit Tier-0 fallback)", profile.ID)
 	}
-	// No explicit profile → sign only if Tier-0 is consented.
+	// No explicit profile at all → sign only if Tier-0 is consented.
 	return tier0Fill(ctx, cfg, sign.SignPlan{TrustClass: sign.ClassKey}, rootDir, repoRoot, desired, now)
 }
 

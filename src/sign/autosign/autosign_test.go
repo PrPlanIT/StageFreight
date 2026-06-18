@@ -49,6 +49,26 @@ func TestEffectiveSigner_ExplicitKeyProfileResolves(t *testing.T) {
 	}
 }
 
+// An EXPLICIT profile whose signer does not resolve must fail loudly — never
+// silently downgrade to a weaker auto-provisioned key.
+func TestEffectiveSigner_ExplicitUnresolvedIsFatal(t *testing.T) {
+	profile := &config.ResolvedSigningProfile{ID: "release-key", Class: "key", KeyRef: "env:SF_UNSET_KEY_XYZ"}
+	_, _, ok, err := EffectiveSigner(context.Background(), config.SigningConfig{}, profile, "/repo", "/repo", nil, "now")
+	if err == nil || ok {
+		t.Fatalf("an unresolved explicit signer must be fatal, got ok=%v err=%v", ok, err)
+	}
+}
+
+// The legacy implicit default with no key + no consent skips silently (back-compat
+// no-key-no-signing), NOT a fatal — it is the always-on path, not an explicit demand.
+func TestEffectiveSigner_LegacyUnresolvedSkipsSilently(t *testing.T) {
+	profile := &config.ResolvedSigningProfile{ID: "legacy", Class: "key", KeyRef: "env:SF_UNSET_KEY_XYZ"}
+	_, _, ok, err := EffectiveSigner(context.Background(), config.SigningConfig{}, profile, "/repo", "/repo", nil, "now")
+	if err != nil || ok {
+		t.Fatalf("legacy default with no key must skip silently, got ok=%v err=%v", ok, err)
+	}
+}
+
 func TestInactiveReason(t *testing.T) {
 	if r := InactiveReason(config.SigningConfig{Enabled: bp(false)}); !strings.Contains(r, "disabled") {
 		t.Errorf("disabled reason: %q", r)
