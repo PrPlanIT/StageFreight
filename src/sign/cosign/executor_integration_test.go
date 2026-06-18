@@ -52,8 +52,8 @@ func TestSignBlobEndToEnd(t *testing.T) {
 		t.Fatal("key plan should be enabled with COSIGN_KEY pointing at the generated key")
 	}
 
-	sigPath, err := SignBlob(context.Background(), dir, nil, blob, keyPlan, Env{})
-	if err != nil {
+	sigPath := blob + ".sig"
+	if err := SignBlob(context.Background(), dir, nil, blob, sigPath, keyPlan, Env{}); err != nil {
 		t.Fatalf("SignBlob: %v", err)
 	}
 	if _, err := os.Stat(sigPath); err != nil {

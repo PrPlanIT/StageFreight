@@ -79,10 +79,14 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 		profile   *config.ResolvedSigningProfile
 		multiArch bool
 	}
+	// Key by the NORMALIZED host (scheme/case/trailing-slash stripped) so the
+	// lookup matches the buildx-observed obs.Host, which is already normalized. A
+	// raw-URL key here silently dropped signing for any non-bare registry URL —
+	// bypassing even enforce. Both sides go through the same normalizer.
 	byEndpoint := map[string]sigTarget{}
 	for _, st := range plan.Steps {
 		for _, reg := range st.Registries {
-			byEndpoint[reg.URL+"/"+reg.Path] = sigTarget{reg.SigningProfile, len(st.Platforms) > 1}
+			byEndpoint[normalizeRegistryHost(reg.URL)+"/"+reg.Path] = sigTarget{reg.SigningProfile, len(st.Platforms) > 1}
 		}
 	}
 
@@ -95,7 +99,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 				continue
 			}
 			pushedAny = true
-			tgt := byEndpoint[obs.Host+"/"+obs.Path]
+			tgt := byEndpoint[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
 			signPlan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
