@@ -1849,8 +1849,10 @@ It is strictly ADDITIVE and manifest-sourced:
   - extends the results manifest with new trust evidence (never replaces)
 
 The operation is generic — interactivity emerges from the selected profile's trust
-class (hardware prompts for touch/PIN; key/kms/oidc are non-interactive). Today it
-signs the release SHA256SUMS; image attestation is a follow-up.
+class (hardware prompts for touch/PIN; key/kms/oidc are non-interactive). It signs
+the release SHA256SUMS and each published image digest; when the profile opts into
+attestation (attestation: true) it also attests the build provenance onto those
+digests under the same tier — recorded as first-class, additive evidence.
 
 **Flags:**
 

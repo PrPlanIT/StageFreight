@@ -142,7 +142,8 @@ Named trust profiles for signing release artifacts and images. A profile declare
 
 > `requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.
 > `physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.
-> KMS/Vault ref binding is deployment wiring: set `SF_SIGN_KMS_<REF>` to the URI, e.g. `SF_SIGN_KMS_RELEASE-SIGNING-KEY=hashivault://release` (cosign's hashivault:// takes the key NAME only).
+> KMS/Vault ref binding is deployment wiring: set `SF_KMS_<REF>` to the URI, e.g. `SF_KMS_RELEASE-SIGNING-KEY=hashivault://release` (cosign's hashivault:// takes the key NAME only).
+> OIDC/keyless trust domain is deployment wiring too: `SF_SIGSTORE_{DOMAIN,FULCIO,REKOR,ISSUER,TRUSTED_ROOT,IDENTITY_TOKEN}`. Setting FULCIO/REKOR/TRUSTED_ROOT points cosign at a self-hosted Sigstore (public Fulcio won't trust a self-hosted issuer); ISSUER falls back to the profile's `oidc.issuer`; IDENTITY_TOKEN (value or path) supplies the OIDC token for unattended/non-CI signing (ambient providers used when unset). Standing up Fulcio/Rekor is operator infrastructure, not StageFreight.
 > `enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).
 > Aliases normalized at load: `keyless` → `oidc`, `yubikey` → `hardware`.
 
