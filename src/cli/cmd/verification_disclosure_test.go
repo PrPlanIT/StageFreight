@@ -36,17 +36,14 @@ func TestBuildVerification_OIDCOnly(t *testing.T) {
 		SignerRef: "https://id.internal/oauth2/subj",
 	})
 	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
-	if v == nil {
-		t.Fatal("oidc-only release must still produce a Verification (evidence-driven, not Tier-0-gated)")
+	if v == nil || v.Primary == nil {
+		t.Fatal("oidc-only release must still produce a disclosure (evidence-driven, not Tier-0-gated)")
 	}
-	if v.TrustClass != "oidc" || v.TrustDomain != "internal" || !v.Transparency {
-		t.Fatalf("oidc dimensions missing: %+v", v)
+	if v.Primary.Class != "oidc" || v.Primary.TrustDomain != "internal" || !v.Primary.Transparency {
+		t.Fatalf("oidc dimensions missing: %+v", v.Primary)
 	}
-	if v.TierLabel != "keyless (OIDC identity)" {
-		t.Errorf("expected a class-based tier label, got %q", v.TierLabel)
-	}
-	if v.Fingerprint != "" || v.AnchorAsset != "" || v.Continuity || anchor != "" {
-		t.Errorf("a non-Tier-0 release must NOT advertise an anchor: %+v anchor=%q", v, anchor)
+	if v.Anchor != nil || anchor != "" {
+		t.Errorf("a non-Tier-0 release must NOT advertise an anchor: anchor=%q %+v", anchor, v.Anchor)
 	}
 }
 
@@ -55,14 +52,14 @@ func TestBuildVerification_KMSOnly(t *testing.T) {
 		TrustClass: "kms", NonExportable: true, SignerRef: "release-signing-key",
 	})
 	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
-	if v == nil {
-		t.Fatal("kms-only release must produce a Verification")
+	if v == nil || v.Primary == nil {
+		t.Fatal("kms-only release must produce a disclosure")
 	}
-	if v.TrustClass != "kms" || !v.NonExportable {
-		t.Fatalf("kms dimensions missing: %+v", v)
+	if v.Primary.Class != "kms" || !v.Primary.NonExportable {
+		t.Fatalf("kms dimensions missing: %+v", v.Primary)
 	}
-	if v.AnchorAsset != "" || anchor != "" {
-		t.Errorf("kms-only release must not advertise an anchor: %+v anchor=%q", v, anchor)
+	if v.Anchor != nil || anchor != "" {
+		t.Errorf("kms-only release must not advertise an anchor: anchor=%q %+v", anchor, v.Anchor)
 	}
 }
 
@@ -71,11 +68,11 @@ func TestBuildVerification_HardwareOnly(t *testing.T) {
 		TrustClass: "hardware", PhysicalPresence: true, NonExportable: true,
 	})
 	v, _ := buildVerification(config.SigningConfig{}, results, t.TempDir())
-	if v == nil {
-		t.Fatal("hardware-only release must produce a Verification")
+	if v == nil || v.Primary == nil {
+		t.Fatal("hardware-only release must produce a disclosure")
 	}
-	if v.TrustClass != "hardware" || !v.PhysicalPresence || !v.NonExportable {
-		t.Fatalf("hardware dimensions missing: %+v", v)
+	if v.Primary.Class != "hardware" || !v.Primary.PhysicalPresence || !v.Primary.NonExportable {
+		t.Fatalf("hardware dimensions missing: %+v", v.Primary)
 	}
 }
 
@@ -96,8 +93,11 @@ func TestBuildVerification_ProvenanceOnly(t *testing.T) {
 	if v == nil {
 		t.Fatal("a provenance-only release must still disclose the attestation")
 	}
-	if len(v.ProvenanceAttestations) == 0 {
+	if len(v.Attestations) == 0 {
 		t.Errorf("provenance attestation not disclosed: %+v", v)
+	}
+	if v.Primary != nil {
+		t.Errorf("a provenance-only release has no primary signature: %+v", v.Primary)
 	}
 	if anchor != "" {
 		t.Errorf("no anchor expected: %q", anchor)
@@ -109,14 +109,14 @@ func TestBuildVerification_ProvenanceOnly(t *testing.T) {
 func TestBuildVerification_Tier0DisclosesButAnchorGatedOnStateDir(t *testing.T) {
 	results := blobSigResults(artifact.TrustEvidence{TrustClass: "key", Tier: provision.TierSoftware})
 	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
-	if v == nil {
+	if v == nil || v.Primary == nil {
 		t.Fatal("tier-0 release must disclose")
 	}
-	if v.TierLabel != "Tier-0 (persistent software key)" {
-		t.Errorf("tier-0 label expected, got %q", v.TierLabel)
+	if v.Primary.Tier != provision.TierSoftware {
+		t.Errorf("tier-0 tier expected, got %q", v.Primary.Tier)
 	}
-	if v.AnchorAsset != "" || anchor != "" {
-		t.Errorf("anchor must be gated on a configured/loadable state dir: %+v anchor=%q", v, anchor)
+	if v.Anchor != nil || anchor != "" {
+		t.Errorf("anchor must be gated on a configured/loadable state dir: anchor=%q %+v", anchor, v.Anchor)
 	}
 }
 

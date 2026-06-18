@@ -10,6 +10,9 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/PrPlanIT/StageFreight/src/release/trustdisclosure"
+	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
 
 // goCommit commits the currently staged worktree with a fixed test signature
@@ -321,15 +324,9 @@ func TestCompileReleaseTagMatchers_EmptyFallback(t *testing.T) {
 }
 
 func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
-	out := renderVerification(&Verification{
-		TierLabel:        "Tier-0 (persistent software key)",
-		Fingerprint:      "sha256:abc123",
-		AnchorAsset:      "cosign.pub",
-		ChecksumSig:      "SHA256SUMS.sig",
-		Transparency:     false,
-		NonExportable:    false,
-		PhysicalPresence: false,
-		Continuity:       true,
+	out := renderVerification(&trustdisclosure.Disclosure{
+		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sig", IsBlob: true},
+		Anchor:  &trustdisclosure.Anchor{Fingerprint: "sha256:abc123", Asset: "cosign.pub"},
 	})
 	for _, want := range []string{
 		"## Verification",
@@ -352,11 +349,11 @@ func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
 // into the signature layers — "signed" and "provenance attested by tier X" are
 // distinct trust statements, and the verify recipe differs (verify-attestation).
 func TestRenderVerification_DisclosesProvenanceAttestationsSeparately(t *testing.T) {
-	out := renderVerification(&Verification{
-		TierLabel:    "Tier-0 (persistent software key)",
-		Transparency: false,
-		ProvenanceAttestations: []string{
-			"slsaprovenance · key (Tier-0 (persistent software key)) · sha256:cafe",
+	out := renderVerification(&trustdisclosure.Disclosure{
+		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sig", IsBlob: true},
+		Anchor:  &trustdisclosure.Anchor{Fingerprint: "sha256:a", Asset: "cosign.pub"},
+		Attestations: []trustdisclosure.AttestationFact{
+			{PredicateType: "slsaprovenance", Class: "key", Tier: provision.TierSoftware, VerifiedDigest: "sha256:cafe"},
 		},
 	})
 	for _, want := range []string{
@@ -374,9 +371,8 @@ func TestRenderVerification_DisclosesProvenanceAttestationsSeparately(t *testing
 // (certificate-identity / oidc-issuer), the trust domain, and NOT the --key
 // cosign.pub anchor recipe (which only applies when a continuity anchor exists).
 func TestRenderVerification_OIDCNoAnchorEmitsKeylessRecipe(t *testing.T) {
-	out := renderVerification(&Verification{
-		TierLabel: "keyless (OIDC identity)", TrustClass: "oidc", TrustDomain: "internal",
-		Transparency: true, SignerRef: "https://id.internal/subj",
+	out := renderVerification(&trustdisclosure.Disclosure{
+		Primary: &trustdisclosure.SignatureFact{Class: "oidc", TrustDomain: "internal", Transparency: true, SignerRef: "https://id.internal/subj"},
 	})
 	for _, want := range []string{
 		"## Verification", "Trust domain | internal", "keyless-signed",
@@ -393,9 +389,8 @@ func TestRenderVerification_OIDCNoAnchorEmitsKeylessRecipe(t *testing.T) {
 
 // A non-anchor kms/hardware release renders a signer-pointer recipe.
 func TestRenderVerification_NoAnchorSignerPointerRecipe(t *testing.T) {
-	out := renderVerification(&Verification{
-		TierLabel: "KMS / managed key", TrustClass: "kms", NonExportable: true,
-		SignerRef: "release-signing-key",
+	out := renderVerification(&trustdisclosure.Disclosure{
+		Primary: &trustdisclosure.SignatureFact{Class: "kms", NonExportable: true, SignerRef: "release-signing-key"},
 	})
 	for _, want := range []string{"signed by `release-signing-key`", "trust class **kms**", "SECURITY.md"} {
 		if !strings.Contains(out, want) {
@@ -405,9 +400,9 @@ func TestRenderVerification_NoAnchorSignerPointerRecipe(t *testing.T) {
 }
 
 func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
-	out := renderVerification(&Verification{
-		TierLabel: "oidc keyless", Fingerprint: "", AnchorAsset: "cosign.pub",
-		ChecksumSig: "SHA256SUMS.sig", Transparency: true,
+	out := renderVerification(&trustdisclosure.Disclosure{
+		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Transparency: true, Asset: "SHA256SUMS.sig", IsBlob: true},
+		Anchor:  &trustdisclosure.Anchor{Asset: "cosign.pub"},
 	})
 	if strings.Contains(out, "--insecure-ignore-tlog") {
 		t.Errorf("transparency-backed verify must not skip the tlog:\n%s", out)

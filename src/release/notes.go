@@ -12,6 +12,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/release/trustdisclosure"
+	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
 
 // CommitCategory represents a group of commits by type.
@@ -80,47 +82,27 @@ type BinaryRow struct {
 	SHA256   string // hex-encoded checksum
 }
 
-// Verification discloses HOW a release is signed and how to verify it — stating the
-// assurance tier EXPLICITLY so "signed" never collapses distinct trust models into
-// one badge. A consumer reading this can answer: what identity do I trust, where do
-// I get it, how do I verify, and what guarantees does this tier actually provide.
-type Verification struct {
-	TierLabel        string   // human label, e.g. "Tier-0 (persistent software key)" or a class label
-	TrustClass       string   // primary signer class (key | oidc | kms | hardware) — drives the verify recipe
-	TrustDomain      string   // primary oidc/keyless trust domain (Sigstore ecosystem), empty otherwise
-	SignerRef        string   // primary signer identity material (key/kms ref, oidc identity) — for the recipe pointer
-	Fingerprint      string   // public-key fingerprint to pin (sha256:...) — continuity anchor only
-	AnchorAsset      string   // release-asset filename for the public key (e.g. "cosign.pub") — continuity anchor only
-	ChecksumSig      string   // detached checksum signature asset (e.g. "SHA256SUMS.sig")
-	Transparency     bool     // recorded in a transparency log
-	NonExportable    bool     // signing key is hardware-bound / non-exportable
-	PhysicalPresence bool     // a human authorized the signature
-	Continuity       bool     // identity is persistent/stable across releases (continuity anchor only)
-	AdditionalLayers []string // other signatures on the same artifacts (e.g. "hardware · SHA256SUMS.maintainer.sig")
-	// ProvenanceAttestations describes provenance predicates cryptographically
-	// attached to published image digests (cosign attest), each with the tier that
-	// authorized it. Kept DISTINCT from signatures: "signed artifact" and "provenance
-	// attested by tier X" are materially different trust statements.
-	ProvenanceAttestations []string
-}
+// The structured trust disclosure lives in package trustdisclosure (interpretation,
+// pure); this file is the PROSE FORMATTER over it — it decides only how to render the
+// typed facts as markdown, never what the facts are.
 
 // NotesInput holds all data needed to render release notes.
 type NotesInput struct {
-	RepoDir      string         // git repository directory
-	FromRef      string         // start ref (empty = auto-detect previous tag)
-	ToRef        string         // end ref (default: HEAD)
-	TagPatterns  []string       // regex patterns for release tags (from versioning.tag_sources)
-	Config       *config.Config // config for auto-detect version (nil = skip auto-detect)
-	SecurityTile string         // one-line status (e.g., "🛡️ ✅ **Passed** — no vulnerabilities")
-	SecurityBody string         // full section: status line + optional <details> CVE block
-	TagMessage   string         // annotated tag message (optional, auto-detected if empty)
-	ProjectName  string         // project name (auto-detected if empty)
-	Version      string         // version string (auto-detected if empty)
-	SHA          string         // short commit hash (auto-detected if empty)
-	IsPrerelease bool           // true if version has prerelease suffix
-	Images       []ImageRow     // resolved registry image rows for availability table
-	Downloads    []BinaryRow    // binary/archive artifacts for downloads table
-	Verify       *Verification  // signing/verification disclosure (nil = nothing signed)
+	RepoDir      string                      // git repository directory
+	FromRef      string                      // start ref (empty = auto-detect previous tag)
+	ToRef        string                      // end ref (default: HEAD)
+	TagPatterns  []string                    // regex patterns for release tags (from versioning.tag_sources)
+	Config       *config.Config              // config for auto-detect version (nil = skip auto-detect)
+	SecurityTile string                      // one-line status (e.g., "🛡️ ✅ **Passed** — no vulnerabilities")
+	SecurityBody string                      // full section: status line + optional <details> CVE block
+	TagMessage   string                      // annotated tag message (optional, auto-detected if empty)
+	ProjectName  string                      // project name (auto-detected if empty)
+	Version      string                      // version string (auto-detected if empty)
+	SHA          string                      // short commit hash (auto-detected if empty)
+	IsPrerelease bool                        // true if version has prerelease suffix
+	Images       []ImageRow                  // resolved registry image rows for availability table
+	Downloads    []BinaryRow                 // binary/archive artifacts for downloads table
+	Verify       *trustdisclosure.Disclosure // signing/verification disclosure (nil = nothing signed)
 }
 
 // GenerateNotes produces markdown release notes from git log between two refs.
@@ -320,87 +302,175 @@ func bulletize(text string) string {
 	return strings.Join(bullets, "\n")
 }
 
-// formatBytes formats a byte count as a human-readable size.
-// renderVerification renders the "## Verification" section — the assurance tier
-// stated plainly plus the concrete verify recipe, so a consumer knows exactly what
-// guarantees they receive (not just "signed").
-func renderVerification(v *Verification) string {
+// renderVerification renders the "## Verification" section from the STRUCTURED
+// disclosure — the assurance tier stated plainly plus a class-appropriate verify
+// recipe, so a consumer knows exactly what guarantees they receive (not just
+// "signed"). This is pure presentation: it formats typed facts, it never interprets
+// which signature is primary or which layers matter (that is trustdisclosure's job).
+func renderVerification(d *trustdisclosure.Disclosure) string {
 	yn := func(t bool) string {
 		if t {
 			return "yes"
 		}
 		return "no"
 	}
+	var p trustdisclosure.SignatureFact
+	if d.Primary != nil {
+		p = *d.Primary
+	}
 	var b strings.Builder
 	b.WriteString("## Verification\n\n")
 	b.WriteString("| Property | Value |\n|---|---|\n")
-	b.WriteString(fmt.Sprintf("| Signing tier | %s |\n", v.TierLabel))
-	if v.TrustDomain != "" {
-		b.WriteString(fmt.Sprintf("| Trust domain | %s |\n", v.TrustDomain))
+	b.WriteString(fmt.Sprintf("| Signing tier | %s |\n", signerTierLabel(p)))
+	if p.TrustDomain != "" {
+		b.WriteString(fmt.Sprintf("| Trust domain | %s |\n", p.TrustDomain))
 	}
-	if v.Fingerprint != "" {
-		b.WriteString(fmt.Sprintf("| Public key fingerprint | `%s` |\n", v.Fingerprint))
+	if d.Anchor != nil && d.Anchor.Fingerprint != "" {
+		b.WriteString(fmt.Sprintf("| Public key fingerprint | `%s` |\n", d.Anchor.Fingerprint))
 	}
-	b.WriteString(fmt.Sprintf("| Transparency log | %s |\n", yn(v.Transparency)))
+	b.WriteString(fmt.Sprintf("| Transparency log | %s |\n", yn(p.Transparency)))
 	// Continuity is meaningful only for a persistent anchor identity; for other
 	// signers it is simply not asserted (not "unknown trust").
-	if v.Continuity {
+	if d.Anchor != nil {
 		b.WriteString("| Signer continuity | stable |\n")
 	}
-	b.WriteString(fmt.Sprintf("| Human authorization required | %s |\n", yn(v.PhysicalPresence)))
-	b.WriteString(fmt.Sprintf("| Non-exportable key | %s |\n\n", yn(v.NonExportable)))
+	b.WriteString(fmt.Sprintf("| Human authorization required | %s |\n", yn(p.PhysicalPresence)))
+	b.WriteString(fmt.Sprintf("| Non-exportable key | %s |\n\n", yn(p.NonExportable)))
 
 	// Verify recipe — evidence-driven, NOT gated on a Tier-0 anchor. A continuity
 	// anchor (a published cosign.pub) gives the pinnable --key recipe; otherwise the
 	// recipe is class-appropriate so oidc/kms/hardware-only releases still disclose
 	// how to verify.
 	switch {
-	case v.AnchorAsset != "" && v.ChecksumSig != "":
+	case d.Anchor != nil && d.ChecksumSig() != "":
 		tlog := " \\\n  --insecure-ignore-tlog=true"
-		if v.Transparency {
+		if p.Transparency {
 			tlog = ""
 		}
 		b.WriteString("Verify the release checksums against the published public key:\n\n")
 		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --signature %s%s \\\n  SHA256SUMS\n```\n\n",
-			v.AnchorAsset, v.ChecksumSig, tlog))
-		if v.Fingerprint != "" {
-			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", v.Fingerprint))
+			d.Anchor.Asset, d.ChecksumSig(), tlog))
+		if d.Anchor.Fingerprint != "" {
+			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", d.Anchor.Fingerprint))
 		}
-	case v.TrustClass == "oidc":
-		domain := v.TrustDomain
+	case p.Class == "oidc":
+		domain := p.TrustDomain
 		if domain == "" {
 			domain = "the Sigstore"
 		}
 		b.WriteString(fmt.Sprintf("This release is keyless-signed in **%s** trust domain — the signature is bound to an OIDC identity by Fulcio and (when transparency is on) logged in Rekor. Verify the checksums against the expected identity:\n\n", domain))
 		b.WriteString("```\ncosign verify-blob \\\n  --certificate-oidc-issuer <issuer> \\\n  --certificate-identity <signer> \\\n  --signature SHA256SUMS.sig \\\n  SHA256SUMS\n```\n\n")
-		if v.SignerRef != "" {
-			b.WriteString(fmt.Sprintf("Expected signer: `%s`. ", v.SignerRef))
+		if p.SignerRef != "" {
+			b.WriteString(fmt.Sprintf("Expected signer: `%s`. ", p.SignerRef))
 		}
 		b.WriteString("Obtain the issuer URL and (for a self-hosted domain) the Fulcio trusted-root from `SECURITY.md`.\n\n")
-	case v.SignerRef != "":
-		b.WriteString(fmt.Sprintf("This release is signed by `%s` (trust class **%s**). Verify the checksums against that signer's published public key:\n\n", v.SignerRef, v.TrustClass))
+	case p.SignerRef != "":
+		b.WriteString(fmt.Sprintf("This release is signed by `%s` (trust class **%s**). Verify the checksums against that signer's published public key:\n\n", p.SignerRef, p.Class))
 		b.WriteString("```\ncosign verify-blob \\\n  --key <signer-public-key> \\\n  --signature SHA256SUMS.sig \\\n  SHA256SUMS\n```\n\n")
 		b.WriteString("Obtain the public key from `SECURITY.md` / the maintainer.\n\n")
 	}
-	if len(v.AdditionalLayers) > 0 {
+	if len(d.Layers) > 0 {
 		b.WriteString("This release also carries additional signatures on the same artifacts:\n\n")
-		for _, l := range v.AdditionalLayers {
-			b.WriteString(fmt.Sprintf("- %s\n", l))
+		for _, l := range d.Layers {
+			b.WriteString(fmt.Sprintf("- %s\n", describeSignatureFact(l)))
 		}
 		b.WriteString("\nObtain those signers' public keys / identities from the maintainer / `SECURITY.md`.\n\n")
 	}
 	// Provenance attestations are disclosed SEPARATELY from signatures: a signature
 	// vouches for the artifact's bytes; a provenance attestation vouches for HOW it
 	// was built, authorized by a named tier. Conflating them would overstate trust.
-	if len(v.ProvenanceAttestations) > 0 {
+	if len(d.Attestations) > 0 {
 		b.WriteString("Build provenance is cryptographically attested on the published image(s) — authenticated by the trust tier shown, not merely generated:\n\n")
-		for _, a := range v.ProvenanceAttestations {
-			b.WriteString(fmt.Sprintf("- %s\n", a))
+		for _, a := range d.Attestations {
+			b.WriteString(fmt.Sprintf("- %s\n", describeAttestationFact(a)))
 		}
 		b.WriteString("\nVerify with `cosign verify-attestation --type slsaprovenance --key <key> <image>@<digest>`.\n\n")
 	}
 	return b.String()
 }
+
+// signerTierLabel is the human headline for the primary signer: its assurance tier
+// when recorded (e.g. Tier-0), else a class-based label so non-tiered signers read
+// meaningfully. Prose lives here, in the formatter — never in trustdisclosure.
+func signerTierLabel(f trustdisclosure.SignatureFact) string {
+	if f.Tier != "" {
+		return tierLabel(f.Tier)
+	}
+	switch f.Class {
+	case "oidc":
+		return "keyless (OIDC identity)"
+	case "kms":
+		return "KMS / managed key"
+	case "hardware":
+		return "hardware (operator-held key)"
+	case "key":
+		return "key (operator-supplied)"
+	}
+	return "signed"
+}
+
+func tierLabel(tier string) string {
+	if tier == provision.TierSoftware {
+		return "Tier-0 (persistent software key)"
+	}
+	return tier
+}
+
+// describeSignatureFact renders one additional-layer signature line.
+func describeSignatureFact(f trustdisclosure.SignatureFact) string {
+	cls := f.Class
+	if cls == "" {
+		cls = "signature"
+	}
+	desc := cls
+	if f.Tier != "" {
+		desc += " (" + tierLabel(f.Tier) + ")"
+	}
+	if f.TrustDomain != "" {
+		desc += " (trust domain: " + f.TrustDomain + ")"
+	}
+	if f.PhysicalPresence {
+		desc += " (human-authorized)"
+	}
+	if f.NonExportable {
+		desc += ", non-exportable"
+	}
+	if f.Asset != "" {
+		desc += " · " + f.Asset
+	}
+	return desc
+}
+
+// describeAttestationFact renders one provenance-attestation line.
+func describeAttestationFact(a trustdisclosure.AttestationFact) string {
+	pt := a.PredicateType
+	if pt == "" {
+		pt = "provenance"
+	}
+	cls := a.Class
+	if cls == "" {
+		cls = "signature"
+	}
+	desc := pt + " · " + cls
+	if a.TrustDomain != "" {
+		desc += " (trust domain: " + a.TrustDomain + ")"
+	}
+	if a.Tier != "" {
+		desc += " (" + tierLabel(a.Tier) + ")"
+	}
+	if a.PhysicalPresence {
+		desc += ", human-authorized"
+	}
+	if a.NonExportable {
+		desc += ", non-exportable"
+	}
+	if a.VerifiedDigest != "" {
+		desc += " · " + a.VerifiedDigest
+	}
+	return desc
+}
+
+// formatBytes formats a byte count as a human-readable size.
 
 func formatBytes(b int64) string {
 	const (
