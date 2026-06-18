@@ -131,6 +131,12 @@ type TrustEvidence struct {
 	Transparency     bool   `json:"transparency,omitempty"`      // recorded in a transparency log
 	SignerRef        string `json:"signer_ref,omitempty"`        // signer identity material (key/kms ref, oidc identity)
 	SignedAt         string `json:"signed_at,omitempty"`         // RFC3339 timestamp the signature was produced
+	// TrustDomain names the signing-authority ecosystem for an oidc/keyless signature
+	// (the Sigstore deployment — "internal", "public-sigstore", a Fulcio host). Durable
+	// so later adjudication can reason over WHICH ecosystem vouched for the evidence
+	// (public vs internal, trust-root migration, multi-domain policy). Empty for
+	// key/kms/hardware, which have no Sigstore trust domain.
+	TrustDomain string `json:"trust_domain,omitempty"`
 }
 
 // AttestationOutcome is the result of attempting to sign or attest an
@@ -172,12 +178,12 @@ type BlobSignatureOutcome struct {
 // the artifact signature carried (the provenance is vouched for by the same tier).
 type ProvenanceAttestationOutcome struct {
 	Status         OutcomeStatus `json:"status"`
-	Kind           string        `json:"kind,omitempty"`             // attestor mechanism, e.g. "cosign"
-	PredicateType  string        `json:"predicate_type,omitempty"`   // in-toto predicateType, e.g. "slsaprovenance"
-	ProvenancePath string        `json:"provenance_path,omitempty"`  // the predicate file attested
+	Kind           string        `json:"kind,omitempty"`              // attestor mechanism, e.g. "cosign"
+	PredicateType  string        `json:"predicate_type,omitempty"`    // in-toto predicateType, e.g. "slsaprovenance"
+	ProvenancePath string        `json:"provenance_path,omitempty"`   // the predicate file attested
 	ProvenanceSHA  string        `json:"provenance_sha256,omitempty"` // sha256 of the predicate bytes (deterministic identity)
-	AttestationRef string        `json:"attestation_ref,omitempty"`  // ref of the attached attestation (the subject digest ref)
-	VerifiedDigest string        `json:"verified_digest,omitempty"`  // the image manifest digest attested
+	AttestationRef string        `json:"attestation_ref,omitempty"`   // ref of the attached attestation (the subject digest ref)
+	VerifiedDigest string        `json:"verified_digest,omitempty"`   // the image manifest digest attested
 	TrustEvidence
 	Error string `json:"error,omitempty"`
 }

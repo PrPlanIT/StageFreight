@@ -110,6 +110,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 				continue
 			}
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
+			signEnv := cosign.EnvForPlan(signPlan)
 			evidence := artifact.TrustEvidence{
 				TrustClass:       string(signPlan.TrustClass),
 				Tier:             tier,
@@ -117,8 +118,9 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 				NonExportable:    signPlan.RequiresNonExportableKey,
 				Transparency:     signPlan.TransparencyRequired,
 				SignerRef:        sign.SignerRef(signPlan),
+				TrustDomain:      cosign.SigstoreDomain(signPlan, signEnv),
 			}
-			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.EnvForPlan(signPlan), sign.SignOptions{MultiArch: tgt.multiArch})
+			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, signEnv, sign.SignOptions{MultiArch: tgt.multiArch})
 			if err != nil {
 				diag.Warn("image signing %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{
@@ -220,6 +222,7 @@ func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string
 				return fmt.Errorf("attestation is enabled for %s but build provenance %q is missing or unreadable — refusing to silently skip", digestRef, provPath)
 			}
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: tgt.Registry.Host, Path: tgt.Registry.Path}
+			attEnv := cosign.EnvForPlan(signPlan)
 			evidence := artifact.TrustEvidence{
 				TrustClass:       string(signPlan.TrustClass),
 				Tier:             tier,
@@ -228,9 +231,10 @@ func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string
 				Transparency:     signPlan.TransparencyRequired,
 				SignerRef:        sign.SignerRef(signPlan),
 				SignedAt:         now,
+				TrustDomain:      cosign.SigstoreDomain(signPlan, attEnv),
 			}
 			opts := sign.SignOptions{MultiArch: st.multiArch, PredicatePath: predPath, PredicateType: "slsaprovenance"}
-			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, cosign.EnvForPlan(signPlan), opts)
+			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, digestRef, signPlan, attEnv, opts)
 			if err != nil {
 				diag.Warn("provenance attestation %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{

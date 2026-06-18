@@ -56,7 +56,7 @@ func TestSignBlob_VaultTransit(t *testing.T) {
 
 	// A kms profile binds to hashivault://sfblob (key name only — cosign prepends
 	// transit/keys/). EnvForPlan resolves the ref into the Env witness.
-	t.Setenv("SF_SIGN_KMS_SFBLOB", "hashivault://sfblob")
+	t.Setenv("SF_KMS_SFBLOB", "hashivault://sfblob")
 	plan := sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "sfblob"}
 	env := EnvForPlan(plan)
 	if len(env.KMS) != 1 || env.KMS[0].URI != "hashivault://sfblob" {

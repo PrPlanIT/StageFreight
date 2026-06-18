@@ -1364,6 +1364,9 @@ func provenanceAttestations(results *artifact.ResultsManifest) []string {
 				cls = "signature"
 			}
 			desc := pt + " · " + cls
+			if pa.TrustDomain != "" {
+				desc += " (trust domain: " + pa.TrustDomain + ")"
+			}
 			if pa.Tier != "" {
 				desc += " (" + tierLabel(pa.Tier) + ")"
 			}
@@ -1401,6 +1404,9 @@ func additionalSignatureLayers(results *artifact.ResultsManifest) []string {
 			cls = "signature"
 		}
 		desc := cls
+		if ev.TrustDomain != "" {
+			desc += " (trust domain: " + ev.TrustDomain + ")"
+		}
 		if ev.PhysicalPresence {
 			desc += " (human-authorized)"
 		}

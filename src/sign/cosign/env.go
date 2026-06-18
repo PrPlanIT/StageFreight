@@ -6,7 +6,12 @@
 // See docs/architecture/signing-trust-model.md (1e).
 package cosign
 
-import "github.com/PrPlanIT/StageFreight/src/sign"
+import (
+	"os"
+	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/sign"
+)
 
 // Principal is a stable trust-principal identity — the model's single load-bearing
 // assumption, made explicit AS DATA. For cryptographic classes it is the key's
@@ -54,13 +59,74 @@ type OIDCIdentity struct {
 	Subject string
 }
 
+// SigstoreDeployment is the named trust DOMAIN an `oidc` (keyless) signature is
+// produced against — the answer to "which signing-authority ecosystem vouches for
+// this evidence?", not a bag of optional endpoint overrides. A future verification
+// engine reasons over this (public vs internal Sigstore, trust-root migration,
+// multi-domain policy, mirrored Rekor), so it is modeled as a first-class domain
+// even though v1 only carries URLs + a label.
+//
+// Empty Fulcio/Rekor/TrustedRoot = the public Sigstore default (TUF service
+// discovery). Any of them set = a declared (typically self-hosted) deployment the
+// renderer points cosign at explicitly. Resolved from SF_SIGSTORE_* by
+// EnvForPlan — the renderer reads this witness but never the environment.
+type SigstoreDeployment struct {
+	Domain        string // human label for the trust domain (e.g. "internal", "prplanit")
+	FulcioURL     string // self-hosted Fulcio (CA) — empty = public
+	RekorURL      string // self-hosted Rekor (transparency log) — empty = public
+	OIDCIssuer    string // the OIDC issuer minting identity tokens (valid for public + self-hosted)
+	TrustedRoot   string // path to the trusted-root bundle anchoring this domain's CA + log keys
+	IdentityToken string // OIDC token value or path (cosign --identity-token); ambient providers used when empty
+}
+
+// Declared reports whether a self-hosted Sigstore deployment is configured — keyed
+// on the presence of a service endpoint or trust anchor (NOT Domain, which is only a
+// disclosure label, nor OIDCIssuer, which a public deployment may also override).
+func (d SigstoreDeployment) Declared() bool {
+	return d.FulcioURL != "" || d.RekorURL != "" || d.TrustedRoot != ""
+}
+
 // Env is the declared capability graph the deployment exposes to the renderer.
 type Env struct {
-	Keys   []KeyFile
-	KMS    []KMSKey
-	FIDO2  []FIDO2Device
-	PKCS11 []PKCS11Slot
-	OIDC   []OIDCIdentity
+	Keys     []KeyFile
+	KMS      []KMSKey
+	FIDO2    []FIDO2Device
+	PKCS11   []PKCS11Slot
+	OIDC     []OIDCIdentity
+	Sigstore SigstoreDeployment // oidc/keyless trust domain (single deployment, not a principal set)
+}
+
+// SigstoreDomain returns the trust-domain label to RECORD for an oidc/keyless
+// signature — the named ecosystem that vouched for it. Empty for non-oidc classes
+// (no Sigstore domain). For oidc: the explicit Domain label if set, else the Fulcio
+// host for a declared self-hosted deployment, else "public-sigstore". Mirrors the
+// Render decision so the recorded evidence matches where the signature actually went.
+func SigstoreDomain(plan sign.SignPlan, env Env) string {
+	if plan.TrustClass != sign.ClassOIDC {
+		return ""
+	}
+	if env.Sigstore.Domain != "" {
+		return env.Sigstore.Domain
+	}
+	if env.Sigstore.Declared() {
+		if h := hostOf(env.Sigstore.FulcioURL); h != "" {
+			return h
+		}
+		return "self-hosted-sigstore"
+	}
+	return "public-sigstore"
+}
+
+// hostOf extracts a bare host label from a URL for disclosure (no scheme/port/path).
+func hostOf(rawURL string) string {
+	s := rawURL
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+	if i := strings.IndexAny(s, "/:"); i >= 0 {
+		s = s[:i]
+	}
+	return s
 }
 
 // EnvForPlan resolves a plan's logical references against the ambient environment
@@ -80,6 +146,27 @@ func EnvForPlan(plan sign.SignPlan) Env {
 		}
 	case sign.ClassOIDC:
 		env.OIDC = []OIDCIdentity{{Issuer: plan.Identity.Issuer, Subject: plan.Identity.Subject}}
+		env.Sigstore = resolveSigstoreDeployment(plan)
 	}
 	return env
+}
+
+// resolveSigstoreDeployment binds the oidc trust domain from SF_SIGSTORE_*
+// (deployment wiring, parallel to SF_KMS_* for kms). Pure env substitution —
+// the renderer never reads these. The issuer falls back to the profile's declared
+// identity issuer when the env var is unset, so a profile stays portable while the
+// operator says "…via my Fulcio."
+func resolveSigstoreDeployment(plan sign.SignPlan) SigstoreDeployment {
+	d := SigstoreDeployment{
+		Domain:        os.Getenv("SF_SIGSTORE_DOMAIN"),
+		FulcioURL:     os.Getenv("SF_SIGSTORE_FULCIO"),
+		RekorURL:      os.Getenv("SF_SIGSTORE_REKOR"),
+		OIDCIssuer:    os.Getenv("SF_SIGSTORE_ISSUER"),
+		TrustedRoot:   os.Getenv("SF_SIGSTORE_TRUSTED_ROOT"),
+		IdentityToken: os.Getenv("SF_SIGSTORE_IDENTITY_TOKEN"),
+	}
+	if d.OIDCIssuer == "" {
+		d.OIDCIssuer = plan.Identity.Issuer
+	}
+	return d
 }

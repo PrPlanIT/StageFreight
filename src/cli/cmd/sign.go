@@ -87,6 +87,7 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 				Transparency:     plan.TransparencyRequired,
 				SignerRef:        signerRef,
 				SignedAt:         time.Now().UTC().Format(time.RFC3339),
+				TrustDomain:      cosign.SigstoreDomain(plan, env),
 			}
 		}
 

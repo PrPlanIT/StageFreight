@@ -365,7 +365,7 @@ A **capability-satisfaction emitter**, not a mode selector. No interface, no reg
   keeps `Render` pure and table-testable.
 - Internally `Render` is `selectMechanism` (plan + env → the one satisfying mechanism) then `emit`
   (mechanism → cosign args) — both pure, both in `src/sign/cosign`, neither a domain abstraction.
-- `resolveKMSURI(ref)` — **pure env substitution** (invariant 3): `ref → $SF_SIGN_KMS_<REF> → URI`,
+- `resolveKMSURI(ref)` — **pure env substitution** (invariant 3): `ref → $SF_KMS_<REF> → URI`,
   verbatim. No provider parsing/registry; core never knows vault/aws/gcp. `resolveKeyRef` mirrors
   `sign`'s `env:VAR`/path resolution at render time. The concrete URI/key never enters the profile
   or `SignPlan`.
@@ -590,7 +590,7 @@ Verification stays uniform across both: a consumer pins **a public key** (key-cu
 | YubiKey / Titan | hardware | ✅ | renderer emits `--sk`/`--key pkcs11:` | human-gated `sign` command + PIN/touch + hardware validation |
 | SoftHSM / network HSM | hardware | ✅ | same `pkcs11:` path | custody standup + docs |
 | TPM-bound | hardware | ✅ | same key-custody render | host wiring |
-| Private Sigstore (+ ZITADEL/Keycloak/GitLab issuer) | oidc | ✅ ops-heavy | renderer points at public TUF only | deployment endpoint wiring + stand-up guide |
+| Private Sigstore (+ ZITADEL/Keycloak/GitLab issuer) | oidc | ✅ ops-heavy | **render wiring SHIPPED** (O.4-B): `SF_SIGSTORE_*` → `Env.Sigstore` trust-domain witness → renderer emits `--fulcio-url/--rekor-url/--oidc-issuer/--trusted-root/--identity-token` + `--use-signing-config=false`; trust domain recorded in `TrustEvidence` + disclosed | operator stands up Fulcio/Rekor/CT + issuer (real e2e is operator infra, not unit-testable) |
 | Public Sigstore (gitlab.com/GH) | oidc | ❌ 3rd party | n/a self-hosted | "cool to have," not the target |
 
 **cosign key + password mechanics:** a keypair is `cosign.key` (private, *always* scrypt+nacl-encrypted,
@@ -605,7 +605,7 @@ anywhere. The operator workflow:
 - **Profile** (portable, no URL): `signing_profiles: [{ id: release, requires: kms, kms: { ref: release },
   non_exportable: required }]`. `non_exportable: required` is now valid on `kms` and discloses honestly
   that the key never leaves Vault.
-- **Bind the URI** (deployment wiring, not policy): `SF_SIGN_KMS_RELEASE=hashivault://release`.
+- **Bind the URI** (deployment wiring, not policy): `SF_KMS_RELEASE=hashivault://release`.
   ⚠️ **cosign's `hashivault://` takes the KEY NAME only** (it prepends `transit/keys/`) — *not*
   `hashivault://transit/keys/release`.
 - **Auth** (operator CI, reusing existing workload identity): the runner does an OIDC/JWT login to Vault
@@ -684,12 +684,28 @@ configured profile (prompting for touch/PIN on hardware, silent for key/kms/oidc
 the signatures. One command unlocks YubiKey, hosts the future Trust-Composition "attach stronger evidence
 later," and works for every class. Publish owns this orchestration (foundational invariant 4).
 
-**(B) Deployment-wiring config for endpoints.** Profiles stay abstract (`requires: oidc`, never URLs).
-Fulcio/Rekor/issuer URLs and `hashivault://` KMS URIs are **deployment wiring**, resolved at render time
-— extending the existing `resolveKMSURI` (`SF_SIGN_KMS_<REF>`) pattern with
-`SF_SIGN_SIGSTORE_{FULCIO,REKOR,ISSUER,TRUSTED_ROOT}` threaded into the renderer's transparency path
-(`--fulcio-url --rekor-url --oidc-issuer --trusted-root`). Keeps profiles portable while an operator says
-"…via *my* Fulcio." (Env for secrets/URLs; a structured block only if it grows structure.)
+**(B) Deployment-wiring config for endpoints — SHIPPED.** Profiles stay abstract (`requires: oidc`, never
+URLs). Fulcio/Rekor/issuer URLs and `hashivault://` KMS URIs are **deployment wiring**, resolved at render
+time — extending the existing `resolveKMSURI` (`SF_KMS_<REF>`) pattern with
+`SF_SIGSTORE_{DOMAIN,FULCIO,REKOR,ISSUER,TRUSTED_ROOT,IDENTITY_TOKEN}` resolved by `EnvForPlan` into an
+`Env.Sigstore` witness and emitted by `Render` (`--fulcio-url --rekor-url --oidc-issuer --trusted-root
+--identity-token`). Keeps profiles portable while an operator says "…via *my* Fulcio."
+
+Modeled as a **named trust domain**, NOT a bag of URL overrides — the witness answers "which
+signing-authority ecosystem vouched for this evidence?", recorded durably in `TrustEvidence.TrustDomain`
+(public-sigstore / a label / the Fulcio host) and disclosed, so future adjudication can reason over public
+vs internal Sigstore, trust-root migration, and multi-domain policy. Key decisions: (1) a DECLARED
+deployment (any of Fulcio/Rekor/TrustedRoot set) flips `--use-signing-config=false` and points at explicit
+services — public Fulcio will not trust a self-hosted issuer, so self-hosted keyless *requires* its own
+stack; (2) `SF_SIGSTORE_IDENTITY_TOKEN` (value or path) supplies the OIDC token for unattended /
+non-CI / airgapped / delegated-broker flows, with cosign's ambient providers as the fallback —
+StageFreight only *transports* the token, it never becomes an OIDC client; (3) the public signing-config
+path now emits `--new-bundle-format=true` (cosign v3 requires it alongside `--use-signing-config=true`).
+**Render-proven** (`Render`/`EnvForPlan` unit tests); the true end-to-end keyless round-trip needs a real
+Fulcio/Rekor/CT + issuer — operator infrastructure, fundamentally not unit-testable, the honest boundary
+where a distributed trust system stops being a subsystem feature and becomes an operational deployment.
+Subject/issuer *policy enforcement* stays deferred to the verification/adjudication phase (signing records
+trust evidence; verification interprets it).
 
 **(C) Human-interactive signing — your OIDC platform as identity, or as a convenience gate.** `stagefreight
 sign` (A) is the home for *interactive* signing where a human authenticates to the org's OIDC
@@ -810,7 +826,7 @@ once to verify all releases). Surface both, in the right places:
    touch + registry round-trip needs operator hardware validation.*
 6. **Vault-transit-via-workload-identity** (Tier 2) — auto-provision + OIDC auth onto the existing `kms`
    class; the recommended real tier.
-7. **Deployment endpoint wiring** (O.4-B, `SF_SIGN_SIGSTORE_*`) + renderer flags — turns on private
+7. **Deployment endpoint wiring** (O.4-B, `SF_SIGSTORE_*`) + renderer flags — turns on private
    Sigstore once the operator stands one up.
 8. **Human-interactive OIDC signing** (O.4-C) — interactive `stagefreight sign` modes + the `authorization`
    profile facet: **C1** (OIDC-as-identity, human keyless via #7) and **C2** (OIDC-as-authorization gate to

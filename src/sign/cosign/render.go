@@ -40,9 +40,10 @@ func Render(p sign.SignPlan, op sign.Op, env Env) (args []string, err error) {
 
 // mechanism is the resolved, single-principal way to sign — the solver's output.
 type mechanism struct {
-	class  sign.Class
-	keyArg string // value for --key (key path / KMS URI / PKCS#11 URI); empty for oidc + FIDO2
-	useSK  bool   // FIDO2 hardware token (cosign --sk)
+	class    sign.Class
+	keyArg   string             // value for --key (key path / KMS URI / PKCS#11 URI); empty for oidc + FIDO2
+	useSK    bool               // FIDO2 hardware token (cosign --sk)
+	sigstore SigstoreDeployment // oidc only: the trust domain to point cosign at (empty = public)
 }
 
 func selectMechanism(p sign.SignPlan, env Env) (mechanism, error) {
@@ -62,9 +63,10 @@ func selectMechanism(p sign.SignPlan, env Env) (mechanism, error) {
 		return mechanism{class: sign.ClassKMS, keyArg: env.KMS[0].URI}, nil
 
 	case sign.ClassOIDC:
-		// Keyless: the signer is the ambient OIDC identity (CI/workload token),
-		// not an enumerated key — there is no --key to emit.
-		return mechanism{class: sign.ClassOIDC}, nil
+		// Keyless: the signer is the ambient/declared OIDC identity, not an enumerated
+		// key — no --key. Carry the trust domain so emit points cosign at the right
+		// Fulcio/Rekor/issuer (else public Sigstore).
+		return mechanism{class: sign.ClassOIDC, sigstore: env.Sigstore}, nil
 
 	case sign.ClassHardware:
 		return selectHardware(p, env)
@@ -158,19 +160,13 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 			args = append(args, "--key", m.keyArg)
 		}
 	case sign.ClassOIDC:
-		// keyless — no --key flag
+		// keyless — no --key flag; service/identity flags emitted below.
 	}
-	// Transparency-log control (cosign v3 semantics). cosign v3 defaults to a
-	// TUF-provided signing-config that includes Rekor, and the legacy
-	// --tlog-upload flag is deprecated + rejected alongside it. So:
-	//   - transparency required → let the signing-config supply Rekor.
-	//   - no transparency       → disable the signing-config so cosign never
-	//                             reaches for Rekor, and skip the tlog explicitly
-	//                             (the offline key/kms/hardware path).
-	if p.TransparencyRequired {
-		args = append(args, "--use-signing-config=true")
+	// Transparency-log + service-discovery control (cosign v3 semantics).
+	if m.class == sign.ClassOIDC {
+		args = append(args, oidcServiceArgs(p, m.sigstore)...)
 	} else {
-		args = append(args, "--use-signing-config=false", "--tlog-upload=false")
+		args = append(args, tlogArgs(p)...)
 	}
 	// Image ops attach the signature/attestation to the registry; sign-blob is
 	// detached and takes no --upload.
@@ -178,6 +174,59 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 		args = append(args, "--yes")
 	}
 	return args
+}
+
+// tlogArgs emits the transparency-log + signing-config flags for the offline classes
+// (key/kms/hardware). cosign v3 defaults to a TUF-provided signing config (Rekor);
+// the legacy --tlog-upload flag is deprecated and rejected alongside it. So:
+//   - transparency required → use the signing config (which needs the new bundle
+//     format in v3 — emitted explicitly so the dependency is never left implicit).
+//   - no transparency       → disable the signing config so cosign never reaches for
+//     Rekor, and skip the tlog explicitly (the offline path).
+func tlogArgs(p sign.SignPlan) []string {
+	if p.TransparencyRequired {
+		return []string{"--use-signing-config=true", "--new-bundle-format=true"}
+	}
+	return []string{"--use-signing-config=false", "--tlog-upload=false"}
+}
+
+// oidcServiceArgs points cosign at the trust domain for a keyless signature. A
+// DECLARED (self-hosted) deployment overrides TUF service discovery with explicit
+// Fulcio/Rekor/trusted-root — public Fulcio will not trust a self-hosted issuer, so
+// self-hosted keyless requires pointing at that domain's own services. An undeclared
+// deployment is the public Sigstore path. The OIDC issuer and an explicit identity
+// token (the unattended / non-CI knob) apply to both. Pure: reads only the witness.
+func oidcServiceArgs(p sign.SignPlan, d SigstoreDeployment) []string {
+	var a []string
+	if d.OIDCIssuer != "" {
+		a = append(a, "--oidc-issuer", d.OIDCIssuer)
+	}
+	if d.IdentityToken != "" {
+		// cosign accepts a token value or a file path; ambient providers are used
+		// when this is absent. StageFreight only TRANSPORTS the token — it never
+		// becomes an OIDC client.
+		a = append(a, "--identity-token", d.IdentityToken)
+	}
+	if d.Declared() {
+		a = append(a, "--use-signing-config=false")
+		if d.FulcioURL != "" {
+			a = append(a, "--fulcio-url", d.FulcioURL)
+		}
+		if p.TransparencyRequired && d.RekorURL != "" {
+			a = append(a, "--rekor-url", d.RekorURL)
+		}
+		if !p.TransparencyRequired {
+			a = append(a, "--tlog-upload=false")
+		}
+		if d.TrustedRoot != "" {
+			a = append(a, "--trusted-root", d.TrustedRoot)
+		}
+		return a
+	}
+	// Public Sigstore: TUF-provided signing config (needs the new bundle format in
+	// v3); a keyless signature without transparency is atypical but honored.
+	a = append(a, tlogArgs(p)...)
+	return a
 }
 
 // opVerb is the cosign subcommand for a signing op.
@@ -195,12 +244,12 @@ func opVerb(op sign.Op) string {
 }
 
 // resolveKMSURI binds a logical KMS ref to a concrete URI by PURE env substitution:
-// ref → $SF_SIGN_KMS_<REF> → URI. Core never parses the provider scheme (vault://,
+// ref → $SF_KMS_<REF> → URI. Core never parses the provider scheme (vault://,
 // awskms://, gcpkms://) — it lives only in the env value, opaque end to end.
 func resolveKMSURI(ref string) string {
 	return os.Getenv(kmsEnvVar(ref))
 }
 
 func kmsEnvVar(ref string) string {
-	return "SF_SIGN_KMS_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(ref))
+	return "SF_KMS_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(ref))
 }
