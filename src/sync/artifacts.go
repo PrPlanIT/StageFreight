@@ -7,6 +7,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
 
 // ReleaseData holds all data needed to project a release to an accessory.
@@ -69,6 +70,10 @@ func SyncRelease(ctx context.Context, accessory config.ResolvedRepo, data Releas
 	// Upload assets (skip if release pre-existed — assets likely already there)
 	if existing == "" {
 		for _, asset := range data.Assets {
+			if provision.IsPrivateKeyPath(asset.FilePath) {
+				result.Message += fmt.Sprintf("; refusing key material %s", filepath.Base(asset.FilePath))
+				continue
+			}
 			if err := client.UploadAsset(ctx, relID, asset); err != nil {
 				// Non-fatal — log and continue
 				result.Message += fmt.Sprintf("; asset %s: %v", filepath.Base(asset.FilePath), err)

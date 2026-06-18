@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
@@ -91,24 +92,23 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	pushedAny, attemptedAny := false, false
+	var unsigned []string
 	for _, step := range steps {
 		artifactID := artifact.NewArtifactID("docker", step.Name)
 		for _, obs := range step.Publications {
 			if obs.Digest == "" {
 				continue
 			}
-			pushedAny = true
+			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			tgt := byEndpoint[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
 			signPlan, tier, doSign, serr := autosign.EffectiveSigner(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
 			if !doSign {
+				unsigned = append(unsigned, digestRef)
 				continue
 			}
-			attemptedAny = true
-			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
 			evidence := artifact.TrustEvidence{
 				TrustClass:       string(signPlan.TrustClass),
@@ -143,11 +143,12 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 		}
 	}
 
-	// Visible advisory: signing is enabled and images were published, but NO signer
-	// resolved — so the operator does not silently ship unsigned images believing
-	// signing is on. (Per-image signing FAILURES are warned separately above.)
-	if pushedAny && !attemptedAny {
-		diag.Warn("signing is enabled but no images were signed — %s", autosign.InactiveReason(cfg))
+	// Visible advisory: signing is enabled but one or more published images got NO
+	// signer — naming EACH so a partially-signed set is never silently shipped (the
+	// operator believing signing is on). Per-image signing FAILURES warn separately.
+	if len(unsigned) > 0 {
+		diag.Warn("signing is enabled but %d published image(s) were NOT signed (%s): %s",
+			len(unsigned), autosign.InactiveReason(cfg), strings.Join(unsigned, ", "))
 	}
 	return nil
 }

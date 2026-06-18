@@ -150,3 +150,30 @@ func TestValidateRecordedDigests_RefusesDrift(t *testing.T) {
 		t.Error("a vanished artifact must be refused")
 	}
 }
+
+func TestValidateChecksumsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.tar.gz"), []byte("HELLO"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum, _ := sha256File(filepath.Join(dir, "a.tar.gz"))
+	sums := filepath.Join(dir, "SHA256SUMS")
+	write := func(s string) { _ = os.WriteFile(sums, []byte(s), 0o644) }
+
+	write(sum + "  a.tar.gz\n")
+	if err := ValidateChecksumsFile(sums); err != nil {
+		t.Fatalf("an accurate SHA256SUMS must pass: %v", err)
+	}
+	write("deadbeef  a.tar.gz\n")
+	if err := ValidateChecksumsFile(sums); err == nil {
+		t.Error("a wrong listed hash must be refused")
+	}
+	write(sum + "  gone.tar.gz\n")
+	if err := ValidateChecksumsFile(sums); err == nil {
+		t.Error("a missing listed file must be refused")
+	}
+	write("\n")
+	if err := ValidateChecksumsFile(sums); err == nil {
+		t.Error("an empty SHA256SUMS must be refused")
+	}
+}

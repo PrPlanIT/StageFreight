@@ -1193,6 +1193,10 @@ func refreshRollingRelease(ctx context.Context, fc forge.Forge, alias, ref, name
 		return err
 	}
 	for _, assetPath := range assets {
+		if provision.IsPrivateKeyPath(assetPath) {
+			fmt.Fprintf(os.Stderr, "refusing to upload signing key material as an asset: %s\n", filepath.Base(assetPath))
+			continue
+		}
 		if err := fc.UploadAsset(ctx, rel.ID, forge.Asset{Name: filepath.Base(assetPath), FilePath: assetPath}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: rolling asset %s → %s: %v\n", filepath.Base(assetPath), alias, err)
 		}
@@ -1263,6 +1267,10 @@ func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreat
 		if t.SyncAssets {
 			for _, assetPath := range allAssets {
 				assetName := filepath.Base(assetPath)
+				if provision.IsPrivateKeyPath(assetPath) {
+					fmt.Fprintf(os.Stderr, "refusing to project signing key material to %s: %s\n", t.ID, assetName)
+					continue
+				}
 				if err := syncClient.UploadAsset(ctx, syncRel.ID, forge.Asset{
 					Name:     assetName,
 					FilePath: assetPath,
@@ -1327,8 +1335,52 @@ func buildVerification(cfg config.SigningConfig, results *artifact.ResultsManife
 		NonExportable:    ev.NonExportable,
 		PhysicalPresence: ev.PhysicalPresence,
 		Continuity:       true, // a persistent, continuity-enforced identity
+		AdditionalLayers: additionalSignatureLayers(results),
 	}
 	return v, id.PubPath(stateDir)
+}
+
+// additionalSignatureLayers describes the NON-Tier-0 signatures layered onto the
+// same artifacts (e.g. a hardware sig added via `stagefreight sign`), deduped — so
+// the Verification surface discloses the strongest assurance present, never just
+// the auto-provisioned anchor.
+func additionalSignatureLayers(results *artifact.ResultsManifest) []string {
+	seen := map[string]bool{}
+	var layers []string
+	add := func(ev artifact.TrustEvidence, asset string) {
+		if ev.Tier == provision.TierSoftware {
+			return // Tier-0 is the primary, disclosed in the main table
+		}
+		cls := ev.TrustClass
+		if cls == "" {
+			cls = "signature"
+		}
+		desc := cls
+		if ev.PhysicalPresence {
+			desc += " (human-authorized)"
+		}
+		if ev.NonExportable {
+			desc += ", non-exportable"
+		}
+		if asset != "" {
+			desc += " · " + asset
+		}
+		if !seen[desc] {
+			seen[desc] = true
+			layers = append(layers, desc)
+		}
+	}
+	for _, r := range results.Results {
+		for _, o := range r.Outcomes {
+			switch {
+			case o.BlobSignature != nil && o.BlobSignature.Status == artifact.OutcomeSuccess:
+				add(o.BlobSignature.TrustEvidence, filepath.Base(o.BlobSignature.SignaturePath))
+			case o.Attestation != nil && o.Attestation.Status == artifact.OutcomeSuccess:
+				add(o.Attestation.TrustEvidence, o.Attestation.SignatureRef)
+			}
+		}
+	}
+	return layers
 }
 
 // tier0Evidence finds the trust evidence of a successful Tier-0 signature in the

@@ -89,10 +89,11 @@ type Verification struct {
 	Fingerprint      string // public-key fingerprint to pin (sha256:...)
 	AnchorAsset      string // release-asset filename for the public key (e.g. "cosign.pub")
 	ChecksumSig      string // detached checksum signature asset (e.g. "SHA256SUMS.sig")
-	Transparency     bool   // recorded in a transparency log
-	NonExportable    bool   // signing key is hardware-bound / non-exportable
-	PhysicalPresence bool   // a human authorized the signature
-	Continuity       bool   // identity is persistent/stable across releases
+	Transparency     bool     // recorded in a transparency log
+	NonExportable    bool     // signing key is hardware-bound / non-exportable
+	PhysicalPresence bool     // a human authorized the signature
+	Continuity       bool     // identity is persistent/stable across releases
+	AdditionalLayers []string // higher-assurance signatures layered on top (e.g. "hardware · SHA256SUMS.maintainer.sig")
 }
 
 // NotesInput holds all data needed to render release notes.
@@ -349,6 +350,13 @@ func renderVerification(v *Verification) string {
 		if v.Fingerprint != "" {
 			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", v.Fingerprint))
 		}
+	}
+	if len(v.AdditionalLayers) > 0 {
+		b.WriteString("This release also carries higher-assurance signatures layered on the same artifacts:\n\n")
+		for _, l := range v.AdditionalLayers {
+			b.WriteString(fmt.Sprintf("- %s\n", l))
+		}
+		b.WriteString("\nObtain those signers' public keys from the maintainer / `SECURITY.md` — they are not the auto-provisioned anchor above.\n\n")
 	}
 	return b.String()
 }

@@ -119,6 +119,44 @@ func ValidateRecordedDigests(results *ResultsManifest, distDir string) error {
 	return nil
 }
 
+// ValidateChecksumsFile confirms every entry in a SHA256SUMS file matches the
+// actual bytes of the named file (resolved relative to the file's directory) —
+// so `stagefreight sign` never signs a checksum manifest that no longer describes
+// its artifacts. This closes the gap that archive-digest validation alone leaves:
+// the SHA256SUMS file itself is the thing being signed, and it must be accurate.
+func ValidateChecksumsFile(sumsPath string) error {
+	data, err := os.ReadFile(sumsPath)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(sumsPath)
+	entries := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return fmt.Errorf("malformed SHA256SUMS line: %q", line)
+		}
+		want := strings.TrimPrefix(fields[0], "sha256:")
+		name := strings.TrimPrefix(fields[len(fields)-1], "*") // shasum binary-mode marker
+		got, err := sha256File(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("SHA256SUMS lists %q: %w (refusing to sign)", name, err)
+		}
+		if got != want {
+			return fmt.Errorf("SHA256SUMS drift: %s is %s on disk but listed as %s — refusing to sign a checksum file that does not describe its artifacts", name, got, want)
+		}
+		entries++
+	}
+	if entries == 0 {
+		return fmt.Errorf("SHA256SUMS has no entries")
+	}
+	return nil
+}
+
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {

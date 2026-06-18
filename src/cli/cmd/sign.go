@@ -90,6 +90,13 @@ signs the release SHA256SUMS; image attestation is a follow-up.`,
 
 		sumsPath := filepath.Join(distDir, "SHA256SUMS")
 		_, sumsErr := os.Stat(sumsPath)
+		if sumsErr == nil {
+			// The checksum file is the thing we sign — confirm it still describes
+			// its artifacts before signing (don't sign a drifted/tampered manifest).
+			if err := artifact.ValidateChecksumsFile(sumsPath); err != nil {
+				return err
+			}
+		}
 		var images []imageTarget
 		if !signSkipImages {
 			images = imageTargets(results)
