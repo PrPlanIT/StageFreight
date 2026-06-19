@@ -124,8 +124,8 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	}
 
 	// 5. Group by ecosystem and apply
-	gomodDeps, dockerDeps, toolchainDeps := groupByEcosystem(candidates)
-	steps = append(steps, depStep{label: "apply", detail: fmt.Sprintf("%d gomod · %d docker · %d toolchain", len(gomodDeps), len(dockerDeps), len(toolchainDeps))})
+	gomodDeps, dockerDeps, toolchainDeps, cargoDeps := groupByEcosystem(candidates)
+	steps = append(steps, depStep{label: "apply", detail: fmt.Sprintf("%d gomod · %d docker · %d toolchain · %d cargo", len(gomodDeps), len(dockerDeps), len(toolchainDeps), len(cargoDeps))})
 
 	if len(gomodDeps) > 0 {
 		t0 = time.Now()
@@ -164,6 +164,19 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 		steps = append(steps, depStep{label: "toolchain", status: "ok", dur: time.Since(t0)})
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, tcSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+	}
+
+	if len(cargoDeps) > 0 {
+		t0 = time.Now()
+		applied, cgSkipped, touchedFiles, err := applyCargoUpdates(ctx, cargoDeps, repoRoot)
+		if err != nil {
+			steps = append(steps, depStep{label: "cargo", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			return result, fmt.Errorf("applying Cargo updates: %w", err)
+		}
+		steps = append(steps, depStep{label: "cargo", status: "ok", dur: time.Since(t0)})
+		result.Applied = append(result.Applied, applied...)
+		result.Skipped = append(result.Skipped, cgSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
@@ -225,7 +238,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	return result, nil
 }
 
-func groupByEcosystem(deps []freshness.Dependency) (gomod, docker, tc []freshness.Dependency) {
+func groupByEcosystem(deps []freshness.Dependency) (gomod, docker, tc, cargo []freshness.Dependency) {
 	for _, dep := range deps {
 		switch dep.Ecosystem {
 		case freshness.EcosystemGoMod:
@@ -234,6 +247,8 @@ func groupByEcosystem(deps []freshness.Dependency) (gomod, docker, tc []freshnes
 			docker = append(docker, dep)
 		case freshness.EcosystemToolchain:
 			tc = append(tc, dep)
+		case freshness.EcosystemCargo:
+			cargo = append(cargo, dep)
 		}
 	}
 	return

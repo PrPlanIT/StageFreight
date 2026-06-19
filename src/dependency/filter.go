@@ -18,11 +18,11 @@ var autoUpdatableEcosystems = map[string]bool{
 	freshness.EcosystemGitHubRelease: true,
 	freshness.EcosystemGoMod:         true,
 	freshness.EcosystemToolchain:     true,
-	freshness.EcosystemCargo:       false,
-	freshness.EcosystemNpm:         false,
-	freshness.EcosystemAlpineAPK:   false,
-	freshness.EcosystemDebianAPT:   false,
-	freshness.EcosystemPip:         false,
+	freshness.EcosystemCargo:         true,
+	freshness.EcosystemNpm:           false,
+	freshness.EcosystemAlpineAPK:     false,
+	freshness.EcosystemDebianAPT:     false,
+	freshness.EcosystemPip:           false,
 }
 
 // FilterUpdateCandidates separates deps into actionable candidates and skipped.
