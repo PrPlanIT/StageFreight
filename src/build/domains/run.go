@@ -12,6 +12,22 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
+// renderFailureDetail surfaces the underlying failure output — the engines include
+// captured cargo / go build diagnostics in the returned error — so a failed run is
+// diagnosable. Without it the actual compiler error is computed but never printed,
+// leaving only a ✗ in the panel. Rendered through the standard Section box (which
+// word-wraps), consistent with every other panel.
+func renderFailureDetail(rc *RunContext, err error) {
+	if err == nil {
+		return
+	}
+	sec := output.NewSection(rc.Writer, "Failure", 0, rc.Color)
+	for _, line := range strings.Split(strings.TrimRight(err.Error(), "\n"), "\n") {
+		sec.Row("%s", line)
+	}
+	sec.Close()
+}
+
 // Run executes a build run as a single domain-ordered narrative. Identity,
 // Executor, Lint and Summary are run-level — rendered once by the run. Each
 // contributor domain (Detect → Plan → Build → Verify → Publish) is rendered
@@ -68,6 +84,7 @@ func Run(rc *RunContext) error {
 			results = append(results, res)
 		}
 		if err != nil {
+			renderFailureDetail(rc, err)
 			pipeline.RenderRunSummary(rc.Writer, rc.Color, rc.RootDir, results, time.Since(start))
 			concludeAll(rc, active)
 			return err
