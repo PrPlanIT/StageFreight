@@ -3,6 +3,8 @@ package dependency
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -40,6 +42,16 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 	}
 
 	for _, dir := range dirs {
+		// A go.mod can exist purely for tooling — e.g. a Hugo theme module —
+		// with no Go packages. `go test ./...` / govulncheck on such a module are
+		// meaningless and exit non-zero; skip verification rather than fail the
+		// update. (Detected by walking for any .go source, so it doesn't depend on
+		// `go list` exit semantics.)
+		if !moduleHasGoFiles(dir) {
+			log.WriteString(fmt.Sprintf("=== %s: no Go packages (tooling/content module); verification skipped ===\n", dir))
+			continue
+		}
+
 		if runTests {
 			testLog, err := runGoTest(ctx, dir, runGo)
 			log.WriteString(fmt.Sprintf("=== go test ./... (%s) ===\n", dir))
@@ -64,6 +76,33 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 	}
 
 	return log.String(), firstErr
+}
+
+// moduleHasGoFiles reports whether a module directory contains any Go source —
+// i.e. whether there is anything for `go test` / govulncheck to act on. A module
+// with a go.mod but no .go files (a content/theme module) is not a Go application.
+func moduleHasGoFiles(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			// Skip nested vendor dirs and dotdirs (e.g. .git) — not module source.
+			if path != dir {
+				if name := d.Name(); name == "vendor" || strings.HasPrefix(name, ".") {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".go") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func runGoTest(ctx context.Context, dir string, runGo goRunner) (string, error) {
