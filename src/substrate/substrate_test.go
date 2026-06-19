@@ -47,3 +47,19 @@ func TestEveryInferredCapabilityHasABackendMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestInferRustNeeds_GitForBuildRs(t *testing.T) {
+	dir := t.TempDir()
+	if capSet(InferRustNeeds(dir))["git"] {
+		t.Error("no build.rs → no git need")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "build.rs"), []byte("fn main(){}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !capSet(InferRustNeeds(dir))["git"] {
+		t.Error("build.rs present → git need (version-stamping)")
+	}
+	if _, ok := capabilityPackages["git"]; !ok {
+		t.Error("git capability must have a backend mapping")
+	}
+}

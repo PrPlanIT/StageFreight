@@ -19,6 +19,7 @@ var capabilityPackages = map[string][]string{
 	"perl":        {"perl"},
 	"pkg-config":  {"pkgconf"},
 	"openssl":     {"openssl-dev"},
+	"git":         {"git"}, // build.rs version-stamping (the SF image is otherwise git-less)
 }
 
 // capabilityProbe is a binary whose presence means the capability is already
@@ -30,6 +31,7 @@ var capabilityProbe = map[string]string{
 	"cmake":       "cmake",
 	"perl":        "perl",
 	"pkg-config":  "pkg-config",
+	"git":         "git",
 }
 
 // apkRealizer is the bootstrap backend: Alpine apk with a persistent package cache.
@@ -94,15 +96,21 @@ func (r *apkRealizer) Realize(ctx context.Context, needs []Need) ([]Realized, er
 }
 
 // apkVersions returns best-effort installed versions, e.g. build-base → "0.5-r3".
+// `apk list --installed <pkg>` yields "<name>-<version> <arch> {...}"; since we know
+// the package name, the version is the first field with the "<name>-" prefix removed.
 func apkVersions(ctx context.Context, pkgs []string) map[string]string {
 	out := make(map[string]string, len(pkgs))
 	for _, p := range pkgs {
-		b, err := exec.CommandContext(ctx, "apk", "info", "-v", p).Output()
+		b, err := exec.CommandContext(ctx, "apk", "list", "--installed", p).Output()
 		if err != nil {
 			continue
 		}
-		line := strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
-		out[p] = strings.TrimPrefix(line, p+"-")
+		for _, line := range strings.Split(string(b), "\n") {
+			if fields := strings.Fields(line); len(fields) > 0 && strings.HasPrefix(fields[0], p+"-") {
+				out[p] = strings.TrimPrefix(fields[0], p+"-")
+				break
+			}
+		}
 	}
 	return out
 }

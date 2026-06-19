@@ -15,6 +15,14 @@ func InferRustNeeds(manifestDir string) []Need {
 	needs := []Need{
 		{Capability: "c-toolchain", Reason: "rust-build-script-linking", Source: "cargo"},
 	}
+	// A build.rs commonly shells out to git for version-stamping (directly or via a
+	// script, e.g. version.sh → git rev-parse) — and the SF image is git-less. Provide
+	// git when a build.rs is present so those scripts resolve. (Heuristic: not every
+	// build.rs needs git, but it's cheap, cached, and covers the common case; a future
+	// refinement could scan build.rs + referenced scripts.)
+	if _, err := os.Stat(filepath.Join(manifestDir, "build.rs")); err == nil {
+		needs = append(needs, Need{Capability: "git", Reason: "build-script-version-control", Source: "build.rs"})
+	}
 	data, err := os.ReadFile(filepath.Join(manifestDir, "Cargo.lock"))
 	if err != nil {
 		return needs // no lock graph to scan; base C toolchain still applies
