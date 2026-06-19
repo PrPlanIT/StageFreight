@@ -44,8 +44,15 @@ func FilterUpdateCandidates(deps []freshness.Dependency, cfg UpdateConfig, track
 }
 
 func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
-	// Up to date
-	if dep.Current == dep.Latest || dep.Latest == "" {
+	// Unresolved: the latest version could NOT be verified (registry failure, empty
+	// response). Inability to determine state must never collapse into verified
+	// healthy — "couldn't check" is a different operational condition than "current".
+	if dep.ResolutionError != "" || dep.Latest == "" {
+		return "unresolved (could not verify latest version)"
+	}
+
+	// Up to date — only when a Latest was actually resolved and equals Current.
+	if dep.Current == dep.Latest {
 		return "up to date"
 	}
 

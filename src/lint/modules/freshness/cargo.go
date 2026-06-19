@@ -115,11 +115,16 @@ func (m *freshnessModule) resolveCrate(ctx context.Context, dep *Dependency) {
 
 	var resp cratesIOResponse
 	if err := m.http.fetchJSON(ctx, url, &resp, ep); err != nil {
+		// A lookup failure is UNRESOLVED, not up-to-date — record it so the
+		// degraded state survives into classification and reporting.
+		dep.ResolutionError = "crates.io lookup failed: " + err.Error()
 		return
 	}
-	if resp.Crate.MaxVersion != "" {
-		dep.Latest = resp.Crate.MaxVersion
+	if resp.Crate.MaxVersion == "" {
+		dep.ResolutionError = "crates.io returned no version for " + dep.Name
+		return
 	}
+	dep.Latest = resp.Crate.MaxVersion
 }
 
 // buildLineIndex creates a map from content lines for lookup.

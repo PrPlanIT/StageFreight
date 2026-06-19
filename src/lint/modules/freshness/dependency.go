@@ -21,6 +21,12 @@ type Dependency struct {
 	// when a non-versioned or pre-release tag has stable releases available.
 	Advisory string
 
+	// ResolutionError records why Latest could NOT be determined — a registry
+	// lookup failure, an empty response, a parse error. When set, the dependency
+	// is UNRESOLVED: an indeterminate state that must never be rendered as
+	// up-to-date. StageFreight never claims freshness it failed to verify.
+	ResolutionError string
+
 	// Fields populated by the config/rule engine after resolution.
 	// Used by future update commands for MR grouping and automerge.
 	Group     string // assigned group name from package rules

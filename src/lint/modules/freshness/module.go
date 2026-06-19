@@ -26,7 +26,7 @@ func newModule() *freshnessModule {
 	return &freshnessModule{cfg: DefaultConfig()}
 }
 
-func (m *freshnessModule) Name() string        { return "freshness" }
+func (m *freshnessModule) Name() string         { return "freshness" }
 func (m *freshnessModule) DefaultEnabled() bool { return true }
 
 // CacheTTL implements lint.CacheTTLModule. Freshness findings depend on
@@ -132,6 +132,20 @@ func (m *freshnessModule) depsToFindings(deps []Dependency) []lint.Finding {
 				Severity: lint.SeverityInfo,
 				Message:  dep.Advisory,
 			})
+		}
+
+		// Unresolved: the lookup failed — surface degraded freshness as a warning
+		// rather than silently passing it off as current. Unknown ≠ outdated, but
+		// unknown must never render as healthy.
+		if dep.ResolutionError != "" {
+			findings = append(findings, lint.Finding{
+				File:     dep.File,
+				Line:     dep.Line,
+				Module:   "freshness",
+				Severity: lint.SeverityWarning,
+				Message:  fmt.Sprintf("%s: freshness unresolved — %s", dep.Name, dep.ResolutionError),
+			})
+			continue
 		}
 
 		if dep.Latest == "" || dep.Current == dep.Latest {
