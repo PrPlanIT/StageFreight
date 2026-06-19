@@ -165,12 +165,12 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		// Binary-specific validation
 		if b.Kind == "binary" {
 			if b.Builder == "" {
-				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go)", bpath))
-			} else if b.Builder != "go" {
-				errs = append(errs, fmt.Sprintf("%s: unknown builder %q (supported: go)", bpath, b.Builder))
+				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go, rust)", bpath))
+			} else if b.Builder != "go" && b.Builder != "rust" {
+				errs = append(errs, fmt.Sprintf("%s: unknown builder %q (supported: go, rust)", bpath, b.Builder))
 			}
 			if b.From == "" {
-				errs = append(errs, fmt.Sprintf("%s: kind binary requires from (source entry point)", bpath))
+				errs = append(errs, fmt.Sprintf("%s: kind binary requires from (go: source package; rust: the crate dir with Cargo.toml)", bpath))
 			}
 			// Docker-only fields should not be set on binary builds
 			if b.Dockerfile != "" {

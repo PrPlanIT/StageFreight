@@ -96,10 +96,14 @@ func (b *binaryContributor) Detect(rc *domains.RunContext) (domains.Contribution
 	if len(det.MainPackages) > 0 {
 		row += fmt.Sprintf(", %d main package(s)", len(det.MainPackages))
 	}
+	lang := det.Language
+	if lang == "" {
+		lang = "binary"
+	}
 	return domains.Contribution{
 		Rows:    []string{row},
 		Status:  "success",
-		Summary: fmt.Sprintf("go, %d binary build(s)", len(b.builds)),
+		Summary: fmt.Sprintf("%s, %d binary build(s)", lang, len(b.builds)),
 	}, nil
 }
 

@@ -40,9 +40,17 @@ type Result struct {
 // Empty version uses ToolDef.DefaultVer.
 // No fallback. No stderr output — callers own presentation.
 func Resolve(rootDir, tool, version string) (Result, error) {
-	// Go has its own resolution path (go.dev checksum API, full distribution extract)
+	// Go and Rust are full DISTRIBUTIONS (not single binaries), so each has its own
+	// resolution path: verified official artifact, explicit install layout, no host
+	// fallback. Empty version defers to the language-specific default.
 	if tool == "go" {
 		return resolveGo(rootDir, version)
+	}
+	if tool == "rust" {
+		if version == "" {
+			version = defaultRustVersion
+		}
+		return resolveRust(rootDir, version)
 	}
 
 	def, ok := LookupTool(tool)
