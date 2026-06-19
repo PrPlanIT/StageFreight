@@ -48,7 +48,7 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 	}
 	if tool == "rust" {
 		if version == "" {
-			version = defaultRustVersion
+			version = defaultRustChannel
 		}
 		return resolveRust(rootDir, version)
 	}

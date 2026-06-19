@@ -30,12 +30,13 @@ func TestRustDownloadURL(t *testing.T) {
 	}
 }
 
-// A build must be reproducible, so only an explicit NUMERIC pin is honored; the
-// "stable"/"nightly" channels are moving targets and fall back to the default.
+// ResolveRustVersion honors a numeric pin AND a named channel; default is "stable"
+// (resolved to a concrete version at download time), NOT a stale numeric default that
+// would fail to compile a newer edition (the jetpack edition-2024 case).
 func TestResolveRustVersion(t *testing.T) {
 	dir := t.TempDir()
-	if got := ResolveRustVersion(dir, dir); got != defaultRustVersion {
-		t.Errorf("no toolchain file → default, got %q", got)
+	if got := ResolveRustVersion(dir, dir); got != defaultRustChannel {
+		t.Errorf("no toolchain file → default channel %q, got %q", defaultRustChannel, got)
 	}
 
 	write := func(content string) {
@@ -45,11 +46,13 @@ func TestResolveRustVersion(t *testing.T) {
 	}
 	write("[toolchain]\nchannel = \"1.81.0\"\n")
 	if got := ResolveRustVersion(dir, dir); got != "1.81.0" {
-		t.Errorf("pinned channel, got %q", got)
+		t.Errorf("numeric pin, got %q", got)
 	}
+	// A named channel is honored (resolved to a concrete version later) — this is the
+	// common real-world case (jetpack pins `stable` for edition 2024).
 	write("[toolchain]\nchannel = \"stable\"\n")
-	if got := ResolveRustVersion(dir, dir); got != defaultRustVersion {
-		t.Errorf("non-numeric channel must fall back to default, got %q", got)
+	if got := ResolveRustVersion(dir, dir); got != "stable" {
+		t.Errorf("named channel must be honored, got %q", got)
 	}
 
 	// Legacy bare rust-toolchain file.

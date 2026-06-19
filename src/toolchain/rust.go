@@ -46,10 +46,13 @@ func rustDownloadURL(version, triple string) string {
 	return fmt.Sprintf("https://static.rust-lang.org/dist/rust-%s-%s.tar.gz", version, triple)
 }
 
-// ResolveRustVersion reads the pinned channel from rust-toolchain.toml / rust-toolchain
-// (the Rust equivalent of go.mod's toolchain directive), falling back to a recent
-// stable. Only an explicit numeric version is honored — "stable"/"nightly" channels
-// are NOT pinned identities and fall back to the default (a build must be reproducible).
+// ResolveRustVersion reads the pinned toolchain from rust-toolchain.toml /
+// rust-toolchain (the Rust equivalent of go.mod's toolchain directive). It honors an
+// exact numeric pin ("1.86.0") AND a named channel ("stable"/"beta"/"nightly") — a
+// named channel is resolved to its CONCRETE current version at download time (so a run
+// is reproducible and cached, while a project that tracks stable still builds). The
+// default is "stable", matching rustup, rather than a stale numeric default that would
+// fail to compile a newer edition.
 func ResolveRustVersion(dir, repoRoot string) string {
 	for _, p := range []string{
 		filepath.Join(dir, "rust-toolchain.toml"),
@@ -61,13 +64,18 @@ func ResolveRustVersion(dir, repoRoot string) string {
 			return v
 		}
 	}
-	return defaultRustVersion
+	return defaultRustChannel
 }
 
-const defaultRustVersion = "1.83.0"
+const defaultRustChannel = "stable"
 
-// parseRustChannel extracts a pinned numeric version from a rust-toolchain[.toml] file.
-// Handles both `channel = "1.83.0"` (toml) and a bare `1.83.0` (legacy plain file).
+func isNamedChannel(s string) bool {
+	return s == "stable" || s == "beta" || s == "nightly"
+}
+
+// parseRustChannel extracts the pinned toolchain from a rust-toolchain[.toml] file —
+// an exact numeric version or a named channel. Handles `channel = "stable"` (toml) and
+// a bare `1.86.0` / `stable` (legacy plain file).
 func parseRustChannel(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -86,11 +94,45 @@ func parseRustChannel(path string) string {
 			}
 		}
 		v := strings.Trim(line, `"'`)
-		if isNumericVersion(v) {
+		if isNumericVersion(v) || isNamedChannel(v) {
 			return v
 		}
 	}
 	return ""
+}
+
+// resolveRustChannelVersion resolves a named channel (stable/beta/nightly) to its
+// concrete version via Rust's official channel manifest, so the download URL and cache
+// key are a pinned version even though the project tracks a channel.
+func resolveRustChannelVersion(channel string) (string, error) {
+	url := "https://static.rust-lang.org/dist/channel-rust-" + channel + ".toml"
+	resp, err := httpGet(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("channel manifest %s: HTTP %d", channel, resp.StatusCode)
+	}
+	sc := bufio.NewScanner(resp.Body)
+	inRust := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "[") {
+			inRust = line == "[pkg.rust]"
+			continue
+		}
+		if inRust && strings.HasPrefix(line, "version") {
+			// version = "1.86.0 (<hash> <date>)"
+			if i := strings.IndexByte(line, '='); i >= 0 {
+				val := strings.Trim(strings.TrimSpace(line[i+1:]), `"'`)
+				if v := strings.Fields(val); len(v) > 0 && isNumericVersion(v[0]) {
+					return v[0], nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("channel manifest %s: no [pkg.rust] version found", channel)
 }
 
 func isNumericVersion(s string) bool {
@@ -108,6 +150,15 @@ func isNumericVersion(s string) bool {
 // resolveRust ensures a verified Rust toolchain is installed and returns cargo's path.
 // Special-cased like Go (full distribution + bundled installer, not a single binary).
 func resolveRust(rootDir, version string) (Result, error) {
+	// A named channel (stable/beta/nightly) resolves to its concrete current version
+	// before anything is downloaded or cached, so the install is a pinned version.
+	if isNamedChannel(version) {
+		concrete, err := resolveRustChannelVersion(version)
+		if err != nil {
+			return Result{}, fmt.Errorf("toolchain rust: resolving %q channel: %w", version, err)
+		}
+		version = concrete
+	}
 	triple := rustHostTriple(runtime.GOOS, runtime.GOARCH)
 	sourceURL := rustDownloadURL(version, triple)
 
