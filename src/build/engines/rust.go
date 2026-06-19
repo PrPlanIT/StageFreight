@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/substrate"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -114,6 +115,18 @@ func (e *rustEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 	if err != nil {
 		return nil, fmt.Errorf("rust engine: resolving rust toolchain: %w", err)
 	}
+
+	// Realize the native build substrate this crate needs (a C toolchain for build-
+	// script linking, plus cmake/perl etc. for native crates) — INFERRED from the crate
+	// graph, not operator config. The engine emits capabilities; substrate owns
+	// realization; the backend owns distro/package semantics. No-op where the tools
+	// already exist (dev hosts).
+	realized, serr := substrate.NewRealizer(toolchain.SubstrateCacheDir()).
+		Realize(ctx, substrate.InferRustNeeds(meta.ManifestDir))
+	if serr != nil {
+		return nil, fmt.Errorf("rust engine: realizing build substrate: %w", serr)
+	}
+	substrate.Report(os.Stderr, realized)
 
 	// cargo invokes rustc; with a standalone (non-rustup) install, point it at the
 	// sibling rustc and put the toolchain bin on PATH so the build is hermetic.

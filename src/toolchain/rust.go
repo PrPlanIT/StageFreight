@@ -354,3 +354,14 @@ func CargoCacheDir() string {
 	// gomod is <persistRoot>/gomodcache; place cargo home as a sibling.
 	return filepath.Join(filepath.Dir(gomod), "cargo")
 }
+
+// SubstrateCacheDir returns the persistent apk package-cache root on the /stagefreight
+// mount (sibling to the toolchain/cargo caches), or "" when not writable — so native
+// build-substrate realization is download-once, offline-after-first like the rest.
+func SubstrateCacheDir() string {
+	gomod, _ := GoCacheDirs()
+	if gomod == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(gomod), "substrate", "apk-cache")
+}
