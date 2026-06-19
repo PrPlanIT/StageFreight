@@ -214,6 +214,21 @@ func resolveWithDef(rootDir string, def ToolDef, version string) (Result, error)
 func resolveGo(rootDir, version string) (Result, error) {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
+
+	// go.dev/dl publishes only full patch versions; a bare major.minor (a
+	// `go 1.24` directive, or the resolver fallback) must be resolved to its
+	// latest stable patch before the URL and checksum are computed. The resolver
+	// returns that patch's checksum from the same index document (preChecksum),
+	// so we don't fetch the index twice.
+	var preChecksum string
+	if isGoMajorMinor(version) {
+		full, sum, err := resolveLatestGoPatch(version, goos, goarch)
+		if err != nil {
+			return Result{}, fmt.Errorf("toolchain go %s: resolving latest patch: %w", version, err)
+		}
+		version, preChecksum = full, sum
+	}
+
 	sourceURL := goDownloadURL(version, goos, goarch)
 
 	// Search all read roots for a valid cached install.
@@ -266,9 +281,14 @@ func resolveGo(rootDir, version string) (Result, error) {
 		}
 	}
 
-	expectedSHA, err := fetchGoChecksum(version, goos, goarch)
-	if err != nil {
-		return Result{}, fmt.Errorf("toolchain go %s: fetching checksum: %w", version, err)
+	// Reuse the checksum already pulled during major.minor normalization; only
+	// fetch the index again when we didn't (an exact full version was supplied).
+	expectedSHA := preChecksum
+	if expectedSHA == "" {
+		var err error
+		if expectedSHA, err = fetchGoChecksum(version, goos, goarch); err != nil {
+			return Result{}, fmt.Errorf("toolchain go %s: fetching checksum: %w", version, err)
+		}
 	}
 
 	archivePath, err := downloadToTemp(sourceURL)
