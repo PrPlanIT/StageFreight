@@ -49,11 +49,65 @@ func renderDepsCard(w io.Writer, steps []depStep, total time.Duration) {
 			sec.Row("%-16s%s  %s%s", s.label, output.StatusIcon("success", color), s.detail, dur)
 		case "fail":
 			sec.Row("%-16s%s  %s%s", s.label, output.StatusIcon("failed", color), s.detail, dur)
+		case "skip":
+			sec.Row("%-16s%s  %s%s", s.label, output.Dimmed("↷", color), s.detail, dur)
 		default:
 			sec.Row("%-16s%s%s", s.label, s.detail, dur)
 		}
 	}
 	sec.Close()
+}
+
+// eligibleDetail renders the candidate count and the ecosystems that actually have
+// candidates — never fixed zero slots. "none" when there are no candidates.
+func eligibleDetail(total int, byEcosystem map[string]int) string {
+	if total == 0 {
+		return "none"
+	}
+	var ecos []string
+	for _, k := range []string{"gomod", "docker", "toolchain", "cargo"} {
+		if byEcosystem[k] > 0 {
+			ecos = append(ecos, k)
+		}
+	}
+	noun := "candidate"
+	if total != 1 {
+		noun = "candidates"
+	}
+	return fmt.Sprintf("%d %s (%s)", total, noun, strings.Join(ecos, ", "))
+}
+
+// ecosystemStep renders one ecosystem's outcome as an event row — updated or
+// skipped. Ecosystems are attributes of activity: this row exists ONLY because the
+// ecosystem had a candidate, so the card never accumulates zero rows as ecosystems
+// are added.
+func ecosystemStep(eco string, applied []AppliedUpdate, skipped []SkippedDep, touched []string, dur time.Duration) depStep {
+	switch {
+	case len(applied) > 0:
+		detail := fmt.Sprintf("updated %d", len(applied))
+		if len(touched) > 0 {
+			detail += " · " + strings.Join(touched, ", ")
+		}
+		return depStep{label: eco, status: "ok", detail: detail, dur: dur}
+	case len(skipped) > 0:
+		return depStep{label: eco, status: "skip", detail: "skipped — " + skipSummary(skipped), dur: dur}
+	default:
+		return depStep{label: eco, status: "ok", detail: "no changes", dur: dur}
+	}
+}
+
+// skipSummary collapses skip reasons to one phrase when uniform, else a count.
+func skipSummary(skipped []SkippedDep) string {
+	if len(skipped) == 0 {
+		return ""
+	}
+	first := skipped[0].Reason
+	for _, s := range skipped[1:] {
+		if s.Reason != first {
+			return fmt.Sprintf("%d skipped", len(skipped))
+		}
+	}
+	return first
 }
 
 // UpdateResult holds the outcome of a dependency update run.
@@ -105,37 +159,53 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	}
 	steps = append(steps, depStep{label: "git clean", status: "ok", dur: time.Since(t0)})
 
-	// 3. Detect git-tracked files
+	// 3. Scan scope: deps discovered · files tracked.
 	t0 = time.Now()
 	trackedFiles, err := gitTrackedFiles(ctx, repoRoot)
 	if err != nil {
-		steps = append(steps, depStep{label: "tracked files", status: "fail", detail: err.Error()})
+		steps = append(steps, depStep{label: "scan", status: "fail", detail: err.Error()})
 		return result, fmt.Errorf("listing tracked files: %w", err)
 	}
-	steps = append(steps, depStep{label: "tracked files", detail: fmt.Sprintf("%d", len(trackedFiles)), dur: time.Since(t0)})
+	steps = append(steps, depStep{label: "scan", detail: fmt.Sprintf("%d deps · %d files", len(deps), len(trackedFiles)), dur: time.Since(t0)})
 
-	// 4. Filter update candidates
+	// 4. Freshness integrity — resolved vs unresolved. A dep with no verified Latest
+	// is UNRESOLVED and surfaced as such; "couldn't verify" never collapses into
+	// healthy.
+	resolved, unresolved := 0, 0
+	for _, d := range deps {
+		if d.ResolutionError != "" || d.Latest == "" {
+			unresolved++
+		} else {
+			resolved++
+		}
+	}
+	freshDetail := fmt.Sprintf("%d resolved · %d unresolved", resolved, unresolved)
+	if unresolved > 0 {
+		freshDetail += " ⚠"
+	}
+	steps = append(steps, depStep{label: "freshness", detail: freshDetail})
+
+	// 5. Eligibility — candidates by ecosystem; ecosystems named ONLY when present.
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
-	steps = append(steps, depStep{label: "candidates", detail: fmt.Sprintf("%d go-mod (from %d deps)", len(candidates), len(deps))})
-
+	gomodDeps, dockerDeps, toolchainDeps, cargoDeps := groupByEcosystem(candidates)
+	steps = append(steps, depStep{label: "eligible", detail: eligibleDetail(len(candidates), map[string]int{
+		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps),
+	})})
 	if len(candidates) == 0 {
-		steps = append(steps, depStep{label: "apply", detail: "no candidates — skipped"})
 		return result, nil
 	}
 
-	// 5. Group by ecosystem and apply
-	gomodDeps, dockerDeps, toolchainDeps, cargoDeps := groupByEcosystem(candidates)
-	steps = append(steps, depStep{label: "apply", detail: fmt.Sprintf("%d gomod · %d docker · %d toolchain · %d cargo", len(gomodDeps), len(dockerDeps), len(toolchainDeps), len(cargoDeps))})
-
+	// 6. Per-ecosystem activity — a row emerges ONLY for an ecosystem that had a
+	// candidate, reporting what actually happened (updated / skipped). No zero rows.
 	if len(gomodDeps) > 0 {
 		t0 = time.Now()
 		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, repoRoot)
 		if err != nil {
-			steps = append(steps, depStep{label: "go updates", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			steps = append(steps, depStep{label: "gomod", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Go updates: %w", err)
 		}
-		steps = append(steps, depStep{label: "go updates", status: "ok", detail: fmt.Sprintf("touched: %s", strings.Join(touchedDirs, ", ")), dur: time.Since(t0)})
+		steps = append(steps, ecosystemStep("gomod", applied, goSkipped, touchedDirs, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, goSkipped...)
 		result.TouchedModuleDirs = touchedDirs
@@ -146,10 +216,10 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 		t0 = time.Now()
 		applied, dkSkipped, touchedFiles, err := applyDockerfileUpdates(dockerDeps, repoRoot)
 		if err != nil {
-			steps = append(steps, depStep{label: "dockerfile", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			steps = append(steps, depStep{label: "docker", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Dockerfile updates: %w", err)
 		}
-		steps = append(steps, depStep{label: "dockerfile", status: "ok", dur: time.Since(t0)})
+		steps = append(steps, ecosystemStep("docker", applied, dkSkipped, nil, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, dkSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
@@ -162,7 +232,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 			steps = append(steps, depStep{label: "toolchain", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying toolchain updates: %w", err)
 		}
-		steps = append(steps, depStep{label: "toolchain", status: "ok", dur: time.Since(t0)})
+		steps = append(steps, ecosystemStep("toolchain", applied, tcSkipped, nil, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, tcSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
@@ -175,7 +245,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 			steps = append(steps, depStep{label: "cargo", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Cargo updates: %w", err)
 		}
-		steps = append(steps, depStep{label: "cargo", status: "ok", dur: time.Since(t0)})
+		steps = append(steps, ecosystemStep("cargo", applied, cgSkipped, nil, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, cgSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
