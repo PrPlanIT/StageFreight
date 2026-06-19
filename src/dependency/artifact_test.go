@@ -72,8 +72,8 @@ func TestWritePatchOrdering(t *testing.T) {
 	// Seed files in intentionally scrambled order so the natural map iteration
 	// would produce non-deterministic output if sort.Strings were removed.
 	dir := initTestRepo(t, map[string]string{
-		"z-last.txt":  "z\n",
-		"a-first.txt": "a\n",
+		"z-last.txt":   "z\n",
+		"a-first.txt":  "a\n",
 		"m-middle.txt": "m\n",
 	})
 

@@ -79,7 +79,8 @@ func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoo
 		fe.edits = append(fe.edits, dockerfileEdit{
 			dep: dep, line: dep.Line, origHash: sha256.Sum256([]byte(origLine)), newLine: newLine,
 		})
-		update := AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)}
+		target := dep.UpdateTarget()
+		update := AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: target, UpdateType: updateType(dep.Current, target)}
 		for _, v := range dep.Vulnerabilities {
 			update.CVEsFixed = append(update.CVEsFixed, v.ID)
 		}
@@ -128,7 +129,10 @@ func buildCargoReplacement(dep freshness.Dependency, origLine string) (string, s
 	if dep.Current == "" {
 		return origLine, "no current version to replace"
 	}
-	newLine := strings.Replace(origLine, dep.Current, dep.Latest, 1)
+	// Advance to the COMPATIBLE target, never the raw registry maximum — an
+	// out-of-range major (e.g. reqwest 0.12 → 0.13, which renamed rustls-tls) would
+	// break the manifest and is held for review instead.
+	newLine := strings.Replace(origLine, dep.Current, dep.UpdateTarget(), 1)
 	if newLine == origLine {
 		return origLine, "current version not found in line"
 	}

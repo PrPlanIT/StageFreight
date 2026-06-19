@@ -16,6 +16,10 @@ type cratesIOResponse struct {
 	Crate struct {
 		MaxVersion string `json:"max_version"`
 	} `json:"crate"`
+	Versions []struct {
+		Num    string `json:"num"`
+		Yanked bool   `json:"yanked"`
+	} `json:"versions"`
 }
 
 // checkCargo parses Cargo.toml and resolves latest versions via crates.io.
@@ -124,7 +128,19 @@ func (m *freshnessModule) resolveCrate(ctx context.Context, dep *Dependency) {
 		dep.ResolutionError = "crates.io returned no version for " + dep.Name
 		return
 	}
-	dep.Latest = resp.Crate.MaxVersion
+	dep.Latest = resp.Crate.MaxVersion // latest AVAILABLE
+
+	// Latest COMPATIBLE target: highest non-yanked version satisfying the caret of the
+	// current pin (cargo's bare "0.12.22" is an implicit ^0.12.22). A higher
+	// out-of-range version (e.g. 0.13.x for a 0.12 pin) is a major upgrade, held for
+	// review — never auto-applied.
+	var nums []string
+	for _, v := range resp.Versions {
+		if !v.Yanked {
+			nums = append(nums, v.Num)
+		}
+	}
+	dep.LatestEligible = latestEligibleSemver(dep.Current, nums)
 }
 
 // buildLineIndex creates a map from content lines for lookup.

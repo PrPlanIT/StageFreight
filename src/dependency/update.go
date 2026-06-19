@@ -189,9 +189,21 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
 	gomodDeps, dockerDeps, toolchainDeps, cargoDeps := groupByEcosystem(candidates)
-	steps = append(steps, depStep{label: "eligible", detail: eligibleDetail(len(candidates), map[string]int{
+	eligible := eligibleDetail(len(candidates), map[string]int{
 		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps),
-	})})
+	})
+	// "latest available" ≠ "autonomous-safe target": surface constraint-expanding
+	// majors that are held for review rather than auto-applied.
+	majorsHeld := 0
+	for _, d := range deps {
+		if d.MajorAvailable() {
+			majorsHeld++
+		}
+	}
+	if majorsHeld > 0 {
+		eligible += fmt.Sprintf(" · %d major held (review)", majorsHeld)
+	}
+	steps = append(steps, depStep{label: "eligible", detail: eligible})
 	if len(candidates) == 0 {
 		return result, nil
 	}

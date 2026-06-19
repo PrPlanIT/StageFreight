@@ -51,8 +51,15 @@ func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[
 		return "unresolved (could not verify latest version)"
 	}
 
-	// Up to date — only when a Latest was actually resolved and equals Current.
-	if dep.Current == dep.Latest {
+	// Autonomous remediation advances to the COMPATIBLE target (UpdateTarget), not the
+	// raw registry maximum. When the compatible target equals Current there is nothing
+	// safe to apply: it's up to date — unless a higher version exists OUT of the
+	// constraint range, which is a constraint-expanding major upgrade held for review
+	// (review-domain, may need feature renames / API migration), never auto-applied.
+	if dep.UpdateTarget() == dep.Current {
+		if dep.MajorAvailable() {
+			return "major upgrade held — review (" + dep.Latest + " out of range)"
+		}
 		return "up to date"
 	}
 

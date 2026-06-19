@@ -10,15 +10,15 @@ import (
 // FreshnessConfig holds per-source toggles, severity mapping, package rules,
 // registry overrides, vulnerability correlation, and grouping configuration.
 type FreshnessConfig struct {
-	Sources       SourceConfig    `json:"sources"`
-	Severity      SeverityConfig  `json:"severity"`
-	Vulnerability VulnConfig      `json:"vulnerability"`
-	Registries    RegistryConfig  `json:"registries"`
-	Ignore        []string        `json:"ignore"`
-	PackageRules  []PackageRule   `json:"package_rules"`
-	Groups        []Group         `json:"groups"`
-	Timeout       int             `json:"timeout"`   // HTTP timeout in seconds (default 10)
-	CacheTTLSecs  int             `json:"cache_ttl"` // cache TTL in seconds (default 300; 0 = cache forever; <0 = never cache)
+	Sources       SourceConfig   `json:"sources"`
+	Severity      SeverityConfig `json:"severity"`
+	Vulnerability VulnConfig     `json:"vulnerability"`
+	Registries    RegistryConfig `json:"registries"`
+	Ignore        []string       `json:"ignore"`
+	PackageRules  []PackageRule  `json:"package_rules"`
+	Groups        []Group        `json:"groups"`
+	Timeout       int            `json:"timeout"`   // HTTP timeout in seconds (default 10)
+	CacheTTLSecs  int            `json:"cache_ttl"` // cache TTL in seconds (default 300; 0 = cache forever; <0 = never cache)
 }
 
 // VulnConfig controls vulnerability correlation via the OSV database.
@@ -51,15 +51,15 @@ type VulnConfig struct {
 //	    url: "https://npm.company.com"
 //	    auth_env: "NPM_TOKEN"
 type RegistryConfig struct {
-	Docker  *RegistryEndpoint `json:"docker"`
-	Go      *RegistryEndpoint `json:"go"`
-	Npm     *RegistryEndpoint `json:"npm"`
-	PyPI    *RegistryEndpoint `json:"pypi"`
-	Crates  *RegistryEndpoint `json:"crates"`
-	Alpine  *RegistryEndpoint `json:"alpine"`
-	Debian  *RegistryEndpoint `json:"debian"`
-	Ubuntu  *RegistryEndpoint `json:"ubuntu"`
-	GitHub  *RegistryEndpoint `json:"github"` // GitHub API for tool version checks
+	Docker *RegistryEndpoint `json:"docker"`
+	Go     *RegistryEndpoint `json:"go"`
+	Npm    *RegistryEndpoint `json:"npm"`
+	PyPI   *RegistryEndpoint `json:"pypi"`
+	Crates *RegistryEndpoint `json:"crates"`
+	Alpine *RegistryEndpoint `json:"alpine"`
+	Debian *RegistryEndpoint `json:"debian"`
+	Ubuntu *RegistryEndpoint `json:"ubuntu"`
+	GitHub *RegistryEndpoint `json:"github"` // GitHub API for tool version checks
 }
 
 // RegistryEndpoint is a custom registry URL with optional auth.
@@ -71,14 +71,14 @@ type RegistryEndpoint struct {
 // SourceConfig toggles individual dependency ecosystems on or off.
 // nil means "use default" (true for all).
 type SourceConfig struct {
-	DockerImages *bool `json:"docker_images"`
+	DockerImages   *bool `json:"docker_images"`
 	GitHubReleases *bool `json:"github_releases"`
-	GoModules    *bool `json:"go_modules"`
-	RustCrates   *bool `json:"rust_crates"`
-	NpmPackages  *bool `json:"npm_packages"`
-	AlpineAPK    *bool `json:"alpine_apk"`
-	DebianAPT    *bool `json:"debian_apt"`
-	PipPackages  *bool `json:"pip_packages"`
+	GoModules      *bool `json:"go_modules"`
+	RustCrates     *bool `json:"rust_crates"`
+	NpmPackages    *bool `json:"npm_packages"`
+	AlpineAPK      *bool `json:"alpine_apk"`
+	DebianAPT      *bool `json:"debian_apt"`
+	PipPackages    *bool `json:"pip_packages"`
 }
 
 // SeverityConfig maps version-delta levels to lint severities and
@@ -110,15 +110,15 @@ type SeverityConfig struct {
 //	    group: "go-patch-updates"
 type PackageRule struct {
 	// Pattern matching — all specified fields must match (AND logic).
-	MatchPackages       []string `json:"match_packages"`       // glob patterns on dependency name
-	MatchEcosystems     []string `json:"match_ecosystems"`     // ecosystem constants (docker-image, gomod, etc.)
-	MatchUpdateTypes    []string `json:"match_update_types"`   // "major", "minor", "patch"
-	MatchVulnerability  *bool    `json:"match_vulnerability"`  // true = only match deps with known CVEs
+	MatchPackages      []string `json:"match_packages"`      // glob patterns on dependency name
+	MatchEcosystems    []string `json:"match_ecosystems"`    // ecosystem constants (docker-image, gomod, etc.)
+	MatchUpdateTypes   []string `json:"match_update_types"`  // "major", "minor", "patch"
+	MatchVulnerability *bool    `json:"match_vulnerability"` // true = only match deps with known CVEs
 
 	// Overrides applied when matched.
-	Enabled  *bool          `json:"enabled"`  // false = skip this dependency entirely
+	Enabled  *bool           `json:"enabled"`  // false = skip this dependency entirely
 	Severity *SeverityConfig `json:"severity"` // override severity/tolerance for matched deps
-	Group    string         `json:"group"`    // assign to a named group (for future MR batching)
+	Group    string          `json:"group"`    // assign to a named group (for future MR batching)
 
 	// Future update-mode fields (wired later, config-shape reserved now).
 	Automerge *bool `json:"automerge"` // auto-merge MR if CI passes
@@ -140,7 +140,7 @@ type Group struct {
 	Name                string `json:"name"`
 	CommitMessagePrefix string `json:"commit_message_prefix"`
 	Automerge           *bool  `json:"automerge"`      // group-level automerge default
-	SeparateMajor       bool   `json:"separate_major"`  // split major bumps into own MR
+	SeparateMajor       bool   `json:"separate_major"` // split major bumps into own MR
 }
 
 // DefaultConfig returns production defaults.

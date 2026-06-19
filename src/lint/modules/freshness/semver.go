@@ -8,6 +8,31 @@ import (
 	masterminds "github.com/Masterminds/semver/v3"
 )
 
+// latestEligibleSemver returns the highest version in `available` that is
+// semver-COMPATIBLE with the caret range of `current` (^current). It is the safe
+// autonomous-update target — a version OUTSIDE this range is a constraint-expanding
+// major upgrade, held for review. Generic across semver ecosystems (cargo first;
+// npm/pip/etc. plug in the same way). Empty if `current` is unparseable or nothing
+// in range. Yanked/prerelease filtering is the caller's job (it has the metadata).
+func latestEligibleSemver(current string, available []string) string {
+	constraint, err := masterminds.NewConstraint("^" + strings.TrimSpace(current))
+	if err != nil {
+		return ""
+	}
+	var best *masterminds.Version
+	var bestRaw string
+	for _, raw := range available {
+		ver, err := masterminds.NewVersion(strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		if constraint.Check(ver) && (best == nil || ver.GreaterThan(best)) {
+			best, bestRaw = ver, raw
+		}
+	}
+	return bestRaw
+}
+
 // VersionDelta describes how far behind a dependency is.
 type VersionDelta struct {
 	Major int
@@ -22,9 +47,10 @@ func (d VersionDelta) IsZero() bool {
 
 // decomposedTag holds the semver portion and any suffix of a container tag.
 // Example: "1.25-alpine" → Version "1.25.0", Suffix "alpine", Family "alpine"
-//          "3.22.1"      → Version "3.22.1", Suffix "",       Family ""
-//          "noble"       → nil Version (non-versioned)
-//          "2026.1.30-ad42b553b" → Version "2026.1.30", Suffix "ad42b553b", Family ""
+//
+//	"3.22.1"      → Version "3.22.1", Suffix "",       Family ""
+//	"noble"       → nil Version (non-versioned)
+//	"2026.1.30-ad42b553b" → Version "2026.1.30", Suffix "ad42b553b", Family ""
 //
 // Suffix is preserved as the raw string after the first hyphen for downstream
 // consumers (detectAlpineVersion, detectDebianDistro). Family is a normalized

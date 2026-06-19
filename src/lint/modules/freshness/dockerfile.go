@@ -31,11 +31,11 @@ type envVar struct {
 }
 
 type pinnedTool struct {
-	EnvName  string // e.g. "BUILDX_VERSION"
-	Version  string // e.g. "v0.31.1"
-	Owner    string // GitHub owner
-	Repo     string // GitHub repo
-	Line     int    // line of the ENV declaration
+	EnvName string // e.g. "BUILDX_VERSION"
+	Version string // e.g. "v0.31.1"
+	Owner   string // GitHub owner
+	Repo    string // GitHub repo
+	Line    int    // line of the ENV declaration
 }
 
 type packageRef struct {

@@ -4,9 +4,21 @@ package freshness
 // It is the bridge type consumed by both lint reporting and future update
 // commands (à la Renovate managers).
 type Dependency struct {
-	Name      string // e.g. "golang", "github.com/spf13/cobra", "react"
-	Current   string // currently pinned version string
-	Latest    string // latest available (filled by resolver)
+	Name    string // e.g. "golang", "github.com/spf13/cobra", "react"
+	Current string // currently pinned version string
+
+	// Latest is the newest version the registry publishes — "latest AVAILABLE".
+	// It is NOT necessarily a safe autonomous-update target: a major / out-of-range
+	// bump can break the build (feature renames, API migrations). See LatestEligible.
+	Latest string
+
+	// LatestEligible is the newest version that is semver-COMPATIBLE with the current
+	// constraint — the safe autonomous-remediation target. Empty for ecosystems with
+	// no compatibility model (exact go.mod pins), where Latest is the target. When
+	// Latest > LatestEligible a major upgrade exists OUT of range: review-domain,
+	// constraint-expanding, never auto-applied.
+	LatestEligible string
+
 	Ecosystem string // one of the Ecosystem* constants below
 	File      string // relative path from repo root
 	Line      int    // line number of the pinned version
@@ -31,6 +43,23 @@ type Dependency struct {
 	// Used by future update commands for MR grouping and automerge.
 	Group     string // assigned group name from package rules
 	Automerge bool   // whether this dep's MR should automerge
+}
+
+// UpdateTarget is the version autonomous remediation should advance to: the latest
+// semver-COMPATIBLE version when known, else the latest available (ecosystems with no
+// compatibility model, e.g. exact go.mod pins). This is the perform-domain action.
+func (d Dependency) UpdateTarget() string {
+	if d.LatestEligible != "" {
+		return d.LatestEligible
+	}
+	return d.Latest
+}
+
+// MajorAvailable reports whether a newer version exists OUTSIDE the compatible range —
+// a constraint-expanding upgrade. That is a review-domain change (may need feature
+// renames / API migration), never autonomous.
+func (d Dependency) MajorAvailable() bool {
+	return d.LatestEligible != "" && d.Latest != "" && d.Latest != d.LatestEligible
 }
 
 // VulnInfo describes a single known vulnerability affecting a dependency.

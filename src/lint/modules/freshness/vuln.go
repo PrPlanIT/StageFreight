@@ -12,13 +12,13 @@ import (
 // OSV ecosystem identifiers mapped from our internal ecosystem constants.
 // See https://ossf.github.io/osv-schema/#affectedpackage-field
 var osvEcosystemMap = map[string]string{
-	EcosystemGoMod:       "Go",
-	EcosystemNpm:         "npm",
-	EcosystemPip:         "PyPI",
-	EcosystemCargo:       "crates.io",
-	EcosystemAlpineAPK:   "Alpine",
-	EcosystemDebianAPT:   "Debian",
-	EcosystemDockerImage: "", // no OSV ecosystem for container images
+	EcosystemGoMod:         "Go",
+	EcosystemNpm:           "npm",
+	EcosystemPip:           "PyPI",
+	EcosystemCargo:         "crates.io",
+	EcosystemAlpineAPK:     "Alpine",
+	EcosystemDebianAPT:     "Debian",
+	EcosystemDockerImage:   "", // no OSV ecosystem for container images
 	EcosystemGitHubRelease: "", // tools checked via GitHub advisories, not OSV
 }
 
@@ -39,10 +39,10 @@ type osvQueryResponse struct {
 }
 
 type osvVuln struct {
-	ID       string           `json:"id"`
-	Summary  string           `json:"summary"`
-	Severity []osvSeverity    `json:"severity"`
-	Affected []osvAffected    `json:"affected"`
+	ID       string        `json:"id"`
+	Summary  string        `json:"summary"`
+	Severity []osvSeverity `json:"severity"`
+	Affected []osvAffected `json:"affected"`
 }
 
 type osvSeverity struct {
@@ -51,13 +51,13 @@ type osvSeverity struct {
 }
 
 type osvAffected struct {
-	Package *osvPackage  `json:"package"`
-	Ranges  []osvRange   `json:"ranges"`
+	Package *osvPackage `json:"package"`
+	Ranges  []osvRange  `json:"ranges"`
 }
 
 type osvRange struct {
-	Type   string      `json:"type"` // "ECOSYSTEM", "SEMVER", "GIT"
-	Events []osvEvent  `json:"events"`
+	Type   string     `json:"type"` // "ECOSYSTEM", "SEMVER", "GIT"
+	Events []osvEvent `json:"events"`
 }
 
 type osvEvent struct {

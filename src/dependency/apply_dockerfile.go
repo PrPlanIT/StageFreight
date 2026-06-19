@@ -41,7 +41,7 @@ var (
 // dockerfileEdit represents a pending line replacement with hash guard.
 type dockerfileEdit struct {
 	dep      freshness.Dependency
-	line     int    // 1-based line number
+	line     int // 1-based line number
 	origHash [32]byte
 	newLine  string
 }
