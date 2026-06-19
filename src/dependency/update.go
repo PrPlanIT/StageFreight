@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/workspace"
 )
 
 // depStep is one rendered row in the Dependencies card. status is "ok"/"fail"
@@ -280,6 +281,13 @@ func checkGitClean(_ context.Context, repoRoot string) error {
 
 	var unstaged, staged []string
 	for path, s := range status {
+		// Layer C: StageFreight must never fail its own clean-tree gate on files
+		// it generated this run. Its ephemeral namespace outputs are excluded;
+		// user-owned working-tree cleanliness is still fully enforced. (This is
+		// ONLY a skip — the .gitignore write / untrack happen at audition, not here.)
+		if workspace.IsEphemeral(path) {
+			continue
+		}
 		if s.Worktree != git.Unmodified {
 			unstaged = append(unstaged, "  "+path)
 		}
