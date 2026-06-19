@@ -40,11 +40,6 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 // and touched files (go.mod, go.sum per module) as the 4th —
 // only dirs/files where go get + go mod tidy both succeeded.
 func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
-	runGo, err := resolveGoRunner(repoRoot)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	// Check for go.work — workspace mode uses -C with relative paths
 	hasWorkspace := false
 	if _, err := os.Stat(filepath.Join(repoRoot, "go.work")); err == nil {
@@ -70,24 +65,38 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 	var skipped []SkippedDep
 	touchedSet := make(map[string]struct{})
 
+	// Pre-filter BEFORE resolving any toolchain: drop content/tooling modules with no
+	// Go source. `go get`/`go mod tidy` would CORRUPT them — tidy deletes every require
+	// no Go file imports (a Hugo theme module's hextra is consumed by Hugo, never
+	// imported), so an "update" silently removes the dependency. And resolving a Go
+	// toolchain only to skip every candidate is wasted work.
+	var actionable []*moduleGroup
 	for _, group := range groupMap {
 		// Guard: module dir must be safely under repo root
 		if strings.HasPrefix(group.dir, "..") || filepath.IsAbs(group.dir) {
 			return applied, skipped, nil, nil, fmt.Errorf("module dir %q escapes repo root", group.dir)
 		}
-		modulePath := filepath.Join(repoRoot, group.dir)
-
-		// A go.mod with no Go source is a tooling/content module (e.g. a Hugo theme
-		// module): hextra et al. are consumed by Hugo, never imported by Go. Running
-		// `go get`/`go mod tidy` on it CORRUPTS it — tidy deletes every require no Go
-		// file imports, so an "update" silently removes the dependency. Skip rather
-		// than mangle; such modules need ecosystem-native tooling (e.g. `hugo mod get`).
-		if !moduleHasGoFiles(modulePath) {
+		if !moduleHasGoFiles(filepath.Join(repoRoot, group.dir)) {
 			for _, dep := range group.deps {
 				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no Go source (content/tooling module)"})
 			}
 			continue
 		}
+		actionable = append(actionable, group)
+	}
+
+	// Nothing actually applies — don't resolve a Go toolchain at all.
+	if len(actionable) == 0 {
+		return applied, skipped, nil, nil, nil
+	}
+
+	runGo, err := resolveGoRunner(repoRoot)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	for _, group := range actionable {
+		modulePath := filepath.Join(repoRoot, group.dir)
 
 		// Detect replace directives for this module
 		replaceSet, err := detectReplaceDirectives(modulePath)
