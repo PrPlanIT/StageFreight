@@ -35,7 +35,6 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 	}, nil
 }
 
-
 // applyGoUpdates applies Go module dependency updates.
 // Returns touched module dirs (repoRoot-relative) as the 3rd value,
 // and touched files (go.mod, go.sum per module) as the 4th —
@@ -77,6 +76,18 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 			return applied, skipped, nil, nil, fmt.Errorf("module dir %q escapes repo root", group.dir)
 		}
 		modulePath := filepath.Join(repoRoot, group.dir)
+
+		// A go.mod with no Go source is a tooling/content module (e.g. a Hugo theme
+		// module): hextra et al. are consumed by Hugo, never imported by Go. Running
+		// `go get`/`go mod tidy` on it CORRUPTS it — tidy deletes every require no Go
+		// file imports, so an "update" silently removes the dependency. Skip rather
+		// than mangle; such modules need ecosystem-native tooling (e.g. `hugo mod get`).
+		if !moduleHasGoFiles(modulePath) {
+			for _, dep := range group.deps {
+				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no Go source (content/tooling module)"})
+			}
+			continue
+		}
 
 		// Detect replace directives for this module
 		replaceSet, err := detectReplaceDirectives(modulePath)
