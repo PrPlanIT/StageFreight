@@ -213,14 +213,15 @@ func resolveSignProvenance(rootDir string) (statementPath, predPath, sha string,
 	return stmts[0], pp, s, nil
 }
 
-// envForClass builds the declared capability Env the renderer consumes: key/kms/oidc
-// are resolved from their refs by EnvForPlan; hardware additionally declares a single
-// presence-required, non-exportable token for the --sk path — cosign enforces the
-// actual touch/PIN, so declaring it is the operator's assertion that such a token is
-// attached. (Multi-witness / PKCS#11 declaration is deferment-pending config.)
+// envForClass builds the declared capability Env the renderer consumes. key/kms/oidc
+// and the hardware PKCS#11 transport are resolved from their refs by EnvForPlan. For
+// the hardware class, PKCS#11 (PIV / HSM / smartcard, via SF_PKCS11_<REF>) is the
+// preferred transport; absent a resolved PKCS#11 witness it FALLS BACK to a single
+// FIDO2 token for the --sk path. Either way cosign enforces the actual touch/PIN, so
+// declaring the witness is the operator's assertion that such a device is attached.
 func envForClass(plan sign.SignPlan) cosign.Env {
 	env := cosign.EnvForPlan(plan)
-	if plan.TrustClass == sign.ClassHardware {
+	if plan.TrustClass == sign.ClassHardware && len(env.PKCS11) == 0 {
 		env.FIDO2 = []cosign.FIDO2Device{{
 			Principal:        cosign.Principal("hardware-token"),
 			PhysicalPresence: true,

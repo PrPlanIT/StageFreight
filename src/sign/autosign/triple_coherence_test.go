@@ -78,6 +78,34 @@ func TestTriple_OIDC_SelfHosted(t *testing.T) {
 	}
 }
 
+// hardware via PIV/PKCS#11: a profile with a pkcs11 ref resolves SF_PKCS11_<REF> to a
+// witness, Render emits --key pkcs11:..., and the evidence records hardware + presence
+// + non_exportable + the token ref as signer. The full config→render→evidence chain
+// for the standard enterprise hardware-signing path.
+func TestTriple_Hardware_PKCS11(t *testing.T) {
+	const uri = "pkcs11:id=%02;object=SIGN%20key?module-path=/usr/lib/libykcs11.so"
+	t.Setenv("SF_PKCS11_RELEASE", uri)
+	plan := sign.Compile(&config.ResolvedSigningProfile{
+		ID: "yk", Class: "hardware", PKCS11Ref: "release", PhysicalPresence: true, NonExportable: true,
+	})
+	env := cosign.EnvForPlan(plan)
+	argv, err := cosign.Render(plan, sign.OpSignBlob, env)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	ev := SigningContext{Plan: plan, Env: env, DoSign: true}.Evidence("2026-01-01T00:00:00Z")
+
+	if !slices.Contains(argv, uri) {
+		t.Errorf("emitted argv must select the PKCS#11 key: %v", argv)
+	}
+	if ev.TrustClass != "hardware" || !ev.PhysicalPresence || !ev.NonExportable {
+		t.Errorf("recorded evidence drifted from declared hardware assurance: %+v", ev)
+	}
+	if ev.SignerRef != "release" {
+		t.Errorf("hardware signer ref should be the token ref, got %q", ev.SignerRef)
+	}
+}
+
 // hardware + physical_presence + non_exportable: a FIDO2 witness → --sk, and both
 // assurance properties must reach the evidence. Hardware witnesses are declared
 // externally (EnvForPlan yields none), so the Env is supplied directly.

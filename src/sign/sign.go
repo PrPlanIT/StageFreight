@@ -55,8 +55,9 @@ type SignPlan struct {
 	Identity                 IdentityConstraints
 
 	// ── Logical references (bound to keys/URIs only at render time) ──
-	KeyRef string // key class: "path" or "env:VAR"
-	KMSRef string // kms class: a logical ref, bound to a URI by the renderer
+	KeyRef    string // key class: "path" or "env:VAR"
+	KMSRef    string // kms class: a logical ref, bound to a URI by the renderer
+	PKCS11Ref string // hardware class: a logical ref → pkcs11: URI via SF_PKCS11_<REF> (absent = FIDO2 --sk)
 
 	// ── Execution modifier (kept distinct so policy logic never leaks here) ──
 	Attestation bool // also emit a provenance attestation
@@ -82,6 +83,8 @@ func SignerRef(p SignPlan) string {
 		if p.Identity.Issuer != "" || p.Identity.Subject != "" {
 			return p.Identity.Issuer + "/" + p.Identity.Subject
 		}
+	case ClassHardware:
+		return p.PKCS11Ref // the logical token ref ("" for a FIDO2 --sk token)
 	}
 	return ""
 }
@@ -98,6 +101,7 @@ func Compile(p *config.ResolvedSigningProfile) SignPlan {
 		Identity:    IdentityConstraints{Issuer: p.OIDCIssuer, Subject: p.OIDCIdentity},
 		KeyRef:      p.KeyRef,
 		KMSRef:      p.KMSRef,
+		PKCS11Ref:   p.PKCS11Ref,
 	}
 	// Physical presence is a hardware property; non-exportability holds for hardware
 	// AND kms (a KMS/Vault-transit key never leaves the service), so a kms profile

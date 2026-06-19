@@ -286,6 +286,23 @@ func TestEnvForPlan_SigstoreDeployment(t *testing.T) {
 	}
 }
 
+func TestEnvForPlan_PKCS11(t *testing.T) {
+	const uri = "pkcs11:slot-id=0;id=%02;object=SIGN%20key?module-path=/usr/lib/libykcs11.so"
+	t.Setenv("SF_PKCS11_RELEASE", uri)
+	plan := sign.SignPlan{TrustClass: sign.ClassHardware, PKCS11Ref: "release", RequiresPhysicalPresence: true, RequiresNonExportableKey: true}
+	env := EnvForPlan(plan)
+	if len(env.PKCS11) != 1 || env.PKCS11[0].URI != uri {
+		t.Fatalf("pkcs11 ref must bind a witness from SF_PKCS11_<REF>: %+v", env.PKCS11)
+	}
+	if !env.PKCS11[0].PhysicalPresence || !env.PKCS11[0].NonExportable {
+		t.Errorf("a hardware-token witness must satisfy hardware assurance: %+v", env.PKCS11[0])
+	}
+	// An unresolved ref → no witness (the caller then falls back to FIDO2).
+	if e := EnvForPlan(sign.SignPlan{TrustClass: sign.ClassHardware, PKCS11Ref: "missing"}); len(e.PKCS11) != 0 {
+		t.Errorf("unresolved pkcs11 ref must yield no witness: %+v", e.PKCS11)
+	}
+}
+
 func TestSigstoreDomain(t *testing.T) {
 	// non-oidc → no trust domain.
 	if got := SigstoreDomain(sign.SignPlan{TrustClass: sign.ClassKey}, Env{}); got != "" {

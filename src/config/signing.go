@@ -23,9 +23,10 @@ type SigningProfile struct {
 	Requires StringOrList `yaml:"requires"` // trust class(es); v1 enforces exactly one
 
 	// Class reference blocks — at most one, matching the declared class.
-	Key  *KeyTrust  `yaml:"key,omitempty"`
-	OIDC *OIDCTrust `yaml:"oidc,omitempty"`
-	KMS  *KMSTrust  `yaml:"kms,omitempty"`
+	Key    *KeyTrust    `yaml:"key,omitempty"`
+	OIDC   *OIDCTrust   `yaml:"oidc,omitempty"`
+	KMS    *KMSTrust    `yaml:"kms,omitempty"`
+	PKCS11 *PKCS11Trust `yaml:"pkcs11,omitempty"` // hardware transport selector (optional; absent = FIDO2 --sk)
 
 	// Assurance properties (hardware-class ONLY; enforced in validation). The
 	// value is the keyword "required" (absent = not required). The renderer later
@@ -65,6 +66,16 @@ type OIDCTrust struct {
 // KMSTrust is a LOGICAL key ref (e.g. "release-signing-key"), bound to a concrete
 // URI only at render time — never a cosign URI, so policy stays provider-portable.
 type KMSTrust struct {
+	Ref string `yaml:"ref"`
+}
+
+// PKCS11Trust selects the PKCS#11 transport for a `hardware` profile via a LOGICAL
+// ref (e.g. "release"), bound to a concrete `pkcs11:` URI (module path + slot/object)
+// only at render time via SF_PKCS11_<REF>. So a profile names "my signing token",
+// never a machine-specific module path. Absent → the hardware class falls back to
+// FIDO2 (cosign --sk). The renderer treats transport as an implementation detail; the
+// class still means only "a non-exportable key in a signing device".
+type PKCS11Trust struct {
 	Ref string `yaml:"ref"`
 }
 
@@ -173,6 +184,7 @@ type ResolvedSigningProfile struct {
 	Class            string
 	KeyRef           string
 	KMSRef           string
+	PKCS11Ref        string
 	OIDCIssuer       string
 	OIDCIdentity     string
 	PhysicalPresence bool
@@ -247,6 +259,9 @@ func resolveSigningProfile(p *SigningProfile) *ResolvedSigningProfile {
 	if p.KMS != nil {
 		r.KMSRef = p.KMS.Ref
 	}
+	if p.PKCS11 != nil {
+		r.PKCS11Ref = p.PKCS11.Ref
+	}
 	if p.OIDC != nil {
 		r.OIDCIssuer = p.OIDC.Issuer
 		r.OIDCIdentity = p.OIDC.Identity
@@ -311,6 +326,9 @@ func ValidateSigningProfiles(profiles []SigningProfile) []string {
 		}
 		if p.KMS != nil && class != TrustKMS {
 			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: kms block is invalid for class %q", p.ID, class))
+		}
+		if p.PKCS11 != nil && class != TrustHardware {
+			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: pkcs11 block is invalid for class %q (it selects the hardware transport)", p.ID, class))
 		}
 
 		// Assurance keywords (invariant 2): physical_presence is hardware-only;

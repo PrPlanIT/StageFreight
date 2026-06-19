@@ -131,8 +131,9 @@ func hostOf(rawURL string) string {
 
 // EnvForPlan resolves a plan's logical references against the ambient environment
 // into a declared witness Env — the impure resolution boundary that keeps Render
-// itself pure over (plan, op, env). Hardware witnesses are declared externally (the
-// deployment enumerates physical devices); the caller merges those in.
+// itself pure over (plan, op, env). It resolves what has a REF (key/kms/oidc, and the
+// hardware PKCS#11 transport); ref-less hardware witnesses (a present FIDO2 token) are
+// declared externally by the caller and merged in.
 func EnvForPlan(plan sign.SignPlan) Env {
 	var env Env
 	switch plan.TrustClass {
@@ -147,6 +148,23 @@ func EnvForPlan(plan sign.SignPlan) Env {
 	case sign.ClassOIDC:
 		env.OIDC = []OIDCIdentity{{Issuer: plan.Identity.Issuer, Subject: plan.Identity.Subject}}
 		env.Sigstore = resolveSigstoreDeployment(plan)
+	case sign.ClassHardware:
+		// PKCS#11 is the RESOLVABLE hardware transport — a logical ref bound to a
+		// pkcs11: URI via SF_PKCS11_<REF> (parallel to kms). FIDO2 witnesses carry no
+		// ref and are declared externally (sign.go's envForClass). A hardware-token key
+		// is non-exportable by nature and touch-capable, so the witness satisfies any
+		// hardware assurance; the RECORDED evidence still reflects the profile's
+		// declared policy, not the witness.
+		if plan.PKCS11Ref != "" {
+			if uri := resolvePKCS11URI(plan.PKCS11Ref); uri != "" {
+				env.PKCS11 = []PKCS11Slot{{
+					Principal:        Principal(plan.PKCS11Ref),
+					URI:              uri,
+					PhysicalPresence: true,
+					NonExportable:    true,
+				}}
+			}
+		}
 	}
 	return env
 }

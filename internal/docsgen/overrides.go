@@ -12,7 +12,7 @@ type FieldOverride struct {
 	Description   string
 	AllowedValues []string
 	Default       string
-	Required      *bool    // override omitempty heuristic
+	Required      *bool // override omitempty heuristic
 	Example       string
 	Notes         []string
 }
@@ -101,7 +101,8 @@ var sectionOverrides = map[string]SectionOverride{
     requires: key
     key: { ref: "env:COSIGN_KEY" }      # path or env:VAR
   - id: maintainer
-    requires: hardware                  # non-exportable key + physical presence
+    requires: hardware                  # non-exportable key in a signing device
+    pkcs11: { ref: release }            # PIV/HSM transport, bound via SF_PKCS11_RELEASE (absent → FIDO2 --sk)
     physical_presence: required
     non_exportable: required
   - id: org-kms
@@ -111,6 +112,7 @@ var sectionOverrides = map[string]SectionOverride{
 		Notes: []string{
 			"`requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.",
 			"`physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.",
+			"Hardware transport is deployment wiring: a `hardware` profile may carry `pkcs11: { ref: <name> }`, bound via `SF_PKCS11_<REF>` to a full `pkcs11:` URI, e.g. `SF_PKCS11_RELEASE='pkcs11:slot-id=0;id=%02;object=SIGN%20key?module-path=/usr/lib/x86_64-linux-gnu/libykcs11.so'` (YubiKey PIV slot 9c = the digital-signature slot, ykcs11 object id 2). With no `pkcs11` ref the hardware class falls back to FIDO2 (cosign `--sk`). The module path / slot / PIN policy live in the env URI, never in the profile.",
 			"KMS/Vault ref binding is deployment wiring: set `SF_KMS_<REF>` to the URI, e.g. `SF_KMS_RELEASE-SIGNING-KEY=hashivault://release` (cosign's hashivault:// takes the key NAME only).",
 			"OIDC/keyless trust domain is deployment wiring too: `SF_SIGSTORE_{DOMAIN,FULCIO,REKOR,ISSUER,TRUSTED_ROOT,IDENTITY_TOKEN}`. Setting FULCIO/REKOR/TRUSTED_ROOT points cosign at a self-hosted Sigstore (public Fulcio won't trust a self-hosted issuer); ISSUER falls back to the profile's `oidc.issuer`; IDENTITY_TOKEN (value or path) supplies the OIDC token for unattended/non-CI signing (ambient providers used when unset). Standing up Fulcio/Rekor is operator infrastructure, not StageFreight.",
 			"`enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).",

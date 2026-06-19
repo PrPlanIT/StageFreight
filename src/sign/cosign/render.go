@@ -253,3 +253,16 @@ func resolveKMSURI(ref string) string {
 func kmsEnvVar(ref string) string {
 	return "SF_KMS_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(ref))
 }
+
+// resolvePKCS11URI binds a hardware PKCS#11 ref to a concrete cosign pkcs11: URI by
+// PURE env substitution: ref → $SF_PKCS11_<REF> → URI. Core never parses the URI
+// (module path, slot, object, PIN policy) — it lives only in the env value, opaque
+// end to end, so a profile stays free of machine-specific paths (same discipline as
+// kms/sigstore deployment wiring).
+func resolvePKCS11URI(ref string) string {
+	return os.Getenv(pkcs11EnvVar(ref))
+}
+
+func pkcs11EnvVar(ref string) string {
+	return "SF_PKCS11_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(ref))
+}
