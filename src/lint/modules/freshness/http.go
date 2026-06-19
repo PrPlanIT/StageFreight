@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// userAgent identifies StageFreight to registries. crates.io (and others) reject a
+// missing or default ("Go-http-client/1.1") User-Agent with 403 — a documented,
+// enforced policy — which silently rendered every cargo dependency "unresolved".
+const userAgent = "StageFreight (+https://github.com/PrPlanIT/StageFreight)"
+
 // httpClient wraps a standard http.Client with convenience helpers.
 type httpClient struct {
 	client *http.Client
@@ -36,6 +41,7 @@ func (h *httpClient) fetchJSON(ctx context.Context, url string, result any, ep .
 		return fmt.Errorf("freshness: create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", userAgent)
 	applyAuth(req, ep...)
 
 	resp, err := h.client.Do(req)
@@ -60,6 +66,7 @@ func (h *httpClient) fetchBytes(ctx context.Context, url string, ep ...*Registry
 	if err != nil {
 		return nil, fmt.Errorf("freshness: create request: %w", err)
 	}
+	req.Header.Set("User-Agent", userAgent)
 	applyAuth(req, ep...)
 
 	resp, err := h.client.Do(req)
@@ -88,6 +95,7 @@ func (h *httpClient) headDigest(ctx context.Context, url string, accept string, 
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
+	req.Header.Set("User-Agent", userAgent)
 	applyAuth(req, ep...)
 
 	resp, err := h.client.Do(req)
