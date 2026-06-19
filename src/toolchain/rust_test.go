@@ -9,15 +9,17 @@ import (
 // rustHostTriple is the FIRST place the host GOOS/GOARCH projects to a Rust triple —
 // the projection must be exact (a wrong triple = a 404 on the dist server).
 func TestRustHostTriple(t *testing.T) {
-	for _, c := range []struct{ os, arch, want string }{
-		{"linux", "amd64", "x86_64-unknown-linux-gnu"},
-		{"linux", "arm64", "aarch64-unknown-linux-gnu"},
-		{"darwin", "amd64", "x86_64-apple-darwin"},
-		{"darwin", "arm64", "aarch64-apple-darwin"},
-		{"windows", "amd64", "x86_64-pc-windows-msvc"},
+	for _, c := range []struct{ os, arch, libc, want string }{
+		{"linux", "amd64", "gnu", "x86_64-unknown-linux-gnu"},
+		{"linux", "amd64", "musl", "x86_64-unknown-linux-musl"}, // Alpine host
+		{"linux", "arm64", "musl", "aarch64-unknown-linux-musl"},
+		{"linux", "amd64", "", "x86_64-unknown-linux-gnu"}, // empty libc → gnu default
+		{"darwin", "amd64", "", "x86_64-apple-darwin"},
+		{"darwin", "arm64", "", "aarch64-apple-darwin"},
+		{"windows", "amd64", "", "x86_64-pc-windows-msvc"},
 	} {
-		if got := rustHostTriple(c.os, c.arch); got != c.want {
-			t.Errorf("rustHostTriple(%s,%s) = %q, want %q", c.os, c.arch, got, c.want)
+		if got := rustHostTriple(c.os, c.arch, c.libc); got != c.want {
+			t.Errorf("rustHostTriple(%s,%s,%s) = %q, want %q", c.os, c.arch, c.libc, got, c.want)
 		}
 	}
 }

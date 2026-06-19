@@ -20,10 +20,13 @@ import (
 // tarball (rustc + cargo + std) is installed to a pinned prefix via its bundled
 // install.sh; cargo at <prefix>/bin/cargo is the resolved binary.
 
-// rustHostTriple projects the host GOOS/GOARCH to the Rust host target triple for
-// the TOOLCHAIN download. (Target-triple projection for cross-compilation is the
+// rustHostTriple projects the host GOOS/GOARCH (+ libc on Linux) to the Rust host
+// target triple for the TOOLCHAIN download. The libc matters: Rust's prebuilt
+// toolchains are libc-specific — a -gnu cargo cannot exec on a musl host (its ELF
+// interpreter is absent) and vice-versa — so a musl host (Alpine) needs the
+// -unknown-linux-musl toolchain. (Cross-compilation target-triple projection is the
 // engine adapter's concern, later.)
-func rustHostTriple(goos, goarch string) string {
+func rustHostTriple(goos, goarch, libc string) string {
 	arch := map[string]string{
 		"amd64": "x86_64", "arm64": "aarch64", "arm": "armv7", "386": "i686",
 	}[goarch]
@@ -32,7 +35,10 @@ func rustHostTriple(goos, goarch string) string {
 	}
 	switch goos {
 	case "linux":
-		return arch + "-unknown-linux-gnu"
+		if libc == "" {
+			libc = "gnu"
+		}
+		return arch + "-unknown-linux-" + libc
 	case "darwin":
 		return arch + "-apple-darwin"
 	case "windows":
@@ -40,6 +46,27 @@ func rustHostTriple(goos, goarch string) string {
 	default:
 		return arch + "-unknown-" + goos
 	}
+}
+
+// hostLibc reports the host C library on Linux ("musl" or "gnu"), "" elsewhere.
+// Selects the Rust toolchain libc so the downloaded cargo can actually exec on the
+// host — the root cause of "fork/exec cargo: no such file or directory" (a -gnu
+// binary whose glibc interpreter is missing) when running on Alpine/musl.
+func hostLibc() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
+	if _, err := os.Stat("/lib/ld-musl-" + arch + ".so.1"); err == nil {
+		return "musl"
+	}
+	if _, err := os.Stat("/etc/alpine-release"); err == nil {
+		return "musl"
+	}
+	return "gnu"
 }
 
 func rustDownloadURL(version, triple string) string {
@@ -159,16 +186,25 @@ func resolveRust(rootDir, version string) (Result, error) {
 		}
 		version = concrete
 	}
-	triple := rustHostTriple(runtime.GOOS, runtime.GOARCH)
+	libc := hostLibc()
+	triple := rustHostTriple(runtime.GOOS, runtime.GOARCH, libc)
 	sourceURL := rustDownloadURL(version, triple)
+
+	// Cache key is libc-qualified: a -gnu and a -musl build of the same Rust version
+	// are different toolchains and must never share a cache slot (a stale -gnu cargo
+	// cannot exec on a musl host). Result.Version stays the plain Rust version.
+	cacheKey := version
+	if libc != "" {
+		cacheKey = version + "-" + libc
+	}
 
 	// Cache search across read roots.
 	for _, root := range ReadRoots(rootDir) {
-		binPath := CacheBinPathIn(root, "rust", version, "cargo")
+		binPath := CacheBinPathIn(root, "rust", cacheKey, "cargo")
 		if _, err := os.Stat(binPath); err != nil {
 			continue
 		}
-		meta, metaErr := readMetadataFrom(root, "rust", version)
+		meta, metaErr := readMetadataFrom(root, "rust", cacheKey)
 		if metaErr != nil || meta.BinSHA256 == "" {
 			continue
 		}
@@ -179,16 +215,16 @@ func resolveRust(rootDir, version string) (Result, error) {
 	}
 
 	installRoot := InstallRoot(rootDir)
-	installDir := CacheDirIn(installRoot, "rust", version)
+	installDir := CacheDirIn(installRoot, "rust", cacheKey)
 	lock, err := AcquireInstallLock(installDir, 15*time.Minute) // a Rust dist is large
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain rust %s: %w", version, err)
 	}
 	defer ReleaseInstallLock(lock)
 
-	binPath := CacheBinPathIn(installRoot, "rust", version, "cargo")
+	binPath := CacheBinPathIn(installRoot, "rust", cacheKey, "cargo")
 	if _, err := os.Stat(binPath); err == nil {
-		if meta, metaErr := readMetadataFrom(installRoot, "rust", version); metaErr == nil && meta.BinSHA256 != "" {
+		if meta, metaErr := readMetadataFrom(installRoot, "rust", cacheKey); metaErr == nil && meta.BinSHA256 != "" {
 			if actual, hashErr := fileSHA256(binPath); hashErr == nil && actual == meta.BinSHA256 {
 				return Result{Tool: "rust", Version: version, Path: binPath, CacheHit: true,
 					SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256}, nil
@@ -228,7 +264,7 @@ func resolveRust(rootDir, version string) (Result, error) {
 	}
 	meta := Metadata{Tool: "rust", Version: version, Platform: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA}
-	if err := writeMetadataTo(installRoot, "rust", version, meta); err != nil {
+	if err := writeMetadataTo(installRoot, "rust", cacheKey, meta); err != nil {
 		os.RemoveAll(installDir)
 		return Result{}, fmt.Errorf("toolchain rust %s: metadata write failed (install aborted): %w", version, err)
 	}
