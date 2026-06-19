@@ -32,11 +32,20 @@ func init() {
 // (kind: binary-archive). It joins Detect, Plan, Build and Publish. Its state is
 // run-scoped: one instance per run threads detection → plan → build → archive.
 type binaryContributor struct {
-	engine  build.EngineV2
 	builds  []config.BuildConfig
 	version *gitver.VersionInfo
 	steps   []build.UniversalStep
 	built   []builtBinary
+}
+
+// engineNameFor maps a build's `builder` to its engine dispatch key. Empty defaults
+// to go (back-compat). Sibling language engines register as "binary-<builder>", so
+// the contributor stays a generic pipeline that dispatches per builder.
+func engineNameFor(builder string) string {
+	if builder == "" {
+		builder = "go"
+	}
+	return "binary-" + builder
 }
 
 func (b *binaryContributor) Name() string { return "binary" }
@@ -53,11 +62,13 @@ func (b *binaryContributor) Applies(rc *domains.RunContext) bool {
 
 // Detect resolves the binary engine, the version, and the binary builds.
 func (b *binaryContributor) Detect(rc *domains.RunContext) (domains.Contribution, error) {
-	eng, err := build.GetV2("binary")
+	// Detection runs through the default (go) engine for now; per-language detection
+	// arrives with the second engine. The dispatch seam itself is in Plan/Build, which
+	// resolve the engine per build/step.
+	eng, err := build.GetV2(engineNameFor(""))
 	if err != nil {
 		return domains.Contribution{}, fmt.Errorf("loading binary engine: %w", err)
 	}
-	b.engine = eng
 
 	det, err := eng.Detect(rc.Ctx, rc.RootDir)
 	if err != nil {
@@ -102,12 +113,16 @@ func (b *binaryContributor) Plan(rc *domains.RunContext) (domains.Contribution, 
 	for _, bc := range ordered {
 		cfg := toBuildConfig(bc, b.version)
 		if rc.Local {
-			cfg.Platforms = []build.Platform{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
+			cfg.Platforms = []build.Target{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
 		}
 		if len(rc.Platforms) > 0 {
 			cfg.Platforms = parsePlatformFlags(rc.Platforms)
 		}
-		steps, err := b.engine.Plan(rc.Ctx, cfg)
+		eng, err := build.GetV2(engineNameFor(cfg.Builder))
+		if err != nil {
+			return domains.Contribution{}, fmt.Errorf("loading engine for build %q (builder %q): %w", bc.ID, cfg.Builder, err)
+		}
+		steps, err := eng.Plan(rc.Ctx, cfg)
 		if err != nil {
 			return domains.Contribution{}, fmt.Errorf("planning binary build %q: %w", bc.ID, err)
 		}
@@ -151,30 +166,37 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 
 	for i := range b.steps {
 		step := b.steps[i]
-		result, err := b.engine.ExecuteStep(rc.Ctx, step)
+		// Per-step dispatch: the step's Engine ("binary-go", later "binary-rust") is
+		// the key, so a single run can mix language engines under one pipeline.
+		eng, err := build.GetV2(step.Engine)
 		if err != nil {
-			rows = append(rows, fmt.Sprintf("%-9s %-30s %s/%s  %s",
-				"binary", step.StepID, step.Platform.OS, step.Platform.Arch,
+			return domains.Contribution{Rows: rows, Status: "failed", Summary: "binary build failed"},
+				fmt.Errorf("loading engine %q for step %s: %w", step.Engine, step.StepID, err)
+		}
+		result, err := eng.ExecuteStep(rc.Ctx, step)
+		if err != nil {
+			rows = append(rows, fmt.Sprintf("%-9s %-30s %s  %s",
+				"binary", step.StepID, step.Target.String(),
 				output.StatusIcon("failed", rc.Color)))
 			return domains.Contribution{Rows: rows, Status: "failed", Summary: "binary build failed"},
 				fmt.Errorf("binary step %s: %w", step.StepID, err)
 		}
 
-		rows = append(rows, fmt.Sprintf("%-9s %-30s %s/%s  %s  (%.1fs)",
-			"binary", step.StepID, step.Platform.OS, step.Platform.Arch,
+		rows = append(rows, fmt.Sprintf("%-9s %-30s %s  %s  (%.1fs)",
+			"binary", step.StepID, step.Target.String(),
 			output.StatusIcon("success", rc.Color), result.Metrics.Duration.Seconds()))
 
 		binaryName := result.Metadata["binary_name"]
 		toolchainID := result.Metadata["toolchain"] // local; avoid shadowing the toolchain package
 		for _, out := range result.Artifacts {
-			artifactName := uniqueBinaryArtifactName(binaryName, step.Platform.OS, step.Platform.Arch)
+			artifactName := uniqueBinaryArtifactName(binaryName, step.Target.OS, step.Target.Arch)
 			artifactID := artifact.NewArtifactID("binary", artifactName)
 			rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, artifact.Artifact{
 				Kind:    "binary",
 				Name:    artifactName,
 				Version: b.version.Version,
 				Binary: &artifact.BinaryDescriptor{
-					OS: step.Platform.OS, Arch: step.Platform.Arch, Path: out.Path, Toolchain: toolchainID,
+					OS: step.Target.OS, Arch: step.Target.Arch, Path: out.Path, Toolchain: toolchainID,
 				},
 			})
 			rc.RB.Record(artifactID, artifact.Outcome{
@@ -185,7 +207,7 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 				},
 			})
 			b.built = append(b.built, builtBinary{
-				Name: binaryName, OS: step.Platform.OS, Arch: step.Platform.Arch,
+				Name: binaryName, OS: step.Target.OS, Arch: step.Target.Arch,
 				Path: out.Path, SHA256: out.SHA256, Size: out.Size, BuildID: step.BuildID,
 			})
 		}
@@ -234,7 +256,7 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 				BinaryName:   archiveBinaryName,
 				IncludeFiles: t.Include,
 				RepoRoot:     rc.RootDir,
-				Platform:     build.Platform{OS: pb.OS, Arch: pb.Arch},
+				Target:       build.Target{OS: pb.OS, Arch: pb.Arch},
 				BuildID:      pb.BuildID,
 				Version:      b.version,
 			})
@@ -382,9 +404,9 @@ func uniqueBinaryArtifactName(binaryName, osName, arch string) string {
 }
 
 func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfig {
-	platforms := build.ParsePlatforms(b.Platforms)
+	platforms := build.ParseTargets(b.Platforms)
 	if len(platforms) == 0 {
-		platforms = []build.Platform{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
+		platforms = []build.Target{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
 	}
 	return build.BuildConfig{
 		ID: b.ID, Kind: b.Kind, Platforms: platforms, BuildMode: b.BuildMode,
@@ -394,23 +416,23 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	}
 }
 
-func parsePlatformFlags(flags []string) []build.Platform {
-	var platforms []build.Platform
+func parsePlatformFlags(flags []string) []build.Target {
+	var targets []build.Target
 	for _, f := range flags {
 		for _, p := range strings.Split(f, ",") {
 			if p = strings.TrimSpace(p); p != "" {
-				platforms = append(platforms, build.ParsePlatform(p))
+				targets = append(targets, build.ParseTarget(p))
 			}
 		}
 	}
-	return platforms
+	return targets
 }
 
 func uniquePlatforms(steps []build.UniversalStep) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, s := range steps {
-		p := s.Platform.OS + "/" + s.Platform.Arch
+		p := s.Target.String()
 		if !seen[p] {
 			seen[p] = true
 			out = append(out, p)

@@ -5,42 +5,76 @@ import (
 	"time"
 )
 
-// Platform is a normalized os/arch pair.
-type Platform struct {
+// Target is the canonical semantic identity of a build target: OS, architecture,
+// and (when it matters) the C library and ABI. This is the ONE target abstraction
+// shared by every language engine — Go reads OS/Arch (and ignores Libc/ABI), Rust
+// PROJECTS the same fields into a target triple. The triple is therefore a derivation
+// of this identity, never stored here and never the primary key, so the abstraction
+// stays language-neutral rather than quietly becoming Rust-centric.
+//
+// Libc is "" for targets where it is irrelevant or default (every Go target today);
+// it becomes load-bearing the moment musl enters ("linux/amd64" stops being a unique
+// identity once both gnu and musl exist). The derived names (String, step ID, output
+// path, archive name) append Libc only when set, so libc-less targets — i.e. all
+// current Go builds — render byte-identically to before.
+type Target struct {
 	OS   string `json:"os"`
 	Arch string `json:"arch"`
+	Libc string `json:"libc,omitempty"` // "", "gnu", "musl"
+	ABI  string `json:"abi,omitempty"`  // optional/future (e.g. "eabihf")
 }
 
-// String returns "os/arch".
-func (p Platform) String() string {
-	return p.OS + "/" + p.Arch
-}
-
-// ParsePlatform splits "os/arch" into a Platform.
-func ParsePlatform(s string) Platform {
-	parts := splitPlatform(s)
-	if len(parts) != 2 {
-		return Platform{OS: s}
+// String returns "os/arch" (or "os/arch/libc" when a libc is set).
+func (t Target) String() string {
+	s := t.OS + "/" + t.Arch
+	if t.Libc != "" {
+		s += "/" + t.Libc
 	}
-	return Platform{OS: parts[0], Arch: parts[1]}
+	return s
 }
 
-// ParsePlatforms parses a slice of "os/arch" strings.
-func ParsePlatforms(ss []string) []Platform {
-	out := make([]Platform, len(ss))
+// Slug returns a filesystem/ID-safe "os-arch" (or "os-arch-libc") fragment — the
+// canonical fragment for output dirs, step IDs, and archive names.
+func (t Target) Slug() string {
+	s := t.OS + "-" + t.Arch
+	if t.Libc != "" {
+		s += "-" + t.Libc
+	}
+	return s
+}
+
+// ParseTarget splits "os/arch" or "os/arch/libc" into a Target.
+func ParseTarget(s string) Target {
+	parts := splitN(s, '/')
+	switch len(parts) {
+	case 3:
+		return Target{OS: parts[0], Arch: parts[1], Libc: parts[2]}
+	case 2:
+		return Target{OS: parts[0], Arch: parts[1]}
+	default:
+		return Target{OS: s}
+	}
+}
+
+// ParseTargets parses a slice of "os/arch[/libc]" strings.
+func ParseTargets(ss []string) []Target {
+	out := make([]Target, len(ss))
 	for i, s := range ss {
-		out[i] = ParsePlatform(s)
+		out[i] = ParseTarget(s)
 	}
 	return out
 }
 
-func splitPlatform(s string) []string {
+func splitN(s string, sep byte) []string {
+	var out []string
+	start := 0
 	for i := 0; i < len(s); i++ {
-		if s[i] == '/' {
-			return []string{s[:i], s[i+1:]}
+		if s[i] == sep {
+			out = append(out, s[start:i])
+			start = i + 1
 		}
 	}
-	return []string{s}
+	return append(out, s[start:])
 }
 
 // ArtifactRef is a declared artifact reference (expected input or output).
@@ -58,13 +92,13 @@ type StepMeta interface {
 // UniversalStep is a single unit of work in a build plan.
 // Both image and binary engines produce steps in this shape.
 type UniversalStep struct {
-	BuildID  string        `json:"build_id"`  // which build config this belongs to
-	StepID   string        `json:"step_id"`   // unique: {build_id}-{variant}-{os}-{arch}
-	Engine   string        `json:"engine"`    // "image" | "binary"
-	Platform Platform      `json:"platform"`
-	Inputs   []ArtifactRef `json:"inputs,omitempty"`
-	Outputs  []ArtifactRef `json:"outputs,omitempty"`
-	Meta     StepMeta      `json:"-"` // engine-specific typed metadata
+	BuildID string        `json:"build_id"` // which build config this belongs to
+	StepID  string        `json:"step_id"`  // unique: {build_id}-{variant}-{os}-{arch}
+	Engine  string        `json:"engine"`   // "image" | "binary-go" | "binary-rust" — the dispatch key
+	Target  Target        `json:"target"`
+	Inputs  []ArtifactRef `json:"inputs,omitempty"`
+	Outputs []ArtifactRef `json:"outputs,omitempty"`
+	Meta    StepMeta      `json:"-"` // engine-specific typed metadata
 }
 
 // MarshalJSON encodes UniversalStep with Meta as a typed JSON object.
@@ -115,8 +149,8 @@ type Capabilities struct {
 	ProducesOCI          bool `json:"produces_oci"`
 }
 
-// StepIDForPlatform builds a deterministic step ID.
-// Format: {buildID}-{variant}-{os}-{arch} (variant slot reserved, empty for now).
-func StepIDForPlatform(buildID string, p Platform) string {
-	return buildID + "--" + p.OS + "-" + p.Arch
+// StepIDForTarget builds a deterministic step ID.
+// Format: {buildID}--{os}-{arch}[-{libc}] (variant slot reserved by the "--").
+func StepIDForTarget(buildID string, t Target) string {
+	return buildID + "--" + t.Slug()
 }

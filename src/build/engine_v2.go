@@ -37,7 +37,7 @@ type EngineV2 interface {
 type BuildConfig struct {
 	ID         string
 	Kind       string
-	Platforms  []Platform
+	Platforms  []Target
 	BuildMode  string
 	SelectTags []string
 	DependsOn  string

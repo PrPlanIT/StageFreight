@@ -48,8 +48,8 @@ type ArchiveOpts struct {
 	// RepoRoot is the root directory for resolving include files.
 	RepoRoot string
 
-	// Platform is the target platform for this archive.
-	Platform Platform
+	// Target is the build target this archive packages.
+	Target Target
 
 	// BuildID is used for template resolution.
 	BuildID string
@@ -60,8 +60,8 @@ type ArchiveOpts struct {
 
 // ArchiveResult holds the output of an archive operation.
 type ArchiveResult struct {
-	Path     string   // archive file path
-	Format   string   // actual format used
+	Path     string // archive file path
+	Format   string // actual format used
 	Size     int64
 	SHA256   string
 	Contents []string // files inside the archive
@@ -72,19 +72,19 @@ type ArchiveResult struct {
 // binary + optional include files. Determinism rule (load-bearing for
 // ArchiveOutcome.SHA256 stability across runs):
 //
-//   Archive identity MUST be deterministic over:
-//   - sorted file set (canonical archive-name order, not caller order)
-//   - normalized tar/zip headers (zero ModTime, zero Uid/Gid, fixed mode)
-//   - single-pass SHA256 over the final stream
+//	Archive identity MUST be deterministic over:
+//	- sorted file set (canonical archive-name order, not caller order)
+//	- normalized tar/zip headers (zero ModTime, zero Uid/Gid, fixed mode)
+//	- single-pass SHA256 over the final stream
 //
-//   Any deviation introduces cross-run instability in ArchiveOutcome.SHA256.
-//   Caller-supplied include order is intentionally ignored; sorting happens
-//   here once, at the determinism boundary, not at every consumer.
+//	Any deviation introduces cross-run instability in ArchiveOutcome.SHA256.
+//	Caller-supplied include order is intentionally ignored; sorting happens
+//	here once, at the determinism boundary, not at every consumer.
 func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 	// Resolve format
 	format := opts.Format
 	if format == "" || format == "auto" {
-		if opts.Platform.OS == "windows" {
+		if opts.Target.OS == "windows" {
 			format = "zip"
 		} else {
 			format = "tar.gz"
@@ -92,7 +92,7 @@ func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 	}
 
 	// Resolve archive name
-	name := resolveArchiveName(opts.NameTemplate, opts.BuildID, opts.Platform, opts.Version)
+	name := resolveArchiveName(opts.NameTemplate, opts.BuildID, opts.Target, opts.Version)
 	ext := "." + format
 	archivePath := filepath.Join(opts.OutputDir, name+ext)
 
@@ -190,14 +190,15 @@ func WriteChecksums(outputDir string, archives []*ArchiveResult) (string, error)
 	return checksumPath, nil
 }
 
-func resolveArchiveName(tmpl, buildID string, plat Platform, v *VersionInfo) string {
+func resolveArchiveName(tmpl, buildID string, tgt Target, v *VersionInfo) string {
 	if tmpl == "" {
 		tmpl = "{id}-{version}-{os}-{arch}"
 	}
 	s := tmpl
 	s = strings.ReplaceAll(s, "{id}", buildID)
-	s = strings.ReplaceAll(s, "{os}", plat.OS)
-	s = strings.ReplaceAll(s, "{arch}", plat.Arch)
+	s = strings.ReplaceAll(s, "{os}", tgt.OS)
+	s = strings.ReplaceAll(s, "{arch}", tgt.Arch)
+	s = strings.ReplaceAll(s, "{libc}", tgt.Libc) // empty for libc-less (all Go) targets
 	if v != nil {
 		s = strings.ReplaceAll(s, "{version}", v.Version)
 	}

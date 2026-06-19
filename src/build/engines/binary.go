@@ -12,8 +12,14 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
+// EngineGo is the engine name for the Go binary builder — the dispatch key the
+// binary contributor resolves for `builder: go`. Sibling language engines register
+// as "binary-<builder>" (e.g. binary-rust), so the contributor stays a generic
+// pipeline that dispatches per builder, with Go as the first implementation.
+const EngineGo = "binary-go"
+
 func init() {
-	build.RegisterV2("binary", func() build.EngineV2 { return &binaryEngine{} })
+	build.RegisterV2(EngineGo, func() build.EngineV2 { return &binaryEngine{} })
 }
 
 // binaryEngine compiles Go binaries. Plan + ExecuteStep only.
@@ -21,7 +27,7 @@ func init() {
 // checksums, publish manifest) lives in core.
 type binaryEngine struct{}
 
-func (e *binaryEngine) Name() string { return "binary" }
+func (e *binaryEngine) Name() string { return EngineGo }
 
 func (e *binaryEngine) Capabilities() build.Capabilities {
 	return build.Capabilities{
@@ -81,24 +87,25 @@ func (e *binaryEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build
 	}
 
 	var steps []build.UniversalStep
-	for _, plat := range cfg.Platforms {
+	for _, tgt := range cfg.Platforms {
 		// Physical binary name: append .exe on Windows
 		physicalName := binaryName
-		if plat.OS == "windows" {
+		if tgt.OS == "windows" {
 			physicalName += ".exe"
 		}
 
-		// Output path: <DistDir>/{os}-{arch}/{binary_name}, under .stagefreight/
-		// so binaries ride the perform→publish CI artifact boundary (see build.DistDir).
-		outputPath := fmt.Sprintf("%s/%s-%s/%s", build.DistDir, plat.OS, plat.Arch, physicalName)
+		// Output path: <DistDir>/{os}-{arch}[-{libc}]/{binary_name}, under
+		// .stagefreight/ so binaries ride the perform→publish CI artifact boundary
+		// (see build.DistDir). For libc-less targets (all Go), the dir is "os-arch".
+		outputPath := fmt.Sprintf("%s/%s/%s", build.DistDir, tgt.Slug(), physicalName)
 
-		stepID := build.StepIDForPlatform(cfg.ID, plat)
+		stepID := build.StepIDForTarget(cfg.ID, tgt)
 
 		step := build.UniversalStep{
-			BuildID:  cfg.ID,
-			StepID:   stepID,
-			Engine:   "binary",
-			Platform: plat,
+			BuildID: cfg.ID,
+			StepID:  stepID,
+			Engine:  EngineGo,
+			Target:  tgt,
 			Outputs: []build.ArtifactRef{
 				{Path: outputPath, Type: "binary"},
 			},
@@ -156,11 +163,13 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 		env[k] = v
 	}
 
+	// Go adapter: the canonical Target projects to GOOS/GOARCH (Libc/ABI are not
+	// meaningful for the Go toolchain and are ignored).
 	result, err := gb.Build(ctx, build.GoBuildOpts{
 		Entry:      meta.From,
 		OutputPath: meta.OutputPath,
-		GOOS:       step.Platform.OS,
-		GOARCH:     step.Platform.Arch,
+		GOOS:       step.Target.OS,
+		GOARCH:     step.Target.Arch,
 		Args:       meta.Args,
 		Env:        env,
 		GoBin:      goRes.Path,
