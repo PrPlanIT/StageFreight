@@ -156,7 +156,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	})
 
 	// Tally
-	var critical, warning, info int
+	var critical, warning, info, blocking int
 	var totalFiles, totalCached int
 	for _, f := range findings {
 		switch f.Severity {
@@ -166,6 +166,9 @@ func runLint(cmd *cobra.Command, args []string) error {
 			warning++
 		case lint.SeverityInfo:
 			info++
+		}
+		if f.Blocks() {
+			blocking++
 		}
 	}
 	for _, ms := range modStats {
@@ -186,8 +189,12 @@ func runLint(cmd *cobra.Command, args []string) error {
 	sec := output.NewSection(w, "Lint", elapsed, color)
 	output.LintTable(w, modStats, color)
 	sec.Separator()
-	sec.Row("%-16s%5d   %5d   %d findings (%d critical)",
-		"total", totalFiles, totalCached, len(findings), critical)
+	critNote := fmt.Sprintf("%d critical", critical)
+	if nb := critical - blocking; nb > 0 {
+		critNote = fmt.Sprintf("%d critical, %d low-confidence non-blocking", critical, nb)
+	}
+	sec.Row("%-16s%5d   %5d   %d findings (%s)",
+		"total", totalFiles, totalCached, len(findings), critNote)
 	if u := engine.ClassifyUnreadable.Load(); u > 0 {
 		sec.Row("%-16s%d unreadable (failed open → text)", "classify", u)
 	}
@@ -291,8 +298,8 @@ func runLint(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", runErr)
 	}
 
-	if critical > 0 {
-		return fmt.Errorf("lint failed: %d critical findings", critical)
+	if blocking > 0 {
+		return fmt.Errorf("lint failed: %d blocking critical findings", blocking)
 	}
 
 	return nil

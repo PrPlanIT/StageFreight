@@ -28,14 +28,31 @@ func (s Severity) String() string {
 	}
 }
 
+// Confidence is how strongly the evidence supports a finding — ORTHOGONAL to Severity
+// (which is impact-IF-true). A structurally-identified match is Confirmed; a strong but
+// non-structural signal is Probable; a weak heuristic (e.g. an entropy guess that also
+// matches hex constants / magic numbers) is Heuristic. Separating the two stops Severity
+// from being overloaded to mean both "how bad" and "how sure".
+//
+// The zero value is Confirmed, so any finding that does not set Confidence gates exactly as
+// before — only a module with genuine doubt downgrades confidence.
+type Confidence int
+
+const (
+	ConfidenceConfirmed Confidence = iota // default: structurally identified / authoritative
+	ConfidenceProbable                    // strong evidence, not structural
+	ConfidenceHeuristic                   // weak/ambiguous — surfaced, but does not gate CI
+)
+
 // Finding represents a single lint result.
 type Finding struct {
-	File     string
-	Line     int
-	Column   int
-	Module   string
-	Severity Severity
-	Message  string
+	File       string
+	Line       int
+	Column     int
+	Module     string
+	Severity   Severity
+	Confidence Confidence
+	Message    string
 	// RuleID is a STABLE internal identifier for the finding kind (e.g.
 	// "trailing-whitespace"). It is the identity surface for baseline diffing and must
 	// not change for cosmetic reasons — unlike Message, which is presentation and may be
@@ -70,6 +87,13 @@ type Remediation struct {
 	Start, End  int
 	Expected    string // bytes that must currently occupy [Start:End], or the CAS skips
 	Replacement string
+}
+
+// Blocks reports whether a finding should fail CI: critical impact AND at least probable
+// confidence. A critical-but-Heuristic finding (e.g. a low-entropy generic-key guess) is
+// surfaced at full severity but does not block — impact and certainty are separate gates.
+func (f Finding) Blocks() bool {
+	return f.Severity == SeverityCritical && f.Confidence != ConfidenceHeuristic
 }
 
 // Fingerprint is the line-INDEPENDENT identity of a finding, for baseline diffing:

@@ -9,9 +9,9 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
-// The CPUID vendor-magic comment (a real dragonfly false positive) is a low-entropy
-// generic-api-key match — it must surface as a WARNING, never a CI-failing CRITICAL.
-func TestSecrets_LowEntropyGenericKeyNotCritical(t *testing.T) {
+// The CPUID vendor-magic comment is a low-entropy generic-api-key match: its severity stays
+// CRITICAL (impact if real), but its confidence is Heuristic so it does NOT block CI.
+func TestSecrets_LowEntropyGenericKeyDoesNotBlock(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "hw.rs")
 	os.WriteFile(p, []byte(`    // "AuthenticAMD" = EBX=0x68747541 EDX=0x69746E65 ECX=0x444D4163`+"\n"), 0o644)
@@ -21,20 +21,29 @@ func TestSecrets_LowEntropyGenericKeyNotCritical(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range got {
-		if f.Module == "secrets" && f.Severity == lint.SeverityCritical {
-			t.Errorf("CPUID magic number (low-entropy generic-api-key) must not be CRITICAL: %+v", f)
+		if f.Module != "secrets" {
+			continue
+		}
+		if f.Severity != lint.SeverityCritical {
+			t.Errorf("severity should remain critical (impact axis): %+v", f)
+		}
+		if f.Confidence != lint.ConfidenceHeuristic {
+			t.Errorf("low-entropy generic-api-key should be heuristic confidence: %+v", f)
+		}
+		if f.Blocks() {
+			t.Errorf("CPUID magic number must NOT block CI: %+v", f)
 		}
 	}
 }
 
-func TestSecretSeverity_Calibration(t *testing.T) {
-	if secretSeverity("generic-api-key", 3.52) != lint.SeverityWarning {
-		t.Error("low-entropy generic-api-key should be warning")
+func TestSecretConfidence_Calibration(t *testing.T) {
+	if secretConfidence("generic-api-key", 3.52) != lint.ConfidenceHeuristic {
+		t.Error("low-entropy generic-api-key → heuristic")
 	}
-	if secretSeverity("generic-api-key", 5.1) != lint.SeverityCritical {
-		t.Error("high-entropy generic-api-key should be critical")
+	if secretConfidence("generic-api-key", 5.1) != lint.ConfidenceProbable {
+		t.Error("high-entropy generic-api-key → probable")
 	}
-	if secretSeverity("aws-access-token", 3.0) != lint.SeverityCritical {
-		t.Error("a specific provider rule is always critical regardless of entropy")
+	if secretConfidence("aws-access-token", 3.0) != lint.ConfidenceConfirmed {
+		t.Error("specific provider rule → confirmed regardless of entropy")
 	}
 }

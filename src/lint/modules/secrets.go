@@ -55,11 +55,12 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 			continue
 		}
 		findings = append(findings, lint.Finding{
-			File:     file.Path,
-			Line:     h.StartLine + 1, // gitleaks is 0-indexed
-			Module:   m.Name(),
-			Severity: secretSeverity(h.RuleID, h.Entropy),
-			Message:  h.Description + " (" + h.RuleID + ")",
+			File:       file.Path,
+			Line:       h.StartLine + 1, // gitleaks is 0-indexed
+			Module:     m.Name(),
+			Severity:   lint.SeverityCritical, // a leaked credential is critical impact IF real
+			Confidence: secretConfidence(h.RuleID, h.Entropy),
+			Message:    h.Description + " (" + h.RuleID + ")",
 		})
 	}
 	return findings, nil
@@ -71,15 +72,20 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 // credentials run 4.5+. Below this, the match is weak evidence → surfaced, not blocking.
 const genericKeyCriticalEntropy = 4.5
 
-// secretSeverity calibrates to detector confidence. A SPECIFIC provider rule (aws, github,
-// stripe, …) is a high-confidence credential match → critical. The catch-all
-// generic-api-key is an entropy HEURISTIC: only a genuinely high-entropy hit is critical;
-// a weak one is a warning (visible and reviewable, but it does not fail CI on a guess).
-func secretSeverity(ruleID string, entropy float32) lint.Severity {
-	if ruleID == "generic-api-key" && entropy < genericKeyCriticalEntropy {
-		return lint.SeverityWarning
+// secretConfidence reports how strongly the evidence supports a credential — separate from
+// severity (always critical for a secret, because the IMPACT if real is critical). A
+// SPECIFIC provider rule (aws, github, stripe, …) structurally identifies a credential →
+// Confirmed. The catch-all generic-api-key is an entropy HEURISTIC: a credential-grade hit
+// is Probable; a weak one (hex constants, magic numbers — a CPUID 0x68747541 tag reads at
+// ~3.52) is Heuristic, which surfaces it without gating CI on a guess.
+func secretConfidence(ruleID string, entropy float32) lint.Confidence {
+	if ruleID != "generic-api-key" {
+		return lint.ConfidenceConfirmed
 	}
-	return lint.SeverityCritical
+	if entropy < genericKeyCriticalEntropy {
+		return lint.ConfidenceHeuristic
+	}
+	return lint.ConfidenceProbable
 }
 
 // isLockfileIntegrityLine reports whether a line is a lockfile's structural integrity /
