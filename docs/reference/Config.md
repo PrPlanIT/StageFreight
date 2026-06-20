@@ -473,6 +473,8 @@ Linting configuration. Controls scan mode, module toggles, and per-module option
 | `target_branch` | `target_branch` | string | Yes | — | Target branch for diff-based scanning. |
 | `exclude` | `exclude` | []string | Yes | — | Glob patterns to exclude from lint scanning. |
 | `modules` | `modules` | map[string]object | Yes | — | Per-module configuration. Keys: tabs, secrets, conflicts, filesize, linecount, unicode, yaml, lineendings, freshness. |
+| `generated` | `provenance.generated` | []string | No | — | []string value |
+| `vendored` | `provenance.vendored` | []string | No | — | []string value |
 | `max_age` | `cache.max_age` | string | No | — | string value |
 | `max_size` | `cache.max_size` | string | No | — | string value |
 
