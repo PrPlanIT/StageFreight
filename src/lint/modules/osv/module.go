@@ -19,26 +19,26 @@ import (
 
 // lockfiles maps base filenames to whether osv-scanner supports them.
 var lockfiles = map[string]bool{
-	"go.mod":             true,
-	"package-lock.json":  true,
-	"yarn.lock":          true,
-	"pnpm-lock.yaml":     true,
-	"Cargo.lock":         true,
-	"requirements.txt":   true,
-	"poetry.lock":        true,
-	"Pipfile.lock":       true,
-	"composer.lock":      true,
-	"Gemfile.lock":       true,
-	"pubspec.lock":       true,
-	"pom.xml":            true,
-	"gradle.lockfile":    true,
+	"go.mod":            true,
+	"package-lock.json": true,
+	"yarn.lock":         true,
+	"pnpm-lock.yaml":    true,
+	"Cargo.lock":        true,
+	"requirements.txt":  true,
+	"poetry.lock":       true,
+	"Pipfile.lock":      true,
+	"composer.lock":     true,
+	"Gemfile.lock":      true,
+	"pubspec.lock":      true,
+	"pom.xml":           true,
+	"gradle.lockfile":   true,
 }
 
 type osvModule struct {
-	once     sync.Once
-	binPath  string // resolved binary path, empty if resolution failed
-	resolveErr error // non-nil if pinned version failed
-	desired  map[string]config.ToolPinConfig
+	once       sync.Once
+	binPath    string // resolved binary path, empty if resolution failed
+	resolveErr error  // non-nil if pinned version failed
+	desired    map[string]config.ToolPinConfig
 }
 
 func (m *osvModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
@@ -47,7 +47,7 @@ func (m *osvModule) SetToolchainDesired(desired map[string]config.ToolPinConfig)
 
 func newModule() *osvModule { return &osvModule{} }
 
-func (m *osvModule) Name() string        { return "osv" }
+func (m *osvModule) Name() string         { return "osv" }
 func (m *osvModule) DefaultEnabled() bool { return true }
 
 func (m *osvModule) CacheTTL() time.Duration { return 5 * time.Minute }
@@ -73,6 +73,15 @@ func (m *osvModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Findi
 		return nil, nil
 	}
 
+	// A nested lockfile — one with a same-named lockfile in an ancestor directory — is a
+	// vendored crate's own lock or a sub-project's, dominated by a higher-level lock. Its
+	// resolved versions are NOT what actually ships (the dominating build lock governs), so
+	// scanning it reports CVEs for packages outside the real dependency graph. Scan the
+	// dominating (build) lockfile only.
+	if isDominatedLockfile(file.AbsPath, base) {
+		return nil, nil
+	}
+
 	m.once.Do(func() {
 		rootDir, _ := os.Getwd()
 		ver, pinned := toolchain.ResolveVersion("osv-scanner", "", m.desired)
@@ -93,6 +102,24 @@ func (m *osvModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Findi
 	}
 
 	return m.scan(ctx, file)
+}
+
+// isDominatedLockfile reports whether a same-named lockfile exists in an ancestor
+// directory ABOVE this file's own directory — marking this one as a nested sub-lockfile
+// (a vendored crate's lock, a sub-project) rather than the top-level build graph.
+func isDominatedLockfile(absPath, base string) bool {
+	dir := filepath.Dir(filepath.Dir(absPath)) // start above the file's own directory
+	for i := 0; i < 32; i++ {
+		if _, err := os.Stat(filepath.Join(dir, base)); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return false
 }
 
 func (m *osvModule) scan(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
@@ -149,7 +176,7 @@ type osvReport struct {
 }
 
 type osvResult struct {
-	Source   osvSource     `json:"source"`
+	Source   osvSource    `json:"source"`
 	Packages []osvPackage `json:"packages"`
 }
 
@@ -159,9 +186,9 @@ type osvSource struct {
 }
 
 type osvPackage struct {
-	Package         osvPkgInfo  `json:"package"`
-	Vulnerabilities []osvVuln   `json:"vulnerabilities"`
-	Groups          []osvGroup  `json:"groups"`
+	Package         osvPkgInfo `json:"package"`
+	Vulnerabilities []osvVuln  `json:"vulnerabilities"`
+	Groups          []osvGroup `json:"groups"`
 }
 
 type osvPkgInfo struct {
@@ -171,8 +198,8 @@ type osvPkgInfo struct {
 }
 
 type osvVuln struct {
-	ID       string `json:"id"`
-	Summary  string `json:"summary"`
+	ID       string   `json:"id"`
+	Summary  string   `json:"summary"`
 	Aliases  []string `json:"aliases"`
 	Affected []struct {
 		Ranges []struct {

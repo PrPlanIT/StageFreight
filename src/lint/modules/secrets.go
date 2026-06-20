@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -41,8 +42,18 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 		return nil, nil
 	}
 
+	// Provenance informs interpretation, not blanket skipping: lockfiles are still scanned
+	// for genuine credentials, but a committed lockfile's checksum/integrity hashes are
+	// expected machine artifacts, not secrets — so high-entropy generic-key hits ON those
+	// structural lines are suppressed. `resolved` URLs are deliberately NOT suppressed
+	// (they can carry embedded credentials).
+	lockfile := file.Provenance.Kind == lint.ProvenanceLockfile
+
 	findings := make([]lint.Finding, 0, len(hits))
 	for _, h := range hits {
+		if lockfile && isLockfileIntegrityLine(h.Line) {
+			continue
+		}
 		findings = append(findings, lint.Finding{
 			File:     file.Path,
 			Line:     h.StartLine + 1, // gitleaks is 0-indexed
@@ -52,4 +63,22 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 		})
 	}
 	return findings, nil
+}
+
+// isLockfileIntegrityLine reports whether a line is a lockfile's structural integrity /
+// checksum material — deterministic hashes a package manager writes, never credentials.
+// Precise on purpose (no `resolved` URLs, which can embed real secrets).
+func isLockfileIntegrityLine(line string) bool {
+	l := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(l, "checksum =") || strings.HasPrefix(l, "checksum="): // Cargo.lock
+		return true
+	case strings.Contains(l, `"integrity":`): // package-lock.json / pnpm
+		return true
+	case strings.HasPrefix(l, "integrity ") && strings.Contains(l, "sha"): // yarn.lock
+		return true
+	case strings.Contains(l, " h1:"): // go.sum module hashes
+		return true
+	}
+	return false
 }
