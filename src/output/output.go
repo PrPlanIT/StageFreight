@@ -242,11 +242,12 @@ func SectionFindings(sec *Section, findings []lint.Finding, color bool) {
 		type groupKey struct {
 			module, message string
 			severity        lint.Severity
+			confidence      lint.Confidence
 		}
 		groups := map[groupKey][]lint.Finding{}
 		order := []groupKey{}
 		for _, f := range ff {
-			k := groupKey{f.Module, f.Message, f.Severity}
+			k := groupKey{f.Module, f.Message, f.Severity, f.Confidence}
 			if _, seen := groups[k]; !seen {
 				order = append(order, k)
 			}
@@ -257,8 +258,15 @@ func SectionFindings(sec *Section, findings []lint.Finding, color bool) {
 		for _, k := range order {
 			g := groups[k]
 			sev := severityTag(k.severity, color)
+			// Confidence is first-class: surface it next to severity so a critical-but-
+			// non-blocking heuristic is distinguishable from a confirmed critical. Confirmed
+			// (the common case) stays unmarked to avoid clutter.
+			conf := ""
+			if k.confidence != lint.ConfidenceConfirmed {
+				conf = " [" + k.confidence.String() + "]"
+			}
 			if len(g) == 1 {
-				sec.Row("  %-8s %-4s  %-10s %s", findingLoc(g[0]), sev, k.module, k.message)
+				sec.Row("  %-8s %-4s%s  %-10s %s", findingLoc(g[0]), sev, conf, k.module, k.message)
 				continue
 			}
 			count := fmt.Sprintf("×%d", len(g))
@@ -267,9 +275,9 @@ func SectionFindings(sec *Section, findings []lint.Finding, color bool) {
 				if more > 0 {
 					suffix = fmt.Sprintf("%s …(+%d)", ranges, more)
 				}
-				sec.Row("  %-8s %-4s  %-10s %s  lines %s", count, sev, k.module, k.message, suffix)
+				sec.Row("  %-8s %-4s%s  %-10s %s  lines %s", count, sev, conf, k.module, k.message, suffix)
 			} else {
-				sec.Row("  %-8s %-4s  %-10s %s", count, sev, k.module, k.message)
+				sec.Row("  %-8s %-4s%s  %-10s %s", count, sev, conf, k.module, k.message)
 			}
 		}
 

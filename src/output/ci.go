@@ -61,12 +61,12 @@ func SectionStartCollapsed(w io.Writer, id, name string) {
 // JUnit XML types for GitLab test reporting.
 
 type JUnitTestSuites struct {
-	XMLName xml.Name         `xml:"testsuites"`
-	Name    string           `xml:"name,attr"`
-	Tests   int              `xml:"tests,attr"`
-	Failures int             `xml:"failures,attr"`
-	Time    string           `xml:"time,attr"`
-	Suites  []JUnitTestSuite `xml:"testsuite"`
+	XMLName  xml.Name         `xml:"testsuites"`
+	Name     string           `xml:"name,attr"`
+	Tests    int              `xml:"tests,attr"`
+	Failures int              `xml:"failures,attr"`
+	Time     string           `xml:"time,attr"`
+	Suites   []JUnitTestSuite `xml:"testsuite"`
 }
 
 type JUnitTestSuite struct {
@@ -135,22 +135,28 @@ func WriteLintJUnit(dir string, findings []lint.Finding, files []lint.FileInfo, 
 			}
 
 			if ff, ok := modFindings[f.Path]; ok && len(ff) > 0 {
-				// Find worst severity
 				worst := lint.SeverityInfo
+				blocks := false
 				var lines []string
 				for _, finding := range ff {
 					if finding.Severity > worst {
 						worst = finding.Severity
 					}
+					if finding.Blocks() {
+						blocks = true
+					}
 					loc := fmt.Sprintf("%d", finding.Line)
 					if finding.Column > 0 {
 						loc = fmt.Sprintf("%d:%d", finding.Line, finding.Column)
 					}
-					lines = append(lines, fmt.Sprintf("  %s [%s] %s", loc, finding.Severity, finding.Message))
+					// Carry both axes in the artifact: severity (impact) and confidence.
+					lines = append(lines, fmt.Sprintf("  %s [%s/%s] %s", loc, finding.Severity, finding.Confidence, finding.Message))
 				}
 
-				// Only critical findings are failures; warnings are not
-				if worst >= lint.SeverityCritical {
+				// A testcase fails only on a BLOCKING finding (critical impact AND at least
+				// probable confidence), matching the lint gate. A critical-but-heuristic
+				// finding is recorded in the body but does not fail CI.
+				if blocks {
 					tc.Failure = &JUnitFailure{
 						Message: fmt.Sprintf("%d finding(s) in %s", len(ff), f.Path),
 						Type:    worst.String(),

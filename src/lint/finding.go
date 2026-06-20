@@ -44,6 +44,17 @@ const (
 	ConfidenceHeuristic                   // weak/ambiguous — surfaced, but does not gate CI
 )
 
+func (c Confidence) String() string {
+	switch c {
+	case ConfidenceProbable:
+		return "probable"
+	case ConfidenceHeuristic:
+		return "heuristic"
+	default:
+		return "confirmed"
+	}
+}
+
 // Finding represents a single lint result.
 type Finding struct {
 	File       string
