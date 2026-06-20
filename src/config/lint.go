@@ -24,6 +24,7 @@ type LintConfig struct {
 	Exclude      []string                `yaml:"exclude"`
 	Modules      map[string]ModuleConfig `yaml:"modules"`
 	Provenance   ProvenanceConfig        `yaml:"provenance,omitempty"`
+	Remediation  RemediationConfig       `yaml:"remediation,omitempty"`
 	Cache        LintCacheConfig         `yaml:"cache,omitempty"`
 }
 
@@ -35,6 +36,17 @@ type LintConfig struct {
 type ProvenanceConfig struct {
 	Generated []string `yaml:"generated,omitempty"`
 	Vendored  []string `yaml:"vendored,omitempty"`
+}
+
+// RemediationConfig is the granular opt-in for `--fix-safe`. Each field is a *bool: nil
+// means "use the safe default" (on for the conservative hygiene fixes), so the one-shot
+// `--fix-safe` flow works out of the box while a project can still disable a category.
+// Categories that are policy-dependent (line endings, tab/space) default OFF and must be
+// turned on explicitly. Only authored files are ever mutated — generated/vendored/lock
+// emit no hygiene findings, so they carry no fixes.
+type RemediationConfig struct {
+	TrailingWhitespace *bool `yaml:"trailing_whitespace,omitempty"` // default ON under --fix-safe
+	FinalNewline       *bool `yaml:"final_newline,omitempty"`       // default ON under --fix-safe
 }
 
 // LintCacheConfig controls lint result cache lifecycle.

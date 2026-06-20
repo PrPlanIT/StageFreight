@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 )
@@ -66,9 +68,18 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 		})
 	}
 
-	// Trailing whitespace — scan line by line
+	// Markdown two-or-more trailing spaces are a hard line break (CommonMark) — so
+	// trailing whitespace there is NOT safely auto-fixable; we still report it, but emit
+	// no Fix. Stripping it would silently delete an intended <br>.
+	mdHardBreak := isMarkdown(file.Path)
+
+	// Trailing whitespace — scan line by line, tracking byte offsets so a safe Fix can
+	// carry the exact span (the space/tab between content and any CR).
 	lines := bytes.Split(data, []byte("\n"))
+	offset := 0
 	for i, line := range lines {
+		lineStart := offset
+		offset += len(line) + 1 // advance past this line and the \n that split it
 		// Skip last empty element from trailing newline split
 		if i == len(lines)-1 && len(line) == 0 {
 			continue
@@ -77,18 +88,29 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 		if len(trimmed) < len(line) {
 			stripped := bytes.TrimRight(line, "\r")
 			if len(trimmed) < len(stripped) {
-				findings = append(findings, lint.Finding{
+				f := lint.Finding{
 					File:     file.Path,
 					Line:     i + 1,
 					Module:   m.Name(),
 					Severity: lint.SeverityInfo,
 					Message:  "trailing whitespace",
-				})
+				}
+				// Safe Fix: delete the trailing space/tab, KEEP the CR. The span runs from
+				// the end of trimmed content to the start of the CR (or EOL).
+				if !mdHardBreak {
+					f.Fix = &lint.Remediation{
+						Kind:  "trailing-whitespace",
+						Start: lineStart + len(trimmed),
+						End:   lineStart + len(stripped),
+					}
+				}
+				findings = append(findings, f)
 			}
 		}
 	}
 
-	// Missing final newline
+	// Missing final newline — appending one is POSIX-correct and semantics-neutral, so
+	// the Fix is always safe (Markdown included: a final newline is not a hard break).
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		findings = append(findings, lint.Finding{
 			File:     file.Path,
@@ -96,8 +118,24 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 			Module:   m.Name(),
 			Severity: lint.SeverityInfo,
 			Message:  "missing final newline",
+			Fix: &lint.Remediation{
+				Kind:        "final-newline",
+				Start:       len(data),
+				End:         len(data),
+				Replacement: "\n",
+			},
 		})
 	}
 
 	return findings, nil
+}
+
+// isMarkdown reports whether the path is a Markdown document, where trailing spaces can
+// be semantically meaningful (hard line breaks).
+func isMarkdown(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown":
+		return true
+	}
+	return false
 }

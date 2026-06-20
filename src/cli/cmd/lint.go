@@ -22,6 +22,7 @@ var (
 	lintNoModule []string
 	lintNoCache  bool
 	lintAll      bool
+	lintFixSafe  bool
 )
 
 var lintCmd = &cobra.Command{
@@ -42,6 +43,7 @@ func init() {
 	lintCmd.Flags().StringSliceVar(&lintNoModule, "no-module", nil, "skip these modules (comma-separated)")
 	lintCmd.Flags().BoolVar(&lintNoCache, "no-cache", false, "disable cache (clear and rescan)")
 	lintCmd.Flags().BoolVar(&lintAll, "all", false, "scan all files (shorthand for --level full)")
+	lintCmd.Flags().BoolVar(&lintFixSafe, "fix-safe", false, "auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files")
 
 	rootCmd.AddCommand(lintCmd)
 }
@@ -211,6 +213,25 @@ func runLint(cmd *cobra.Command, args []string) error {
 		output.SectionEnd(w, "sf_findings")
 	}
 
+	// ── Safe remediation (opt-in via --fix-safe) ──
+	// Applies only findings that carry a proven-safe Fix whose category is enabled.
+	// Provenance-gated by construction: hygiene modules emit no findings (hence no Fix)
+	// on generated/vendored/lockfile content, so only authored files are ever mutated.
+	if lintFixSafe {
+		rc := cfg.Lint.Remediation
+		on := func(p *bool) bool { return p == nil || *p } // safe categories default ON
+		enabled := map[string]bool{
+			"trailing-whitespace": on(rc.TrailingWhitespace),
+			"final-newline":       on(rc.FinalNewline),
+		}
+		sum, ferr := lint.ApplyRemediations(findings, rootDir, enabled)
+		if ferr != nil {
+			fmt.Fprintf(os.Stderr, "fix-safe: %v\n", ferr)
+		} else {
+			renderRemediationSummary(w, sum, color)
+		}
+	}
+
 	// Cache stats
 	if verbose && cache.Enabled {
 		fmt.Fprintf(os.Stderr, "cache: %d hits, %d misses\n",
@@ -226,6 +247,29 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// renderRemediationSummary reports what --fix-safe changed. The findings shown above are
+// pre-fix; a re-run confirms the reduced count.
+func renderRemediationSummary(w io.Writer, sum lint.RemediationSummary, color bool) {
+	output.SectionStart(w, "sf_fixsafe", "fix-safe")
+	sec := output.NewSection(w, "fix-safe (authored files only — re-run lint to confirm)", 0, color)
+	if sum.EditsApplied == 0 {
+		sec.Row("no auto-fixable findings")
+	} else {
+		for _, kind := range []string{"trailing-whitespace", "final-newline"} {
+			if n := sum.ByKind[kind]; n > 0 {
+				sec.Row("  %-20s ×%d", kind, n)
+			}
+		}
+		sec.Separator()
+		sec.Row("%d edits across %d files", sum.EditsApplied, sum.FilesChanged)
+	}
+	if sum.Skipped > 0 {
+		sec.Row("%d edits skipped (out-of-range / overlap)", sum.Skipped)
+	}
+	sec.Close()
+	output.SectionEnd(w, "sf_fixsafe")
 }
 
 // renderNonTextDisclosure prints the ungraded non-text inventory — the "validate these
