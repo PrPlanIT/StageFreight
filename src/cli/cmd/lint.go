@@ -24,6 +24,7 @@ var (
 	lintAll      bool
 	lintFixSafe  bool
 	lintDryRun   bool
+	lintBaseline bool
 )
 
 var lintCmd = &cobra.Command{
@@ -46,6 +47,7 @@ func init() {
 	lintCmd.Flags().BoolVar(&lintAll, "all", false, "scan all files (shorthand for --level full)")
 	lintCmd.Flags().BoolVar(&lintFixSafe, "fix-safe", false, "auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files")
 	lintCmd.Flags().BoolVar(&lintDryRun, "dry-run", false, "with --fix-safe: preview what would change without writing")
+	lintCmd.Flags().BoolVar(&lintBaseline, "baseline", false, "diff against the merge-base: mark newly-introduced non-text artifacts and findings")
 
 	rootCmd.AddCommand(lintCmd)
 }
@@ -197,7 +199,33 @@ func runLint(cmd *cobra.Command, args []string) error {
 	// auditable without polluting the finding stream with false INFO/WARN/CRIT. Capped
 	// inline for scale; the full list is always written to an artifact so "what non-text
 	// appeared since last run" becomes diffable.
-	renderNonTextDisclosure(w, engine.NonText, countModule(findings, "content"), color)
+	// ── Baseline diff (opt-in via --baseline) ──
+	// Resolve the merge-base once; Slice A (new non-text artifacts) uses its path set,
+	// Slice B (new findings) uses its blob contents. Forgiving: no git / no base → no diff.
+	var baseline *lint.Baseline
+	var baseLabel string
+	if lintBaseline {
+		if b, ok, _ := lint.ResolveBaseline(rootDir, cfg.Lint.TargetBranch); ok {
+			baseline, baseLabel = b, b.Commit
+		} else if verbose {
+			fmt.Fprintln(os.Stderr, "baseline: none resolved (no git repo / no base ref) — skipping diff")
+		}
+	}
+
+	// Slice A — non-text artifacts present now but absent at the baseline are newly introduced.
+	var newNonText map[string]bool
+	if baseline != nil {
+		if basePaths, err := baseline.Paths(); err == nil {
+			newNonText = map[string]bool{}
+			for _, e := range engine.NonText {
+				if !basePaths[e.Path] {
+					newNonText[e.Path] = true
+				}
+			}
+		}
+	}
+
+	renderNonTextDisclosure(w, engine.NonText, countModule(findings, "content"), newNonText, baseLabel, color)
 
 	// ── Provenance disclosure (ungraded; authored-hygiene relaxed, security intact) ──
 	// Generated/vendored/lockfile files stay visible — we just didn't nag their
@@ -287,7 +315,7 @@ func renderRemediationSummary(w io.Writer, sum lint.RemediationSummary, dryRun, 
 // are deliberate" review surface — and always writes the full list to an artifact so it
 // is diffable across runs. It is NOT a finding: no INFO/WARN/CRIT, so it can never
 // become false-positive noise. Inline output is capped for scale.
-func renderNonTextDisclosure(w io.Writer, nonText []lint.NonTextEntry, anomalies int, color bool) {
+func renderNonTextDisclosure(w io.Writer, nonText []lint.NonTextEntry, anomalies int, newPaths map[string]bool, baseLabel string, color bool) {
 	if len(nonText) == 0 {
 		return
 	}
@@ -296,17 +324,29 @@ func renderNonTextDisclosure(w io.Writer, nonText []lint.NonTextEntry, anomalies
 	output.SectionStart(w, "sf_nontext", "non-text artifacts")
 	sec := output.NewSection(w, "non-text artifacts (validate these are deliberate)", 0, color)
 	const inlineCap = 10
+	newCount := 0
 	for i, e := range nonText {
-		if i >= inlineCap {
-			break
+		if newPaths[e.Path] { // nil map → always false; counts across the full set
+			newCount++
 		}
-		sec.Row("%-44s %s", e.Path, e.Type)
+		if i >= inlineCap {
+			continue
+		}
+		tag := ""
+		if newPaths[e.Path] {
+			tag = "  NEW"
+		}
+		sec.Row("%-44s %s%s", e.Path, e.Type, tag)
 	}
 	if len(nonText) > inlineCap {
 		sec.Row("… +%d more → .stagefreight/reports/non-text.txt", len(nonText)-inlineCap)
 	}
 	sec.Separator()
-	sec.Row("%d files · %d anomalies", len(nonText), anomalies)
+	if baseLabel != "" {
+		sec.Row("%d files · %d anomalies · %d new since %s", len(nonText), anomalies, newCount, baseLabel)
+	} else {
+		sec.Row("%d files · %d anomalies", len(nonText), anomalies)
+	}
 	sec.Close()
 	output.SectionEnd(w, "sf_nontext")
 }

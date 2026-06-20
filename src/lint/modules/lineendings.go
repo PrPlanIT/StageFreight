@@ -54,6 +54,7 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 			Module:   m.Name(),
 			Severity: lint.SeverityWarning,
 			Message:  "mixed line endings (CRLF and LF)",
+			RuleID:   "mixed-line-endings",
 		})
 	}
 
@@ -65,6 +66,7 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 			Module:   m.Name(),
 			Severity: lint.SeverityInfo,
 			Message:  "file uses CRLF line endings",
+			RuleID:   "crlf",
 		})
 	}
 
@@ -94,6 +96,8 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 					Module:   m.Name(),
 					Severity: lint.SeverityInfo,
 					Message:  "trailing whitespace",
+					RuleID:   "trailing-whitespace",
+					Anchor:   string(trimmed), // the line's content sans trailing ws — survives line moves
 				}
 				// Safe Fix: delete the trailing space/tab, KEEP the CR. The span runs from
 				// the end of trimmed content to the start of the CR (or EOL); Expected is
@@ -124,6 +128,7 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 			Module:   m.Name(),
 			Severity: lint.SeverityInfo,
 			Message:  "missing final newline",
+			RuleID:   "missing-final-newline",
 			Fix: &lint.Remediation{
 				Kind:        "final-newline",
 				Start:       len(data) - 1,

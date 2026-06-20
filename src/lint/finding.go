@@ -1,6 +1,10 @@
 package lint
 
-import "fmt"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+)
 
 // Severity indicates how serious a finding is.
 type Severity int
@@ -32,6 +36,16 @@ type Finding struct {
 	Module   string
 	Severity Severity
 	Message  string
+	// RuleID is a STABLE internal identifier for the finding kind (e.g.
+	// "trailing-whitespace"). It is the identity surface for baseline diffing and must
+	// not change for cosmetic reasons — unlike Message, which is presentation and may be
+	// reworded freely. Empty is allowed; identity then falls back to Module.
+	RuleID string
+	// Anchor is a normalized SEMANTIC anchor (e.g. the trimmed line content) that ties a
+	// finding's identity to what it is about rather than where it sits. It lets a finding
+	// survive line-number shifts so a moved issue isn't mistaken for a new one. Empty is
+	// allowed (coarser identity).
+	Anchor string
 	// Fix, when non-nil, is a proven-safe, byte-exact, reversible remediation the
 	// detector emits alongside the finding. Because the edit is carried by the finding
 	// itself — not re-derived by a separate fixer — "what gets fixed" equals "what was
@@ -56,6 +70,21 @@ type Remediation struct {
 	Start, End  int
 	Expected    string // bytes that must currently occupy [Start:End], or the CAS skips
 	Replacement string
+}
+
+// Fingerprint is the line-INDEPENDENT identity of a finding, for baseline diffing:
+// hash(File + Module + RuleID + Anchor). Deliberately excludes Line/Column (position is
+// not identity) and Message (presentation is not identity), so a finding that merely
+// moved or was reworded keeps the same fingerprint and is not mistaken for new. Identical
+// anchors collide — which biases toward UNDERcounting "new" (safe silence over false
+// accusation), the correct bias for a trust-first tool.
+func (f Finding) Fingerprint() string {
+	h := sha256.New()
+	for _, part := range []string{f.File, f.Module, f.RuleID, f.Anchor} {
+		h.Write([]byte(part))
+		h.Write([]byte{0}) // domain separator so field boundaries can't be forged by concatenation
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // FileInfo is passed to each module for inspection. Content is the centrally-computed
