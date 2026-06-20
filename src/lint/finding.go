@@ -45,9 +45,16 @@ type Finding struct {
 // ("" = deletion). Kind names the safe-edit category for granular opt-in and reporting.
 // The applier is dumb — it performs exactly this span replacement and re-derives
 // nothing — which is what keeps remediation tied to the reported finding.
+//
+// Expected is the precondition: the exact bytes the detector saw at [Start:End]. The
+// applier performs a compare-and-swap — it mutates ONLY if the file still holds those
+// bytes — so a stale finding against a since-changed file (a race, a replay, an edit
+// between detect and fix) is skipped, never misapplied. Mutates only with proof, the
+// mirror of "classification only relaxes with proof."
 type Remediation struct {
 	Kind        string // "trailing-whitespace" | "final-newline"
 	Start, End  int
+	Expected    string // bytes that must currently occupy [Start:End], or the CAS skips
 	Replacement string
 }
 

@@ -96,12 +96,14 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 					Message:  "trailing whitespace",
 				}
 				// Safe Fix: delete the trailing space/tab, KEEP the CR. The span runs from
-				// the end of trimmed content to the start of the CR (or EOL).
+				// the end of trimmed content to the start of the CR (or EOL); Expected is
+				// exactly those whitespace bytes, so the applier's CAS confirms them first.
 				if !mdHardBreak {
 					f.Fix = &lint.Remediation{
-						Kind:  "trailing-whitespace",
-						Start: lineStart + len(trimmed),
-						End:   lineStart + len(stripped),
+						Kind:     "trailing-whitespace",
+						Start:    lineStart + len(trimmed),
+						End:      lineStart + len(stripped),
+						Expected: string(line[len(trimmed):len(stripped)]),
 					}
 				}
 				findings = append(findings, f)
@@ -111,7 +113,11 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 
 	// Missing final newline — appending one is POSIX-correct and semantics-neutral, so
 	// the Fix is always safe (Markdown included: a final newline is not a hard break).
+	// Modeled as a CAS-guarded replacement of the last byte with itself + "\n" (rather
+	// than a bare end-insertion) so a since-grown file can't get a newline spliced into
+	// its middle: if the last byte changed, the compare-and-swap skips it.
 	if len(data) > 0 && data[len(data)-1] != '\n' {
+		last := data[len(data)-1]
 		findings = append(findings, lint.Finding{
 			File:     file.Path,
 			Line:     len(lines),
@@ -120,9 +126,10 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 			Message:  "missing final newline",
 			Fix: &lint.Remediation{
 				Kind:        "final-newline",
-				Start:       len(data),
+				Start:       len(data) - 1,
 				End:         len(data),
-				Replacement: "\n",
+				Expected:    string(last),
+				Replacement: string(last) + "\n",
 			},
 		})
 	}
