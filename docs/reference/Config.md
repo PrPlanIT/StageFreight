@@ -268,6 +268,8 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 | `paths` | `cache.watch.paths` | []string | Yes | — | Glob patterns for files to watch for changes. |
 | `invalidates` | `cache.watch.invalidates` | []string | Yes | — | Build stage names invalidated when watched files change. |
 | `auto_detect` | `cache.auto_detect` | bool | Yes | true | Auto-detect cache-relevant files from Dockerfile COPY/ADD instructions. |
+| `from` | `stage.from` | string | Yes | — | string value |
+| `as` | `stage.as` | string | Yes | — | string value |
 | `builder` | `builder` | string | No | — | string value |
 | `command` | `command` | string | No | — | string value |
 | `from` | `from` | string | No | — | string value |
