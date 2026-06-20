@@ -49,6 +49,12 @@ type Engine struct {
 	// run. Authored-code hygiene was relaxed for them, but they stay visible — and every
 	// security/supply-chain module still ran. Populated in the sequential pass.
 	NonAuthored []ProvenanceEntry
+
+	// allPaths is the full set of repo-relative paths from CollectFiles, retained so
+	// provenance vendor-root derivation reflects the whole repo even when RunWithStats is
+	// given a delta-filtered subset. Empty when files are supplied without CollectFiles
+	// (e.g. the baseline base-relint), where the scanned set is used instead.
+	allPaths []string
 }
 
 // NonTextEntry is one non-text artifact for the disclosure inventory — a review
@@ -179,12 +185,18 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 	e.NonAuthored = nil
 
 	// Provenance needs a whole-set pre-pass: a vendor marker in one file marks its entire
-	// directory vendored, so every file beneath inherits it. Derive the roots once.
-	paths := make([]string, len(files))
+	// directory vendored, so every file beneath inherits it. Crucially this must see the
+	// WHOLE repo, not just the scanned subset — under --level changed a vendor marker
+	// (.cargo_vcs_info.json) is rarely in the changeset, yet a changed file beneath it is
+	// still vendored. Use the full collected set when present; fall back to the scan set.
+	rootPaths := make([]string, len(files))
 	for i, f := range files {
-		paths[i] = f.Path
+		rootPaths[i] = f.Path
 	}
-	vendoredRoots := deriveVendoredRoots(paths)
+	if len(e.allPaths) > 0 {
+		rootPaths = e.allPaths
+	}
+	vendoredRoots := deriveVendoredRoots(rootPaths)
 
 	var (
 		mu       sync.Mutex
@@ -415,6 +427,13 @@ func (e *Engine) CollectFiles() ([]FileInfo, error) {
 		return nil
 	})
 
+	// Record the full collected set so provenance vendor-root derivation sees the whole
+	// repo even when the scan is later delta-filtered to changed files (a vendor marker
+	// rarely lives in a changeset).
+	e.allPaths = make([]string, len(files))
+	for i, f := range files {
+		e.allPaths[i] = f.Path
+	}
 	return files, err
 }
 
