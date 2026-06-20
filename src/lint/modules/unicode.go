@@ -77,7 +77,7 @@ type unicodeModule struct {
 	allowedControl map[byte]bool // built from AllowControlBytes during Configure
 }
 
-func (m *unicodeModule) Name() string        { return "unicode" }
+func (m *unicodeModule) Name() string         { return "unicode" }
 func (m *unicodeModule) DefaultEnabled() bool { return true }
 func (m *unicodeModule) AutoDetect() []string { return nil }
 
@@ -117,6 +117,11 @@ func (m *unicodeModule) Configure(opts map[string]any) error {
 
 // Check scans a file for invisible, confusable, and dangerous Unicode characters.
 func (m *unicodeModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
+	// Text-oriented module: binary/ambiguous content is inspected by byte modules
+	// (secrets), not here. Per-line UTF-8 errors on a real binary are noise, not signal.
+	if !file.Content.IsText() {
+		return nil, nil
+	}
 	f, err := os.Open(file.AbsPath)
 	if err != nil {
 		return nil, err

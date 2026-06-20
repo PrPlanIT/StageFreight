@@ -34,9 +34,12 @@ type Finding struct {
 	Message  string
 }
 
-// FileInfo is passed to each module for inspection.
+// FileInfo is passed to each module for inspection. Content is the centrally-computed
+// classification (text/binary/ambiguous): text modules route on it, byte modules
+// ignore it. Its zero value is ContentText, so an unclassified file behaves as text.
 type FileInfo struct {
 	Path    string // relative path from repo root
 	AbsPath string // absolute path on disk
 	Size    int64
+	Content Content
 }

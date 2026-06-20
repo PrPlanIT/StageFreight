@@ -5,8 +5,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/zricethezav/gitleaks/v8/detect"
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/zricethezav/gitleaks/v8/detect"
 )
 
 func init() {
@@ -19,7 +19,7 @@ type secretsModule struct {
 	initErr  error
 }
 
-func (m *secretsModule) Name() string        { return "secrets" }
+func (m *secretsModule) Name() string         { return "secrets" }
 func (m *secretsModule) DefaultEnabled() bool { return true }
 func (m *secretsModule) AutoDetect() []string { return nil }
 

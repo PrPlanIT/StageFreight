@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/moby/patternmatcher"
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/moby/patternmatcher"
 )
 
 func init() {
@@ -75,7 +75,7 @@ type dockerignoreModule struct {
 	checked sync.Map // resolved context root → bool
 }
 
-func (m *dockerignoreModule) Name() string        { return "dockerignore" }
+func (m *dockerignoreModule) Name() string         { return "dockerignore" }
 func (m *dockerignoreModule) DefaultEnabled() bool { return true }
 func (m *dockerignoreModule) AutoDetect() []string { return []string{"Dockerfile*", "*.dockerfile"} }
 

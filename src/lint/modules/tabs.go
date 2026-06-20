@@ -16,7 +16,7 @@ func init() {
 
 type tabsModule struct{}
 
-func (m *tabsModule) Name() string        { return "tabs" }
+func (m *tabsModule) Name() string         { return "tabs" }
 func (m *tabsModule) DefaultEnabled() bool { return true }
 func (m *tabsModule) AutoDetect() []string { return nil }
 

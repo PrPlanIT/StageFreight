@@ -24,7 +24,7 @@ type filesizeModule struct {
 	cfg filesizeConfig
 }
 
-func (m *filesizeModule) Name() string        { return "filesize" }
+func (m *filesizeModule) Name() string         { return "filesize" }
 func (m *filesizeModule) DefaultEnabled() bool { return true }
 func (m *filesizeModule) AutoDetect() []string { return nil }
 

@@ -17,7 +17,7 @@ func init() {
 
 type yamlModule struct{}
 
-func (m *yamlModule) Name() string        { return "yaml" }
+func (m *yamlModule) Name() string         { return "yaml" }
 func (m *yamlModule) DefaultEnabled() bool { return true }
 func (m *yamlModule) AutoDetect() []string { return []string{"*.yml", "*.yaml"} }
 

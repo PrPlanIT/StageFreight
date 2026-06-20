@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,15 +20,48 @@ import (
 
 // Engine orchestrates lint modules across files.
 type Engine struct {
-	Config            config.LintConfig
-	RootDir           string
-	Modules           []Module
-	Cache             *Cache
-	Verbose           bool
-	ToolchainDesired  map[string]config.ToolPinConfig
+	Config           config.LintConfig
+	RootDir          string
+	Modules          []Module
+	Cache            *Cache
+	Verbose          bool
+	ToolchainDesired map[string]config.ToolPinConfig
 
 	CacheHits   atomic.Int64
 	CacheMisses atomic.Int64
+
+	// BinariesScanned counts files classified non-text this run — the coverage
+	// roll-up ("N binaries scanned"). Inspected ≠ emitted: a clean binary increments
+	// this but produces no finding.
+	BinariesScanned atomic.Int64
+
+	// ClassifyUnreadable counts files whose bytes couldn't be read for classification
+	// (permissions, IO, races). They fail OPEN — treated as text so checks still run —
+	// but the count is surfaced so environmental breakage isn't silently swallowed.
+	ClassifyUnreadable atomic.Int64
+
+	// NonText is the disclosure inventory: every non-text artifact this run, for the
+	// ungraded "validate these are deliberate" review surface (NOT findings). Populated
+	// in the sequential classification pass, so a plain slice is safe.
+	NonText []NonTextEntry
+}
+
+// NonTextEntry is one non-text artifact for the disclosure inventory — a review
+// surface, never a graded finding.
+type NonTextEntry struct {
+	Path string
+	Type string // magic label, or "ambiguous" / "binary"
+}
+
+// contentTypeLabel is the human label shown in the disclosure inventory.
+func contentTypeLabel(c Content) string {
+	if c.Magic != "" {
+		return c.Magic
+	}
+	if c.Kind == ContentAmbiguous {
+		return "ambiguous"
+	}
+	return "binary"
 }
 
 // NewEngine creates a lint engine with the selected modules.
@@ -127,6 +161,10 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		}
 	}
 
+	e.BinariesScanned.Store(0) // reset per run; populated in the classification pass
+	e.ClassifyUnreadable.Store(0)
+	e.NonText = nil
+
 	var (
 		mu       sync.Mutex
 		findings []Finding
@@ -156,6 +194,24 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 				// Non-fatal — run without cache for this file
 				content = nil
 			}
+		}
+
+		// Classify content once, centrally: text modules route on file.Content; the
+		// binary count feeds the coverage roll-up. Reuse the cache read if present,
+		// else a cheap prefix.
+		classData := content
+		if classData == nil {
+			classData = readPrefix(file.AbsPath, classifyPrefix)
+		}
+		if classData == nil && file.Size > 0 {
+			// Non-empty file we couldn't read to classify: fail OPEN (→ text, so checks
+			// still run) but record it so environmental breakage stays visible.
+			e.ClassifyUnreadable.Add(1)
+		}
+		file.Content = classifyContent(classData)
+		if !file.Content.IsText() {
+			e.BinariesScanned.Add(1)
+			e.NonText = append(e.NonText, NonTextEntry{Path: file.Path, Type: contentTypeLabel(file.Content)})
 		}
 
 		for mi, mod := range e.Modules {
@@ -265,6 +321,23 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 	}
 
 	return findings, modStats, nil
+}
+
+// readPrefix reads up to n bytes from the head of a file for content classification —
+// cheap and enough for magic/encoding heuristics. Returns nil (→ treated as text) when
+// unreadable, so an unreadable file is never silently misrouted as binary.
+func readPrefix(path string, n int) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	buf := make([]byte, n)
+	got, err := io.ReadFull(f, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil
+	}
+	return buf[:got]
 }
 
 // CollectFiles walks the root directory and returns FileInfo for all regular files.

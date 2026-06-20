@@ -21,7 +21,7 @@ func matchGlob(pattern, path string) bool {
 
 	// Split at the first "**".
 	idx := strings.Index(pattern, "**")
-	prefix := pattern[:idx]               // everything before **
+	prefix := pattern[:idx]                          // everything before **
 	suffix := strings.TrimLeft(pattern[idx+2:], "/") // everything after **/
 
 	// The prefix (before **) must match the start of path.

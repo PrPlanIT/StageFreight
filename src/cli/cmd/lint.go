@@ -3,14 +3,17 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -179,8 +182,18 @@ func runLint(cmd *cobra.Command, args []string) error {
 	sec.Separator()
 	sec.Row("%-16s%5d   %5d   %d findings (%d critical)",
 		"total", totalFiles, totalCached, len(findings), critical)
+	if u := engine.ClassifyUnreadable.Load(); u > 0 {
+		sec.Row("%-16s%d unreadable (failed open → text)", "classify", u)
+	}
 	sec.Close()
 	output.SectionEnd(w, "sf_lint")
+
+	// ── Non-text disclosure (ungraded review surface — NEVER a finding) ──
+	// The "HI, I'm a non-text blob — confirm I'm deliberate" surface: visible and
+	// auditable without polluting the finding stream with false INFO/WARN/CRIT. Capped
+	// inline for scale; the full list is always written to an artifact so "what non-text
+	// appeared since last run" becomes diffable.
+	renderNonTextDisclosure(w, engine.NonText, countModule(findings, "content"), color)
 
 	// ── Findings section (only when findings > 0) ──
 	if len(findings) > 0 {
@@ -208,4 +221,56 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// renderNonTextDisclosure prints the ungraded non-text inventory — the "validate these
+// are deliberate" review surface — and always writes the full list to an artifact so it
+// is diffable across runs. It is NOT a finding: no INFO/WARN/CRIT, so it can never
+// become false-positive noise. Inline output is capped for scale.
+func renderNonTextDisclosure(w io.Writer, nonText []lint.NonTextEntry, anomalies int, color bool) {
+	if len(nonText) == 0 {
+		return
+	}
+	writeNonTextArtifact(nonText)
+
+	output.SectionStart(w, "sf_nontext", "non-text artifacts")
+	sec := output.NewSection(w, "non-text artifacts (validate these are deliberate)", 0, color)
+	const inlineCap = 10
+	for i, e := range nonText {
+		if i >= inlineCap {
+			break
+		}
+		sec.Row("%-44s %s", e.Path, e.Type)
+	}
+	if len(nonText) > inlineCap {
+		sec.Row("… +%d more → .stagefreight/reports/non-text.txt", len(nonText)-inlineCap)
+	}
+	sec.Separator()
+	sec.Row("%d files · %d anomalies", len(nonText), anomalies)
+	sec.Close()
+	output.SectionEnd(w, "sf_nontext")
+}
+
+// writeNonTextArtifact persists the full non-text inventory for diffing across runs —
+// the high-signal event is "what non-text APPEARED", not "non-text exists".
+func writeNonTextArtifact(nonText []lint.NonTextEntry) {
+	const dir = ".stagefreight/reports"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	var b strings.Builder
+	for _, e := range nonText {
+		fmt.Fprintf(&b, "%s\t%s\n", e.Path, e.Type)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "non-text.txt"), []byte(b.String()), 0o644)
+}
+
+func countModule(findings []lint.Finding, module string) int {
+	n := 0
+	for _, f := range findings {
+		if f.Module == module {
+			n++
+		}
+	}
+	return n
 }

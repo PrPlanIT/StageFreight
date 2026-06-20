@@ -26,7 +26,7 @@ type linecountModule struct {
 	cfg linecountConfig
 }
 
-func (m *linecountModule) Name() string        { return "linecount" }
+func (m *linecountModule) Name() string         { return "linecount" }
 func (m *linecountModule) DefaultEnabled() bool { return true }
 func (m *linecountModule) AutoDetect() []string { return nil }
 

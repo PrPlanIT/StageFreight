@@ -14,11 +14,15 @@ func init() {
 
 type lineEndingsModule struct{}
 
-func (m *lineEndingsModule) Name() string        { return "lineendings" }
+func (m *lineEndingsModule) Name() string         { return "lineendings" }
 func (m *lineEndingsModule) DefaultEnabled() bool { return true }
 func (m *lineEndingsModule) AutoDetect() []string { return nil }
 
 func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
+	// Text-oriented module: line-ending semantics are meaningless on binary content.
+	if !file.Content.IsText() {
+		return nil, nil
+	}
 	data, err := os.ReadFile(file.AbsPath)
 	if err != nil {
 		return nil, err
