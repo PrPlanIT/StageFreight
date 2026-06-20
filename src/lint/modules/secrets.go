@@ -58,11 +58,28 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 			File:     file.Path,
 			Line:     h.StartLine + 1, // gitleaks is 0-indexed
 			Module:   m.Name(),
-			Severity: lint.SeverityCritical,
+			Severity: secretSeverity(h.RuleID, h.Entropy),
 			Message:  h.Description + " (" + h.RuleID + ")",
 		})
 	}
 	return findings, nil
+}
+
+// genericKeyCriticalEntropy is the entropy a generic-api-key match must clear to gate CI
+// as critical. gitleaks' default floor (~3.5) is permissive enough to catch hex constants
+// and magic numbers (a CPUID 0x68747541 vendor tag reads at ~3.52); real random
+// credentials run 4.5+. Below this, the match is weak evidence → surfaced, not blocking.
+const genericKeyCriticalEntropy = 4.5
+
+// secretSeverity calibrates to detector confidence. A SPECIFIC provider rule (aws, github,
+// stripe, …) is a high-confidence credential match → critical. The catch-all
+// generic-api-key is an entropy HEURISTIC: only a genuinely high-entropy hit is critical;
+// a weak one is a warning (visible and reviewable, but it does not fail CI on a guess).
+func secretSeverity(ruleID string, entropy float32) lint.Severity {
+	if ruleID == "generic-api-key" && entropy < genericKeyCriticalEntropy {
+		return lint.SeverityWarning
+	}
+	return lint.SeverityCritical
 }
 
 // isLockfileIntegrityLine reports whether a line is a lockfile's structural integrity /
