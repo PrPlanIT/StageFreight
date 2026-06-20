@@ -165,7 +165,7 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 		if warm {
 			state = "warm (reused)"
 		}
-		rows = append(rows, fmt.Sprintf("%-9s cache %s · %s", "binary", filepath.Dir(gomod), state))
+		rows = append(rows, fmt.Sprintf("%-9s cache %s · %s", "binary", toolchain.CacheRoot(), state))
 	}
 
 	for i := range b.steps {

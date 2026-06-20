@@ -39,28 +39,75 @@ func InstallRoot(rootDir string) string {
 	return filepath.Join(rootDir, cacheSubdir)
 }
 
-// GoCacheDirs returns absolute GOMODCACHE and GOCACHE paths on the persistent
-// runner mount, creating them, so a binary build reuses downloaded modules and
-// compiled packages across CI jobs instead of paying the full cold-cache cost
-// (module download + cross-compile, 170s+) every run. The Dockerfile reserves
-// /stagefreight/cache for exactly this ("mount a volume here for cross-run
-// reuse"); the container filesystem and the git workspace are both ephemeral.
-//
-// Returns ("", "") when the mount is absent or unwritable (local dev), which
-// signals the caller to leave Go's default $HOME-based caches untouched — those
-// already persist across local runs.
-func GoCacheDirs() (gomod, gocache string) {
-	root := filepath.Join(persistentRoot, "..", "cache") // /stagefreight/cache
-	if !ensureWritableDir(root) {
-		return "", ""
-	}
-	gomod = filepath.Join(root, "go-mod")
-	gocache = filepath.Join(root, "go-build")
-	if os.MkdirAll(gomod, 0o755) != nil || os.MkdirAll(gocache, 0o755) != nil {
-		return "", ""
-	}
-	return gomod, gocache
+// CacheRoot is the persistent build-cache mount root (/stagefreight/cache), a sibling
+// of the toolchains root. Path only — side-effect-free, for display. The Dockerfile
+// reserves this mount for cross-run reuse; the container filesystem and the git
+// workspace are both ephemeral.
+func CacheRoot() string {
+	return filepath.Join(persistentRoot, "..", "cache")
 }
+
+// ensureCacheRoot returns the cache root once writable, creating it and dropping the
+// layout doc on first use — or "" when the mount is unavailable (local dev).
+func ensureCacheRoot() string {
+	root := CacheRoot()
+	if !ensureWritableDir(root) {
+		return ""
+	}
+	writeCacheReadme(root)
+	return root
+}
+
+// cacheDir returns <CacheRoot>/<elem...>, created — or "" when the mount is
+// unavailable. The single place that resolves the root, joins, and mkdirs; every cache
+// path flows through it, so each public accessor declares ONLY its own subdir names
+// (the irreducible layout) with no repeated plumbing.
+func cacheDir(elem ...string) string {
+	root := ensureCacheRoot()
+	if root == "" {
+		return ""
+	}
+	dir := filepath.Join(append([]string{root}, elem...)...)
+	if os.MkdirAll(dir, 0o755) != nil {
+		return ""
+	}
+	return dir
+}
+
+// GoCacheDirs returns the persistent GOMODCACHE (go/downloads) and GOCACHE (go/build),
+// so a build reuses downloaded modules and compiled packages across CI jobs instead of
+// paying the full cold-cache cost every run. ("", "") on local dev (no mount) leaves
+// Go's default $HOME caches untouched.
+func GoCacheDirs() (gomod, gocache string) {
+	return cacheDir("go", "downloads"), cacheDir("go", "build")
+}
+
+// writeCacheReadme drops a README at the cache root so an operator browsing the mount
+// knows what each directory is — and that any of it is safe to delete (forcing a
+// one-time cold rebuild). Written once, never overwritten. Lives in the MOUNT, not the
+// repo: documenting the volume in place means the repo needs no doc for it.
+func writeCacheReadme(root string) {
+	path := filepath.Join(root, "README.md")
+	if _, err := os.Stat(path); err == nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(cacheReadme), 0o644)
+}
+
+const cacheReadme = `# StageFreight build caches
+
+Persistent caches reused across CI runs (this mount is supplied empty each job).
+Deleting any subdirectory is safe — it only forces a one-time cold rebuild.
+
+  go/downloads        Go module downloads (GOMODCACHE)
+  go/build            Go compiled-package cache (GOCACHE)
+  rust/downloads      Rust crate sources + registry index (CARGO_HOME)
+  rust/build/<proj>   Rust compiled artifacts (CARGO_TARGET_DIR), per project
+  substrate/apk       Native build packages (cc, cmake, perl, git, ...)
+
+NOT here: dependency-update results live in the repo at .stagefreight/deps
+(a per-run, committed report) — unrelated to these download caches.
+`
 
 // CacheBinPathIn returns the binary path for a tool within a specific cache root.
 func CacheBinPathIn(root, tool, version, binary string) string {

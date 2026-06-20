@@ -2,6 +2,8 @@ package engines
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,18 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
+
+// cargoProjectKey derives a stable, readable per-project key for the persistent
+// CARGO_TARGET_DIR from the manifest dir (basename for readability + an absolute-path
+// hash for uniqueness). Stable across runs because CI checks out at a fixed path.
+func cargoProjectKey(manifestDir string) string {
+	abs, err := filepath.Abs(manifestDir)
+	if err != nil {
+		abs = manifestDir
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Base(abs) + "-" + hex.EncodeToString(sum[:])[:8]
+}
 
 // EngineRust is the dispatch key for the Rust (cargo) binary engine, sibling to
 // binary-go under the generic binary contributor.
@@ -152,6 +166,10 @@ func (e *rustEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 		Args:        meta.Args,
 		Env:         env,
 		CargoBin:    res.Path,
+		// Persist the compiled target/ across runs (per project) — the Rust analog of
+		// GOCACHE. Deps (and their C builds) compile once; only changed local code
+		// rebuilds. Turns the cold ~14m recompile into an incremental one.
+		TargetDir: toolchain.CargoTargetDir(cargoProjectKey(meta.ManifestDir)),
 	})
 	if err != nil {
 		return nil, err

@@ -344,24 +344,21 @@ func extractTarGzTo(archivePath, destDir string) error {
 	}
 }
 
-// CargoCacheDir returns the persistent CARGO_HOME on the /stagefreight mount, or "" when
-// not writable — the Rust analog of GoCacheDirs, for cross-run registry/build reuse.
-func CargoCacheDir() string {
-	gomod, _ := GoCacheDirs()
-	if gomod == "" {
-		return ""
-	}
-	// gomod is <persistRoot>/gomodcache; place cargo home as a sibling.
-	return filepath.Join(filepath.Dir(gomod), "cargo")
-}
+// CargoCacheDir returns the persistent CARGO_HOME (rust/downloads) — crate sources +
+// registry index reused across runs, the Rust analog of GOMODCACHE. "" off-mount.
+func CargoCacheDir() string { return cacheDir("rust", "downloads") }
 
-// SubstrateCacheDir returns the persistent apk package-cache root on the /stagefreight
-// mount (sibling to the toolchain/cargo caches), or "" when not writable — so native
-// build-substrate realization is download-once, offline-after-first like the rest.
-func SubstrateCacheDir() string {
-	gomod, _ := GoCacheDirs()
-	if gomod == "" {
+// SubstrateCacheDir returns the persistent apk package cache (substrate/apk) — so
+// native build-substrate realization is download-once, offline-after-first. "" off-mount.
+func SubstrateCacheDir() string { return cacheDir("substrate", "apk") }
+
+// CargoTargetDir returns a persistent, per-project CARGO_TARGET_DIR (rust/build/<key>),
+// the Rust analog of GOCACHE: dependency crates (and their C build outputs, e.g.
+// aws-lc) compile once and are reused — only changed local code rebuilds. Keyed PER
+// PROJECT so concurrent builds don't contend on cargo's target lock. "" off-mount.
+func CargoTargetDir(key string) string {
+	if key == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(gomod), "substrate", "apk-cache")
+	return cacheDir("rust", "build", key)
 }
