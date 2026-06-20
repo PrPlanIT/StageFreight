@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -74,12 +75,77 @@ func (m *freshnessModule) checkCargo(ctx context.Context, file lint.FileInfo) ([
 		})
 	}
 
+	// Reconcile against the resolved lockfile. A committed Cargo.lock is the version that
+	// actually ships, so currency and CVE correlation must be assessed against it — not the
+	// Cargo.toml constraint floor. A loose `tar = "0.4"` pin locked to a patched 0.4.46 is
+	// NOT vulnerable; flagging it would be a false critical that blocks CI on a fix that is
+	// already present. The manifest line is still where we report; only the assessed version
+	// changes. No lock (a library) → keep the declared constraint (intent).
+	// (The lock lives at the workspace root, possibly several dirs above a member crate's
+	// Cargo.toml, so we walk up to find it.)
+	if locked := loadCargoLockVersions(findNearestFile(filepath.Dir(file.AbsPath), "Cargo.lock")); locked != nil {
+		for i := range deps {
+			if vers := locked[deps[i].Name]; len(vers) > 0 {
+				if resolved := latestEligibleSemver(deps[i].Current, vers); resolved != "" {
+					deps[i].Current = resolved
+				}
+			}
+		}
+	}
+
 	// Resolve latest versions
 	for i := range deps {
 		m.resolveCrate(ctx, &deps[i])
 	}
 
 	return deps, nil
+}
+
+// loadCargoLockVersions parses a Cargo.lock into name → resolved versions (a crate can
+// appear at several versions; the caller picks the one matching each manifest constraint).
+// Returns nil if the lock is absent or unparseable — callers then keep the manifest pin.
+func loadCargoLockVersions(path string) map[string][]string {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var lock struct {
+		Package []struct {
+			Name    string `toml:"name"`
+			Version string `toml:"version"`
+		} `toml:"package"`
+	}
+	if err := toml.Unmarshal(data, &lock); err != nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, p := range lock.Package {
+		if p.Name != "" && p.Version != "" {
+			out[p.Name] = append(out[p.Name], p.Version)
+		}
+	}
+	return out
+}
+
+// findNearestFile walks up from startDir looking for `name` (a member crate's Cargo.toml
+// sits below the workspace-root Cargo.lock). Returns "" if not found within a bounded walk.
+func findNearestFile(startDir, name string) string {
+	dir := startDir
+	for i := 0; i < 16; i++ {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // extractCargoVersion handles both "1.0" and {version = "1.0"} dependency specs.
