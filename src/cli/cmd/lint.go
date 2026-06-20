@@ -225,6 +225,16 @@ func runLint(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Slice B — findings newly introduced relative to the baseline (by fingerprint).
+	var newFindingFp map[string]bool
+	if baseline != nil {
+		if nf, derr := baseline.NewFindings(findings, cfg.Lint, rootDir, cache); derr == nil {
+			newFindingFp = nf
+		} else if verbose {
+			fmt.Fprintf(os.Stderr, "baseline: finding diff failed: %v\n", derr)
+		}
+	}
+
 	renderNonTextDisclosure(w, engine.NonText, countModule(findings, "content"), newNonText, baseLabel, color)
 
 	// ── Provenance disclosure (ungraded; authored-hygiene relaxed, security intact) ──
@@ -239,6 +249,15 @@ func runLint(cmd *cobra.Command, args []string) error {
 		output.SectionFindings(fSec, findings, color)
 		fSec.Separator()
 		fSec.Row("%s", output.FindingsSummaryLine(len(findings), critical, warning, info, len(files), color))
+		if baseLabel != "" {
+			newCount := 0
+			for _, f := range findings {
+				if newFindingFp[f.Fingerprint()] {
+					newCount++
+				}
+			}
+			fSec.Row("%d new since %s (rest pre-existing or moved)", newCount, baseLabel)
+		}
 		fSec.Close()
 		output.SectionEnd(w, "sf_findings")
 	}
