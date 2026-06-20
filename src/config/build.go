@@ -52,6 +52,11 @@ type BuildConfig struct {
 	// Cache holds build cache settings.
 	Cache CacheConfig `yaml:"cache,omitempty"`
 
+	// Stage recycles a binary build's output into this docker build's context before
+	// buildx, so a copy-pre-built Dockerfile (COPY <name>) resolves — the compiled
+	// binary is reused, not recompiled inside the image.
+	Stage *StageConfig `yaml:"stage,omitempty"`
+
 	// ── kind: binary ──────────────────────────────────────────────────────
 	// Generic build schema: builder selects toolchain, args are raw vendor-native
 	// arguments passed directly to the builder's command. No language-specific
@@ -93,6 +98,15 @@ type CrucibleConfig struct {
 	// ToolchainImage is the pinned container image for pass-2 verification.
 	// e.g., "docker.io/library/golang:1.24-alpine"
 	ToolchainImage string `yaml:"toolchain_image,omitempty"`
+}
+
+// StageConfig wires a binary build's output into a docker build's context. From names
+// the binary build (its id); As is the destination path within the context, with
+// {arch}/{os} placeholders substituted using Docker's naming (e.g. "app-{arch}" →
+// "app-amd64") so a multi-arch copy-pre-built Dockerfile resolves per platform.
+type StageConfig struct {
+	From string `yaml:"from"`
+	As   string `yaml:"as"`
 }
 
 // IsRequired returns whether build failure is a hard pipeline fail. Default: true.

@@ -185,6 +185,9 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			if len(b.BuildArgs) > 0 {
 				errs = append(errs, fmt.Sprintf("%s: build_args is not valid for kind binary (use args)", bpath))
 			}
+			if b.Stage != nil {
+				errs = append(errs, fmt.Sprintf("%s: stage is not valid for kind binary (it recycles a binary into a docker build)", bpath))
+			}
 		}
 
 		// Docker-only: binary fields should not be set
@@ -200,6 +203,14 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			}
 			if len(b.Env) > 0 {
 				errs = append(errs, fmt.Sprintf("%s: env is not valid for kind docker", bpath))
+			}
+			if b.Stage != nil {
+				if b.Stage.From == "" {
+					errs = append(errs, fmt.Sprintf("%s: stage requires from (the binary build id to recycle)", bpath))
+				}
+				if b.Stage.As == "" {
+					errs = append(errs, fmt.Sprintf("%s: stage requires as (the context path, e.g. \"app-{arch}\")", bpath))
+				}
 			}
 		}
 
@@ -219,6 +230,9 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			if b.DependsOn == b.ID {
 				errs = append(errs, fmt.Sprintf("%s: depends_on cannot reference itself", bpath))
 			}
+		}
+		if b.Stage != nil && b.Stage.From != "" && !buildIDs[b.Stage.From] {
+			errs = append(errs, fmt.Sprintf("builds[%d]: stage.from references unknown build %q", i, b.Stage.From))
 		}
 	}
 

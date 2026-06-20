@@ -165,6 +165,12 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 	retainViaCAS := rc.Store != nil && rc.Store.RequiresOCIExport()
 	applyImageBuildStrategy(c.plan, transport, rc.Local, retainViaCAS)
 
+	// Recycle binaries from earlier binary builds into the docker context (copy-pre-
+	// built Dockerfiles) before buildx runs. Binary builds (Order 10) have completed.
+	if err := stageBuildBinaries(rc); err != nil {
+		return domains.Contribution{}, err
+	}
+
 	// The buildx builder must exist before executeBuildPass (which does not
 	// ensure it). The backend resolves the post-build retention path (buildkit
 	// prune vs local); a failed resolve leaves it nil and runPostBuildRetention

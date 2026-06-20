@@ -200,7 +200,7 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 				Name:    artifactName,
 				Version: b.version.Version,
 				Binary: &artifact.BinaryDescriptor{
-					OS: step.Target.OS, Arch: step.Target.Arch, Path: out.Path, Toolchain: toolchainID,
+					OS: step.Target.OS, Arch: step.Target.Arch, Path: out.Path, Toolchain: toolchainID, BuildID: step.BuildID,
 				},
 			})
 			rc.RB.Record(artifactID, artifact.Outcome{

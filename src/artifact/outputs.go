@@ -143,6 +143,7 @@ type BinaryDescriptor struct {
 	Arch      string `json:"arch"`
 	Path      string `json:"path"`
 	Toolchain string `json:"toolchain,omitempty"`
+	BuildID   string `json:"build_id,omitempty"` // the build that produced it; lets a docker build stage from it
 }
 
 // ArchiveDescriptor describes a packaged archive artifact. Plan-time intent
