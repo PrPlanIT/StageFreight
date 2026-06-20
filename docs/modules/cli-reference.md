@@ -1155,6 +1155,7 @@ Modules run in parallel and results are cached by content hash.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--all` | bool | — | scan all files (shorthand for --level full) |
+| `--fix-safe` | bool | — | auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files |
 | `--level` | string | — | scan level: changed or full (default: from config, then changed) |
 | `--module` | stringSlice | — | run only these modules (comma-separated) |
 | `--no-cache` | bool | — | disable cache (clear and rescan) |

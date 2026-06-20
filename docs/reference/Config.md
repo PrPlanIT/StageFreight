@@ -475,6 +475,8 @@ Linting configuration. Controls scan mode, module toggles, and per-module option
 | `modules` | `modules` | map[string]object | Yes | — | Per-module configuration. Keys: tabs, secrets, conflicts, filesize, linecount, unicode, yaml, lineendings, freshness. |
 | `generated` | `provenance.generated` | []string | No | — | []string value |
 | `vendored` | `provenance.vendored` | []string | No | — | []string value |
+| `trailing_whitespace` | `remediation.trailing_whitespace` | bool | No | — | bool value |
+| `final_newline` | `remediation.final_newline` | bool | No | — | bool value |
 | `max_age` | `cache.max_age` | string | No | — | string value |
 | `max_size` | `cache.max_size` | string | No | — | string value |
 
