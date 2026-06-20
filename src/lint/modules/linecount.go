@@ -58,6 +58,11 @@ func (m *linecountModule) Check(ctx context.Context, file lint.FileInfo) ([]lint
 	if !file.Content.IsText() {
 		return nil, nil
 	}
+	// Authored-code hygiene: a generated 6030-line tailwind.css or a lockfile isn't
+	// something a human refactors for length. Stand down on non-authored content.
+	if file.Provenance.RelaxHygiene() {
+		return nil, nil
+	}
 	data, err := os.ReadFile(file.AbsPath)
 	if err != nil {
 		return nil, err

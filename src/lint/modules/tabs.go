@@ -32,6 +32,11 @@ var yamlTemplateSuffixes = []string{
 }
 
 func (m *tabsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
+	// Authored-code hygiene: stand down on generated/vendored/lockfile content — nobody
+	// hand-maintains indentation there. Security/supply-chain modules ignore provenance.
+	if file.Provenance.RelaxHygiene() {
+		return nil, nil
+	}
 	if !m.tabsForbidden(file.Path) {
 		return nil, nil
 	}

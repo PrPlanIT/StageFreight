@@ -44,6 +44,11 @@ type Engine struct {
 	// ungraded "validate these are deliberate" review surface (NOT findings). Populated
 	// in the sequential classification pass, so a plain slice is safe.
 	NonText []NonTextEntry
+
+	// NonAuthored is the provenance disclosure: generated/vendored/lockfile files this
+	// run. Authored-code hygiene was relaxed for them, but they stay visible — and every
+	// security/supply-chain module still ran. Populated in the sequential pass.
+	NonAuthored []ProvenanceEntry
 }
 
 // NonTextEntry is one non-text artifact for the disclosure inventory — a review
@@ -51,6 +56,13 @@ type Engine struct {
 type NonTextEntry struct {
 	Path string
 	Type string // magic label, or "ambiguous" / "binary"
+}
+
+// ProvenanceEntry is one non-authored file for the provenance disclosure roll-up.
+type ProvenanceEntry struct {
+	Path   string
+	Kind   string // "generated" | "vendored" | "lockfile"
+	Source string // evidence: "config", "marker", "lockfile:Cargo.lock", …
 }
 
 // contentTypeLabel is the human label shown in the disclosure inventory.
@@ -164,6 +176,15 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 	e.BinariesScanned.Store(0) // reset per run; populated in the classification pass
 	e.ClassifyUnreadable.Store(0)
 	e.NonText = nil
+	e.NonAuthored = nil
+
+	// Provenance needs a whole-set pre-pass: a vendor marker in one file marks its entire
+	// directory vendored, so every file beneath inherits it. Derive the roots once.
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.Path
+	}
+	vendoredRoots := deriveVendoredRoots(paths)
 
 	var (
 		mu       sync.Mutex
@@ -212,6 +233,15 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		if !file.Content.IsText() {
 			e.BinariesScanned.Add(1)
 			e.NonText = append(e.NonText, NonTextEntry{Path: file.Path, Type: contentTypeLabel(file.Content)})
+		}
+
+		// Classify provenance (fail-closed to authored). Hygiene modules route on it;
+		// security/supply-chain modules ignore it. Non-authored files are disclosed.
+		file.Provenance = classifyProvenance(file.Path, classData, e.Config.Provenance, vendoredRoots)
+		if !file.Provenance.IsAuthored() {
+			e.NonAuthored = append(e.NonAuthored, ProvenanceEntry{
+				Path: file.Path, Kind: file.Provenance.Kind.String(), Source: file.Provenance.Source,
+			})
 		}
 
 		for mi, mod := range e.Modules {

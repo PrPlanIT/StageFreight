@@ -23,7 +23,18 @@ type LintConfig struct {
 	TargetBranch string                  `yaml:"target_branch"`
 	Exclude      []string                `yaml:"exclude"`
 	Modules      map[string]ModuleConfig `yaml:"modules"`
+	Provenance   ProvenanceConfig        `yaml:"provenance,omitempty"`
 	Cache        LintCacheConfig         `yaml:"cache,omitempty"`
+}
+
+// ProvenanceConfig lets a project DECLARE file provenance that can't be inferred from
+// bytes or paths (e.g. a build's CSS output). Declarations are the highest-confidence
+// provenance signal — they outrank heuristics — because only the project knows its own
+// build. Globs match the repo-relative path. Provenance only ever RELAXES authored-code
+// hygiene (whitespace/line-endings/length); security and supply-chain checks ignore it.
+type ProvenanceConfig struct {
+	Generated []string `yaml:"generated,omitempty"`
+	Vendored  []string `yaml:"vendored,omitempty"`
 }
 
 // LintCacheConfig controls lint result cache lifecycle.

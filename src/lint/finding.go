@@ -42,4 +42,8 @@ type FileInfo struct {
 	AbsPath string // absolute path on disk
 	Size    int64
 	Content Content
+	// Provenance is the centrally-computed origin label (authored/generated/vendored/
+	// lockfile). Authored-hygiene modules relax on non-authored; security and
+	// supply-chain modules ignore it. Zero value is authored (full scrutiny).
+	Provenance Provenance
 }

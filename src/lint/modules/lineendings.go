@@ -23,6 +23,11 @@ func (m *lineEndingsModule) Check(ctx context.Context, file lint.FileInfo) ([]li
 	if !file.Content.IsText() {
 		return nil, nil
 	}
+	// Authored-code hygiene: stand down on generated/vendored/lockfile content — the
+	// vendored rqlite-rs crate's CRLF is the vendor's, not ours to nag about.
+	if file.Provenance.RelaxHygiene() {
+		return nil, nil
+	}
 	data, err := os.ReadFile(file.AbsPath)
 	if err != nil {
 		return nil, err

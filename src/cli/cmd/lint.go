@@ -195,6 +195,11 @@ func runLint(cmd *cobra.Command, args []string) error {
 	// appeared since last run" becomes diffable.
 	renderNonTextDisclosure(w, engine.NonText, countModule(findings, "content"), color)
 
+	// ── Provenance disclosure (ungraded; authored-hygiene relaxed, security intact) ──
+	// Generated/vendored/lockfile files stay visible — we just didn't nag their
+	// whitespace/length. Every secrets/CVE/concealment check still ran on them.
+	renderProvenanceDisclosure(w, engine.NonAuthored, color)
+
 	// ── Findings section (only when findings > 0) ──
 	if len(findings) > 0 {
 		output.SectionStart(w, "sf_findings", "Findings")
@@ -249,6 +254,47 @@ func renderNonTextDisclosure(w io.Writer, nonText []lint.NonTextEntry, anomalies
 	sec.Row("%d files · %d anomalies", len(nonText), anomalies)
 	sec.Close()
 	output.SectionEnd(w, "sf_nontext")
+}
+
+// renderProvenanceDisclosure prints the ungraded provenance roll-up: the
+// generated/vendored/lockfile files whose authored-code hygiene was relaxed. It is NOT a
+// finding — provenance is descriptive, never severity-bearing. The point is visibility:
+// these files were seen and routed, not silently dropped, and every security/supply-chain
+// module still ran on them. Grouped by kind, sample paths capped for scale.
+func renderProvenanceDisclosure(w io.Writer, entries []lint.ProvenanceEntry, color bool) {
+	if len(entries) == 0 {
+		return
+	}
+	byKind := map[string][]lint.ProvenanceEntry{}
+	for _, e := range entries {
+		byKind[e.Kind] = append(byKind[e.Kind], e)
+	}
+
+	output.SectionStart(w, "sf_provenance", "provenance")
+	sec := output.NewSection(w, "provenance (authored-hygiene relaxed; secrets/CVE/concealment still ran)", 0, color)
+	const inlineCap = 6
+	for _, kind := range []string{"lockfile", "vendored", "generated"} {
+		g := byKind[kind]
+		if len(g) == 0 {
+			continue
+		}
+		sample := make([]string, 0, inlineCap)
+		for i, e := range g {
+			if i >= inlineCap {
+				break
+			}
+			sample = append(sample, e.Path)
+		}
+		suffix := strings.Join(sample, ", ")
+		if len(g) > inlineCap {
+			suffix = fmt.Sprintf("%s …(+%d)", suffix, len(g)-inlineCap)
+		}
+		sec.Row("  %-10s ×%-4d %s", kind, len(g), suffix)
+	}
+	sec.Separator()
+	sec.Row("%d files · authored-hygiene relaxed (security checks unaffected)", len(entries))
+	sec.Close()
+	output.SectionEnd(w, "sf_provenance")
 }
 
 // writeNonTextArtifact persists the full non-text inventory for diffing across runs —
