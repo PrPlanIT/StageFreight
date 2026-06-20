@@ -10,8 +10,8 @@ import (
 type RemediationSummary struct {
 	FilesChanged int
 	EditsApplied int
-	Skipped      int            // edits skipped as out-of-range or overlapping (safety)
-	Stale        int            // edits skipped because the file no longer holds Expected
+	Skipped      int            // edits skipped as overlapping within an otherwise-applied file
+	Drifted      int            // files skipped ENTIRELY because content changed since the scan
 	ByKind       map[string]int // applied edits per Kind
 }
 
@@ -22,16 +22,20 @@ type RemediationSummary struct {
 // hygiene modules never run on generated/vendored/lockfile content, no Fix exists for
 // those files, so remediation is provenance-gated by construction.
 //
-// Two safety properties beyond the span itself:
-//   - Compare-and-swap: an edit applies ONLY if the file still holds its Expected bytes,
-//     so a stale finding against a since-changed file is skipped, never misapplied.
+// Three safety properties beyond the span itself:
+//   - Compare-and-swap, transactional per file: every edit's Expected is verified against
+//     the on-disk bytes BEFORE anything is written. If ANY span has drifted (content
+//     changed, file shrank), the whole file is left untouched — a drifted file is never
+//     partially remediated into a confusing mixed state. This makes the file-level
+//     drift guard fall out of the per-span CAS: any change since the scan trips it.
 //   - Atomic write: each file is replaced via a temp file + fsync + rename, so a crash or
 //     full disk mid-write can never leave a half-written (corrupted) source file.
+//   - dryRun: validate and count exactly what WOULD change, writing nothing.
 //
-// Edits to a file are applied high offset → low so earlier edits never shift later ones;
-// overlapping or out-of-range spans are skipped rather than risked. Provide rootDir so
-// relative finding paths resolve; file permissions are preserved.
-func ApplyRemediations(findings []Finding, rootDir string, enabled map[string]bool) (RemediationSummary, error) {
+// Within a non-drifted file, edits apply high offset → low so earlier edits never shift
+// later ones; overlapping spans are skipped individually. Provide rootDir so relative
+// finding paths resolve; file permissions are preserved.
+func ApplyRemediations(findings []Finding, rootDir string, enabled map[string]bool, dryRun bool) (RemediationSummary, error) {
 	type edit struct {
 		start, end     int
 		expected, repl string
@@ -65,18 +69,29 @@ func ApplyRemediations(findings []Finding, rootDir string, enabled map[string]bo
 		}
 
 		edits := byFile[file]
-		sort.Slice(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
 
+		// Phase 1 — drift gate (transactional): every edit's Expected must still match the
+		// on-disk bytes. If any has drifted, the file changed since the scan; touch nothing.
+		drifted := false
+		for _, e := range edits {
+			if e.start < 0 || e.start > e.end || e.end > len(data) || string(data[e.start:e.end]) != e.expected {
+				drifted = true
+				break
+			}
+		}
+		if drifted {
+			sum.Drifted++
+			continue
+		}
+
+		// Phase 2 — apply high → low so offsets stay valid; overlaps skip individually.
+		sort.Slice(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
 		out := data
 		applied := 0
-		lastStart := len(data) + 1 // upper bound; each edit must end at or before this
+		lastStart := len(data) + 1
 		for _, e := range edits {
-			if e.start < 0 || e.start > e.end || e.end > len(out) || e.end > lastStart {
-				sum.Skipped++ // out of range or overlaps a higher edit — never guess
-				continue
-			}
-			if string(out[e.start:e.end]) != e.expected {
-				sum.Stale++ // file no longer holds the reported bytes — compare-and-swap fails
+			if e.end > lastStart { // overlaps a higher edit already applied
+				sum.Skipped++
 				continue
 			}
 			out = append(out[:e.start:e.start], append([]byte(e.repl), out[e.end:]...)...)
@@ -86,8 +101,10 @@ func ApplyRemediations(findings []Finding, rootDir string, enabled map[string]bo
 		}
 
 		if applied > 0 {
-			if err := atomicWrite(abs, out, info.Mode().Perm()); err != nil {
-				return sum, err
+			if !dryRun {
+				if err := atomicWrite(abs, out, info.Mode().Perm()); err != nil {
+					return sum, err
+				}
 			}
 			sum.FilesChanged++
 			sum.EditsApplied += applied

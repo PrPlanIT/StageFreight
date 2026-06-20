@@ -23,6 +23,7 @@ var (
 	lintNoCache  bool
 	lintAll      bool
 	lintFixSafe  bool
+	lintDryRun   bool
 )
 
 var lintCmd = &cobra.Command{
@@ -44,6 +45,7 @@ func init() {
 	lintCmd.Flags().BoolVar(&lintNoCache, "no-cache", false, "disable cache (clear and rescan)")
 	lintCmd.Flags().BoolVar(&lintAll, "all", false, "scan all files (shorthand for --level full)")
 	lintCmd.Flags().BoolVar(&lintFixSafe, "fix-safe", false, "auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files")
+	lintCmd.Flags().BoolVar(&lintDryRun, "dry-run", false, "with --fix-safe: preview what would change without writing")
 
 	rootCmd.AddCommand(lintCmd)
 }
@@ -224,11 +226,11 @@ func runLint(cmd *cobra.Command, args []string) error {
 			"trailing-whitespace": on(rc.TrailingWhitespace),
 			"final-newline":       on(rc.FinalNewline),
 		}
-		sum, ferr := lint.ApplyRemediations(findings, rootDir, enabled)
+		sum, ferr := lint.ApplyRemediations(findings, rootDir, enabled, lintDryRun)
 		if ferr != nil {
 			fmt.Fprintf(os.Stderr, "fix-safe: %v\n", ferr)
 		} else {
-			renderRemediationSummary(w, sum, color)
+			renderRemediationSummary(w, sum, lintDryRun, color)
 		}
 	}
 
@@ -249,11 +251,17 @@ func runLint(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// renderRemediationSummary reports what --fix-safe changed. The findings shown above are
-// pre-fix; a re-run confirms the reduced count.
-func renderRemediationSummary(w io.Writer, sum lint.RemediationSummary, color bool) {
+// renderRemediationSummary reports what --fix-safe changed (or, under --dry-run, would
+// change). The findings shown above are pre-fix; a re-run confirms the reduced count.
+func renderRemediationSummary(w io.Writer, sum lint.RemediationSummary, dryRun, color bool) {
+	title := "fix-safe (authored files only — re-run lint to confirm)"
+	verb := "edits across"
+	if dryRun {
+		title = "fix-safe --dry-run (preview — nothing written)"
+		verb = "edits would change"
+	}
 	output.SectionStart(w, "sf_fixsafe", "fix-safe")
-	sec := output.NewSection(w, "fix-safe (authored files only — re-run lint to confirm)", 0, color)
+	sec := output.NewSection(w, title, 0, color)
 	if sum.EditsApplied == 0 {
 		sec.Row("no auto-fixable findings")
 	} else {
@@ -263,10 +271,13 @@ func renderRemediationSummary(w io.Writer, sum lint.RemediationSummary, color bo
 			}
 		}
 		sec.Separator()
-		sec.Row("%d edits across %d files", sum.EditsApplied, sum.FilesChanged)
+		sec.Row("%d %s %d files", sum.EditsApplied, verb, sum.FilesChanged)
 	}
 	if sum.Skipped > 0 {
-		sec.Row("%d edits skipped (out-of-range / overlap)", sum.Skipped)
+		sec.Row("%d edits skipped (overlap)", sum.Skipped)
+	}
+	if sum.Drifted > 0 {
+		sec.Row("%d files skipped (content changed since scan)", sum.Drifted)
 	}
 	sec.Close()
 	output.SectionEnd(w, "sf_fixsafe")
