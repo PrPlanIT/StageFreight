@@ -272,6 +272,10 @@ lint:
           enabled: true
     tabs:
       enabled: true
+    # House-style policy (default-off globally): StageFreight values output indirection
+    # through the diag/renderer boundary, so it enables direct-output on ITS OWN source.
+    direct-output:
+      enabled: true
     secrets:
       enabled: true
       exclude:

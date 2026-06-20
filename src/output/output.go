@@ -235,22 +235,103 @@ func SectionFindings(sec *Section, findings []lint.Finding, color bool) {
 			sec.Row("%s", file)
 		}
 
+		// Collapse repeated findings (same module + message + severity) into one row
+		// with compressed line ranges — "trailing whitespace ×80  lines 14, 18, 25-29".
+		// Volume shrinks; signal does not: this is presentation only. The raw findings,
+		// the critical/warning/info counts, and the JSON/JUnit outputs are unchanged.
+		type groupKey struct {
+			module, message string
+			severity        lint.Severity
+		}
+		groups := map[groupKey][]lint.Finding{}
+		order := []groupKey{}
 		for _, f := range ff {
-			var loc string
-			switch {
-			case f.Line == 0:
-				loc = "-"
-			case f.Column > 0:
-				loc = fmt.Sprintf("%d:%d", f.Line, f.Column)
-			default:
-				loc = fmt.Sprintf("%d", f.Line)
+			k := groupKey{f.Module, f.Message, f.Severity}
+			if _, seen := groups[k]; !seen {
+				order = append(order, k)
 			}
-			sev := severityTag(f.Severity, color)
-			sec.Row("  %-8s %-4s  %-10s %s", loc, sev, f.Module, f.Message)
+			groups[k] = append(groups[k], f)
+		}
+		// ff is already line-sorted, so first-appearance order is line order.
+
+		for _, k := range order {
+			g := groups[k]
+			sev := severityTag(k.severity, color)
+			if len(g) == 1 {
+				sec.Row("  %-8s %-4s  %-10s %s", findingLoc(g[0]), sev, k.module, k.message)
+				continue
+			}
+			count := fmt.Sprintf("×%d", len(g))
+			if ranges, more := compressLineRanges(g); ranges != "" {
+				suffix := ranges
+				if more > 0 {
+					suffix = fmt.Sprintf("%s …(+%d)", ranges, more)
+				}
+				sec.Row("  %-8s %-4s  %-10s %s  lines %s", count, sev, k.module, k.message, suffix)
+			} else {
+				sec.Row("  %-8s %-4s  %-10s %s", count, sev, k.module, k.message)
+			}
 		}
 
 		sec.Row("")
 	}
+}
+
+// findingLoc renders a single finding's location: "line", "line:col", or "-".
+func findingLoc(f lint.Finding) string {
+	switch {
+	case f.Line == 0:
+		return "-"
+	case f.Column > 0:
+		return fmt.Sprintf("%d:%d", f.Line, f.Column)
+	default:
+		return fmt.Sprintf("%d", f.Line)
+	}
+}
+
+// compressLineRanges turns a group's line numbers into a compact range string
+// ("14, 18, 25-29"), capped at maxRangeTokens with the remainder counted in `more`.
+// Returns "" when no group member has a positive line number (e.g. file-level findings).
+func compressLineRanges(g []lint.Finding) (display string, more int) {
+	const maxRangeTokens = 12
+	lines := make([]int, 0, len(g))
+	for _, f := range g {
+		if f.Line > 0 {
+			lines = append(lines, f.Line)
+		}
+	}
+	if len(lines) == 0 {
+		return "", 0
+	}
+	sort.Ints(lines)
+
+	var tokens []string
+	start, prev := lines[0], lines[0]
+	flush := func() {
+		if start == prev {
+			tokens = append(tokens, fmt.Sprintf("%d", start))
+		} else {
+			tokens = append(tokens, fmt.Sprintf("%d-%d", start, prev))
+		}
+	}
+	for _, n := range lines[1:] {
+		if n == prev { // dedupe (e.g. two findings on the same line)
+			continue
+		}
+		if n == prev+1 {
+			prev = n
+			continue
+		}
+		flush()
+		start, prev = n, n
+	}
+	flush()
+
+	if len(tokens) > maxRangeTokens {
+		more = len(tokens) - maxRangeTokens
+		tokens = tokens[:maxRangeTokens]
+	}
+	return strings.Join(tokens, ", "), more
 }
 
 // RowStatus writes a row with label, detail, and a status icon.

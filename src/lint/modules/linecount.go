@@ -53,6 +53,11 @@ func (m *linecountModule) Configure(opts map[string]any) error {
 }
 
 func (m *linecountModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
+	// Text-oriented module: "lines" are meaningless in a binary blob — a webp is not
+	// 1089 lines long. Gate like the other text modules (unicode, lineendings).
+	if !file.Content.IsText() {
+		return nil, nil
+	}
 	data, err := os.ReadFile(file.AbsPath)
 	if err != nil {
 		return nil, err

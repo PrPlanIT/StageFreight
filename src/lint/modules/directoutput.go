@@ -38,8 +38,16 @@ type directOutputModule struct {
 	sev lint.Severity
 }
 
-func (m *directOutputModule) Name() string         { return "direct-output" }
-func (m *directOutputModule) DefaultEnabled() bool { return true }
+func (m *directOutputModule) Name() string { return "direct-output" }
+
+// DefaultEnabled is FALSE: this is house-style policy, not universal hygiene. It flags
+// the absence of an output-abstraction architecture (diag/renderer boundary) the file
+// may never have opted into — domain-correct in firmware, kernels, TUIs, games, CLIs,
+// and educational code, where direct console/serial/framebuffer output IS the layer.
+// StageFreight lints other projects' repos as it builds them, so it must not impose its
+// own house style on them. Projects that value output indirection opt in via config
+// (StageFreight's own .stagefreight.yml does).
+func (m *directOutputModule) DefaultEnabled() bool { return false }
 func (m *directOutputModule) AutoDetect() []string { return []string{"**/*.go"} }
 
 // Configure implements lint.ConfigurableModule.
