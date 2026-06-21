@@ -39,11 +39,24 @@ type osvQueryResponse struct {
 }
 
 type osvVuln struct {
-	ID       string        `json:"id"`
-	Summary  string        `json:"summary"`
-	Severity []osvSeverity `json:"severity"`
-	Affected []osvAffected `json:"affected"`
+	ID               string            `json:"id"`
+	Summary          string            `json:"summary"`
+	Severity         []osvSeverity     `json:"severity"`
+	Affected         []osvAffected     `json:"affected"`
+	DatabaseSpecific osvDatabaseSpecif `json:"database_specific"`
 }
+
+// osvDatabaseSpecif carries source-specific metadata. For RUSTSEC advisories, Informational
+// is set ("unmaintained" | "unsound" | "notice") on entries that are NOT vulnerabilities —
+// they carry no CVSS severity. osv-scanner surfaces these as warnings; freshness must not let
+// severity_override escalate them to a CI-blocking critical.
+type osvDatabaseSpecif struct {
+	Informational string `json:"informational"`
+}
+
+// isInformational reports whether an advisory is a non-vulnerability notice (unmaintained,
+// unsound, notice) rather than an exploitable flaw.
+func (v osvVuln) isInformational() bool { return v.DatabaseSpecific.Informational != "" }
 
 type osvSeverity struct {
 	Type  string `json:"type"`  // "CVSS_V3", "CVSS_V2"
@@ -93,6 +106,14 @@ func (m *freshnessModule) correlateVulns(ctx context.Context, deps []Dependency)
 
 		// Filter by min severity.
 		for _, v := range vulns {
+			// Informational advisories (RUSTSEC unmaintained / unsound / notice) are not
+			// vulnerabilities — they carry no CVSS. Don't count them as CVEs or let
+			// severity_override escalate them to a blocking critical; osv-scanner already
+			// surfaces them as warnings. (This is what made bincode's "unmaintained" notice
+			// a false critical while osv correctly warned it.)
+			if v.isInformational() {
+				continue
+			}
 			if !meetsMinSeverity(v.Severity, m.cfg.Vulnerability.MinSeverity) {
 				continue
 			}
