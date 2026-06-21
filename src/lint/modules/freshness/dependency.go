@@ -39,6 +39,11 @@ type Dependency struct {
 	// up-to-date. StageFreight never claims freshness it failed to verify.
 	ResolutionError string
 
+	// CooldownHeld is a newer release that exists but is withheld by the MinReleaseAge
+	// supply-chain cooldown (younger than the configured window). Latest then points at the
+	// newest version old enough to adopt; this records what was held back, for disclosure.
+	CooldownHeld string
+
 	// Fields populated by the config/rule engine after resolution.
 	// Used by future update commands for MR grouping and automerge.
 	Group     string // assigned group name from package rules

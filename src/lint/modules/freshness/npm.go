@@ -7,13 +7,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+
+	masterminds "github.com/Masterminds/semver/v3"
 )
 
 // npmRegistryResponse matches the npm registry abbreviated response.
 type npmRegistryResponse struct {
 	Version string `json:"version"`
+}
+
+// npmFullDoc is the full package document — fetched only when a cooldown is configured,
+// because it carries per-version publish times under "time".
+type npmFullDoc struct {
+	DistTags map[string]string          `json:"dist-tags"`
+	Time     map[string]string          `json:"time"` // version → RFC3339 (plus "created"/"modified")
+	Versions map[string]json.RawMessage `json:"versions"`
 }
 
 // checkNpm parses package.json and resolves latest versions via registry.npmjs.org.
@@ -167,20 +178,73 @@ func stripNpmRange(ver string) string {
 	return strings.TrimSpace(ver)
 }
 
-// resolveNpmPackage queries the npm registry (or custom registry) for the latest version.
+// resolveNpmPackage queries the npm registry for the latest version. With a MinReleaseAge
+// cooldown configured, it recommends the newest STABLE release old enough to clear the
+// window instead of the bleeding edge — the supply-chain safeguard.
 func (m *freshnessModule) resolveNpmPackage(ctx context.Context, dep *Dependency) {
 	ep := m.cfg.registryEndpoint(EcosystemNpm)
 	baseURL := m.cfg.registryURL(EcosystemNpm, "https://registry.npmjs.org")
-	url := fmt.Sprintf("%s/%s/latest", strings.TrimRight(baseURL, "/"), dep.Name)
-	dep.SourceURL = url
 
-	var resp npmRegistryResponse
-	if err := m.http.fetchJSON(ctx, url, &resp, ep); err != nil {
+	// No cooldown → the abbreviated /latest endpoint is enough and cheap.
+	if m.cfg.minReleaseAge() <= 0 {
+		url := fmt.Sprintf("%s/%s/latest", strings.TrimRight(baseURL, "/"), dep.Name)
+		dep.SourceURL = url
+		var resp npmRegistryResponse
+		if err := m.http.fetchJSON(ctx, url, &resp, ep); err != nil {
+			return
+		}
+		if resp.Version != "" {
+			dep.Latest = resp.Version
+		}
 		return
 	}
-	if resp.Version != "" {
-		dep.Latest = resp.Version
+
+	// Cooldown active → fetch the full document (per-version publish times) and pick the
+	// newest stable version published before the cutoff.
+	url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), dep.Name)
+	dep.SourceURL = url
+	var doc npmFullDoc
+	if err := m.http.fetchJSON(ctx, url, &doc, ep); err != nil {
+		return
 	}
+	latest := doc.DistTags["latest"]
+	aged := agedLatestNpm(doc, m.clock().Add(-m.cfg.minReleaseAge()))
+	switch {
+	case aged != "":
+		dep.Latest = aged
+		if latest != "" && latest != aged {
+			dep.CooldownHeld = latest // a newer release exists but is still within the cooldown
+		}
+	case latest != "":
+		dep.Latest = latest // nothing aged enough yet (brand-new package) — don't regress
+	}
+}
+
+// agedLatestNpm returns the highest STABLE version published at or before cutoff — the
+// newest release old enough to clear the cooldown. Empty if none qualify.
+func agedLatestNpm(doc npmFullDoc, cutoff time.Time) string {
+	best := ""
+	var bestV *masterminds.Version
+	for ver, ts := range doc.Time {
+		if ver == "created" || ver == "modified" {
+			continue
+		}
+		if _, real := doc.Versions[ver]; !real && len(doc.Versions) > 0 {
+			continue // a time entry with no matching version (defensive)
+		}
+		t, err := time.Parse(time.RFC3339, ts)
+		if err != nil || t.After(cutoff) {
+			continue // unparseable, or still inside the cooldown window
+		}
+		v := parseVersion(ver)
+		if v == nil || v.Prerelease() != "" {
+			continue // stable releases only
+		}
+		if bestV == nil || v.GreaterThan(bestV) {
+			bestV, best = v, ver
+		}
+	}
+	return best
 }
 
 // findLineForJSON finds the approximate line number for a JSON key.

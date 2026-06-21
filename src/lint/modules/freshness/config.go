@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,6 +21,40 @@ type FreshnessConfig struct {
 	Groups        []Group        `json:"groups"`
 	Timeout       int            `json:"timeout"`   // HTTP timeout in seconds (default 10)
 	CacheTTLSecs  int            `json:"cache_ttl"` // cache TTL in seconds (default 300; 0 = cache forever; <0 = never cache)
+
+	// MinReleaseAge is a supply-chain cooldown: freshness will not recommend (and so
+	// stagefreight will not auto-adopt) a release published more recently than this window.
+	// Most malicious npm publishes — compromised maintainer tokens, typosquats — are caught
+	// and yanked within hours to days, so a cooldown sidesteps that exposure window. Accepts
+	// "7d", "2w", "72h", or any Go duration. Empty/0 = disabled. Implemented for npm (the
+	// registry exposes per-version publish times); other ecosystems ignore it until wired.
+	MinReleaseAge string `json:"min_release_age"`
+}
+
+// minReleaseAge parses the configured cooldown into a duration (0 = disabled).
+func (c FreshnessConfig) minReleaseAge() time.Duration { return parseFlexDuration(c.MinReleaseAge) }
+
+// parseFlexDuration extends Go duration syntax with day ("d") and week ("w") units, the
+// natural granularity for a release cooldown. Returns 0 for empty/unparseable input.
+func parseFlexDuration(s string) time.Duration {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return 0
+	}
+	switch {
+	case strings.HasSuffix(s, "d"):
+		if n, err := strconv.ParseFloat(strings.TrimSuffix(s, "d"), 64); err == nil {
+			return time.Duration(n * 24 * float64(time.Hour))
+		}
+	case strings.HasSuffix(s, "w"):
+		if n, err := strconv.ParseFloat(strings.TrimSuffix(s, "w"), 64); err == nil {
+			return time.Duration(n * 7 * 24 * float64(time.Hour))
+		}
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		return d
+	}
+	return 0
 }
 
 // VulnConfig controls vulnerability correlation via the OSV database.

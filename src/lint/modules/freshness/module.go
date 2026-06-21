@@ -16,6 +16,15 @@ type freshnessModule struct {
 	cfg     FreshnessConfig
 	http    *httpClient
 	desired map[string]config.ToolPinConfig
+	now     func() time.Time // injectable clock for cooldown evaluation; nil → time.Now
+}
+
+// clock returns the current time, honoring an injected test clock.
+func (m *freshnessModule) clock() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
 }
 
 func (m *freshnessModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
@@ -199,6 +208,11 @@ func (m *freshnessModule) depsToFindings(deps []Dependency) []lint.Finding {
 		// Annotate CVE count if present.
 		if n := len(dep.Vulnerabilities); n > 0 {
 			finding.Message += fmt.Sprintf(" [%d CVE(s)]", n)
+		}
+
+		// Disclose a newer release withheld by the supply-chain cooldown.
+		if dep.CooldownHeld != "" {
+			finding.Message += fmt.Sprintf(" [%s held: <%s cooldown]", dep.CooldownHeld, m.cfg.MinReleaseAge)
 		}
 
 		// Annotate group if a package rule assigns one.
