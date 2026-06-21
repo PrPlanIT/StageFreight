@@ -39,24 +39,32 @@ type osvQueryResponse struct {
 }
 
 type osvVuln struct {
-	ID               string            `json:"id"`
-	Summary          string            `json:"summary"`
-	Severity         []osvSeverity     `json:"severity"`
-	Affected         []osvAffected     `json:"affected"`
-	DatabaseSpecific osvDatabaseSpecif `json:"database_specific"`
+	ID       string        `json:"id"`
+	Summary  string        `json:"summary"`
+	Severity []osvSeverity `json:"severity"`
+	Affected []osvAffected `json:"affected"`
 }
 
 // osvDatabaseSpecif carries source-specific metadata. For RUSTSEC advisories, Informational
-// is set ("unmaintained" | "unsound" | "notice") on entries that are NOT vulnerabilities —
-// they carry no CVSS severity. osv-scanner surfaces these as warnings; freshness must not let
-// severity_override escalate them to a CI-blocking critical.
+// ("unmaintained" | "unsound" | "notice") marks entries that are NOT vulnerabilities — they
+// carry no CVSS severity. RUSTSEC sets it on each AFFECTED entry's database_specific (the
+// vuln-level database_specific holds only license info, so it must be read here). osv-scanner
+// surfaces these as warnings; freshness must not let severity_override escalate them to a
+// CI-blocking critical.
 type osvDatabaseSpecif struct {
 	Informational string `json:"informational"`
 }
 
 // isInformational reports whether an advisory is a non-vulnerability notice (unmaintained,
-// unsound, notice) rather than an exploitable flaw.
-func (v osvVuln) isInformational() bool { return v.DatabaseSpecific.Informational != "" }
+// unsound, notice) rather than an exploitable flaw — true if any affected entry is so marked.
+func (v osvVuln) isInformational() bool {
+	for _, a := range v.Affected {
+		if a.DatabaseSpecific.Informational != "" {
+			return true
+		}
+	}
+	return false
+}
 
 type osvSeverity struct {
 	Type  string `json:"type"`  // "CVSS_V3", "CVSS_V2"
@@ -64,8 +72,9 @@ type osvSeverity struct {
 }
 
 type osvAffected struct {
-	Package *osvPackage `json:"package"`
-	Ranges  []osvRange  `json:"ranges"`
+	Package          *osvPackage       `json:"package"`
+	Ranges           []osvRange        `json:"ranges"`
+	DatabaseSpecific osvDatabaseSpecif `json:"database_specific"`
 }
 
 type osvRange struct {
