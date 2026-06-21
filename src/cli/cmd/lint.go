@@ -155,22 +155,10 @@ func runLint(cmd *cobra.Command, args []string) error {
 		return a.Message < b.Message
 	})
 
-	// Tally
-	var critical, warning, info, blocking int
+	// Tally (severity counts + blocking subset) via the shared summarizer, so this path and
+	// the CI audition path (build/pipeline) gate identically.
+	summary := lint.Summarize(findings)
 	var totalFiles, totalCached int
-	for _, f := range findings {
-		switch f.Severity {
-		case lint.SeverityCritical:
-			critical++
-		case lint.SeverityWarning:
-			warning++
-		case lint.SeverityInfo:
-			info++
-		}
-		if f.Blocks() {
-			blocking++
-		}
-	}
 	for _, ms := range modStats {
 		totalFiles += ms.Files
 		totalCached += ms.Cached
@@ -189,12 +177,8 @@ func runLint(cmd *cobra.Command, args []string) error {
 	sec := output.NewSection(w, "Lint", elapsed, color)
 	output.LintTable(w, modStats, color)
 	sec.Separator()
-	critNote := fmt.Sprintf("%d critical", critical)
-	if nb := critical - blocking; nb > 0 {
-		critNote = fmt.Sprintf("%d critical, %d low-confidence non-blocking", critical, nb)
-	}
 	sec.Row("%-16s%5d   %5d   %d findings (%s)",
-		"total", totalFiles, totalCached, len(findings), critNote)
+		"total", totalFiles, totalCached, len(findings), summary.CriticalNote())
 	if u := engine.ClassifyUnreadable.Load(); u > 0 {
 		sec.Row("%-16s%d unreadable (failed open → text)", "classify", u)
 	}
@@ -255,7 +239,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		fSec := output.NewSection(w, "Findings", 0, color)
 		output.SectionFindings(fSec, findings, color)
 		fSec.Separator()
-		fSec.Row("%s", output.FindingsSummaryLine(len(findings), critical, warning, info, len(files), color))
+		fSec.Row("%s", output.FindingsSummaryLine(len(findings), summary.Critical, summary.Warning, summary.Info, len(files), color))
 		if baseLabel != "" {
 			newCount := 0
 			for _, f := range findings {
@@ -298,11 +282,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", runErr)
 	}
 
-	if blocking > 0 {
-		return fmt.Errorf("lint failed: %d blocking critical findings", blocking)
-	}
-
-	return nil
+	return summary.GateError()
 }
 
 // renderRemediationSummary reports what --fix-safe changed (or, under --dry-run, would

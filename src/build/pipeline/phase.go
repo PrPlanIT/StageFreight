@@ -361,22 +361,10 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	findings = append(findings, modules.CheckFilenameCollisions(files)...)
 	elapsed := time.Since(start)
 
-	// Tally
-	var critical, warning, info, blocking int
+	// Tally (severity counts + blocking subset) via the shared summarizer — identical gate
+	// logic to the lint CLI, so the two paths can never diverge again.
+	lintSum := lint.Summarize(findings)
 	var totalFiles, totalCached int
-	for _, f := range findings {
-		switch f.Severity {
-		case lint.SeverityCritical:
-			critical++
-		case lint.SeverityWarning:
-			warning++
-		case lint.SeverityInfo:
-			info++
-		}
-		if f.Blocks() {
-			blocking++
-		}
-	}
 	for _, ms := range modStats {
 		totalFiles += ms.Files
 		totalCached += ms.Cached
@@ -394,19 +382,15 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	sec := output.NewSection(w, "Lint", elapsed, color)
 	output.LintTable(w, modStats, color)
 	sec.Separator()
-	critNote := fmt.Sprintf("%d critical", critical)
-	if nb := critical - blocking; nb > 0 {
-		critNote = fmt.Sprintf("%d critical, %d low-confidence non-blocking", critical, nb)
-	}
 	sec.Row("%-16s%5d   %5d   %d findings (%s)",
-		"total", totalFiles, totalCached, len(findings), critNote)
+		"total", totalFiles, totalCached, len(findings), lintSum.CriticalNote())
 	sec.Close()
 
 	if len(findings) > 0 {
 		fSec := output.NewSection(w, "Findings", 0, color)
 		output.SectionFindings(fSec, findings, color)
 		fSec.Separator()
-		fSec.Row("%s", output.FindingsSummaryLine(len(findings), critical, warning, info, len(files), color))
+		fSec.Row("%s", output.FindingsSummaryLine(len(findings), lintSum.Critical, lintSum.Warning, lintSum.Info, len(files), color))
 		fSec.Close()
 	}
 
@@ -427,14 +411,14 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 		sec.Close()
 	}
 
-	if blocking > 0 {
-		summary := fmt.Sprintf("%d files, %d cached, %d blocking", len(files), totalCached, blocking)
-		return summary, fmt.Errorf("lint failed: %d blocking critical findings", blocking)
+	if err := lintSum.GateError(); err != nil {
+		summary := fmt.Sprintf("%d files, %d cached, %d blocking", len(files), totalCached, lintSum.Blocking)
+		return summary, err
 	}
 
 	summary := fmt.Sprintf("%d files, %d cached, 0 critical", len(files), totalCached)
-	if warning > 0 {
-		summary = fmt.Sprintf("%d files, %d cached, %d warnings", len(files), totalCached, warning)
+	if lintSum.Warning > 0 {
+		summary = fmt.Sprintf("%d files, %d cached, %d warnings", len(files), totalCached, lintSum.Warning)
 	}
 
 	if runErr != nil && isVerbose {
