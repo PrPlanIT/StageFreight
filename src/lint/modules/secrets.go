@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -54,6 +55,14 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 		if lockfile && isLockfileIntegrityLine(h.Line) {
 			continue
 		}
+		// CLASSIFICATION, not enforcement: a generic-api-key hit that fired on a hex/numeric
+		// code constant (a CPUID vendor tag, a magic number) is objectively not a credential,
+		// so it is dropped entirely — never flagged-and-then-down-gated. Everything that IS
+		// flagged blocks (secure-by-default); confidence below is descriptive review priority,
+		// not a gate exemption.
+		if h.RuleID == "generic-api-key" && codeConstantRe.MatchString(h.Match) {
+			continue
+		}
 		findings = append(findings, lint.Finding{
 			File:       file.Path,
 			Line:       h.StartLine + 1, // gitleaks is 0-indexed
@@ -66,23 +75,28 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 	return findings, nil
 }
 
-// genericKeyCriticalEntropy is the entropy a generic-api-key match must clear to gate CI
-// as critical. gitleaks' default floor (~3.5) is permissive enough to catch hex constants
-// and magic numbers (a CPUID 0x68747541 vendor tag reads at ~3.52); real random
-// credentials run 4.5+. Below this, the match is weak evidence → surfaced, not blocking.
-const genericKeyCriticalEntropy = 4.5
+// codeConstantRe matches a hex integer literal (e.g. 0x68747541) — a code constant, not a
+// credential. Such literals trip gitleaks' generic-api-key entropy heuristic (CPUID vendor
+// tags, magic numbers); they are objectively non-secrets and are classified out, not gated.
+var codeConstantRe = regexp.MustCompile(`0x[0-9a-fA-F]{2,}`)
 
-// secretConfidence reports how strongly the evidence supports a credential — separate from
-// severity (always critical for a secret, because the IMPACT if real is critical). A
-// SPECIFIC provider rule (aws, github, stripe, …) structurally identifies a credential →
-// Confirmed. The catch-all generic-api-key is an entropy HEURISTIC: a credential-grade hit
-// is Probable; a weak one (hex constants, magic numbers — a CPUID 0x68747541 tag reads at
-// ~3.52) is Heuristic, which surfaces it without gating CI on a guess.
+// genericKeyCredentialEntropy is the entropy above which a generic-api-key match is treated
+// as a credential-grade (Probable) hit rather than a weak (Heuristic) one. This labels review
+// PRIORITY — it does NOT change gating: every secret blocks regardless (secure-by-default).
+const genericKeyCredentialEntropy = 4.5
+
+// secretConfidence reports how strongly the evidence supports a credential — DESCRIPTIVE only.
+// Severity is always critical (the impact if real is critical) and every secret blocks; this
+// just sets review priority. A SPECIFIC provider rule (aws, github, stripe, …) structurally
+// identifies a credential → Confirmed. The catch-all generic-api-key is an entropy heuristic:
+// a credential-grade hit is Probable, a weaker one Heuristic — both still block (review-
+// required); a Heuristic secret is the operator's cue to confirm or add an explicit suppression,
+// never a silent pass.
 func secretConfidence(ruleID string, entropy float32) lint.Confidence {
 	if ruleID != "generic-api-key" {
 		return lint.ConfidenceConfirmed
 	}
-	if entropy < genericKeyCriticalEntropy {
+	if entropy < genericKeyCredentialEntropy {
 		return lint.ConfidenceHeuristic
 	}
 	return lint.ConfidenceProbable

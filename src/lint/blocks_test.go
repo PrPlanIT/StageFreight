@@ -3,10 +3,7 @@ package lint
 import "testing"
 
 func TestFindingBlocks(t *testing.T) {
-	// zero-value Confidence is Confirmed → a critical with unset confidence still blocks.
-	if !(Finding{Severity: SeverityCritical}).Blocks() {
-		t.Error("zero-value (Confirmed) critical must block")
-	}
+	// Secure-by-default: every critical blocks, regardless of confidence.
 	cases := []struct {
 		sev  Severity
 		conf Confidence
@@ -14,7 +11,7 @@ func TestFindingBlocks(t *testing.T) {
 	}{
 		{SeverityCritical, ConfidenceConfirmed, true},
 		{SeverityCritical, ConfidenceProbable, true},
-		{SeverityCritical, ConfidenceHeuristic, false}, // critical impact, weak evidence → surfaced, non-blocking
+		{SeverityCritical, ConfidenceHeuristic, true}, // review-required — blocks until confirmed/suppressed
 		{SeverityWarning, ConfidenceConfirmed, false},
 		{SeverityInfo, ConfidenceConfirmed, false},
 	}

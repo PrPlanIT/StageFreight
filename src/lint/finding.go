@@ -28,20 +28,25 @@ func (s Severity) String() string {
 	}
 }
 
-// Confidence is how strongly the evidence supports a finding — ORTHOGONAL to Severity
-// (which is impact-IF-true). A structurally-identified match is Confirmed; a strong but
-// non-structural signal is Probable; a weak heuristic (e.g. an entropy guess that also
-// matches hex constants / magic numbers) is Heuristic. Separating the two stops Severity
-// from being overloaded to mean both "how bad" and "how sure".
+// Confidence is how strongly the evidence supports a finding — ORTHOGONAL to Severity (which
+// is impact-IF-true). A structurally-identified match is Confirmed; a strong but non-structural
+// signal is Probable; a weak heuristic (e.g. an entropy guess) is Heuristic.
 //
-// The zero value is Confirmed, so any finding that does not set Confidence gates exactly as
-// before — only a module with genuine doubt downgrades confidence.
+// Confidence is DESCRIPTIVE — it does not silently relax enforcement. Secure-by-default, every
+// critical blocks regardless of confidence: a Heuristic critical is "review-required" (it blocks
+// until a human confirms or suppresses it), not an automatic pass. Confidence informs review
+// priority and is the axis an operator may CHOOSE to relax through explicit configuration — the
+// tool never relaxes on its own. Objectively-false findings (patched-in-lock deps, checksums,
+// numeric/CPUID constants, emoji ZWJ) are removed by classification — they are never flagged —
+// rather than flagged-and-then-down-gated, which would erode the meaning of the gate.
+//
+// The zero value is Confirmed.
 type Confidence int
 
 const (
-	ConfidenceConfirmed Confidence = iota // default: structurally identified / authoritative
+	ConfidenceConfirmed Confidence = iota // structurally identified / authoritative
 	ConfidenceProbable                    // strong evidence, not structural
-	ConfidenceHeuristic                   // weak/ambiguous — surfaced, but does not gate CI
+	ConfidenceHeuristic                   // weak/ambiguous evidence — review-required, still blocks
 )
 
 func (c Confidence) String() string {
@@ -100,11 +105,13 @@ type Remediation struct {
 	Replacement string
 }
 
-// Blocks reports whether a finding should fail CI: critical impact AND at least probable
-// confidence. A critical-but-Heuristic finding (e.g. a low-entropy generic-key guess) is
-// surfaced at full severity but does not block — impact and certainty are separate gates.
+// Blocks reports whether a finding fails CI. Secure-by-default: every critical impact blocks,
+// regardless of confidence. A heuristic critical is review-required — it blocks until a human
+// confirms or suppresses it — never a silent pass. (Confidence is descriptive; an operator may
+// relax a tier via explicit config, but the gate never relaxes on its own, and objectively-false
+// findings are dropped by classification, not down-gated here.)
 func (f Finding) Blocks() bool {
-	return f.Severity == SeverityCritical && f.Confidence != ConfidenceHeuristic
+	return f.Severity == SeverityCritical
 }
 
 // Fingerprint is the line-INDEPENDENT identity of a finding, for baseline diffing:
