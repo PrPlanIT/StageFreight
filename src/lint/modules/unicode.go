@@ -173,6 +173,13 @@ func (m *unicodeModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 					i += size
 					continue
 				}
+				// A ZERO WIDTH JOINER between emoji is a legitimate emoji ZWJ sequence
+				// (e.g. a teacher, family) — not hidden text or a homoglyph attack. Only flag a
+				// ZWJ when it is NOT joining pictographic characters.
+				if r == '\u200D' && joinsEmoji(line, i, size) {
+					i += size
+					continue
+				}
 			case catControlASCII:
 				if !m.cfg.DetectControlASCII {
 					i += size
@@ -223,6 +230,31 @@ func normalizeSlashPath(p string) string {
 	p = filepath.ToSlash(p)
 	p = strings.TrimPrefix(p, "./")
 	return p
+}
+
+// joinsEmoji reports whether the ZERO WIDTH JOINER at line[i:i+size] sits between two
+// pictographic (emoji) code points — i.e. it is part of a legitimate emoji ZWJ sequence
+// (a teacher, a family, etc.), not hidden text or a homoglyph.
+func joinsEmoji(line []byte, i, size int) bool {
+	prev, _ := utf8.DecodeLastRune(line[:i])
+	next, _ := utf8.DecodeRune(line[i+size:])
+	return isEmojiRune(prev) && isEmojiRune(next)
+}
+
+// isEmojiRune reports whether r is a pictographic code point that participates in emoji ZWJ
+// sequences (the common emoji blocks plus the emoji-presentation variation selector).
+func isEmojiRune(r rune) bool {
+	switch {
+	case r >= 0x1F000 && r <= 0x1FAFF: // emoji, pictographs, symbols & pictographs supplements
+		return true
+	case r >= 0x2600 && r <= 0x27BF: // miscellaneous symbols + dingbats
+		return true
+	case r >= 0x1F1E6 && r <= 0x1F1FF: // regional indicators
+		return true
+	case r == 0xFE0F: // VARIATION SELECTOR-16 (emoji presentation)
+		return true
+	}
+	return false
 }
 
 // --------------------------------------------------------------------
