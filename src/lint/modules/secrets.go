@@ -55,12 +55,12 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 		if lockfile && isLockfileIntegrityLine(h.Line) {
 			continue
 		}
-		// CLASSIFICATION, not enforcement: a generic-api-key hit that fired on a hex/numeric
-		// code constant (a CPUID vendor tag, a magic number) is objectively not a credential,
-		// so it is dropped entirely — never flagged-and-then-down-gated. Everything that IS
-		// flagged blocks (secure-by-default); confidence below is descriptive review priority,
-		// not a gate exemption.
-		if h.RuleID == "generic-api-key" && codeConstantRe.MatchString(h.Match) {
+		// CLASSIFICATION, not enforcement: a generic-api-key hit whose extracted value IS a
+		// code numeric literal (a CPUID vendor tag, a magic number) is objectively not a
+		// credential, so it is dropped entirely — never flagged-and-then-down-gated. Everything
+		// that IS flagged blocks (secure-by-default); confidence below is descriptive review
+		// priority, not a gate exemption.
+		if h.RuleID == "generic-api-key" && isCodeConstant(h.Secret) {
 			continue
 		}
 		findings = append(findings, lint.Finding{
@@ -75,10 +75,24 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 	return findings, nil
 }
 
-// codeConstantRe matches a hex integer literal (e.g. 0x68747541) — a code constant, not a
-// credential. Such literals trip gitleaks' generic-api-key entropy heuristic (CPUID vendor
-// tags, magic numbers); they are objectively non-secrets and are classified out, not gated.
-var codeConstantRe = regexp.MustCompile(`0x[0-9a-fA-F]{2,}`)
+// codeConstantRe matches a value that IS a small hex integer literal — optionally prefixed by
+// an identifier like a register name ("EBX=0x68747541") — i.e. a Go/Rust/C numeric constant,
+// not a credential (CPUID vendor tags, magic numbers).
+//
+// This is a HARD classifier: it DROPS findings, so a false match would HIDE a real secret. It
+// is therefore deliberately strict, matching the lockfile-checksum exclusions in conservatism:
+//   - ANCHORED — the extracted value must BE the literal, not merely contain a hex substring,
+//     so a real credential that happens to include "0x…" is not classified out.
+//   - BOUNDED to ≤16 hex digits — a genuine numeric literal fits in a u64; a copied hash or a
+//     hex-encoded key is longer and stays flagged.
+//   - scoped to generic-api-key only; specific provider rules fire independently.
+var codeConstantRe = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*\s*=\s*)?0x[0-9a-fA-F]{2,16}$`)
+
+// isCodeConstant reports whether a gitleaks-extracted value is structurally a code numeric
+// literal (and so cannot be a credential). Conservative by construction — see codeConstantRe.
+func isCodeConstant(secret string) bool {
+	return codeConstantRe.MatchString(strings.TrimSpace(secret))
+}
 
 // genericKeyCredentialEntropy is the entropy above which a generic-api-key match is treated
 // as a credential-grade (Probable) hit rather than a weak (Heuristic) one. This labels review
