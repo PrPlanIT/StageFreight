@@ -282,6 +282,12 @@ func runLint(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", runErr)
 	}
 
+	// With a baseline active (--baseline), gate only on findings newly introduced relative to
+	// the base ref — pre-existing ones are surfaced but do not fail CI. Otherwise gate on the
+	// full blocking set.
+	if baseline != nil && newFindingFp != nil {
+		return lint.GateErrorSince(findings, newFindingFp, baseLabel)
+	}
 	return summary.GateError()
 }
 

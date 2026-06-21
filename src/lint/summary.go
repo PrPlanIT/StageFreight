@@ -43,6 +43,24 @@ func (s Summary) GateError() error {
 	return nil
 }
 
+// GateErrorSince is the baseline-aware CI verdict: it fails only on NEWLY-introduced blocking
+// findings — those whose fingerprint is in isNew. Pre-existing findings (already present at
+// the baseline) are surfaced but do not block, so a known, tracked, can't-fix-now advisory
+// stays loud without wedging the gate, while a genuinely new regression still fails. label
+// names the baseline in the failure message.
+func GateErrorSince(findings []Finding, isNew map[string]bool, label string) error {
+	n := 0
+	for _, f := range findings {
+		if f.Blocks() && isNew[f.Fingerprint()] {
+			n++
+		}
+	}
+	if n > 0 {
+		return fmt.Errorf("lint failed: %d new blocking finding(s) since %s", n, label)
+	}
+	return nil
+}
+
 // CriticalNote renders the critical count, annotating the low-confidence non-blocking
 // remainder when present: "1 critical, 1 low-confidence non-blocking".
 func (s Summary) CriticalNote() string {
