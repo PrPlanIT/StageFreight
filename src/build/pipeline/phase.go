@@ -362,7 +362,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	elapsed := time.Since(start)
 
 	// Tally
-	var critical, warning, info int
+	var critical, warning, info, blocking int
 	var totalFiles, totalCached int
 	for _, f := range findings {
 		switch f.Severity {
@@ -372,6 +372,9 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 			warning++
 		case lint.SeverityInfo:
 			info++
+		}
+		if f.Blocks() {
+			blocking++
 		}
 	}
 	for _, ms := range modStats {
@@ -391,8 +394,12 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	sec := output.NewSection(w, "Lint", elapsed, color)
 	output.LintTable(w, modStats, color)
 	sec.Separator()
-	sec.Row("%-16s%5d   %5d   %d findings (%d critical)",
-		"total", totalFiles, totalCached, len(findings), critical)
+	critNote := fmt.Sprintf("%d critical", critical)
+	if nb := critical - blocking; nb > 0 {
+		critNote = fmt.Sprintf("%d critical, %d low-confidence non-blocking", critical, nb)
+	}
+	sec.Row("%-16s%5d   %5d   %d findings (%s)",
+		"total", totalFiles, totalCached, len(findings), critNote)
 	sec.Close()
 
 	if len(findings) > 0 {
@@ -420,9 +427,9 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 		sec.Close()
 	}
 
-	if critical > 0 {
-		summary := fmt.Sprintf("%d files, %d cached, %d critical", len(files), totalCached, critical)
-		return summary, fmt.Errorf("lint failed: %d critical findings", critical)
+	if blocking > 0 {
+		summary := fmt.Sprintf("%d files, %d cached, %d blocking", len(files), totalCached, blocking)
+		return summary, fmt.Errorf("lint failed: %d blocking critical findings", blocking)
 	}
 
 	summary := fmt.Sprintf("%d files, %d cached, 0 critical", len(files), totalCached)
