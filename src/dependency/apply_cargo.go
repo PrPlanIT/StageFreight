@@ -107,18 +107,60 @@ func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoo
 	if err != nil {
 		return applied, skipped, deduplicateAndSort(touchedFiles), err
 	}
+	// cargo update must run at the WORKSPACE ROOT, not in each edited sub-manifest. A workspace
+	// shares one Cargo.lock at its root, and a [patch] path crate (e.g. patches/proxmox-client)
+	// is NOT a workspace member — `cargo update` inside it fails with "believes it's in a
+	// workspace when it's not". Resolve each edited manifest to its update root, dedupe, and run
+	// once per distinct root (which also re-resolves the patched/member crates that were edited).
+	updateDirs := map[string]bool{}
 	for file := range byFile {
-		crateDir := filepath.Dir(filepath.Join(repoRoot, file))
-		if out, err := runCargo(ctx, crateDir, "update"); err != nil {
+		updateDirs[findCargoUpdateDir(repoRoot, file)] = true
+	}
+	for dir := range updateDirs {
+		if out, err := runCargo(ctx, dir, "update"); err != nil {
+			rel, _ := filepath.Rel(repoRoot, dir)
 			return applied, skipped, deduplicateAndSort(touchedFiles),
-				fmt.Errorf("cargo update in %s: %w\n%s", filepath.Dir(file), err, strings.TrimSpace(string(out)))
+				fmt.Errorf("cargo update in %s: %w\n%s", rel, err, strings.TrimSpace(string(out)))
 		}
-		lock := filepath.Join(filepath.Dir(file), "Cargo.lock")
-		if _, statErr := os.Stat(filepath.Join(repoRoot, lock)); statErr == nil {
-			touchedFiles = append(touchedFiles, lock)
+		lock := filepath.Join(dir, "Cargo.lock")
+		if _, statErr := os.Stat(lock); statErr == nil {
+			if rel, relErr := filepath.Rel(repoRoot, lock); relErr == nil {
+				touchedFiles = append(touchedFiles, rel)
+			}
 		}
 	}
 	return applied, skipped, deduplicateAndSort(touchedFiles), nil
+}
+
+// findCargoUpdateDir returns the directory `cargo update` should run in for a manifest: the
+// nearest ancestor that declares a [workspace] (members and [patch] path crates share, and must
+// be updated from, the workspace root that owns the single Cargo.lock), or the manifest's own
+// directory if it is standalone.
+func findCargoUpdateDir(repoRoot, manifestRel string) string {
+	manifestDir := filepath.Dir(filepath.Join(repoRoot, manifestRel))
+	for dir := manifestDir; strings.HasPrefix(dir, repoRoot); {
+		if data, err := os.ReadFile(filepath.Join(dir, "Cargo.toml")); err == nil && cargoDeclaresWorkspace(data) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return manifestDir
+}
+
+// cargoDeclaresWorkspace reports whether a Cargo.toml has a [workspace] table — i.e. is a
+// workspace root — as opposed to a member that merely uses `workspace = true` dependencies.
+func cargoDeclaresWorkspace(manifest []byte) bool {
+	for _, line := range strings.Split(string(manifest), "\n") {
+		t := strings.TrimSpace(line)
+		if t == "[workspace]" || strings.HasPrefix(t, "[workspace.") {
+			return true
+		}
+	}
+	return false
 }
 
 // buildCargoReplacement swaps the pinned version in a Cargo.toml dependency line,
