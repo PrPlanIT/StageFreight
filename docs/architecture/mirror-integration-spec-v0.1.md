@@ -362,6 +362,16 @@ Go translation:
 // as-boundary-mathematics (#57) discharge on the Go side. The
 // substrate-pull-correct discipline says: the realisation gate fires
 // here, before any bytes touch the wire.
+//
+// Five sub-predicates compose: the four wire-survival predicates
+// (oid_resolves, address_well_formed, projection_is_species,
+// round_trip_holds) plus the cross-family bilateral invariant_preserved
+// from @magic. The fifth stage is BOUNDED-by-default at v0.1 (no-op
+// stub; see magic.go) — the substantive discharge fires at Rust
+// realisation when @magic contract types are wired through. The seam
+// is present here so the cross-family bilateral has a Go-side landing
+// surface; absence would silently drop the mirror substrate-decl's
+// `requires invariant_preserved(c, promise)` clause.
 func StagefreightAddressable(fm FreightManifest, p Perturbation, env Env) Verdict {
     if v := OIDResolves(fm.CrystalOID, env.Store); !v.OK() {
         return v.WithStage("oid_resolves")
@@ -375,15 +385,27 @@ func StagefreightAddressable(fm FreightManifest, p Perturbation, env Env) Verdic
     if v := RoundTripHolds(fm, p); !v.OK() {
         return v.WithStage("round_trip_holds")
     }
+    if v := InvariantPreserved(env.Contract, env.Promise); !v.OK() {
+        return v.WithStage("invariant_preserved")
+    }
     return Bounded()
 }
 ```
 
 `Env` packages the runtime dependencies (store view, projection
-registry) per StageFreight's "all inputs explicit, no package vars"
-discipline (`docs/architecture/boundaries.md`, "Service Function
-Rule"). The Cobra adapter (when one lands) builds `Env` from
-flag/config inputs.
+registry, and the opaque @magic carriers — see §3.1 `env.go`) per
+StageFreight's "all inputs explicit, no package vars" discipline
+(`docs/architecture/boundaries.md`, "Service Function Rule"). The
+Cobra adapter (when one lands) builds `Env` from flag/config inputs.
+
+Note: `Env` carries the opaque `Contract` and `Promise` references
+needed to discharge the fifth sub-predicate. They are accepted as
+opaque carriers at v0.1 (see §3.1 `magic.go`); the cross-family
+bilateral check returns BOUNDED by construction until the realisation
+layer wires the @magic types through. This preserves the structural
+seam — the `requires invariant_preserved(c, promise)` clause from the
+mirror substrate-decl has a Go-side landing point at v0.1 rather than
+being silently dropped.
 
 ### 2.6 The `freight()` action → Go constructor
 
@@ -412,23 +434,54 @@ type FreightRequest struct {
     Env          Env
 }
 
-// Freight builds a FreightManifest after discharging the two requires
-// clauses from the mirror substrate-decl: address_well_formed and
-// invariant_preserved. The @magic contract discharge is forward-
-// promised at v0.1 — the contract/promise inputs are accepted as
-// opaque carriers and not yet validated structurally on the Go side.
-// This is consistent with mirror's "freight is the FIRST consumer of
-// invariant_preserved" framing: the cross-family bilateral lands on
-// the Rust realisation; the Go side accepts the carrier shape.
-func Freight(req FreightRequest) (FreightManifest, Verdict)
+// Freight builds a FreightManifest after discharging BOTH requires
+// clauses from the mirror substrate-decl, in composition order:
+//
+//   1. address_well_formed(coord, crystal_oid)
+//   2. invariant_preserved(c, promise)        // cross-family @magic bilateral
+//
+// Composition order matches the mirror substrate-decl's `requires`
+// stack. Short-circuits on the first DEFENSIVE verdict; the verdict's
+// Stage names which sub-claim failed for upstream rendering.
+//
+// The @magic contract discharge is structurally present but BOUNDED-
+// by-default at v0.1 — `InvariantPreserved` is a no-op stub (see §3.1
+// magic.go) returning BOUNDED until the Rust realisation wires the
+// @magic types through. This is consistent with mirror's "freight is
+// the FIRST consumer of invariant_preserved" framing AND with the
+// alignment-as-boundary-mathematics (#57) discharge at @io: the seam
+// is present in the composition chain so the cross-family bilateral
+// has a Go-side landing surface; the substantive verdict fires at
+// realisation. Dropping the clause entirely (versus stubbing it) is
+// what would have been the structural error — Seam C(b) closure.
+func Freight(req FreightRequest) (FreightManifest, Verdict) {
+    if v := AddressWellFormed(req.Coord, req.CrystalOID); !v.OK() {
+        return FreightManifest{}, v.WithStage("address_well_formed")
+    }
+    if v := InvariantPreserved(req.Contract, req.Promise); !v.OK() {
+        return FreightManifest{}, v.WithStage("invariant_preserved")
+    }
+    // … build manifest …
+}
 ```
+
+The Go-side `Freight` function takes opaque `MagicContract` +
+`MagicInvariant` parameters AND threads `InvariantPreserved` as a
+verdict step in the composition chain. The bilateral check returns
+BOUNDED-by-default at v0.1 (no-op stub) — the substantive discharge
+fires at Rust realisation when the @magic contract types are wired
+through. This preserves the seam where mirror's cross-family
+bilateral lands without committing the Go side to a particular
+@magic implementation.
 
 Note the deliberate Go-side opacity on `MagicContract` and
 `MagicInvariant`. The mirror substrate-decl makes them load-bearing
 through @magic family imports; on the Go side they are placeholder
-newtypes until the cross-family bilateral discipline matters at
-realisation time. This is an honest forward-promise, not a hidden
-gap — it is named in §8 (what this PR does not do).
+opaque carriers (typed but unconstructible until realisation; see
+§3.1 `magic.go`) until the cross-family bilateral discipline matters
+at realisation time. This is an honest forward-promise, not a hidden
+gap — it is named in §8 (what this PR does not do) and §11.x
+(forward-promises).
 
 ### 2.7 The `address()` action → Go derivation function
 
@@ -582,11 +635,90 @@ internal/stagefreightmirror/
 │                       constructors + WithStage composition helper
 ├── verdict_test.go     Composition tests
 ├── env.go              Env package struct + StoreView interface +
-│                       ProjectionRegistry interface
+│                       ProjectionRegistry interface + opaque
+│                       Contract/Promise refs for the cross-family
+│                       @magic bilateral discharge
 ├── env_test.go
-└── magic.go            MagicContract + MagicInvariant placeholder
-                        carriers (forward-promised opacity)
+└── magic.go            MagicContract + MagicInvariant opaque
+                        carriers (typed but unconstructible until
+                        realisation) + InvariantPreserved no-op
+                        stub (returns BOUNDED-by-default at v0.1)
 ```
+
+#### 3.1.1 `magic.go` — opaque carriers + no-op stub
+
+Per Seam C(i) closure, `MagicContract` and `MagicInvariant` are NOT
+left as undeclared placeholders. They land as **opaque structs with
+one unexported `_marker struct{}` field** — typed at the Go level but
+unconstructible from outside `internal/stagefreightmirror` until the
+Rust realisation provides the concrete shape and a constructor seam.
+
+```go
+// MagicContract is opaque at v0.1; structural marker preserves the
+// mirror-side substrate-decl's `c: magic_contract` parameter. The
+// _marker field is unexported and unconstructible from outside this
+// package until Rust realisation lands and provides the concrete shape.
+type MagicContract struct {
+    _marker struct{}
+}
+
+// MagicInvariant is opaque at v0.1; structural marker preserves the
+// mirror-side substrate-decl's `promise: magic_invariant` parameter.
+// Same opacity discipline as MagicContract.
+type MagicInvariant struct {
+    _marker struct{}
+}
+
+// InvariantPreserved is the v0.1 no-op discharge stub for the cross-
+// family bilateral. Returns BOUNDED-by-default; Rust realisation
+// provides the substantive verdict when @magic contracts are wired
+// through the wire.
+func InvariantPreserved(c MagicContract, i MagicInvariant) Verdict {
+    return Verdict{Stage: "invariant_preserved", Reason: "v0.1 stub", Chain: nil}
+}
+```
+
+The opaque-struct choice (vs empty struct, interface, or `any`) is
+Seam's recommendation: it preserves the substrate-decl type at the Go
+level, prevents accidental construction by consumers, and gives the
+realisation layer a single seam (the package-internal constructor) to
+fill when the @magic types are wired through. The composition chains
+in §2.5 and §2.6 reference this function; the seam is structural, not
+merely documentary.
+
+#### 3.1.2 `env.go` — Env package + interface forward-promises
+
+The `Env` struct packages all runtime dependencies for the
+composition chains. v0.1 shape:
+
+```go
+type Env struct {
+    Store        StoreView
+    Projections  ProjectionRegistry
+    Contract     MagicContract     // opaque; threads to InvariantPreserved
+    Promise      MagicInvariant    // opaque; threads to InvariantPreserved
+}
+
+type StoreView interface {
+    // realisation-layer surface; see forward-promise note below
+}
+
+type ProjectionRegistry interface {
+    // realisation-layer surface; see forward-promise note below
+}
+```
+
+**Forward-promise note (Seam C(f) closure):** `StoreView` and
+`ProjectionRegistry` interfaces are Go-side conveniences. They MUST
+map to substrate concepts in the realisation layer: `StoreView` →
+`@mirror/store` interface; `ProjectionRegistry` →
+`@io/stagefreight/<species>` registry. Forward-promised to the
+realisation PR; this v0.1 spec uses `interface{}`-anchored shapes
+that will gain concrete methods when the Rust realisation pins the
+substrate-side method surface. The interfaces are intentionally
+unmethoded at v0.1 — they exist as Go-side type carriers for the
+composition signatures, not as a commitment to a particular set of
+operations on the Go side ahead of substrate ratification.
 
 ### 3.2 Boundary discipline (per StageFreight's `docs/architecture/boundaries.md`)
 
@@ -1286,6 +1418,12 @@ preservation tick that merged 2026-06-22).
 3. Cross-repo integration fixture (after mirror realisation lands)
 4. StageFreight v0.x release tag with wire-protocol support
 5. `@io/stagefreight/json` projection species (after mirror sibling)
+6. Substantive cross-family @magic bilateral discharge (gated on
+   Rust realisation + Pack ratification of consumer-side deferral
+   policy; see §11.6.1)
+7. Concrete `StoreView` / `ProjectionRegistry` interface methods
+   (gated on realisation-layer pinning of `@mirror/store` +
+   `@io/stagefreight/<species>` registry surfaces; see §3.1.2)
 
 ## Substrate-pull discipline
 
@@ -1329,6 +1467,31 @@ LATER (forward-promised; gated on mirror realisation):
   StageFreight v0.x release tag
   internal/stagefreightmirror/json.go     (sibling species)
 ```
+
+### 11.6.1 The cross-family @magic bilateral deferral (forward-promise, not ratification)
+
+The Go-side `InvariantPreserved` stub (§3.1 `magic.go`) returns
+BOUNDED by construction at v0.1. This is a **FORWARD-PROMISE, not a
+RATIFIED Pack decision**. The substrate-pull-correct reading is:
+
+- The cross-family bilateral `invariant_preserved(c, promise)` is
+  declared in the mirror substrate-decl as a `freight()` requires
+  clause. Dropping it Go-side would silently break the alignment-as-
+  boundary-mathematics (#57) discharge.
+- At v0.1 the Go side preserves the seam (composition step present
+  in §2.5 + §2.6; opaque carriers declared in §3.1) but defers
+  substantive discharge to the Rust realisation layer, which has the
+  @magic family imports and can validate the contract structurally.
+- **If the Pack later ratifies full deferral** of the cross-family
+  bilateral to the realisation layer (i.e. agrees the Go side need
+  not carry the carriers or the composition step), the no-op stub IS
+  the discharge — the v0.1 shape collapses cleanly into the ratified
+  shape with no spec rewrite. If the Pack instead ratifies that the
+  Go side must carry substantive validation, the realisation layer
+  fills the stub body and the composition chain already routes through
+  it. Both ratification paths are honored by the v0.1 structure.
+- The hedge is named here, not elided. The substrate's discipline is
+  that forward-promises are explicit; this one is.
 
 ### 11.7 Honest framing
 
