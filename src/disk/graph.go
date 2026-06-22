@@ -169,15 +169,23 @@ func subdirs(dir string) []string {
 	return out
 }
 
-// dirSize sums regular-file sizes under root (best-effort; unreadable entries
-// skipped, symlinks not followed).
+// dirSize returns actual disk usage under root, matching `du`: it sums
+// st_blocks×512 for every entry (files, dirs, symlinks), so block padding and the
+// directory overhead of millions-of-tiny-files caches (lint, go modules) are
+// counted — not just apparent file sizes. Best-effort; unreadable entries skipped.
 func dirSize(root string) int64 {
 	var total int64
 	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil
 		}
-		if info, ierr := d.Info(); ierr == nil && info.Mode().IsRegular() {
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); ok {
+			total += st.Blocks * 512 // disk usage in 512-byte units, like du
+		} else if info.Mode().IsRegular() {
 			total += info.Size()
 		}
 		return nil

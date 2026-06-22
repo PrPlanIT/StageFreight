@@ -60,6 +60,9 @@ func Render(w io.Writer, host string, r *Report, opt RenderOpts) {
 		}
 		fmt.Fprintf(w, "\n\nRECLAIM   ·   up to %s recoverable\n", humanBytes(sum))
 		for _, n := range rec {
+			if n.Bytes == 0 {
+				continue // empty volumes/layers free nothing — don't clutter the ledger
+			}
 			cmd, safety := "", ""
 			if n.Hint != nil {
 				cmd, safety = n.Hint.Command, n.Hint.Safety

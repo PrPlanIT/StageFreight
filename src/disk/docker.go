@@ -208,13 +208,15 @@ func scanDockerVolumes(df dfDump, runtime string) *Node {
 		sz := parseDockerSize(vol.Size)
 		n := &Node{Label: volumeLabel(vol.Name), Bytes: sz, Note: volumeNote(vol.Name),
 			Attr: volumeAttr(vol.Name, runtime)}
-		if vol.Links == "0" || vol.Links == "" || vol.Links == "N/A" {
-			n.Flags |= FlagReclaimable // unused
-		}
-		if isAnonymousVol(vol.Name) {
-			n.Flags |= FlagReclaimable
-		}
-		if n.Flags.Has(FlagReclaimable) {
+		switch {
+		case strings.Contains(vol.Name, "buildkit"):
+			// In-use by buildkitd, but its contents are rebuildable build cache —
+			// prune the cache, do NOT delete the volume (that breaks the daemon).
+			n.Flags |= FlagReclaimable | FlagAttention
+			n.Note = "buildkitd cache · prunable"
+			n.Hint = &Hint{Command: "prune buildkit cache (buildctl prune / recreate buildkitd)", Safety: "rebuildable"}
+		case vol.Links == "0" || vol.Links == "" || vol.Links == "N/A" || isAnonymousVol(vol.Name):
+			n.Flags |= FlagReclaimable // unused or orphaned
 			n.Hint = &Hint{Command: "docker volume rm " + vol.Name, Safety: "safe"}
 		}
 		v.add(n)

@@ -21,6 +21,30 @@ func DefaultCacheRoot() string {
 	return filepath.Dir(toolchain.PersistentCacheRoot())
 }
 
+// DiscoverCacheRoot locates the persistent cache mount when --cache is not given:
+// the container default (/stagefreight) or, on a runner host, a `…/stagefreight`
+// directory carrying toolchains/ + cache/. Returns "" if none found. (Reading a
+// runner's root-owned mount needs sudo.)
+func DiscoverCacheRoot() string {
+	candidates := []string{DefaultCacheRoot()}
+	for _, g := range []string{
+		"/opt/docker/*/stagefreight",
+		"/opt/*/stagefreight",
+		"/srv/*/stagefreight",
+		"/srv/*/*/stagefreight",
+		"/var/lib/*/stagefreight",
+	} {
+		m, _ := filepath.Glob(g)
+		candidates = append(candidates, m...)
+	}
+	for _, c := range candidates {
+		if isDir(filepath.Join(c, "cache")) || isDir(filepath.Join(c, "toolchains")) {
+			return c
+		}
+	}
+	return ""
+}
+
 // ScanCacheMount builds the CACHE MOUNT domain from <root>/cache (rebuildable
 // build/scan caches) and <root>/toolchains (versioned tool installs). Returns nil
 // if neither exists.

@@ -6,11 +6,13 @@ import "context"
 // discovered repositories. Any domain that finds nothing is omitted.
 func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth int) *Report {
 	if cacheRoot == "" {
-		cacheRoot = DefaultCacheRoot()
+		cacheRoot = DiscoverCacheRoot()
 	}
 	r := &Report{}
-	if c := ScanCacheMount(cacheRoot); c != nil {
-		r.Domains = append(r.Domains, c)
+	if cacheRoot != "" {
+		if c := ScanCacheMount(cacheRoot); c != nil {
+			r.Domains = append(r.Domains, c)
+		}
 	}
 	if d := ScanDocker(ctx); d != nil {
 		r.Domains = append(r.Domains, d)
