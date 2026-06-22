@@ -1,109 +1,76 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/PrPlanIT/StageFreight/src/disk"
 )
 
-var duJSON bool
+var (
+	duJSON      bool
+	duCacheRoot string
+	duRepos     string
+	duNoRepos   bool
+	duMaxDepth  int
+)
 
 var duCmd = &cobra.Command{
 	Use:   "du",
-	Short: "Report StageFreight's disk usage on this host",
-	Long: "Report how much disk StageFreight is using: the persistent cache mount " +
-		"(toolchain SDKs + Go/Rust build caches) and this workspace's .stagefreight/ " +
-		"artifacts (content store, scan reports, release artifacts). Read-only — a `du` " +
-		"scoped to the paths StageFreight owns, to find what is hogging space on a runner.",
+	Short: "Storage-attribution diagnostic — what is eating disk today",
+	Long: "Report what StageFreight and its CI occupy on disk, grouped so an operator can act: " +
+		"the persistent cache mount (toolchains by version, build/scan caches by subsystem, " +
+		"per-project rust targets), the Docker daemon(s) (host vs dind, images by family with " +
+		"tags, dangling, volumes, build cache), and discovered repositories. Bars are share of " +
+		"total disk; a reclaim ledger names the biggest wins. Read-only.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		root, err := os.Getwd()
-		if err != nil {
-			return err
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		var repoRoots []string
+		if !duNoRepos {
+			if duRepos != "" {
+				repoRoots = splitClean(duRepos)
+			} else if home, err := os.UserHomeDir(); err == nil {
+				repoRoots = []string{home}
+			}
 		}
-		rep := disk.Scan(root)
+
+		rep := disk.Scan(ctx, duCacheRoot, repoRoots, duMaxDepth)
 		if duJSON {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			return enc.Encode(rep)
 		}
-		renderDU(os.Stdout, rep)
+		host, _ := os.Hostname()
+		if host == "" {
+			host = "host"
+		}
+		disk.Render(os.Stdout, host, rep, disk.RenderOpts{})
 		return nil
 	},
 }
 
 func init() {
 	duCmd.Flags().BoolVar(&duJSON, "json", false, "machine-readable JSON output")
+	duCmd.Flags().StringVar(&duCacheRoot, "cache", "", "persistent cache mount path (default /stagefreight; on a runner host use e.g. /opt/docker/gitlab-runner/stagefreight)")
+	duCmd.Flags().StringVar(&duRepos, "repos", "", "comma-separated roots to discover repositories under (default: $HOME)")
+	duCmd.Flags().BoolVar(&duNoRepos, "no-repos", false, "skip repository discovery")
+	duCmd.Flags().IntVar(&duMaxDepth, "max-depth", 3, "repository discovery recursion depth")
 	rootCmd.AddCommand(duCmd)
 }
 
-// humanBytes formats a byte count as a 1024-based human size (e.g. "8.1 GiB").
-func humanBytes(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
-}
-
-func renderDU(w io.Writer, r disk.Report) {
-	fmt.Fprintln(w, "StageFreight disk usage")
-	fmt.Fprintln(w)
-	if r.FS.Total > 0 {
-		fmt.Fprintf(w, "  filesystem  %s  —  %s total, %s free (%d%% used)\n\n",
-			r.FS.Path, humanBytes(r.FS.Total), humanBytes(r.FS.Free),
-			pct(r.FS.Total-r.FS.Free, r.FS.Total))
-	}
-	if len(r.Groups) == 0 {
-		fmt.Fprintln(w, "  no StageFreight caches or artifacts found here")
-		return
-	}
-	for _, g := range r.Groups {
-		renderEntry(w, g, 0)
-	}
-	fmt.Fprintln(w)
-	note := ""
-	if r.FS.Total > 0 {
-		note = fmt.Sprintf("  (%d%% of %s)", pct(r.Total, r.FS.Total), r.FS.Path)
-	}
-	fmt.Fprintf(w, "  %-34s %10s%s\n\n", "total StageFreight footprint", humanBytes(r.Total), note)
-	fmt.Fprintln(w, "  Caches are safe to delete (forces a one-time cold rebuild);")
-	fmt.Fprintln(w, "  the content store is retired automatically by publish.")
-}
-
-// renderEntry prints one entry and its children, indented; the size column stays
-// aligned across depths because indent padding + label width is held constant.
-func renderEntry(w io.Writer, e disk.Entry, indent int) {
-	pad := strings.Repeat("  ", indent)
-	width := 34 - len(pad)
-	name := e.Label
-	if indent == 0 {
-		name = e.Label + "  " + e.Path
-		width = 34
-		pad = ""
-	}
-	fmt.Fprintf(w, "  %s%-*s %10s\n", pad, width, name, humanBytes(e.Bytes))
-	for _, c := range e.Children {
-		if c.Bytes == 0 {
-			continue
+func splitClean(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
-		renderEntry(w, c, indent+1)
 	}
-}
-
-func pct(part, whole int64) int {
-	if whole <= 0 {
-		return 0
-	}
-	return int(part * 100 / whole)
+	return out
 }
