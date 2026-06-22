@@ -43,7 +43,7 @@ func resolveCargoRunner(repoRoot string) (cargoRunner, error) {
 // line-edit discipline as the Dockerfile updater, then runs `cargo update` to sync each
 // crate's Cargo.lock. Returns applied/skipped plus touched files (Cargo.toml and, when
 // the lock changes, Cargo.lock per crate).
-func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
+func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, CargoChurn, error) {
 	var applied []AppliedUpdate
 	var skipped []SkippedDep
 
@@ -88,14 +88,14 @@ func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoo
 	}
 
 	if len(byFile) == 0 {
-		return applied, skipped, nil, nil
+		return applied, skipped, nil, CargoChurn{}, nil
 	}
 
 	// Edit the manifests (hash-verified).
 	var touchedFiles []string
 	for file, fe := range byFile {
 		if err := applyFileEdits(fe.absPath, fe.edits); err != nil {
-			return applied, skipped, nil, fmt.Errorf("editing %s: %w", file, err)
+			return applied, skipped, nil, CargoChurn{}, fmt.Errorf("editing %s: %w", file, err)
 		}
 		touchedFiles = append(touchedFiles, file)
 	}
@@ -105,23 +105,43 @@ func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoo
 	// touched file in the resulting MR.
 	runCargo, err := resolveCargoRunner(repoRoot)
 	if err != nil {
-		return applied, skipped, deduplicateAndSort(touchedFiles), err
+		return applied, skipped, deduplicateAndSort(touchedFiles), CargoChurn{}, err
 	}
-	// cargo update must run at the WORKSPACE ROOT, not in each edited sub-manifest. A workspace
-	// shares one Cargo.lock at its root, and a [patch] path crate (e.g. patches/proxmox-client)
-	// is NOT a workspace member — `cargo update` inside it fails with "believes it's in a
-	// workspace when it's not". Resolve each edited manifest to its update root, dedupe, and run
-	// once per distinct root (which also re-resolves the patched/member crates that were edited).
-	updateDirs := map[string]bool{}
-	for file := range byFile {
-		updateDirs[findCargoUpdateDir(repoRoot, file)] = true
-	}
-	for dir := range updateDirs {
-		if out, err := runCargo(ctx, dir, "update"); err != nil {
-			rel, _ := filepath.Rel(repoRoot, dir)
-			return applied, skipped, deduplicateAndSort(touchedFiles),
-				fmt.Errorf("cargo update in %s: %w\n%s", rel, err, strings.TrimSpace(string(out)))
+
+	// Intent fidelity: sync the lock for ONLY the packages we edited — never a blanket
+	// re-resolve. A bare `cargo update` re-resolves the WHOLE graph to latest-semver for every
+	// transitive, silently widening the change far beyond the declared intent: review scope and
+	// blast radius balloon, and an unrelated transitive bump can break the build (a 3-package
+	// intent once churned 141 lock entries and broke a musl target). Scope to
+	// `cargo update -p <pkg>`, letting cargo move only the transitives it MUST to satisfy the
+	// new constraints.
+	//
+	// Group edited package names by their update root: cargo update must run at the WORKSPACE
+	// ROOT (members share one root Cargo.lock; a [patch] path crate is not a member, so a bare
+	// `cargo update` inside it errors with "believes it's in a workspace when it's not"), and a
+	// -p package only exists in its own root's lock.
+	editedByDir := map[string][]string{}
+	for file, fe := range byFile {
+		dir := findCargoUpdateDir(repoRoot, file)
+		for _, e := range fe.edits {
+			editedByDir[dir] = appendUniqueStr(editedByDir[dir], e.dep.Name)
 		}
+	}
+	var churn CargoChurn
+	for dir, pkgs := range editedByDir {
+		churn.Intended += len(pkgs)
+		args := make([]string, 0, 1+2*len(pkgs))
+		args = append(args, "update")
+		for _, p := range pkgs {
+			args = append(args, "-p", p)
+		}
+		out, err := runCargo(ctx, dir, args...)
+		if err != nil {
+			rel, _ := filepath.Rel(repoRoot, dir)
+			return applied, skipped, deduplicateAndSort(touchedFiles), churn,
+				fmt.Errorf("cargo update -p in %s: %w\n%s", rel, err, strings.TrimSpace(string(out)))
+		}
+		churn.Mutated += countLockMutations(out)
 		lock := filepath.Join(dir, "Cargo.lock")
 		if _, statErr := os.Stat(lock); statErr == nil {
 			if rel, relErr := filepath.Rel(repoRoot, lock); relErr == nil {
@@ -129,7 +149,46 @@ func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoo
 			}
 		}
 	}
-	return applied, skipped, deduplicateAndSort(touchedFiles), nil
+	return applied, skipped, deduplicateAndSort(touchedFiles), churn, nil
+}
+
+// CargoChurn measures lock-sync intent fidelity: how many distinct packages we asked cargo
+// to update (Intended) vs how many lockfile entries actually changed (Mutated). A ratio near
+// 1 is healthy; a large ratio means a wide transitive re-resolve — operationally meaningful
+// review signal, since it is exactly where unintended blast radius hides.
+type CargoChurn struct {
+	Intended int
+	Mutated  int
+}
+
+// countLockMutations counts crate-level changes cargo reported — Updating/Adding/Removing/
+// Downgrading lines that name a crate and a "vN" version — excluding registry/index refresh
+// lines like "Updating crates.io index" or "Updating git repository `url`".
+func countLockMutations(out []byte) int {
+	n := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		switch f[0] {
+		case "Updating", "Adding", "Removing", "Downgrading":
+			if v := f[2]; len(v) > 1 && v[0] == 'v' && v[1] >= '0' && v[1] <= '9' {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// appendUniqueStr appends s to xs only if not already present (small N, order-preserving).
+func appendUniqueStr(xs []string, s string) []string {
+	for _, x := range xs {
+		if x == s {
+			return xs
+		}
+	}
+	return append(xs, s)
 }
 
 // findCargoUpdateDir returns the directory `cargo update` should run in for a manifest: the

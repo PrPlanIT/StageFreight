@@ -96,6 +96,24 @@ func ecosystemStep(eco string, applied []AppliedUpdate, skipped []SkippedDep, to
 	}
 }
 
+// cargoStep renders the cargo ecosystem outcome like ecosystemStep, but augments the applied
+// detail with lock-churn amplification — intended packages vs lockfile entries actually
+// mutated. A targeted lock-sync should keep this near 1×; a high ratio (flagged ⚠) means the
+// resolve moved many transitives and the reviewer should look at the lockfile diff scope.
+func cargoStep(applied []AppliedUpdate, skipped []SkippedDep, churn CargoChurn, dur time.Duration) depStep {
+	if len(applied) == 0 {
+		return ecosystemStep("cargo", applied, skipped, nil, dur)
+	}
+	detail := fmt.Sprintf("updated %d", len(applied))
+	if churn.Intended > 0 {
+		detail += fmt.Sprintf(" · lock %d→%d", churn.Intended, churn.Mutated)
+		if churn.Mutated >= churn.Intended*5 {
+			detail += fmt.Sprintf(" (%d× ⚠)", churn.Mutated/churn.Intended)
+		}
+	}
+	return depStep{label: "cargo", status: "ok", detail: detail, dur: dur}
+}
+
 // skipSummary collapses skip reasons to one phrase when uniform, else a count.
 func skipSummary(skipped []SkippedDep) string {
 	if len(skipped) == 0 {
@@ -252,12 +270,12 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 
 	if len(cargoDeps) > 0 {
 		t0 = time.Now()
-		applied, cgSkipped, touchedFiles, err := applyCargoUpdates(ctx, cargoDeps, repoRoot)
+		applied, cgSkipped, touchedFiles, churn, err := applyCargoUpdates(ctx, cargoDeps, repoRoot)
 		if err != nil {
 			steps = append(steps, depStep{label: "cargo", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Cargo updates: %w", err)
 		}
-		steps = append(steps, ecosystemStep("cargo", applied, cgSkipped, nil, time.Since(t0)))
+		steps = append(steps, cargoStep(applied, cgSkipped, churn, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, cgSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
