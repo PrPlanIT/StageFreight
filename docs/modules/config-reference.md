@@ -652,10 +652,29 @@ commit:
 <a id="config-lifecycle" name="config-lifecycle"></a>
 ### lifecycle
 
+Selects the repository lifecycle mode — the phase graph the pipeline runs. The single most architecturally significant config choice: it determines whether the repo builds container images, validates GitOps manifests, or reconciles governance. When omitted, the lifecycle defaults to `image`.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `mode` | `mode` | string | Yes | — | string value |
+| `preset` | `preset` | string | No | — | Path to an external lifecycle config fragment to inherit. Resolved and deep-merged before parse; local sibling keys override the preset. Part of the general `preset:` fragment-include mechanism. |
+| `mode` | `mode` | string | Yes | image | Selects the lifecycle — which phase graph the pipeline runs. Empty defaults to `image`. |
+
+**`mode` allowed values:** `image`, `docker`, `gitops`, `governance`
+
+> `image` (default): the full build → review → publish image pipeline. The only mode where review and publish do work; the others mark them not_applicable.
+> `docker`: read-only Docker plan/reconcile (dry-run). Requires the Reconcile capability.
+> `gitops`: validate + reconcile Flux manifests — audition validates, perform reconciles. Requires Reconcile + ImpactAnalysis (and ClusterAuth when `gitops.cluster` is set).
+> `governance`: governance control-repo reconcile — distributes config/doctrine to member repos.
+
+> Phase applicability is mode-derived: the `review` and `publish` phases do work only in `image` mode; `gitops`, `governance`, and `docker` mark them not_applicable.
+> Capability requirements differ per mode (e.g. `gitops` requires Reconcile + ImpactAnalysis, plus ClusterAuth when `gitops.cluster` is set); the lifecycle backend is checked against them at plan time.
+
+**Example:**
+
+```yaml
+lifecycle:
+  mode: image
+```
 
 ---
 

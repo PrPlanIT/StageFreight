@@ -308,7 +308,6 @@ Exit codes: 0=success, 1=phase error, 2=config error, 3=context error
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--tag` | string | — | release tag (overrides SF_CI_TAG for release subsystem) |
-| `-h, --help` | bool | — | help for run |
 
 **Inherited flags:**
 
@@ -900,6 +899,7 @@ Generated files:
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--output-dir` | string | `docs/modules` | output directory for generated fragments |
+| `-h, --help` | bool | — | help for generate |
 
 **Inherited flags:**
 

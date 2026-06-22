@@ -1,9 +1,18 @@
 package config
 
-// LifecycleConfig defines the repository lifecycle mode.
+// LifecycleConfig selects the repository lifecycle mode — the phase graph the
+// pipeline runs. Mode is the single most significant orchestration choice:
+// review and publish are image-only; the other modes mark them not_applicable.
 type LifecycleConfig struct {
+	// Preset references an external lifecycle fragment to inherit (the generic
+	// preset: fragment-include mechanism — resolved and deep-merged before parse).
 	Preset string `yaml:"preset,omitempty"`
-	Mode   string `yaml:"mode"` // image | gitops | governance
+	// Mode selects the phase graph. Empty defaults to image.
+	//   image      — build → review → publish image pipeline (the default)
+	//   docker     — read-only Docker plan/reconcile (dry-run)
+	//   gitops     — validate + reconcile Flux manifests
+	//   governance — governance control-repo reconcile
+	Mode string `yaml:"mode"`
 }
 
 // GovernanceConfig declares governance clusters for the control repo.

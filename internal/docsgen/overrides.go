@@ -25,6 +25,15 @@ var sectionOverrides = map[string]SectionOverride{
 		Summary: "Schema version number. Must be `1` — the first stable schema.",
 		Example: "version: 1",
 	},
+	"lifecycle": {
+		Summary: "Selects the repository lifecycle mode — the phase graph the pipeline runs. The single most architecturally significant config choice: it determines whether the repo builds container images, validates GitOps manifests, or reconciles governance. When omitted, the lifecycle defaults to `image`.",
+		Example: `lifecycle:
+  mode: image`,
+		Notes: []string{
+			"Phase applicability is mode-derived: the `review` and `publish` phases do work only in `image` mode; `gitops`, `governance`, and `docker` mark them not_applicable.",
+			"Capability requirements differ per mode (e.g. `gitops` requires Reconcile + ImpactAnalysis, plus ClusterAuth when `gitops.cluster` is set); the lifecycle backend is checked against them at plan time.",
+		},
+	},
 	"vars": {
 		Summary: "User-defined template variable dictionary. Referenced as `{var:name}` anywhere templates are resolved.",
 		Example: `vars:
@@ -175,6 +184,22 @@ var sectionOverrides = map[string]SectionOverride{
 
 // fieldOverrides maps docs-path keys to curated field documentation.
 var fieldOverrides = map[string]FieldOverride{
+	// ── lifecycle ────────────────────────────────────────────────────────
+	"lifecycle.mode": {
+		Description:   "Selects the lifecycle — which phase graph the pipeline runs. Empty defaults to `image`.",
+		AllowedValues: []string{"image", "docker", "gitops", "governance"},
+		Default:       "image",
+		Notes: []string{
+			"`image` (default): the full build → review → publish image pipeline. The only mode where review and publish do work; the others mark them not_applicable.",
+			"`docker`: read-only Docker plan/reconcile (dry-run). Requires the Reconcile capability.",
+			"`gitops`: validate + reconcile Flux manifests — audition validates, perform reconciles. Requires Reconcile + ImpactAnalysis (and ClusterAuth when `gitops.cluster` is set).",
+			"`governance`: governance control-repo reconcile — distributes config/doctrine to member repos.",
+		},
+	},
+	"lifecycle.preset": {
+		Description: "Path to an external lifecycle config fragment to inherit. Resolved and deep-merged before parse; local sibling keys override the preset. Part of the general `preset:` fragment-include mechanism.",
+	},
+
 	// ── sources ──────────────────────────────────────────────────────────
 	"sources.primary.kind": {
 		Description: "Source type.",
