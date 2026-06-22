@@ -109,11 +109,66 @@ func queryDaemon(ctx context.Context, env, args []string, label, endpoint, runti
 			Attr: Attribution{Runtime: runtime}})
 	}
 
-	d.sortKids()
 	for _, c := range d.Kids {
 		d.Bytes += c.Bytes
 	}
+	if runtime == "docker-host" {
+		reconcileHostStorage(ctx, d) // make the total reflect real on-disk usage
+	}
+	d.sortKids()
 	return d
+}
+
+// reconcileHostStorage makes the host daemon's total reflect real on-disk usage.
+// `docker system df` is a logical view (image UniqueSize, volume size) that omits
+// container rootfs, snapshot/metadata overhead, and volume block padding. We
+// measure the actual storage roots and add a remainder node for the difference, so
+// the domain total equals true disk. No-op when the roots aren't readable (needs
+// root) or nothing is unaccounted — we never fabricate a negative remainder.
+func reconcileHostStorage(ctx context.Context, daemon *Node) {
+	root, extra := dockerStorageRoots(ctx)
+	if root == "" || !isDir(root) {
+		return
+	}
+	measured := dirSize(root)
+	for _, e := range extra {
+		measured += dirSize(e)
+	}
+	if measured <= daemon.Bytes {
+		return // roots unreadable (perm) or no overhead — keep the df view intact
+	}
+	daemon.add(&Node{Label: "container layers + overhead", Bytes: measured - daemon.Bytes,
+		Note: "rootfs · snapshots · metadata", Attr: Attribution{Runtime: "docker-host"}})
+	daemon.Bytes = measured
+}
+
+// dockerStorageRoots returns the daemon's data-root plus any storage trees that
+// live outside it — specifically the containerd image store, used when Docker runs
+// the containerd snapshotter (image layers then sit under /var/lib/containerd, not
+// the data-root). Image layers are reported by df, so they cancel in the remainder
+// rather than double-count.
+func dockerStorageRoots(ctx context.Context) (root string, extra []string) {
+	parts := strings.SplitN(dockerInfoField(ctx, "{{.DockerRootDir}}|{{.Driver}}"), "|", 2)
+	root = strings.TrimSpace(parts[0])
+	driver := ""
+	if len(parts) > 1 {
+		driver = strings.TrimSpace(parts[1])
+	}
+	// overlay2/aufs/devicemapper keep image layers inside the data-root; the
+	// containerd snapshotter drivers (overlayfs, native, …) keep them in containerd.
+	if driver != "" && driver != "overlay2" && driver != "aufs" && driver != "devicemapper" &&
+		isDir("/var/lib/containerd") {
+		extra = append(extra, "/var/lib/containerd")
+	}
+	return
+}
+
+func dockerInfoField(ctx context.Context, format string) string {
+	out, err := exec.CommandContext(ctx, "docker", "info", "--format", format).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (n *Node) addNonZero(kids ...*Node) {
