@@ -65,7 +65,13 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:    []string{"perform"},
 				Commands: []string{"stagefreight ci run review"},
 				Artifacts: model.ArtifactSpec{
-					Paths:    []string{".stagefreight/security/"},
+					// pipeline.json carries review's recorded security outcome
+					// forward to publish, whose authorization gate reads it. Without
+					// it, publish sees only perform's stale state and the gate is
+					// blind. security/ holds the scan reports themselves. (review
+					// deliberately does NOT re-forward the whole .stagefreight/ —
+					// that would drag perform's content store along with it.)
+					Paths:    []string{".stagefreight/security/", ".stagefreight/pipeline.json"},
 					ExpireIn: "1 week",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true},

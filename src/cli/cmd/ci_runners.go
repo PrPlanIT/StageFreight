@@ -501,21 +501,47 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 
 // ── security runner ──────────────────────────────────────────────────────────
 func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	secAllowFailure := !appCfg.Security.IsRequired()
+	rootDir := resolveWorkspace(ciCtx)
+
+	// recordSecurity persists the security subsystem outcome (CI only). EVERY
+	// terminal path records one: publish's authorization gate reads these raw
+	// outcomes, so a path that returns without recording is invisible to it —
+	// which is exactly how an unhealthy substrate used to let publish proceed
+	// (the job failed, but no structured outcome existed for publish to deny on).
+	recordSecurity := func(outcome, reason string) {
+		if !ciCtx.IsCI() {
+			return
+		}
+		if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
+			s.RecordSubsystem(cistate.SubsystemState{
+				Name: "security", Attempted: true, AllowFailure: secAllowFailure,
+				Outcome: outcome, Reason: reason,
+			})
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
+	}
+
 	// Policy gate: skip non-release tags
 	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Versioning) {
 		fmt.Printf("  security: skipping — tag %q does not match any release tag source\n", ciCtx.Tag)
+		recordSecurity("not_applicable", "tag does not match any release tag source")
 		return nil
 	}
 
 	if !appCfg.Security.Enabled {
 		fmt.Println("  security scan disabled in config")
+		recordSecurity("not_applicable", "security scan disabled in config")
 		return nil
 	}
 
-	secAllowFailure := !appCfg.Security.IsRequired()
-	rootDir := resolveWorkspace(ciCtx)
-
+	// Terminal evaluation failure: an unhealthy substrate means the scan cannot
+	// run, so the artifact is UNREVIEWED. Record it as a failure (not a silent
+	// return) so publish's authorization gate denies distribution of bytes that
+	// were never actually evaluated.
 	if r := executorCheck(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
+		recordSecurity("failed", "substrate unhealthy — security scan could not run")
 		return fmt.Errorf("security subsystem: substrate unhealthy")
 	}
 

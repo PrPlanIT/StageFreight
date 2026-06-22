@@ -210,6 +210,17 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	case "gitops", "governance":
 		return phaseNotApplicable(rootDir, "publish", mode)
 	default:
+		// Authorization gate: publish externalizes irreversibly, so it must not
+		// act unless the build produced the bytes AND review evaluated them. Read
+		// the RAW recorded outcomes independent of the jobs' allow_failure — a
+		// failed review blocks publish even though the review job is
+		// allow_failure:true (scheduler continuation vs action authorization).
+		// This lives INSIDE the image branch on purpose: gitops/governance have no
+		// review→publish edge (their build/security subsystems never exist), so
+		// authorizing against them would be a category error, not a transition.
+		if err := authorizePhase(ciCtx, rootDir, "publish"); err != nil {
+			return err
+		}
 		// Distribute content-store artifacts (digest-preserving promotion) before
 		// release metadata. This is where image distribution happens in publish:
 		// the bytes perform built and review verified are promoted to their
