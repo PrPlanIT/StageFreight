@@ -104,7 +104,13 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 	if ciCtx.IsCI() && appCfg.CI.Image != "" {
 		rootDir := resolveWorkspace(ciCtx)
 		if err := checkCIFreshness(ciCtx.Provider, rootDir, appCfg); err != nil {
-			return fmt.Errorf("audition: %w", err)
+			// Render the failure IN-BAND on stdout — the same stream the banner was
+			// just written to. Returning it as a normal error prints it on stderr
+			// (root.go), and stdout/stderr are separate pipes that CI merges by
+			// arrival order, so the message splices into the middle of the logo.
+			// One stream guarantees order; exit silently since it's already rendered.
+			fmt.Fprintf(os.Stdout, "\naudition: %v\n", err)
+			return silentExit(err)
 		}
 	}
 
