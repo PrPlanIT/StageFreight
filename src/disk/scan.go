@@ -5,6 +5,12 @@ import "context"
 // Scan assembles the full report: the cache mount, the Docker daemon(s), and
 // discovered repositories. Any domain that finds nothing is omitted.
 func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth int) *Report {
+	// Scan Docker FIRST, while ctx still has its full timeout budget. The cache walk
+	// below can run for many seconds on a millions-of-files cache (it stats every
+	// entry for du-accurate block sizing) and would otherwise consume the docker
+	// commands' deadline, making the whole DOCKER domain silently disappear.
+	dockerDom := ScanDocker(ctx)
+
 	if cacheRoot == "" {
 		cacheRoot = DiscoverCacheRoot()
 	}
@@ -14,8 +20,8 @@ func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth in
 			r.Domains = append(r.Domains, c)
 		}
 	}
-	if d := ScanDocker(ctx); d != nil {
-		r.Domains = append(r.Domains, d)
+	if dockerDom != nil {
+		r.Domains = append(r.Domains, dockerDom)
 	}
 	if len(repoRoots) > 0 {
 		if rp := ScanRepos(repoRoots, maxDepth); rp != nil {
