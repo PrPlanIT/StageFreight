@@ -1,6 +1,32 @@
 package disk
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestDirSizeRecursesAndCountsBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a"), make([]byte, 8192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "sub", "deep")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "b"), make([]byte, 8192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Both 8 KiB files must be counted through the nested dirs — proves the
+	// concurrent fan-out walk recurses fully and the atomic sum is complete.
+	if got := dirSize(root); got < 16384 {
+		t.Errorf("dirSize = %d, want >= 16384 (must recurse subdirs and count blocks)", got)
+	}
+	if got := dirSize(filepath.Join(root, "nonexistent")); got != 0 {
+		t.Errorf("dirSize(missing) = %d, want 0", got)
+	}
+}
 
 func TestSortVersionsDesc(t *testing.T) {
 	v := []string{"1.24", "1.26.4", "1.24.13", "1.26.1"}

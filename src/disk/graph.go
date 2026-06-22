@@ -8,7 +8,10 @@ package disk
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -169,28 +172,55 @@ func subdirs(dir string) []string {
 	return out
 }
 
+// walkSem bounds the total number of concurrent directory walkers across all
+// in-flight dirSize calls, so parallel scans (cache subsystems, repos, the two
+// daemons) don't oversubscribe the disk/CPU. Excess subdirs recurse inline.
+var walkSem = make(chan struct{}, max(4, runtime.GOMAXPROCS(0)*2))
+
 // dirSize returns actual disk usage under root, matching `du`: it sums
 // st_blocks×512 for every entry (files, dirs, symlinks), so block padding and the
 // directory overhead of millions-of-tiny-files caches (lint, go modules) are
-// counted — not just apparent file sizes. Best-effort; unreadable entries skipped.
+// counted — not just apparent file sizes. The walk fans subdirectories out across
+// cores (bounded by walkSem), which is the main speed-up for huge caches.
+// Best-effort; unreadable entries skipped. The summed total is order-independent.
 func dirSize(root string) int64 {
-	var total int64
-	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+	var total atomic.Int64
+	var wg sync.WaitGroup
+
+	var walk func(dir string)
+	walk = func(dir string) {
+		defer wg.Done()
+		ents, err := os.ReadDir(dir)
 		if err != nil {
-			return nil
+			return
 		}
-		info, ierr := d.Info()
-		if ierr != nil {
-			return nil
+		var local int64
+		for _, e := range ents {
+			if info, ierr := e.Info(); ierr == nil {
+				if st, ok := info.Sys().(*syscall.Stat_t); ok {
+					local += st.Blocks * 512 // du-style disk usage
+				} else if info.Mode().IsRegular() {
+					local += info.Size()
+				}
+			}
+			if e.IsDir() { // IsDir is false for symlinks → we don't follow them, like du
+				sub := filepath.Join(dir, e.Name())
+				wg.Add(1)
+				select {
+				case walkSem <- struct{}{}:
+					go func() { defer func() { <-walkSem }(); walk(sub) }()
+				default:
+					walk(sub) // pool saturated — stay on this goroutine
+				}
+			}
 		}
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			total += st.Blocks * 512 // disk usage in 512-byte units, like du
-		} else if info.Mode().IsRegular() {
-			total += info.Size()
-		}
-		return nil
-	})
-	return total
+		total.Add(local)
+	}
+
+	wg.Add(1)
+	walk(root)
+	wg.Wait()
+	return total.Load()
 }
 
 func statFS(path string) FS {

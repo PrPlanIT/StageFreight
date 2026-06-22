@@ -71,7 +71,7 @@ func ScanCacheMount(root string) *Node {
 // ── toolchains/ ─────────────────────────────────────────────────────────────
 
 func scanToolchains(dir string) *Node {
-	g := &Node{Label: "toolchains/", Path: dir, Bytes: dirSize(dir), Note: "versioned tool installs",
+	g := &Node{Label: "toolchains/", Path: dir, Note: "versioned tool installs",
 		Attr: Attribution{Runtime: "cache-mount"}}
 	for _, tool := range subdirs(dir) {
 		toolDir := filepath.Join(dir, tool)
@@ -82,6 +82,9 @@ func scanToolchains(dir string) *Node {
 			Label: tool, Path: toolDir, Bytes: dirSize(toolDir),
 			Note: note, Flags: flags, Attr: Attribution{Runtime: "cache-mount", Tool: tool},
 		})
+	}
+	for _, c := range g.Kids { // roll up — don't re-walk the whole tree for the total
+		g.Bytes += c.Bytes
 	}
 	g.sortKids()
 	return g
@@ -115,23 +118,26 @@ func toolVersionNote(vers []string) (string, Flag) {
 var opaqueCaches = map[string]string{"buildkit": "layer-sets", "lint": "result sets"}
 
 func scanCacheCaches(dir string) *Node {
-	g := &Node{Label: "cache/", Path: dir, Bytes: dirSize(dir), Note: "rebuildable build/scan caches",
+	g := &Node{Label: "cache/", Path: dir, Note: "rebuildable build/scan caches",
 		Flags: FlagReclaimable, Attr: Attribution{Runtime: "cache-mount"}}
 	for _, name := range subdirs(dir) {
 		g.add(scanCacheSubsystem(name, filepath.Join(dir, name)))
+	}
+	for _, c := range g.Kids { // roll up from subsystems — avoids re-walking lint et al.
+		g.Bytes += c.Bytes
 	}
 	g.sortKids()
 	return g
 }
 
 func scanCacheSubsystem(name, dir string) *Node {
-	n := &Node{Label: name, Path: dir, Bytes: dirSize(dir), Flags: FlagReclaimable,
+	n := &Node{Label: name, Path: dir, Flags: FlagReclaimable,
 		Attr: Attribution{Runtime: "cache-mount"}}
 
-	// Opaque hashed caches: collapse to "×N · avg".
+	// Opaque hashed caches: a single walk, collapsed to "×N · avg".
 	if unit, ok := opaqueCaches[name]; ok {
-		kids := subdirs(dir)
-		if c := len(kids); c > 0 {
+		n.Bytes = dirSize(dir)
+		if c := len(subdirs(dir)); c > 0 {
 			n.Note = fmt.Sprintf("%d %s · avg %s", c, unit, humanBytesShort(n.Bytes/int64(c)))
 		}
 		if h := reclaimHint(name); h != nil {
@@ -142,8 +148,9 @@ func scanCacheSubsystem(name, dir string) *Node {
 
 	for _, child := range subdirs(dir) {
 		cdir := filepath.Join(dir, child)
-		cn := &Node{Label: cacheChildLabel(name, child), Path: cdir, Bytes: dirSize(cdir)}
-		// rust/build and (defensively) any */build is project-keyed — attribute.
+		cn := &Node{Label: cacheChildLabel(name, child), Path: cdir}
+		// rust/build is project-keyed — expand and attribute each project, then roll
+		// the build total up from them (one walk per project, none wasted).
 		if name == "rust" && child == "build" {
 			cn.Note = "per-project"
 			for _, proj := range subdirs(cdir) {
@@ -151,9 +158,17 @@ func scanCacheSubsystem(name, dir string) *Node {
 				cn.add(&Node{Label: proj, Path: pdir, Bytes: dirSize(pdir),
 					Attr: Attribution{Project: proj, Runtime: "cache-mount"}})
 			}
+			for _, p := range cn.Kids {
+				cn.Bytes += p.Bytes
+			}
 			cn.sortKids()
+		} else {
+			cn.Bytes = dirSize(cdir)
 		}
 		n.add(cn)
+	}
+	for _, c := range n.Kids {
+		n.Bytes += c.Bytes
 	}
 	n.sortKids()
 	if h := reclaimHint(name); h != nil {

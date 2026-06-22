@@ -1,32 +1,43 @@
 package disk
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // Scan assembles the full report: the cache mount, the Docker daemon(s), and
-// discovered repositories. Any domain that finds nothing is omitted.
+// discovered repositories. The three domains are independent, so they run
+// concurrently — wall-clock is the slowest single domain, not their sum. Any
+// domain that finds nothing is omitted. (Docker carries ctx's deadline and starts
+// at t=0 alongside the walks, so the slow cache walk can't starve it.)
 func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth int) *Report {
-	// Scan Docker FIRST, while ctx still has its full timeout budget. The cache walk
-	// below can run for many seconds on a millions-of-files cache (it stats every
-	// entry for du-accurate block sizing) and would otherwise consume the docker
-	// commands' deadline, making the whole DOCKER domain silently disappear.
-	dockerDom := ScanDocker(ctx)
-
 	if cacheRoot == "" {
 		cacheRoot = DiscoverCacheRoot()
 	}
-	r := &Report{}
+
+	var dockerDom, cacheDom, repoDom *Node
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); dockerDom = ScanDocker(ctx) }()
 	if cacheRoot != "" {
-		if c := ScanCacheMount(cacheRoot); c != nil {
-			r.Domains = append(r.Domains, c)
-		}
+		wg.Add(1)
+		go func() { defer wg.Done(); cacheDom = ScanCacheMount(cacheRoot) }()
+	}
+	if len(repoRoots) > 0 {
+		wg.Add(1)
+		go func() { defer wg.Done(); repoDom = ScanRepos(repoRoots, maxDepth) }()
+	}
+	wg.Wait()
+
+	r := &Report{}
+	if cacheDom != nil {
+		r.Domains = append(r.Domains, cacheDom)
 	}
 	if dockerDom != nil {
 		r.Domains = append(r.Domains, dockerDom)
 	}
-	if len(repoRoots) > 0 {
-		if rp := ScanRepos(repoRoots, maxDepth); rp != nil {
-			r.Domains = append(r.Domains, rp)
-		}
+	if repoDom != nil {
+		r.Domains = append(r.Domains, repoDom)
 	}
 	// Scale bars against the filesystem holding the first real scan target.
 	target := "/"
