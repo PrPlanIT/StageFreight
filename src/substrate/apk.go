@@ -18,8 +18,8 @@ var capabilityPackages = map[string][]string{
 	"cmake":       {"cmake"},
 	"perl":        {"perl"},
 	"pkg-config":  {"pkgconf"},
-	"openssl":     {"openssl-dev"},
-	"git":         {"git"}, // build.rs version-stamping (the SF image is otherwise git-less)
+	"openssl":     {"openssl-dev", "openssl-libs-static"}, // dev = headers + .so; -static-pie musl links libssl.a/libcrypto.a
+	"git":         {"git"},                                // build.rs version-stamping (the SF image is otherwise git-less)
 }
 
 // capabilityProbe is a binary whose presence means the capability is already
