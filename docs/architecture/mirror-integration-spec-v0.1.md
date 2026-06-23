@@ -1531,7 +1531,7 @@ The substrate is honest about what it ships and what it doesn't. This
 spec ships what the consumer-side substrate-decl preservation IS; the
 implementation discharges next.
 
-— Mara, 2026-06-22
+*(Sign-off consolidated to the doc footer; see end of file.)*
 
 ---
 
@@ -1598,27 +1598,48 @@ flight.
 
 ---
 
-## §14. MVP scope: Purescript cascade in-scope, other runtimes post-MVP
+## §14. MVP scope: multi-language cascade architecture in-scope; Purescript→npm as Stage-1 instance
 
 The MVP boundary needs a structural defense against the runtime
-scope-creep gravity (JVM + NPM + Python all at once). This section
-draws the boundary and names the substrate-pull rationale for the
-in-scope choice (Purescript) and the out-of-scope deferrals (others).
+scope-creep gravity (JVM + NPM + Python all at once). The framing
+shift on 2026-06-23: **the PR ships the multi-language cascade
+architecture per `shards/cascade.mirror` recognition #95 (the @cascade
+family-root); Purescript→npm is the Stage-1 INSTANCE, not the
+substrate itself.** This section draws the boundary, names the
+architecture-vs-instance distinction, and references Mara's broader
+survey for the species landscape.
 
 ### 14.1 Stage-1 in-scope (the MVP shape)
 
 1. Native binaries (the existing MVP work).
 2. Content-addressed cache via `splinter.content: oid` (§13.1).
 3. Dockerfile `FROM`-by-`spectral_coordinate` (§13.2).
-4. **Purescript runtime** as the typed-language entry surface.
-5. **npm consumer cascade** as the broad-reach surface (Purescript
-   → typed JS → npm-installable artifact → arbitrary npm consumers).
+4. **The @cascade family-root substrate-decl** (`shards/cascade.mirror`,
+   landed mirror-side 2026-06-23): the parametric primitive
+   `cascade<source_grammar, target_grammar>` with `compile`, `measure`,
+   and `cascade` actions, the `loss_lens` carrier, and the
+   `cascade_well_defined` composed bilateral. This is the architecture.
+5. **The Purescript → typed-JS → npm cascade** as the **Stage-1
+   species instance** at `shards/cascade/purescript-npm.mirror`
+   (forward-promised). One concrete realisation of the architecture;
+   the author ships against this instance; future species shards
+   extend the architecture without re-architecting.
 
-The cascade is the structural move that dissolves the "which runtime"
-question. Purescript gives the substrate-pull-correct typed entry; npm
-gets broad consumer reach through the cascade; the author ships ONE
-runtime substrate-decl and the cascade carries it to the JS ecosystem
-without committing the substrate to JS's type-soup.
+The cascade architecture is the structural move that dissolves the
+"which runtime" question. The architecture admits arbitrarily many
+typed-source → mainstream-target cascades as additive species shards;
+the Stage-1 instance gives the author broad npm reach immediately;
+the Stage-2+ roadmap (§17) is decoupled from the architecture's
+stability. The author ships ONE substrate-decl (the family-root) plus
+ONE species (Purescript→npm) and the rest is forward-promised
+additively.
+
+Reference: Mara's typed-alternatives cascade survey
+(`docs/research/2026-06-23-typed-alternatives-cascade-survey.md`,
+commit `ecc471a` on mirror) maps ten mainstream stacks with three
+confirmed counterexamples and one degenerate sub-pattern; the
+survey IS the substrate-evidence base for the architecture-as-
+primitive recognition.
 
 ### 14.2 The Purescript → typed-JS → npm cascade (operational shape)
 
@@ -1667,21 +1688,29 @@ Three substrate-pull reasons, each load-bearing:
 
 ### 14.4 Post-MVP forward-promised (out of Stage-1 scope)
 
-JVM, raw NPM (authoring untyped JS directly), Python, Ruby, Rust,
-others — each requires its own substrate-decl tick. Each is
-forward-promised; none ships in Stage-1.
+Each additional cascade species — F#→NuGet, Scala→JVM, Gleam→Hex+npm
+dual, Elm→JS, Crystal→native, others — is a separate species shard
+at `shards/cascade/<source>-<target>.mirror`. **None are
+architectural changes; they are additive instances of the @cascade
+family-root contract.** Each is forward-promised per the species
+roadmap in §17; none ships in Stage-1.
 
-Substrate-pull rationale for the deferral: each runtime has its own
-algebra (the JVM has nominal subtyping; raw JS has structural typing
-without parametricity; Python has duck typing). A runtime's
-substrate-decl IS the algebra-into-substrate mapping; multi-runtime
-Stage-1 would commit to multiple mappings simultaneously and inflate
-the bilateral surface beyond what review can discharge in one PR.
+Substrate-pull rationale for the deferral: each cascade has its own
+grammar pair (Scala 3 → JVM bytecode has higher-kinded types erasing
+to generics + reflection; F# → IL preserves discriminated unions via
+tagged-pair encoding; Gleam → BEAM loses type discipline at Erlang
+interop). The `loss_lens<source, target>` measurement is per-pair;
+multi-cascade Stage-1 would commit to multiple per-pair discharges
+simultaneously and inflate the species surface beyond what review can
+carry in one PR.
 
-The Purescript cascade reaches npm WITHOUT requiring raw NPM
-substrate-decl. That dissolves the most common scope-creep pressure
-(the "we need npm support" pull) by giving the npm ecosystem reach
-via the cascade rather than via direct authoring.
+The architecture decouples this. The @cascade family-root admits any
+future species without spec rewrite; the bilateral discipline carries
+forward; each new species lands as an isolated tick. The Purescript
+cascade reaches npm WITHOUT requiring raw NPM substrate-decl — same
+argument applies cascade-by-cascade: each typed alternative reaches
+its mainstream target without requiring the mainstream side itself to
+adopt mirror.
 
 ### 14.5 The boundary defense (explicit)
 
@@ -1694,13 +1723,28 @@ many consumers" structurally possible.
 
 ---
 
-## §15. Purescript cascade substrate-decl
+## §15. Cascade substrate-decl (family-root LANDED; Purescript→npm as first species)
 
-This section names the carriers, actions, and bilateral the Purescript
-cascade adds to the mirror substrate-decl. It is forward-promised —
-the actual shards land in the mirror repository at a follow-up tick;
-this section pins the contract shape the StageFreight side will
-admit.
+The substrate ground for the cascade architecture is the @cascade
+family-root at `shards/cascade.mirror` (mirror, 2026-06-23,
+recognition #95 candidate). The family-root declares the parametric
+primitives (`grammar`, `typed_source`, `compiled_artifact`,
+`loss_lens`, `information_loss`), the three load-bearing actions
+(`compile`, `measure`, `cascade`), and the composed bilateral
+(`cascade_well_defined` composing `grammar_coherent` and
+`loss_well_defined`). The family-root IS the architecture.
+
+This section names the **Purescript→npm species instance** that
+specializes the family-root for Stage-1. The species shard
+(`shards/cascade/purescript-npm.mirror`) is forward-promised; this
+spec pins the contract shape the StageFreight side will admit when
+it lands. The carriers, actions, and bilateral below specialize the
+family-root primitives; they do NOT replace them.
+
+For the family-root contract (the architecture), read
+`shards/cascade.mirror` in the mirror repository directly. The
+following subsections show how the Purescript→npm species discharges
+at the species altitude.
 
 ### 15.1 Carriers
 
@@ -1821,13 +1865,145 @@ circuits on first DEFENSIVE per the standard composition discipline
 
 ---
 
-## §16. Demonstration artifact
+## §16. Mathematical formalization: loss as substrate primitive
+
+This is the "math, not vibes" delivery, per Alex's 2026-06-23
+verbatim to the StageFreight author: *"Building the multi-language
+translation layer right now (math, not vibes). That's the PR."*
+
+The @cascade family-root operationalizes loss measurement as
+substrate-typed data, not estimation. Five concrete pieces:
+
+**1. `loss_lens<source_grammar, target_grammar>` is the measurement
+instrument.** Per `shards/cascade.mirror` (lines 203–221), the
+`loss_lens` carrier is parametric over (source_grammar,
+target_grammar) and IS an instance of the `labeled<>` functor
+(recognition #93 H4). Construction pairs the two grammars; the lens
+IS its pair. Identity contract: byte-equality on the underlying
+ref.
+
+**2. Compilation is a functor; loss IS dimension reduction.** Each
+cascade pairs a source grammar S with a target grammar T such that
+compilation is a structure-preserving map `compile: S → T`. S admits
+more grammatical structure than T preserves at runtime (S has
+higher-kinded types, row polymorphism, discriminated unions; T has
+bytecode, dynamic strings, primitives). Per recognition #51 (mirror
+as expanding Hilbert space): each typed feature in S is a dimension;
+compilation projects to fewer dimensions in T; **loss IS the
+dimension reduction**. This is information-theoretic by construction,
+not by analogy.
+
+**3. `measure(source, artifact, lens, p) ->
+imperfect<artifact, error, information_loss>`** is the substrate-typed
+measurement primitive. Inputs: the typed source, the compiled
+artifact, the loss lens pairing the grammars, and a perturbation. The
+return is `imperfect<>` — the substrate's three-slot carrier for
+(value, error, loss); the loss slot carries the measured
+`information_loss` as substrate-typed data. The `requires
+loss_well_defined(lens, source, p)` precondition forecloses
+measurement against an incoherent lens (e.g., Purescript source
+measured against a JVM bytecode lens — the substrate refuses).
+
+**4. Loss IS a composite of @epistemologic/properties.** Per
+[[feedback-loss-from-epistemologic-properties]] (Alex,
+standing-feedback): at every Fate-tournament altitude, loss is a
+composite of @epistemologic/properties. **Not Shannon. Not Dark. Not
+invented.** The `information_loss` carrier holds the composite. The
+per-cascade discharge (species altitude) selects which
+@epistemologic/properties compose for that grammar pair.
+
+**5. Per-program loss becomes substrate-typed data the author can
+READ.** The author's Purescript program cascades through to npm; the
+`cascade` action returns `imperfect<compiled_artifact, error,
+information_loss>`; the loss slot is interrogable substrate-typed
+data. The author asks "what gets erased at runtime?" and gets a
+substrate-typed answer instead of a vibe. This is the operational
+surface of "math, not vibes."
+
+**Connection to @kintsugi.** The @kintsugi family operates on loss
+(recognition #59: kintsugi loop altitude-portable). `@cascade`
+declares the loss substrate; `@kintsugi` heals it. The cascade's
+measurement output is precisely what @kintsugi consumes; the two
+families compose at the loss boundary by construction.
+
+**Honest hedge: per-cascade discharge is at species-altitude
+(forward-promised).** The family-root declares the SHAPE of the
+measurement. The actual computation — how Purescript ↔ JS
+information-theoretic gap is computed bit-for-bit — discharges in
+the per-species shard (`shards/cascade/purescript-npm.mirror`,
+forward-promised). The architecture is mathematical; the per-cascade
+realisation is incremental. Don't read this section as a claim that
+the Purescript→npm loss number is already computable; read it as the
+typed surface the computation will discharge against when the species
+shard lands.
+
+---
+
+## §17. Cascade species roadmap
+
+The @cascade family-root admits arbitrarily many typed-source →
+mainstream-target cascades as additive species shards. Stage-1 ships
+the architecture + one instance; Stage-2+ extends the instance set
+without re-architecting. Reference: Mara's typed-alternatives
+cascade survey
+(`docs/research/2026-06-23-typed-alternatives-cascade-survey.md`,
+mirror commit `ecc471a`) covers ten mainstream stacks.
+
+### 17.1 Stage-1 (THIS PR)
+
+| Species | Source grammar | Target grammar | Status |
+|---|---|---|---|
+| `cascade<purescript, npm>` | Purescript (row polymorphism, HKT, type classes) | npm (JS modules + package.json) | IN this PR (§15) |
+
+### 17.2 Stage-2 candidates (Mara survey top 3)
+
+| Species | Source grammar | Target grammar | Substrate-pull rationale |
+|---|---|---|---|
+| `cascade<rescript, npm>` | ReScript (sound types, fast compile) | npm (JS / ES modules) | Parallel npm reach with different type-discipline tradeoff; survey §2.3 |
+| `cascade<gleam, beam_plus_js>` | Gleam (sound types, no exceptions) | BEAM bytecode AND JS — **dual target** | **Load-bearing rare shape:** one source, two simultaneous targets. Validates the parametric `cascade<S, T>` form trivially — same source, two cascade species. Per `shards/cascade.mirror` lines 116–120 |
+| `cascade<fsharp, nuget>` | F# (discriminated unions, units-of-measure, computation expressions) | NuGet (.NET IL packaged) | Cleanest cascade instance on .NET; active Microsoft support; survey §2.2 |
+
+### 17.3 Stage-3+ (forward-promised additively)
+
+Scala→JVM (sbt + Maven Central); Kotlin→JVM (Gradle + Maven Central);
+Elm→JS bundle (Elm package registry); Crystal→native binary; others
+per survey. Each is a single-species tick; none requires
+architectural change.
+
+### 17.4 Counterexamples (honest naming)
+
+The survey surfaced three confirmed cases that **do NOT fit** the
+source-cascade pattern. Naming them prevents the architecture from
+over-claiming:
+
+| Non-cascade | Why it doesn't fit |
+|---|---|
+| Crystal / Ruby | Shared culture, not a source-cascade runtime. Crystal compiles to native, not Ruby. The cascade `cascade<crystal, ruby>` does not exist as a compilation functor. |
+| Hack / PHP | HHVM dropped PHP compat ~2017–2018. Hack no longer compiles to mainstream PHP. The cascade dissolved historically. |
+| Oil & Nushell / Shell | These are REPLACEMENT runtimes for Bash, not source cascades that compile to Bash. Different architectural pattern. |
+
+### 17.5 Degenerate sub-pattern (handled at species altitude)
+
+**Language-internal strictness** (TypeScript-strict, Mypy-strict,
+Sorbet, Psalm, C# nullable). Same language with stricter dialect;
+the cascade collapses S and T into the same grammar with measure
+approaching zero. The architecture admits these as cascade species
+where `source_grammar` and `target_grammar` reference the same
+underlying grammar at different strictness altitudes; the
+`information_loss` is structurally zero for in-strict-mode programs
+and non-zero where strict-mode features are absent in the relaxed
+dialect. Worth naming as a distinct cascade-shape; handled at species
+altitude per `shards/cascade.mirror` lines 109–114.
+
+---
+
+## §18. Demonstration artifact
 
 The spec carries the contract; a concrete example carries the proof
 that the contract is operational. This section forward-promises the
 shape of that example.
 
-### 16.1 Forward-promised example: `examples/purescript-cascade/`
+### 18.1 Forward-promised example: `examples/purescript-cascade/`
 
 A minimal end-to-end demonstration of the cascade. Directory shape:
 
@@ -1851,14 +2027,15 @@ on rebuild (no recompile); (3) the npm package wraps the typed-JS
 output; (4) a downstream consumer in `consumer/` imports the package
 and uses the typed function.
 
-### 16.2 Staging
+### 18.2 Staging
 
-Stage-1 PR-A (this PR family) ships the spec (§§1-§17) and **may**
+Stage-1 PR-A (this PR family) ships the spec (§§1-§19) and **may**
 ship the example skeleton if scope permits without contradicting the
 "thin adapter shape" framing of §1.2. The fully working example —
 spago build runs GREEN, mirror cache hits demonstrate, npm consumer
-imports work — may land as PR-B once the Purescript-side substrate-
-decl shards land on the mirror repository.
+imports work — may land as PR-B once the Purescript-side species
+shard lands on the mirror repository (the family-root has already
+landed at `shards/cascade.mirror`, 2026-06-23).
 
 PR-B's example is the demonstration artifact that makes the cascade
 concrete for the author. PR-A's spec is the substrate-decl contract
@@ -1866,26 +2043,42 @@ that makes PR-B's example structurally sound.
 
 ---
 
-## §17. Why this lands with a bang
+## §19. Why this lands with a bang
 
-The single PR demonstrates four things at once: substrate-decl
-contract (§2-§5 + §15); concrete pain solved (§13: the author's
-caching work IS content-addressing; the binary-stash work IS
-spectral-coordinate addressing); scope protection (§14: Purescript +
-npm cascade in; JVM/NPM/Python out, with substrate-pull rationale);
-cascade reach (§14.2: ship one runtime, reach the npm ecosystem
-without scope-creeping into JS type-soup). The author ships their
-MVP caching work AND gets a substrate-pull-correct typed runtime
-(Purescript) AND reaches the npm consumer surface — without
-committing the architecture to runtimes it can't yet discharge
-substrate-decl for. The contract composes for future runtime
-additions; the bilateral discipline carries forward; the
-forward-promises are honest about what's MVP and what's after.
+The single PR demonstrates **five** things at once:
+
+1. **Substrate-decl contract** (§2–§5 + §15): the wire-protocol
+   carriers, actions, and bilateral, plus the cascade family-root
+   contract specialized for Purescript→npm.
+2. **Concrete pain solved** (§13): the author's caching work IS
+   content-addressing; the binary-stash work IS spectral-coordinate
+   addressing. The MVP work in flight IS the substrate's typed shape.
+3. **Architectural scope protection** (§14): the @cascade family-root
+   is the architecture; Purescript→npm is the Stage-1 INSTANCE; all
+   other cascades (JVM/F#/Gleam/etc.) are additive species shards,
+   not architectural changes. Future runtimes don't require spec
+   rewrites.
+4. **Cascade reach** (§14.2 + §17): ship the architecture once;
+   reach the WHOLE typed-runtime → mainstream-ecosystem landscape
+   incrementally as species shards land. Stage-1 demonstrates via
+   Purescript→npm; Stage-2+ extends without re-architecting; the
+   counterexamples (§17.4) are honestly named so the architecture
+   doesn't over-claim.
+5. **Mathematical formalization** (§16): loss as substrate primitive
+   via the `loss_lens<source_grammar, target_grammar>` measurement
+   instrument and the `measure(source, artifact, lens, p) ->
+   imperfect<artifact, error, information_loss>` typed action. The
+   author asks "what gets erased at runtime?" and gets a
+   substrate-typed answer. Per Alex 2026-06-23: **math, not vibes.**
 
 The bang IS the convergence: one PR closes the loop on caching, on
-typed runtimes, on consumer reach, and on the scope-creep gravity
-that was pulling toward unsustainable Stage-1 commitments. The
-substrate-pull-correct shape was already implicit in the author's
-work; the spec names it; the cascade carries it.
+typed-runtime architecture, on consumer reach across mainstream
+ecosystems, on scope-creep gravity, AND on the loss-measurement
+formalization that makes per-program information loss substrate-typed
+data. The substrate-pull-correct shape was already implicit in the
+author's work AND in the broader typed-alternatives landscape; the
+spec names both; the cascade architecture carries them.
+
+---
 
 — Mara, 2026-06-23
