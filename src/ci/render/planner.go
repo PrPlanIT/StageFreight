@@ -78,12 +78,13 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
-				Name:     "publish",
-				Stage:    "publish",
-				Needs:    []string{"perform", "review"},
-				Commands: []string{"stagefreight ci run publish"},
-				Source:   model.SourceSpec{FullClone: true},
-				Policy:   model.PolicySpec{AllowFailure: true},
+				Name:         "publish",
+				Stage:        "publish",
+				Needs:        []string{"perform", "review"},
+				Commands:     []string{"stagefreight ci run publish"},
+				Source:       model.SourceSpec{FullClone: true},
+				Capabilities: model.CapabilitySpec{PackageRegistries: packageRegistries(cfg)},
+				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
 				Name:     "narrate",
@@ -95,4 +96,20 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 			},
 		},
 	}, nil
+}
+
+// packageRegistries lists the registries the publish job may push to, by config
+// provider + credential env prefix, so each forge emitter can auto-wire the one(s)
+// native to it (github→ghcr, gitea→gitea, …) with the forge's auto-token. Only
+// registries declaring a credentials prefix qualify — the prefix names the env vars
+// (<PREFIX>_USER / <PREFIX>_TOKEN) the forge supplies values for.
+func packageRegistries(cfg *config.Config) []model.PackageRegistry {
+	var out []model.PackageRegistry
+	for _, r := range cfg.Registries {
+		if r.Credentials == "" {
+			continue
+		}
+		out = append(out, model.PackageRegistry{Provider: r.Provider, CredPrefix: r.Credentials})
+	}
+	return out
 }

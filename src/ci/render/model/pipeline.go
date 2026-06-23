@@ -114,6 +114,21 @@ type CapabilitySpec struct {
 	// OIDC indicates this job requires an OIDC identity token.
 	// GitLab emitter adds id_tokens.STAGEFREIGHT_OIDC.
 	OIDC bool
+
+	// PackageRegistries lists the package/container registries this job pushes to,
+	// by config provider + credential env prefix. Each forge's emitter auto-wires the
+	// entry matching ITS native registry (github→ghcr, gitea→gitea, forgejo→forgejo)
+	// with that forge's auto-token; entries it doesn't own (e.g. dockerhub, harbor)
+	// are left to explicit secrets. Empty = no package-registry push.
+	PackageRegistries []PackageRegistry
+}
+
+// PackageRegistry names one registry a job pushes to: the config provider
+// ("ghcr", "gitea", "harbor", …) and the env prefix its credentials resolve under
+// (e.g. "GHCR" → GHCR_USER/GHCR_TOKEN).
+type PackageRegistry struct {
+	Provider   string
+	CredPrefix string
 }
 
 // PolicySpec controls job-level scheduling and failure behavior.

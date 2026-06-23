@@ -164,6 +164,12 @@ jobs:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [perform, review]
     continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GITEA_USER: ${{ github.actor }}
+      GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:

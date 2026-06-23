@@ -14,5 +14,16 @@ import (
 
 // Emit renders the pipeline to a GitHub Actions workflow.
 func Emit(p model.Pipeline) ([]byte, error) {
-	return actions.Emit(p, actions.Dialect{Provider: "github"})
+	return actions.Emit(p, actions.Dialect{
+		Provider: "github",
+		// ghcr.io authenticates with the auto-provided GITHUB_TOKEN (packages:
+		// write) — no user-configured secret. Pushing to GitHub's own registry on
+		// Actions is therefore turnkey.
+		NativeRegistries: []string{"ghcr", "github"},
+		PackageAuth: &actions.PackageAuth{
+			Permission: "packages: write",
+			User:       "${{ github.actor }}",
+			Token:      "${{ secrets.GITHUB_TOKEN }}",
+		},
+	})
 }

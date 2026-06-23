@@ -54,7 +54,13 @@ func canonicalPipeline() model.Pipeline {
 				Name: "publish", Stage: "publish", Needs: []string{"perform", "review"},
 				Commands: []string{"stagefreight ci run publish"},
 				Source:   model.SourceSpec{FullClone: true},
-				Policy:   model.PolicySpec{AllowFailure: true},
+				// Package-registry push: each forge auto-wires the entry it owns
+				// (github→ghcr, gitea/forgejo→gitea) with its auto-token; others ignored.
+				Capabilities: model.CapabilitySpec{PackageRegistries: []model.PackageRegistry{
+					{Provider: "ghcr", CredPrefix: "GHCR"},
+					{Provider: "gitea", CredPrefix: "GITEA"},
+				}},
+				Policy: model.PolicySpec{AllowFailure: true},
 			},
 			{
 				Name: "narrate", Stage: "narrate", Needs: []string{"perform", "publish"},
@@ -153,8 +159,15 @@ func TestActionsForgesShareBackendToday(t *testing.T) {
 			if refLines[i] == gotLines[i] {
 				continue
 			}
-			// The only differences expected today carry the provider identity.
+			// The only differences expected today carry the provider identity, or are
+			// forge-specific package-registry credential env vars (GHCR_USER vs
+			// GITEA_USER, …) — each forge supplies its own registry + auto-token via
+			// its Dialect's PackageAuth, a sanctioned per-forge value (not backend
+			// drift, and not an `if provider==` in the backend).
 			if strings.Contains(gotLines[i], forge) || strings.Contains(refLines[i], "github") {
+				continue
+			}
+			if isPackageCredLine(refLines[i]) && isPackageCredLine(gotLines[i]) {
 				continue
 			}
 			t.Errorf("%s differs from github on a non-identity line %d — accidental leak, or an "+
@@ -162,4 +175,13 @@ func TestActionsForgesShareBackendToday(t *testing.T) {
 				forge, i, forge, refLines[i], forge, gotLines[i])
 		}
 	}
+}
+
+// isPackageCredLine reports whether a line is a package-registry credential env var
+// (<PREFIX>_USER / <PREFIX>_TOKEN). The prefix is forge-specific — each forge's
+// Dialect supplies its own — so these lines legitimately differ across forges that
+// share the actions backend.
+func isPackageCredLine(s string) bool {
+	t := strings.TrimSpace(s)
+	return strings.Contains(t, "_USER: ") || strings.Contains(t, "_TOKEN: ")
 }

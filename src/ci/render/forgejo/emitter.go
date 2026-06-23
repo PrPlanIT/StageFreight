@@ -13,5 +13,17 @@ import (
 
 // Emit renders the pipeline to a Forgejo Actions workflow.
 func Emit(p model.Pipeline) ([]byte, error) {
-	return actions.Emit(p, actions.Dialect{Provider: "forgejo"})
+	return actions.Emit(p, actions.Dialect{
+		Provider: "forgejo",
+		// Forgejo's built-in package registry authenticates with the runner's
+		// auto-provided GITHUB_TOKEN (Forgejo Actions is Actions-compatible) — no
+		// configured secret. "gitea" is accepted too since Forgejo's registry is
+		// Gitea-compatible.
+		NativeRegistries: []string{"forgejo", "gitea"},
+		PackageAuth: &actions.PackageAuth{
+			Permission: "packages: write",
+			User:       "${{ github.actor }}",
+			Token:      "${{ secrets.GITHUB_TOKEN }}",
+		},
+	})
 }

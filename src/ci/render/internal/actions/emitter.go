@@ -39,6 +39,27 @@ type Dialect struct {
 	// header banner and SF_CI_PROVIDER so the rendered document and the runtime
 	// context both report the calling forge, not the backend.
 	Provider string
+
+	// NativeRegistries are the config registry providers this forge can authenticate
+	// with its auto-token (e.g. github → "ghcr","github"). A job that pushes to one of
+	// them gets PackageAuth wired; others are left to explicit secrets.
+	NativeRegistries []string
+
+	// PackageAuth, when non-nil, is the forge's recipe for authenticating to its
+	// native package/container registry. The backend emits it verbatim — it names no
+	// forge and chooses nothing; the forge package decides whether its registry has a
+	// turnkey token and which providers count as native.
+	PackageAuth *PackageAuth
+}
+
+// PackageAuth is a forge's package-registry auth recipe: the permission that widens
+// the job token, plus the credential VALUE expressions the forge runtime provides
+// (e.g. GitHub's `${{ github.actor }}` / `${{ secrets.GITHUB_TOKEN }}`). User and
+// Token are emitted as `<prefix>_USER` / `<prefix>_TOKEN` from the job's capability.
+type PackageAuth struct {
+	Permission string
+	User       string
+	Token      string
 }
 
 // Emit serializes a forge-neutral Pipeline to Actions workflow bytes using the
@@ -79,13 +100,13 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
-		emitJob(&buf, j, p.Defaults, d.Provider, stages, producers)
+		emitJob(&buf, j, p.Defaults, d, stages, producers)
 	}
 
 	return buf.Bytes(), nil
 }
 
-func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provider string, stages stageOrder, producers map[string]bool) {
+func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Dialect, stages stageOrder, producers map[string]bool) {
 	needs := effectiveNeeds(j, stages)
 
 	fmt.Fprintf(buf, "  %s:\n", j.Name)
@@ -120,19 +141,50 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provide
 		buf.WriteString("    continue-on-error: true\n")
 	}
 
-	// OIDC token permission (widen the default token for this job only)
-	if j.Capabilities.OIDC {
+	// Resolve the package-registry credential prefix this forge auto-authenticates
+	// for this job: the first capability registry whose provider the forge owns.
+	pkgPrefix := ""
+	if d.PackageAuth != nil {
+		for _, pr := range j.Capabilities.PackageRegistries {
+			if containsStr(d.NativeRegistries, pr.Provider) {
+				pkgPrefix = pr.CredPrefix
+				break
+			}
+		}
+	}
+	pkg := pkgPrefix != ""
+
+	// permissions (job-scope override; restate contents:read since the override
+	// replaces the workflow default). OIDC widens with id-token; a package-registry
+	// push widens with the forge's package permission. Collected so both compose.
+	if j.Capabilities.OIDC || pkg {
 		buf.WriteString("    permissions:\n")
 		buf.WriteString("      contents: read\n")
-		buf.WriteString("      id-token: write\n")
+		if j.Capabilities.OIDC {
+			buf.WriteString("      id-token: write\n")
+		}
+		if pkg {
+			fmt.Fprintf(buf, "      %s\n", d.PackageAuth.Permission)
+		}
 	}
 
-	// docker (DinD service + transport env)
-	if j.Capabilities.Docker {
+	// env: Docker transport vars and/or package-registry credentials, under one
+	// block (a job may need both).
+	if j.Capabilities.Docker || pkg {
 		buf.WriteString("    env:\n")
-		buf.WriteString("      DOCKER_HOST: tcp://dind:2376\n")
-		buf.WriteString("      DOCKER_TLS_VERIFY: \"1\"\n")
-		buf.WriteString("      DOCKER_CERT_PATH: /certs/client\n")
+		if j.Capabilities.Docker {
+			buf.WriteString("      DOCKER_HOST: tcp://dind:2376\n")
+			buf.WriteString("      DOCKER_TLS_VERIFY: \"1\"\n")
+			buf.WriteString("      DOCKER_CERT_PATH: /certs/client\n")
+		}
+		if pkg {
+			fmt.Fprintf(buf, "      %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
+			fmt.Fprintf(buf, "      %s_TOKEN: %s\n", pkgPrefix, d.PackageAuth.Token)
+		}
+	}
+
+	// docker DinD service
+	if j.Capabilities.Docker {
 		buf.WriteString("    services:\n")
 		buf.WriteString("      dind:\n")
 		buf.WriteString("        image: docker:dind\n")
@@ -164,7 +216,7 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provide
 		buf.WriteString("      - name: stagefreight-context\n")
 		buf.WriteString("        run: |\n")
 		buf.WriteString("          {\n")
-		for _, line := range ciContextExports(provider) {
+		for _, line := range ciContextExports(d.Provider) {
 			fmt.Fprintf(buf, "            %s\n", line)
 		}
 		buf.WriteString("          } >> \"$GITHUB_ENV\"\n")
@@ -305,4 +357,13 @@ func retentionDays(expireIn string) string {
 		d = 1
 	}
 	return strconv.Itoa(d)
+}
+
+func containsStr(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

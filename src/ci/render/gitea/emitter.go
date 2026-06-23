@@ -13,5 +13,16 @@ import (
 
 // Emit renders the pipeline to a Gitea Actions workflow.
 func Emit(p model.Pipeline) ([]byte, error) {
-	return actions.Emit(p, actions.Dialect{Provider: "gitea"})
+	return actions.Emit(p, actions.Dialect{
+		Provider: "gitea",
+		// Gitea's built-in container registry authenticates with act_runner's
+		// auto-provided GITHUB_TOKEN (Gitea is Actions-compatible) — no configured
+		// secret.
+		NativeRegistries: []string{"gitea"},
+		PackageAuth: &actions.PackageAuth{
+			Permission: "packages: write",
+			User:       "${{ github.actor }}",
+			Token:      "${{ secrets.GITHUB_TOKEN }}",
+		},
+	})
 }
