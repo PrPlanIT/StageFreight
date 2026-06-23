@@ -55,11 +55,19 @@ typed contract, and stages them for downstream lifecycle phases.
 
 ### 1.2 What this PR is, and what it is not
 
-This PR is **consumer-side substrate-decl preservation in Go**. It
-mirrors the typed contract from `shards/io/stagefreight.mirror` into Go
-type shapes and validation functions, and wires them through the
-existing StageFreight runtime as a thin adapter package. It is the
-twin of mirror PR #1 on the Go side of the same wire.
+**This PR lands the SPEC. The Go adapter package the spec describes is
+the forward-promised next tick (PR-B).** PR-A ships
+`docs/architecture/mirror-integration-spec-v0.1.md` as the typed
+contract; PR-B ships `internal/stagefreightmirror/*.go` as the
+implementation. See §11.6 for the explicit cascade order.
+
+This spec describes **consumer-side substrate-decl preservation in
+Go**. It mirrors the typed contract from
+`shards/io/stagefreight.mirror` into Go type shapes and validation
+functions, and wires them through the existing StageFreight runtime as
+a thin adapter package. It is the twin of mirror PR #1 on the Go side
+of the same wire. The IMPLEMENTATION of that adapter ships next tick;
+this PR is the contract.
 
 It is NOT:
 
@@ -1513,6 +1521,14 @@ discipline.
 
 ## §12. Acknowledgments
 
+- **Cascade architecture session** (2026-06-23): §§14–§19 broadening
+  developed same-day via Pack-discipline cascade — @cascade
+  substrate-decl tick (Reed, `shards/cascade.mirror`, recognition #95
+  candidate); typed-alternatives survey (Mara, `docs/research/
+  2026-06-23-typed-alternatives-cascade-survey.md`, 10 stacks); this
+  spec's multi-language broadening + math formalization (Mara); Seam
+  adversarial review of the broadened spec (BOUNDED-with-revisions;
+  this consolidation tick).
 - **Mirror substrate-decl track** (Reed, tick 66-69): family-root +
   narrative species + Seam C2/C4/C9/C8/C10 closures.
 - **Canonical spec** (Mara, tick 68): 1535-line spec providing the
@@ -1595,6 +1611,29 @@ IS spectral-coordinate addressing; the Dockerfile pattern IS the
 existing build flow with one substitution. Integration cost reduces
 to declaration; the substrate's primitives discharge the work in
 flight.
+
+### 13.4 What works today vs what's forward-promised
+
+**Substrate-pull-honest framing of the caching/stash discharge:**
+
+| Piece | Status today |
+|---|---|
+| `splinter.content: oid` carrier | Landed (`shards/glass.mirror`) |
+| `shard.id: uuid_spectral` carrier | Landed (`shards/glass.mirror`) |
+| `spectral_coordinate` wire address | Landed (this spec §4) |
+| `@mirror/store` realisation (full read/write API) | Forward-promised (mirror task #268) |
+| Dockerfile `FROM mirror.local/cache/...` registry shim | Forward-promised pattern (not currently executable) |
+| Cache hit / miss flow against a live mirror store | Forward-promised (depends on #268 + registry shim) |
+
+The Dockerfile example in §13.2 is a **forward-promised pattern**,
+not a copy-pasteable working snippet at v0.1. The substrate-decl
+describes the typed shape the integration WILL take; the live shim
+lands when `@mirror/store` realisation does (mirror PR-2 territory).
+
+What the author CAN do today: structure their MVP caching against the
+oid + spectral_coordinate typed shape so the future shim is a
+mechanical wire-up, not a redesign. The spec IS the alignment artifact;
+the runtime plumbing follows.
 
 ---
 
@@ -1773,6 +1812,17 @@ type purescript_module = ref
 type npm_artifact = labeled<purescript_module>
 ```
 
+**Forward-promise note (per Seam adversarial review 2026-06-23):** the
+`labeled<>` functor primitive itself is forward-promised at
+`shards/labeled.mirror` per recognition #93 H4 PARTIAL. The substrate
+ALREADY supports parametric carriers (`imperfect<a,e,l>`, `option<a>`,
+`result<a,e>`, `transparency<p>` all landed via `shift(T)`/`settle(T)`
+infrastructure); the specific `labeled<v,m>` substrate-decl shard
+lands as a small follow-up (~50-line shard composing the existing
+parametric pattern). Cascade-tick order: `shards/labeled.mirror` lands
+before the Purescript species shard discharges this `npm_artifact`
+carrier as load-bearing.
+
 The `labeled<purescript_module>` lift is the substrate-pull-correct
 move: it composes with mirror's parametric algebra (recognition #51;
 H4 functor primitive); it preserves the underlying typed reference;
@@ -1871,6 +1921,20 @@ This is the "math, not vibes" delivery, per Alex's 2026-06-23
 verbatim to the StageFreight author: *"Building the multi-language
 translation layer right now (math, not vibes). That's the PR."*
 
+**Framing note (substrate-pull-honest, per Seam adversarial review
+2026-06-23):** this section names the TYPED SURFACE the mathematical
+discharge operates against — it does NOT claim that the Purescript→npm
+loss number is already computable. The substrate-decl shape is
+ratified at v0.1; the per-cascade discharge (actual loss numbers for
+actual programs) is at species-altitude (§16's closing note explicit).
+Read the five pieces below as the architectural contract the
+computation will discharge against, not as a delivered measurement
+engine. The math LIVES at recognition #51 (mirror as expanding Hilbert
+space), [[feedback-loss-from-epistemologic-properties]] (loss as
+@epistemologic/properties composite), and the forward-promised species
+shards; THIS spec names the substrate that holds the math, not the
+math itself.
+
 The @cascade family-root operationalizes loss measurement as
 substrate-typed data, not estimation. Five concrete pieces:
 
@@ -1963,6 +2027,11 @@ mirror commit `ecc471a`) covers ten mainstream stacks.
 | `cascade<gleam, beam_plus_js>` | Gleam (sound types, no exceptions) | BEAM bytecode AND JS — **dual target** | **Load-bearing rare shape:** one source, two simultaneous targets. Validates the parametric `cascade<S, T>` form trivially — same source, two cascade species. Per `shards/cascade.mirror` lines 116–120 |
 | `cascade<fsharp, nuget>` | F# (discriminated unions, units-of-measure, computation expressions) | NuGet (.NET IL packaged) | Cleanest cascade instance on .NET; active Microsoft support; survey §2.2 |
 
+*Stage-2 candidates listed above are pending Pack-peer verification of
+the build-chain claims per survey §5.1; the architecture admits them,
+but roadmap commitment requires independent verification beyond Mara's
+N=1-per-stack survey.*
+
 ### 17.3 Stage-3+ (forward-promised additively)
 
 Scala→JVM (sbt + Maven Central); Kotlin→JVM (Gradle + Maven Central);
@@ -2044,6 +2113,12 @@ that makes PR-B's example structurally sound.
 ---
 
 ## §19. Why this lands with a bang
+
+**What ships in PR-A is the SPEC naming all five. The implementations
+are the forward-promised tail (PR-B Go adapter; mirror PR-2 bytes-on-
+wire; species shards for each cascade; @mirror/store realisation).**
+The convergence below is the substrate-decl contract converging; the
+running code follows in subsequent ticks per §11.6 cascade order.
 
 The single PR demonstrates **five** things at once:
 
