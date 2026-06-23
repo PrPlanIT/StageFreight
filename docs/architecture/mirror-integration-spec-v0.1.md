@@ -1532,3 +1532,360 @@ spec ships what the consumer-side substrate-decl preservation IS; the
 implementation discharges next.
 
 — Mara, 2026-06-22
+
+---
+
+## §13. Solves your current MVP work
+
+The author's MVP-in-flight already names two structural pieces the
+mirror substrate-decl carries as first-class primitives. This section
+maps that overlap concretely; the framing collapse the spec wants to
+defuse is "mirror is one more integration" — the substrate-pull-correct
+reading is "mirror IS the typed shape of work already happening."
+
+### 13.1 Author's caching → content-addressed `oid` keying
+
+The MVP caching work derives cache keys from build inputs to skip
+recomputation on subsequent builds. The mirror substrate already
+discharges this discipline at the `splinter` carrier altitude:
+`splinter.content: oid` is the universal content-addressed atom
+(`shards/glass.mirror` line 222). Two splinters with byte-equal
+content share an oid by construction; cache identity IS the oid; cache
+hit IS the lookup; cache invalidation IS irrelevant (no two distinct
+inputs can collide on the oid).
+
+The integration shape: the author's existing cache table becomes a
+view over an `@mirror/store`-shaped store, keyed by oid; the lookup
+path stays the author's; the key derivation lifts from
+"compute-from-inputs" to "read-the-oid." Byte-determinism in the
+serialized input IS the requirement that was already implicit.
+
+### 13.2 Binary stash for Dockerfile targeting → `shard` + `spectral_coordinate`
+
+The MVP stash-and-target pattern wants Docker `FROM` lines to reference
+prior build outputs by stable handle. The substrate has the typed
+carrier: `shard.id: uuid_spectral` (`shards/glass.mirror` line 347) is
+the navigable spectral identifier; `spectral_coordinate` (the wire
+address derived in §4) is its reverse-DNS-namespaced wire surface.
+
+Concrete pattern:
+
+```dockerfile
+# Author writes:
+FROM mirror.local/cache/org.stagefreight.plan.binary.a1b2c3d4e5f6 AS upstream
+# spectral_coordinate IS the immutable handle; the oid-short tail makes
+# it cacheable by Docker's own layer cache; the namespace is the
+# repository's commitment to its address space.
+
+COPY --from=upstream /out/bin/stagefreight /usr/local/bin/
+```
+
+The Dockerfile's `FROM` clause references a `spectral_coordinate`-shaped
+handle; the registry shim resolves the coordinate to the stored shard
+(via the `@mirror/store` lookup); the Docker build receives an
+immutable, content-addressed upstream layer. The author keeps
+Dockerfiles; mirror provides the typed handle.
+
+### 13.3 Frame: accelerator, not burden
+
+The substrate is not asking the author to add a new system. The
+substrate is naming the typed shape of the system already being built:
+oid-keyed caching IS splinter content-addressing; binary-stash-for-FROM
+IS spectral-coordinate addressing; the Dockerfile pattern IS the
+existing build flow with one substitution. Integration cost reduces
+to declaration; the substrate's primitives discharge the work in
+flight.
+
+---
+
+## §14. MVP scope: Purescript cascade in-scope, other runtimes post-MVP
+
+The MVP boundary needs a structural defense against the runtime
+scope-creep gravity (JVM + NPM + Python all at once). This section
+draws the boundary and names the substrate-pull rationale for the
+in-scope choice (Purescript) and the out-of-scope deferrals (others).
+
+### 14.1 Stage-1 in-scope (the MVP shape)
+
+1. Native binaries (the existing MVP work).
+2. Content-addressed cache via `splinter.content: oid` (§13.1).
+3. Dockerfile `FROM`-by-`spectral_coordinate` (§13.2).
+4. **Purescript runtime** as the typed-language entry surface.
+5. **npm consumer cascade** as the broad-reach surface (Purescript
+   → typed JS → npm-installable artifact → arbitrary npm consumers).
+
+The cascade is the structural move that dissolves the "which runtime"
+question. Purescript gives the substrate-pull-correct typed entry; npm
+gets broad consumer reach through the cascade; the author ships ONE
+runtime substrate-decl and the cascade carries it to the JS ecosystem
+without committing the substrate to JS's type-soup.
+
+### 14.2 The Purescript → typed-JS → npm cascade (operational shape)
+
+The cascade is three lifts composed:
+
+1. **Source → typed module:** Purescript source builds via spago (the
+   community-standard build tool) or pulp (legacy) into typed JS
+   modules at `output/<Module.Path>/index.js`. Module identity is the
+   Purescript module path; type guarantees survive into the emitted JS
+   as discipline (the typed-JS layer doesn't re-validate types, but
+   the build is GREEN-only if the types hold).
+2. **Module → cache:** mirror computes the splinter oid over the
+   module's emitted output (the bundled JS plus its FFI dependencies);
+   `spectral_coordinate` derives from `(oid, projection_kind="npm")`;
+   subsequent builds hit cache by oid; no recomputation.
+3. **Cache → npm artifact:** mirror's npm-projection species wraps
+   the cached module output as an npm package (package.json + the
+   bundled JS); arbitrary downstream npm projects consume via
+   `npm install`; the consumer side IS standard npm with no special
+   awareness of mirror.
+
+The cascade preserves the substrate-pull discipline at each lift:
+oid-by-content at lift 2; reverse-DNS namespacing at lift 3;
+projection-species discipline (the open-universe pattern from §8.5)
+admits future projection variants (typed-JS-bundle, ESM, CommonJS)
+additively.
+
+### 14.3 Why Purescript first (substrate-pull rationale)
+
+Three substrate-pull reasons, each load-bearing:
+
+1. **Functor/monad/applicative as first-class.** Purescript's type
+   system carries the parametric algebra the substrate already
+   speaks (recognition #51's expanding Hilbert space; the
+   `labeled<X>` functor primitive forward-promised in #93 H4). The
+   integration composes; Purescript's algebra IS the substrate's
+   algebra at the consumer altitude.
+2. **Pure functional.** Effects are typed; the Purescript module's
+   identity is byte-deterministic in its source; the oid derivation
+   in §13.1 hits cache reliably because there's no hidden state
+   leaking through the type system.
+3. **Compiles to JS without inheriting JS type-soup.** The typed-JS
+   output is the substrate's gateway to the npm ecosystem; the
+   consumer side reaches arbitrary npm projects; the producer side
+   never touches untyped JS as authored code.
+
+### 14.4 Post-MVP forward-promised (out of Stage-1 scope)
+
+JVM, raw NPM (authoring untyped JS directly), Python, Ruby, Rust,
+others — each requires its own substrate-decl tick. Each is
+forward-promised; none ships in Stage-1.
+
+Substrate-pull rationale for the deferral: each runtime has its own
+algebra (the JVM has nominal subtyping; raw JS has structural typing
+without parametricity; Python has duck typing). A runtime's
+substrate-decl IS the algebra-into-substrate mapping; multi-runtime
+Stage-1 would commit to multiple mappings simultaneously and inflate
+the bilateral surface beyond what review can discharge in one PR.
+
+The Purescript cascade reaches npm WITHOUT requiring raw NPM
+substrate-decl. That dissolves the most common scope-creep pressure
+(the "we need npm support" pull) by giving the npm ecosystem reach
+via the cascade rather than via direct authoring.
+
+### 14.5 The boundary defense (explicit)
+
+If the question "should we add JVM/NPM/Python to MVP?" surfaces, the
+substrate-pull-correct answer is: **no.** Stage-1 ships Purescript +
+the npm cascade. JVM is post-MVP; raw NPM is post-MVP (the cascade
+covers npm consumers without it); Python is post-MVP. The cascade is
+the architectural commitment that makes "ship one runtime, reach
+many consumers" structurally possible.
+
+---
+
+## §15. Purescript cascade substrate-decl
+
+This section names the carriers, actions, and bilateral the Purescript
+cascade adds to the mirror substrate-decl. It is forward-promised —
+the actual shards land in the mirror repository at a follow-up tick;
+this section pins the contract shape the StageFreight side will
+admit.
+
+### 15.1 Carriers
+
+```mirror
+# Purescript module — the typed source unit. Identity IS the module
+# path under the Purescript namespace discipline (e.g. `Data.Maybe`,
+# `StageFreight.Cache.Key`). Bare-ref at the floor; refinement to a
+# typed record (path, dependencies, source-oid) forward-promised once
+# the cascade lands a second projection.
+type purescript_source = ref
+
+# Purescript module — the compiled output of a Purescript source under
+# spago/pulp. Identity IS the module path resolved to its output
+# location (e.g. `output/Data.Maybe/index.js`). Carries the typed-JS
+# emission; the type guarantees from the source survive as build
+# discipline (the emitted JS is GREEN-only when types hold).
+type purescript_module = ref
+
+# npm artifact — the npm-package-wrapped form of a Purescript module
+# ready for consumer install. Lifts purescript_module via the
+# labeled<X> functor (per recognition #93 H4: substrate already
+# supports parametric carriers; labeled<v, m> = annotated(v, m)).
+# The label dimension carries the npm-side identity (package name,
+# version, semver range) without losing the underlying
+# purescript_module typed-content reference.
+type npm_artifact = labeled<purescript_module>
+```
+
+The `labeled<purescript_module>` lift is the substrate-pull-correct
+move: it composes with mirror's parametric algebra (recognition #51;
+H4 functor primitive); it preserves the underlying typed reference;
+it admits npm-specific labeling (name, version) without polluting the
+purescript_module carrier with npm-only fields.
+
+### 15.2 Actions
+
+```mirror
+# compile — source to typed module. Pure; deterministic in source;
+# oid-stable in output. The bilateral discharge runs the Purescript
+# type-checker and emits GREEN-only output; type errors discharge as
+# DEFENSIVE verdicts.
+compile(source: purescript_source, p: perturbation) -> purescript_module
+  requires purescript_well_typed(source, p)
+{ \ }
+
+# bundle — module to npm artifact. The labeling step. Wraps the typed
+# output with npm-side metadata (package.json shape, semver, entry
+# point). The labeling preserves the underlying purescript_module
+# oid; the npm artifact's identity is the labeled tuple.
+bundle(module: purescript_module, label: ref, p: perturbation)
+  -> npm_artifact
+  requires npm_consumable(module, label, p)
+{ \ }
+
+# resolve — consumer-side lookup. Given an npm package name, resolve
+# to the underlying purescript_module via the labeled<> projection.
+# The consumer never needs to know about the Purescript source; the
+# typed-JS output is what npm hands them.
+resolve(name: ref, registry: ref) -> purescript_module { \ }
+```
+
+### 15.3 Bilateral
+
+```mirror
+# cascade_well_formed — the composed bilateral for the Purescript →
+# npm cascade. Discharges BOTH sub-predicates: the Purescript side
+# (source compiles GREEN; types hold) AND the npm side (the bundled
+# artifact is structurally consumable by standard npm tooling).
+cascade_well_formed(artifact: npm_artifact, p: perturbation) -> verdict
+  requires purescript_well_typed(artifact, p)
+  requires npm_consumable(artifact, p)
+{ \ }
+```
+
+The bilateral composes two substrate-altitude properties; both must
+discharge BOUNDED for the cascade to be wire-survival-valid. Short-
+circuits on first DEFENSIVE per the standard composition discipline
+(§2.5).
+
+### 15.4 Honest hedges on the cascade
+
+1. **spago vs pulp output shape.** spago (the modern community
+   standard) and pulp (legacy) emit module outputs at slightly
+   different paths (spago: `output/<Module>/index.js`; pulp: similar
+   but with FFI bundling differences). The MVP commits to spago; pulp
+   support is forward-promised. The substrate-decl admits both as
+   build-backends behind the `compile` action; selection lives in the
+   shard-altitude config, not the contract.
+2. **Module-path-to-oid mapping.** The oid derivation must be
+   deterministic in module content but stable across module-path
+   renames within the same content (a moved module shouldn't change
+   the oid). Floor commitment: oid is BLAKE3 over the canonicalized
+   emitted-JS content + transitive FFI dependencies; module path is
+   labeling metadata. The exact canonicalization is forward-promised;
+   the MVP can ship with raw emitted-JS content as an honest hedge.
+3. **Dockerfile FROM resolution.** The registry shim that resolves
+   `spectral_coordinate` to a Docker layer must handle the Purescript
+   bundle as a multi-file artifact (the npm package + the typed-JS +
+   the FFI). The MVP commits to tar-bundling the npm package as the
+   Docker layer payload; multi-layer optimization is forward-promised.
+4. **FFI boundary discipline.** Purescript's FFI escape hatch allows
+   raw JS at module boundaries. The MVP admits FFI but requires the
+   FFI'd JS to be byte-deterministic (no `Date.now()`, no random IDs);
+   the bilateral `npm_consumable` discharge includes an FFI-purity
+   check. Authors who want non-deterministic FFI step outside the
+   substrate-pull-correct cascade explicitly.
+
+### 15.5 What this substrate-decl does NOT do at MVP
+
+- Does NOT commit to a specific Purescript compiler version (spago
+  pins it; the substrate stays version-agnostic at the carrier
+  altitude).
+- Does NOT support raw-NPM authoring (the cascade goes one way:
+  Purescript → npm; not npm → mirror).
+- Does NOT prescribe an FFI policy beyond the byte-determinism floor.
+- Does NOT touch the existing StageFreight runtime; the cascade
+  composes through the wire protocol established in §2-§5.
+
+---
+
+## §16. Demonstration artifact
+
+The spec carries the contract; a concrete example carries the proof
+that the contract is operational. This section forward-promises the
+shape of that example.
+
+### 16.1 Forward-promised example: `examples/purescript-cascade/`
+
+A minimal end-to-end demonstration of the cascade. Directory shape:
+
+```
+examples/purescript-cascade/
+├── README.md             — what this demonstrates; how to run
+├── spago.yaml            — spago build config (Purescript side)
+├── src/
+│   └── Cache/
+│       └── Key.purs      — minimal Purescript module (one function)
+├── output/               — spago build output (gitignored)
+├── package.json          — npm wrapper (consumer side)
+└── consumer/
+    └── index.js          — minimal npm consumer that imports the
+                            bundled typed-JS output
+```
+
+The example demonstrates: (1) Purescript source compiles via spago;
+(2) mirror computes the splinter oid over the output and hits cache
+on rebuild (no recompile); (3) the npm package wraps the typed-JS
+output; (4) a downstream consumer in `consumer/` imports the package
+and uses the typed function.
+
+### 16.2 Staging
+
+Stage-1 PR-A (this PR family) ships the spec (§§1-§17) and **may**
+ship the example skeleton if scope permits without contradicting the
+"thin adapter shape" framing of §1.2. The fully working example —
+spago build runs GREEN, mirror cache hits demonstrate, npm consumer
+imports work — may land as PR-B once the Purescript-side substrate-
+decl shards land on the mirror repository.
+
+PR-B's example is the demonstration artifact that makes the cascade
+concrete for the author. PR-A's spec is the substrate-decl contract
+that makes PR-B's example structurally sound.
+
+---
+
+## §17. Why this lands with a bang
+
+The single PR demonstrates four things at once: substrate-decl
+contract (§2-§5 + §15); concrete pain solved (§13: the author's
+caching work IS content-addressing; the binary-stash work IS
+spectral-coordinate addressing); scope protection (§14: Purescript +
+npm cascade in; JVM/NPM/Python out, with substrate-pull rationale);
+cascade reach (§14.2: ship one runtime, reach the npm ecosystem
+without scope-creeping into JS type-soup). The author ships their
+MVP caching work AND gets a substrate-pull-correct typed runtime
+(Purescript) AND reaches the npm consumer surface — without
+committing the architecture to runtimes it can't yet discharge
+substrate-decl for. The contract composes for future runtime
+additions; the bilateral discipline carries forward; the
+forward-promises are honest about what's MVP and what's after.
+
+The bang IS the convergence: one PR closes the loop on caching, on
+typed runtimes, on consumer reach, and on the scope-creep gravity
+that was pulling toward unsustainable Stage-1 commitments. The
+substrate-pull-correct shape was already implicit in the author's
+work; the spec names it; the cascade carries it.
+
+— Mara, 2026-06-23
