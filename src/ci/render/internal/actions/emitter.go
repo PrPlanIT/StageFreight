@@ -18,7 +18,9 @@
 //     that needs it downloads.
 //   - OIDC → permissions: id-token: write plus a step that requests a token with
 //     audience "stagefreight" and exports it as STAGEFREIGHT_OIDC.
-//   - docker → a docker:dind service plus DOCKER_HOST/TLS env.
+//   - docker → a docker:dind service plus a DOCKER_HOST env; TLS (2376 + shared
+//     /certs) or plain TCP (2375, DOCKER_TLS_CERTDIR="") per the resolved transport
+//     (forge default, overridable by ci.docker.tls).
 package actions
 
 import (
@@ -44,6 +46,12 @@ type Dialect struct {
 	// with its auto-token (e.g. github → "ghcr","github"). A job that pushes to one of
 	// them gets PackageAuth wired; others are left to explicit secrets.
 	NativeRegistries []string
+
+	// DindTLSDefault is the forge's default dind transport when the operator hasn't
+	// set ci.docker.tls: github → false (hosted runners can't share the dind cert
+	// volume), gitea/forgejo → true (their runners provision shared /certs). The
+	// model's DindTLS override (if set) wins over this.
+	DindTLSDefault bool
 
 	// PackageAuth, when non-nil, is the forge's recipe for authenticating to its
 	// native package/container registry. The backend emits it verbatim — it names no
@@ -168,14 +176,27 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 	}
 
+	// Resolve the dind transport: operator override (model) wins; else the forge
+	// default. TLS needs a shared /certs volume between dind and the job — GitLab and
+	// self-hosted Actions runners provision it; GitHub-hosted can't, so it defaults
+	// off there. The operator owns the choice via ci.docker.tls.
+	dindTLS := d.DindTLSDefault
+	if def.DindTLS != nil {
+		dindTLS = *def.DindTLS
+	}
+
 	// env: Docker transport vars and/or package-registry credentials, under one
 	// block (a job may need both).
 	if j.Capabilities.Docker || pkg {
 		buf.WriteString("    env:\n")
 		if j.Capabilities.Docker {
-			buf.WriteString("      DOCKER_HOST: tcp://dind:2376\n")
-			buf.WriteString("      DOCKER_TLS_VERIFY: \"1\"\n")
-			buf.WriteString("      DOCKER_CERT_PATH: /certs/client\n")
+			if dindTLS {
+				buf.WriteString("      DOCKER_HOST: tcp://dind:2376\n")
+				buf.WriteString("      DOCKER_TLS_VERIFY: \"1\"\n")
+				buf.WriteString("      DOCKER_CERT_PATH: /certs/client\n")
+			} else {
+				buf.WriteString("      DOCKER_HOST: tcp://dind:2375\n")
+			}
 		}
 		if pkg {
 			fmt.Fprintf(buf, "      %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
@@ -183,11 +204,17 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 	}
 
-	// docker DinD service
+	// docker DinD service. Without TLS, dind needs DOCKER_TLS_CERTDIR="" so it
+	// listens on plain 2375 instead of generating certs for a volume the job can't
+	// reach.
 	if j.Capabilities.Docker {
 		buf.WriteString("    services:\n")
 		buf.WriteString("      dind:\n")
 		buf.WriteString("        image: docker:dind\n")
+		if !dindTLS {
+			buf.WriteString("        env:\n")
+			buf.WriteString("          DOCKER_TLS_CERTDIR: \"\"\n")
+		}
 		buf.WriteString("        options: --privileged\n")
 	}
 

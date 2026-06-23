@@ -29,12 +29,12 @@ jobs:
       image: registry.example.com/acme/stagefreight:latest-dev
     continue-on-error: true
     env:
-      DOCKER_HOST: tcp://dind:2376
-      DOCKER_TLS_VERIFY: "1"
-      DOCKER_CERT_PATH: /certs/client
+      DOCKER_HOST: tcp://dind:2375
     services:
       dind:
         image: docker:dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
         options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -72,12 +72,12 @@ jobs:
       contents: read
       id-token: write
     env:
-      DOCKER_HOST: tcp://dind:2376
-      DOCKER_TLS_VERIFY: "1"
-      DOCKER_CERT_PATH: /certs/client
+      DOCKER_HOST: tcp://dind:2375
     services:
       dind:
         image: docker:dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
         options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -122,12 +122,12 @@ jobs:
     needs: [perform]
     continue-on-error: true
     env:
-      DOCKER_HOST: tcp://dind:2376
-      DOCKER_TLS_VERIFY: "1"
-      DOCKER_CERT_PATH: /certs/client
+      DOCKER_HOST: tcp://dind:2375
     services:
       dind:
         image: docker:dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
         options: --privileged
     steps:
       - uses: actions/checkout@v4

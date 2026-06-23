@@ -139,14 +139,22 @@ var forgesSharingActionsBackendToday = []string{"gitea", "forgejo"}
 // the backend with an `if provider == ...` branch — that is exactly the leak the
 // boundary (and this test) exists to prevent.
 func TestActionsForgesShareBackendToday(t *testing.T) {
-	ref, err := Emit("github", canonicalPipeline())
+	// Pin a uniform dind transport so the forge-specific dind DEFAULT (github
+	// non-TLS vs gitea/forgejo TLS — a sanctioned Dialect divergence) doesn't read
+	// as backend drift. This isolates the test to its purpose: catching UNsanctioned
+	// per-forge differences beyond identity + package-registry credentials.
+	tlsOn := true
+	pin := canonicalPipeline()
+	pin.Defaults.DindTLS = &tlsOn
+
+	ref, err := Emit("github", pin)
 	if err != nil {
 		t.Fatal(err)
 	}
 	refLines := strings.Split(string(ref), "\n")
 
 	for _, forge := range forgesSharingActionsBackendToday {
-		got, err := Emit(forge, canonicalPipeline())
+		got, err := Emit(forge, pin)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,4 +192,42 @@ func TestActionsForgesShareBackendToday(t *testing.T) {
 func isPackageCredLine(s string) bool {
 	t := strings.TrimSpace(s)
 	return strings.Contains(t, "_USER: ") || strings.Contains(t, "_TOKEN: ")
+}
+
+// TestDindTLS pins the dind transport matrix: per-forge defaults (github non-TLS
+// since hosted runners can't share the cert volume; gitlab/gitea/forgejo TLS since
+// their runners do) and the ci.docker.tls override winning over the default both
+// directions.
+func TestDindTLS(t *testing.T) {
+	on, off := true, false
+	cases := []struct {
+		forge   string
+		tls     *bool
+		wantTLS bool
+	}{
+		{"github", nil, false},  // hosted default → non-TLS
+		{"github", &on, true},   // self-hosted with certs → override TLS
+		{"gitea", nil, true},    // runner shares /certs → TLS
+		{"gitea", &off, false},  // operator opts out → non-TLS
+		{"forgejo", nil, true},  // runner shares /certs → TLS
+		{"gitlab", nil, true},   // built-in /certs → TLS
+		{"gitlab", &off, false}, // operator opts out → non-TLS
+	}
+	for _, c := range cases {
+		p := canonicalPipeline()
+		p.Defaults.DindTLS = c.tls
+		out, err := Emit(c.forge, p)
+		if err != nil {
+			t.Fatalf("%s tls=%v: %v", c.forge, c.tls, err)
+		}
+		s := string(out)
+		tls := strings.Contains(s, "dind:2376")
+		nonTLS := strings.Contains(s, "dind:2375")
+		if c.wantTLS && (!tls || nonTLS) {
+			t.Errorf("%s tls=%v: want TLS (2376); got 2376=%v 2375=%v", c.forge, c.tls, tls, nonTLS)
+		}
+		if !c.wantTLS && (!nonTLS || tls) {
+			t.Errorf("%s tls=%v: want non-TLS (2375); got 2376=%v 2375=%v", c.forge, c.tls, tls, nonTLS)
+		}
+	}
 }

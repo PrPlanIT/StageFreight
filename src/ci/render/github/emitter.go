@@ -20,6 +20,10 @@ func Emit(p model.Pipeline) ([]byte, error) {
 		// write) — no user-configured secret. Pushing to GitHub's own registry on
 		// Actions is therefore turnkey.
 		NativeRegistries: []string{"ghcr", "github"},
+		// GitHub-hosted runners can't share the dind cert volume with the job, so
+		// dind defaults to plain TCP. A self-hosted runner with cert sharing can
+		// flip it back on via ci.docker.tls: true.
+		DindTLSDefault: false,
 		PackageAuth: &actions.PackageAuth{
 			Permission: "packages: write",
 			User:       "${{ github.actor }}",

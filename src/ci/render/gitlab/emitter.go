@@ -60,11 +60,22 @@ func Emit(p model.Pipeline) ([]byte, error) {
 	}
 
 	// ── transport anchor ───────────────────────────────────────────────────
+	// GitLab shares /certs between the dind service and the job, so TLS is the
+	// default; ci.docker.tls: false opts out (plain TCP + DOCKER_TLS_CERTDIR="").
 	if needsTransport(p) {
 		buf.WriteString("\n.transport: &transport\n")
-		buf.WriteString("  DOCKER_HOST: \"tcp://dind:2376\"\n")
-		buf.WriteString("  DOCKER_TLS_VERIFY: \"1\"\n")
-		buf.WriteString("  DOCKER_CERT_PATH: \"/certs/client\"\n")
+		dindTLS := true
+		if p.Defaults.DindTLS != nil {
+			dindTLS = *p.Defaults.DindTLS
+		}
+		if dindTLS {
+			buf.WriteString("  DOCKER_HOST: \"tcp://dind:2376\"\n")
+			buf.WriteString("  DOCKER_TLS_VERIFY: \"1\"\n")
+			buf.WriteString("  DOCKER_CERT_PATH: \"/certs/client\"\n")
+		} else {
+			buf.WriteString("  DOCKER_HOST: \"tcp://dind:2375\"\n")
+			buf.WriteString("  DOCKER_TLS_CERTDIR: \"\"\n")
+		}
 	}
 
 	// ── default ────────────────────────────────────────────────────────────

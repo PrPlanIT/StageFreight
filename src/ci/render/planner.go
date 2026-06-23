@@ -26,6 +26,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 			Interruptible:    true,
 			CancelSuperseded: true,
 			CIContext:        true,
+			DindTLS:          cfg.CI.Docker.TLS,
 		},
 		Jobs: []model.Job{
 			{
