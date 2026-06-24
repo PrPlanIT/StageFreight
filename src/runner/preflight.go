@@ -218,7 +218,10 @@ func CollectFacts(rootDir string) SubstrateFacts {
 	// Probe independently so the two facts are not conflated.
 	facts.BuildKitAvailable = facts.DockerAvailable || probeBuildKit()
 
-	// Buildx: CLI plugin or standalone binary
+	// Buildx: CLI plugin or standalone binary. The path/PATH checks below are cheap
+	// fast-paths but incomplete — they only see $HOME/.docker and $PATH, missing the
+	// SYSTEM plugin dirs (/usr/local/lib/docker/cli-plugins …) where the image installs
+	// buildx so it resolves regardless of $HOME (GitHub jobs run with HOME=/github/home).
 	if home := os.Getenv("HOME"); home != "" {
 		if _, err := os.Stat(filepath.Join(home, ".docker/cli-plugins/docker-buildx")); err == nil {
 			facts.BuildxAvailable = true
@@ -228,6 +231,11 @@ func CollectFacts(rootDir string) SubstrateFacts {
 		if _, err := exec.LookPath("docker-buildx"); err == nil {
 			facts.BuildxAvailable = true
 		}
+	}
+	// Authoritative fallback: let docker resolve the plugin across ALL its search dirs,
+	// independent of $HOME — proves the capability the way a build will actually use it.
+	if !facts.BuildxAvailable && facts.DockerAvailable {
+		facts.BuildxAvailable = probeBuildx()
 	}
 
 	// DinD detection: Docker available AND running inside a container.
@@ -484,6 +492,16 @@ func probeDockerDaemon() bool {
 	cmd := exec.CommandContext(ctx, "docker", "info", "--format", "{{.ServerVersion}}")
 	out, err := cmd.Output()
 	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
+// probeBuildx proves buildx by invoking it through the docker CLI, which resolves the
+// plugin from ALL its search dirs (~/.docker, /usr/local/lib/docker/cli-plugins, …)
+// regardless of $HOME — unlike the path/PATH fast-paths, which miss the system install
+// used so buildx resolves under GitHub container jobs (HOME=/github/home).
+func probeBuildx() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "docker", "buildx", "version").Run() == nil
 }
 
 // probeBuildKit runs buildctl to verify buildkitd reachability.
