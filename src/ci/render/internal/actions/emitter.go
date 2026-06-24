@@ -288,11 +288,12 @@ func ciContextExports(provider string) []string {
 		`echo "SF_CI_SHA=${{ github.sha }}"`,
 		`echo "SF_CI_DEFAULT_BRANCH=${{ github.event.repository.default_branch }}"`,
 		`echo "SF_CI_REPO_URL=${{ github.server_url }}/${{ github.repository }}"`,
-		// github.workspace, NOT $PWD: actions/upload-artifact resolves its path
-		// relative to $GITHUB_WORKSPACE, and on a container job $PWD is not guaranteed
-		// to equal it. Writing .stagefreight/ to github.workspace keeps the phase
-		// outputs where the artifact step (and downstream jobs) look for them.
-		`echo "SF_CI_WORKSPACE=${{ github.workspace }}"`,
+		// $PWD, NOT ${{ github.workspace }}: inside a container job the github.workspace
+		// EXPRESSION resolves to the host path (/home/runner/work/<repo>/<repo>), which
+		// does not exist inside the container — only the bind-mount /__w/<repo>/<repo>
+		// does. $PWD is the container's actual cwd, so the cistate audition writes, the
+		// artifact perform extracts, and assertAuditionRan all agree on one real path.
+		`echo "SF_CI_WORKSPACE=$PWD"`,
 		`echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"`,
 	}
 }
