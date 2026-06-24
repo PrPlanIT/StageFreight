@@ -235,8 +235,13 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 	fmt.Fprintf(buf, "      - name: %s\n", j.Name)
 	if pkg {
 		buf.WriteString("        env:\n")
-		fmt.Fprintf(buf, "          %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
-		fmt.Fprintf(buf, "          %s_TOKEN: %s\n", pkgPrefix, d.PackageAuth.Token)
+		// An operator-configured secret OVERRIDES the turnkey auto-token: use
+		// secrets.<PREFIX>_USER/_TOKEN if present, else the forge's default identity
+		// (e.g. github.actor / GITHUB_TOKEN). This keeps zero-config working AND lets an
+		// operator drop in the same PAT they use on other forges when the auto-token is
+		// insufficient (e.g. a read-only fork GITHUB_TOKEN that 403s on package push).
+		fmt.Fprintf(buf, "          %s_USER: ${{ secrets.%s_USER || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.User))
+		fmt.Fprintf(buf, "          %s_TOKEN: ${{ secrets.%s_TOKEN || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.Token))
 	}
 	buf.WriteString("        run: |\n")
 	for _, cmd := range j.Commands {
@@ -379,4 +384,15 @@ func containsStr(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// exprInner unwraps a `${{ expr }}` Actions expression to its inner `expr`, so it can be
+// composed into a larger expression (e.g. a `secrets.X || <inner>` fallback). A value
+// that is not a wrapped expression is returned unchanged.
+func exprInner(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "${{") && strings.HasSuffix(s, "}}") {
+		s = strings.TrimSuffix(strings.TrimPrefix(s, "${{"), "}}")
+	}
+	return strings.TrimSpace(s)
 }
