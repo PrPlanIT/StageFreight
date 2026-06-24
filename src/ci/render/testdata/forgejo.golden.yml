@@ -52,6 +52,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: audition
+          include-hidden-files: true
           path: |
             .stagefreight/
           retention-days: 7
@@ -97,6 +98,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: perform
+          include-hidden-files: true
           path: |
             .stagefreight/
           retention-days: 1
@@ -135,6 +137,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: review
+          include-hidden-files: true
           path: |
             .stagefreight/security/
           retention-days: 7

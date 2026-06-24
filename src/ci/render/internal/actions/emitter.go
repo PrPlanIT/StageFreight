@@ -246,6 +246,10 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 		buf.WriteString("        with:\n")
 		fmt.Fprintf(buf, "          name: %s\n", j.Name)
+		// .stagefreight/ is a dot-directory; upload-artifact v4.4.0+ excludes hidden
+		// files (anything under a path beginning with ".") by default, which silently
+		// drops the entire phase handoff. Opt back in explicitly.
+		buf.WriteString("          include-hidden-files: true\n")
 		buf.WriteString("          path: |\n")
 		for _, pth := range j.Artifacts.Paths {
 			fmt.Fprintf(buf, "            %s\n", pth)

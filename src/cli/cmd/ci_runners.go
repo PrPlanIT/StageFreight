@@ -252,23 +252,6 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	// TEMP DIAGNOSTIC (remove): pin where audition writes vs where upload-artifact
-	// reads on a GitHub container job.
-	{
-		wd, _ := os.Getwd()
-		fmt.Printf("[sf-debug] wd=%q rootDir=%q SF_CI_WORKSPACE=%q GITHUB_WORKSPACE=%q\n",
-			wd, rootDir, os.Getenv("SF_CI_WORKSPACE"), os.Getenv("GITHUB_WORKSPACE"))
-		defer func() {
-			for _, base := range []string{rootDir, os.Getenv("GITHUB_WORKSPACE"), wd} {
-				if base == "" {
-					continue
-				}
-				_, statErr := os.Stat(base + "/.stagefreight/pipeline.json")
-				fmt.Printf("[sf-debug] stat %s/.stagefreight/pipeline.json -> exists=%v\n", base, statErr == nil)
-			}
-		}()
-	}
-
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("deps subsystem: substrate unhealthy")
 	}
