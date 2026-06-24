@@ -663,6 +663,7 @@ commit:
 |------|----------|------|----------|---------|-------------|
 | `image` | `image` | string | Yes | — | string value |
 | `labels` | `routing.perform.labels` | []string | No | — | []string value |
+| `tls` | `docker.tls` | bool | No | — | bool value |
 
 ---
 
