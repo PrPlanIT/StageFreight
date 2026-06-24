@@ -185,24 +185,12 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		dindTLS = *def.DindTLS
 	}
 
-	// env: Docker transport vars and/or package-registry credentials, under one
-	// block (a job may need both).
-	if j.Capabilities.Docker || pkg {
-		buf.WriteString("    env:\n")
-		if j.Capabilities.Docker {
-			if dindTLS {
-				buf.WriteString("      DOCKER_HOST: tcp://dind:2376\n")
-				buf.WriteString("      DOCKER_TLS_VERIFY: \"1\"\n")
-				buf.WriteString("      DOCKER_CERT_PATH: /certs/client\n")
-			} else {
-				buf.WriteString("      DOCKER_HOST: tcp://dind:2375\n")
-			}
-		}
-		if pkg {
-			fmt.Fprintf(buf, "      %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
-			fmt.Fprintf(buf, "      %s_TOKEN: %s\n", pkgPrefix, d.PackageAuth.Token)
-		}
-	}
+	// NOTE: the Docker transport (DOCKER_HOST) and package-registry credentials are
+	// emitted on the phase STEP (see emitPhaseEnv below), not here at job level.
+	// Job-level env leaks into the runner's own container-management docker calls —
+	// which run on the host, where the dind service hostname doesn't resolve — and
+	// breaks orchestration. Only the phase command, executing inside the job
+	// container on the service network, should carry them.
 
 	// docker DinD service. Without TLS, dind needs DOCKER_TLS_CERTDIR="" so it
 	// listens on plain 2375 instead of generating certs for a volume the job can't
@@ -259,8 +247,27 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 	}
 
-	// the phase command(s)
+	// the phase command(s), with the Docker transport + package creds scoped HERE
+	// (not at job level) so the runner's own container orchestration never inherits
+	// DOCKER_HOST. This step runs inside the job container on the dind service
+	// network, where the transport actually resolves.
 	fmt.Fprintf(buf, "      - name: %s\n", j.Name)
+	if j.Capabilities.Docker || pkg {
+		buf.WriteString("        env:\n")
+		if j.Capabilities.Docker {
+			if dindTLS {
+				buf.WriteString("          DOCKER_HOST: tcp://dind:2376\n")
+				buf.WriteString("          DOCKER_TLS_VERIFY: \"1\"\n")
+				buf.WriteString("          DOCKER_CERT_PATH: /certs/client\n")
+			} else {
+				buf.WriteString("          DOCKER_HOST: tcp://dind:2375\n")
+			}
+		}
+		if pkg {
+			fmt.Fprintf(buf, "          %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
+			fmt.Fprintf(buf, "          %s_TOKEN: %s\n", pkgPrefix, d.PackageAuth.Token)
+		}
+	}
 	buf.WriteString("        run: |\n")
 	for _, cmd := range j.Commands {
 		fmt.Fprintf(buf, "          %s\n", cmd)

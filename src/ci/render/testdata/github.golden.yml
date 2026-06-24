@@ -28,8 +28,6 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     continue-on-error: true
-    env:
-      DOCKER_HOST: tcp://dind:2375
     services:
       dind:
         image: docker:dind
@@ -54,6 +52,8 @@ jobs:
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
       - name: audition
+        env:
+          DOCKER_HOST: tcp://dind:2375
         run: |
           stagefreight ci run audition
       - uses: actions/upload-artifact@v4
@@ -71,8 +71,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      DOCKER_HOST: tcp://dind:2375
     services:
       dind:
         image: docker:dind
@@ -106,6 +104,8 @@ jobs:
           name: audition
           path: .
       - name: perform
+        env:
+          DOCKER_HOST: tcp://dind:2375
         run: |
           stagefreight ci run perform
       - uses: actions/upload-artifact@v4
@@ -121,8 +121,6 @@ jobs:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [perform]
     continue-on-error: true
-    env:
-      DOCKER_HOST: tcp://dind:2375
     services:
       dind:
         image: docker:dind
@@ -149,6 +147,8 @@ jobs:
           name: perform
           path: .
       - name: review
+        env:
+          DOCKER_HOST: tcp://dind:2375
         run: |
           stagefreight ci run review
       - uses: actions/upload-artifact@v4
@@ -167,9 +167,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      GHCR_USER: ${{ github.actor }}
-      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -196,6 +193,9 @@ jobs:
           name: review
           path: .
       - name: publish
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           stagefreight ci run publish
 
