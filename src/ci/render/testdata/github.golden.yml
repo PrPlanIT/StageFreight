@@ -91,7 +91,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: audition
-          path: .
+          path: .stagefreight
       - name: perform
         run: |
           stagefreight ci run perform
@@ -130,7 +130,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: perform
-          path: .
+          path: .stagefreight
       - name: review
         run: |
           stagefreight ci run review
@@ -172,11 +172,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: perform
-          path: .
+          path: .stagefreight
       - uses: actions/download-artifact@v4
         with:
           name: review
-          path: .
+          path: .stagefreight
       - name: publish
         env:
           GHCR_USER: ${{ github.actor }}
@@ -212,7 +212,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: perform
-          path: .
+          path: .stagefreight
       - name: narrate
         run: |
           stagefreight ci run narrate

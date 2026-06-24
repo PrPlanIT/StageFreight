@@ -76,11 +76,14 @@ RUN wget -qO /tmp/docker.tgz \
     chmod +x /usr/local/bin/docker && \
     rm -rf /tmp/docker.tgz /tmp/docker
 
-# Install docker buildx (Docker plugin — extends Docker CLI)
-RUN mkdir -p ~/.docker/cli-plugins && \
-    wget -qO ~/.docker/cli-plugins/docker-buildx \
+# Install docker buildx (Docker plugin — extends Docker CLI).
+# System path /usr/local/lib/docker/cli-plugins, NOT ~/.docker: the Docker CLI searches
+# the system plugin dirs regardless of $HOME, so buildx resolves under GitHub container
+# jobs (HOME=/github/home) as well as root. A ~/.docker install is invisible there.
+RUN mkdir -p /usr/local/lib/docker/cli-plugins && \
+    wget -qO /usr/local/lib/docker/cli-plugins/docker-buildx \
       "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" && \
-    chmod +x ~/.docker/cli-plugins/docker-buildx
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # StageFreight runtime paths.
 # /stagefreight/cache — persistent (mount a volume here for cross-run reuse)

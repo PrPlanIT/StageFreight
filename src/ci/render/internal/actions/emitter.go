@@ -220,7 +220,12 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 			buf.WriteString("      - uses: actions/download-artifact@v4\n")
 			buf.WriteString("        with:\n")
 			fmt.Fprintf(buf, "          name: %s\n", n)
-			buf.WriteString("          path: .\n")
+			// Extract into .stagefreight/, NOT the workspace root. upload-artifact stores
+			// files relative to their least-common-ancestor (here .stagefreight/), so the
+			// artifact carries no .stagefreight/ prefix; extracting to . would flatten the
+			// handoff to the workspace root and assertAuditionRan would miss the cistate.
+			// Proven by local zip round-trip. GitLab preserves the prefix natively.
+			buf.WriteString("          path: .stagefreight\n")
 		}
 	}
 

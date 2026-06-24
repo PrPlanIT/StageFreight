@@ -202,8 +202,12 @@ func CollectFacts(rootDir string) SubstrateFacts {
 		}
 		if _, err := os.Stat(socketPath); err == nil {
 			facts.DockerSocket = socketPath
-			if f, err := os.Open(socketPath); err == nil {
-				f.Close()
+			// Prove via the daemon, NOT os.Open: open(2) on a unix socket returns ENXIO
+			// ("no such device or address") — you connect() a socket, you don't open() it.
+			// probeDockerDaemon runs `docker info` over this socket (DOCKER_HOST default or
+			// unix://), the same capability proof the tcp:// branch uses. The previous
+			// os.Open falsely reported docker absent on GitHub's auto-mounted host socket.
+			if probeDockerDaemon() {
 				facts.DockerAvailable = true
 			}
 		}
