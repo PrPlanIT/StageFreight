@@ -284,7 +284,11 @@ func ciContextExports(provider string) []string {
 		`echo "SF_CI_SHA=${{ github.sha }}"`,
 		`echo "SF_CI_DEFAULT_BRANCH=${{ github.event.repository.default_branch }}"`,
 		`echo "SF_CI_REPO_URL=${{ github.server_url }}/${{ github.repository }}"`,
-		`echo "SF_CI_WORKSPACE=$PWD"`,
+		// github.workspace, NOT $PWD: actions/upload-artifact resolves its path
+		// relative to $GITHUB_WORKSPACE, and on a container job $PWD is not guaranteed
+		// to equal it. Writing .stagefreight/ to github.workspace keeps the phase
+		// outputs where the artifact step (and downstream jobs) look for them.
+		`echo "SF_CI_WORKSPACE=${{ github.workspace }}"`,
 		`echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"`,
 	}
 }
