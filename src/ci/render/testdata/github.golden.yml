@@ -28,12 +28,6 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     continue-on-error: true
-    services:
-      dind:
-        image: docker:dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        options: --privileged
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,8 +46,6 @@ jobs:
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
       - name: audition
-        env:
-          DOCKER_HOST: tcp://dind:2375
         run: |
           stagefreight ci run audition
       - uses: actions/upload-artifact@v4
@@ -71,12 +63,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    services:
-      dind:
-        image: docker:dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        options: --privileged
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,8 +90,6 @@ jobs:
           name: audition
           path: .
       - name: perform
-        env:
-          DOCKER_HOST: tcp://dind:2375
         run: |
           stagefreight ci run perform
       - uses: actions/upload-artifact@v4
@@ -121,12 +105,6 @@ jobs:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [perform]
     continue-on-error: true
-    services:
-      dind:
-        image: docker:dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        options: --privileged
     steps:
       - uses: actions/checkout@v4
       - name: stagefreight-context
@@ -147,8 +125,6 @@ jobs:
           name: perform
           path: .
       - name: review
-        env:
-          DOCKER_HOST: tcp://dind:2375
         run: |
           stagefreight ci run review
       - uses: actions/upload-artifact@v4

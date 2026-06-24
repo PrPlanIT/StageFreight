@@ -20,9 +20,6 @@ func Emit(p model.Pipeline) ([]byte, error) {
 		// configured secret. "gitea" is accepted too since Forgejo's registry is
 		// Gitea-compatible.
 		NativeRegistries: []string{"forgejo", "gitea"},
-		// Forgejo runners provision a shared /certs volume (operator-configured), so
-		// TLS dind works by default. Overridable via ci.docker.tls.
-		DindTLSDefault: true,
 		PackageAuth: &actions.PackageAuth{
 			Permission: "packages: write",
 			User:       "${{ github.actor }}",

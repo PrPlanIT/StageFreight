@@ -19,9 +19,6 @@ func Emit(p model.Pipeline) ([]byte, error) {
 		// auto-provided GITHUB_TOKEN (Gitea is Actions-compatible) — no configured
 		// secret.
 		NativeRegistries: []string{"gitea"},
-		// Gitea runners provision a shared /certs volume (operator-configured), so
-		// TLS dind works by default. Overridable via ci.docker.tls.
-		DindTLSDefault: true,
 		PackageAuth: &actions.PackageAuth{
 			Permission: "packages: write",
 			User:       "${{ github.actor }}",

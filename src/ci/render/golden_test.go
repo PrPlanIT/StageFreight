@@ -139,22 +139,14 @@ var forgesSharingActionsBackendToday = []string{"gitea", "forgejo"}
 // the backend with an `if provider == ...` branch — that is exactly the leak the
 // boundary (and this test) exists to prevent.
 func TestActionsForgesShareBackendToday(t *testing.T) {
-	// Pin a uniform dind transport so the forge-specific dind DEFAULT (github
-	// non-TLS vs gitea/forgejo TLS — a sanctioned Dialect divergence) doesn't read
-	// as backend drift. This isolates the test to its purpose: catching UNsanctioned
-	// per-forge differences beyond identity + package-registry credentials.
-	tlsOn := true
-	pin := canonicalPipeline()
-	pin.Defaults.DindTLS = &tlsOn
-
-	ref, err := Emit("github", pin)
+	ref, err := Emit("github", canonicalPipeline())
 	if err != nil {
 		t.Fatal(err)
 	}
 	refLines := strings.Split(string(ref), "\n")
 
 	for _, forge := range forgesSharingActionsBackendToday {
-		got, err := Emit(forge, pin)
+		got, err := Emit(forge, canonicalPipeline())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,40 +186,29 @@ func isPackageCredLine(s string) bool {
 	return strings.Contains(t, "_USER: ") || strings.Contains(t, "_TOKEN: ")
 }
 
-// TestDindTLS pins the dind transport matrix: per-forge defaults (github non-TLS
-// since hosted runners can't share the cert volume; gitlab/gitea/forgejo TLS since
-// their runners do) and the ci.docker.tls override winning over the default both
-// directions.
-func TestDindTLS(t *testing.T) {
-	on, off := true, false
-	cases := []struct {
-		forge   string
-		tls     *bool
-		wantTLS bool
-	}{
-		{"github", nil, false},  // hosted default → non-TLS
-		{"github", &on, true},   // self-hosted with certs → override TLS
-		{"gitea", nil, true},    // runner shares /certs → TLS
-		{"gitea", &off, false},  // operator opts out → non-TLS
-		{"forgejo", nil, true},  // runner shares /certs → TLS
-		{"gitlab", nil, true},   // built-in /certs → TLS
-		{"gitlab", &off, false}, // operator opts out → non-TLS
-	}
-	for _, c := range cases {
-		p := canonicalPipeline()
-		p.Defaults.DindTLS = c.tls
-		out, err := Emit(c.forge, p)
+// TestActionsNoInjectedDind asserts the Actions family does NOT inject a dind
+// service or DOCKER_HOST — the build engine is deferred to the runner. GitLab keeps
+// its own transport anchor.
+func TestActionsNoInjectedDind(t *testing.T) {
+	for _, forge := range []string{"github", "gitea", "forgejo"} {
+		out, err := Emit(forge, canonicalPipeline())
 		if err != nil {
-			t.Fatalf("%s tls=%v: %v", c.forge, c.tls, err)
+			t.Fatalf("%s: %v", forge, err)
 		}
 		s := string(out)
-		tls := strings.Contains(s, "dind:2376")
-		nonTLS := strings.Contains(s, "dind:2375")
-		if c.wantTLS && (!tls || nonTLS) {
-			t.Errorf("%s tls=%v: want TLS (2376); got 2376=%v 2375=%v", c.forge, c.tls, tls, nonTLS)
+		if strings.Contains(s, "docker:dind") {
+			t.Errorf("%s renders an injected dind service — should defer to the runner", forge)
 		}
-		if !c.wantTLS && (!nonTLS || tls) {
-			t.Errorf("%s tls=%v: want non-TLS (2375); got 2376=%v 2375=%v", c.forge, c.tls, tls, nonTLS)
+		if strings.Contains(s, "DOCKER_HOST") {
+			t.Errorf("%s injects DOCKER_HOST — should defer to the runner's auto-detected engine", forge)
 		}
+	}
+	// GitLab still provisions its transport (its runner exposes a resolvable dind).
+	gl, err := Emit("gitlab", canonicalPipeline())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gl), "DOCKER_HOST") {
+		t.Error("gitlab should keep its transport anchor")
 	}
 }

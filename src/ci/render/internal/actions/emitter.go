@@ -18,9 +18,9 @@
 //     that needs it downloads.
 //   - OIDC → permissions: id-token: write plus a step that requests a token with
 //     audience "stagefreight" and exports it as STAGEFREIGHT_OIDC.
-//   - docker → a docker:dind service plus a DOCKER_HOST env; TLS (2376 + shared
-//     /certs) or plain TCP (2375, DOCKER_TLS_CERTDIR="") per the resolved transport
-//     (forge default, overridable by ci.docker.tls).
+//   - docker → NOT injected. The build engine is deferred to the runner (mounted
+//     socket on hosted; dind/buildkitd via DOCKER_HOST/BUILDKIT_HOST on self-hosted),
+//     auto-detected by the runtime. The workflow injects no transport or dind service.
 package actions
 
 import (
@@ -46,12 +46,6 @@ type Dialect struct {
 	// with its auto-token (e.g. github → "ghcr","github"). A job that pushes to one of
 	// them gets PackageAuth wired; others are left to explicit secrets.
 	NativeRegistries []string
-
-	// DindTLSDefault is the forge's default dind transport when the operator hasn't
-	// set ci.docker.tls: github → false (hosted runners can't share the dind cert
-	// volume), gitea/forgejo → true (their runners provision shared /certs). The
-	// model's DindTLS override (if set) wins over this.
-	DindTLSDefault bool
 
 	// PackageAuth, when non-nil, is the forge's recipe for authenticating to its
 	// native package/container registry. The backend emits it verbatim — it names no
@@ -176,35 +170,15 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 	}
 
-	// Resolve the dind transport: operator override (model) wins; else the forge
-	// default. TLS needs a shared /certs volume between dind and the job — GitLab and
-	// self-hosted Actions runners provision it; GitHub-hosted can't, so it defaults
-	// off there. The operator owns the choice via ci.docker.tls.
-	dindTLS := d.DindTLSDefault
-	if def.DindTLS != nil {
-		dindTLS = *def.DindTLS
-	}
-
-	// NOTE: the Docker transport (DOCKER_HOST) and package-registry credentials are
-	// emitted on the phase STEP (see emitPhaseEnv below), not here at job level.
-	// Job-level env leaks into the runner's own container-management docker calls —
-	// which run on the host, where the dind service hostname doesn't resolve — and
-	// breaks orchestration. Only the phase command, executing inside the job
-	// container on the service network, should carry them.
-
-	// docker DinD service. Without TLS, dind needs DOCKER_TLS_CERTDIR="" so it
-	// listens on plain 2375 instead of generating certs for a volume the job can't
-	// reach.
-	if j.Capabilities.Docker {
-		buf.WriteString("    services:\n")
-		buf.WriteString("      dind:\n")
-		buf.WriteString("        image: docker:dind\n")
-		if !dindTLS {
-			buf.WriteString("        env:\n")
-			buf.WriteString("          DOCKER_TLS_CERTDIR: \"\"\n")
-		}
-		buf.WriteString("        options: --privileged\n")
-	}
+	// Build engine: NOT injected. The Actions family DEFERS build-engine provisioning
+	// to the runner. Hosted runners expose the mounted docker socket; self-hosted
+	// runners expose dind/buildkitd via DOCKER_HOST / BUILDKIT_HOST. StageFreight's
+	// runtime auto-detects whichever is present (BUILDKIT_HOST → DOCKER_HOST → local
+	// socket), so the workflow stays thin and the runner owns engine quality. A
+	// workflow-injected dind would shadow a self-hosted operator's buildkitd AND fail
+	// in hosted container jobs (sibling service hostnames don't resolve), so we don't.
+	// (The image still rides perform→publish as an OCI layout in .stagefreight/ via
+	// artifacts — daemon-independent, so an ephemeral hosted builder is safe.)
 
 	buf.WriteString("    steps:\n")
 
@@ -247,26 +221,14 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 	}
 
-	// the phase command(s), with the Docker transport + package creds scoped HERE
-	// (not at job level) so the runner's own container orchestration never inherits
-	// DOCKER_HOST. This step runs inside the job container on the dind service
-	// network, where the transport actually resolves.
+	// the phase command(s). No Docker transport is injected — the runtime auto-detects
+	// the runner-provided engine. Package-registry creds (registry auth, not transport)
+	// are scoped to this step so they reach the phase command and nothing else.
 	fmt.Fprintf(buf, "      - name: %s\n", j.Name)
-	if j.Capabilities.Docker || pkg {
+	if pkg {
 		buf.WriteString("        env:\n")
-		if j.Capabilities.Docker {
-			if dindTLS {
-				buf.WriteString("          DOCKER_HOST: tcp://dind:2376\n")
-				buf.WriteString("          DOCKER_TLS_VERIFY: \"1\"\n")
-				buf.WriteString("          DOCKER_CERT_PATH: /certs/client\n")
-			} else {
-				buf.WriteString("          DOCKER_HOST: tcp://dind:2375\n")
-			}
-		}
-		if pkg {
-			fmt.Fprintf(buf, "          %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
-			fmt.Fprintf(buf, "          %s_TOKEN: %s\n", pkgPrefix, d.PackageAuth.Token)
-		}
+		fmt.Fprintf(buf, "          %s_USER: %s\n", pkgPrefix, d.PackageAuth.User)
+		fmt.Fprintf(buf, "          %s_TOKEN: %s\n", pkgPrefix, d.PackageAuth.Token)
 	}
 	buf.WriteString("        run: |\n")
 	for _, cmd := range j.Commands {

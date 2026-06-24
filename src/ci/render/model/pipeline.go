@@ -43,12 +43,6 @@ type PipelineDefaults struct {
 	//   GitLab: before_script exporting SF_CI_* from CI_* variables
 	//   GitHub: env block or setup step mapping GITHUB_* to SF_CI_*
 	CIContext bool
-
-	// DindTLS overrides the dind transport mode for docker-capable jobs.
-	// Tri-state: nil = use the emitter's forge default; non-nil = the operator's
-	// explicit choice (true = TLS on 2376 + shared /certs; false = plain TCP on
-	// 2375 with DOCKER_TLS_CERTDIR=""). Set from ci.docker.tls.
-	DindTLS *bool
 }
 
 // Job is a single pipeline job in the forge-neutral model.
