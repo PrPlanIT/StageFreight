@@ -51,10 +51,16 @@ LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.vendor="PrPlanIT"
 
-# Runtime dependencies — git is intentionally absent: the go-git pure-Go transport
-# handles all repository operations natively (SSH via golang.org/x/crypto/ssh,
-# HTTPS via net/http). No git binary, no openssh-client required.
+# Runtime dependencies. git is REQUIRED: on GitHub-family container jobs,
+# actions/checkout runs INSIDE this image, and without git>=2.18 in PATH it silently
+# falls back to a GitHub REST-API tarball with NO .git directory — breaking every
+# git-aware subsystem (deps, commit, replay) downstream. StageFreight's own repo ops
+# use the go-git pure-Go transport, but go-git can't substitute for the checkout
+# action's clone — only a real git in PATH makes checkout produce a working .git.
+# (GitLab clones at the runner level, so its git-less era never surfaced this;
+# GitHub checks out in-container.)
 RUN apk add --no-cache \
+      git \
       chafa \
       tree
 
