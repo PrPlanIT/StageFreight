@@ -29,9 +29,6 @@ jobs:
       image: registry.example.com/acme/stagefreight:latest-dev
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: stagefreight-context
         run: |
           {
@@ -45,6 +42,10 @@ jobs:
             echo "SF_CI_WORKSPACE=$PWD"
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
+      - name: stagefreight-checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: stagefreight ci checkout
       - name: audition
         run: |
           stagefreight ci run audition
@@ -64,14 +65,6 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: stagefreight-oidc
-        run: |
-          token=$(wget -qO- --header="Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=stagefreight" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
-          echo "STAGEFREIGHT_OIDC=$token" >> "$GITHUB_ENV"
       - name: stagefreight-context
         run: |
           {
@@ -85,6 +78,15 @@ jobs:
             echo "SF_CI_WORKSPACE=$PWD"
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
+      - name: stagefreight-checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: stagefreight ci checkout
+      - name: stagefreight-oidc
+        run: |
+          token=$(wget -qO- --header="Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=stagefreight" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+          echo "STAGEFREIGHT_OIDC=$token" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           name: audition
@@ -106,7 +108,6 @@ jobs:
     needs: [perform]
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
       - name: stagefreight-context
         run: |
           {
@@ -120,6 +121,10 @@ jobs:
             echo "SF_CI_WORKSPACE=$PWD"
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
+      - name: stagefreight-checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: stagefreight ci checkout
       - uses: actions/download-artifact@v4
         with:
           name: perform
@@ -144,9 +149,6 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: stagefreight-context
         run: |
           {
@@ -160,6 +162,10 @@ jobs:
             echo "SF_CI_WORKSPACE=$PWD"
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
+      - name: stagefreight-checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: stagefreight ci checkout
       - uses: actions/download-artifact@v4
         with:
           name: perform
@@ -183,9 +189,6 @@ jobs:
     if: ${{ always() }}
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: stagefreight-context
         run: |
           {
@@ -199,6 +202,10 @@ jobs:
             echo "SF_CI_WORKSPACE=$PWD"
             echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"
           } >> "$GITHUB_ENV"
+      - name: stagefreight-checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: stagefreight ci checkout
       - uses: actions/download-artifact@v4
         with:
           name: perform

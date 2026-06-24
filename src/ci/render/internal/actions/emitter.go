@@ -182,12 +182,26 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 
 	buf.WriteString("    steps:\n")
 
-	// checkout (full clone when requested)
-	buf.WriteString("      - uses: actions/checkout@v4\n")
-	if j.Source.FullClone {
-		buf.WriteString("        with:\n")
-		buf.WriteString("          fetch-depth: 0\n")
+	// CI context FIRST (SF_CI_* from the runtime context) — the checkout step below
+	// reads SF_CI_REPO_URL / SF_CI_SHA / branch from it.
+	if def.CIContext {
+		buf.WriteString("      - name: stagefreight-context\n")
+		buf.WriteString("        run: |\n")
+		buf.WriteString("          {\n")
+		for _, line := range ciContextExports(d.Provider) {
+			fmt.Fprintf(buf, "            %s\n", line)
+		}
+		buf.WriteString("          } >> \"$GITHUB_ENV\"\n")
 	}
+
+	// checkout: StageFreight clones the repo itself via go-git. The image carries no
+	// git binary, so actions/checkout would fall back to a .git-less REST tarball;
+	// go-git materializes a real .git instead — and is ownership-agnostic, so no
+	// safe.directory dance. Auth from the runner-provided GITHUB_TOKEN.
+	buf.WriteString("      - name: stagefreight-checkout\n")
+	buf.WriteString("        env:\n")
+	buf.WriteString("          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n")
+	buf.WriteString("        run: stagefreight ci checkout\n")
 
 	// OIDC: request a token with the stagefreight audience and export it as the
 	// env the binary reads (STAGEFREIGHT_OIDC). wget (busybox) for image
@@ -198,17 +212,6 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		buf.WriteString("          token=$(wget -qO- --header=\"Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN\" \\\n")
 		buf.WriteString("            \"$ACTIONS_ID_TOKEN_REQUEST_URL&audience=stagefreight\" | sed -n 's/.*\"value\":\"\\([^\"]*\\)\".*/\\1/p')\n")
 		buf.WriteString("          echo \"STAGEFREIGHT_OIDC=$token\" >> \"$GITHUB_ENV\"\n")
-	}
-
-	// CI context hydration (SF_CI_* from the runtime context)
-	if def.CIContext {
-		buf.WriteString("      - name: stagefreight-context\n")
-		buf.WriteString("        run: |\n")
-		buf.WriteString("          {\n")
-		for _, line := range ciContextExports(d.Provider) {
-			fmt.Fprintf(buf, "            %s\n", line)
-		}
-		buf.WriteString("          } >> \"$GITHUB_ENV\"\n")
 	}
 
 	// download artifacts from each upstream producer this job depends on
