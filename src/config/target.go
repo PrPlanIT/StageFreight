@@ -197,6 +197,13 @@ type TargetCondition struct {
 	// Supported: push, tag, release, schedule, manual, pull_request, merge_request.
 	// Empty = no event filtering.
 	Events []string `yaml:"events,omitempty"`
+
+	// Forges restricts this target to specific CI forges by provider name
+	// (github, gitlab, gitea, forgejo). Empty = every forge. Use it when a
+	// registry is reachable/credentialed on some forges but not others — e.g. a
+	// private mirror that only resolves from the self-hosted GitLab runner, or a
+	// ghcr push that only makes sense on GitHub Actions.
+	Forges []string `yaml:"forges,omitempty"`
 }
 
 // validTargetKinds enumerates all recognized target kinds.

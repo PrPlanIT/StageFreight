@@ -49,25 +49,25 @@ func TestTargetEligibilityReasons(t *testing.T) {
 	dev := TargetConfig{When: TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}}
 
 	// Eligible: a real push on main carries no reason.
-	if r := TargetEligibility(dev, "push", "main", "", tagPol, brPol); !r.Eligible || r.Reason != "" {
+	if r := TargetEligibility(dev, "push", "main", "", "", tagPol, brPol); !r.Eligible || r.Reason != "" {
 		t.Fatalf("push/main: want eligible with empty reason, got %+v", r)
 	}
 
 	// Ineligible: a manual web run. The reason must name both the run source and
 	// the event gate so narration is self-explaining.
-	r := TargetEligibility(dev, "web", "main", "", tagPol, brPol)
+	r := TargetEligibility(dev, "web", "main", "", "", tagPol, brPol)
 	if r.Eligible {
 		t.Fatalf("web run must be ineligible for events:[push]")
 	}
 	if !strings.Contains(r.Reason, "web") || !strings.Contains(r.Reason, "events") {
 		t.Errorf("event reason should name source and gate, got %q", r.Reason)
 	}
-	if TargetMatches(dev, "web", "main", "", tagPol, brPol) {
+	if TargetMatches(dev, "web", "main", "", "", tagPol, brPol) {
 		t.Errorf("TargetMatches must agree with TargetEligibility.Eligible (false)")
 	}
 
 	// Branch mismatch surfaces a branch reason.
-	if rb := TargetEligibility(dev, "push", "feature", "", tagPol, brPol); rb.Eligible || !strings.Contains(rb.Reason, "branch") {
+	if rb := TargetEligibility(dev, "push", "feature", "", "", tagPol, brPol); rb.Eligible || !strings.Contains(rb.Reason, "branch") {
 		t.Errorf("feature branch: want ineligible with branch reason, got %+v", rb)
 	}
 }

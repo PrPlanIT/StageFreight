@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // CIEvent derives the current CI event (push/tag/…) for when-matching. Tag
@@ -39,6 +40,12 @@ func CITag() string {
 	return os.Getenv("CI_COMMIT_TAG")
 }
 
+// CIProvider returns the current forge provider (github/gitlab/gitea/forgejo) from the
+// CI environment ("" if none), for forge-scoped target eligibility.
+func CIProvider() string {
+	return os.Getenv("SF_CI_PROVIDER")
+}
+
 // MatchResult is the outcome of a target eligibility check: whether the target
 // is eligible for the current CI context and, when it is not, a human-readable
 // reason coupled to the decision. Narration reads Reason directly, so the
@@ -62,7 +69,7 @@ type MatchResult struct {
 // tagPolicies/branchPolicies resolve named patterns (versioning.tag_sources,
 // matchers.branches); inline "re:" and "!" negation are handled by
 // ResolvePatterns. Empty conditions never restrict.
-func TargetEligibility(t TargetConfig, event, branch, tag string, tagPolicies, branchPolicies map[string]string) MatchResult {
+func TargetEligibility(t TargetConfig, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
 	if !EventMatches(t.When.Events, event) {
 		return MatchResult{Reason: fmt.Sprintf("run source %q not in events:%v", event, t.When.Events)}
 	}
@@ -76,15 +83,29 @@ func TargetEligibility(t TargetConfig, event, branch, tag string, tagPolicies, b
 			return MatchResult{Reason: fmt.Sprintf("branch %q not in branches:%v", branch, t.When.Branches)}
 		}
 	}
+	if len(t.When.Forges) > 0 && !forgeMatches(t.When.Forges, forge) {
+		return MatchResult{Reason: fmt.Sprintf("forge %q not in forges:%v", forge, t.When.Forges)}
+	}
 	return MatchResult{Eligible: true}
+}
+
+// forgeMatches reports whether the current forge provider is in the allow-list
+// (case-insensitive exact match on provider name).
+func forgeMatches(forges []string, forge string) bool {
+	for _, f := range forges {
+		if strings.EqualFold(strings.TrimSpace(f), forge) {
+			return true
+		}
+	}
+	return false
 }
 
 // TargetMatches reports whether a target's when: conditions are satisfied — the
 // bool view of TargetEligibility for call sites that don't narrate. See the
 // TargetEligibility invariant: this is the single shared gating predicate;
 // capabilities must not interpret when: themselves.
-func TargetMatches(t TargetConfig, event, branch, tag string, tagPolicies, branchPolicies map[string]string) bool {
-	return TargetEligibility(t, event, branch, tag, tagPolicies, branchPolicies).Eligible
+func TargetMatches(t TargetConfig, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) bool {
+	return TargetEligibility(t, event, branch, tag, forge, tagPolicies, branchPolicies).Eligible
 }
 
 // TargetMatchesEnv evaluates TargetMatches against the current CI environment,
@@ -94,7 +115,7 @@ func TargetMatchesEnv(t TargetConfig, cfg *Config) bool {
 	for _, ts := range cfg.Versioning.TagSources {
 		tagPolicies[ts.ID] = ts.Pattern
 	}
-	return TargetMatches(t, CIEvent(), CIBranch(), CITag(), tagPolicies, cfg.Matchers.Branches)
+	return TargetMatches(t, CIEvent(), CIBranch(), CITag(), CIProvider(), tagPolicies, cfg.Matchers.Branches)
 }
 
 // TargetIsUnconditional reports whether a target declares no when: constraints at
@@ -103,5 +124,5 @@ func TargetMatchesEnv(t TargetConfig, cfg *Config) bool {
 // an emptiness probe is still an interpretation of target constraints, and per
 // the eligibility-routing invariant there is exactly one interpreter (this package).
 func TargetIsUnconditional(t TargetConfig) bool {
-	return len(t.When.Events) == 0 && len(t.When.Branches) == 0 && len(t.When.GitTags) == 0
+	return len(t.When.Events) == 0 && len(t.When.Branches) == 0 && len(t.When.GitTags) == 0 && len(t.When.Forges) == 0
 }

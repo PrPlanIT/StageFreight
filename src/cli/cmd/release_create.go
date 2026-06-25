@@ -998,7 +998,7 @@ func findRemoteReleaseTargets(cfg *config.Config) []config.TargetConfig {
 // current CI environment. It delegates to the canonical config.TargetMatches — it
 // does NOT interpret when: itself — threading the release path's resolved tag.
 func targetWhenMatches(t config.TargetConfig, currentTag string, tagPatterns map[string]string, branchPatterns map[string]string) bool {
-	return config.TargetMatches(t, config.CIEvent(), config.CIBranch(), currentTag, tagPatterns, branchPatterns)
+	return config.TargetMatches(t, config.CIEvent(), config.CIBranch(), currentTag, config.CIProvider(), tagPatterns, branchPatterns)
 }
 
 // renderCheckpoint renders a checkpoint line with pass/fail count, expanding failures.

@@ -143,7 +143,7 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 		// Eligibility via the single canonical matcher (events, then git_tags,
 		// then branches). Docker does not interpret when: itself. A skip carries
 		// the matcher's own reason for narration — never re-derived here.
-		if elig := config.TargetEligibility(t, config.CIEvent(), currentBranch, currentGitTag, tagPatternMap, cfg.Matchers.Branches); !elig.Eligible {
+		if elig := config.TargetEligibility(t, config.CIEvent(), currentBranch, currentGitTag, config.CIProvider(), tagPatternMap, cfg.Matchers.Branches); !elig.Eligible {
 			skipped = append(skipped, build.TargetSkip{TargetID: t.ID, Reason: elig.Reason})
 			continue
 		}
