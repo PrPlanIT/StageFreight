@@ -115,6 +115,19 @@ type CapabilitySpec struct {
 	// GitLab emitter adds id_tokens.STAGEFREIGHT_OIDC.
 	OIDC bool
 
+	// ForgeAPI indicates this job needs a forge WRITE credential — for forge mutations
+	// via the REST API (release creation, MR/PR, commit status) AND via git push (docs
+	// and dependency auto-commits). On the Actions family both authenticate with the
+	// same write-scoped token (GITHUB_TOKEN / GITEA_TOKEN / FORGEJO_TOKEN), so one
+	// capability scopes the credential; the surface (API vs git transport) is a usage
+	// detail. The emitter wires the token (operator PAT override → auto-token) ONLY onto
+	// jobs that carry this capability, so the credential is never present in the build
+	// phase (which runs untrusted Dockerfiles / build scripts). Credential visibility
+	// follows mutation authority: planner-assigned to the phases that mutate the forge
+	// (audition deps MR+commit, publish releases, narrate docs-commit) — never
+	// perform/review.
+	ForgeAPI bool
+
 	// PackageRegistries lists the package/container registries this job pushes to,
 	// by config provider + credential env prefix. Each forge's emitter auto-wires the
 	// entry matching ITS native registry (github→ghcr, gitea→gitea, forgejo→forgejo)

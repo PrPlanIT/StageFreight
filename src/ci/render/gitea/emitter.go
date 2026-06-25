@@ -24,5 +24,11 @@ func Emit(p model.Pipeline) ([]byte, error) {
 			User:       "${{ github.actor }}",
 			Token:      "${{ secrets.GITHUB_TOKEN }}",
 		},
+		// Gitea's API client reads GITEA_TOKEN; operator override falls back to the
+		// act_runner auto-token.
+		ForgeAPIAuth: &actions.ForgeAPIAuth{
+			EnvVar: "GITEA_TOKEN",
+			Value:  "${{ secrets.GITEA_TOKEN || secrets.GITHUB_TOKEN }}",
+		},
 	})
 }

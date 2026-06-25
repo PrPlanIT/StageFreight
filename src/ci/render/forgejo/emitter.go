@@ -25,5 +25,11 @@ func Emit(p model.Pipeline) ([]byte, error) {
 			User:       "${{ github.actor }}",
 			Token:      "${{ secrets.GITHUB_TOKEN }}",
 		},
+		// Forgejo's API client reads FORGEJO_TOKEN (GITEA_TOKEN-compatible); operator
+		// override falls back to the runner auto-token.
+		ForgeAPIAuth: &actions.ForgeAPIAuth{
+			EnvVar: "FORGEJO_TOKEN",
+			Value:  "${{ secrets.FORGEJO_TOKEN || secrets.GITHUB_TOKEN }}",
+		},
 	})
 }

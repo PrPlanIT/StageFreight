@@ -32,7 +32,7 @@ func canonicalPipeline() model.Pipeline {
 				Commands:     []string{"stagefreight ci run audition"},
 				Source:       model.SourceSpec{FullClone: true},
 				Artifacts:    model.ArtifactSpec{Paths: []string{".stagefreight/"}, ExpireIn: "1 week"},
-				Capabilities: model.CapabilitySpec{Docker: true},
+				Capabilities: model.CapabilitySpec{Docker: true, ForgeAPI: true},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
@@ -56,7 +56,7 @@ func canonicalPipeline() model.Pipeline {
 				Source:   model.SourceSpec{FullClone: true},
 				// Package-registry push: each forge auto-wires the entry it owns
 				// (github→ghcr, gitea/forgejo→gitea) with its auto-token; others ignored.
-				Capabilities: model.CapabilitySpec{PackageRegistries: []model.PackageRegistry{
+				Capabilities: model.CapabilitySpec{ForgeAPI: true, PackageRegistries: []model.PackageRegistry{
 					{Provider: "ghcr", CredPrefix: "GHCR"},
 					{Provider: "gitea", CredPrefix: "GITEA"},
 				}},
@@ -64,9 +64,10 @@ func canonicalPipeline() model.Pipeline {
 			},
 			{
 				Name: "narrate", Stage: "narrate", Needs: []string{"perform", "publish"},
-				Commands: []string{"stagefreight ci run narrate"},
-				Source:   model.SourceSpec{FullClone: true},
-				Policy:   model.PolicySpec{AllowFailure: true, WhenAlways: true},
+				Commands:     []string{"stagefreight ci run narrate"},
+				Source:       model.SourceSpec{FullClone: true},
+				Capabilities: model.CapabilitySpec{ForgeAPI: true},
+				Policy:       model.PolicySpec{AllowFailure: true, WhenAlways: true},
 			},
 		},
 	}

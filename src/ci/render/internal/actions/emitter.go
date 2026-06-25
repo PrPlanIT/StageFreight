@@ -52,6 +52,12 @@ type Dialect struct {
 	// forge and chooses nothing; the forge package decides whether its registry has a
 	// turnkey token and which providers count as native.
 	PackageAuth *PackageAuth
+
+	// ForgeAPIAuth, when non-nil, is the forge's REST-API token wiring — lowered ONLY
+	// onto jobs carrying the ForgeAPI capability (forge mutation: releases, MRs), so the
+	// credential never reaches the build phase. The forge package owns the env var its
+	// API client reads and the operator-override expression.
+	ForgeAPIAuth *ForgeAPIAuth
 }
 
 // PackageAuth is a forge's package-registry auth recipe: the permission that widens
@@ -62,6 +68,17 @@ type PackageAuth struct {
 	Permission string
 	User       string
 	Token      string
+}
+
+// ForgeAPIAuth is a forge's REST-API token recipe for jobs that mutate the forge.
+// EnvVar is the variable the forge's API client reads (GitHub → GITHUB_TOKEN, Gitea →
+// GITEA_TOKEN, Forgejo → FORGEJO_TOKEN); Value is the resolution expression, an operator
+// secret override falling back to the forge auto-token (e.g.
+// `${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}`) — the same fallback shape as
+// PackageAuth, because a read-only fork auto-token can't create releases.
+type ForgeAPIAuth struct {
+	EnvVar string
+	Value  string
 }
 
 // Emit serializes a forge-neutral Pipeline to Actions workflow bytes using the
@@ -246,15 +263,24 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 	// the runner-provided engine. Package-registry creds (registry auth, not transport)
 	// are scoped to this step so they reach the phase command and nothing else.
 	fmt.Fprintf(buf, "      - name: %s\n", j.Name)
-	if pkg {
+	// Forge API token — wired ONLY when the job carries the ForgeAPI capability (forge
+	// mutation: releases, MRs), so it is absent from the build phase. Credential
+	// visibility follows mutation authority.
+	forgeAPI := j.Capabilities.ForgeAPI && d.ForgeAPIAuth != nil
+	if pkg || forgeAPI {
 		buf.WriteString("        env:\n")
-		// An operator-configured secret OVERRIDES the turnkey auto-token: use
-		// secrets.<PREFIX>_USER/_TOKEN if present, else the forge's default identity
-		// (e.g. github.actor / GITHUB_TOKEN). This keeps zero-config working AND lets an
-		// operator drop in the same PAT they use on other forges when the auto-token is
-		// insufficient (e.g. a read-only fork GITHUB_TOKEN that 403s on package push).
-		fmt.Fprintf(buf, "          %s_USER: ${{ secrets.%s_USER || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.User))
-		fmt.Fprintf(buf, "          %s_TOKEN: ${{ secrets.%s_TOKEN || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.Token))
+		if forgeAPI {
+			fmt.Fprintf(buf, "          %s: %s\n", d.ForgeAPIAuth.EnvVar, d.ForgeAPIAuth.Value)
+		}
+		if pkg {
+			// An operator-configured secret OVERRIDES the turnkey auto-token: use
+			// secrets.<PREFIX>_USER/_TOKEN if present, else the forge's default identity
+			// (e.g. github.actor / GITHUB_TOKEN). This keeps zero-config working AND lets an
+			// operator drop in the same PAT they use on other forges when the auto-token is
+			// insufficient (e.g. a read-only fork GITHUB_TOKEN that 403s on package push).
+			fmt.Fprintf(buf, "          %s_USER: ${{ secrets.%s_USER || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.User))
+			fmt.Fprintf(buf, "          %s_TOKEN: ${{ secrets.%s_TOKEN || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.Token))
+		}
 	}
 	buf.WriteString("        run: |\n")
 	for _, cmd := range j.Commands {

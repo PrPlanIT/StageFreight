@@ -25,5 +25,12 @@ func Emit(p model.Pipeline) ([]byte, error) {
 			User:       "${{ github.actor }}",
 			Token:      "${{ secrets.GITHUB_TOKEN }}",
 		},
+		// Forge REST API (releases, MRs): the client reads GITHUB_TOKEN. Operator PAT
+		// (secrets.GH_TOKEN, repo scope) overrides the auto-token, which on a fork is
+		// often read-only and 401s on release creation.
+		ForgeAPIAuth: &actions.ForgeAPIAuth{
+			EnvVar: "GITHUB_TOKEN",
+			Value:  "${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}",
+		},
 	})
 }

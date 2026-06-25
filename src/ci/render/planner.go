@@ -37,7 +37,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					Paths:    []string{".stagefreight/"},
 					ExpireIn: "1 week",
 				},
-				Capabilities: model.CapabilitySpec{Docker: true},
+				Capabilities: model.CapabilitySpec{Docker: true, ForgeAPI: true},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
@@ -83,7 +83,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:        []string{"perform", "review"},
 				Commands:     []string{"stagefreight ci run publish"},
 				Source:       model.SourceSpec{FullClone: true},
-				Capabilities: model.CapabilitySpec{PackageRegistries: packageRegistries(cfg)},
+				Capabilities: model.CapabilitySpec{ForgeAPI: true, PackageRegistries: packageRegistries(cfg)},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
@@ -92,7 +92,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:    []string{"perform", "publish"},
 				Commands: []string{"stagefreight ci run narrate"},
 				Source:   model.SourceSpec{FullClone: true},
-				Policy:   model.PolicySpec{AllowFailure: true, WhenAlways: true},
+				// Forge write credential: narrate's docs auto-commit is a git push.
+				Capabilities: model.CapabilitySpec{ForgeAPI: true},
+				Policy:       model.PolicySpec{AllowFailure: true, WhenAlways: true},
 			},
 		},
 	}, nil

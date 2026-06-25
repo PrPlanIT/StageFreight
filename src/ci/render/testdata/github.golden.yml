@@ -53,6 +53,8 @@ jobs:
           restore-keys: |
             stagefreight-cache-${{ runner.os }}-audition-
       - name: audition
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           stagefreight ci run audition
       - uses: actions/upload-artifact@v4
@@ -203,6 +205,7 @@ jobs:
             stagefreight-cache-${{ runner.os }}-publish-
       - name: publish
         env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ secrets.GHCR_USER || github.actor }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -244,5 +247,7 @@ jobs:
           restore-keys: |
             stagefreight-cache-${{ runner.os }}-narrate-
       - name: narrate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           stagefreight ci run narrate
