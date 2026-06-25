@@ -176,9 +176,18 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 	// permissions (job-scope override; restate contents:read since the override
 	// replaces the workflow default). OIDC widens with id-token; a package-registry
 	// push widens with the forge's package permission. Collected so both compose.
-	if j.Capabilities.OIDC || pkg {
+	if j.Capabilities.OIDC || pkg || j.Capabilities.ForgeAPI {
 		buf.WriteString("    permissions:\n")
-		buf.WriteString("      contents: read\n")
+		// Forge-mutating jobs need contents: write (release creation, docs/deps git
+		// commits). This WIDENS the job's automatic token, so on a normal repo the
+		// auto-token alone suffices — no operator PAT. (A fork whose org locks workflow
+		// permissions to read-only caps this regardless; that is the only case the
+		// GH_TOKEN override exists for.)
+		if j.Capabilities.ForgeAPI {
+			buf.WriteString("      contents: write\n")
+		} else {
+			buf.WriteString("      contents: read\n")
+		}
 		if j.Capabilities.OIDC {
 			buf.WriteString("      id-token: write\n")
 		}

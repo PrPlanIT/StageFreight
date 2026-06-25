@@ -28,6 +28,8 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     continue-on-error: true
+    permissions:
+      contents: write
     steps:
       - name: stagefreight-context
         run: |
@@ -169,7 +171,7 @@ jobs:
     needs: [perform, review]
     continue-on-error: true
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: stagefreight-context
@@ -218,6 +220,8 @@ jobs:
     needs: [perform, publish]
     if: ${{ always() }}
     continue-on-error: true
+    permissions:
+      contents: write
     steps:
       - name: stagefreight-context
         run: |
