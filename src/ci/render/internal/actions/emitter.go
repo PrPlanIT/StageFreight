@@ -229,6 +229,19 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		}
 	}
 
+	// Cross-run build cache — hosted-runner parity with a self-hosted persistent
+	// buildkitd/dind. /stagefreight/cache (cargo/go modcache+build, resolved toolchains)
+	// is ephemeral on a hosted runner; actions/cache persists it to GitHub's cache backend
+	// keyed by lockfile content. Runs AFTER checkout (lockfiles present for hashFiles),
+	// before the phase command; the action's post-step saves it. Per-phase key because
+	// GitHub's cache is write-once per key — a shared key would make jobs race. (GitLab
+	// uses a persistent runner cache instead; this is the hosted-GitHub equivalent.)
+	fmt.Fprintf(buf, "      - uses: actions/cache@v4\n")
+	buf.WriteString("        with:\n")
+	buf.WriteString("          path: /stagefreight/cache\n")
+	fmt.Fprintf(buf, "          key: stagefreight-cache-${{ runner.os }}-%s-${{ hashFiles(%s) }}\n", j.Name, lockfileGlobs)
+	fmt.Fprintf(buf, "          restore-keys: |\n            stagefreight-cache-${{ runner.os }}-%s-\n", j.Name)
+
 	// the phase command(s). No Docker transport is injected — the runtime auto-detects
 	// the runner-provided engine. Package-registry creds (registry auth, not transport)
 	// are scoped to this step so they reach the phase command and nothing else.
@@ -385,6 +398,12 @@ func containsStr(ss []string, s string) bool {
 	}
 	return false
 }
+
+// lockfileGlobs are the dependency lockfiles whose content keys the cross-run build
+// cache (passed to hashFiles in the cache key). hashFiles ignores absent paths, so this
+// single list covers every language StageFreight detects (Go, Rust, Node, Python, Ruby,
+// PHP) without the renderer needing to run detection at render time.
+const lockfileGlobs = `'**/Cargo.lock', '**/go.sum', '**/go.mod', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Pipfile.lock', '**/Gemfile.lock', '**/composer.lock'`
 
 // exprInner unwraps a `${{ expr }}` Actions expression to its inner `expr`, so it can be
 // composed into a larger expression (e.g. a `secrets.X || <inner>` fallback). A value

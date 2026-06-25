@@ -46,6 +46,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: stagefreight ci checkout
+      - uses: actions/cache@v4
+        with:
+          path: /stagefreight/cache
+          key: stagefreight-cache-${{ runner.os }}-audition-${{ hashFiles('**/Cargo.lock', '**/go.sum', '**/go.mod', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Pipfile.lock', '**/Gemfile.lock', '**/composer.lock') }}
+          restore-keys: |
+            stagefreight-cache-${{ runner.os }}-audition-
       - name: audition
         run: |
           stagefreight ci run audition
@@ -92,6 +98,12 @@ jobs:
         with:
           name: audition
           path: .stagefreight
+      - uses: actions/cache@v4
+        with:
+          path: /stagefreight/cache
+          key: stagefreight-cache-${{ runner.os }}-perform-${{ hashFiles('**/Cargo.lock', '**/go.sum', '**/go.mod', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Pipfile.lock', '**/Gemfile.lock', '**/composer.lock') }}
+          restore-keys: |
+            stagefreight-cache-${{ runner.os }}-perform-
       - name: perform
         run: |
           stagefreight ci run perform
@@ -131,6 +143,12 @@ jobs:
         with:
           name: perform
           path: .stagefreight
+      - uses: actions/cache@v4
+        with:
+          path: /stagefreight/cache
+          key: stagefreight-cache-${{ runner.os }}-review-${{ hashFiles('**/Cargo.lock', '**/go.sum', '**/go.mod', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Pipfile.lock', '**/Gemfile.lock', '**/composer.lock') }}
+          restore-keys: |
+            stagefreight-cache-${{ runner.os }}-review-
       - name: review
         run: |
           stagefreight ci run review
@@ -177,6 +195,12 @@ jobs:
         with:
           name: review
           path: .stagefreight
+      - uses: actions/cache@v4
+        with:
+          path: /stagefreight/cache
+          key: stagefreight-cache-${{ runner.os }}-publish-${{ hashFiles('**/Cargo.lock', '**/go.sum', '**/go.mod', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Pipfile.lock', '**/Gemfile.lock', '**/composer.lock') }}
+          restore-keys: |
+            stagefreight-cache-${{ runner.os }}-publish-
       - name: publish
         env:
           GHCR_USER: ${{ secrets.GHCR_USER || github.actor }}
@@ -213,6 +237,12 @@ jobs:
         with:
           name: perform
           path: .stagefreight
+      - uses: actions/cache@v4
+        with:
+          path: /stagefreight/cache
+          key: stagefreight-cache-${{ runner.os }}-narrate-${{ hashFiles('**/Cargo.lock', '**/go.sum', '**/go.mod', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Pipfile.lock', '**/Gemfile.lock', '**/composer.lock') }}
+          restore-keys: |
+            stagefreight-cache-${{ runner.os }}-narrate-
       - name: narrate
         run: |
           stagefreight ci run narrate
