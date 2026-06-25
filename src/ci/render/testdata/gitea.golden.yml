@@ -207,7 +207,6 @@ jobs:
         env:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN || secrets.GITHUB_TOKEN }}
           GITEA_USER: ${{ secrets.GITEA_USER || github.actor }}
-          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           stagefreight ci run publish
 

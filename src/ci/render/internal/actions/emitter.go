@@ -269,8 +269,14 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 	forgeAPI := j.Capabilities.ForgeAPI && d.ForgeAPIAuth != nil
 	if pkg || forgeAPI {
 		buf.WriteString("        env:\n")
+		// Collect env vars in order, then dedup by key. A forge whose package-registry
+		// token and forge-API token share an env var (gitea/forgejo use GITEA_TOKEN for
+		// BOTH) must not emit the key twice — that's a duplicate YAML key. Forge-API
+		// first; the identical package _TOKEN that follows collapses out.
+		type envVar struct{ k, v string }
+		var vars []envVar
 		if forgeAPI {
-			fmt.Fprintf(buf, "          %s: %s\n", d.ForgeAPIAuth.EnvVar, d.ForgeAPIAuth.Value)
+			vars = append(vars, envVar{d.ForgeAPIAuth.EnvVar, d.ForgeAPIAuth.Value})
 		}
 		if pkg {
 			// An operator-configured secret OVERRIDES the turnkey auto-token: use
@@ -278,8 +284,18 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 			// (e.g. github.actor / GITHUB_TOKEN). This keeps zero-config working AND lets an
 			// operator drop in the same PAT they use on other forges when the auto-token is
 			// insufficient (e.g. a read-only fork GITHUB_TOKEN that 403s on package push).
-			fmt.Fprintf(buf, "          %s_USER: ${{ secrets.%s_USER || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.User))
-			fmt.Fprintf(buf, "          %s_TOKEN: ${{ secrets.%s_TOKEN || %s }}\n", pkgPrefix, pkgPrefix, exprInner(d.PackageAuth.Token))
+			vars = append(vars,
+				envVar{pkgPrefix + "_USER", fmt.Sprintf("${{ secrets.%s_USER || %s }}", pkgPrefix, exprInner(d.PackageAuth.User))},
+				envVar{pkgPrefix + "_TOKEN", fmt.Sprintf("${{ secrets.%s_TOKEN || %s }}", pkgPrefix, exprInner(d.PackageAuth.Token))},
+			)
+		}
+		seen := map[string]bool{}
+		for _, e := range vars {
+			if seen[e.k] {
+				continue
+			}
+			seen[e.k] = true
+			fmt.Fprintf(buf, "          %s: %s\n", e.k, e.v)
 		}
 	}
 	buf.WriteString("        run: |\n")

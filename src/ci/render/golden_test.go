@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/PrPlanIT/StageFreight/src/ci/render/model"
 )
 
@@ -125,7 +127,14 @@ func TestRenderDeterministic(t *testing.T) {
 // forge's right to diverge (GitHub reusable workflows, Forgejo OIDC/federation,
 // Gitea runner behavior). When a forge intentionally diverges, remove it from this
 // list — it then renders on its own terms and is no longer expected to match.
-var forgesSharingActionsBackendToday = []string{"gitea", "forgejo"}
+// forgesSharingActionsBackendToday lists Actions-family forges that still render
+// LINE-IDENTICAL to github (modulo identity + package-cred lines). gitea is NOT here:
+// its forge-API token and its package-registry token are BOTH GITEA_TOKEN, so publish's
+// env dedups one line — a legitimate per-forge OUTPUT difference (the backend is still
+// shared; gitea's Dialect values simply collide). forgejo stays: FORGEJO_TOKEN differs
+// from its GITEA package token, so nothing dedups. (The duplicate-key class this guards
+// against is now caught directly for every forge by TestGoldensValidYAML.)
+var forgesSharingActionsBackendToday = []string{"forgejo"}
 
 // TestActionsForgesShareBackendToday is a current-implementation guard, NOT an
 // architectural invariant. It asserts that the forges still sharing the actions
@@ -185,6 +194,29 @@ func TestActionsForgesShareBackendToday(t *testing.T) {
 func isPackageCredLine(s string) bool {
 	t := strings.TrimSpace(s)
 	return strings.Contains(t, "_USER: ") || strings.Contains(t, "_TOKEN: ")
+}
+
+// TestGoldensValidYAML guards the renderer's hardest output contract: every golden MUST
+// parse as YAML. It catches the duplicate-key class directly — e.g. a forge whose
+// forge-API token and package-registry token share an env var (gitea's GITEA_TOKEN)
+// emitting the key twice — at unit-test time, instead of letting it surface as a
+// downstream YAML-lint failure in CI (which is exactly how it was found).
+func TestGoldensValidYAML(t *testing.T) {
+	files, err := filepath.Glob("testdata/*.golden.yml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no golden files found: %v", err)
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Errorf("read %s: %v", f, err)
+			continue
+		}
+		var v map[string]any
+		if err := yaml.Unmarshal(data, &v); err != nil {
+			t.Errorf("%s is not valid YAML (duplicate key?): %v", f, err)
+		}
+	}
 }
 
 // TestActionsNoInjectedDind asserts the Actions family does NOT inject a dind
