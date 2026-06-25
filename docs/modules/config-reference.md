@@ -295,6 +295,7 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `branches` | `when.branches` | []string | No | — | Branch filters. Each entry is a policy name or inline regex. |
 | `git_tags` | `when.git_tags` | []string | No | — | Git tag filters. Each entry is a policy name or inline regex. |
 | `events` | `when.events` | []string | No | — | CI event type filters. |
+| `forges` | `when.forges` | []string | No | — | []string value |
 | `allow` | `run_from.allow` | []string | No | — | []string value |
 | `mismatch` | `run_from.mismatch` | string | No | — | string value |
 | `select_tags` | `select_tags` | []string | No | — | []string value |
