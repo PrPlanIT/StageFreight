@@ -108,8 +108,8 @@ func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]App
 		update := AppliedUpdate{
 			Dep:        dep,
 			OldVer:     dep.Current,
-			NewVer:     dep.Latest,
-			UpdateType: updateType(dep.Current, dep.Latest),
+			NewVer:     dep.UpdateTarget(),
+			UpdateType: updateType(dep.Current, dep.UpdateTarget()),
 		}
 		for _, v := range dep.Vulnerabilities {
 			update.CVEsFixed = append(update.CVEsFixed, v.ID)
@@ -161,9 +161,10 @@ func buildFromReplacement(dep freshness.Dependency, origLine string) (string, st
 		return origLine, "ARG-based dynamic base image"
 	}
 
-	// Replace the current version tag with the latest
-	// dep.Current is the current tag/version, dep.Latest is the target
-	newToken := strings.Replace(token, dep.Current, dep.Latest, 1)
+	// Replace the current version tag with the eligible bump target.
+	// dep.Current is the current tag/version; UpdateTarget() is the safe in-line
+	// target (LatestEligible, falling back to Latest when no compatibility model).
+	newToken := strings.Replace(token, dep.Current, dep.UpdateTarget(), 1)
 	if newToken == token {
 		return origLine, "current version not found in image token"
 	}
@@ -193,9 +194,10 @@ func buildEnvReplacement(dep freshness.Dependency, origLine string) (string, str
 			return origLine, "source value mismatch"
 		}
 		// Preserve original prefix when writing replacement
-		replacement := dep.Latest
-		if strings.HasPrefix(foundValue, "v") && !strings.HasPrefix(dep.Latest, "v") {
-			replacement = "v" + dep.Latest
+		target := dep.UpdateTarget()
+		replacement := target
+		if strings.HasPrefix(foundValue, "v") && !strings.HasPrefix(target, "v") {
+			replacement = "v" + target
 		}
 		return origLine[:m[4]] + replacement + origLine[m[5]:], ""
 	}
@@ -209,9 +211,10 @@ func buildEnvReplacement(dep freshness.Dependency, origLine string) (string, str
 	if normalizedFound != dep.Current {
 		return origLine, "source value mismatch"
 	}
-	replacement := dep.Latest
-	if strings.HasPrefix(m[2], "v") && !strings.HasPrefix(dep.Latest, "v") {
-		replacement = "v" + dep.Latest
+	target := dep.UpdateTarget()
+	replacement := target
+	if strings.HasPrefix(m[2], "v") && !strings.HasPrefix(target, "v") {
+		replacement = "v" + target
 	}
 	return m[1] + replacement + m[3], ""
 }

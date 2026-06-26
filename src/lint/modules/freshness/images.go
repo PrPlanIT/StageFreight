@@ -102,19 +102,49 @@ func (m *freshnessModule) resolveImage(ctx context.Context, filePath string, sta
 		return dep
 	}
 
-	family := filterTagsByFamily(tags, current.Family)
-	latest := latestInFamily(family)
-	if latest == nil {
+	// Resolve two targets per the dependency model (see dependency.go):
+	//   Latest         = the TRUE newest published tag in the same family —
+	//                    awareness only (drives MajorAvailable / "8.5 exists").
+	//   LatestEligible = the newest tag on the SAME version line AND the EXACT
+	//                    same variant suffix — the safe autonomous bump target.
+	// This keeps "a newer major/minor exists" visible while never auto-bumping
+	// across the pinned line or changing variant (e.g. "8.3-fpm-alpine" must not
+	// become "8.5.7-fpm-alpine3.23").
+	latestRaw, eligibleRaw := selectImageVersions(current, tags)
+	if latestRaw == "" {
 		return dep
 	}
-
-	dep.Latest = latest.Raw
+	dep.Latest = latestRaw
+	// Images always carry a compatibility model, so LatestEligible is always set.
+	// When no newer in-line tag exists it pins to the current tag, so
+	// UpdateTarget() == current (no bump) while Latest still flags awareness.
+	if eligibleRaw == "" {
+		eligibleRaw = dep.Current
+	}
+	dep.LatestEligible = eligibleRaw
 
 	// Check for stable upgrade advisory on pre-release tags.
 	if current.PreRank > 0 {
 		dep.Advisory = suggestStableUpgrade(current, tags)
 	}
 	return dep
+}
+
+// selectImageVersions computes the two version targets for an image tag:
+//   - latest:   the newest tag in the same normalized family (true newest;
+//     awareness for MajorAvailable).
+//   - eligible: the newest tag on the same version line AND exact variant suffix
+//     (the safe autonomous bump target).
+//
+// Either may be "" when no matching tag is found; callers guard independently.
+func selectImageVersions(current decomposedTag, tags []string) (latest, eligible string) {
+	if lt := latestInFamily(filterTagsByFamily(tags, current.Family)); lt != nil {
+		latest = lt.Raw
+	}
+	if el := latestInFamily(filterTagsByVersionLine(tags, current)); el != nil {
+		eligible = el.Raw
+	}
+	return latest, eligible
 }
 
 // suggestStableUpgrade checks if a non-versioned or pre-release tag has a

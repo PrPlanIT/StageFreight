@@ -57,12 +57,13 @@ func (d VersionDelta) IsZero() bool {
 // key used only for tag grouping — it strips per-release metadata like commit
 // hashes, rebuild numbers, and pre-release counters.
 type decomposedTag struct {
-	Version *masterminds.Version
-	Suffix  string // raw suffix after first hyphen (unchanged for downstream consumers)
-	Family  string // normalized family key for grouping
-	PreRank int    // pre-release rank: 0=stable, 1=rc, 2=beta, 3=alpha, 4=dev
-	PreNum  int    // pre-release number: beta17 → 17
-	Raw     string
+	Version   *masterminds.Version
+	Suffix    string // raw suffix after first hyphen (unchanged for downstream consumers)
+	Family    string // normalized family key for grouping
+	PreRank   int    // pre-release rank: 0=stable, 1=rc, 2=beta, 3=alpha, 4=dev
+	PreNum    int    // pre-release number: beta17 → 17
+	Precision int    // numeric components in the ORIGINAL version token: "8"→1, "8.3"→2, "8.3.1"→3
+	Raw       string
 }
 
 // decomposeTag splits a tag string into its semver version, suffix, and
@@ -106,6 +107,10 @@ func decomposeTag(tag string) decomposedTag {
 		versionPart = clean[:idx]
 		dt.Suffix = clean[idx+1:]
 	}
+
+	// Capture how many numeric components the tag pins (semver normalization
+	// below would lose this — "8.3" and "8.3.0" both become 8.3.0).
+	dt.Precision = countVersionPrecision(versionPart)
 
 	// Attempt semver parse.
 	v, err := masterminds.NewVersion(versionPart)
@@ -513,6 +518,70 @@ func parseVersion(s string) *masterminds.Version {
 		return nil
 	}
 	return v
+}
+
+// countVersionPrecision returns the number of leading dot-separated numeric
+// components in a version token: "8"→1, "8.3"→2, "8.3.1"→3, "1.40.2.8395"→4.
+// Stops at the first non-numeric segment, so "noble"→0.
+func countVersionPrecision(versionPart string) int {
+	n := 0
+	for _, seg := range strings.Split(versionPart, ".") {
+		if !isAllDigits(seg) {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// isVersionLike reports whether value looks like a semver/numeric version,
+// optionally with a leading "v" (e.g. "1.2.3", "8.3", "v0.31.1"). Branch names
+// and arbitrary refs ("develop", "master", "main") are NOT version-like and must
+// not be treated as updatable dependencies.
+func isVersionLike(value string) bool {
+	v := strings.TrimSpace(value)
+	v = strings.TrimPrefix(v, "v")
+	if v == "" || v[0] < '0' || v[0] > '9' {
+		return false
+	}
+	_, err := masterminds.NewVersion(v)
+	return err == nil
+}
+
+// filterTagsByVersionLine returns tags that pin the SAME version line and the
+// EXACT same variant suffix as current. The version line is defined by current's
+// precision: precision 1 ("8") constrains to the same major; precision ≥2
+// ("8.3", "8.3.1") constrains to the same major AND minor. This respects the
+// line the current tag pins and preserves its variant — so "8.3-fpm-alpine"
+// never jumps to "8.4"/"8.5" and never changes to "fpm-alpine3.23". Tilde-style
+// (version-line) semantics, distinct from the caret range used for Go/Cargo.
+func filterTagsByVersionLine(tags []string, current decomposedTag) []decomposedTag {
+	var out []decomposedTag
+	if current.Version == nil {
+		return out
+	}
+	depth := current.Precision
+	if depth > 2 {
+		depth = 2
+	}
+	for _, t := range tags {
+		dt := decomposeTag(t)
+		if dt.Version == nil || isDateLikeVersion(dt.Version) {
+			continue
+		}
+		// Exact same variant suffix (keep "fpm-alpine", reject "fpm-alpine3.23").
+		if dt.Suffix != current.Suffix {
+			continue
+		}
+		if depth >= 1 && dt.Version.Major() != current.Version.Major() {
+			continue
+		}
+		if depth >= 2 && dt.Version.Minor() != current.Version.Minor() {
+			continue
+		}
+		out = append(out, dt)
+	}
+	return out
 }
 
 // filterTagsByFamily returns tags from the list that share the same normalized

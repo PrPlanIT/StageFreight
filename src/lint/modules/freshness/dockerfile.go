@@ -310,6 +310,12 @@ func crossRefTools(info *DockerFreshnessInfo) []pinnedTool {
 		if !strings.HasSuffix(strings.ToUpper(name), "_VERSION") {
 			continue
 		}
+		// Skip *_VERSION entries whose value is a branch/ref rather than a
+		// version (e.g. "develop", "master", an arbitrary branch). These are
+		// not updatable dependencies and must never be rewritten to a release tag.
+		if !isVersionLike(ev.Value) {
+			continue
+		}
 		// For now, record the tool. The GitHub owner/repo resolution
 		// happens in tools.go where we have the full file content.
 		tools = append(tools, pinnedTool{
