@@ -243,10 +243,13 @@ func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.Updat
 		Skipped: skipped,
 	}
 	for _, c := range candidates {
+		// Report the eligible IN-LINE target (UpdateTarget), NOT the family-wide
+		// newest (c.Latest). c.Latest is awareness only; auto-update advances to
+		// the constrained target the apply layer will actually write.
 		result.Applied = append(result.Applied, dependency.AppliedUpdate{
 			Dep:        c,
 			OldVer:     c.Current,
-			NewVer:     c.Latest,
+			NewVer:     c.UpdateTarget(),
 			UpdateType: dryRunUpdateType(c),
 		})
 	}
@@ -290,10 +293,13 @@ func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.Updat
 }
 
 func dryRunUpdateType(dep freshness.Dependency) string {
-	if dep.Latest == "" || dep.Current == dep.Latest {
+	// Classify against the eligible IN-LINE target the update will apply, not the
+	// family-wide newest (which may be an out-of-line major held for review).
+	target := dep.UpdateTarget()
+	if target == "" || dep.Current == target {
 		return "tag"
 	}
-	delta := freshness.CompareDependencyVersions(dep.Current, dep.Latest, dep.Ecosystem)
+	delta := freshness.CompareDependencyVersions(dep.Current, target, dep.Ecosystem)
 	if delta.IsZero() {
 		return "tag"
 	}

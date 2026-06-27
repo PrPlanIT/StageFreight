@@ -103,6 +103,49 @@ func TestSelectImageVersions(t *testing.T) {
 	}
 }
 
+// Mirrors the REAL Docker Hub php tag shape (verified e2e): the 8.3 line carries
+// a concrete bare-variant patch "8.3.31-fpm-alpine" AND patches that move the
+// alpine version into the suffix ("8.3.25-fpm-alpine3.21"). Eligibility must land
+// on the highest SAME-line SAME-variant tag (8.3.31-fpm-alpine, a patch) and must
+// NOT cross to the numerically-higher 8.5.7-fpm-alpine3.23 (different minor AND
+// variant). Latest still reports the family-wide newest for awareness.
+func TestSelectImageVersions_RealisticPhpTags(t *testing.T) {
+	tags := []string{
+		"8.3-fpm-alpine",        // moving tag (current)
+		"8.3.31-fpm-alpine",     // concrete bare-variant patch on the 8.3 line
+		"8.3.25-fpm-alpine3.21", // patch in a DIFFERENT variant
+		"8.3.25-fpm-alpine3.20",
+		"8.3-fpm-alpine3.21",
+		"8.4-fpm-alpine",
+		"8.4.14-fpm-alpine3.21",
+		"8.5-fpm-alpine",
+		"8.5.7-fpm-alpine3.23", // family-wide newest, out of line + out of variant
+		"8.5.7-fpm-alpine3.22",
+		"8",
+		"8.3",
+		"8.3-fpm",
+		"latest",
+	}
+	current := decomposeTag("8.3-fpm-alpine")
+	latest, eligible := selectImageVersions(current, tags)
+
+	if latest != "8.5.7-fpm-alpine3.23" {
+		t.Errorf("Latest = %q, want 8.5.7-fpm-alpine3.23 (family-wide awareness)", latest)
+	}
+	if eligible != "8.3.31-fpm-alpine" {
+		t.Errorf("LatestEligible = %q, want 8.3.31-fpm-alpine (highest in-line fpm-alpine patch, not 8.5.7)", eligible)
+	}
+
+	// Model behavior: in-line PATCH bump to 8.3.31, with the out-of-line major flagged.
+	dep := Dependency{Current: "8.3-fpm-alpine", Latest: latest, LatestEligible: eligible}
+	if dep.UpdateTarget() != "8.3.31-fpm-alpine" {
+		t.Errorf("UpdateTarget = %q, want 8.3.31-fpm-alpine", dep.UpdateTarget())
+	}
+	if !dep.MajorAvailable() {
+		t.Error("MajorAvailable = false, want true (8.5.7 exists out of line)")
+	}
+}
+
 // precision must reflect the numeric components of the ORIGINAL tag token.
 func TestCountVersionPrecision(t *testing.T) {
 	cases := map[string]int{
