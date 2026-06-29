@@ -29,7 +29,15 @@ func (g *GitBackend) Execute(_ context.Context, plan *Plan, conventional bool) (
 }
 
 // executeViaEngine creates a commit using pure go-git — no git binary required.
-func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (*Result, error) {
+//
+// Named returns are used so the deferred worktree-preservation guard can surface
+// a restore failure as the function's error when nothing else has already failed.
+func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Result, err error) {
+	// Surface any recovery artifact left behind by a prior interrupted run before
+	// doing anything else — discoverability of stranded worktree state is an
+	// invariant even when this run cannot auto-restore it.
+	surfaceOrphanedSnapshots(g.RootDir, g.OnCommitLine)
+
 	repo, err := gitstate.OpenRepo(g.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("opening repo: %w", err)
@@ -68,7 +76,7 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (*Result, e
 		return &Result{NoOp: true}, nil
 	}
 
-	result := &Result{Backend: "go-git", NoOp: nothingToCommit}
+	result = &Result{Backend: "go-git", NoOp: nothingToCommit}
 
 	if !nothingToCommit {
 		// 4. Resolve author identity: local config → global config → built-in defaults
@@ -79,6 +87,22 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (*Result, e
 		if plan.SignOff {
 			msg += "\n\nSigned-off-by: " + sig.Name + " <" + sig.Email + ">"
 		}
+
+		// Transactional worktree preservation. Snapshot the operator's unstaged
+		// tracked changes that are NOT part of this commit BEFORE any hook can
+		// stash/wipe them, and restore on every exit path: the defer below covers
+		// normal and hook-failure exits, and the guard arms a SIGINT/SIGTERM
+		// handler for graceful interrupts. This brings the commit path to the same
+		// preservation bar the Replay path already meets.
+		guard, gerr := captureWorktreeGuard(repo, wt, g.RootDir, g.OnCommitLine)
+		if gerr != nil {
+			return nil, fmt.Errorf("worktree preservation guard: %w", gerr)
+		}
+		defer func() {
+			if cerr := guard.Close(); cerr != nil && err == nil {
+				err = cerr
+			}
+		}()
 
 		// 6. pre-commit hook — abort on non-zero exit
 		if err := RunPreCommitHook(g.RootDir, wt, g.OnCommitLine); err != nil {
