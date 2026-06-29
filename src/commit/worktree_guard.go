@@ -466,7 +466,7 @@ func surfaceOrphanedSnapshots(repoRoot string, log func(stream, line string)) {
 		}
 		paths := make([]string, 0, len(art.Files))
 		for _, f := range art.Files {
-			paths = append(paths, f.path)
+			paths = append(paths, f.Path)
 		}
 		logf(guardLogStream, fmt.Sprintf(
 			"orphaned worktree recovery snapshot from a prior interrupted run: %s (created %s). "+
