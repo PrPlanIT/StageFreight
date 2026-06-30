@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -76,9 +77,13 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, w io.Writer)
 		if gomod, gocache := toolchain.GoCacheDirs(); gomod != "" {
 			env = append(env, "GOMODCACHE="+gomod, "GOCACHE="+gocache)
 		}
+		// Go tests shell out — to git for repo fixtures / system-git transport, to cc
+		// for cgo/-race — and those binaries (incl. the substrate-realized git/cc) live
+		// on the ambient PATH. Give the suite a real PATH (a hermetic build needs none;
+		// a test suite does), replacing CleanEnv's empty one.
+		env = setEnv(env, "PATH", os.Getenv("PATH"))
 		if hasFlag(argv, "-race") {
-			// cgo: enable, and make the substrate-realized `cc` discoverable on PATH.
-			env = append(env, "CGO_ENABLED=1", "PATH="+os.Getenv("PATH"))
+			env = setEnv(env, "CGO_ENABLED", "1")
 		}
 
 	case config.TestToolRust:
@@ -93,7 +98,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, w io.Writer)
 		}
 		// cargo invokes rustc (and the substrate-realized cc); put the toolchain bin
 		// dir + ambient PATH in front (mirrors the Rust build engine).
-		env = append(env, "PATH="+filepath.Dir(res.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		env = setEnv(env, "PATH", filepath.Dir(res.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 
 	start := time.Now()
@@ -145,6 +150,11 @@ func substrateNeeds(suites []ResolvedSuite) []substrate.Need {
 	for _, s := range suites {
 		switch s.Tool {
 		case config.TestToolGo:
+			// Go tests shell out to git for repo fixtures, mirror clones, and the
+			// system-git transport path — and the SF image is git-less by design, so
+			// realize git at TEST TIME via substrate (apk-backed, cached; never baked
+			// into the shipped image). cc is realized only for cgo/-race.
+			add(substrate.Need{Capability: "git", Reason: "go-tests-exec-git", Source: "go test"})
 			if hasFlag(s.Argv, "-race") {
 				add(substrate.Need{Capability: "c-toolchain", Reason: "go-test-race-cgo", Source: "go test -race"})
 			}
@@ -155,6 +165,19 @@ func substrateNeeds(suites []ResolvedSuite) []substrate.Need {
 		}
 	}
 	return needs
+}
+
+// setEnv replaces (or appends) key=val in env, so the child never sees a duplicate
+// key (whose resolution is unspecified). Used to override CleanEnv's empty PATH.
+func setEnv(env []string, key, val string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + val
+			return env
+		}
+	}
+	return append(env, prefix+val)
 }
 
 func reportWriter(w io.Writer) io.Writer {
