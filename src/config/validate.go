@@ -520,7 +520,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	}
 
 	// ── Test suites ──────────────────────────────────────────────────────
-	// Own schema (NOT lint's ModuleConfig). type ∈ {go,rust,script}; script
+	// Own schema (NOT lint's ModuleConfig). tool ∈ {go,rust,script}; script
 	// requires command and go|rust forbid it; gate ∈ {"",perform,advisory}
 	// (publish reserved for v2); ids unique.
 	testIDs := make(map[string]bool, len(cfg.Test.Suites))
@@ -533,19 +533,19 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 		testIDs[s.ID] = true
 
-		switch s.Type {
-		case TestTypeGo, TestTypeRust:
+		switch s.Tool {
+		case TestToolGo, TestToolRust:
 			if s.Command != "" {
-				errs = append(errs, fmt.Sprintf("%s: type %q does not take a command (use args for extra flags, or type: script)", tpath, s.Type))
+				errs = append(errs, fmt.Sprintf("%s: tool %q does not take a command (use args for extra flags, or tool: script)", tpath, s.Tool))
 			}
-		case TestTypeScript:
+		case TestToolScript:
 			if strings.TrimSpace(s.Command) == "" {
-				errs = append(errs, fmt.Sprintf("%s: type script requires a command", tpath))
+				errs = append(errs, fmt.Sprintf("%s: tool script requires a command", tpath))
 			}
 		case "":
-			errs = append(errs, fmt.Sprintf("%s: type is required (go, rust, or script)", tpath))
+			errs = append(errs, fmt.Sprintf("%s: tool is required (go, rust, or script)", tpath))
 		default:
-			errs = append(errs, fmt.Sprintf("%s: unknown type %q (supported: go, rust, script)", tpath, s.Type))
+			errs = append(errs, fmt.Sprintf("%s: unknown tool %q (supported: go, rust, script)", tpath, s.Tool))
 		}
 
 		switch s.Gate {

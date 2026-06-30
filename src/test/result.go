@@ -21,7 +21,7 @@ const (
 // future narrate/reporting. Coverage/Artifacts are reserved (not populated in v1).
 type SuiteResult struct {
 	ID       string
-	Type     config.TestType
+	Tool     config.TestTool
 	Gate     config.Gate
 	Status   string
 	Duration time.Duration

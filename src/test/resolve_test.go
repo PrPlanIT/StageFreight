@@ -12,7 +12,7 @@ import (
 func TestGoArgv_FullFlagProjection(t *testing.T) {
 	tr := true
 	s := config.TestSuite{
-		Type:     config.TestTypeGo,
+		Tool:     config.TestToolGo,
 		Tags:     []string{"integration"},
 		Run:      "TestFoo",
 		Timeout:  "10m",
@@ -28,7 +28,7 @@ func TestGoArgv_FullFlagProjection(t *testing.T) {
 }
 
 func TestGoArgv_DefaultsToDotDotDot(t *testing.T) {
-	got := goArgv(config.TestSuite{Type: config.TestTypeGo})
+	got := goArgv(config.TestSuite{Tool: config.TestToolGo})
 	want := []string{"go", "test", "./..."}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("goArgv = %v, want %v", got, want)
@@ -37,7 +37,7 @@ func TestGoArgv_DefaultsToDotDotDot(t *testing.T) {
 
 func TestRustArgv_WorkspaceFeaturesTestsRelease(t *testing.T) {
 	tr := true
-	s := config.TestSuite{Type: config.TestTypeRust, Features: []string{"integration"}, Tests: []string{"api"}, Release: &tr}
+	s := config.TestSuite{Tool: config.TestToolRust, Features: []string{"integration"}, Tests: []string{"api"}, Release: &tr}
 	got := rustArgv(s, true) // --workspace inferred from manifest
 	want := []string{"cargo", "test", "--workspace", "--release", "--features", "integration", "--test", "api"}
 	if !reflect.DeepEqual(got, want) {
@@ -47,7 +47,7 @@ func TestRustArgv_WorkspaceFeaturesTestsRelease(t *testing.T) {
 
 func TestRustArgv_Nextest(t *testing.T) {
 	tr := true
-	got := rustArgv(config.TestSuite{Type: config.TestTypeRust, Nextest: &tr}, false)
+	got := rustArgv(config.TestSuite{Tool: config.TestToolRust, Nextest: &tr}, false)
 	want := []string{"cargo", "nextest", "run"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rustArgv = %v, want %v", got, want)
@@ -81,7 +81,7 @@ func TestVerdict_AdvisoryDoesNotGate(t *testing.T) {
 
 func TestResolve_ScriptSuite(t *testing.T) {
 	cfg := &config.Config{Test: config.TestConfig{Enabled: true, Suites: []config.TestSuite{
-		{ID: "e2e", Type: config.TestTypeScript, Command: "echo hi"},
+		{ID: "e2e", Tool: config.TestToolScript, Command: "echo hi"},
 	}}}
 	suites, err := Resolve(cfg, t.TempDir())
 	if err != nil {
@@ -132,8 +132,8 @@ func TestResolve_SynthesizeGoDefaultFromBuild(t *testing.T) {
 
 func TestResolve_DuplicateIDRejected(t *testing.T) {
 	cfg := &config.Config{Test: config.TestConfig{Enabled: true, Suites: []config.TestSuite{
-		{ID: "x", Type: config.TestTypeScript, Command: "true"},
-		{ID: "x", Type: config.TestTypeScript, Command: "true"},
+		{ID: "x", Tool: config.TestToolScript, Command: "true"},
+		{ID: "x", Tool: config.TestToolScript, Command: "true"},
 	}}}
 	if _, err := Resolve(cfg, t.TempDir()); err == nil {
 		t.Error("duplicate suite id must be rejected")

@@ -211,20 +211,18 @@ commit:
   conventional: true
   backend: git
 
-# Tests run in audition (sibling to lint). v1 gate tiers: perform (default — fail
-# audition → withhold cistate artifact → halt perform+downstream) and advisory.
-# Initial dogfood is scoped tight to the new subsystem; widen (drop packages /
-# add ./src/commit/... etc.) once green. -race's C compiler is realized by the
-# existing substrate layer (c-toolchain capability, apk-backed + cached), same as
-# Rust linking — no image bloat, no new system.
+# Tests run in audition (sibling to lint). v1 gate tiers: perform (fail audition →
+# withhold cistate artifact → halt perform+downstream) and advisory (non-gating).
+# WIDE pass: run the WHOLE repo as advisory to surface the real failures in the
+# never-run suite without blocking the pipeline. Triage to green, then flip to
+# gate: perform (and add race: true) for real gating coverage.
 test:
   enabled: true
   suites:
     - id: unit
-      type: go
-      packages: [./src/test/...]
-      race: true
-      gate: perform
+      tool: go
+      packages: [./...]
+      gate: advisory
 
 dependency:
   enabled: true

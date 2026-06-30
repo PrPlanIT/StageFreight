@@ -12,7 +12,7 @@ import (
 // ResolvedSuite is a suite ready to execute: a concrete argv + working directory.
 type ResolvedSuite struct {
 	ID          string
-	Type        config.TestType
+	Tool        config.TestTool
 	Gate        config.Gate
 	Argv        []string
 	Dir         string
@@ -54,8 +54,9 @@ func Resolve(cfg *config.Config, rootDir string) ([]ResolvedSuite, error) {
 }
 
 // synthesize derives one default suite per go/rust binary build. The default is
-// the plain base command (`go test ./...` / `cargo test [--workspace]`) — no
-// `-race` (it needs CGO/gcc, so it stays opt-in per suite for fleet portability).
+// the plain base command (`go test ./...` / `cargo test [--workspace]`), no
+// `-race` (opt-in per suite — it has a runtime cost, and the C toolchain it needs
+// is realized by substrate when a suite requests it).
 func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 	var out []ResolvedSuite
 	seen := map[string]bool{}
@@ -81,7 +82,7 @@ func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 		seen[key] = true
 		out = append(out, ResolvedSuite{
 			ID:          fmt.Sprintf("%s-default-%s", builder, b.ID),
-			Type:        config.TestType(builder),
+			Tool:        config.TestTool(builder),
 			Gate:        config.GatePerform,
 			Argv:        append([]string{}, base...),
 			Dir:         dir,
@@ -93,18 +94,18 @@ func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 }
 
 func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
-	rs := ResolvedSuite{ID: s.ID, Type: s.Type, Gate: s.EffectiveGate(), Dir: rootDir}
-	switch s.Type {
-	case config.TestTypeScript:
+	rs := ResolvedSuite{ID: s.ID, Tool: s.Tool, Gate: s.EffectiveGate(), Dir: rootDir}
+	switch s.Tool {
+	case config.TestToolScript:
 		if strings.TrimSpace(s.Command) == "" {
-			return rs, fmt.Errorf("test suite %q: type %q requires a command", s.ID, s.Type)
+			return rs, fmt.Errorf("test suite %q: tool %q requires a command", s.ID, s.Tool)
 		}
 		if s.From != "" {
 			rs.Dir = filepath.Join(rootDir, s.From)
 		}
 		rs.Argv = []string{"sh", "-c", s.Command}
 		return rs, nil
-	case config.TestTypeGo:
+	case config.TestToolGo:
 		_, dir, err := build.DefaultTestCommand("go", s.From, rootDir)
 		if err != nil {
 			return rs, fmt.Errorf("test suite %q: %w", s.ID, err)
@@ -112,7 +113,7 @@ func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
 		rs.Dir = dir
 		rs.Argv = goArgv(s)
 		return rs, nil
-	case config.TestTypeRust:
+	case config.TestToolRust:
 		base, dir, err := build.DefaultTestCommand("rust", s.From, rootDir)
 		if err != nil {
 			return rs, fmt.Errorf("test suite %q: %w", s.ID, err)
@@ -121,7 +122,7 @@ func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
 		rs.Argv = rustArgv(s, hasFlag(base, "--workspace"))
 		return rs, nil
 	default:
-		return rs, fmt.Errorf("test suite %q: unknown type %q (supported: go, rust, script)", s.ID, s.Type)
+		return rs, fmt.Errorf("test suite %q: unknown tool %q (supported: go, rust, script)", s.ID, s.Tool)
 	}
 }
 

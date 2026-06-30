@@ -47,7 +47,7 @@ func Run(ctx context.Context, req Request) *TestResult {
 }
 
 func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, w io.Writer) SuiteResult {
-	sr := SuiteResult{ID: s.ID, Type: s.Type, Gate: s.Gate}
+	sr := SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate}
 	if len(s.Argv) == 0 {
 		sr.Status = StatusSkipped
 		return sr
@@ -60,13 +60,13 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, w io.Writer)
 	argv := append([]string{}, s.Argv...)
 	var env []string // nil ⇒ inherit parent env
 
-	switch s.Type {
-	case config.TestTypeScript:
+	switch s.Tool {
+	case config.TestToolScript:
 		// Escape hatch: run with the full ambient environment (intentionally fewer
 		// guarantees) so make/pytest/npm/etc. resolve normally.
 		env = nil
 
-	case config.TestTypeGo:
+	case config.TestToolGo:
 		goRes, err := toolchain.Resolve(rootDir, "go", toolchain.ResolveGoVersion(s.Dir, rootDir))
 		if err != nil {
 			return failSuite(sr, fmt.Errorf("resolving go toolchain: %w", err))
@@ -81,7 +81,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, w io.Writer)
 			env = append(env, "CGO_ENABLED=1", "PATH="+os.Getenv("PATH"))
 		}
 
-	case config.TestTypeRust:
+	case config.TestToolRust:
 		res, err := toolchain.Resolve(rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir))
 		if err != nil {
 			return failSuite(sr, fmt.Errorf("resolving rust toolchain: %w", err))
@@ -143,12 +143,12 @@ func substrateNeeds(suites []ResolvedSuite) []substrate.Need {
 		}
 	}
 	for _, s := range suites {
-		switch s.Type {
-		case config.TestTypeGo:
+		switch s.Tool {
+		case config.TestToolGo:
 			if hasFlag(s.Argv, "-race") {
 				add(substrate.Need{Capability: "c-toolchain", Reason: "go-test-race-cgo", Source: "go test -race"})
 			}
-		case config.TestTypeRust:
+		case config.TestToolRust:
 			for _, n := range substrate.InferRustNeeds(s.Dir) {
 				add(n)
 			}

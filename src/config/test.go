@@ -21,16 +21,17 @@ const (
 	GatePublish Gate = "publish"
 )
 
-// TestType is the suite dialect — what the suite IS, not what executes it.
-// `go`/`rust` are first-class typed (native-flag projection + builder-derived
-// defaults); `script` is the intentionally-less-structured raw escape hatch.
-// Future: `pytest`, `container`, `compose`.
-type TestType string
+// TestTool is the test toolchain/dialect a suite uses — how its command is
+// constructed, NOT where it runs (it is not a CI "runner"). `go`/`rust` are
+// first-class typed (native-flag projection + builder-derived defaults); `script`
+// is the intentionally-less-structured raw escape hatch. Future: `pytest`,
+// `container`, `compose`.
+type TestTool string
 
 const (
-	TestTypeGo     TestType = "go"
-	TestTypeRust   TestType = "rust"
-	TestTypeScript TestType = "script"
+	TestToolGo     TestTool = "go"
+	TestToolRust   TestTool = "rust"
+	TestToolScript TestTool = "script"
 )
 
 // TestSuite is one behavioral-verification suite. Typed fields are declarative
@@ -42,7 +43,7 @@ const (
 // replaces the runner entirely.
 type TestSuite struct {
 	ID      string   `yaml:"id"`
-	Type    TestType `yaml:"type"`
+	Tool    TestTool `yaml:"tool"`
 	Gate    Gate     `yaml:"gate,omitempty"` // default: perform
 	From    string   `yaml:"from,omitempty"` // module/crate dir when not at repo root (e.g. dd-ui's api/)
 	Args    []string `yaml:"args,omitempty"` // raw passthrough escape hatch
