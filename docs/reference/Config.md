@@ -639,7 +639,7 @@ commit:
 | `enabled` | `enabled` | bool | Yes | — | bool value |
 | `auto` | `auto` | bool | No | — | bool value |
 | `id` | `suites.id` | string | Yes | — | string value |
-| `type` | `suites.type` | string | Yes | — | string value |
+| `tool` | `suites.tool` | string | Yes | — | string value |
 | `gate` | `suites.gate` | string | No | — | string value |
 | `from` | `suites.from` | string | No | — | string value |
 | `args` | `suites.args` | []string | No | — | []string value |
