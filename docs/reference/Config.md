@@ -38,6 +38,7 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`commit`](#config-commit)
 - [`dependency`](#config-dependency)
 - [`docs`](#config-docs)
+- [`test`](#config-test)
 - [`manifest`](#config-manifest)
 - [`release`](#config-release)
 - [`ci`](#config-ci)
@@ -626,6 +627,34 @@ commit:
 | `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
 | `allow` | `commit.run_from.allow` | []string | No | — | []string value |
 | `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
+
+---
+
+<a id="config-test" name="config-test"></a>
+### test
+
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `preset` | `preset` | string | No | — | string value |
+| `enabled` | `enabled` | bool | Yes | — | bool value |
+| `auto` | `auto` | bool | No | — | bool value |
+| `id` | `suites.id` | string | Yes | — | string value |
+| `type` | `suites.type` | string | Yes | — | string value |
+| `gate` | `suites.gate` | string | No | — | string value |
+| `from` | `suites.from` | string | No | — | string value |
+| `args` | `suites.args` | []string | No | — | []string value |
+| `command` | `suites.command` | string | No | — | string value |
+| `packages` | `suites.packages` | []string | No | — | []string value |
+| `tags` | `suites.tags` | []string | No | — | []string value |
+| `run` | `suites.run` | string | No | — | string value |
+| `timeout` | `suites.timeout` | string | No | — | string value |
+| `race` | `suites.race` | bool | No | — | bool value |
+| `coverage` | `suites.coverage` | bool | No | — | bool value |
+| `workspace` | `suites.workspace` | bool | No | — | bool value |
+| `features` | `suites.features` | []string | No | — | []string value |
+| `tests` | `suites.tests` | []string | No | — | []string value |
+| `release` | `suites.release` | bool | No | — | bool value |
+| `nextest` | `suites.nextest` | bool | No | — | bool value |
 
 ---
 
