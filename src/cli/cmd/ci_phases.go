@@ -114,21 +114,24 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 		}
 	}
 
-	// Tests run as a sibling to lint, before mode dispatch so they cover image AND
-	// gitops repos. A failed non-advisory suite fails audition here → the cistate
-	// artifact is withheld → perform + downstream halt (same gate lint criticals
-	// use). No-op when no suites resolve (no testable builds).
-	if err := auditionTests(ctx, appCfg, resolveWorkspace(ciCtx)); err != nil {
-		return err
-	}
-
 	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
+	var modeErr error
 	switch mode {
 	case "gitops", "governance":
-		return validateRunner(ctx, appCfg, ciCtx, opts)
+		modeErr = validateRunner(ctx, appCfg, ciCtx, opts)
 	default: // "image" or "" — image is the default
-		return depsRunner(ctx, appCfg, ciCtx, opts)
+		modeErr = depsRunner(ctx, appCfg, ciCtx, opts)
 	}
+	if modeErr != nil {
+		return modeErr
+	}
+
+	// Tests run LAST in audition — after substrate preflight, config validation, and
+	// lint. The cheap static gates fail fast before the expensive behavioral suite;
+	// it would be backwards to spend minutes on tests only for lint to then fail.
+	// Covers image AND gitops modes. A failed non-advisory suite fails audition →
+	// the cistate artifact is withheld → perform + downstream halt.
+	return auditionTests(ctx, appCfg, resolveWorkspace(ciCtx))
 }
 
 // checkCIFreshness verifies the committed CI file matches what the current
