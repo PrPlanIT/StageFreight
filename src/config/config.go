@@ -77,6 +77,7 @@ type Config struct {
 
 	// Docs holds configuration for the docs generation subsystem.
 	Docs DocsConfig `yaml:"docs"`
+	Test TestConfig `yaml:"test"`
 
 	// Manifest holds configuration for the manifest subsystem.
 	Manifest ManifestConfig `yaml:"manifest"`
@@ -179,6 +180,7 @@ func defaults() *Config {
 		Commit:     DefaultCommitConfig(),
 		Dependency: DefaultDependencyConfig(),
 		Docs:       DefaultDocsConfig(),
+		Test:       DefaultTestConfig(),
 		Manifest:     DefaultManifestConfig(),
 		Release:      DefaultReleaseConfig(),
 		GitOps:       DefaultGitOpsConfig(),

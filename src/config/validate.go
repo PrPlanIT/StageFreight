@@ -519,6 +519,44 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
+	// ── Test suites ──────────────────────────────────────────────────────
+	// Own schema (NOT lint's ModuleConfig). type ∈ {go,rust,script}; script
+	// requires command and go|rust forbid it; gate ∈ {"",perform,advisory}
+	// (publish reserved for v2); ids unique.
+	testIDs := make(map[string]bool, len(cfg.Test.Suites))
+	for i, s := range cfg.Test.Suites {
+		tpath := fmt.Sprintf("test.suites[%d]", i)
+		if s.ID == "" {
+			errs = append(errs, fmt.Sprintf("%s: id is required", tpath))
+		} else if testIDs[s.ID] {
+			errs = append(errs, fmt.Sprintf("%s: duplicate id %q", tpath, s.ID))
+		}
+		testIDs[s.ID] = true
+
+		switch s.Type {
+		case TestTypeGo, TestTypeRust:
+			if s.Command != "" {
+				errs = append(errs, fmt.Sprintf("%s: type %q does not take a command (use args for extra flags, or type: script)", tpath, s.Type))
+			}
+		case TestTypeScript:
+			if strings.TrimSpace(s.Command) == "" {
+				errs = append(errs, fmt.Sprintf("%s: type script requires a command", tpath))
+			}
+		case "":
+			errs = append(errs, fmt.Sprintf("%s: type is required (go, rust, or script)", tpath))
+		default:
+			errs = append(errs, fmt.Sprintf("%s: unknown type %q (supported: go, rust, script)", tpath, s.Type))
+		}
+
+		switch s.Gate {
+		case "", GatePerform, GateAdvisory:
+		case GatePublish:
+			errs = append(errs, fmt.Sprintf("%s: gate %q is reserved and not yet implemented (use perform or advisory)", tpath, s.Gate))
+		default:
+			errs = append(errs, fmt.Sprintf("%s: unknown gate %q (supported: perform, advisory)", tpath, s.Gate))
+		}
+	}
+
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}

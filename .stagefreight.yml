@@ -211,6 +211,21 @@ commit:
   conventional: true
   backend: git
 
+# Tests run in audition (sibling to lint). v1 gate tiers: perform (default — fail
+# audition → withhold cistate artifact → halt perform+downstream) and advisory.
+# Initial dogfood is scoped tight to the new subsystem; widen (drop packages /
+# add ./src/commit/... etc.) once green. -race's C compiler is realized by the
+# existing substrate layer (c-toolchain capability, apk-backed + cached), same as
+# Rust linking — no image bloat, no new system.
+test:
+  enabled: true
+  suites:
+    - id: unit
+      type: go
+      packages: [./src/test/...]
+      race: true
+      gate: perform
+
 dependency:
   enabled: true
   output: ".stagefreight/deps"
