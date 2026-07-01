@@ -32,6 +32,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
+	"github.com/PrPlanIT/StageFreight/src/test"
 	"github.com/PrPlanIT/StageFreight/src/trace"
 	"github.com/spf13/cobra"
 )
@@ -262,6 +263,14 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		return fmt.Errorf("deps subsystem (lint): %w", err)
 	}
 
+	// Correctness gate: run the tests on the COMMITTED tree — after lint, before any
+	// dependency mutation ("is the committed tree healthy?"). A failed gating suite
+	// fails audition here (withholds cistate → halts downstream). deps re-verifies
+	// its own mutation separately (below) — it never trusts this run transitively.
+	if err := auditionTests(ctx, appCfg, rootDir); err != nil {
+		return err
+	}
+
 	// Fetch security advisories from prior pipeline (cross-pipeline bridge).
 	if ciCtx.IsCI() {
 		ref := ciCtx.Branch
@@ -315,6 +324,18 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	// Auto-commit if configured and files changed — gated by run_from.
 	if appCfg.Dependency.Commit.Enabled && len(result.FilesChanged) > 0 {
+		// Re-verify the MUTATED tree before landing the bump. Mutation is not trusted
+		// transitively — the pre-deps correctness gate validated the committed tree,
+		// not this graph change. A failed re-verify REJECTS the bump (no commit) but
+		// does NOT halt the pipeline: the committed tree is still healthy. Same test
+		// subsystem, one renderer/gate — renders as "Verify Upgrade".
+		if ok, verr := test.Verify(ctx, appCfg, rootDir, os.Stdout, test.IntentDepReverify); verr != nil {
+			fmt.Fprintf(os.Stderr, "  deps: re-verification error; not committing the update: %v\n", verr)
+			return nil
+		} else if !ok {
+			fmt.Println("  deps: update rejected — it breaks the test suite; not committed")
+			return nil
+		}
 		if rfResult := config.EvaluateRunFrom(appCfg.Dependency.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg)); !rfResult.Matched && rfResult.Mode != "ignore" {
 			fmt.Fprintf(os.Stderr, "  deps commit: %s (%s)\n", rfResult.Mode, rfResult.Reason)
 			return nil
@@ -1493,7 +1514,12 @@ func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	if valErr != nil {
 		return valErr
 	}
-	return lintErr
+	if lintErr != nil {
+		return lintErr
+	}
+	// Correctness gate (after validation + lint). No-op for pure-manifest repos with
+	// no testable builds; runs the suites for gitops repos that also carry code.
+	return auditionTests(ctx, appCfg, rootDir)
 }
 
 // runFluxValidation validates the repository's Flux manifests, persists the

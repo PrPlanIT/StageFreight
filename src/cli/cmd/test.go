@@ -59,16 +59,11 @@ func runTestCmd(cmd *cobra.Command, args []string) error {
 // the exact gate a lint critical uses — no new authorization wiring. Advisory
 // suites render red but never affect the return.
 func auditionTests(ctx context.Context, appCfg *config.Config, rootDir string) error {
-	suites, err := test.Resolve(appCfg, rootDir)
+	passed, err := test.Verify(ctx, appCfg, rootDir, os.Stdout, test.IntentCorrectness)
 	if err != nil {
 		return fmt.Errorf("test subsystem: %w", err)
 	}
-	if len(suites) == 0 {
-		return nil
-	}
-	res := test.Run(ctx, test.Request{RootDir: rootDir, Suites: suites, Writer: os.Stdout})
-	renderTestResults(suites, res)
-	if res.FailedNonAdvisory() {
+	if !passed {
 		return silentExit(fmt.Errorf("test: one or more gating suites failed"))
 	}
 	return nil

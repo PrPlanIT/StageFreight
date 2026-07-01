@@ -312,10 +312,13 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 			absDirs = append(absDirs, filepath.Join(repoRoot, d))
 		}
 		t0 = time.Now()
-		log, verifyErr := Verify(ctx, absDirs, repoRoot, true, cfg.Vulncheck)
-		status, detail := "ok", "go test ./... + govulncheck"
+		// Behavioral verification (go test) now belongs to the test subsystem — the
+		// cmd layer re-verifies the mutated tree via test.Verify (IntentDepReverify)
+		// and gates the auto-commit on it. deps keeps only the vuln scan here for now.
+		log, verifyErr := Verify(ctx, absDirs, repoRoot, false, cfg.Vulncheck)
+		status, detail := "ok", "govulncheck"
 		if verifyErr != nil {
-			status, detail = "fail", "go test ./... + govulncheck — "+verifyErr.Error()
+			status, detail = "fail", "govulncheck — "+verifyErr.Error()
 		}
 		steps = append(steps, depStep{label: "verify", status: status, detail: detail, dur: time.Since(t0)})
 		result.Verified = true

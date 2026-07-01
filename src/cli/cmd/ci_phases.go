@@ -114,24 +114,16 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 		}
 	}
 
+	// The correctness gate (tests) runs INSIDE each mode runner — after lint, before
+	// any dependency mutation — so tests validate the COMMITTED tree first, and deps
+	// re-verifies its own mutation (see depsRunner). Covers image and gitops.
 	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
-	var modeErr error
 	switch mode {
 	case "gitops", "governance":
-		modeErr = validateRunner(ctx, appCfg, ciCtx, opts)
+		return validateRunner(ctx, appCfg, ciCtx, opts)
 	default: // "image" or "" — image is the default
-		modeErr = depsRunner(ctx, appCfg, ciCtx, opts)
+		return depsRunner(ctx, appCfg, ciCtx, opts)
 	}
-	if modeErr != nil {
-		return modeErr
-	}
-
-	// Tests run LAST in audition — after substrate preflight, config validation, and
-	// lint. The cheap static gates fail fast before the expensive behavioral suite;
-	// it would be backwards to spend minutes on tests only for lint to then fail.
-	// Covers image AND gitops modes. A failed non-advisory suite fails audition →
-	// the cistate artifact is withheld → perform + downstream halt.
-	return auditionTests(ctx, appCfg, resolveWorkspace(ciCtx))
 }
 
 // checkCIFreshness verifies the committed CI file matches what the current
