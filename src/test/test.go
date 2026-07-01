@@ -132,7 +132,7 @@ func runRustSuite(ctx context.Context, sr SuiteResult, s ResolvedSuite, argv, en
 		sr.Err = err
 		if len(pkgs) == 0 {
 			// compile error / unrecognized output — keep the section honest.
-			fp := PackageResult{Rel: "cargo test", Status: StatusFailed,
+			fp := PackageResult{Rel: "cargo test", Status: StatusFailed, Coverage: -1,
 				Failures: []TestFailure{{Name: "(build/run)", Output: raw.String()}}}
 			sr.Packages = []PackageResult{fp}
 			if onPkg != nil {

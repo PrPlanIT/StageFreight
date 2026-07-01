@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,7 +38,7 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 		a := accs[p]
 		if a == nil {
 			a = &acc{
-				pr:   PackageResult{ImportPath: p, Rel: relImport(modulePath, p), Synopsis: synopses[p]},
+				pr:   PackageResult{ImportPath: p, Rel: relImport(modulePath, p), Synopsis: synopses[p], Coverage: -1},
 				out:  map[string]*strings.Builder{},
 				seen: map[string]bool{},
 			}
@@ -77,7 +78,10 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 
 		if e.Test == "" { // package-level event
 			switch e.Action {
-			case "output": // build/compile errors arrive here (no test owns them)
+			case "output": // build errors + the "coverage: X%" line arrive here
+				if c, ok := parseGoCoverage(e.Output); ok {
+					a.pr.Coverage = c
+				}
 				if a.pkgOut == nil {
 					a.pkgOut = &strings.Builder{}
 				}
@@ -147,6 +151,26 @@ func isLeafFailure(name string, all []string) bool {
 }
 
 func secs(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
+
+// parseGoCoverage extracts the percentage from go test's "coverage: 73.2% of
+// statements" line (emitted per package under -cover). false when absent.
+func parseGoCoverage(s string) (float64, bool) {
+	const marker = "coverage: "
+	i := strings.Index(s, marker)
+	if i < 0 {
+		return 0, false
+	}
+	rest := s[i+len(marker):]
+	j := strings.IndexByte(rest, '%')
+	if j < 0 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(rest[:j]), 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
 
 // relImport trims a full import path to module-relative form (src/commit), keeping
 // the location without the long module prefix.

@@ -223,6 +223,7 @@ test:
       tool: go
       packages: [./...]
       race: true
+      coverage: true
       gate: perform
 
 dependency:

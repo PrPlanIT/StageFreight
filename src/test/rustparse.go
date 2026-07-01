@@ -67,12 +67,12 @@ func parseCargoTest(r io.Reader, onDone func(PackageResult)) []PackageResult {
 			m := reRunning.FindStringSubmatch(line)
 			flush()
 			crate := crateFromDepPath(m[2])
-			pr = &PackageResult{ImportPath: crate, Rel: rustLabel(crate, m[1])}
+			pr = &PackageResult{ImportPath: crate, Rel: rustLabel(crate, m[1]), Coverage: -1}
 
 		case reDocTests.MatchString(line):
 			m := reDocTests.FindStringSubmatch(line)
 			flush()
-			pr = &PackageResult{ImportPath: m[1], Rel: m[1] + " · doc"}
+			pr = &PackageResult{ImportPath: m[1], Rel: m[1] + " · doc", Coverage: -1}
 
 		case pr != nil && reResult.MatchString(line):
 			m := reResult.FindStringSubmatch(line)

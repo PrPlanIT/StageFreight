@@ -79,7 +79,7 @@ func renderPackageRow(sec *output.Section, p PackageResult, color bool) {
 	if p.Status == StatusSkipped {
 		return
 	}
-	sec.Row("  %s %-24s %6s  %s", statusIcon(p.Status, color), p.Rel, durStr(p.Duration), p.Synopsis)
+	sec.Row("  %s %-24s %6s %4s  %s", statusIcon(p.Status, color), p.Rel, durStr(p.Duration), covStr(p.Coverage), p.Synopsis)
 	if p.Status == StatusFailed {
 		for _, f := range p.Failures {
 			sec.Row("      └ %s", f.Name)
@@ -103,8 +103,12 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 		}
 		return
 	}
-	var tested, notest, failed, tests int
+	var tested, notest, failed, tests, covN int
+	var covSum float64
 	for _, p := range sr.Packages {
+		if p.Coverage >= 0 {
+			covSum, covN = covSum+p.Coverage, covN+1
+		}
 		switch p.Status {
 		case StatusSkipped:
 			notest++
@@ -114,8 +118,12 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 			tested, tests = tested+1, tests+p.Tests
 		}
 	}
-	sec.Row("  %s %d tested · %d no-tests · %d failed · %d tests · %s",
-		statusIcon(sr.Status, color), tested, notest, failed, tests, durStr(sr.Duration))
+	line := fmt.Sprintf("%d tested · %d no-tests · %d failed · %d tests", tested, notest, failed, tests)
+	if covN > 0 {
+		line += fmt.Sprintf(" · %.0f%% cov (avg)", covSum/float64(covN))
+	}
+	line += " · " + durStr(sr.Duration)
+	sec.Row("  %s %s", statusIcon(sr.Status, color), line)
 	if notest > 0 {
 		sec.Row("  ⓘ %d packages ship no tests", notest)
 	}
@@ -178,6 +186,15 @@ func durStr(d time.Duration) string {
 		return d.Truncate(100 * time.Millisecond).String()
 	}
 	return d.Truncate(time.Millisecond).String()
+}
+
+// covStr renders a coverage percentage, or "" when the package wasn't measured
+// (coverage off) so the column collapses to blank space.
+func covStr(c float64) string {
+	if c < 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.0f%%", c)
 }
 
 // cmdShape is the human-readable command a suite runs, minus the binary and

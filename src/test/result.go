@@ -41,6 +41,7 @@ type PackageResult struct {
 	Status     string // StatusPassed | StatusFailed | StatusSkipped (no test files)
 	Duration   time.Duration
 	Tests      int           // top-level tests run
+	Coverage   float64       // statement coverage %; <0 means "not measured"
 	Failures   []TestFailure // leaf failures (with output), when Status==failed
 }
 
