@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -39,28 +40,31 @@ func Render(w io.Writer, suites []ResolvedSuite, res *TestResult, intent Intent)
 	for _, s := range res.Suites {
 		total += s.Duration
 	}
-	sec := output.NewSection(w, intent.title(), total, color)
-	prov := map[string]string{}
+	byID := make(map[string]ResolvedSuite, len(suites))
 	for _, s := range suites {
-		if s.Synthesized {
-			prov[s.ID] = s.Provenance
-		}
+		byID[s.ID] = s
 	}
+	sec := output.NewSection(w, intent.title(), total, color)
 	for i, s := range res.Suites {
 		if i > 0 {
 			sec.Separator()
 		}
-		renderSuite(sec, s, prov[s.ID], color)
+		renderSuite(sec, s, byID[s.ID], color)
 	}
 	sec.Close()
 }
 
-func renderSuite(sec *output.Section, s SuiteResult, provenance string, color bool) {
-	head := fmt.Sprintf("%s  %s", statusIcon(s.Status, color), s.ID)
-	if provenance != "" {
-		head += "   [synthesized: " + provenance + "]"
+func renderSuite(sec *output.Section, s SuiteResult, rs ResolvedSuite, color bool) {
+	// Suite header: icon id   tool · <command shape> · gate <gate>.
+	head := fmt.Sprintf("%s %s   %s", statusIcon(s.Status, color), s.ID, s.Tool)
+	if cmd := cmdShape(rs); cmd != "" {
+		head += " · " + cmd
 	}
+	head += " · gate " + string(s.Gate)
 	sec.Row("%s", head)
+	if rs.Synthesized && rs.Provenance != "" {
+		sec.Row("   [synthesized: %s]", rs.Provenance)
+	}
 
 	if len(s.Packages) == 0 {
 		// Non-go suite (rust/script): no per-package detail to project.
@@ -132,4 +136,14 @@ func durStr(d time.Duration) string {
 		return d.Truncate(100 * time.Millisecond).String()
 	}
 	return d.Truncate(time.Millisecond).String()
+}
+
+// cmdShape is the human-readable command a suite runs, minus the binary and
+// subcommand — go [test] "-race ./...", rust [test] "--workspace", script the raw
+// command. It's what makes the suite line say what actually runs.
+func cmdShape(rs ResolvedSuite) string {
+	if len(rs.Argv) <= 2 {
+		return ""
+	}
+	return strings.Join(rs.Argv[2:], " ")
 }
