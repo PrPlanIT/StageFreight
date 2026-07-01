@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -85,6 +86,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, w io.Writer)
 		if hasFlag(argv, "-race") {
 			env = setEnv(env, "CGO_ENABLED", "1")
 		}
+		return runGoSuite(ctx, sr, goRes.Path, s, argv, env, w)
 
 	case config.TestToolRust:
 		res, err := toolchain.Resolve(rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir))
@@ -131,6 +133,52 @@ func failSuite(sr SuiteResult, err error) SuiteResult {
 	sr.Status = StatusFailed
 	sr.Err = err
 	sr.Output = err.Error()
+	return sr
+}
+
+// runGoSuite runs a Go suite via `go test -json`, parsing the transport stream into
+// per-package results (with doc synopses for the renderer) and streaming a terse
+// per-package progress line. Build/exec failures still set Status=failed via the
+// exit code; their compiler output is captured from stderr.
+func runGoSuite(ctx context.Context, sr SuiteResult, goBin string, s ResolvedSuite, argv, env []string, w io.Writer) SuiteResult {
+	modulePath := goModulePath(goBin, s.Dir, env)
+	synopses := goSynopses(goBin, s.Dir, env)
+	jargv := injectAfter(argv, 1, "-json") // argv[1] == "test"
+	color := output.UseColor()
+
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, jargv[0], jargv[1:]...)
+	cmd.Dir = s.Dir
+	cmd.Env = env
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return failSuite(sr, fmt.Errorf("go test stdout pipe: %w", err))
+	}
+	var errBuf bytes.Buffer
+	if w != nil {
+		cmd.Stderr = io.MultiWriter(w, &errBuf)
+	} else {
+		cmd.Stderr = &errBuf
+	}
+	if err := cmd.Start(); err != nil {
+		return failSuite(sr, fmt.Errorf("starting go test: %w", err))
+	}
+	pkgs := parseGoTest(stdout, modulePath, synopses, func(p PackageResult) {
+		if w != nil && p.Status != StatusSkipped {
+			fmt.Fprintf(w, "    %s %s  %s\n", statusIcon(p.Status, color), p.Rel, durStr(p.Duration))
+		}
+	})
+	err = cmd.Wait()
+
+	sr.Duration = time.Since(start)
+	sr.Packages = pkgs
+	sr.Output = errBuf.String()
+	if err != nil {
+		sr.Status = StatusFailed
+		sr.Err = err
+	} else {
+		sr.Status = StatusPassed
+	}
 	return sr
 }
 

@@ -25,8 +25,29 @@ type SuiteResult struct {
 	Gate     config.Gate
 	Status   string
 	Duration time.Duration
-	Output   string // captured combined stdout+stderr
-	Err      error  // execution error (process failure / non-zero exit)
+	Packages []PackageResult // per-package detail (Go suites, parsed from -json)
+	Output   string          // captured stderr (build errors etc.)
+	Err      error           // execution error (process failure / non-zero exit)
+}
+
+// PackageResult is one package's outcome, parsed from `go test -json` — the
+// StageFreight-native presentation derived from go's transport stream. `Rel` is the
+// module-relative path (preserves WHERE it ran without the long import prefix);
+// `Synopsis` is the package doc-comment one-liner (what it IS, for non-test-writers).
+type PackageResult struct {
+	ImportPath string // github.com/PrPlanIT/StageFreight/src/commit
+	Rel        string // module-relative: src/commit
+	Synopsis   string // package doc synopsis (go list .Doc); may be empty
+	Status     string // StatusPassed | StatusFailed | StatusSkipped (no test files)
+	Duration   time.Duration
+	Tests      int           // top-level tests run
+	Failures   []TestFailure // leaf failures (with output), when Status==failed
+}
+
+// TestFailure is a single failing (leaf) test and its captured output.
+type TestFailure struct {
+	Name   string
+	Output string
 }
 
 // TestResult aggregates per-suite outcomes.

@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/test"
 	"github.com/spf13/cobra"
 )
@@ -95,27 +93,9 @@ func filterSuites(suites []test.ResolvedSuite, ids []string, gate string) []test
 	return out
 }
 
-// renderTestResults renders the Test section — shared by the `stagefreight test`
-// command and the audition adapter. Synthesized suites surface their provenance.
+// renderTestResults renders the canonical Test section — src/test owns the
+// presentation surface. The CLI and the audition adapter both render at the
+// correctness-gate intent (deps re-verification passes IntentDepReverify).
 func renderTestResults(suites []test.ResolvedSuite, res *test.TestResult) {
-	color := output.UseColor()
-	sec := output.NewSection(os.Stdout, "Test", 0, color)
-	prov := map[string]string{}
-	for _, s := range suites {
-		if s.Synthesized {
-			prov[s.ID] = s.Provenance
-		}
-	}
-	for _, r := range res.Suites {
-		detail := r.Duration.Truncate(time.Millisecond).String()
-		if p := prov[r.ID]; p != "" {
-			detail += "  [synthesized: " + p + "]"
-		}
-		icon := r.Status
-		if r.Status == test.StatusPassed {
-			icon = "success"
-		}
-		output.RowStatus(sec, r.ID, detail, icon, color)
-	}
-	sec.Close()
+	test.Render(os.Stdout, suites, res, test.IntentCorrectness)
 }
