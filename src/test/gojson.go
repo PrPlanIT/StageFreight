@@ -46,6 +46,25 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 		}
 		return a
 	}
+	// finalize attaches a package's leaf failures (with output) once its terminal
+	// event arrives, so onDone streams a COMPLETE result (failures expandable live).
+	finalize := func(a *acc) {
+		for _, name := range a.failed {
+			if !isLeafFailure(name, a.failed) {
+				continue // keep the actual failing assertion, not its parent
+			}
+			var o string
+			if b := a.out[name]; b != nil {
+				o = b.String()
+			}
+			a.pr.Failures = append(a.pr.Failures, TestFailure{Name: name, Output: o})
+		}
+		// A package that failed without a failing test = a build/compile failure;
+		// surface its package-level output so the structured view still says why.
+		if a.pr.Status == StatusFailed && len(a.pr.Failures) == 0 && a.pkgOut != nil {
+			a.pr.Failures = append(a.pr.Failures, TestFailure{Name: "(build/run)", Output: a.pkgOut.String()})
+		}
+	}
 
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
@@ -65,9 +84,11 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 				a.pkgOut.WriteString(e.Output)
 			case "pass":
 				a.pr.Status, a.pr.Duration = StatusPassed, secs(e.Elapsed)
+				finalize(a)
 				notifyDone(onDone, a.pr)
 			case "fail":
 				a.pr.Status, a.pr.Duration = StatusFailed, secs(e.Elapsed)
+				finalize(a)
 				notifyDone(onDone, a.pr)
 			case "skip":
 				a.pr.Status, a.pr.Duration = StatusSkipped, secs(e.Elapsed) // "no test files"
@@ -103,23 +124,7 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 
 	out := make([]PackageResult, 0, len(order))
 	for _, p := range order {
-		a := accs[p]
-		for _, name := range a.failed {
-			if !isLeafFailure(name, a.failed) {
-				continue // keep the actual failing assertion, not its parent
-			}
-			var o string
-			if b := a.out[name]; b != nil {
-				o = b.String()
-			}
-			a.pr.Failures = append(a.pr.Failures, TestFailure{Name: name, Output: o})
-		}
-		// A package that failed without a failing test = a build/compile failure;
-		// surface its package-level output so the structured view still says why.
-		if a.pr.Status == StatusFailed && len(a.pr.Failures) == 0 && a.pkgOut != nil {
-			a.pr.Failures = append(a.pr.Failures, TestFailure{Name: "(build/run)", Output: a.pkgOut.String()})
-		}
-		out = append(out, a.pr)
+		out = append(out, accs[p].pr) // already finalized at each terminal event
 	}
 	return out
 }

@@ -1,13 +1,14 @@
 package test
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/substrate"
 )
 
 // Intent distinguishes WHY the suites ran, so the canonical render surface reads
@@ -27,95 +28,136 @@ func (i Intent) title() string {
 	return "Test"
 }
 
-const passedShown = 6 // slowest-N passed packages listed before "… N more"
-
-// Render writes the canonical, house-style section: per-package semantic rows
-// (module-relative path + doc synopsis), a coverage summary, the no-test packages
-// collapsed to ONE callout, and expanded failures. Derived from `go test -json`,
-// never raw transport. Shared by the audition gate, deps re-verification, and the
-// `stagefreight test` CLI — one presentation surface for every caller.
-func Render(w io.Writer, suites []ResolvedSuite, res *TestResult, intent Intent) {
+// RunRender realizes substrate, runs the suites, and renders ONE canonical section
+// that everything streams INTO: an explained substrate note (what native tools were
+// provisioned and WHY), each package's row as it finishes (no stranded output),
+// failures expanded inline, then the coverage summary with the no-test packages
+// collapsed to one callout. Derived from `go test -json`, never raw transport. The
+// single presentation surface for the audition gate, deps re-verification, and the
+// `stagefreight test` CLI. Returns the verdict.
+func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, w io.Writer, intent Intent) *TestResult {
 	color := output.UseColor()
-	var total time.Duration
-	for _, s := range res.Suites {
-		total += s.Duration
+	sec := output.NewSection(w, intent.title(), 0, color)
+
+	if realized := realizeSubstrate(ctx, suites); len(realized) > 0 {
+		renderSubstrate(sec, realized, color)
+		sec.Separator()
 	}
-	byID := make(map[string]ResolvedSuite, len(suites))
-	for _, s := range suites {
-		byID[s.ID] = s
-	}
-	sec := output.NewSection(w, intent.title(), total, color)
-	for i, s := range res.Suites {
+
+	res := &TestResult{}
+	for i, s := range suites {
 		if i > 0 {
 			sec.Separator()
 		}
-		renderSuite(sec, s, byID[s.ID], color)
+		// Descriptive suite header — the verdict lives in the summary line below, so
+		// this stays stable while packages stream in beneath it.
+		head := fmt.Sprintf("%s   %s", s.ID, s.Tool)
+		if cmd := cmdShape(s); cmd != "" {
+			head += " · " + cmd
+		}
+		head += " · gate " + string(s.Gate)
+		sec.Row("%s", head)
+		if s.Synthesized && s.Provenance != "" {
+			sec.Row("  [synthesized: %s]", s.Provenance)
+		}
+
+		sr := runSuite(ctx, rootDir, s, func(p PackageResult) {
+			renderPackageRow(sec, p, color)
+		})
+		res.Suites = append(res.Suites, sr)
+		renderSuiteSummary(sec, sr, color)
 	}
+
 	sec.Close()
+	return res
 }
 
-func renderSuite(sec *output.Section, s SuiteResult, rs ResolvedSuite, color bool) {
-	// Suite header: icon id   tool · <command shape> · gate <gate>.
-	head := fmt.Sprintf("%s %s   %s", statusIcon(s.Status, color), s.ID, s.Tool)
-	if cmd := cmdShape(rs); cmd != "" {
-		head += " · " + cmd
-	}
-	head += " · gate " + string(s.Gate)
-	sec.Row("%s", head)
-	if rs.Synthesized && rs.Provenance != "" {
-		sec.Row("   [synthesized: %s]", rs.Provenance)
-	}
-
-	if len(s.Packages) == 0 {
-		// Non-go suite (rust/script): no per-package detail to project.
-		sec.Row("   %s", durStr(s.Duration))
+// renderPackageRow streams one package's result INTO the section as it finishes: a
+// semantic row (module-relative path + doc synopsis), failures expanded inline. The
+// no-test packages are omitted here — collapsed into the summary's one callout.
+func renderPackageRow(sec *output.Section, p PackageResult, color bool) {
+	if p.Status == StatusSkipped {
 		return
 	}
+	sec.Row("  %s %-24s %6s  %s", statusIcon(p.Status, color), p.Rel, durStr(p.Duration), p.Synopsis)
+	if p.Status == StatusFailed {
+		for _, f := range p.Failures {
+			sec.Row("      └ %s", f.Name)
+			if line := firstErrLine(f.Output); line != "" {
+				sec.Row("        %s", line)
+			}
+		}
+	}
+}
 
-	var tested, notest, tests int
-	var passed, failed []PackageResult
-	for _, p := range s.Packages {
+// renderSuiteSummary closes a suite with its verdict + coverage counts, and the
+// no-test packages collapsed to ONE callout.
+func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
+	if len(sr.Packages) == 0 {
+		// Non-go suite (rust/script): no per-package projection.
+		sec.Row("  %s %s", statusIcon(sr.Status, color), durStr(sr.Duration))
+		if sr.Status == StatusFailed {
+			if line := firstErrLine(sr.Output); line != "" {
+				sec.Row("    %s", line)
+			}
+		}
+		return
+	}
+	var tested, notest, failed, tests int
+	for _, p := range sr.Packages {
 		switch p.Status {
 		case StatusSkipped:
 			notest++
 		case StatusFailed:
-			tested, tests = tested+1, tests+p.Tests
-			failed = append(failed, p)
+			tested, failed, tests = tested+1, failed+1, tests+p.Tests
 		case StatusPassed:
 			tested, tests = tested+1, tests+p.Tests
-			passed = append(passed, p)
 		}
 	}
+	sec.Row("  %s %d tested · %d no-tests · %d failed · %d tests · %s",
+		statusIcon(sr.Status, color), tested, notest, failed, tests, durStr(sr.Duration))
+	if notest > 0 {
+		sec.Row("  ⓘ %d packages ship no tests", notest)
+	}
+}
 
-	sec.Row("   %d tested · %d no-tests · %d failed · %d tests · %s",
-		tested, notest, len(failed), tests, durStr(s.Duration))
-
-	// Failures first — most important, fully expanded with the failing test + error.
-	for _, p := range failed {
-		sec.Row("   %s %-24s %6s  %s", statusIcon(StatusFailed, color), p.Rel, durStr(p.Duration), p.Synopsis)
-		for _, f := range p.Failures {
-			sec.Row("       └ %s", f.Name)
-			if line := firstErrLine(f.Output); line != "" {
-				sec.Row("         %s", line)
+// renderSubstrate explains the native capabilities realized for the run — WHAT was
+// provisioned and WHY, in plain language (not raw substrate transport). This is the
+// "let the user know what it means" surface for otherwise-cryptic toolchain loads.
+func renderSubstrate(sec *output.Section, realized []substrate.Realized, color bool) {
+	for _, r := range realized {
+		var pkgs []string
+		for _, p := range r.Packages {
+			if p.Version != "" {
+				pkgs = append(pkgs, p.Name+" "+p.Version)
+			} else {
+				pkgs = append(pkgs, p.Name)
 			}
 		}
-	}
-
-	// Passed packages: the slowest few (where time/risk lives), then a "… N more".
-	sort.SliceStable(passed, func(i, j int) bool { return passed[i].Duration > passed[j].Duration })
-	for i, p := range passed {
-		if i >= passedShown {
-			break
+		detail := strings.Join(pkgs, ", ")
+		if detail == "" {
+			detail = r.Need.Capability
 		}
-		sec.Row("   %s %-24s %6s  %s", statusIcon(StatusPassed, color), p.Rel, durStr(p.Duration), p.Synopsis)
+		if r.Present {
+			detail += " (present)"
+		}
+		sec.Row("  ⚙ %-18s %s", detail, humanizeReason(r.Need.Reason))
 	}
-	if n := len(passed) - passedShown; n > 0 {
-		sec.Row("   … %d more passed", n)
-	}
+}
 
-	// The [no test files] spam, collapsed to a single operationally-useful callout.
-	if notest > 0 {
-		sec.Row("   ⓘ %d packages ship no tests", notest)
+// humanizeReason turns a substrate Need.Reason token into a plain-language why.
+func humanizeReason(reason string) string {
+	switch reason {
+	case "go-tests-exec-git":
+		return "for git-based tests (fixtures, system-git transport)"
+	case "go-test-race-cgo":
+		return "C compiler for the race detector (cgo)"
+	case "rust-build-script-linking":
+		return "linker for the Rust build"
+	case "crate-native-build", "":
+		return "native build dependency"
+	default:
+		return reason
 	}
 }
 

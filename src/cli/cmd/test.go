@@ -43,8 +43,7 @@ func runTestCmd(cmd *cobra.Command, args []string) error {
 		fmt.Println("  test: no suites to run")
 		return nil
 	}
-	res := test.Run(context.Background(), test.Request{RootDir: rootDir, Suites: suites, Writer: os.Stdout})
-	renderTestResults(suites, res)
+	res := test.RunRender(context.Background(), suites, rootDir, os.Stdout, test.IntentCorrectness)
 	if res.Failed() {
 		// Local convenience: non-zero exit, already rendered.
 		return silentExit(fmt.Errorf("tests failed"))
@@ -88,9 +87,3 @@ func filterSuites(suites []test.ResolvedSuite, ids []string, gate string) []test
 	return out
 }
 
-// renderTestResults renders the canonical Test section — src/test owns the
-// presentation surface. The CLI and the audition adapter both render at the
-// correctness-gate intent (deps re-verification passes IntentDepReverify).
-func renderTestResults(suites []test.ResolvedSuite, res *test.TestResult) {
-	test.Render(os.Stdout, suites, res, test.IntentCorrectness)
-}

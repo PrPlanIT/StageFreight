@@ -23,7 +23,6 @@ func Verify(ctx context.Context, cfg *config.Config, rootDir string, w io.Writer
 	if len(suites) == 0 {
 		return true, nil
 	}
-	res := Run(ctx, Request{RootDir: rootDir, Suites: suites, Writer: w})
-	Render(w, suites, res, intent)
+	res := RunRender(ctx, suites, rootDir, w, intent)
 	return !res.FailedNonAdvisory(), nil
 }
