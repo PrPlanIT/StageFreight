@@ -20,6 +20,7 @@ var capabilityPackages = map[string][]string{
 	"pkg-config":  {"pkgconf"},
 	"openssl":     {"openssl-dev", "openssl-libs-static"}, // dev = headers + .so; -static-pie musl links libssl.a/libcrypto.a
 	"git":         {"git"},                                // build.rs version-stamping (the SF image is otherwise git-less)
+	"bash":        {"bash"},                               // rust's toolchain install.sh invokes bash (busybox sh is not enough)
 }
 
 // capabilityProbe is a binary whose presence means the capability is already
@@ -32,6 +33,7 @@ var capabilityProbe = map[string]string{
 	"perl":        "perl",
 	"pkg-config":  "pkg-config",
 	"git":         "git",
+	"bash":        "bash",
 }
 
 // apkRealizer is the bootstrap backend: Alpine apk with a persistent package cache.

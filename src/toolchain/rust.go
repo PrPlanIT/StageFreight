@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/substrate"
 )
 
 // Rust mirrors the Go toolchain model: StageFreight owns the toolchain — official
@@ -284,6 +287,14 @@ func installRustDist(archivePath, installDir, version, triple string) error {
 	if err := extractTarGzTo(archivePath, tmp); err != nil {
 		return fmt.Errorf("extracting rust dist: %w", err)
 	}
+
+	// Rust's install.sh shells out to bash, but the minimal SF image ships only
+	// busybox sh — so realize bash via substrate (apk-backed, cached; TEST/BUILD
+	// time only, never in the image) before running it. Best-effort: on a non-apk
+	// host (dev) NewRealizer is a no-op that trusts the ambient bash.
+	_, _ = substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
+		[]substrate.Need{{Capability: "bash", Reason: "rust-toolchain-install-script", Source: "install.sh"}})
+
 	script := filepath.Join(tmp, fmt.Sprintf("rust-%s-%s", version, triple), "install.sh")
 	cmd := exec.Command("sh", script,
 		"--prefix="+installDir, "--disable-ldconfig", "--without=rust-docs")
