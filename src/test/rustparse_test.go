@@ -59,6 +59,9 @@ func TestParseCargoTest_SingleCrate(t *testing.T) {
 	if len(unit.Failures) != 1 || unit.Failures[0].Name != "tests::fails_here" {
 		t.Errorf("unit failures = %+v, want [tests::fails_here]", unit.Failures)
 	}
+	if !strings.Contains(unit.Failures[0].Output, "panicked") {
+		t.Errorf("unit failure output = %q, want it to capture the panic", unit.Failures[0].Output)
+	}
 
 	integ := pkgs[1]
 	if integ.Rel != "integration" || integ.Status != StatusPassed || integ.Tests != 1 {

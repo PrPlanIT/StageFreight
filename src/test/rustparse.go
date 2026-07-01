@@ -23,6 +23,8 @@ var (
 	// "test tests::bar ... FAILED"
 	reTestFail = regexp.MustCompile(`^test\s+(.+?)\s+\.\.\.\s+FAILED`)
 	reFinished = regexp.MustCompile(`finished in ([0-9.]+)s`)
+	// "---- tests::bar stdout ----" — start of a failed test's captured output.
+	reFailHdr = regexp.MustCompile(`^----\s+(.+?)\s+stdout\s+----`)
 )
 
 // parseCargoTest parses the (merged stdout+stderr) stream of `cargo test` into
@@ -33,19 +35,26 @@ func parseCargoTest(r io.Reader, onDone func(PackageResult)) []PackageResult {
 	var out []PackageResult
 	var pr *PackageResult
 	var failed []string
+	failOut := map[string]*strings.Builder{}
+	var capturing string
 
 	flush := func() {
 		if pr == nil {
 			return
 		}
 		for _, n := range failed {
-			pr.Failures = append(pr.Failures, TestFailure{Name: n})
+			var o string
+			if b := failOut[n]; b != nil {
+				o = strings.TrimSpace(b.String())
+			}
+			pr.Failures = append(pr.Failures, TestFailure{Name: n, Output: o})
 		}
 		out = append(out, *pr)
 		if onDone != nil {
 			onDone(*pr)
 		}
-		pr, failed = nil, nil
+		pr, failed, capturing = nil, nil, ""
+		failOut = map[string]*strings.Builder{}
 	}
 
 	sc := bufio.NewScanner(r)
@@ -85,10 +94,21 @@ func parseCargoTest(r io.Reader, onDone func(PackageResult)) []PackageResult {
 			}
 			flush()
 
-		case pr != nil:
-			if m := reTestFail.FindStringSubmatch(line); m != nil {
-				failed = append(failed, m[1])
+		case pr != nil && reFailHdr.MatchString(line):
+			capturing = reFailHdr.FindStringSubmatch(line)[1]
+			if failOut[capturing] == nil {
+				failOut[capturing] = &strings.Builder{}
 			}
+
+		case pr != nil && strings.HasPrefix(strings.TrimSpace(line), "failures:"):
+			capturing = "" // the trailing summary list — stop capturing panic output
+
+		case pr != nil && reTestFail.MatchString(line):
+			failed = append(failed, reTestFail.FindStringSubmatch(line)[1])
+			capturing = ""
+
+		case pr != nil && capturing != "":
+			failOut[capturing].WriteString(line + "\n")
 		}
 	}
 	flush() // stream ended without a trailing result line
