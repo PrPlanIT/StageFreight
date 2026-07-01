@@ -156,8 +156,22 @@ func failSuite(sr SuiteResult, err error) SuiteResult {
 // per-package results (with doc synopses) and firing onPkg as each package finishes.
 // Build/exec failures still set Status=failed via the exit code.
 func runGoSuite(ctx context.Context, sr SuiteResult, goBin string, s ResolvedSuite, argv, env []string, onPkg func(PackageResult)) SuiteResult {
+	sr.CoverageMin, sr.Coverage = s.CoverageMin, -1
 	modulePath := goModulePath(goBin, s.Dir, env)
 	synopses := goSynopses(goBin, s.Dir, env)
+
+	// With coverage on, capture a profile so we can report the STATEMENT-WEIGHTED
+	// suite total (go tool cover -func) instead of a misleading per-package average.
+	var profile string
+	if hasFlag(argv, "-cover") {
+		if f, err := os.CreateTemp("", "sf-cover-*.out"); err == nil {
+			profile = f.Name()
+			f.Close()
+			defer os.Remove(profile)
+			argv = replaceFlag(argv, "-cover", "-coverprofile="+profile)
+		}
+	}
+
 	jargv := injectAfter(argv, 1, "-json") // argv[1] == "test"
 
 	start := time.Now()
@@ -184,6 +198,18 @@ func runGoSuite(ctx context.Context, sr SuiteResult, goBin string, s ResolvedSui
 		sr.Err = err
 	} else {
 		sr.Status = StatusPassed
+	}
+
+	// Statement-weighted coverage total + threshold gate: coverage below the bar
+	// fails the suite (gates the pipeline) even when every test passed.
+	if profile != "" {
+		if total, ok := goCoverageTotal(goBin, profile, env); ok {
+			sr.Coverage = total
+			if sr.CoverageMin > 0 && total < sr.CoverageMin && sr.Status != StatusFailed {
+				sr.Status = StatusFailed
+				sr.Err = fmt.Errorf("coverage %.1f%% below minimum %.1f%%", total, sr.CoverageMin)
+			}
+		}
 	}
 	return sr
 }

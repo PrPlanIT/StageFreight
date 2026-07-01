@@ -16,6 +16,7 @@ type ResolvedSuite struct {
 	Gate        config.Gate
 	Argv        []string
 	Dir         string
+	CoverageMin float64 // gate threshold %; 0 = none
 	Synthesized bool
 	Provenance  string // human note (synthesized suites): why / from which build
 }
@@ -95,6 +96,9 @@ func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 
 func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
 	rs := ResolvedSuite{ID: s.ID, Tool: s.Tool, Gate: s.EffectiveGate(), Dir: rootDir}
+	if s.CoverageMin != nil {
+		rs.CoverageMin = *s.CoverageMin
+	}
 	switch s.Tool {
 	case config.TestToolScript:
 		if strings.TrimSpace(s.Command) == "" {
@@ -188,6 +192,18 @@ func hasFlag(argv []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+// replaceFlag returns argv with the first exact match of old replaced by repl.
+func replaceFlag(argv []string, old, repl string) []string {
+	out := append([]string{}, argv...)
+	for i, a := range out {
+		if a == old {
+			out[i] = repl
+			return out
+		}
+	}
+	return out
 }
 
 func boolVal(b *bool) bool { return b != nil && *b }

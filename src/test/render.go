@@ -103,12 +103,8 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 		}
 		return
 	}
-	var tested, notest, failed, tests, covN int
-	var covSum float64
+	var tested, notest, failed, tests int
 	for _, p := range sr.Packages {
-		if p.Coverage >= 0 {
-			covSum, covN = covSum+p.Coverage, covN+1
-		}
 		switch p.Status {
 		case StatusSkipped:
 			notest++
@@ -119,8 +115,15 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 		}
 	}
 	line := fmt.Sprintf("%d tested · %d no-tests · %d failed · %d tests", tested, notest, failed, tests)
-	if covN > 0 {
-		line += fmt.Sprintf(" · %.0f%% cov (avg)", covSum/float64(covN))
+	if sr.Coverage >= 0 {
+		line += fmt.Sprintf(" · %.1f%% cov", sr.Coverage)
+		if sr.CoverageMin > 0 {
+			mark := "✓"
+			if sr.Coverage < sr.CoverageMin {
+				mark = "✗"
+			}
+			line += fmt.Sprintf(" (min %.0f%% %s)", sr.CoverageMin, mark)
+		}
 	}
 	line += " · " + durStr(sr.Duration)
 	sec.Row("  %s %s", statusIcon(sr.Status, color), line)

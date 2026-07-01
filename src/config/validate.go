@@ -555,6 +555,15 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		default:
 			errs = append(errs, fmt.Sprintf("%s: unknown gate %q (supported: perform, advisory)", tpath, s.Gate))
 		}
+
+		if s.CoverageMin != nil {
+			if s.Coverage == nil || !*s.Coverage {
+				errs = append(errs, fmt.Sprintf("%s: coverage_min requires coverage: true", tpath))
+			}
+			if *s.CoverageMin <= 0 || *s.CoverageMin > 100 {
+				errs = append(errs, fmt.Sprintf("%s: coverage_min must be in (0, 100], got %g", tpath, *s.CoverageMin))
+			}
+		}
 	}
 
 	if len(errs) > 0 {

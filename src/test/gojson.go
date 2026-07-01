@@ -172,6 +172,34 @@ func parseGoCoverage(s string) (float64, bool) {
 	return v, true
 }
 
+// goCoverageTotal runs `go tool cover -func` on a coverprofile and returns the
+// STATEMENT-WEIGHTED total percentage (its "total:" line) — the accurate overall
+// coverage. A per-package average is not statement-weighted and misleads when
+// package sizes differ. false when the profile can't be summarized.
+func goCoverageTotal(goBin, profile string, env []string) (float64, bool) {
+	cmd := exec.Command(goBin, "tool", "cover", "-func="+profile)
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, false
+	}
+	return parseCoverTotal(string(out))
+}
+
+// parseCoverTotal extracts the percentage from `go tool cover -func`'s trailing
+// "total:  (statements)  73.2%" line.
+func parseCoverTotal(out string) (float64, bool) {
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[0] == "total:" {
+			if v, err := strconv.ParseFloat(strings.TrimSuffix(f[len(f)-1], "%"), 64); err == nil {
+				return v, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // relImport trims a full import path to module-relative form (src/commit), keeping
 // the location without the long module prefix.
 func relImport(mod, imp string) string {

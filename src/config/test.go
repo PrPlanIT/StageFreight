@@ -54,8 +54,9 @@ type TestSuite struct {
 	Tags     []string `yaml:"tags,omitempty"`     // -tags a,b
 	Run      string   `yaml:"run,omitempty"`      // -run <regex>
 	Timeout  string   `yaml:"timeout,omitempty"`  // -timeout <d>
-	Race     *bool    `yaml:"race,omitempty"`     // -race
-	Coverage *bool    `yaml:"coverage,omitempty"` // -coverprofile
+	Race        *bool    `yaml:"race,omitempty"`         // -race
+	Coverage    *bool    `yaml:"coverage,omitempty"`     // -coverprofile
+	CoverageMin *float64 `yaml:"coverage_min,omitempty"` // gate: fail the suite if statement coverage < this %
 
 	// ── Rust (native `cargo test` flag projections) ─────────────────────────
 	Workspace *bool    `yaml:"workspace,omitempty"` // --workspace

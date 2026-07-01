@@ -39,6 +39,19 @@ func TestParseGoTest_Coverage(t *testing.T) {
 	}
 }
 
+func TestParseCoverTotal(t *testing.T) {
+	const funcOut = `github.com/x/foo/a.go:10:	Add		100.0%
+github.com/x/foo/b.go:20:	Sub		0.0%
+total:				(statements)	73.2%
+`
+	if got, ok := parseCoverTotal(funcOut); !ok || got != 73.2 {
+		t.Errorf("parseCoverTotal = %v,%v; want 73.2,true", got, ok)
+	}
+	if _, ok := parseCoverTotal("no total line here\n"); ok {
+		t.Error("missing total line should return ok=false")
+	}
+}
+
 // Without -cover there is no coverage line, so Coverage stays "not measured" (<0).
 func TestParseGoTest_NoCoverage(t *testing.T) {
 	const stream = `{"Action":"pass","Package":"x/foo","Test":"TestA","Elapsed":0}

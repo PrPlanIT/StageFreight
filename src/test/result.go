@@ -23,11 +23,13 @@ type SuiteResult struct {
 	ID       string
 	Tool     config.TestTool
 	Gate     config.Gate
-	Status   string
-	Duration time.Duration
-	Packages []PackageResult // per-package detail (Go suites, parsed from -json)
-	Output   string          // captured stderr (build errors etc.)
-	Err      error           // execution error (process failure / non-zero exit)
+	Status      string
+	Duration    time.Duration
+	Packages    []PackageResult // per-package detail (Go suites, parsed from -json)
+	Coverage    float64         // statement-weighted suite total %; <0 = not measured
+	CoverageMin float64         // gate threshold %; 0 = none
+	Output      string          // captured stderr (build errors etc.)
+	Err         error           // execution error (process failure / non-zero exit)
 }
 
 // PackageResult is one package's outcome, parsed from `go test -json` — the
