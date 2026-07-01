@@ -62,11 +62,51 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 		version = def.DefaultVer
 	}
 
-	return resolveWithDef(rootDir, def, version)
+	return resolveWithDef(rootDir, def, version, "")
 }
 
-// resolveWithDef is the generic resolver for all non-Go tools.
-func resolveWithDef(rootDir string, def ToolDef, version string) (Result, error) {
+// ResolvePinned is Resolve for tools whose integrity is a project-pinned SHA256
+// (from toolchains.desired.<tool>.sha256), not an upstream checksum manifest —
+// e.g. cargo-llvm-cov, whose upstream ships BLAKE3. The downloaded artifact is
+// verified against sha256. An empty sha256 falls back to the tool's ChecksumURL,
+// so this is a strict superset of Resolve.
+func ResolvePinned(rootDir, tool, version, sha256 string) (Result, error) {
+	if tool == "go" || tool == "rust" {
+		return Resolve(rootDir, tool, version) // distributions verify their own way
+	}
+	def, ok := LookupTool(tool)
+	if !ok {
+		return Result{}, fmt.Errorf("unsupported toolchain %q", tool)
+	}
+	if version == "" {
+		version = def.DefaultVer
+	}
+	return resolveWithDef(rootDir, def, version, sha256)
+}
+
+// FetchArtifactSHA256 downloads a tool's release artifact and returns its SHA256 —
+// the onboarding/deps derivation step that makes a pinned digest ecosystem-agnostic
+// (works whether upstream publishes SHA256, BLAKE3, or nothing at all).
+func FetchArtifactSHA256(tool, version string) (string, error) {
+	def, ok := LookupTool(tool)
+	if !ok {
+		return "", fmt.Errorf("unsupported toolchain %q", tool)
+	}
+	if version == "" {
+		version = def.DefaultVer
+	}
+	archivePath, err := downloadToTemp(def.DownloadURL(version, runtime.GOOS, runtime.GOARCH))
+	if err != nil {
+		return "", fmt.Errorf("fetch %s %s: %w", tool, version, err)
+	}
+	defer os.Remove(archivePath)
+	return fileSHA256(archivePath)
+}
+
+// resolveWithDef is the generic resolver for all non-Go/Rust tools. pinnedSHA, when
+// non-empty, is the project-pinned artifact digest (config); otherwise integrity
+// comes from the tool's upstream ChecksumURL. One MUST be present.
+func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Result, error) {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	sourceURL := def.DownloadURL(version, goos, goarch)
@@ -127,12 +167,21 @@ func resolveWithDef(rootDir string, def ToolDef, version string) (Result, error)
 		}
 	}
 
-	// Fetch checksum
+	// Determine the expected artifact digest. A pinned SHA256 (the project trust
+	// root, from toolchains.desired.<tool>.sha256) wins; otherwise fetch it from the
+	// upstream SHA256 manifest. One MUST be present — no unverified path in this layer.
 	downloadFilename := filepath.Base(sourceURL)
-	checksumURL := def.ChecksumURL(version, goos, goarch)
-	expectedSHA, err := fetchChecksumFromURL(checksumURL, downloadFilename)
-	if err != nil {
-		return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
+	var expectedSHA string
+	switch {
+	case pinnedSHA != "":
+		expectedSHA = pinnedSHA
+	case def.ChecksumURL != nil:
+		expectedSHA, err = fetchChecksumFromURL(def.ChecksumURL(version, goos, goarch), downloadFilename)
+		if err != nil {
+			return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
+		}
+	default:
+		return Result{}, fmt.Errorf("toolchain %s %s: no integrity source — pin toolchains.desired.%s.sha256 or provide a checksum URL", def.Name, version, def.Name)
 	}
 
 	// Download

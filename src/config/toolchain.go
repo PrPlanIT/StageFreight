@@ -9,7 +9,13 @@ type ToolchainConfig struct {
 	Desired map[string]ToolPinConfig `yaml:"desired,omitempty"`
 }
 
-// ToolPinConfig declares the desired version for a single tool.
+// ToolPinConfig declares the desired version for a single tool — and, for tools
+// whose upstream doesn't publish a SHA256 checksum manifest our resolver can consume
+// (e.g. cargo-llvm-cov ships BLAKE3), the pinned artifact digest. The digest is
+// MUTABLE PROJECT STATE: deps derives and rewrites it in lockstep with the version
+// (transactional upgrade), and the runtime resolver verifies downloaded bytes
+// against it. Empty SHA256 means "verify via the tool's upstream ChecksumURL."
 type ToolPinConfig struct {
 	Version string `yaml:"version,omitempty"`
+	SHA256  string `yaml:"sha256,omitempty"`
 }

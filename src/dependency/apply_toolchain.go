@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // applyToolchainDesiredUpdates updates toolchains.desired versions in .stagefreight.yml.
@@ -45,26 +46,44 @@ func applyToolchainDesiredUpdates(deps []freshness.Dependency, repoRoot string) 
 		toolName := dep.Name
 		found := false
 
-		// Search ONLY within the desired section for this tool's version line
+		// Search ONLY within the desired section for this tool's block.
 		for i := desiredStart; i <= desiredEnd && i < len(lines)-1; i++ {
-			trimmed := strings.TrimSpace(lines[i])
-			if trimmed == toolName+":" {
-				// Check next line for version
-				nextTrimmed := strings.TrimSpace(lines[i+1])
-				if strings.HasPrefix(nextTrimmed, "version:") {
-					indent := lines[i+1][:len(lines[i+1])-len(strings.TrimLeft(lines[i+1], " "))]
-					lines[i+1] = indent + fmt.Sprintf(`version: "%s"`, dep.Latest)
+			if strings.TrimSpace(lines[i]) != toolName+":" {
+				continue
+			}
+			keyIndent := leadIndentWidth(lines[i])
+			verIdx, shaIdx := findToolBlockLines(lines, i, keyIndent, desiredEnd)
+			if verIdx < 0 {
+				continue // this occurrence has no version line — keep looking
+			}
+
+			// A digest-pinned tool must update version AND sha256 TOGETHER, or neither
+			// (transactional). Derive the new digest FIRST — a failure aborts the bump,
+			// so we never leave a stale digest that would break verification.
+			var newSHA string
+			if shaIdx >= 0 {
+				s, shaErr := toolchain.FetchArtifactSHA256(toolName, dep.Latest)
+				if shaErr != nil {
+					skipped = append(skipped, SkippedDep{Dep: dep, Reason: "could not derive pinned sha256: " + shaErr.Error()})
 					found = true
-					modified = true
-					applied = append(applied, AppliedUpdate{
-						Dep:        dep,
-						OldVer:     dep.Current,
-						NewVer:     dep.Latest,
-						UpdateType: updateType(dep.Current, dep.Latest),
-					})
 					break
 				}
+				newSHA = s
 			}
+
+			lines[verIdx] = leadIndent(lines[verIdx]) + fmt.Sprintf(`version: "%s"`, dep.Latest)
+			if shaIdx >= 0 {
+				lines[shaIdx] = leadIndent(lines[shaIdx]) + fmt.Sprintf(`sha256: "%s"`, newSHA)
+			}
+			found = true
+			modified = true
+			applied = append(applied, AppliedUpdate{
+				Dep:        dep,
+				OldVer:     dep.Current,
+				NewVer:     dep.Latest,
+				UpdateType: updateType(dep.Current, dep.Latest),
+			})
+			break
 		}
 
 		if !found {
@@ -132,4 +151,29 @@ func findDesiredSection(lines []string) (int, int) {
 		return desiredStart, len(lines) - 1
 	}
 	return -1, -1
+}
+
+func leadIndent(line string) string      { return line[:leadIndentWidth(line)] }
+func leadIndentWidth(line string) int    { return len(line) - len(strings.TrimLeft(line, " ")) }
+
+// findToolBlockLines returns the version and sha256 line indices within one tool's
+// block — the lines indented under keyIdx up to sectionEnd — or -1 for each.
+func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verIdx, shaIdx int) {
+	verIdx, shaIdx = -1, -1
+	for j := keyIdx + 1; j <= sectionEnd && j < len(lines); j++ {
+		t := strings.TrimSpace(lines[j])
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if leadIndentWidth(lines[j]) <= keyIndent {
+			break // dedent — left this tool's block
+		}
+		if strings.HasPrefix(t, "version:") {
+			verIdx = j
+		}
+		if strings.HasPrefix(t, "sha256:") {
+			shaIdx = j
+		}
+	}
+	return
 }
