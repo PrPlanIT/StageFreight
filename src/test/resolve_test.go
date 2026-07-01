@@ -39,7 +39,7 @@ func TestRustArgv_WorkspaceFeaturesTestsRelease(t *testing.T) {
 	tr := true
 	s := config.TestSuite{Tool: config.TestToolRust, Features: []string{"integration"}, Tests: []string{"api"}, Release: &tr}
 	got := rustArgv(s, true) // --workspace inferred from manifest
-	want := []string{"cargo", "test", "--workspace", "--release", "--features", "integration", "--test", "api"}
+	want := []string{"cargo", "test", "--no-fail-fast", "--workspace", "--release", "--features", "integration", "--test", "api"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rustArgv = %v\n want %v", got, want)
 	}
@@ -48,7 +48,7 @@ func TestRustArgv_WorkspaceFeaturesTestsRelease(t *testing.T) {
 func TestRustArgv_Nextest(t *testing.T) {
 	tr := true
 	got := rustArgv(config.TestSuite{Tool: config.TestToolRust, Nextest: &tr}, false)
-	want := []string{"cargo", "nextest", "run"}
+	want := []string{"cargo", "nextest", "run", "--no-fail-fast"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rustArgv = %v, want %v", got, want)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,9 +76,10 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, onPkg func(P
 			env = append(env, "CARGO_HOME="+ch)
 		}
 		env = setEnv(env, "PATH", filepath.Dir(res.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		return runRustSuite(ctx, sr, s, argv, env, onPkg)
 	}
 
-	// Generic exec (rust/script) — no per-package JSON, so capture and record.
+	// Generic exec (script escape hatch) — no per-unit projection, capture + record.
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = s.Dir
@@ -93,6 +95,50 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, onPkg func(P
 	if err != nil {
 		sr.Status = StatusFailed
 		sr.Err = err
+	} else {
+		sr.Status = StatusPassed
+	}
+	return sr
+}
+
+// runRustSuite runs a Rust suite via `cargo test`, parsing the merged output into
+// per-test-binary results and streaming onPkg as each finishes. cargo prints
+// "Running <binary>" to stderr and the libtest results to stdout, so both are merged
+// into one ordered stream. A compile failure (nothing parsed + non-zero exit) is
+// surfaced as a synthetic failure so the section still says why.
+func runRustSuite(ctx context.Context, sr SuiteResult, s ResolvedSuite, argv, env []string, onPkg func(PackageResult)) SuiteResult {
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = s.Dir
+	cmd.Env = env
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw // exec serializes writes when Stdout==Stderr
+	if err := cmd.Start(); err != nil {
+		return failSuite(sr, fmt.Errorf("starting cargo test: %w", err))
+	}
+	waitErr := make(chan error, 1)
+	go func() { waitErr <- cmd.Wait(); pw.Close() }()
+
+	var raw bytes.Buffer
+	pkgs := parseCargoTest(io.TeeReader(pr, &raw), onPkg)
+	err := <-waitErr
+
+	sr.Duration = time.Since(start)
+	sr.Packages = pkgs
+	sr.Output = raw.String()
+	if err != nil {
+		sr.Status = StatusFailed
+		sr.Err = err
+		if len(pkgs) == 0 {
+			// compile error / unrecognized output — keep the section honest.
+			fp := PackageResult{Rel: "cargo test", Status: StatusFailed,
+				Failures: []TestFailure{{Name: "(build/run)", Output: raw.String()}}}
+			sr.Packages = []PackageResult{fp}
+			if onPkg != nil {
+				onPkg(fp)
+			}
+		}
 	} else {
 		sr.Status = StatusPassed
 	}

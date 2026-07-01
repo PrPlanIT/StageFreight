@@ -162,6 +162,9 @@ func rustArgv(s config.TestSuite, workspaceFromManifest bool) []string {
 	} else {
 		argv = []string{"cargo", "test"}
 	}
+	// Run EVERY test binary and report every failure — a gate wants the whole
+	// picture, not just the first failing target (cargo's default fail-fast).
+	argv = append(argv, "--no-fail-fast")
 	if boolVal(s.Workspace) || workspaceFromManifest {
 		argv = append(argv, "--workspace")
 	}
