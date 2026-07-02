@@ -633,6 +633,7 @@ commit:
 | `timeout` | `suites.timeout` | string | No | — | string value |
 | `race` | `suites.race` | bool | No | — | bool value |
 | `coverage` | `suites.coverage` | bool | No | — | bool value |
+| `coverage_min` | `suites.coverage_min` | float64 | No | — | float64 value |
 | `workspace` | `suites.workspace` | bool | No | — | bool value |
 | `features` | `suites.features` | []string | No | — | []string value |
 | `tests` | `suites.tests` | []string | No | — | []string value |
