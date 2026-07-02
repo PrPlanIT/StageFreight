@@ -82,7 +82,11 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 			// section — VISIBLE by default, collapsible. Seeing every test is the trust
 			// feature; we never omit, only allow folding. Suite header above and summary
 			// below stay unfolded. No-op outside GitLab CI.
-			output.SectionStart(w, "sf_test_"+s.ID, "per-package results")
+			// GitLab prepends a ▸ toggle and appends a duration badge to this line and
+			// renders it OUTSIDE our box frame, so we can't frame it — but we style the
+			// label as a box-divider so it reads as an intentional collapsible sub-header
+			// of the Test box rather than a stray phrase.
+			output.SectionStart(w, "sf_test_"+s.ID, "──── per-package results ────")
 			sec.Row("    %-24s %6s %4s  %s", "package", "time", "cov", "description")
 			sr = runSuite(ctx, rootDir, s, tools[i], desired, func(p PackageResult) {
 				renderPackageRow(sec, p, color)

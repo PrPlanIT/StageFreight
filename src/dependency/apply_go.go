@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -22,19 +23,34 @@ type goRunner func(ctx context.Context, dir string, args ...string) ([]byte, err
 // resolveGoRunner resolves a Go toolchain via the StageFreight toolchain subsystem.
 // Downloads, verifies, and caches the binary if not already present.
 // No host assumptions. No DinD. No containers-for-tools.
+// resolveGoRunner is memoized per repo-root: a deps run resolves the Go toolchain
+// from several phases (apply, verify), but we resolve + render the provisioning ledger
+// exactly ONCE — a toolchain resolution is not a presentation event per call.
+var (
+	goRunnerMu   sync.Mutex
+	goRunnerMemo = map[string]goRunner{}
+)
+
 func resolveGoRunner(repoRoot string) (goRunner, error) {
+	goRunnerMu.Lock()
+	defer goRunnerMu.Unlock()
+	if r, ok := goRunnerMemo[repoRoot]; ok {
+		return r, nil
+	}
 	version := toolchain.ResolveGoVersion(".", repoRoot)
 	result, err := toolchain.Resolve(repoRoot, "go", version)
 	if err != nil {
 		return nil, fmt.Errorf("go toolchain: %w", err)
 	}
 	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(result, "dependency update")}, output.UseColor())
-	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	runner := goRunner(func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, result.Path, args...)
 		cmd.Dir = dir
 		cmd.Env = os.Environ()
 		return cmd.CombinedOutput()
-	}, nil
+	})
+	goRunnerMemo[repoRoot] = runner
+	return runner, nil
 }
 
 // applyGoUpdates applies Go module dependency updates.

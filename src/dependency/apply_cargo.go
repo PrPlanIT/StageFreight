@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -22,7 +23,19 @@ type cargoRunner func(ctx context.Context, dir string, args ...string) ([]byte, 
 // rust build engine uses (official dist, checksum-verified, no host fallback, no
 // container-for-tools) and returns a cargo runner with rustc/PATH wired for the
 // standalone install.
+// resolveCargoRunner is memoized per repo-root — resolve + render the provisioning
+// ledger exactly ONCE across the deps run's phases (see resolveGoRunner).
+var (
+	cargoRunnerMu   sync.Mutex
+	cargoRunnerMemo = map[string]cargoRunner{}
+)
+
 func resolveCargoRunner(repoRoot string) (cargoRunner, error) {
+	cargoRunnerMu.Lock()
+	defer cargoRunnerMu.Unlock()
+	if r, ok := cargoRunnerMemo[repoRoot]; ok {
+		return r, nil
+	}
 	version := toolchain.ResolveRustVersion(".", repoRoot)
 	res, err := toolchain.Resolve(repoRoot, "rust", version)
 	if err != nil {
@@ -30,7 +43,7 @@ func resolveCargoRunner(repoRoot string) (cargoRunner, error) {
 	}
 	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(res, "dependency update")}, output.UseColor())
 	binDir := filepath.Dir(res.Path)
-	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	runner := cargoRunner(func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, res.Path, args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),
@@ -38,7 +51,9 @@ func resolveCargoRunner(repoRoot string) (cargoRunner, error) {
 			"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		)
 		return cmd.CombinedOutput()
-	}, nil
+	})
+	cargoRunnerMemo[repoRoot] = runner
+	return runner, nil
 }
 
 // applyCargoUpdates applies Rust (Cargo.toml) version bumps with the same hash-guarded
