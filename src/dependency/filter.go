@@ -44,6 +44,14 @@ func FilterUpdateCandidates(deps []freshness.Dependency, cfg UpdateConfig, track
 }
 
 func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
+	// Indirect dependencies are managed transitively (go mod tidy after direct updates),
+	// never updated directly, so resolution deliberately skips them — leaving Latest
+	// empty. Classify them BEFORE the unresolved check, or they masquerade as "could not
+	// verify" when nothing was ever attempted.
+	if dep.Indirect {
+		return "indirect dependency"
+	}
+
 	// Unresolved: the latest version could NOT be verified (registry failure, empty
 	// response). Inability to determine state must never collapse into verified
 	// healthy — "couldn't check" is a different operational condition than "current".
@@ -61,11 +69,6 @@ func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[
 			return "major upgrade held — review (" + dep.Latest + " out of range)"
 		}
 		return "up to date"
-	}
-
-	// Indirect dependency (go.mod // indirect)
-	if dep.Indirect {
-		return "indirect dependency"
 	}
 
 	// Ecosystem filter

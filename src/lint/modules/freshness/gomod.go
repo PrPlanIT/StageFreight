@@ -105,7 +105,10 @@ func (m *freshnessModule) checkGoMod(ctx context.Context, file lint.FileInfo) ([
 func (m *freshnessModule) resolveGoModule(ctx context.Context, dep *Dependency) {
 	ep := m.cfg.registryEndpoint(EcosystemGoMod)
 	baseURL := m.cfg.registryURL(EcosystemGoMod, "https://proxy.golang.org")
-	url := fmt.Sprintf("%s/%s/@latest", strings.TrimRight(baseURL, "/"), dep.Name)
+	// The module proxy protocol case-encodes the path: every uppercase letter becomes
+	// "!"+lowercase. Without it, any module with an uppercase letter (e.g.
+	// github.com/Masterminds/...) 404s and is silently reported "unresolved".
+	url := fmt.Sprintf("%s/%s/@latest", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name))
 	dep.SourceURL = url
 
 	var resp goProxyLatest
@@ -115,4 +118,24 @@ func (m *freshnessModule) resolveGoModule(ctx context.Context, dep *Dependency) 
 	if resp.Version != "" {
 		dep.Latest = resp.Version
 	}
+}
+
+// escapeModPath applies the Go module proxy's case-encoding — every uppercase letter
+// becomes "!" followed by its lowercase form (e.g. "Masterminds" → "!masterminds") —
+// as required by the proxy protocol (golang.org/ref/mod#goproxy-protocol). Lowercase
+// paths pass through unchanged.
+func escapeModPath(p string) string {
+	if p == strings.ToLower(p) {
+		return p // no uppercase — nothing to encode
+	}
+	var b strings.Builder
+	b.Grow(len(p) + 8)
+	for _, r := range p {
+		if r >= 'A' && r <= 'Z' {
+			b.WriteByte('!')
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
