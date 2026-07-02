@@ -20,7 +20,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 		return model.Pipeline{}, fmt.Errorf("ci.image is required — set the StageFreight container image in .stagefreight.yml")
 	}
 
-	return model.Pipeline{
+	p := model.Pipeline{
 		Defaults: model.PipelineDefaults{
 			Image:            cfg.CI.Image,
 			Interruptible:    true,
@@ -57,7 +57,6 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					ExpireIn: "1 day",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
-				Routing:      model.RoutingSpec{Labels: cfg.CI.Routing.Perform.Labels},
 			},
 			{
 				Name:     "review",
@@ -97,7 +96,15 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Policy:       model.PolicySpec{AllowFailure: true, WhenAlways: true},
 			},
 		},
-	}, nil
+	}
+
+	// Per-job runner routing: a per-phase label set overrides the Default (which applies
+	// to every job). Keeping the whole pipeline on ONE runner is what makes the local,
+	// per-runner cache StageFreight configures persist across phases.
+	for i := range p.Jobs {
+		p.Jobs[i].Routing = model.RoutingSpec{Labels: cfg.CI.Routing.For(p.Jobs[i].Name)}
+	}
+	return p, nil
 }
 
 // packageRegistries lists the registries the publish job may push to, by config
