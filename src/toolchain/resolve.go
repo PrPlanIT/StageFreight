@@ -22,6 +22,15 @@ import (
 	"time"
 )
 
+// Trust levels record HOW an artifact was trusted on first fetch — the strongest
+// mechanism available wins. Surfaced so a trust-evaluation system communicates not
+// just THAT a tool resolved but HOW CONFIDENTLY it was trusted.
+const (
+	TrustPinned   = "pinned"   // explicit config fingerprint (strongest; user-asserted)
+	TrustChecksum = "checksum" // upstream-published checksum (integrity vs the origin's claim)
+	TrustTOFU     = "tofu"     // trust-on-first-use: no upstream claim; established locally, re-verified every run
+)
+
 // Result is the outcome of a toolchain resolution. Every field is populated.
 // Callers use Path for execution and can report provenance from the rest.
 type Result struct {
@@ -32,6 +41,7 @@ type Result struct {
 	SourceURL string // where it was (or would be) fetched from
 	SHA256    string // verified archive/binary checksum (provenance)
 	BinSHA256 string // extracted binary checksum (cache validation)
+	Trust     string // how it was trusted: TrustPinned | TrustChecksum | TrustTOFU
 }
 
 // Resolve ensures a tool at the requested version is available and verified.
@@ -103,9 +113,10 @@ func FetchArtifactSHA256(tool, version string) (string, error) {
 	return fileSHA256(archivePath)
 }
 
-// resolveWithDef is the generic resolver for all non-Go/Rust tools. pinnedSHA, when
-// non-empty, is the project-pinned artifact digest (config); otherwise integrity
-// comes from the tool's upstream ChecksumURL. One MUST be present.
+// resolveWithDef is the generic resolver for all non-Go/Rust tools. Trust source,
+// strongest first: pinnedSHA (explicit config fingerprint) → upstream ChecksumURL →
+// TOFU (no upstream claim; first-use trust, cached + re-verified every run). Every
+// outcome is recorded in Result.Trust — there is no silent unverified path.
 func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Result, error) {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
@@ -133,6 +144,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 			SourceURL: meta.SourceURL,
 			SHA256:    meta.SHA256,
 			BinSHA256: meta.BinSHA256,
+			Trust:     meta.Trust,
 		}, nil
 	}
 
@@ -162,26 +174,29 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 					SourceURL: meta.SourceURL,
 					SHA256:    meta.SHA256,
 					BinSHA256: meta.BinSHA256,
+					Trust:     meta.Trust,
 				}, nil
 			}
 		}
 	}
 
-	// Determine the expected artifact digest. A pinned SHA256 (the project trust
-	// root, from toolchains.desired.<tool>.sha256) wins; otherwise fetch it from the
-	// upstream SHA256 manifest. One MUST be present — no unverified path in this layer.
+	// Establish the trust source, strongest available first: an explicit config pin
+	// (fingerprint), then the upstream-published checksum, then TOFU — first-use trust
+	// when the upstream offers no claim to verify against (cached + re-verified every
+	// run thereafter). No unverifiable-and-unrecorded path: every outcome is labelled.
 	downloadFilename := filepath.Base(sourceURL)
-	var expectedSHA string
+	var expectedSHA, trust string
 	switch {
 	case pinnedSHA != "":
-		expectedSHA = pinnedSHA
+		expectedSHA, trust = pinnedSHA, TrustPinned
 	case def.ChecksumURL != nil:
 		expectedSHA, err = fetchChecksumFromURL(def.ChecksumURL(version, goos, goarch), downloadFilename)
 		if err != nil {
 			return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
 		}
+		trust = TrustChecksum
 	default:
-		return Result{}, fmt.Errorf("toolchain %s %s: no integrity source — pin toolchains.desired.%s.sha256 or provide a checksum URL", def.Name, version, def.Name)
+		trust = TrustTOFU
 	}
 
 	// Download
@@ -196,9 +211,11 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain %s %s: checksum computation failed: %w", def.Name, version, err)
 	}
-	if actualSHA != expectedSHA {
+	if expectedSHA != "" && actualSHA != expectedSHA {
 		return Result{}, fmt.Errorf("toolchain %s %s: checksum mismatch\n  expected: %s\n  actual:   %s\n  source:   %s", def.Name, version, expectedSHA, actualSHA, sourceURL)
 	}
+	// TOFU (expectedSHA == ""): the computed digest becomes the established fingerprint,
+	// persisted below and re-verified against the cached binary on every later run.
 
 	// Install based on format
 	if err := os.MkdirAll(filepath.Join(installDir, "bin"), 0755); err != nil {
@@ -241,6 +258,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 		SourceURL: sourceURL,
 		SHA256:    actualSHA,
 		BinSHA256: binSHA,
+		Trust:     trust,
 	}
 	if err := writeMetadataTo(installRoot, def.Name, version, meta); err != nil {
 		os.RemoveAll(installDir)
@@ -255,6 +273,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 		SourceURL: sourceURL,
 		SHA256:    actualSHA,
 		BinSHA256: binSHA,
+		Trust:     trust,
 	}, nil
 }
 

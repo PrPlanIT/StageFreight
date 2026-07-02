@@ -17,4 +17,23 @@ func Report(w io.Writer, r Result) {
 	fmt.Fprintf(w, "    source      %s\n", r.SourceURL)
 	fmt.Fprintf(w, "    archive     %s\n", r.SHA256)
 	fmt.Fprintf(w, "    binary      %s\n", r.BinSHA256)
+	if r.Trust != "" {
+		fmt.Fprintf(w, "    trust       %s\n", TrustLabel(r.Trust))
+	}
+}
+
+// TrustLabel renders a trust source as a plain-language phrase for output — a
+// trust-evaluation system communicates HOW CONFIDENTLY a tool was trusted, not just
+// that it resolved.
+func TrustLabel(trust string) string {
+	switch trust {
+	case TrustPinned:
+		return "pinned — verified against the fingerprint in config"
+	case TrustChecksum:
+		return "checksum — verified against the upstream published digest"
+	case TrustTOFU:
+		return "TOFU — established on first use (no upstream claim); re-verified every run"
+	default:
+		return trust
+	}
 }

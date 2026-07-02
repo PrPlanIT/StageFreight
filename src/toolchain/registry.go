@@ -154,6 +154,36 @@ var registry = map[string]ToolDef{
 		},
 		Format: "tar.gz",
 	},
+	// Rust coverage/runner subcommands (musl static → fit the SF substrate).
+	// cargo-llvm-cov publishes NO checksum upstream → resolves via TOFU: the fingerprint
+	// is established on first use, cached, and re-verified every run. cargo-nextest
+	// publishes a .sha256 sidecar → verified against upstream like any tool. Either can
+	// be upgraded to a hard pin by an explicit sha in toolchains.desired (optional).
+	"cargo-llvm-cov": {
+		Name:        "cargo-llvm-cov",
+		BinaryName:  "cargo-llvm-cov",
+		DefaultVer:  "0.8.7",
+		GitHubOwner: "taiki-e",
+		GitHubRepo:  "cargo-llvm-cov",
+		DownloadURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/taiki-e/cargo-llvm-cov/releases/download/v%s/cargo-llvm-cov-x86_64-unknown-linux-musl.tar.gz", ver)
+		},
+		Format: "tar.gz",
+	},
+	"cargo-nextest": {
+		Name:        "cargo-nextest",
+		BinaryName:  "cargo-nextest",
+		DefaultVer:  "0.9.138",
+		GitHubOwner: "nextest-rs",
+		GitHubRepo:  "nextest",
+		DownloadURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-x86_64-unknown-linux-musl.tar.gz", ver, ver)
+		},
+		ChecksumURL: func(ver, goos, goarch string) string {
+			return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-x86_64-unknown-linux-musl.sha256", ver, ver)
+		},
+		Format: "tar.gz",
+	},
 }
 
 // LookupTool returns the ToolDef for a named tool.

@@ -16,6 +16,7 @@ type ResolvedSuite struct {
 	Gate        config.Gate
 	Argv        []string
 	Dir         string
+	Coverage    bool    // coverage requested (go: -cover; rust: cargo llvm-cov)
 	CoverageMin float64 // gate threshold %; 0 = none
 	Synthesized bool
 	Provenance  string // human note (synthesized suites): why / from which build
@@ -95,7 +96,7 @@ func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 }
 
 func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
-	rs := ResolvedSuite{ID: s.ID, Tool: s.Tool, Gate: s.EffectiveGate(), Dir: rootDir}
+	rs := ResolvedSuite{ID: s.ID, Tool: s.Tool, Gate: s.EffectiveGate(), Dir: rootDir, Coverage: boolVal(s.Coverage)}
 	if s.CoverageMin != nil {
 		rs.CoverageMin = *s.CoverageMin
 	}

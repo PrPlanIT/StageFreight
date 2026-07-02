@@ -2,6 +2,7 @@ package test
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
 	"path"
 	"regexp"
@@ -152,4 +153,22 @@ func rustLabel(crate, desc string) string {
 		target = desc[i+1:]
 	}
 	return strings.TrimSuffix(path.Base(target), ".rs")
+}
+
+// parseLlvmCovJSON reads the total LINE coverage percent from cargo-llvm-cov's
+// `report --json` (llvm-cov export format: data[0].totals.lines.percent).
+func parseLlvmCovJSON(data []byte) (float64, bool) {
+	var r struct {
+		Data []struct {
+			Totals struct {
+				Lines struct {
+					Percent float64 `json:"percent"`
+				} `json:"lines"`
+			} `json:"totals"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil || len(r.Data) == 0 {
+		return 0, false
+	}
+	return r.Data[0].Totals.Lines.Percent, true
 }

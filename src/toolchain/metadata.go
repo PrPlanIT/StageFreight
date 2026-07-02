@@ -21,6 +21,11 @@ type Metadata struct {
 	// Used on cache hit to verify the binary hasn't been tampered with.
 	BinSHA256 string `json:"bin_sha256"`
 
+	// Trust records HOW the artifact was trusted on first fetch: TrustPinned
+	// (explicit config fingerprint), TrustChecksum (upstream-published checksum),
+	// or TrustTOFU (established on first use — no upstream claim to verify against).
+	Trust string `json:"trust,omitempty"`
+
 	InstalledAt string `json:"installed_at"`
 	InstalledBy string `json:"installed_by"`
 }

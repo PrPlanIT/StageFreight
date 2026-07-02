@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestParseLlvmCovJSON(t *testing.T) {
+	const j = `{"type":"llvm.coverage.json.export","version":"2.0.1","data":[{"totals":{"lines":{"count":200,"covered":146,"percent":73.0},"functions":{"percent":80.0}}}]}`
+	if got, ok := parseLlvmCovJSON([]byte(j)); !ok || got != 73.0 {
+		t.Errorf("parseLlvmCovJSON = %v,%v; want 73.0,true", got, ok)
+	}
+	if _, ok := parseLlvmCovJSON([]byte(`{"data":[]}`)); ok {
+		t.Error("empty data array should return ok=false")
+	}
+	if _, ok := parseLlvmCovJSON([]byte(`not json`)); ok {
+		t.Error("invalid json should return ok=false")
+	}
+}
+
 // Real `cargo test` output — a single crate: unit tests (2 pass, 1 fail),
 // integration binary, and a doc-test binary.
 const cargoSingleCrate = `   Compiling sfrusttest v0.1.0 (/work)

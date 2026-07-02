@@ -32,7 +32,7 @@ func realizeSubstrate(ctx context.Context, suites []ResolvedSuite) []substrate.R
 // per package as it completes — so the renderer can stream rows live INTO its
 // section. Execution errors are recorded on the result (Status=failed), never
 // returned; the verdict lives in the SuiteResult.
-func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, onPkg func(PackageResult)) SuiteResult {
+func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
 	sr := SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate}
 	if len(s.Argv) == 0 {
 		sr.Status = StatusSkipped
@@ -76,7 +76,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, onPkg func(P
 			env = append(env, "CARGO_HOME="+ch)
 		}
 		env = setEnv(env, "PATH", filepath.Dir(res.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
-		return runRustSuite(ctx, sr, s, argv, env, onPkg)
+		return runRustSuite(ctx, sr, rootDir, s, argv, env, desired, onPkg)
 	}
 
 	// Generic exec (script escape hatch) — no per-unit projection, capture + record.
@@ -106,9 +106,25 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, onPkg func(P
 // "Running <binary>" to stderr and the libtest results to stdout, so both are merged
 // into one ordered stream. A compile failure (nothing parsed + non-zero exit) is
 // surfaced as a synthetic failure so the section still says why.
-func runRustSuite(ctx context.Context, sr SuiteResult, s ResolvedSuite, argv, env []string, onPkg func(PackageResult)) SuiteResult {
+func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s ResolvedSuite, argv, env []string, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
+	sr.CoverageMin, sr.Coverage = s.CoverageMin, -1
+	cargoBin := argv[0]
+	runArgv := argv
+
+	// Coverage runs via cargo-llvm-cov (project-pinned; verified digest) — it wraps
+	// cargo test under instrumentation. Resolve it, graft llvm-tools, put it on PATH,
+	// and swap `cargo test <flags>` → `cargo llvm-cov --no-report <flags>`.
+	if s.Coverage {
+		cvEnv, err := prepareRustCoverage(rootDir, s.Dir, cargoBin, env, desired)
+		if err != nil {
+			return failSuite(sr, err)
+		}
+		env = cvEnv
+		runArgv = append([]string{cargoBin, "llvm-cov", "--no-report"}, argv[2:]...)
+	}
+
 	start := time.Now()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, runArgv[0], runArgv[1:]...)
 	cmd.Dir = s.Dir
 	cmd.Env = env
 	pr, pw := io.Pipe()
@@ -142,7 +158,58 @@ func runRustSuite(ctx context.Context, sr SuiteResult, s ResolvedSuite, argv, en
 	} else {
 		sr.Status = StatusPassed
 	}
+
+	// Coverage report (line %) + threshold gate — only after a clean run.
+	if s.Coverage && sr.Status == StatusPassed {
+		if total, ok := rustCoverageTotal(ctx, cargoBin, s.Dir, env); ok {
+			sr.Coverage = total
+			if sr.CoverageMin > 0 && total < sr.CoverageMin {
+				sr.Status = StatusFailed
+				sr.Err = fmt.Errorf("coverage %.1f%% below minimum %.1f%%", total, sr.CoverageMin)
+			}
+		}
+	}
 	return sr
+}
+
+// prepareRustCoverage resolves the pinned cargo-llvm-cov, grafts llvm-tools into the
+// rust prefix, and returns an env with cargo-llvm-cov on PATH (so `cargo llvm-cov`
+// resolves). Fails clearly when the tool isn't pinned — coverage requires an explicit
+// project trust root.
+func prepareRustCoverage(rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolPinConfig) ([]string, error) {
+	// Both fields optional: version → registry DefaultVer, sha256 → TOFU. A user MAY
+	// pin either in toolchains.desired for stronger guarantees, but coverage works with
+	// nothing configured.
+	pin := desired["cargo-llvm-cov"]
+	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", pin.Version, pin.SHA256)
+	if err != nil {
+		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
+	}
+	if err := toolchain.EnsureRustLlvmTools(cargoBin, toolchain.ResolveRustVersion(crateDir, rootDir)); err != nil {
+		return nil, fmt.Errorf("provisioning llvm-tools: %w", err)
+	}
+	return setEnv(env, "PATH", filepath.Dir(res.Path)+string(os.PathListSeparator)+getEnv(env, "PATH")), nil
+}
+
+// rustCoverageTotal reads the line-coverage % from `cargo llvm-cov report --json`.
+func rustCoverageTotal(ctx context.Context, cargoBin, crateDir string, env []string) (float64, bool) {
+	cmd := exec.CommandContext(ctx, cargoBin, "llvm-cov", "report", "--json")
+	cmd.Dir, cmd.Env = crateDir, env
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, false
+	}
+	return parseLlvmCovJSON(out)
+}
+
+func getEnv(env []string, key string) string {
+	prefix := key + "="
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			return e[len(prefix):]
+		}
+	}
+	return ""
 }
 
 func failSuite(sr SuiteResult, err error) SuiteResult {

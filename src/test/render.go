@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 )
@@ -35,7 +36,7 @@ func (i Intent) title() string {
 // collapsed to one callout. Derived from `go test -json`, never raw transport. The
 // single presentation surface for the audition gate, deps re-verification, and the
 // `stagefreight test` CLI. Returns the verdict.
-func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, w io.Writer, intent Intent) *TestResult {
+func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desired map[string]config.ToolPinConfig, w io.Writer, intent Intent) *TestResult {
 	color := output.UseColor()
 	sec := output.NewSection(w, intent.title(), 0, color)
 
@@ -61,7 +62,7 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, w io
 			sec.Row("  [synthesized: %s]", s.Provenance)
 		}
 
-		sr := runSuite(ctx, rootDir, s, func(p PackageResult) {
+		sr := runSuite(ctx, rootDir, s, desired, func(p PackageResult) {
 			renderPackageRow(sec, p, color)
 		})
 		res.Suites = append(res.Suites, sr)

@@ -43,7 +43,7 @@ func runTestCmd(cmd *cobra.Command, args []string) error {
 		fmt.Println("  test: no suites to run")
 		return nil
 	}
-	res := test.RunRender(context.Background(), suites, rootDir, os.Stdout, test.IntentCorrectness)
+	res := test.RunRender(context.Background(), suites, rootDir, cfg.Toolchains.Desired, os.Stdout, test.IntentCorrectness)
 	if res.Failed() {
 		// Local convenience: non-zero exit, already rendered.
 		return silentExit(fmt.Errorf("tests failed"))

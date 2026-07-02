@@ -305,6 +305,93 @@ func installRustDist(archivePath, installDir, version, triple string) error {
 	return nil
 }
 
+// EnsureRustLlvmTools grafts the llvm-tools-preview component (llvm-cov, llvm-profdata)
+// into an installed Rust prefix so cargo-llvm-cov can produce coverage. Idempotent:
+// a no-op once llvm-cov is present. The component tarball URL + SHA256 come from the
+// verified Rust channel manifest, matching rustc's exact LLVM version. cargoPath is
+// the resolved cargo binary (<prefix>/bin/cargo).
+func EnsureRustLlvmTools(cargoPath, version string) error {
+	prefix := filepath.Dir(filepath.Dir(cargoPath))
+	triple := rustHostTriple(runtime.GOOS, runtime.GOARCH, hostLibc())
+	if _, err := os.Stat(filepath.Join(prefix, "lib", "rustlib", triple, "bin", "llvm-cov")); err == nil {
+		return nil // already grafted
+	}
+
+	url, sha, err := rustComponentArtifact(version, "llvm-tools-preview", triple)
+	if err != nil {
+		return err
+	}
+	archive, err := downloadToTemp(url)
+	if err != nil {
+		return fmt.Errorf("download llvm-tools: %w", err)
+	}
+	defer os.Remove(archive)
+	if actual, err := fileSHA256(archive); err != nil || actual != sha {
+		return fmt.Errorf("llvm-tools checksum mismatch (expected %s)", sha)
+	}
+
+	tmp, err := os.MkdirTemp("", "sf-llvmtools-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	if err := extractTarGzTo(archive, tmp); err != nil {
+		return fmt.Errorf("extract llvm-tools: %w", err)
+	}
+	// install.sh shells to bash (see installRustDist) — realize it via substrate.
+	_, _ = substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
+		[]substrate.Need{{Capability: "bash", Reason: "rust-component-install-script", Source: "install.sh"}})
+	script := filepath.Join(tmp, fmt.Sprintf("llvm-tools-%s-%s", version, triple), "install.sh")
+	if out, err := exec.Command("sh", script, "--prefix="+prefix, "--disable-ldconfig").CombinedOutput(); err != nil {
+		return fmt.Errorf("llvm-tools install.sh: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// rustComponentArtifact returns the verified .tar.gz URL + SHA256 for a Rust channel
+// component/target, parsed from the versioned channel manifest.
+func rustComponentArtifact(version, component, triple string) (url, sha string, err error) {
+	resp, err := httpGet("https://static.rust-lang.org/dist/channel-rust-" + version + ".toml")
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", "", fmt.Errorf("rust manifest %s: HTTP %d", version, resp.StatusCode)
+	}
+	want := fmt.Sprintf("[pkg.%s.target.%s]", component, triple)
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	inTarget := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "[") {
+			inTarget = line == want
+			continue
+		}
+		if !inTarget {
+			continue
+		}
+		if url == "" && strings.HasPrefix(line, "url =") {
+			url = tomlValue(line)
+		}
+		if sha == "" && strings.HasPrefix(line, "hash =") {
+			sha = tomlValue(line)
+		}
+		if url != "" && sha != "" {
+			return url, sha, nil
+		}
+	}
+	return "", "", fmt.Errorf("rust manifest: %s not found for %s", component, triple)
+}
+
+func tomlValue(line string) string {
+	if i := strings.IndexByte(line, '='); i >= 0 {
+		return strings.Trim(strings.TrimSpace(line[i+1:]), `"'`)
+	}
+	return ""
+}
+
 // extractTarGzTo extracts a .tar.gz tree verbatim into destDir (no prefix stripping).
 func extractTarGzTo(archivePath, destDir string) error {
 	f, err := os.Open(archivePath)

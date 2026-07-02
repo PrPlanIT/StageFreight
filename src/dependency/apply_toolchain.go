@@ -153,8 +153,8 @@ func findDesiredSection(lines []string) (int, int) {
 	return -1, -1
 }
 
-func leadIndent(line string) string      { return line[:leadIndentWidth(line)] }
-func leadIndentWidth(line string) int    { return len(line) - len(strings.TrimLeft(line, " ")) }
+func leadIndent(line string) string   { return line[:leadIndentWidth(line)] }
+func leadIndentWidth(line string) int { return len(line) - len(strings.TrimLeft(line, " ")) }
 
 // findToolBlockLines returns the version and sha256 line indices within one tool's
 // block — the lines indented under keyIdx up to sectionEnd — or -1 for each.
