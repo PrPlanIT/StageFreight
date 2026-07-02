@@ -181,6 +181,12 @@ func (e *Engine) doFastForward(result *SyncResult, class gitstate.StateClass, st
 	if err := gitstate.RequireState(state, "FAST_FORWARD", gitstate.StateCleanBehind); err != nil {
 		return result, err
 	}
+	// A fast-forward updates the worktree and could overwrite an untracked file on a
+	// path collision. Refuse unless the tree is pristine (untracked included) — the
+	// push preflight is untracked-tolerant, but a worktree-mutating step must not be.
+	if !state.WorktreeCleanStrict {
+		return result, fmt.Errorf("fast-forward would update the worktree but untracked files are present (they could be overwritten on a path collision) — commit, remove, or move them aside, then retry")
+	}
 
 	e.emit(gitstate.TransitionEvent{
 		From: class, Action: "FAST_FORWARD",
@@ -229,6 +235,13 @@ func (e *Engine) doReplayThenPush(result *SyncResult, class gitstate.StateClass,
 	// Explicit guard: REPLAY is only valid from DIVERGED.
 	if err := gitstate.RequireState(state, "REPLAY", gitstate.StateDiverged); err != nil {
 		return result, err
+	}
+	// The replay hard-resets to upstream, which can overwrite an untracked file whose
+	// path an incoming commit adds (captureWorktree deliberately leaves untracked files
+	// alone). Refuse unless the tree is pristine (untracked included) — untracked work
+	// is never silently clobbered by a rebase.
+	if !state.WorktreeCleanStrict {
+		return result, fmt.Errorf("rebase onto upstream would update the worktree but untracked files are present (a hard reset could overwrite them on a path collision) — commit, remove, or move them aside, then retry")
 	}
 
 	e.emit(gitstate.TransitionEvent{

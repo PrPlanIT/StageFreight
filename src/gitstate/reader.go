@@ -15,16 +15,17 @@ import (
 //
 // All fields are resolved once at read time. No polling.
 type RepoState struct {
-	Branch             string        // current branch name (empty if DetachedHEAD)
-	UpstreamRef        string        // e.g. "origin/main" — empty if not configured
-	UpstreamConfigured bool
-	AheadCount         int           // commits local has that remote does not
-	BehindCount        int           // commits remote has that local does not
-	DetachedHEAD       bool
-	WorktreeClean      bool          // true when no staged or unstaged changes exist
-	HeadHash           plumbing.Hash // current commit hash
-	UpstreamHash       plumbing.Hash // remote tracking hash (zero if not configured)
-	RemoteName         string        // e.g. "origin"
+	Branch              string // current branch name (empty if DetachedHEAD)
+	UpstreamRef         string // e.g. "origin/main" — empty if not configured
+	UpstreamConfigured  bool
+	AheadCount          int // commits local has that remote does not
+	BehindCount         int // commits remote has that local does not
+	DetachedHEAD        bool
+	WorktreeClean       bool          // true when no staged or unstaged-TRACKED changes exist (untracked files ignored) — gates push
+	WorktreeCleanStrict bool          // true only when the tree is pristine INCLUDING no untracked files — gates worktree-MUTATING transitions (fast-forward, rebase)
+	HeadHash            plumbing.Hash // current commit hash
+	UpstreamHash        plumbing.Hash // remote tracking hash (zero if not configured)
+	RemoteName          string        // e.g. "origin"
 }
 
 // Diverged returns true when local and remote have independent commits.
@@ -48,7 +49,13 @@ func ReadRepoState(repo *git.Repository) (RepoState, error) {
 	if sErr != nil {
 		return state, fmt.Errorf("reading worktree status: %w", sErr)
 	}
-	state.WorktreeClean = wtStatus.IsClean()
+	// Untracked files (scratch docs, unrelated new files) must not make a path-scoped
+	// commit un-pushable — they're never part of the commit or the push.
+	state.WorktreeClean = IsCleanIgnoringUntracked(wtStatus)
+	// Strict cleanliness (untracked included) gates the worktree-MUTATING transitions
+	// (fast-forward, rebase). Those can overwrite an untracked file on a path collision,
+	// so they refuse to run unless the tree is pristine — untracked work is never lost.
+	state.WorktreeCleanStrict = wtStatus.IsClean()
 
 	// Read raw HEAD to distinguish attached vs detached.
 	// repo.Head() always resolves to the commit hash — reading plumbing.HEAD

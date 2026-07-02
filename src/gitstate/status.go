@@ -89,6 +89,27 @@ func HasUnstagedChanges(s git.Status) bool {
 	return false
 }
 
+// IsCleanIgnoringUntracked reports whether the worktree has no STAGED or unstaged-TRACKED
+// changes, ignoring untracked files. Untracked files are never part of a commit or a push
+// and don't obstruct a fast-forward, so the sync/push state machine must not treat a stray
+// untracked file (a scratch doc, an unrelated new file) as "dirty" and refuse to push a
+// commit that's already made. A rebase that would collide with an untracked file still
+// surfaces its own clear git error.
+//
+// NOTE: go-git marks an untracked file as {Staging: Untracked, Worktree: Untracked} — the
+// Staging code is Untracked, NOT Unmodified — so this must exclude Untracked in BOTH the
+// staged and unstaged dimensions. (HasStagedChanges alone counts untracked as staged.)
+func IsCleanIgnoringUntracked(s git.Status) bool {
+	for _, fs := range s {
+		staged := fs.Staging != git.Unmodified && fs.Staging != git.Untracked
+		unstaged := fs.Worktree != git.Unmodified && fs.Worktree != git.Untracked
+		if staged || unstaged {
+			return false
+		}
+	}
+	return true
+}
+
 // StatusFileChange represents a file with its change status for the forge backend.
 type StatusFileChange struct {
 	Path    string
