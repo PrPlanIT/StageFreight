@@ -676,7 +676,12 @@ commit:
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `image` | `image` | string | Yes | — | string value |
+| `labels` | `routing.default.labels` | []string | No | — | []string value |
+| `labels` | `routing.audition.labels` | []string | No | — | []string value |
 | `labels` | `routing.perform.labels` | []string | No | — | []string value |
+| `labels` | `routing.review.labels` | []string | No | — | []string value |
+| `labels` | `routing.publish.labels` | []string | No | — | []string value |
+| `labels` | `routing.narrate.labels` | []string | No | — | []string value |
 
 ---
 
