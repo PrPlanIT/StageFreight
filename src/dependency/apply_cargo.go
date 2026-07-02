@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -26,7 +28,7 @@ func resolveCargoRunner(repoRoot string) (cargoRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("rust toolchain: %w", err)
 	}
-	toolchain.Report(os.Stderr, res)
+	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(res, "dependency update")}, output.UseColor())
 	binDir := filepath.Dir(res.Path)
 	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, res.Path, args...)

@@ -9,7 +9,8 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
-	"github.com/PrPlanIT/StageFreight/src/substrate"
+	"github.com/PrPlanIT/StageFreight/src/provision"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // Intent distinguishes WHY the suites ran, so the canonical render surface reads
@@ -38,39 +39,79 @@ func (i Intent) title() string {
 // `stagefreight test` CLI. Returns the verdict.
 func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desired map[string]config.ToolPinConfig, w io.Writer, intent Intent) *TestResult {
 	color := output.UseColor()
-	sec := output.NewSection(w, intent.title(), 0, color)
 
-	if realized := realizeSubstrate(ctx, suites); len(realized) > 0 {
-		renderSubstrate(sec, realized, color)
-		sec.Separator()
+	// Provisioning phase: realize native capabilities and resolve each suite's
+	// toolchain, then render the environment ledger in ITS OWN box, separate from the
+	// results. Toolchains are resolved here (cache-warm) so their provenance + trust
+	// land in the ledger; runSuite then executes against the captured Result.
+	ledger := provision.FromSubstrate(realizeSubstrate(ctx, suites))
+	tools := make([]toolchain.Result, len(suites))
+	toolErrs := make([]error, len(suites))
+	seen := map[string]bool{}
+	for i, s := range suites {
+		res, err := resolveSuiteToolchain(rootDir, s)
+		tools[i], toolErrs[i] = res, err
+		if err == nil && res.Tool != "" {
+			if k := res.Tool + "@" + res.Version; !seen[k] {
+				seen[k] = true
+				ledger = append(ledger, provision.FromToolchain(res, ""))
+			}
+		}
 	}
+	provision.Render(w, ledger, color)
 
+	// Results phase: one box, only about tests.
+	sec := output.NewSection(w, intent.title(), 0, color)
 	res := &TestResult{}
 	for i, s := range suites {
 		if i > 0 {
 			sec.Separator()
 		}
-		// Descriptive suite header — the verdict lives in the summary line below, so
-		// this stays stable while packages stream in beneath it.
-		head := fmt.Sprintf("%s   %s", s.ID, s.Tool)
-		if cmd := cmdShape(s); cmd != "" {
-			head += " · " + cmd
-		}
-		head += " · gate " + string(s.Gate)
-		sec.Row("%s", head)
+		sec.Row("%s", suiteHeader(s))
 		if s.Synthesized && s.Provenance != "" {
 			sec.Row("  [synthesized: %s]", s.Provenance)
 		}
+		if producesPackageRows(s.Tool) {
+			sec.Row("    %-24s %6s %4s  %s", "package", "time", "cov", "description")
+		}
 
-		sr := runSuite(ctx, rootDir, s, desired, func(p PackageResult) {
-			renderPackageRow(sec, p, color)
-		})
+		var sr SuiteResult
+		if toolErrs[i] != nil {
+			sr = failSuite(SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate},
+				fmt.Errorf("resolving %s toolchain: %w", s.Tool, toolErrs[i]))
+		} else {
+			sr = runSuite(ctx, rootDir, s, tools[i], desired, func(p PackageResult) {
+				renderPackageRow(sec, p, color)
+			})
+		}
 		res.Suites = append(res.Suites, sr)
 		renderSuiteSummary(sec, sr, color)
 	}
 
 	sec.Close()
 	return res
+}
+
+// suiteHeader renders a suite as operator-readable intent, not implementation tokens:
+//
+//	▸ unit — go test -race -cover ./... · gate: perform
+func suiteHeader(s ResolvedSuite) string {
+	verb := string(s.Tool) + " test"
+	if s.Tool == config.TestToolScript {
+		verb = "script"
+	}
+	head := "▸ " + s.ID + " — " + verb
+	if run := cmdShape(s); run != "" {
+		head += " " + run
+	}
+	return head + " · gate: " + string(s.Gate)
+}
+
+// producesPackageRows reports whether a suite streams per-package/per-binary rows
+// (go and rust do; a script produces a single captured result), so we only print the
+// package/time/cov/description header where those columns actually apply.
+func producesPackageRows(tool config.TestTool) bool {
+	return tool == config.TestToolGo || tool == config.TestToolRust
 }
 
 // renderPackageRow streams one package's result INTO the section as it finishes: a
@@ -133,46 +174,6 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 	}
 }
 
-// renderSubstrate explains the native capabilities realized for the run — WHAT was
-// provisioned and WHY, in plain language (not raw substrate transport). This is the
-// "let the user know what it means" surface for otherwise-cryptic toolchain loads.
-func renderSubstrate(sec *output.Section, realized []substrate.Realized, color bool) {
-	for _, r := range realized {
-		var pkgs []string
-		for _, p := range r.Packages {
-			if p.Version != "" {
-				pkgs = append(pkgs, p.Name+" "+p.Version)
-			} else {
-				pkgs = append(pkgs, p.Name)
-			}
-		}
-		detail := strings.Join(pkgs, ", ")
-		if detail == "" {
-			detail = r.Need.Capability
-		}
-		if r.Present {
-			detail += " (present)"
-		}
-		sec.Row("  ⚙ %-18s %s", detail, humanizeReason(r.Need.Reason))
-	}
-}
-
-// humanizeReason turns a substrate Need.Reason token into a plain-language why.
-func humanizeReason(reason string) string {
-	switch reason {
-	case "go-tests-exec-git":
-		return "for git-based tests (fixtures, system-git transport)"
-	case "go-test-race-cgo":
-		return "C compiler for the race detector (cgo)"
-	case "rust-build-script-linking":
-		return "linker for the Rust build"
-	case "crate-native-build", "":
-		return "native build dependency"
-	default:
-		return reason
-	}
-}
-
 // statusIcon maps the test subsystem's status to the output package's icon vocab.
 func statusIcon(status string, color bool) string {
 	switch status {
@@ -192,10 +193,12 @@ func durStr(d time.Duration) string {
 	return d.Truncate(time.Millisecond).String()
 }
 
-// covStr renders a coverage percentage, or "" when the package wasn't measured
-// (coverage off) so the column collapses to blank space.
+// covStr renders a coverage percentage, or "" when there's nothing meaningful to show
+// — either not measured (c<0) or a package whose own tests cover ~none of it (0%).
+// Blanking the 0% keeps the column signal-only instead of a wall of alarming zeros;
+// the exact 0-vs-unmeasured distinction lives in verbose/JSON.
 func covStr(c float64) string {
-	if c < 0 {
+	if c <= 0 {
 		return ""
 	}
 	return fmt.Sprintf("%.0f%%", c)

@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -26,7 +28,7 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("go toolchain: %w", err)
 	}
-	toolchain.Report(os.Stderr, result)
+	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(result, "dependency update")}, output.UseColor())
 	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, result.Path, args...)
 		cmd.Dir = dir

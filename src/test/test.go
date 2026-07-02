@@ -28,11 +28,25 @@ func realizeSubstrate(ctx context.Context, suites []ResolvedSuite) []substrate.R
 	return realized
 }
 
+// resolveSuiteToolchain resolves the primary toolchain a suite runs on (go/rust),
+// warming the cache and capturing provenance (version, source, trust) for the
+// provisioning ledger. Script suites have no toolchain — a zero Result, no error.
+func resolveSuiteToolchain(rootDir string, s ResolvedSuite) (toolchain.Result, error) {
+	switch s.Tool {
+	case config.TestToolGo:
+		return toolchain.Resolve(rootDir, "go", toolchain.ResolveGoVersion(s.Dir, rootDir))
+	case config.TestToolRust:
+		return toolchain.Resolve(rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir))
+	default:
+		return toolchain.Result{}, nil
+	}
+}
+
 // runSuite runs one resolved suite in its working directory. onPkg (nil-safe) fires
 // per package as it completes — so the renderer can stream rows live INTO its
 // section. Execution errors are recorded on the result (Status=failed), never
 // returned; the verdict lives in the SuiteResult.
-func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
+func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolchain.Result, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
 	sr := SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate}
 	if len(s.Argv) == 0 {
 		sr.Status = StatusSkipped
@@ -48,11 +62,9 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, desired map[
 		env = nil
 
 	case config.TestToolGo:
-		goRes, err := toolchain.Resolve(rootDir, "go", toolchain.ResolveGoVersion(s.Dir, rootDir))
-		if err != nil {
-			return failSuite(sr, fmt.Errorf("resolving go toolchain: %w", err))
-		}
-		argv[0] = goRes.Path
+		// tool is pre-resolved in the provisioning phase (RunRender) so it appears in
+		// the environment ledger; here we just execute against it.
+		argv[0] = tool.Path
 		env = toolchain.CleanEnv()
 		if gomod, gocache := toolchain.GoCacheDirs(); gomod != "" {
 			env = append(env, "GOMODCACHE="+gomod, "GOCACHE="+gocache)
@@ -63,19 +75,15 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, desired map[
 		if hasFlag(argv, "-race") {
 			env = setEnv(env, "CGO_ENABLED", "1")
 		}
-		return runGoSuite(ctx, sr, goRes.Path, s, argv, env, onPkg)
+		return runGoSuite(ctx, sr, tool.Path, s, argv, env, onPkg)
 
 	case config.TestToolRust:
-		res, err := toolchain.Resolve(rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir))
-		if err != nil {
-			return failSuite(sr, fmt.Errorf("resolving rust toolchain: %w", err))
-		}
-		argv[0] = res.Path
+		argv[0] = tool.Path
 		env = toolchain.CleanEnv()
 		if ch := toolchain.CargoCacheDir(); ch != "" {
 			env = append(env, "CARGO_HOME="+ch)
 		}
-		env = setEnv(env, "PATH", filepath.Dir(res.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		env = setEnv(env, "PATH", filepath.Dir(tool.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
 		return runRustSuite(ctx, sr, rootDir, s, argv, env, desired, onPkg)
 	}
 

@@ -53,14 +53,26 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 	// Go and Rust are full DISTRIBUTIONS (not single binaries), so each has its own
 	// resolution path: verified official artifact, explicit install layout, no host
 	// fallback. Empty version defers to the language-specific default.
+	// Go and Rust always verify the downloaded distribution against the digest their
+	// upstream publishes (go.dev's JSON API / rust-lang's channel manifest), so their
+	// trust basis is checksum. Their dedicated resolvers don't thread Trust through
+	// every cache/download return, so stamp it here.
 	if tool == "go" {
-		return resolveGo(rootDir, version)
+		r, err := resolveGo(rootDir, version)
+		if err == nil && r.Trust == "" {
+			r.Trust = TrustChecksum
+		}
+		return r, err
 	}
 	if tool == "rust" {
 		if version == "" {
 			version = defaultRustChannel
 		}
-		return resolveRust(rootDir, version)
+		r, err := resolveRust(rootDir, version)
+		if err == nil && r.Trust == "" {
+			r.Trust = TrustChecksum
+		}
+		return r, err
 	}
 
 	def, ok := LookupTool(tool)
