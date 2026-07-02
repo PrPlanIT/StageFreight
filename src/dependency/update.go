@@ -186,18 +186,26 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	}
 	steps = append(steps, depStep{label: "scan", detail: fmt.Sprintf("%d deps · %d files", len(deps), len(trackedFiles)), dur: time.Since(t0)})
 
-	// 4. Freshness integrity — resolved vs unresolved. A dep with no verified Latest
-	// is UNRESOLVED and surfaced as such; "couldn't verify" never collapses into
-	// healthy.
-	resolved, unresolved := 0, 0
+	// 4. Freshness integrity — resolved vs unresolved. A DIRECT dep with no verified
+	// Latest is UNRESOLVED (surfaced with ⚠; "couldn't verify" never collapses into
+	// healthy). Indirect deps are managed transitively and never resolved, so they are
+	// counted separately — NOT as unresolved, or they'd masquerade as failures (this is
+	// the same classification skipReason applies to the Update box).
+	resolved, unresolved, indirect := 0, 0, 0
 	for _, d := range deps {
-		if d.ResolutionError != "" || d.Latest == "" {
+		switch {
+		case d.Indirect:
+			indirect++
+		case d.ResolutionError != "" || d.Latest == "":
 			unresolved++
-		} else {
+		default:
 			resolved++
 		}
 	}
 	freshDetail := fmt.Sprintf("%d resolved · %d unresolved", resolved, unresolved)
+	if indirect > 0 {
+		freshDetail += fmt.Sprintf(" · %d indirect", indirect)
+	}
 	if unresolved > 0 {
 		freshDetail += " ⚠"
 	}
