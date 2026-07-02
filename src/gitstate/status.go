@@ -22,7 +22,11 @@ func IsClean(s git.Status) bool {
 func StagedFiles(s git.Status) []string {
 	var out []string
 	for path, fs := range s {
-		if fs.Staging != git.Unmodified {
+		// go-git marks untracked files with Staging: Untracked (NOT Unmodified) — exclude
+		// them: an untracked file is not staged and is never part of the commit. Counting
+		// it here over-reports the commit's file list and can defeat a nothing-to-commit
+		// check (spurious empty commit when only untracked files exist).
+		if fs.Staging != git.Unmodified && fs.Staging != git.Untracked {
 			out = append(out, path)
 		}
 	}
@@ -72,7 +76,8 @@ func AllDirtyPaths(s git.Status) []string {
 // HasStagedChanges returns true when any file has a staged modification.
 func HasStagedChanges(s git.Status) bool {
 	for _, fs := range s {
-		if fs.Staging != git.Unmodified {
+		// Untracked files carry Staging: Untracked in go-git — not a staged change.
+		if fs.Staging != git.Unmodified && fs.Staging != git.Untracked {
 			return true
 		}
 	}
