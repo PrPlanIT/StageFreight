@@ -71,18 +71,25 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 		if s.Synthesized && s.Provenance != "" {
 			sec.Row("  [synthesized: %s]", s.Provenance)
 		}
-		if producesPackageRows(s.Tool) {
-			sec.Row("    %-24s %6s %4s  %s", "package", "time", "cov", "description")
-		}
 
 		var sr SuiteResult
-		if toolErrs[i] != nil {
+		switch {
+		case toolErrs[i] != nil:
 			sr = failSuite(SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate},
 				fmt.Errorf("resolving %s toolchain: %w", s.Tool, toolErrs[i]))
-		} else {
+		case producesPackageRows(s.Tool):
+			// Per-package detail can be long (dozens of packages), so fold it in a CI
+			// section — VISIBLE by default, collapsible. Seeing every test is the trust
+			// feature; we never omit, only allow folding. Suite header above and summary
+			// below stay unfolded. No-op outside GitLab CI.
+			output.SectionStart(w, "sf_test_"+s.ID, "per-package results")
+			sec.Row("    %-24s %6s %4s  %s", "package", "time", "cov", "description")
 			sr = runSuite(ctx, rootDir, s, tools[i], desired, func(p PackageResult) {
 				renderPackageRow(sec, p, color)
 			})
+			output.SectionEnd(w, "sf_test_"+s.ID)
+		default:
+			sr = runSuite(ctx, rootDir, s, tools[i], desired, nil)
 		}
 		res.Suites = append(res.Suites, sr)
 		renderSuiteSummary(sec, sr, color)
