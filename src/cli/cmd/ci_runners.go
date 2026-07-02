@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -1540,7 +1541,7 @@ func runFluxValidation(ctx context.Context, appCfg *config.Config, rootDir strin
 	if werr := writeFluxProofResults(rootDir, verdicts, meta); werr != nil {
 		fmt.Fprintf(os.Stderr, "warning: proof-results write failed: %v\n", werr)
 	}
-	renderFluxValidation(start, verdicts, meta)
+	renderFluxValidation(os.Stdout, start, verdicts, meta)
 
 	failed := 0
 	for _, v := range verdicts {
@@ -1582,9 +1583,9 @@ func writeFluxProofResults(rootDir string, verdicts map[gitops.KustomizationKey]
 	return auditionproof.Write(rootDir, r)
 }
 
-func renderFluxValidation(start time.Time, verdicts map[gitops.KustomizationKey]gitops.Verdict, meta *gitops.ValidationMeta) {
+func renderFluxValidation(w io.Writer, start time.Time, verdicts map[gitops.KustomizationKey]gitops.Verdict, meta *gitops.ValidationMeta) {
 	color := output.UseColor()
-	sec := output.NewSection(os.Stdout, "GitOps Validation", time.Since(start), color)
+	sec := output.NewSection(w, "GitOps Validation", time.Since(start), color)
 
 	if meta.Skipped != "" {
 		sec.Row("%-14s%s", "status", "skipped")
@@ -1593,61 +1594,225 @@ func renderFluxValidation(start time.Time, verdicts map[gitops.KustomizationKey]
 		return
 	}
 
-	validated := 0
+	// Resource-level tallies. Validated conflates core- and catalog-checked, so it is
+	// NOT claimed as "authoritative" — only reported as "schema-checked".
+	validated, noSchemaResources := 0, 0
 	for _, n := range meta.Validated {
 		validated += n
 	}
-	failed, warned := 0, 0
+	for _, n := range meta.NoSchema {
+		noSchemaResources += n
+	}
+
+	// Kustomization verdicts (authoritative: a Fail is core-schema / render / graph).
+	failedKust := 0
 	for _, v := range verdicts {
-		switch v.Status {
-		case gitops.Fail:
-			failed++
-		case gitops.Warn:
-			warned++
+		if v.Status == gitops.Fail {
+			failedKust++
 		}
 	}
+	validKust := len(verdicts) - failedKust
 
-	sec.Row("%-14s%d roots   %d kustomizations   %d validated resources", "scope", meta.Roots, len(verdicts), validated)
-	if meta.KustomizeVer != "" {
-		sec.Row("%-14skustomize %s   kubeconform %s", "tools", meta.KustomizeVer, meta.KubeconformVer)
-	}
-
+	// Collect findings by authority in stable order. Fail = authoritative error;
+	// Warn = heuristic advisory (community catalog).
 	keys := make([]gitops.KustomizationKey, 0, len(verdicts))
 	for kk := range verdicts {
 		keys = append(keys, kk)
 	}
 	gitops.SortKeys(keys)
-	// Findings carry their own authority: FAIL (authoritative — core schema /
-	// render / graph) and WARN (advisory — CRD catalog). Surface the source so an
-	// operator can calibrate trust, and print FAILs before WARNs.
-	for _, sev := range []gitops.Status{gitops.Fail, gitops.Warn} {
-		label := "FAIL"
-		if sev == gitops.Warn {
-			label = "WARN"
-		}
-		for _, kk := range keys {
-			for _, f := range verdicts[kk].Findings {
-				if f.Severity != sev {
-					continue
-				}
-				sec.Row("%-14s%s [%s] %s", label, kk.String(), f.Source, f.Message)
+	var errs, advisories []gitops.Finding
+	for _, kk := range keys {
+		for _, f := range verdicts[kk].Findings {
+			switch f.Severity {
+			case gitops.Fail:
+				errs = append(errs, f)
+			case gitops.Warn:
+				advisories = append(advisories, f)
 			}
 		}
 	}
-	for _, kind := range gitops.SortedKinds(meta.NoSchema) {
-		sec.Row("%-14s%s (%d) — no schema", "coverage", kind, meta.NoSchema[kind])
+
+	totalResources := validated + noSchemaResources + len(errs)
+	sec.Row("%-12s %d kustomizations · %d resources · %d roots", "scope", len(verdicts), totalResources, meta.Roots)
+	if meta.KustomizeVer != "" {
+		sec.Row("%-12s kustomize %s · kubeconform %s", "tools", meta.KustomizeVer, meta.KubeconformVer)
 	}
 
-	sec.Separator()
-	switch {
-	case failed > 0:
-		sec.Row("%-14s%d kustomization(s) failed%s", "result", failed, advisorySuffix(warned))
-	case warned > 0:
-		sec.Row("%-14sall %d kustomization(s) valid (%d with advisory warnings)", "result", len(verdicts), warned)
-	default:
-		sec.Row("%-14sall %d kustomization(s) valid", "result", len(verdicts))
+	// ── ✓ authoritative (verdict-level) / ✗ errors — success reads first ──
+	if len(errs) == 0 {
+		sec.Row("")
+		sec.Row("%s %-20s %d/%d kustomizations valid · 0 errors",
+			output.StatusIcon("success", color), "authoritative", validKust, len(verdicts))
+	} else {
+		sec.Row("")
+		sec.Row("%s %-20s %d/%d kustomizations · %d error(s)",
+			output.StatusIcon("failed", color), "errors", validKust, len(verdicts), len(errs))
+		for _, f := range errs {
+			sec.Row("   %s", schemaHeadline(f))
+			if src := schemaSource(f); src != "" {
+				sec.Row("   %s", output.Dimmed("  └ "+src, color))
+			}
+		}
 	}
+
+	// ── ⚠ heuristic advisories (community catalog, may be stricter than operator) ──
+	if len(advisories) > 0 {
+		sec.Row("")
+		sec.Row("%s %-20s %d · community CRD catalog, may be stricter than your operator",
+			output.StatusIcon("warning", color), "heuristic", len(advisories))
+		for _, f := range advisories {
+			sec.Row("   %s", schemaHeadline(f))
+			if src := schemaSource(f); src != "" {
+				sec.Row("   %s", output.Dimmed("  └ "+src, color))
+			}
+		}
+	}
+
+	// ── ○ schema unavailable — transparency, not a gap; grouped and compressed ──
+	if len(meta.NoSchema) > 0 {
+		sec.Row("")
+		sec.Row("%s %-20s %d kinds · %d resources — no published schema",
+			output.Dimmed("○", color), "schema unavailable", len(meta.NoSchema), noSchemaResources)
+		sec.Row("   %s", compactKinds(meta.NoSchema))
+		sec.Row("   %s", output.Dimmed("  └ structurally validated by kustomize build; operators validate on apply", color))
+	}
+
+	// ── result: a verdict, tying the tiers together ──
+	sec.Separator()
+	verdict := "PASS"
+	if len(errs) > 0 {
+		verdict = "FAIL"
+	}
+	summary := fmt.Sprintf("%d/%d valid", validKust, len(verdicts))
+	if len(errs) > 0 {
+		summary += fmt.Sprintf(" · %d error(s)", len(errs))
+	}
+	if len(advisories) > 0 {
+		summary += fmt.Sprintf(" · %d advisory", len(advisories))
+	}
+	if noSchemaResources > 0 {
+		summary += fmt.Sprintf(" · %d schema-unavailable", noSchemaResources)
+	}
+	sec.Row("%-12s %s · %s", "result", verdict, summary)
 	sec.Close()
+
+	// Escape hatch: the raw validator transcript (schema URL + jsonschema pointer +
+	// original message) is demoted from the primary surface, never destroyed. In
+	// GitLab it lands in a collapsed fold (one expand away); everywhere the audition
+	// artifact retains the raw Message. Emitted only in GitLab so local runs stay clean.
+	if output.IsGitLabCI() && len(errs)+len(advisories) > 0 {
+		emitValidatorDetail(w, errs, advisories)
+	}
+}
+
+// schemaHeadline renders a finding's interpreted, operator-side line — every part
+// mechanically derived. Falls back to the raw message when the violation could not
+// be parsed with confidence: truthful degradation over synthesized meaning.
+func schemaHeadline(f gitops.Finding) string {
+	s := f.Schema
+	if s == nil {
+		return f.Message // graph/render finding — already human-phrased
+	}
+	res := s.Kind + "/" + s.Name
+	if !s.Parsed() {
+		return fmt.Sprintf("%-24s %s", res, firstLine(s.Raw))
+	}
+	switch {
+	case s.Field != "" && s.Rule != "":
+		return fmt.Sprintf("%-24s %s — %s", res, s.Field, s.Rule)
+	case s.Field != "":
+		return fmt.Sprintf("%-24s %s", res, s.Field)
+	default:
+		return fmt.Sprintf("%-24s %s", res, s.Rule)
+	}
+}
+
+// schemaSource is the compact authority attribution for a schema finding.
+func schemaSource(f gitops.Finding) string {
+	s := f.Schema
+	if s == nil {
+		return ""
+	}
+	authority := "datreeio CRD-catalog"
+	if f.Source == "core-schema" {
+		authority = "kubernetes core schema"
+	}
+	id := compactSchemaID(s.SchemaURL)
+	if id == "" {
+		id = strings.TrimSpace(s.Kind + " " + s.Version)
+	}
+	if id == "" {
+		return authority
+	}
+	return authority + " · " + id
+}
+
+// compactSchemaID reduces a schema URL to its last two path segments without the
+// .json suffix, e.g. ".../vault.banzaicloud.com/vault_v1alpha1.json" →
+// "vault.banzaicloud.com/vault_v1alpha1". Empty URL yields "".
+func compactSchemaID(url string) string {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return ""
+	}
+	url = strings.TrimSuffix(url, ".json")
+	parts := strings.Split(url, "/")
+	if n := len(parts); n >= 2 {
+		return parts[n-2] + "/" + parts[n-1]
+	}
+	return parts[len(parts)-1]
+}
+
+// compactKinds renders "no schema" kinds as a compressed, count-annotated list:
+// "CRD·13  ExternalSecret·6  HelmRelease·3 ...", most-numerous first.
+func compactKinds(m map[string]int) string {
+	kinds := gitops.SortedKinds(m)
+	sort.SliceStable(kinds, func(i, j int) bool { return m[kinds[i]] > m[kinds[j]] })
+	parts := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		parts = append(parts, fmt.Sprintf("%s·%d", shortKind(k), m[k]))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// shortKind abbreviates the one habitually-long kind; others pass through.
+func shortKind(kind string) string {
+	if kind == "CustomResourceDefinition" {
+		return "CRD"
+	}
+	return kind
+}
+
+// firstLine returns the first line of s, trimmed — keeps a raw-fallback headline on
+// one row.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
+}
+
+// emitValidatorDetail writes the raw validator transcript inside a GitLab collapsed
+// fold — the demoted escape hatch for operators debugging weird CRD behavior.
+func emitValidatorDetail(w io.Writer, errs, advisories []gitops.Finding) {
+	output.SectionStartCollapsed(w, "gitops_validator_detail", "── validator transcript (raw) ────")
+	emit := func(f gitops.Finding) {
+		if f.Schema != nil {
+			fmt.Fprintf(w, "    │ %s/%s: %s\n", f.Schema.Kind, f.Schema.Name, f.Schema.Raw)
+			if f.Schema.SchemaURL != "" {
+				fmt.Fprintf(w, "    │   schema: %s\n", f.Schema.SchemaURL)
+			}
+			return
+		}
+		fmt.Fprintf(w, "    │ %s\n", f.Message)
+	}
+	for _, f := range errs {
+		emit(f)
+	}
+	for _, f := range advisories {
+		emit(f)
+	}
+	output.SectionEnd(w, "gitops_validator_detail")
 }
 
 // advisorySuffix appends a non-gating advisory count to the result line, e.g.

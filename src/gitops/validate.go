@@ -59,6 +59,11 @@ type Finding struct {
 	Severity Status
 	Source   string
 	Message  string
+	// Schema carries the normalized, provenance-bearing form of a schema-validation
+	// finding (core-schema / crd-catalog): the offending field, interpreted rule, and
+	// the raw validator transcript for the escape hatch. Nil for non-schema findings
+	// (graph/render) — those use Message directly.
+	Schema *SchemaFinding
 }
 
 // Verdict is the validation outcome for one Flux Kustomization.
@@ -76,8 +81,12 @@ func (v *Verdict) add(f Finding) {
 	v.Findings = append(v.Findings, f)
 }
 
-func (v *Verdict) fail(source, msg string) { v.add(Finding{Severity: Fail, Source: source, Message: msg}) }
-func (v *Verdict) warn(source, msg string) { v.add(Finding{Severity: Warn, Source: source, Message: msg}) }
+func (v *Verdict) fail(source, msg string) {
+	v.add(Finding{Severity: Fail, Source: source, Message: msg})
+}
+func (v *Verdict) warn(source, msg string) {
+	v.add(Finding{Severity: Warn, Source: source, Message: msg})
+}
 
 // ValidationMeta carries repository-scoped facts that are not per-Kustomization
 // verdicts: tool versions, a skip reason, and schema coverage (kinds checked vs
@@ -291,13 +300,13 @@ type kcOutput struct {
 // schemaCheck validates rendered manifests as TWO distinct evidence classes with
 // different authority — not one undifferentiated pass/fail stream:
 //
-//   1. Authoritative (built-in Kubernetes schemas): a failure here means the API
-//      server / Flux will reject the resource. Emitted as a Fail finding
-//      (source "core-schema"). CRDs have no built-in schema and are skipped here.
-//   2. Heuristic (datreeio CRD catalog): community, OpenAPI-derived schemas that
-//      are routinely stricter-than-reality (e.g. a Vault CR the operator accepts
-//      but whose embedded corev1.Container marks `name` required). A failure here
-//      is advisory — emitted as a Warn finding (source "crd-catalog"), never a Fail.
+//  1. Authoritative (built-in Kubernetes schemas): a failure here means the API
+//     server / Flux will reject the resource. Emitted as a Fail finding
+//     (source "core-schema"). CRDs have no built-in schema and are skipped here.
+//  2. Heuristic (datreeio CRD catalog): community, OpenAPI-derived schemas that
+//     are routinely stricter-than-reality (e.g. a Vault CR the operator accepts
+//     but whose embedded corev1.Container marks `name` required). A failure here
+//     is advisory — emitted as a Warn finding (source "crd-catalog"), never a Fail.
 //
 // Keeping these separate is the trust boundary: it must NOT be re-collapsed into a
 // single pass as an "optimization". The two passes share an identical input, so
@@ -318,8 +327,10 @@ func schemaCheck(ctx context.Context, kubeconformBin string, rendered []byte, me
 		kind := kindOf(c)
 		switch classifyStatus(c.Status) {
 		case "invalid", "error":
+			sf := parseSchemaViolation(c.Kind, c.Name, c.Version, c.Msg)
 			findings = append(findings, Finding{Severity: Fail, Source: "core-schema",
-				Message: fmt.Sprintf("%s/%s (%s): %s", c.Kind, c.Name, c.Version, strings.TrimSpace(c.Msg))})
+				Message: fmt.Sprintf("%s/%s (%s): %s", c.Kind, c.Name, c.Version, strings.TrimSpace(c.Msg)),
+				Schema:  &sf})
 		case "valid":
 			meta.Validated[kind]++
 		case "skipped":
@@ -331,8 +342,10 @@ func schemaCheck(ctx context.Context, kubeconformBin string, rendered []byte, me
 			t := cat[i]
 			switch classifyStatus(t.Status) {
 			case "invalid", "error":
+				sf := parseSchemaViolation(t.Kind, t.Name, t.Version, t.Msg)
 				findings = append(findings, Finding{Severity: Warn, Source: "crd-catalog",
-					Message: fmt.Sprintf("%s/%s (%s): %s", t.Kind, t.Name, t.Version, strings.TrimSpace(t.Msg))})
+					Message: fmt.Sprintf("%s/%s (%s): %s", t.Kind, t.Name, t.Version, strings.TrimSpace(t.Msg)),
+					Schema:  &sf})
 			case "valid":
 				meta.Validated[kind]++
 			default:
