@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -48,7 +47,7 @@ func (m *tabsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Find
 	defer f.Close()
 
 	var findings []lint.Finding
-	scanner := bufio.NewScanner(f)
+	scanner := lint.NewLineScanner(f)
 	lineNum := 0
 
 	for scanner.Scan() {

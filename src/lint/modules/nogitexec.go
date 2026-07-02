@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -53,7 +52,7 @@ func (m *noGitExecModule) Check(_ context.Context, file lint.FileInfo) ([]lint.F
 	defer f.Close()
 
 	var findings []lint.Finding
-	scanner := bufio.NewScanner(f)
+	scanner := lint.NewLineScanner(f)
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++

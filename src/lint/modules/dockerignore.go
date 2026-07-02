@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -351,7 +350,7 @@ func parseDockerignore(path string) ([]string, error) {
 	defer f.Close()
 
 	var lines []string
-	scanner := bufio.NewScanner(f)
+	scanner := lint.NewLineScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -388,7 +387,7 @@ func copiesBroadContext(dockerfilePath string) bool {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	scanner := lint.NewLineScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		upper := strings.ToUpper(line)

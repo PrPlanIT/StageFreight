@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -41,7 +40,7 @@ func (m *conflictsModule) checkMarkers(file lint.FileInfo) ([]lint.Finding, erro
 	defer f.Close()
 
 	var findings []lint.Finding
-	scanner := bufio.NewScanner(f)
+	scanner := lint.NewLineScanner(f)
 	lineNum := 0
 	inConflict := false // inside an unterminated <<<<<<< ... >>>>>>> region
 

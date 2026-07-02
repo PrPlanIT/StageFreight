@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -107,7 +106,7 @@ func (m *directOutputModule) Check(ctx context.Context, file lint.FileInfo) ([]l
 	defer f.Close()
 
 	var findings []lint.Finding
-	scanner := bufio.NewScanner(f)
+	scanner := lint.NewLineScanner(f)
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
