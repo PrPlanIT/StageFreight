@@ -147,6 +147,18 @@ func DiscoverFluxGraph(root string) (*FluxGraph, error) {
 				})
 			}
 
+			// A pathless PATCH FRAGMENT (e.g. a sops decryption patch that shares the
+			// bootstrap Kustomization's key, applied via the overlay's `patches:`) must not
+			// overwrite the REAL root's path in this by-key map. NormalizePath("") is ".",
+			// so the pathless node carries Path="." — test the RAW spec.path for emptiness.
+			// The real path-bearing node always wins regardless of file-walk order;
+			// otherwise the flux-system node collapses to the repo root and validation flags
+			// non-manifest YAML (.gitlab-ci.yml, .sops.yaml, …) as "missing 'kind' key".
+			// Pathless-only keys are still recorded (unchanged), so the graph stays complete.
+			newPathless := strings.TrimSpace(k.Spec.Path) == ""
+			if existing, ok := graph.Kustomizations[key]; ok && existing.Path != "" && existing.Path != "." && newPathless {
+				continue
+			}
 			graph.Kustomizations[key] = node
 		}
 
