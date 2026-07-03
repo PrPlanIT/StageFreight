@@ -7,7 +7,7 @@
 // went on to DO with those tools. Columns never change meaning row-to-row; a cell is
 // its column's datum or blank.
 //
-//	── Preparing environment ──────────────────────────────
+//	── Staged Tools ───────────────────────────────────
 //	│   tool            version    via        verified    purpose
 //	│   go              1.26.1     go.dev     checksum
 //	│   cargo-llvm-cov  0.8.7      github     tofu        coverage instrumentation
@@ -64,7 +64,7 @@ func FromSubstrate(realized []substrate.Realized) []Entry {
 	return out
 }
 
-// Render writes the "Preparing environment" box: a fixed-column ledger of everything
+// Render writes the "Staged Tools" box: a fixed-column ledger of everything
 // realized. A no-op when nothing was provisioned. This is the ONE provisioning
 // presentation surface — every subsystem renders through it, never inline in its own
 // results and never raw to stderr.
@@ -72,7 +72,7 @@ func Render(w io.Writer, entries []Entry, color bool) {
 	if len(entries) == 0 {
 		return
 	}
-	sec := output.NewSection(w, "Preparing environment", 0, color)
+	sec := output.NewSection(w, "Staged Tools", 0, color)
 	const row = "  %-16s %-9s %-9s %-10s %s"
 	sec.Row(row, "tool", "version", "via", "verified", "purpose")
 	for _, e := range entries {
