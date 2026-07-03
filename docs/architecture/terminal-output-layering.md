@@ -59,6 +59,31 @@ allowlist** calls `provision.Render`. The allowlist today:
 
 New inline rendering cannot be added: the front can only shrink.
 
+## Tool provenance: the ctx-collector (done)
+
+Making *every* resolved tool surface in "Staged Tools" without per-subsystem result
+plumbing uses a **request-scoped collector carried in `context`** (`provision/context.go`):
+
+- `provision.Resolve(ctx, rootDir, tool, ver, purpose)` — the sensible provisioning
+  call. Resolves via `toolchain.Resolve` (which stays a pure leaf) AND records the tool
+  (trust from `Result.Trust`, plus purpose) into the ledger in `ctx`. Every consumer
+  uses this instead of `toolchain.Resolve`; a tool lands in the ledger by construction.
+- `provision.WithLedger(ctx)` — seeded once per run (`auditionPhaseRunner` /
+  `performPhaseRunner`). `Collected(ctx)` / `FlushCollected(ctx)` read it back; `cli/cmd`
+  renders. Domain writes *data* into the collector and still never renders.
+
+**This is sanctioned; the package-global ledger was not.** The distinction is real and
+load-bearing: a `context`-scoped collector is explicit in the signature, request-lifetime,
+and testable — the same idiom Go uses for loggers/trace-spans. A *package-global* mutable
+ledger is hidden, process-lifetime ambient state nobody passes — that is what we rejected,
+along with putting `record()` inside `toolchain.Resolve` (engine mixing logic with
+observability). The ctx-collector keeps the engine pure and the renderer in `cli/cmd`.
+
+Remaining tool-provenance gaps (fast-follow): tools acquired outside `Resolve`
+(`ResolvePinned` → cargo-llvm-cov, `EnsureRustLlvmTools` → llvm-tools) need
+`provision.Record(ctx, …)`; and the render is one consolidated receipt today — per-phase
+streaming (collapsible `FlushCollected` segments) is the next increment.
+
 ## The reconquista (TODO — the big refactor)
 
 The rule is **not** the current reality. ~18 non-`cli/cmd` packages still render
