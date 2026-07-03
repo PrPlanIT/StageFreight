@@ -18,26 +18,27 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // ScanConfig holds security scan configuration.
 type ScanConfig struct {
-	Enabled        bool      // run vulnerability scan
-	TrivyEnabled   bool      // run Trivy scanner
-	GrypeEnabled   bool      // run Grype scanner
-	SBOMEnabled    bool      // generate SBOM
-	FailOnCritical bool      // fail if critical vulns found
-	ImageRef       string    // image reference or tarball path to scan
-	OCILayoutDir   string    // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
-	OutputDir      string    // directory for scan artifacts
-	RootDir              string               // workspace root for toolchain resolution
-	ToolchainDesired     map[string]config.ToolPinConfig // from appCfg.Toolchains.Desired
-	SectionWriter        io.Writer // writer for CI section markers (nil = os.Stderr)
-	TrivyCacheMax    string  // max_size for Trivy DB cache (full-clear when exceeded)
-	TrivyCacheMaxAge string  // max_age for Trivy DB cache (full-clear when oldest file exceeds)
-	GrypeCacheMax    string  // max_size for Grype DB cache (full-clear when exceeded)
-	GrypeCacheMaxAge string  // max_age for Grype DB cache (full-clear when oldest file exceeds)
+	Enabled          bool                            // run vulnerability scan
+	TrivyEnabled     bool                            // run Trivy scanner
+	GrypeEnabled     bool                            // run Grype scanner
+	SBOMEnabled      bool                            // generate SBOM
+	FailOnCritical   bool                            // fail if critical vulns found
+	ImageRef         string                          // image reference or tarball path to scan
+	OCILayoutDir     string                          // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
+	OutputDir        string                          // directory for scan artifacts
+	RootDir          string                          // workspace root for toolchain resolution
+	ToolchainDesired map[string]config.ToolPinConfig // from appCfg.Toolchains.Desired
+	SectionWriter    io.Writer                       // writer for CI section markers (nil = os.Stderr)
+	TrivyCacheMax    string                          // max_size for Trivy DB cache (full-clear when exceeded)
+	TrivyCacheMaxAge string                          // max_age for Trivy DB cache (full-clear when oldest file exceeds)
+	GrypeCacheMax    string                          // max_size for Grype DB cache (full-clear when exceeded)
+	GrypeCacheMaxAge string                          // max_age for Grype DB cache (full-clear when oldest file exceeds)
 }
 
 // Vulnerability is a single parsed vulnerability from the scan.
@@ -81,7 +82,7 @@ type CandidateInfo struct {
 // ScanTarget describes the resolved scan target with full provenance.
 type ScanTarget struct {
 	Ref               string          `json:"ref"`
-	DiscoveredTag     string          `json:"discovered_tag,omitempty"`     // original tag before digest resolution
+	DiscoveredTag     string          `json:"discovered_tag,omitempty"` // original tag before digest resolution
 	Digest            string          `json:"digest,omitempty"`
 	ObservedDigest    string          `json:"observed_digest,omitempty"`
 	ObservedDigestAlt string          `json:"observed_digest_alt,omitempty"`
@@ -92,7 +93,7 @@ type ScanTarget struct {
 	Candidates        []CandidateInfo `json:"candidates,omitempty"`
 	ExpectedTags      []string        `json:"expected_tags,omitempty"`
 	ExpectedCommit    string          `json:"expected_commit,omitempty"`
-	SigningAttempted   bool            `json:"signing_attempted,omitempty"`
+	SigningAttempted  bool            `json:"signing_attempted,omitempty"`
 }
 
 // ScannerInfo describes a scanner that was run or attempted.
@@ -204,7 +205,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	if cfg.TrivyEnabled {
 		output.SectionStartCollapsed(sw, "sf_trivy_raw", "Trivy scanner (raw)")
 		trivyVer, trivyPinned := toolchain.ResolveVersion("trivy", "", cfg.ToolchainDesired)
-		trivyResult, trivyErr := toolchain.Resolve(cfg.RootDir, "trivy", trivyVer)
+		trivyResult, trivyErr := provision.Resolve(ctx, cfg.RootDir, "trivy", trivyVer, "vulnerability scan (trivy)")
 		if trivyErr != nil {
 			if trivyPinned {
 				return nil, fmt.Errorf("trivy pinned version %s failed to resolve: %w", trivyVer, trivyErr)
@@ -244,7 +245,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	if cfg.GrypeEnabled {
 		output.SectionStartCollapsed(sw, "sf_grype_raw", "Grype scanner (raw)")
 		grypeVer, grypePinned := toolchain.ResolveVersion("grype", "", cfg.ToolchainDesired)
-		grypeResult, grypeErr := toolchain.Resolve(cfg.RootDir, "grype", grypeVer)
+		grypeResult, grypeErr := provision.Resolve(ctx, cfg.RootDir, "grype", grypeVer, "vulnerability scan (grype)")
 		if grypeErr != nil {
 			if grypePinned {
 				return nil, fmt.Errorf("grype pinned version %s failed to resolve: %w", grypeVer, grypeErr)
@@ -293,7 +294,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	if cfg.SBOMEnabled {
 		output.SectionStartCollapsed(sw, "sf_syft_raw", "Syft SBOM (raw)")
 		syftVer, syftPinned := toolchain.ResolveVersion("syft", "", cfg.ToolchainDesired)
-		syftResult, syftErr := toolchain.Resolve(cfg.RootDir, "syft", syftVer)
+		syftResult, syftErr := provision.Resolve(ctx, cfg.RootDir, "syft", syftVer, "SBOM generation (syft)")
 		if syftErr != nil {
 			output.SectionEnd(sw, "sf_syft_raw")
 			if syftPinned {

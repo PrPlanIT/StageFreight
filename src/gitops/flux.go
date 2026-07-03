@@ -9,6 +9,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/auditionproof"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -42,7 +43,7 @@ func (f *FluxBackend) Capabilities() []runtime.Capability {
 func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
 	// Resolve flux CLI via toolchain.
 	fluxVer, fluxPinned := toolchain.ResolveVersion("flux", "", cfg.Toolchains.Desired)
-	fluxResult, err := toolchain.Resolve(rctx.RepoRoot, "flux", fluxVer)
+	fluxResult, err := provision.Resolve(ctx, rctx.RepoRoot, "flux", fluxVer, "Flux reconcile")
 	if err != nil {
 		if fluxPinned {
 			return fmt.Errorf("flux pinned version %s failed to resolve: %w", fluxVer, err)
@@ -67,7 +68,7 @@ func (f *FluxBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *run
 	if cfg.GitOps.Cluster.Name == "" {
 		return nil // local dev — no cluster auth needed
 	}
-	return BuildKubeconfig(cfg.GitOps.Cluster, rctx, cfg.Toolchains.Desired)
+	return BuildKubeconfig(ctx, cfg.GitOps.Cluster, rctx, cfg.Toolchains.Desired)
 }
 
 // Plan discovers the Flux graph, computes impact, and builds the reconcile set.

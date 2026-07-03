@@ -15,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 )
 
 // ── CI Lifecycle Phase Runners ───────────────────────────────────────────────
@@ -93,6 +94,11 @@ func renderPhaseIdentity() {
 // executorPreflight (full panel), runConfigPhase, lint, crucible bootstrap test.
 // Dispatches to depsRunner for image mode or validateRunner for gitops/governance.
 func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	// Seed the run's tool ledger; every provision.Resolve(ctx, …) in the phases below
+	// records into it, and we render the consolidated "Staged Tools" receipt at the end.
+	ctx = provision.WithLedger(ctx)
+	defer provision.Render(os.Stdout, provision.Collected(ctx), output.UseColor())
+
 	// Full logo banner — audition is the only phase that shows it.
 	renderAuditionBanner()
 
@@ -147,6 +153,9 @@ func checkCIFreshness(forge, rootDir string, appCfg *config.Config) error {
 // For image mode: official build only (no crucible, no bootstrap semantics).
 // For gitops/governance: cluster reconcile.
 func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	ctx = provision.WithLedger(ctx)
+	defer provision.Render(os.Stdout, provision.Collected(ctx), output.UseColor())
+
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {
 		return err

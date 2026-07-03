@@ -97,12 +97,8 @@ type ValidationMeta struct {
 	Skipped        string // non-empty: validation could not run (e.g. tool unavailable)
 	KustomizeVer   string
 	KubeconformVer string
-	// Provisioned carries the tools this validation resolved, as DATA (built with the
-	// pure provision.FromToolchain mapper). This package NEVER renders it — that is the
-	// cli/cmd layer's job. See docs/architecture/terminal-output-layering.md.
-	Provisioned []provision.Entry
-	Validated   map[string]int // kind -> count checked against a known schema
-	NoSchema    map[string]int // kind -> count with no available schema
+	Validated      map[string]int // kind -> count checked against a known schema
+	NoSchema       map[string]int // kind -> count with no available schema
 }
 
 const datreeCatalog = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
@@ -135,7 +131,7 @@ func ValidateManifests(ctx context.Context, rootDir string, desired map[string]c
 		return finalize(verdicts), meta, nil
 	}
 
-	kustomizeRes, err := resolveTool(rootDir, "kustomize", desired)
+	kustomizeRes, err := resolveTool(ctx, rootDir, "kustomize", "render Flux kustomizations", desired)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -143,7 +139,7 @@ func ValidateManifests(ctx context.Context, rootDir string, desired map[string]c
 		meta.Skipped = "kustomize unavailable (not pinned)"
 		return finalize(verdicts), meta, nil
 	}
-	kubeconformRes, err := resolveTool(rootDir, "kubeconform", desired)
+	kubeconformRes, err := resolveTool(ctx, rootDir, "kubeconform", "schema-validate rendered manifests", desired)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -153,11 +149,6 @@ func ValidateManifests(ctx context.Context, rootDir string, desired map[string]c
 	}
 	kustomizeBin, kubeconformBin := kustomizeRes.Path, kubeconformRes.Path
 	meta.KustomizeVer, meta.KubeconformVer = kustomizeRes.Version, kubeconformRes.Version
-	// Emit the tools as DATA (pure mapper, no I/O). cli/cmd renders the ledger.
-	meta.Provisioned = []provision.Entry{
-		provision.FromToolchain(kustomizeRes, "render Flux kustomizations"),
-		provision.FromToolchain(kubeconformRes, "schema-validate rendered manifests"),
-	}
 
 	for path, keys := range byPath {
 		absRoot := filepath.Join(rootDir, path)
@@ -220,9 +211,9 @@ func finalize(v map[KustomizationKey]*Verdict) map[KustomizationKey]Verdict {
 // merge (required), a tool-resolution failure here would produce no Fail verdicts
 // → a silent bypass. Under enforcement, an unavailable tool MUST become a Fail,
 // not a skip.
-func resolveTool(rootDir, tool string, desired map[string]config.ToolPinConfig) (toolchain.Result, error) {
+func resolveTool(ctx context.Context, rootDir, tool, purpose string, desired map[string]config.ToolPinConfig) (toolchain.Result, error) {
 	ver, pinned := toolchain.ResolveVersion(tool, "", desired)
-	res, err := toolchain.Resolve(rootDir, tool, ver)
+	res, err := provision.Resolve(ctx, rootDir, tool, ver, purpose) // resolves AND records in the ctx ledger
 	if err != nil {
 		if pinned {
 			return toolchain.Result{}, fmt.Errorf("%s pinned version %s failed to resolve: %w", tool, ver, err)

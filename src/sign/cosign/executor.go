@@ -10,6 +10,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/sign"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -72,7 +73,7 @@ func Available(rootDir string, desired map[string]config.ToolPinConfig) bool {
 // environment. The sole exec point; warnings carry cosign's stderr for diagnosis.
 func run(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, plan sign.SignPlan, op string, args []string) error {
 	ver, pinned := toolchain.ResolveVersion("cosign", "", desired)
-	result, err := toolchain.Resolve(rootDir, "cosign", ver)
+	result, err := provision.Resolve(ctx, rootDir, "cosign", ver, "artifact signing")
 	if err != nil {
 		if pinned {
 			return fmt.Errorf("cosign %s: pinned version %s failed to resolve: %w", op, ver, err)
@@ -129,7 +130,6 @@ func signEnv(plan sign.SignPlan) []string {
 	}
 	return env
 }
-
 
 // oidcEnvPrefixes: sigstore keyless config + the CI workload-identity token vars
 // (GitHub Actions, GitLab CI) cosign uses to fetch an ambient OIDC token.

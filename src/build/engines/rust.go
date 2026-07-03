@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -125,7 +126,7 @@ func (e *rustEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 	// dist, no host fallback) — mirrors the Go engine. rootDir = the job workspace.
 	rootDir, _ := os.Getwd()
 	rustVersion := toolchain.ResolveRustVersion(meta.ManifestDir, rootDir)
-	res, err := toolchain.Resolve(rootDir, "rust", rustVersion)
+	res, err := provision.Resolve(ctx, rootDir, "rust", rustVersion, "build (Rust toolchain)")
 	if err != nil {
 		return nil, fmt.Errorf("rust engine: resolving rust toolchain: %w", err)
 	}

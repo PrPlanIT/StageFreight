@@ -14,6 +14,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -85,7 +86,7 @@ func (m *osvModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Findi
 	m.once.Do(func() {
 		rootDir, _ := os.Getwd()
 		ver, pinned := toolchain.ResolveVersion("osv-scanner", "", m.desired)
-		result, err := toolchain.Resolve(rootDir, "osv-scanner", ver)
+		result, err := provision.Resolve(ctx, rootDir, "osv-scanner", ver, "dependency vulnerability audit")
 		if err != nil {
 			if pinned {
 				m.resolveErr = fmt.Errorf("osv-scanner pinned version %s failed to resolve: %w", ver, err)

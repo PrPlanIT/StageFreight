@@ -79,7 +79,6 @@ func GetChangedFiles(repoDir, base, head string) ([]string, error) {
 	return files, nil
 }
 
-
 // ComputeImpact determines which kustomizations are affected by changed files.
 // Walks the reverse dependency graph to find transitive dependents.
 func ComputeImpact(graph *FluxGraph, files []string) ImpactResult {

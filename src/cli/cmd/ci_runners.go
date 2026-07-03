@@ -31,7 +31,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
-	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/PrPlanIT/StageFreight/src/test"
@@ -1542,9 +1541,6 @@ func runFluxValidation(ctx context.Context, appCfg *config.Config, rootDir strin
 	if werr := writeFluxProofResults(rootDir, verdicts, meta); werr != nil {
 		fmt.Fprintf(os.Stderr, "warning: proof-results write failed: %v\n", werr)
 	}
-	// Presentation lives here (cli/cmd), not in the domain: render the tools the
-	// validation resolved as a "Staged Tools" ledger, then the results box.
-	provision.Render(os.Stdout, meta.Provisioned, output.UseColor())
 	renderFluxValidation(os.Stdout, start, verdicts, meta)
 
 	failed := 0

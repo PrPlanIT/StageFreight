@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -140,7 +141,7 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 	// rootDir = cwd, which is the job workspace during the build.
 	rootDir, _ := os.Getwd()
 	goVersion := toolchain.ResolveGoVersion(".", rootDir)
-	goRes, err := toolchain.Resolve(rootDir, "go", goVersion)
+	goRes, err := provision.Resolve(ctx, rootDir, "go", goVersion, "build (Go toolchain)")
 	if err != nil {
 		return nil, fmt.Errorf("binary engine: resolving go toolchain: %w", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -28,12 +29,12 @@ const (
 // VerificationResult captures the outcome of multi-layer artifact verification.
 type VerificationResult struct {
 	// Layer 1 — Registry identity
-	ResolvedDigest string           `json:"resolved_digest"`
-	ExpectedDigest string           `json:"expected_digest,omitempty"`
-	DigestMatch    *bool            `json:"digest_match,omitempty"`
+	ResolvedDigest string `json:"resolved_digest"`
+	ExpectedDigest string `json:"expected_digest,omitempty"`
+	DigestMatch    *bool  `json:"digest_match,omitempty"`
 
 	// Layer 2 — Signature validity
-	SignatureValid  *bool `json:"signature_valid,omitempty"`
+	SignatureValid   *bool `json:"signature_valid,omitempty"`
 	SigningAttempted bool  `json:"signing_attempted,omitempty"`
 
 	// Layer 3 — Identity validity
@@ -77,7 +78,7 @@ type VerifyOpts struct {
 // All verification operations use digest references (repo@sha256:...), never tags.
 func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 	r := &VerificationResult{
-		ExpectedDigest:  opts.ExpectedDigest,
+		ExpectedDigest:   opts.ExpectedDigest,
 		SigningAttempted: opts.SigningAttempted,
 	}
 
@@ -124,7 +125,7 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 func verifyCosignSignature(ctx context.Context, r *VerificationResult, opts VerifyOpts) {
 	rootDir, _ := os.Getwd()
 	cosignVer, _ := toolchain.ResolveVersion("cosign", "", opts.ToolchainDesired)
-	cosignResult, resolveErr := toolchain.Resolve(rootDir, "cosign", cosignVer)
+	cosignResult, resolveErr := provision.Resolve(ctx, rootDir, "cosign", cosignVer, "signature verification")
 	if resolveErr != nil {
 		diag.Debug(false, "cosign: toolchain resolve failed, skipping signature verification: %v", resolveErr)
 		if opts.SigningAttempted {
@@ -301,4 +302,3 @@ func contains(slice []string, item string) bool {
 	}
 	return false
 }
-

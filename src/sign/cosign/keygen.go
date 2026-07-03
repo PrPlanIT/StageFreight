@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -24,7 +25,7 @@ type KeyGen struct {
 // filenames in its working directory, which match provision's canonical names.
 func (g KeyGen) GenerateKeyPair(ctx context.Context, dir, keyFile, pubFile string) error {
 	ver, _ := toolchain.ResolveVersion("cosign", "", g.Desired)
-	res, err := toolchain.Resolve(g.RootDir, "cosign", ver)
+	res, err := provision.Resolve(ctx, g.RootDir, "cosign", ver, "signing key generation")
 	if err != nil {
 		return fmt.Errorf("resolve cosign: %w", err)
 	}

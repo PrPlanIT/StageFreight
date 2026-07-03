@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -16,7 +18,7 @@ import (
 // CA is resolved from environment: <PREFIX>_CA_FILE or <PREFIX>_CA_B64.
 // OIDC token is resolved from STAGEFREIGHT_OIDC.
 // All ephemeral files are registered for cleanup on rctx.Resolved.
-func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolPinConfig) error {
+func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolPinConfig) error {
 	prefix := envPrefix(cfg.Name)
 
 	// Create isolated kubeconfig — never mutate ~/.kube/config.
@@ -66,7 +68,7 @@ func BuildKubeconfig(cfg config.ClusterConfig, rctx *runtime.RuntimeContext, des
 
 	// Resolve kubectl via toolchain.
 	kubectlVer, kubectlPinned := toolchain.ResolveVersion("kubectl", "", desired)
-	kubectlResult, resolveErr := toolchain.Resolve(rctx.RepoRoot, "kubectl", kubectlVer)
+	kubectlResult, resolveErr := provision.Resolve(ctx, rctx.RepoRoot, "kubectl", kubectlVer, "cluster queries")
 	if resolveErr != nil {
 		if kubectlPinned {
 			return fmt.Errorf("kubectl pinned version %s failed to resolve: %w", kubectlVer, resolveErr)
