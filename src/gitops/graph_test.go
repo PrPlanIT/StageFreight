@@ -109,6 +109,60 @@ func TestReconcileOrder_IgnoresUnknownDeps(t *testing.T) {
 	}
 }
 
+func TestReconcileOrder_WavefrontNotGreedyLexical(t *testing.T) {
+	// The dungeon zitadel-jobs shape: 'z' is a shallow leaf (depth 1) that a greedy
+	// lexical Kahn would defer to the very END, because a DEEPER node 'c' (depth 2) is
+	// lexically smaller and keeps winning the ready-set tiebreak. Wavefront/depth order
+	// must place 'z' in its own depth-1 wave, BEFORE 'c' — matching how Flux fires them
+	// ('z' and 'b' both become eligible the moment 'a' is Ready; 'c' only after 'b').
+	g := mkGraph(
+		node("a", "a"),
+		node("b", "b", "a"),
+		node("c", "c", "b"), // depth 2, lexically small
+		node("z", "z", "a"), // depth 1, lexically large
+	)
+	got := ReconcileOrder(g)
+	want := []KustomizationKey{k("a"), k("b"), k("z"), k("c")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ReconcileOrder = %v, want %v (z belongs in its depth-1 wave, not last)", got, want)
+	}
+}
+
+func TestReconcileOrder_DungeonWavefront(t *testing.T) {
+	// The real dungeon infra graph. infra-zitadel-jobs dependsOn phase-02 and nothing
+	// depends on it, so it must land in phase-03's wave (right after phase-02), not dead
+	// last after phase-04 — which is how the old greedy-lexical order rendered it.
+	g := mkGraph(
+		node("flux-system", "fs"),
+		node("namespaces", "ns"),
+		node("gateway-api-crds", "gac", "namespaces"),
+		node("infra-controllers", "ic", "gateway-api-crds"),
+		node("infra-configs", "icfg", "infra-controllers"),
+		node("apps", "apps", "infra-configs", "infra-controllers"),
+		node("infra-operators", "iop", "gateway-api-crds", "infra-configs"),
+		node("infra-services-phase-01", "p1", "infra-operators"),
+		node("infra-services-phase-02", "p2", "infra-services-phase-01"),
+		node("infra-services-phase-03", "p3", "infra-services-phase-02"),
+		node("infra-zitadel-jobs", "zj", "infra-services-phase-02"),
+		node("infra-services-phase-04", "p4", "infra-services-phase-03"),
+	)
+	want := []KustomizationKey{
+		k("flux-system"), k("namespaces"), // depth 0
+		k("gateway-api-crds"),           // 1
+		k("infra-controllers"),          // 2
+		k("infra-configs"),              // 3
+		k("apps"), k("infra-operators"), // 4 (concurrent wave)
+		k("infra-services-phase-01"),                          // 5
+		k("infra-services-phase-02"),                          // 6
+		k("infra-services-phase-03"), k("infra-zitadel-jobs"), // 7 (concurrent wave)
+		k("infra-services-phase-04"), // 8
+	}
+	got := ReconcileOrder(g)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dungeon ReconcileOrder mismatch:\n got=%v\nwant=%v", got, want)
+	}
+}
+
 func TestBuildRoots_DedupAndSort(t *testing.T) {
 	g := mkGraph(
 		node("one", "infra/base"),

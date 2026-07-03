@@ -226,16 +226,35 @@ func BuildRoots(graph *FluxGraph) []string {
 // controller honors via spec.dependsOn — reconciling in this order accelerates
 // convergence and makes the reconcile output read top-down instead of randomly.
 //
-// Order is deterministic: ties at the same dependency depth are broken lexically
-// by namespace/name, so identical graphs always produce identical sequences
-// (the property FluxBackend.Plan claimed but a map range could never deliver).
+// Order is by dependency DEPTH (longest path from a root), then lexically within a
+// depth — a wavefront that mirrors how Flux actually reconciles: Flux runs every
+// kustomization concurrently and gates each on its deps being Ready, so the nodes
+// sharing a depth are exactly the ones Flux fires together. Depth-first (not a
+// greedy lexical walk) is what keeps a shallow leaf — e.g. a bootstrap Job that only
+// dependsOn an early phase — in its own early wave instead of being pushed to the
+// end just because a deeper node sorts before it lexically. Still a valid
+// topological order (a node's depth is always strictly greater than any dep's) and
+// deterministic (identical graphs → identical sequences).
 //
 // DependsOn edges to kustomizations not present in the graph are ignored (Flux
 // tolerates cross-source dependencies). Cycles are broken deterministically: any
 // nodes that cannot be topologically placed are appended in lexical order so
 // reconcile still covers the whole estate rather than silently dropping them.
 func ReconcileOrder(graph *FluxGraph) []KustomizationKey {
-	order, placed := kahn(graph)
+	depth, placed := kahn(graph)
+
+	order := make([]KustomizationKey, 0, len(graph.Kustomizations))
+	for key := range graph.Kustomizations {
+		if placed[key] {
+			order = append(order, key)
+		}
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if depth[order[i]] != depth[order[j]] {
+			return depth[order[i]] < depth[order[j]]
+		}
+		return lessKey(order[i], order[j])
+	})
 
 	// Cycle remainder — append anything unplaced in lexical order so coverage
 	// is never silently reduced by a dependency cycle.
@@ -253,12 +272,16 @@ func ReconcileOrder(graph *FluxGraph) []KustomizationKey {
 	return order
 }
 
-// kahn runs Kahn's topological sort over the graph, deps-first with a lexical
-// tiebreak at each depth (deterministic). It returns the placeable order and the
-// set of nodes that were placed. Nodes absent from `placed` are unorderable — in,
-// or downstream of, a dependency cycle. DependsOn edges to kustomizations not in
-// the graph are ignored (Flux tolerates cross-source deps).
-func kahn(graph *FluxGraph) (order []KustomizationKey, placed map[KustomizationKey]bool) {
+// kahn runs Kahn's topological traversal and returns each placeable node's
+// longest-path DEPTH (0 = a root wave) plus the set of placed nodes. depth[k] is
+// 1 + the max depth of k's in-graph dependencies, so nodes sharing a depth are the
+// ones Flux can reconcile concurrently. The traversal order of the ready queue does
+// not affect the computed depths (a node is processed only once all its deps are
+// placed), so no per-step sort is needed — ReconcileOrder sorts by (depth, key) at
+// the end for the final deterministic sequence. Nodes absent from `placed` are
+// unorderable — in, or downstream of, a dependency cycle. DependsOn edges to
+// kustomizations not in the graph are ignored (Flux tolerates cross-source deps).
+func kahn(graph *FluxGraph) (depth map[KustomizationKey]int, placed map[KustomizationKey]bool) {
 	indeg := make(map[KustomizationKey]int, len(graph.Kustomizations))
 	for key, node := range graph.Kustomizations {
 		n := 0
@@ -270,38 +293,44 @@ func kahn(graph *FluxGraph) (order []KustomizationKey, placed map[KustomizationK
 		indeg[key] = n
 	}
 
+	depth = make(map[KustomizationKey]int, len(graph.Kustomizations))
+	placed = make(map[KustomizationKey]bool, len(graph.Kustomizations))
+
 	var ready []KustomizationKey
 	for key, n := range indeg {
 		if n == 0 {
 			ready = append(ready, key)
 		}
 	}
-	SortKeys(ready)
 
-	order = make([]KustomizationKey, 0, len(graph.Kustomizations))
-	placed = make(map[KustomizationKey]bool, len(graph.Kustomizations))
 	for len(ready) > 0 {
-		k := ready[0]
-		ready = ready[1:]
-		order = append(order, k)
+		k := ready[len(ready)-1]
+		ready = ready[:len(ready)-1]
 		placed[k] = true
 
-		var newlyReady []KustomizationKey
+		// All in-graph deps are already placed (indegree reached 0), so their
+		// depths are final: this node's depth is 1 + their max (0 if it has none).
+		d := 0
+		for _, dep := range graph.Kustomizations[k].DependsOn {
+			if _, ok := graph.Kustomizations[dep]; ok {
+				if depth[dep]+1 > d {
+					d = depth[dep] + 1
+				}
+			}
+		}
+		depth[k] = d
+
 		for _, dependent := range graph.ReverseDeps[k] {
 			if placed[dependent] {
 				continue
 			}
 			indeg[dependent]--
 			if indeg[dependent] == 0 {
-				newlyReady = append(newlyReady, dependent)
+				ready = append(ready, dependent)
 			}
 		}
-		if len(newlyReady) > 0 {
-			ready = append(ready, newlyReady...)
-			SortKeys(ready)
-		}
 	}
-	return order, placed
+	return depth, placed
 }
 
 // CycleNodes returns the set of kustomizations that cannot be topologically
@@ -347,12 +376,15 @@ func Orphans(graph *FluxGraph) []KustomizationKey {
 	return orphans
 }
 
+// lessKey orders keys lexically by namespace, then name.
+func lessKey(a, b KustomizationKey) bool {
+	if a.Namespace == b.Namespace {
+		return a.Name < b.Name
+	}
+	return a.Namespace < b.Namespace
+}
+
 // SortKeys sorts kustomization keys lexically by namespace/name.
 func SortKeys(keys []KustomizationKey) {
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].Namespace == keys[j].Namespace {
-			return keys[i].Name < keys[j].Name
-		}
-		return keys[i].Namespace < keys[j].Namespace
-	})
+	sort.Slice(keys, func(i, j int) bool { return lessKey(keys[i], keys[j]) })
 }
