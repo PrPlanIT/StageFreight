@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -31,12 +32,12 @@ func realizeSubstrate(ctx context.Context, suites []ResolvedSuite) []substrate.R
 // resolveSuiteToolchain resolves the primary toolchain a suite runs on (go/rust),
 // warming the cache and capturing provenance (version, source, trust) for the
 // provisioning ledger. Script suites have no toolchain — a zero Result, no error.
-func resolveSuiteToolchain(rootDir string, s ResolvedSuite) (toolchain.Result, error) {
+func resolveSuiteToolchain(ctx context.Context, rootDir string, s ResolvedSuite) (toolchain.Result, error) {
 	switch s.Tool {
 	case config.TestToolGo:
-		return toolchain.Resolve(rootDir, "go", toolchain.ResolveGoVersion(s.Dir, rootDir))
+		return provision.Resolve(ctx, rootDir, "go", toolchain.ResolveGoVersion(s.Dir, rootDir), "Go test toolchain")
 	case config.TestToolRust:
-		return toolchain.Resolve(rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir))
+		return provision.Resolve(ctx, rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir), "Rust test toolchain")
 	default:
 		return toolchain.Result{}, nil
 	}
@@ -123,7 +124,7 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 	// cargo test under instrumentation. Resolve it, graft llvm-tools, put it on PATH,
 	// and swap `cargo test <flags>` → `cargo llvm-cov --no-report <flags>`.
 	if s.Coverage {
-		cvEnv, err := prepareRustCoverage(rootDir, s.Dir, cargoBin, env, desired)
+		cvEnv, err := prepareRustCoverage(ctx, rootDir, s.Dir, cargoBin, env, desired)
 		if err != nil {
 			return failSuite(sr, err)
 		}
@@ -184,7 +185,7 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 // rust prefix, and returns an env with cargo-llvm-cov on PATH (so `cargo llvm-cov`
 // resolves). Fails clearly when the tool isn't pinned — coverage requires an explicit
 // project trust root.
-func prepareRustCoverage(rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolPinConfig) ([]string, error) {
+func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolPinConfig) ([]string, error) {
 	// Both fields optional: version → registry DefaultVer, sha256 → TOFU. A user MAY
 	// pin either in toolchains.desired for stronger guarantees, but coverage works with
 	// nothing configured.
@@ -193,9 +194,14 @@ func prepareRustCoverage(rootDir, crateDir, cargoBin string, env []string, desir
 	if err != nil {
 		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}
-	if err := toolchain.EnsureRustLlvmTools(cargoBin, toolchain.ResolveRustVersion(crateDir, rootDir)); err != nil {
+	// cargo-llvm-cov comes via ResolvePinned, llvm-tools via a rustup component — both
+	// bypass Resolve, so record them into the ledger explicitly.
+	provision.Record(ctx, provision.FromToolchain(res, "Rust coverage instrumentation"))
+	rustVer := toolchain.ResolveRustVersion(crateDir, rootDir)
+	if err := toolchain.EnsureRustLlvmTools(cargoBin, rustVer); err != nil {
 		return nil, fmt.Errorf("provisioning llvm-tools: %w", err)
 	}
+	provision.Record(ctx, provision.Entry{Tool: "llvm-tools", Version: rustVer, Via: "rust-lang", Verified: provision.VerifiedDelegated, Purpose: "Rust coverage (rustup component)"})
 	return setEnv(env, "PATH", filepath.Dir(res.Path)+string(os.PathListSeparator)+getEnv(env, "PATH")), nil
 }
 

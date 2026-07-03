@@ -21,7 +21,6 @@ func TestRenderBoundary_OnlyPresentationLayerCallsRender(t *testing.T) {
 	// Package dirs (relative to src/) permitted to call provision.Render.
 	allow := map[string]bool{
 		"cli/cmd":    true, // the presentation layer — where rendering belongs
-		"test":       true, // GRANDFATHERED — migrate to data + cli/cmd render
 		"dependency": true, // GRANDFATHERED — migrate to data + cli/cmd render
 	}
 

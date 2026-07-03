@@ -74,6 +74,22 @@ func phaseNotApplicable(rootDir, phase, mode string) error {
 	return nil
 }
 
+// renderStagedTools renders the run's provisioned tools as a COLLAPSED "Staged Tools"
+// segment (GitLab fold; inline elsewhere) — the sole presentation of the tool ledger,
+// in the cli/cmd layer. No-op when nothing was provisioned.
+func renderStagedTools(entries []provision.Entry) {
+	if len(entries) == 0 {
+		return
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Tool)
+	}
+	output.SectionStartCollapsed(os.Stdout, "staged_tools", "Staged Tools — "+strings.Join(names, " · "))
+	provision.Render(os.Stdout, entries, output.UseColor())
+	output.SectionEnd(os.Stdout, "staged_tools")
+}
+
 // renderAuditionBanner prints the full logo banner + code identity block. The
 // audition phase is the sole place the logo appears — it is the readiness/proving
 // phase at the head of the pipeline.
@@ -97,7 +113,7 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 	// Seed the run's tool ledger; every provision.Resolve(ctx, …) in the phases below
 	// records into it, and we render the consolidated "Staged Tools" receipt at the end.
 	ctx = provision.WithLedger(ctx)
-	defer provision.Render(os.Stdout, provision.Collected(ctx), output.UseColor())
+	defer renderStagedTools(provision.Collected(ctx))
 
 	// Full logo banner — audition is the only phase that shows it.
 	renderAuditionBanner()
@@ -154,7 +170,7 @@ func checkCIFreshness(forge, rootDir string, appCfg *config.Config) error {
 // For gitops/governance: cluster reconcile.
 func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	ctx = provision.WithLedger(ctx)
-	defer provision.Render(os.Stdout, provision.Collected(ctx), output.UseColor())
+	defer renderStagedTools(provision.Collected(ctx))
 
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {

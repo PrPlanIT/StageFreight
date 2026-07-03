@@ -44,21 +44,15 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 	// toolchain, then render the environment ledger in ITS OWN box, separate from the
 	// results. Toolchains are resolved here (cache-warm) so their provenance + trust
 	// land in the ledger; runSuite then executes against the captured Result.
-	ledger := provision.FromSubstrate(realizeSubstrate(ctx, suites))
+	// Record substrate + each suite's toolchain into the run ledger (resolveSuiteToolchain
+	// records via provision.Resolve). No inline render — the tools flow to the ctx ledger
+	// and the phase runner (cli/cmd) renders "Staged Tools". Presentation lives there.
+	provision.RecordCtxAll(ctx, provision.FromSubstrate(realizeSubstrate(ctx, suites)))
 	tools := make([]toolchain.Result, len(suites))
 	toolErrs := make([]error, len(suites))
-	seen := map[string]bool{}
 	for i, s := range suites {
-		res, err := resolveSuiteToolchain(rootDir, s)
-		tools[i], toolErrs[i] = res, err
-		if err == nil && res.Tool != "" {
-			if k := res.Tool + "@" + res.Version; !seen[k] {
-				seen[k] = true
-				ledger = append(ledger, provision.FromToolchain(res, ""))
-			}
-		}
+		tools[i], toolErrs[i] = resolveSuiteToolchain(ctx, rootDir, s)
 	}
-	provision.Render(w, ledger, color)
 
 	// Results phase: one box, only about tests.
 	sec := output.NewSection(w, intent.title(), 0, color)
