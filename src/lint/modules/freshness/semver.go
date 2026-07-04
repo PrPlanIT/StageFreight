@@ -356,6 +356,32 @@ func compareVersionStrings(current, latest string) VersionDelta {
 	}
 }
 
+// CompareVersions reports whether version v sorts before (-1), equal to (0), or after
+// (1) target, using ecosystem-aware semver. Unparseable inputs compare equal (0).
+// Exported for the dependency remediator, which must decide whether a resolved
+// transitive dependency has reached an advisory's fixed version.
+func CompareVersions(v, target, ecosystem string) int {
+	d := compareDependencyVersions(target, v, ecosystem) // componentwise (v - target)
+	switch {
+	case d.Major != 0:
+		if d.Major < 0 {
+			return -1
+		}
+		return 1
+	case d.Minor != 0:
+		if d.Minor < 0 {
+			return -1
+		}
+		return 1
+	case d.Patch != 0:
+		if d.Patch < 0 {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
 // compareDependencyVersions dispatches to ecosystem-aware version comparison.
 // APK and APT versions have packaging-specific suffixes that must be stripped
 // before semver comparison; all other ecosystems use plain semver.

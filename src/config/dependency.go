@@ -25,6 +25,17 @@ type DependencyConfig struct {
 	Scope   DependencyScopeConfig  `yaml:"scope"`
 	Commit  DependencyCommitConfig `yaml:"commit"`
 	CI      DependencyCIConfig     `yaml:"ci"`
+	Ignore  []DependencyIgnore     `yaml:"ignore,omitempty"`
+}
+
+// DependencyIgnore suppresses a specific security advisory from remediation — an
+// accepted-risk or false-positive decision. Keyed by advisory ID (the same `ignore`
+// term osv-scanner/Trivy/Grype/Dependabot use), with a required reason and an expiry
+// after which it lapses and the advisory re-surfaces.
+type DependencyIgnore struct {
+	ID     string `yaml:"id"`               // e.g. "GHSA-xxxx-yyyy-zzzz", "GO-2026-1234"
+	Reason string `yaml:"reason,omitempty"` // why this risk is carried
+	Until  string `yaml:"until,omitempty"`  // YYYY-MM-DD; past this date the ignore lapses
 }
 
 // DependencyScopeConfig controls which dependency ecosystems are managed.

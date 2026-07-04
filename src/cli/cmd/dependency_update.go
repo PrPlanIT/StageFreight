@@ -154,6 +154,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 		Vulncheck:  !depNoVuln,
 		Ecosystems: depEcosystems,
 		Policy:     depPolicy,
+		Ignore:     mapIgnores(cfg.Dependency.Ignore),
 	}
 
 	if depDryRun {

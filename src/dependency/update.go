@@ -144,11 +144,12 @@ type UpdateResult struct {
 
 // AppliedUpdate records a single dependency that was successfully updated.
 type AppliedUpdate struct {
-	Dep        freshness.Dependency
-	OldVer     string
-	NewVer     string
-	UpdateType string // "major", "minor", "patch", "tag"
-	CVEsFixed  []string
+	Dep         freshness.Dependency
+	OldVer      string
+	NewVer      string
+	UpdateType  string // "major", "minor", "patch", "tag", "security"
+	CVEsFixed   []string
+	Remediation string // how a security remediation was achieved (parent-bump vs pinned floor); empty for ordinary updates
 }
 
 // Update resolves, filters, applies, verifies, and generates artifacts for dependency updates.
@@ -185,6 +186,11 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 		return result, fmt.Errorf("listing tracked files: %w", err)
 	}
 	steps = append(steps, depStep{label: "scan", detail: fmt.Sprintf("%d deps · %d files", len(deps), len(trackedFiles)), dur: time.Since(t0)})
+
+	// 3a. Apply accepted-risk advisory suppressions (dependency.ignore) up front, so every
+	// downstream stage — freshness counts, candidate filtering, remediation — sees the same
+	// suppressed view. In-process only: no scanner ignore files are written (see ApplyIgnores).
+	deps = ApplyIgnores(deps, cfg.Ignore, time.Now())
 
 	// 4. Freshness integrity — resolved vs unresolved. A DIRECT dep with no verified
 	// Latest is UNRESOLVED (surfaced with ⚠; "couldn't verify" never collapses into
@@ -238,7 +244,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	// candidate, reporting what actually happened (updated / skipped). No zero rows.
 	if len(gomodDeps) > 0 {
 		t0 = time.Now()
-		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, repoRoot)
+		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, deps, repoRoot)
 		if err != nil {
 			steps = append(steps, depStep{label: "gomod", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying Go updates: %w", err)

@@ -247,6 +247,19 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 }
 
 // ── deps runner ──────────────────────────────────────────────────────────────
+// mapIgnores bridges config's DependencyIgnore (the .stagefreight.yml surface) to the
+// dependency engine's VulnIgnore, keeping the engine free of a config-package dependency.
+func mapIgnores(in []config.DependencyIgnore) []dependency.VulnIgnore {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dependency.VulnIgnore, 0, len(in))
+	for _, ig := range in {
+		out = append(out, dependency.VulnIgnore{ID: ig.ID, Reason: ig.Reason, Until: ig.Until})
+	}
+	return out
+}
+
 func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	if !appCfg.Dependency.Enabled {
 		fmt.Println("  dependency update disabled in config")
@@ -508,6 +521,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		Vulncheck:  true,
 		Ecosystems: ecosystems,
 		Policy:     "all",
+		Ignore:     mapIgnores(appCfg.Dependency.Ignore),
 		Writer:     w, // render the Dependencies card alongside the other phase cards
 	}
 

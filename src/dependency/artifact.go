@@ -176,15 +176,19 @@ func writeReport(path string, result *UpdateResult) error {
 	// Applied updates
 	if len(result.Applied) > 0 {
 		b.WriteString("## Applied Updates\n\n")
-		b.WriteString("| Dependency | From | To | Type | CVEs Fixed |\n")
-		b.WriteString("|------------|------|----|------|------------|\n")
+		b.WriteString("| Dependency | From | To | Type | CVEs Fixed | How |\n")
+		b.WriteString("|------------|------|----|------|------------|-----|\n")
 		for _, a := range result.Applied {
 			cves := "-"
 			if len(a.CVEsFixed) > 0 {
 				cves = strings.Join(a.CVEsFixed, ", ")
 			}
-			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
-				a.Dep.Name, a.OldVer, a.NewVer, a.UpdateType, cves))
+			how := "-"
+			if a.Remediation != "" {
+				how = a.Remediation // "parent bump: …" or "pinned floor: …" for a security remediation
+			}
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+				a.Dep.Name, a.OldVer, a.NewVer, a.UpdateType, cves, how))
 		}
 		b.WriteString("\n")
 	} else {

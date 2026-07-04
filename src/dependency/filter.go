@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 )
@@ -43,19 +44,72 @@ func FilterUpdateCandidates(deps []freshness.Dependency, cfg UpdateConfig, track
 	return
 }
 
+// ApplyIgnores strips advisories the operator has explicitly accepted (dependency.ignore)
+// from each dependency's Vulnerabilities — UNLESS the ignore has lapsed past its `until`
+// date, in which case the advisory re-surfaces (accepted risk is never permanent). IDs
+// match case-insensitively. A malformed or expired `until` is treated as expired: it must
+// never silently drop a real finding. A dependency whose every advisory is ignored is
+// left with zero vulnerabilities and thus falls out of security-policy scope.
+func ApplyIgnores(deps []freshness.Dependency, ignores []VulnIgnore, now time.Time) []freshness.Dependency {
+	active := make(map[string]bool, len(ignores))
+	for _, ig := range ignores {
+		id := strings.ToUpper(strings.TrimSpace(ig.ID))
+		if id == "" {
+			continue
+		}
+		if u := strings.TrimSpace(ig.Until); u != "" {
+			t, err := time.Parse("2006-01-02", u)
+			if err != nil || !now.Before(t) {
+				continue // malformed or lapsed → does not suppress
+			}
+		}
+		active[id] = true
+	}
+	if len(active) == 0 {
+		return deps
+	}
+	out := make([]freshness.Dependency, len(deps))
+	copy(out, deps)
+	for i := range out {
+		if len(out[i].Vulnerabilities) == 0 {
+			continue
+		}
+		kept := out[i].Vulnerabilities[:0:0] // fresh backing array — never mutate the input's
+		for _, v := range out[i].Vulnerabilities {
+			if active[strings.ToUpper(strings.TrimSpace(v.ID))] {
+				continue
+			}
+			kept = append(kept, v)
+		}
+		out[i].Vulnerabilities = kept
+	}
+	return out
+}
+
 func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
-	// Indirect dependencies are managed transitively (go mod tidy after direct updates),
-	// never updated directly, so resolution deliberately skips them — leaving Latest
-	// empty. Classify them BEFORE the unresolved check, or they masquerade as "could not
-	// verify" when nothing was ever attempted.
-	if dep.Indirect {
+	// A VULNERABLE indirect under security policy is a TRUE signal, not noise: the
+	// transitive-management assumption (bump direct → tidy pulls the fix) has FAILED for
+	// it — no direct parent requires a fixed version. It must be REMEDIATED (parent-bump-
+	// or-pin by the Go vuln remediator), so unlike an ordinary indirect it is NOT skipped,
+	// and it is exempt from the "unresolved" and "up to date" checks below (its Latest is
+	// empty by design; the target is the advisory's FixedIn). It still honors the
+	// ecosystem / auto-updatable / tracked-file gates.
+	vulnIndirect := dep.Indirect && cfg.Policy == "security" && len(dep.Vulnerabilities) > 0
+
+	// Non-vulnerable indirect deps are managed transitively (go mod tidy after direct
+	// updates), never updated directly, so resolution deliberately skips them — leaving
+	// Latest empty. Classify BEFORE the unresolved check, or they masquerade as "could
+	// not verify" when nothing was ever attempted.
+	if dep.Indirect && !vulnIndirect {
 		return "indirect dependency"
 	}
 
 	// Unresolved: the latest version could NOT be verified (registry failure, empty
 	// response). Inability to determine state must never collapse into verified
 	// healthy — "couldn't check" is a different operational condition than "current".
-	if dep.ResolutionError != "" || dep.Latest == "" {
+	// (A vuln-indirect legitimately has an empty Latest — remediation targets the
+	// advisory FixedIn, not Latest — so it is exempt.)
+	if !vulnIndirect && (dep.ResolutionError != "" || dep.Latest == "") {
 		return "unresolved (could not verify latest version)"
 	}
 
@@ -64,7 +118,8 @@ func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[
 	// safe to apply: it's up to date — unless a higher version exists OUT of the
 	// constraint range, which is a constraint-expanding major upgrade held for review
 	// (review-domain, may need feature renames / API migration), never auto-applied.
-	if dep.UpdateTarget() == dep.Current {
+	// (A vuln-indirect is exempt: UpdateTarget derives from an empty Latest.)
+	if !vulnIndirect && dep.UpdateTarget() == dep.Current {
 		if dep.MajorAvailable() {
 			return "major upgrade held — review (" + dep.Latest + " out of range)"
 		}

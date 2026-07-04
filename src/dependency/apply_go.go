@@ -53,15 +53,30 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 	return runner, nil
 }
 
-// applyGoUpdates applies Go module dependency updates.
-// Returns touched module dirs (repoRoot-relative) as the 3rd value,
-// and touched files (go.mod, go.sum per module) as the 4th —
-// only dirs/files where go get + go mod tidy both succeeded.
-func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
+// applyGoUpdates applies Go module dependency updates. allDeps is the full resolved
+// dependency set (direct + indirect) used by the vuln remediator to identify responsible
+// direct parents and their compatible targets. Returns touched module dirs (repoRoot-
+// relative) as the 3rd value, and touched files (go.mod, go.sum per module) as the 4th —
+// only dirs/files where the update(s) succeeded.
+func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
 	// Check for go.work — workspace mode uses -C with relative paths
 	hasWorkspace := false
 	if _, err := os.Stat(filepath.Join(repoRoot, "go.work")); err == nil {
 		hasWorkspace = true
+	}
+
+	// Direct-dependency map for the vuln remediator: which Go modules are DIRECT (a
+	// parent-bump candidate for case-1 remediation) and their compatible update target.
+	directNames := make(map[string]bool)
+	directTargets := make(map[string]string)
+	for _, d := range allDeps {
+		if d.Ecosystem != freshness.EcosystemGoMod || d.Indirect {
+			continue
+		}
+		directNames[d.Name] = true
+		if t := d.UpdateTarget(); t != "" && t != d.Current {
+			directTargets[d.Name] = t
+		}
 	}
 
 	// Group deps by module dir (derived from dep.File)
@@ -123,65 +138,60 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot s
 			replaceSet = nil
 		}
 
-		// Build batch go get args, skipping replaced modules
-		var getArgs []string
+		goDir := modulePath
+		if hasWorkspace {
+			goDir = repoRoot
+		}
+		gc := goModCtx{runGo: runGo, wd: goDir, moduleRel: group.dir, modDir: modulePath, hasWorkspace: hasWorkspace}
+
+		// Split candidates: vulnerable indirects route through the security remediator
+		// (parent-bump-or-pin, FixedIn target — see remediate_go.go); everything else is a
+		// normal batched `go get @Latest`.
+		var normal, vulnIndirect []freshness.Dependency
 		for _, dep := range group.deps {
 			if replaceSet != nil && replaceSet[dep.Name] {
 				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "replace directive present"})
 				continue
 			}
-
-			getArgs = append(getArgs, dep.Name+"@"+dep.Latest)
-			update := AppliedUpdate{
-				Dep:        dep,
-				OldVer:     dep.Current,
-				NewVer:     dep.Latest,
-				UpdateType: updateType(dep.Current, dep.Latest),
+			if dep.Indirect && len(dep.Vulnerabilities) > 0 {
+				vulnIndirect = append(vulnIndirect, dep)
+			} else {
+				normal = append(normal, dep)
 			}
-			for _, v := range dep.Vulnerabilities {
-				update.CVEsFixed = append(update.CVEsFixed, v.ID)
+		}
+
+		// Normal batch: go get @Latest for all, then a single tidy.
+		if len(normal) > 0 {
+			var getArgs []string
+			var pending []AppliedUpdate
+			for _, dep := range normal {
+				getArgs = append(getArgs, dep.Name+"@"+dep.Latest)
+				u := AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)}
+				for _, v := range dep.Vulnerabilities {
+					u.CVEsFixed = append(u.CVEsFixed, v.ID)
+				}
+				pending = append(pending, u)
 			}
-			applied = append(applied, update)
+			if out, err := gc.run(ctx, append([]string{"get"}, getArgs...)...); err != nil {
+				return applied, skipped, nil, nil, fmt.Errorf("go get in %s: %s\n%w", group.dir, string(out), err)
+			}
+			if out, err := gc.run(ctx, "mod", "tidy"); err != nil {
+				return applied, skipped, nil, nil, fmt.Errorf("go mod tidy in %s: %s\n%w", group.dir, string(out), err)
+			}
+			applied = append(applied, pending...)
+			touchedSet[group.dir] = struct{}{}
 		}
 
-		if len(getArgs) == 0 {
-			continue
+		// Vulnerable indirects: routed remediation (parent-bump preferred, pin fallback).
+		for _, dep := range vulnIndirect {
+			u, reason := remediateGoVuln(ctx, gc, dep, directNames, directTargets)
+			if reason != "" {
+				skipped = append(skipped, SkippedDep{Dep: dep, Reason: reason})
+				continue
+			}
+			applied = append(applied, u)
+			touchedSet[group.dir] = struct{}{}
 		}
-
-		// Determine working directory and build go get args
-		var goDir string
-		if hasWorkspace {
-			goDir = repoRoot
-		} else {
-			goDir = modulePath
-		}
-
-		var goGetArgs []string
-		if hasWorkspace {
-			goGetArgs = append([]string{"-C", group.dir, "get"}, getArgs...)
-		} else {
-			goGetArgs = append([]string{"get"}, getArgs...)
-		}
-
-		out, err := runGo(ctx, goDir, goGetArgs...)
-		if err != nil {
-			return applied, skipped, nil, nil, fmt.Errorf("go get in %s: %s\n%w", group.dir, string(out), err)
-		}
-
-		// go mod tidy
-		var tidyArgs []string
-		if hasWorkspace {
-			tidyArgs = []string{"-C", group.dir, "mod", "tidy"}
-		} else {
-			tidyArgs = []string{"mod", "tidy"}
-		}
-		out, err = runGo(ctx, goDir, tidyArgs...)
-		if err != nil {
-			return applied, skipped, nil, nil, fmt.Errorf("go mod tidy in %s: %s\n%w", group.dir, string(out), err)
-		}
-
-		// Both go get and go mod tidy succeeded — mark this dir as touched
-		touchedSet[group.dir] = struct{}{}
 	}
 
 	touchedDirs := make([]string, 0, len(touchedSet))
