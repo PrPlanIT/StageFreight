@@ -588,6 +588,9 @@ commit:
 | `allow` | `commit.run_from.allow` | []string | No | — | []string value |
 | `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
 | `handoff` | `ci.handoff` | string | Yes | — | string value |
+| `id` | `ignore.id` | string | Yes | — | string value |
+| `reason` | `ignore.reason` | string | No | — | string value |
+| `until` | `ignore.until` | string | No | — | string value |
 
 ---
 
