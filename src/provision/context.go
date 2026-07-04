@@ -10,16 +10,16 @@ import (
 // Request-scoped provisioning collector. Carried in context.Context — the idiomatic
 // Go channel for request-scoped ambient data (like a logger or trace span), NOT a
 // package-global. A run seeds one collector; every tool resolved through Resolve
-// records into it; the presentation layer (cli/cmd) reads it back with Collected /
-// FlushCollected and renders. Domain code produces DATA into the collector and never
-// renders — the render boundary (see render_boundary_test.go) still holds.
+// records into it; the presentation layer reads back the per-phase delta with
+// FlushCollected and renders a "Staged Tools" box IN FRONT OF that phase's work box.
+// Domain code produces DATA into the collector and never decides layout.
 
 type ledgerKey struct{}
 
 type collector struct {
 	mu      sync.Mutex
 	entries []Entry
-	flushed int // for FlushCollected's per-phase delta
+	flushed int // watermark for FlushCollected's per-phase delta
 }
 
 // WithLedger returns a context carrying a fresh provisioning collector. Call once at
@@ -35,9 +35,9 @@ func collectorFrom(ctx context.Context) *collector {
 
 // Resolve is the sensible provisioning call: it resolves a tool via the toolchain
 // engine AND records it (with trust from Result.Trust + purpose) in the ctx collector,
-// if one is present. Use this instead of toolchain.Resolve so a tool lands in "Staged
-// Tools" by construction — no per-caller result plumbing. Safe with a bare ctx (no
-// ledger): it just resolves. toolchain.Resolve stays pure; this is the recording seam.
+// if one is present. Use this instead of toolchain.Resolve so a tool lands in the next
+// "Staged Tools" box by construction — no per-caller result plumbing. Safe with a bare
+// ctx (no ledger): it just resolves. toolchain.Resolve stays pure; this is the seam.
 func Resolve(ctx context.Context, rootDir, tool, version, purpose string) (toolchain.Result, error) {
 	res, err := toolchain.Resolve(rootDir, tool, version)
 	if err != nil {
@@ -72,14 +72,15 @@ func (c *collector) record(e Entry) {
 	defer c.mu.Unlock()
 	for _, x := range c.entries {
 		if x.Tool == e.Tool && x.Version == e.Version {
-			return // dedup by tool+version
+			return // dedup by tool+version — a tool shows once, in the phase that first pulled it
 		}
 	}
 	c.entries = append(c.entries, e)
 }
 
 // Collected returns a copy of everything recorded in this ctx's collector — the whole
-// run's tools, flushed or not. For a consolidated receipt or the structured artifact.
+// run's tools. The terminal shows them per-phase (FlushCollected); Collected is for the
+// structured CI artifact, the one place the full ledger is summarized.
 func Collected(ctx context.Context) []Entry {
 	c := collectorFrom(ctx)
 	if c == nil {
@@ -90,10 +91,11 @@ func Collected(ctx context.Context) []Entry {
 	return append([]Entry(nil), c.entries...)
 }
 
-// FlushCollected returns the entries recorded since the last FlushCollected — the
-// per-phase delta, so each phase's runner can render just the tools it pulled
-// (streaming, before_script-style). Empty when nothing new was provisioned.
-func FlushCollected(ctx context.Context) []Entry {
+// flushCollected returns the entries recorded since the last flush — the per-phase
+// delta. Unexported on purpose: phases never flush-then-render by hand; they call the
+// one primitive StageBox, which drains this and renders the box in front of the work
+// box. Empty ⇒ nothing new provisioned this phase.
+func flushCollected(ctx context.Context) []Entry {
 	c := collectorFrom(ctx)
 	if c == nil {
 		return nil

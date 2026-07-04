@@ -54,6 +54,10 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 		tools[i], toolErrs[i] = resolveSuiteToolchain(ctx, rootDir, s)
 	}
 
+	// Staged Tools box — the tools this phase prepared (toolchain + substrate), in
+	// front of the results box below. The one convention, same call as every phase.
+	provision.StageBox(ctx, w, color)
+
 	// Results phase: one box, only about tests.
 	sec := output.NewSection(w, intent.title(), 0, color)
 	res := &TestResult{}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -75,26 +74,6 @@ func phaseNotApplicable(rootDir, phase, mode string) error {
 	return nil
 }
 
-// renderStagedTools renders the run's provisioned tools as a COLLAPSED "Staged Tools"
-// segment (GitLab fold; inline elsewhere) — the sole presentation of the tool ledger,
-// in the cli/cmd layer. No-op when nothing was provisioned.
-var stagedToolsSeq int // unique GitLab section id per flushed segment
-
-func renderStagedTools(entries []provision.Entry) {
-	if len(entries) == 0 {
-		return
-	}
-	stagedToolsSeq++
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Tool)
-	}
-	id := "staged_tools_" + strconv.Itoa(stagedToolsSeq)
-	output.SectionStartCollapsed(os.Stdout, id, "Staged Tools — "+strings.Join(names, " · "))
-	provision.Render(os.Stdout, entries, output.UseColor())
-	output.SectionEnd(os.Stdout, id)
-}
-
 // renderAuditionBanner prints the full logo banner + code identity block. The
 // audition phase is the sole place the logo appears — it is the readiness/proving
 // phase at the head of the pipeline.
@@ -116,9 +95,9 @@ func renderPhaseIdentity() {
 // Dispatches to depsRunner for image mode or validateRunner for gitops/governance.
 func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	// Seed the run's tool ledger; every provision.Resolve(ctx, …) in the phases below
-	// records into it, and we render the consolidated "Staged Tools" receipt at the end.
+	// records into it, and each phase renders a "Staged Tools" box in front of its work
+	// box (stageToolsBox drains that phase's delta). No end-of-run summary.
 	ctx = provision.WithLedger(ctx)
-	defer renderStagedTools(provision.FlushCollected(ctx)) // catch-all: anything a sub-phase didn't stream
 
 	// Full logo banner — audition is the only phase that shows it.
 	renderAuditionBanner()
@@ -175,7 +154,6 @@ func checkCIFreshness(forge, rootDir string, appCfg *config.Config) error {
 // For gitops/governance: cluster reconcile.
 func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	ctx = provision.WithLedger(ctx)
-	defer renderStagedTools(provision.FlushCollected(ctx)) // catch-all: anything a sub-phase didn't stream
 
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {

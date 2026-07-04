@@ -5,13 +5,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/docker"
-	_ "github.com/PrPlanIT/StageFreight/src/docker"  // register compose backend
-	_ "github.com/PrPlanIT/StageFreight/src/gitops"   // register flux backend
+	_ "github.com/PrPlanIT/StageFreight/src/docker" // register compose backend
+	_ "github.com/PrPlanIT/StageFreight/src/gitops" // register flux backend
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -70,6 +71,11 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	w := os.Stdout
 	color := output.UseColor()
 	elapsed := time.Since(start)
+
+	// Staged Tools box — the tools the lifecycle prepared (flux/kubectl), in front of
+	// the reconcile render box. cmd.Context() carries the run ledger in the perform path
+	// (reconcileRunner sets it); no-op for a bare CLI reconcile with no ledger.
+	provision.StageBox(cmd.Context(), w, color)
 
 	switch mode {
 	case "gitops":

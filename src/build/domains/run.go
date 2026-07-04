@@ -9,6 +9,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
@@ -159,6 +160,9 @@ func runDomain(rc *RunContext, d Domain, active []Contributor) (pipeline.PhaseRe
 		return pipeline.PhaseResult{}, false, domErr
 	}
 
+	// Staged Tools box, in front of this domain's box — shows the tools this domain
+	// pulled (go/rust in Build; empty ⇒ no-op for domains that resolve nothing).
+	provision.StageBox(rc.Ctx, rc.Writer, rc.Color)
 	sec := output.NewSection(rc.Writer, d.title(), time.Since(start), rc.Color)
 	status := "success"
 	var summaries []string

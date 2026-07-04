@@ -13,6 +13,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/spf13/cobra"
 )
 
@@ -125,7 +126,13 @@ func runLint(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "scanning %d files\n", len(files))
 	}
 
-	ctx := context.Background()
+	// Use the caller's context when there is one — the audition path (validateRunner)
+	// sets it so provision.Resolve records osv into the run ledger. Bare CLI invocation
+	// has none; fall back so the lint command still works standalone.
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ci := output.IsCI()
 	color := output.UseColor()
 	w := os.Stdout
@@ -171,6 +178,9 @@ func runLint(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: failed to write junit report: %v\n", jErr)
 		}
 	}
+
+	// Staged Tools box, in front of the Lint box (no-op with no run ledger, e.g. bare CLI).
+	provision.StageBox(ctx, w, color)
 
 	// ── Lint section ──
 	output.SectionStart(w, "sf_lint", "Lint")

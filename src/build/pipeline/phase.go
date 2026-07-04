@@ -14,6 +14,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/trace"
 )
@@ -377,6 +378,9 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 			diag.Warn("failed to write junit report: %v", jErr)
 		}
 	}
+
+	// Staged Tools box, in front of the Lint box.
+	provision.StageBox(ctx, w, color)
 
 	// Section output
 	sec := output.NewSection(w, "Lint", elapsed, color)

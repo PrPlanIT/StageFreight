@@ -16,6 +16,7 @@
 package provision
 
 import (
+	"context"
 	"io"
 	"strings"
 
@@ -64,10 +65,24 @@ func FromSubstrate(realized []substrate.Realized) []Entry {
 	return out
 }
 
-// Render writes the "Staged Tools" box: a fixed-column ledger of everything
-// realized. A no-op when nothing was provisioned. This is the ONE provisioning
-// presentation surface — every subsystem renders through it, never inline in its own
-// results and never raw to stderr.
+// StageBox is THE way a phase presents the tools it prepared: it drains the phase's
+// provisioning delta from the run ledger and renders a "Staged Tools" box to w. The
+// convention — followed identically by every phase — is to call it ONCE, immediately
+// before opening the phase's work section (output.NewSection), so the box lands in
+// front of the work it enabled. No-op when the phase pulled nothing (or no ledger).
+//
+// This is the single, discoverable entry point; phases never touch the ledger's flush
+// or call Render directly. Adding a new tool-using phase means one line — StageBox(ctx,
+// w, color) — ahead of its work box, nothing else.
+func StageBox(ctx context.Context, w io.Writer, color bool) {
+	Render(w, flushCollected(ctx), color)
+}
+
+// Render writes the "Staged Tools" box: a fixed-column ledger of the given entries.
+// A no-op when empty. This is the LOW-LEVEL box; phases go through StageBox (which
+// drains the ctx delta and calls this). Direct callers are the exception — a subsystem
+// rendering its own one-off row (see dependency) — guarded by the render-boundary
+// ratchet so the phase path stays the norm.
 func Render(w io.Writer, entries []Entry, color bool) {
 	if len(entries) == 0 {
 		return

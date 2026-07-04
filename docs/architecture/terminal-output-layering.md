@@ -37,52 +37,63 @@ data is the leaf and cli/cmd is the only renderer, that class of bug cannot occu
 the tool either appears in the result (data) or it does not; it can never appear
 *inconsistently* via an inline render.
 
-## The exemplar (done)
+## The primitive: `provision.StageBox` (done)
 
-GitOps validation is the worked example of the rule:
+Staged tools reach the user exactly ONE way: **`provision.StageBox(ctx, w, color)`**,
+called once by a phase's renderer immediately before it opens its work box
+(`output.NewSection`). It drains that phase's provisioning delta from the run ledger and
+renders a "Staged Tools" box **in front of** the work box — listing exactly the tools
+that phase pulled. No-op when the phase pulled nothing.
 
-- `gitops.ValidationMeta.Provisioned []provision.Entry` — the tools the validation
-  resolved, as **data**, built with the pure mapper `provision.FromToolchain(res, purpose)`.
-  `gitops` imports `provision` only for the data half; it never renders.
-- `cli/cmd/ci_runners.go` calls `provision.Render(meta.Provisioned, …)` — the ledger
-  is rendered in the presentation layer, right before the results box.
-- `toolchain.Result` stays the pure data leaf (`Trust`, `Version`, `SourceURL`); no
-  ledger, no `record()`, no knowledge that a box exists.
+Every phase uses the identical call:
+
+- **gitops** — before the `GitOps Validation` box (`ci_runners.go`).
+- **test** — before the `Test` box (`test/render.go`).
+- **lint** — before both `Lint` boxes (`cli/cmd/lint.go`, `build/pipeline/phase.go`).
+- **reconcile** — before the `Reconcile` box (`cli/cmd/reconcile.go`).
+- **build** — before each domain box (`build/domains/run.go`); the per-phase delta is
+  non-empty only for the domain that resolved (Build → go/rust), so the others no-op.
+
+**Adding a new tool-using phase = one line**, `provision.StageBox(ctx, w, color)`,
+ahead of its work box. Nothing else — the box, columns, and trust provenance come for
+free. This is the "know how things should be built" convention: same call, same place.
+
+## Tool provenance: the ctx-collector (done)
+
+Every resolved tool surfaces without per-subsystem result plumbing via a
+**request-scoped collector carried in `context`** (`provision/context.go`):
+
+- `provision.Resolve(ctx, rootDir, tool, ver, purpose)` — resolves via
+  `toolchain.Resolve` (which stays a pure leaf) AND records the tool (trust from
+  `Result.Trust`, plus purpose) into the ctx ledger. Tools acquired outside `Resolve`
+  (`ResolvePinned` → cargo-llvm-cov, `EnsureRustLlvmTools` → llvm-tools, and native
+  substrate) use `provision.Record(ctx, …)` / `RecordCtxAll`. **All tools are covered.**
+- `provision.WithLedger(ctx)` — seeded once per run (`auditionPhaseRunner` /
+  `performPhaseRunner`).
+- `provision.StageBox(ctx, w, color)` drains the per-phase delta (unexported
+  `flushCollected`) and renders; phases never touch the flush by hand. `Collected(ctx)`
+  returns the whole-run ledger for the CI artifact — the only place a *summary* lives.
+
+`toolchain.Result` stays the pure data leaf (`Trust`, `Version`, `SourceURL`); the
+engine never knows a box exists.
+
+**This is sanctioned; the package-global ledger was not.** A `context`-scoped collector
+is explicit in the signature, request-lifetime, and testable — the same idiom Go uses
+for loggers/trace-spans. A *package-global* mutable ledger is hidden, process-lifetime
+ambient state nobody passes — that is what we rejected, along with putting `record()`
+inside `toolchain.Resolve` (engine mixing logic with observability).
 
 ## The ratchet (done)
 
 `src/provision/render_boundary_test.go` fails the build if any package **outside an
-allowlist** calls `provision.Render`. The allowlist today:
+allowlist** calls the LOW-LEVEL `provision.Render`. The blessed path is `StageBox`
+(which drains the delta and calls `Render` internally — same package, invisible to the
+grep), so phase renderers use `StageBox` and never appear here. The allowlist is now:
 
-- `cli/cmd` — the presentation layer (permanent).
-- `test`, `dependency` — **grandfathered**, pending migration.
+- `dependency` — **grandfathered**; renders its own one-off tool row inline.
 
-New inline rendering cannot be added: the front can only shrink.
-
-## Tool provenance: the ctx-collector (done)
-
-Making *every* resolved tool surface in "Staged Tools" without per-subsystem result
-plumbing uses a **request-scoped collector carried in `context`** (`provision/context.go`):
-
-- `provision.Resolve(ctx, rootDir, tool, ver, purpose)` — the sensible provisioning
-  call. Resolves via `toolchain.Resolve` (which stays a pure leaf) AND records the tool
-  (trust from `Result.Trust`, plus purpose) into the ledger in `ctx`. Every consumer
-  uses this instead of `toolchain.Resolve`; a tool lands in the ledger by construction.
-- `provision.WithLedger(ctx)` — seeded once per run (`auditionPhaseRunner` /
-  `performPhaseRunner`). `Collected(ctx)` / `FlushCollected(ctx)` read it back; `cli/cmd`
-  renders. Domain writes *data* into the collector and still never renders.
-
-**This is sanctioned; the package-global ledger was not.** The distinction is real and
-load-bearing: a `context`-scoped collector is explicit in the signature, request-lifetime,
-and testable — the same idiom Go uses for loggers/trace-spans. A *package-global* mutable
-ledger is hidden, process-lifetime ambient state nobody passes — that is what we rejected,
-along with putting `record()` inside `toolchain.Resolve` (engine mixing logic with
-observability). The ctx-collector keeps the engine pure and the renderer in `cli/cmd`.
-
-Remaining tool-provenance gaps (fast-follow): tools acquired outside `Resolve`
-(`ResolvePinned` → cargo-llvm-cov, `EnsureRustLlvmTools` → llvm-tools) need
-`provision.Record(ctx, …)`; and the render is one consolidated receipt today — per-phase
-streaming (collapsible `FlushCollected` segments) is the next increment.
+`StageBox` itself is unguarded: it IS the convention, part of the render vocabulary like
+`output.NewSection`. The low-level `Render` front can only shrink.
 
 ## The reconquista (TODO — the big refactor)
 

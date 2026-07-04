@@ -18,14 +18,14 @@ func TestContextLedger_RecordDedupCollectFlush(t *testing.T) {
 	}
 
 	// FlushCollected returns the delta, then only new entries next time.
-	if got := FlushCollected(ctx); len(got) != 2 {
+	if got := flushCollected(ctx); len(got) != 2 {
 		t.Fatalf("first flush = %d, want 2", len(got))
 	}
-	if got := FlushCollected(ctx); len(got) != 0 {
+	if got := flushCollected(ctx); len(got) != 0 {
 		t.Fatalf("second flush = %d, want 0 (no new)", len(got))
 	}
 	Record(ctx, Entry{Tool: "syft", Version: "1.0"})
-	if got := FlushCollected(ctx); len(got) != 1 || got[0].Tool != "syft" {
+	if got := flushCollected(ctx); len(got) != 1 || got[0].Tool != "syft" {
 		t.Fatalf("third flush = %+v, want [syft]", got)
 	}
 }

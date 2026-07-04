@@ -7,21 +7,24 @@ import (
 	"testing"
 )
 
-// TestRenderBoundary_OnlyPresentationLayerCallsRender enforces the terminal-output
-// layering as a RATCHET. provision.Render is PRESENTATION; domain packages must emit
-// their tools as data (provision.Entry, via the pure FromToolchain/FromSubstrate
-// mappers) and let the cli/cmd layer render. Only cli/cmd — plus a shrinking allowlist
-// of packages grandfathered pending the migration in
-// docs/architecture/terminal-output-layering.md — may call provision.Render.
+// TestRenderBoundary_LowLevelRenderStaysBehindStageBox enforces the terminal-output
+// layering as a RATCHET. The blessed way to present provisioned tools is the single
+// convention provision.StageBox(ctx, w, color) — call it once, in front of a phase's
+// work box. The LOW-LEVEL provision.Render (arbitrary entries → box) is StageBox's
+// implementation detail; calling it directly hand-assembles provisioning presentation
+// and bypasses the convention, so it is fenced to a shrinking allowlist (see
+// docs/architecture/terminal-output-layering.md).
 //
-// A NEW caller outside the allowlist fails the build. That freezes the divergence: it
-// can only shrink (as grandfathered packages migrate and drop off the list), never
-// grow. Enforced by the build, not by convention — the same posture ci-render uses.
-func TestRenderBoundary_OnlyPresentationLayerCallsRender(t *testing.T) {
-	// Package dirs (relative to src/) permitted to call provision.Render.
+// A NEW direct Render caller outside the allowlist fails the build: use StageBox
+// instead, or emit provision.Entry data. The list can only shrink, never grow —
+// enforced by the build, not by convention. StageBox itself is unguarded: it IS the
+// convention, part of the render vocabulary like output.NewSection.
+func TestRenderBoundary_LowLevelRenderStaysBehindStageBox(t *testing.T) {
+	// Package dirs (relative to src/) permitted to call the low-level provision.Render.
+	// StageBox drains the ctx delta and calls Render internally (same package, invisible
+	// to this grep), so phase renderers use StageBox and never appear here.
 	allow := map[string]bool{
-		"cli/cmd":    true, // the presentation layer — where rendering belongs
-		"dependency": true, // GRANDFATHERED — migrate to data + cli/cmd render
+		"dependency": true, // GRANDFATHERED — renders its own one-off row; migrate to StageBox/data
 	}
 
 	const srcRoot = ".." // `go test` runs in src/provision; .. == src

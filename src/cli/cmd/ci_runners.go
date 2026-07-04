@@ -264,7 +264,6 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
 		return fmt.Errorf("deps subsystem (lint): %w", err)
 	}
-	renderStagedTools(provision.FlushCollected(ctx)) // stream lint's tools (osv-scanner)
 
 	// Correctness gate: run the tests on the COMMITTED tree — after lint, before any
 	// dependency mutation ("is the committed tree healthy?"). A failed gating suite
@@ -273,7 +272,6 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	if err := auditionTests(ctx, appCfg, rootDir); err != nil {
 		return err
 	}
-	renderStagedTools(provision.FlushCollected(ctx)) // stream the test toolchain + coverage tools
 
 	// Fetch security advisories from prior pipeline (cross-pipeline bridge).
 	if ciCtx.IsCI() {
@@ -1509,12 +1507,15 @@ func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	// Flux resources).
 	valErr := runFluxValidation(ctx, appCfg, rootDir)
 
-	// Generic file-lint stays opt-in via lint.level.
+	// Generic file-lint stays opt-in via lint.level. Thread the run ctx (carrying the
+	// tool ledger) into runLint via the command, the same cmd.SetContext convention
+	// reconcileRunner uses — so osv records and the lint Staged Tools box populates.
 	var lintErr error
 	if strings.TrimSpace(string(appCfg.Lint.Level)) != "" {
-		lintErr = runLint(&cobra.Command{}, []string{})
+		cmd := &cobra.Command{}
+		cmd.SetContext(ctx)
+		lintErr = runLint(cmd, []string{})
 	}
-	renderStagedTools(provision.FlushCollected(ctx)) // stream lint's tools (osv-scanner)
 
 	if valErr != nil {
 		return valErr
@@ -1525,7 +1526,6 @@ func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	// Correctness gate (after validation + lint). No-op for pure-manifest repos with
 	// no testable builds; runs the suites for gitops repos that also carry code.
 	testErr := auditionTests(ctx, appCfg, rootDir)
-	renderStagedTools(provision.FlushCollected(ctx)) // stream the test toolchain + coverage tools
 	return testErr
 }
 
@@ -1547,7 +1547,7 @@ func runFluxValidation(ctx context.Context, appCfg *config.Config, rootDir strin
 	if werr := writeFluxProofResults(rootDir, verdicts, meta); werr != nil {
 		fmt.Fprintf(os.Stderr, "warning: proof-results write failed: %v\n", werr)
 	}
-	renderStagedTools(provision.FlushCollected(ctx)) // stream this phase's tools before its box
+	provision.StageBox(ctx, os.Stdout, output.UseColor()) // Staged Tools box, in front of GitOps Validation
 	renderFluxValidation(os.Stdout, start, verdicts, meta)
 
 	failed := 0
