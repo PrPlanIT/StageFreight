@@ -162,6 +162,13 @@ func DetectVersionWithOpts(rootDir string, opts *VersioningOpts) (*VersionInfo, 
 	// Current branch (empty in detached HEAD / tag builds)
 	if head.Name().IsBranch() {
 		v.Branch = head.Name().Short()
+	} else {
+		// Detached HEAD — typical in CI, which checks out the commit SHA rather
+		// than the branch ref, so git can't name the branch. Fall back to the
+		// branch the runner exports (same source as SyntheticVersion). Without
+		// this, {branch} in tags renders empty on CI branch builds, producing
+		// collisions like dev--<sha> and a shared latest-dev- across all branches.
+		v.Branch = firstEnv("SF_CI_BRANCH", "CI_COMMIT_BRANCH", "GITHUB_REF_NAME")
 	}
 
 	// Compile tag source regexes once. No runtime compile in the hot path.
