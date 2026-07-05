@@ -181,6 +181,16 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 	if notest > 0 {
 		sec.Row("  ⓘ %d packages ship no tests", notest)
 	}
+	if sr.Status == StatusFailed && failed == 0 {
+		// The suite failed but no package did — a command-level failure (exec,
+		// build, disk, OOM, timeout). Surface the reason instead of a bare ✗.
+		if sr.Err != nil {
+			sec.Row("  ✗ go test: %v", sr.Err)
+		}
+		if line := firstErrLine(sr.Output); line != "" {
+			sec.Row("    %s", line)
+		}
+	}
 }
 
 // statusIcon maps the test subsystem's status to the output package's icon vocab.

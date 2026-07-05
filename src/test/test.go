@@ -277,12 +277,17 @@ func runGoSuite(ctx context.Context, sr SuiteResult, goBin string, s ResolvedSui
 	if err := cmd.Start(); err != nil {
 		return failSuite(sr, fmt.Errorf("starting go test: %w", err))
 	}
-	pkgs := parseGoTest(stdout, modulePath, synopses, onPkg)
+	pkgs, topOut := parseGoTest(stdout, modulePath, synopses, onPkg)
 	err = cmd.Wait()
 
 	sr.Duration = time.Since(start)
 	sr.Packages = pkgs
 	sr.Output = errBuf.String()
+	if strings.TrimSpace(sr.Output) == "" {
+		// go test's top-level errors (e.g. exec failures) land on -json stdout, not
+		// stderr — fall back to them so a command-level failure isn't reasonless.
+		sr.Output = topOut
+	}
 	if err != nil {
 		sr.Status = StatusFailed
 		sr.Err = err

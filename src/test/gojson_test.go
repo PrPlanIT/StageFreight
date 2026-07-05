@@ -27,7 +27,7 @@ func TestParseGoTest_Coverage(t *testing.T) {
 {"Action":"output","Package":"x/foo","Output":"coverage: 73.2% of statements\n"}
 {"Action":"pass","Package":"x/foo","Elapsed":0.01}
 `
-	pkgs := parseGoTest(strings.NewReader(stream), "x", nil, nil)
+	pkgs, _ := parseGoTest(strings.NewReader(stream), "x", nil, nil)
 	if len(pkgs) != 1 {
 		t.Fatalf("want 1 package, got %d", len(pkgs))
 	}
@@ -57,8 +57,26 @@ func TestParseGoTest_NoCoverage(t *testing.T) {
 	const stream = `{"Action":"pass","Package":"x/foo","Test":"TestA","Elapsed":0}
 {"Action":"pass","Package":"x/foo","Elapsed":0.01}
 `
-	pkgs := parseGoTest(strings.NewReader(stream), "x", nil, nil)
+	pkgs, _ := parseGoTest(strings.NewReader(stream), "x", nil, nil)
 	if len(pkgs) != 1 || pkgs[0].Coverage >= 0 {
 		t.Errorf("want 1 pkg with Coverage<0, got %+v", pkgs)
+	}
+}
+
+// TestParseGoTest_CapturesPackagelessError ensures a top-level go test error that
+// carries no Package (e.g. `exec: "go" not found`) is returned as the second value,
+// so a command-level failure isn't reasonless. Regression for the opaque-suite bug.
+func TestParseGoTest_CapturesPackagelessError(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"Action":"output","Output":"exec: \"go\": executable file not found in $PATH\n"}`,
+		`{"Action":"output","Package":"x/foo","Output":"ok\n"}`,
+		`{"Action":"pass","Package":"x/foo","Elapsed":0.1}`,
+	}, "\n")
+	pkgs, top := parseGoTest(strings.NewReader(stream), "x", nil, nil)
+	if len(pkgs) != 1 {
+		t.Fatalf("packages = %d, want 1", len(pkgs))
+	}
+	if !strings.Contains(top, "executable file not found") {
+		t.Errorf("second return must capture the package-less error; got %q", top)
 	}
 }

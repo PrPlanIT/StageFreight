@@ -24,7 +24,10 @@ type goTestEvent struct {
 // seen order). modulePath trims import paths to module-relative form; synopses maps
 // import path → doc one-liner. onDone (optional) fires as each package finishes —
 // for live progress — receiving a lightweight result (failures not yet attached).
-func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onDone func(PackageResult)) []PackageResult {
+// The second return is package-less top-level output (e.g. an `exec: "go" not
+// found` error that carries no Package) — the reason a suite can fail with no
+// failing package. The caller surfaces it when the command exits non-zero.
+func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onDone func(PackageResult)) ([]PackageResult, string) {
 	type acc struct {
 		pr     PackageResult
 		failed []string                    // failed test names (any depth), in order
@@ -67,11 +70,18 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 		}
 	}
 
+	var topLevel strings.Builder // package-less output: top-level go test errors (exec, etc.) that carry no Package
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
 		var e goTestEvent
-		if json.Unmarshal(sc.Bytes(), &e) != nil || e.Package == "" {
+		if json.Unmarshal(sc.Bytes(), &e) != nil {
+			continue
+		}
+		if e.Package == "" {
+			if e.Action == "output" {
+				topLevel.WriteString(e.Output)
+			}
 			continue
 		}
 		a := get(e.Package)
@@ -130,7 +140,7 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 	for _, p := range order {
 		out = append(out, accs[p].pr) // already finalized at each terminal event
 	}
-	return out
+	return out, strings.TrimSpace(topLevel.String())
 }
 
 func notifyDone(onDone func(PackageResult), p PackageResult) {
