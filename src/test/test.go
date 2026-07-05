@@ -47,6 +47,24 @@ func resolveSuiteToolchain(ctx context.Context, rootDir string, s ResolvedSuite)
 // per package as it completes — so the renderer can stream rows live INTO its
 // section. Execution errors are recorded on the result (Status=failed), never
 // returned; the verdict lives in the SuiteResult.
+// goSuiteEnv builds the environment for a `go test` invocation: a clean base
+// (toolchain.CleanEnv), the go module/build caches, CGO enabled for -race, and a
+// PATH that INCLUDES the provisioned go's own directory. That last part is
+// load-bearing: `go test -cover`/vet spawn child `go` processes, so without the
+// toolchain dir on PATH a cover run fails with `exec: "go": executable file not
+// found in $PATH` — every no-test package errors and the suite fails opaquely.
+func goSuiteEnv(toolPath string, race bool) []string {
+	env := toolchain.CleanEnv()
+	if gomod, gocache := toolchain.GoCacheDirs(); gomod != "" {
+		env = append(env, "GOMODCACHE="+gomod, "GOCACHE="+gocache)
+	}
+	env = setEnv(env, "PATH", filepath.Dir(toolPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if race {
+		env = setEnv(env, "CGO_ENABLED", "1")
+	}
+	return env
+}
+
 func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolchain.Result, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
 	sr := SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate}
 	if len(s.Argv) == 0 {
@@ -66,16 +84,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 		// tool is pre-resolved in the provisioning phase (RunRender) so it appears in
 		// the environment ledger; here we just execute against it.
 		argv[0] = tool.Path
-		env = toolchain.CleanEnv()
-		if gomod, gocache := toolchain.GoCacheDirs(); gomod != "" {
-			env = append(env, "GOMODCACHE="+gomod, "GOCACHE="+gocache)
-		}
-		// Go tests shell out (git, cc) — give them a real PATH (a hermetic build needs
-		// none; a test suite does), replacing CleanEnv's empty one.
-		env = setEnv(env, "PATH", os.Getenv("PATH"))
-		if hasFlag(argv, "-race") {
-			env = setEnv(env, "CGO_ENABLED", "1")
-		}
+		env = goSuiteEnv(tool.Path, hasFlag(argv, "-race"))
 		return runGoSuite(ctx, sr, tool.Path, s, argv, env, onPkg)
 
 	case config.TestToolRust:
