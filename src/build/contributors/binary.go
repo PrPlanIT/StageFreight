@@ -417,6 +417,7 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 		SelectTags: b.SelectTags, DependsOn: b.DependsOn, Version: v,
 		Builder: b.Builder, Command: b.BuilderCommand(), From: b.From,
 		Output: b.OutputName(), Args: b.Args, Env: b.Env, Compress: b.Compress,
+		Image: b.Image,
 	}
 }
 

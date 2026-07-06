@@ -78,6 +78,11 @@ type BuildConfig struct {
 	// Default: basename of From.
 	Output string `yaml:"output,omitempty"`
 
+	// Image is the container image a `builder: node` build runs inside (with the
+	// repo mounted). Command runs in it; Output is the produced-artifact glob.
+	// e.g. electronuserland/builder:wine for Electron packaging.
+	Image string `yaml:"image,omitempty"`
+
 	// Args are ordered raw arguments passed directly to the selected builder.
 	// For Go: raw args to "go build". For Rust: raw args to "cargo build".
 	// Supports template variables: {version}, {sha}, {sha:N}, {date}.

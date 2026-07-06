@@ -61,6 +61,11 @@ type BuildConfig struct {
 	Args     []string
 	Env      map[string]string
 	Compress bool
+
+	// kind: binary, builder: node — containerized build. The build Command runs
+	// INSIDE Image (repo mounted); Output is the produced-artifact glob. Lets SF
+	// ship things it can't compile natively (e.g. an Electron .exe via wine).
+	Image string
 }
 
 var (
