@@ -182,15 +182,30 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []
 			touchedSet[group.dir] = struct{}{}
 		}
 
-		// Vulnerable indirects: routed remediation (parent-bump preferred, pin fallback).
+		// Vulnerable indirects: case-1 (parent bump) is per-dep; case-2 (pins) are applied
+		// as ONE consistent batch. Pinning them individually forces downgrade cascades when
+		// one fix requires a newer version of another (see batchPinVulns).
+		var pins []vulnPin
 		for _, dep := range vulnIndirect {
-			u, reason := remediateGoVuln(ctx, gc, dep, directNames, directTargets)
-			if reason != "" {
-				skipped = append(skipped, SkippedDep{Dep: dep, Reason: reason})
+			fixed := maxFixedVersion(dep)
+			if fixed == "" {
+				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no known fixed version for advisories"})
 				continue
 			}
-			applied = append(applied, u)
-			touchedSet[group.dir] = struct{}{}
+			if u, ok := tryParentBump(ctx, gc, dep, fixed, directNames, directTargets); ok {
+				applied = append(applied, u)
+				touchedSet[group.dir] = struct{}{}
+				continue
+			}
+			pins = append(pins, vulnPin{dep: dep, fixed: fixed})
+		}
+		if len(pins) > 0 {
+			pinApplied, pinSkipped := batchPinVulns(ctx, gc, pins)
+			applied = append(applied, pinApplied...)
+			skipped = append(skipped, pinSkipped...)
+			if len(pinApplied) > 0 {
+				touchedSet[group.dir] = struct{}{}
+			}
 		}
 	}
 

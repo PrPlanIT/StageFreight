@@ -115,6 +115,34 @@ func TestApplyIgnores(t *testing.T) {
 	}
 }
 
+// TestParseGoGetConflict pins the batch-pin conflict resolver: a "requires Y@vN" error
+// must yield (Y, vN) so the batch can raise Y — the fix for the downgrade cascade where
+// x/net@0.55 requires x/sys@0.45 but x/sys was pinned to its own 0.44.
+func TestParseGoGetConflict(t *testing.T) {
+	cases := []struct{ name, out, wantMod, wantVer string }{
+		{
+			"x/net requires x/sys higher",
+			"go: golang.org/x/net@v0.55.0 requires golang.org/x/sys@v0.45.0, not golang.org/x/sys@v0.44.0",
+			"golang.org/x/sys", "v0.45.0",
+		},
+		{
+			"pseudo-version required",
+			"go: example.com/a@v1.2.0 requires example.com/b@v0.0.0-20240101000000-abcdef, not example.com/b@v0.0.0-000000000000-old",
+			"example.com/b", "v0.0.0-20240101000000-abcdef",
+		},
+		{"no conflict (download line)", "go: downloading golang.org/x/net v0.55.0", "", ""},
+		{"empty", "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mod, ver := parseGoGetConflict([]byte(c.out))
+			if mod != c.wantMod || ver != c.wantVer {
+				t.Fatalf("parseGoGetConflict = (%q, %q), want (%q, %q)", mod, ver, c.wantMod, c.wantVer)
+			}
+		})
+	}
+}
+
 func vulnIDList(d freshness.Dependency) []string {
 	ids := make([]string, 0, len(d.Vulnerabilities))
 	for _, v := range d.Vulnerabilities {
