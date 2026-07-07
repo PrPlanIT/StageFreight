@@ -331,7 +331,11 @@ func runnerHealthStatus(h runner.HealthGrade) string {
 // is no LintPhase wrapper and no SkipLint plumbing.
 
 // runPreBuildLintImpl is the extracted lint logic, independent of package-level vars.
-func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Config, ci bool, color bool, isVerbose bool, w io.Writer) (string, error) {
+// runPreBuildLintImpl runs the lint engine and returns (summary, findings, gate error).
+// Findings are surfaced — not just the gate error — so the audition can Classify them
+// (Fatal vs Remediable) rather than treating every blocking finding as an abort. The gate
+// verdict is still lintSum.GateError(); nothing about the threshold changes here.
+func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Config, ci bool, color bool, isVerbose bool, w io.Writer) (string, []lint.Finding, error) {
 	cacheDir := lint.ResolveCacheDir(rootDir, appCfg.Lint.CacheDir)
 	cache := &lint.Cache{
 		Dir:     cacheDir,
@@ -340,12 +344,12 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 
 	lintEngine, err := lint.NewEngine(appCfg.Lint, rootDir, nil, nil, isVerbose, cache)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	files, err := lintEngine.CollectFiles()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Delta filtering — skip when config requests full scan.
@@ -417,7 +421,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 
 	if err := lintSum.GateError(); err != nil {
 		summary := fmt.Sprintf("%d files, %d cached, %d blocking", len(files), totalCached, lintSum.Blocking)
-		return summary, err
+		return summary, findings, err
 	}
 
 	summary := fmt.Sprintf("%d files, %d cached, 0 critical", len(files), totalCached)
@@ -429,7 +433,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 		diag.Warn("lint: %v", runErr)
 	}
 
-	return summary, nil
+	return summary, findings, nil
 }
 
 func formatEvictBytes(b int64) string {
@@ -479,9 +483,11 @@ func CollectTargetsByKind(cfg *config.Config, kind string) []config.TargetConfig
 	return targets
 }
 
-// RunLint delegates to the pre-build lint implementation.
-// Called by runUniversalLint in ci_runners — decouples runner layer from lint internals.
-func RunLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, color bool, verbose bool, w io.Writer) (string, error) {
+// RunLint delegates to the pre-build lint implementation, returning (summary, findings,
+// gate error). Findings are surfaced so callers can Classify them rather than only knowing
+// the run failed. Called by runUniversalLint in ci_runners — decouples runner layer from
+// lint internals.
+func RunLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, color bool, verbose bool, w io.Writer) (string, []lint.Finding, error) {
 	return runPreBuildLintImpl(ctx, rootDir, appCfg, isCI, color, verbose, w)
 }
 

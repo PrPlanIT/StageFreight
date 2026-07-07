@@ -1931,7 +1931,7 @@ func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string
 		sec.Close()
 		return nil
 	}
-	_, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
+	_, _, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
 	return err
 }
 
