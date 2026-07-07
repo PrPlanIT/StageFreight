@@ -217,6 +217,94 @@ func TestDotnetEngineRegistered(t *testing.T) {
 	}
 }
 
+// C has no canonical build tool: cmake is detected and gets a build/ output.
+func TestInferCBuild_Cmake(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "CMakeLists.txt"), "project(app)\n")
+
+	inf := inferBuild("c", dir, ".", "linux", "amd64")
+	if inf.Image != "gcc:13" {
+		t.Errorf("image = %q, want gcc:13", inf.Image)
+	}
+	if !strings.Contains(inf.Command, "cmake --build build") {
+		t.Errorf("command = %q, want a cmake build", inf.Command)
+	}
+	if inf.Output != "build" {
+		t.Errorf("output = %q, want build", inf.Output)
+	}
+}
+
+// A raw Makefile has no inferable artifact location — output stays empty (the
+// escape hatch), and the engine refuses to guess (must not capture the repo root).
+func TestInferCBuild_MakefileHasNoOutput(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "Makefile"), "all:\n\tgcc -o app main.c\n")
+
+	inf := inferBuild("c", dir, ".", "linux", "amd64")
+	if inf.Command != "make" {
+		t.Errorf("command = %q, want make", inf.Command)
+	}
+	if inf.Output != "" {
+		t.Errorf("output = %q, want empty (unknowable)", inf.Output)
+	}
+}
+
+func TestCBuild_RequiresOutputWhenUnknowable(t *testing.T) {
+	e := &containerEngine{name: EngineC, builder: "c"}
+	// cwd has no CMakeLists/meson under this from → make → no inferred output.
+	if _, err := e.Plan(context.Background(), build.BuildConfig{ID: "app", From: "no-such-c-proj", Platforms: win}); err == nil {
+		t.Error("expected an error when the C artifact location can't be inferred and output is unset")
+	}
+	// With output set, it plans fine.
+	steps, err := e.Plan(context.Background(), build.BuildConfig{ID: "app", From: "no-such-c-proj", Output: "app", Platforms: win})
+	if err != nil {
+		t.Fatalf("Plan with output set: %v", err)
+	}
+	if steps[0].Meta.(ContainerMeta).Command != "make" {
+		t.Errorf("command = %q, want make", steps[0].Meta.(ContainerMeta).Command)
+	}
+}
+
+// Python: the default is a wheel/sdist build; a PyInstaller .spec is a detected
+// variant (a frozen binary) — same detected-specialization pattern as electron.
+func TestInferPythonBuild_Wheel(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "pyproject.toml"), "[project]\nname = \"x\"\n")
+
+	inf := inferBuild("python", dir, ".", "linux", "amd64")
+	if inf.Image != "python:3.12" {
+		t.Errorf("image = %q, want python:3.12", inf.Image)
+	}
+	if !strings.Contains(inf.Command, "python -m build") {
+		t.Errorf("command = %q, want python -m build", inf.Command)
+	}
+	if inf.Output != "dist" {
+		t.Errorf("output = %q, want dist", inf.Output)
+	}
+}
+
+func TestInferPythonBuild_PyInstaller(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "app.spec"), "# pyinstaller spec\n")
+
+	inf := inferBuild("python", dir, ".", "linux", "amd64")
+	if !strings.Contains(inf.Command, "pyinstaller") || !strings.Contains(inf.Command, "app.spec") {
+		t.Errorf("command = %q, want pyinstaller with the spec", inf.Command)
+	}
+}
+
+func TestCAndPythonEnginesRegistered(t *testing.T) {
+	for _, name := range []string{EngineC, EnginePython} {
+		eng, err := build.GetV2(name)
+		if err != nil {
+			t.Fatalf("GetV2(%q): %v", name, err)
+		}
+		if eng.Name() != name {
+			t.Errorf("Name = %q, want %q", eng.Name(), name)
+		}
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

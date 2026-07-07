@@ -112,6 +112,10 @@ func inferBuild(builder, rootDir, from, targetOS, targetArch string) inferredBui
 		return inferElixirBuild(rootDir, from)
 	case "dotnet":
 		return inferDotnetBuild(from, targetOS, targetArch)
+	case "c":
+		return inferCBuild(rootDir, from)
+	case "python":
+		return inferPythonBuild(rootDir, from)
 	default: // node
 		return inferNodeBuild(rootDir, from, targetOS)
 	}
@@ -172,6 +176,63 @@ func dotnetRID(targetOS, targetArch string) string {
 		archPart = targetArch
 	}
 	return osPart + "-" + archPart
+}
+
+// inferCBuild is the C convention. Unlike go/rust/dotnet, C has no canonical build
+// tool, so the convention DETECTS the build system and runs it, in a gcc image. It
+// also has no canonical output: cmake/meson use a build/ dir (defaulted here), but a
+// raw Makefile can put the artifact anywhere — so output is left empty for those and
+// must be set via config (the engine errors clearly if it isn't). This is the
+// "reasonable default" degrading gracefully to escape-hatch-the-output.
+func inferCBuild(rootDir, from string) inferredBuild {
+	dir := filepath.Join(rootDir, from)
+	var command, output string
+	switch {
+	case fileExists(filepath.Join(dir, "CMakeLists.txt")):
+		command = "cmake -B build && cmake --build build"
+		output = filepath.Join(from, "build")
+	case fileExists(filepath.Join(dir, "meson.build")):
+		command = "meson setup build && ninja -C build"
+		output = filepath.Join(from, "build")
+	case fileExists(filepath.Join(dir, "configure")):
+		command = "./configure && make" // artifact location varies — set output:
+	default: // Makefile / makefile / bare tree
+		command = "make" // artifact location varies — set output:
+	}
+	return inferredBuild{
+		Image:   "gcc:13",
+		Command: command,
+		Output:  filepath.ToSlash(output),
+	}
+}
+
+// inferPythonBuild is the Python convention. Python is interpreted — most apps ship
+// as a docker image (kind: docker), not this builder — so builder: python targets
+// the two things that ARE artifacts: a wheel/sdist (python -m build → dist/, the
+// default) or a frozen standalone binary (a detected PyInstaller .spec → dist/).
+func inferPythonBuild(rootDir, from string) inferredBuild {
+	dir := filepath.Join(rootDir, from)
+	if spec := findSpec(dir); spec != "" {
+		return inferredBuild{
+			Image:   "python:3.12",
+			Command: "pip install pyinstaller && pyinstaller --distpath dist " + spec,
+			Output:  filepath.ToSlash(filepath.Join(from, "dist")),
+		}
+	}
+	return inferredBuild{
+		Image:   "python:3.12",
+		Command: "pip install build && python -m build --outdir dist",
+		Output:  filepath.ToSlash(filepath.Join(from, "dist")),
+	}
+}
+
+// findSpec returns the basename of a PyInstaller .spec file in dir, or "".
+func findSpec(dir string) string {
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.spec"))
+	if len(matches) > 0 {
+		return filepath.Base(matches[0])
+	}
+	return ""
 }
 
 // workspaceBuildCommand returns the recursive build for each package manager's

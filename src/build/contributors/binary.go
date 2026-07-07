@@ -417,7 +417,7 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	// raw (possibly empty) values so the engine can tell "unset" and fill defaults.
 	command, output := b.BuilderCommand(), b.OutputName()
 	switch b.Builder {
-	case "node", "elixir", "dotnet":
+	case "node", "elixir", "dotnet", "c", "python":
 		command, output = b.Command, b.Output
 	}
 	return build.BuildConfig{

@@ -27,12 +27,16 @@ const (
 	EngineNode   = "binary-node"
 	EngineElixir = "binary-elixir"
 	EngineDotnet = "binary-dotnet"
+	EngineC      = "binary-c"
+	EnginePython = "binary-python"
 )
 
 func init() {
 	build.RegisterV2(EngineNode, func() build.EngineV2 { return &containerEngine{name: EngineNode, builder: "node"} })
 	build.RegisterV2(EngineElixir, func() build.EngineV2 { return &containerEngine{name: EngineElixir, builder: "elixir"} })
 	build.RegisterV2(EngineDotnet, func() build.EngineV2 { return &containerEngine{name: EngineDotnet, builder: "dotnet"} })
+	build.RegisterV2(EngineC, func() build.EngineV2 { return &containerEngine{name: EngineC, builder: "c"} })
+	build.RegisterV2(EnginePython, func() build.EngineV2 { return &containerEngine{name: EnginePython, builder: "python"} })
 }
 
 // containerEngine is shared across all containerized builders; builder selects the
@@ -73,6 +77,12 @@ func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]bu
 		image := firstNonEmpty(cfg.Image, inf.Image)
 		command := resolveTemplateVars(firstNonEmpty(cfg.Command, inf.Command), cfg)
 		output := resolveTemplateVars(firstNonEmpty(cfg.Output, inf.Output), cfg)
+
+		// Guard against an unresolved output (e.g. a raw Makefile, where the artifact
+		// location is unknowable) — never fall through to capturing the repo root.
+		if output == "" {
+			return nil, fmt.Errorf("container engine: could not infer the artifact location — set output: to the produced file or directory")
+		}
 
 		steps = append(steps, build.UniversalStep{
 			BuildID: cfg.ID,
