@@ -66,6 +66,31 @@ func TestInferNodeBuild_ElectronWindows(t *testing.T) {
 	}
 }
 
+// The reasonable default (no electron): a plain npm web build gets the node image,
+// install → build, dist output — and is NOT force-packed. Electron specialization
+// stays absent; it's a detected variant, not the baseline.
+func TestInferNodeBuild_PlainWeb(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "package-lock.json"), "{}")
+	mustWrite(t, filepath.Join(dir, "package.json"), `{
+	  "scripts": {"build": "vite build", "pack": "some-packer"}
+	}`)
+
+	inf := inferNodeBuild(dir, ".", "linux")
+	if inf.Image != "node:20" {
+		t.Errorf("image = %q, want node:20", inf.Image)
+	}
+	if !strings.Contains(inf.Command, "npm install") || !strings.Contains(inf.Command, "npm run build") {
+		t.Errorf("command = %q, want install + build", inf.Command)
+	}
+	if strings.Contains(inf.Command, "pack") {
+		t.Errorf("a non-electron build must not pack; got %q", inf.Command)
+	}
+	if inf.Output != "dist/*" {
+		t.Errorf("output = %q, want dist/*", inf.Output)
+	}
+}
+
 func TestNodeEngineRegistered(t *testing.T) {
 	eng, err := build.GetV2(EngineNode)
 	if err != nil {

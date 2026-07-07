@@ -7,11 +7,16 @@ import (
 	"strings"
 )
 
-// The node engine is an opinionated path, not a scripting surface: given
-// `builder: node, from: <dir>` it composes the conventional install → build →
-// pack, the way the go engine composes `go build`. Config selects destinations
-// (from/output/image), never the command. inferNodeBuild fills the defaults;
-// explicit config overlays on top.
+// The node convention mirrors go/rust: a reasonable default for the common case,
+// config as the escape hatch for the rest — every case reachable, none privileged.
+//
+// DEFAULT (any node project): install → build, in a node image, output under dist/.
+// Electron is a DETECTED specialization layered on top (a pack step, the wine image
+// + .exe glob for a Windows target) — it's our niche, not node's norm, so it never
+// becomes the baseline. Anything the default+detection don't fit uses the escape
+// hatches (command/image/output/args); the engine runs any command in any image and
+// captures any glob, so all cases are capable. inferNodeBuild fills only the gaps
+// config leaves; explicit config always wins.
 
 // pkgJSON is the minimal slice of package.json the convention reads.
 type pkgJSON struct {
@@ -53,8 +58,10 @@ func inferNodeBuild(rootDir, from, targetOS string) inferredBuild {
 	} else if pm != "pnpm" {
 		build = pm + " run build"
 	}
+	// Default stops at build. `pack` is an electron packaging step, layered in only
+	// for a detected electron app — a plain web/lib build is not force-packed.
 	steps := []string{install, build}
-	if pkg != nil && pkg.Scripts["pack"] != "" {
+	if electron && pkg != nil && pkg.Scripts["pack"] != "" {
 		steps = append(steps, pm+" run pack")
 	}
 
