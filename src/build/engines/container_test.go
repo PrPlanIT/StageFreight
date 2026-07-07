@@ -352,6 +352,52 @@ func TestJvmEngineRegistered(t *testing.T) {
 	}
 }
 
+// Android: assemble a release APK in the SDK image, then apksigner-sign it with a
+// keystore supplied as CI-secret env vars that SF forwards into the container.
+func TestInferAndroidBuild(t *testing.T) {
+	inf := inferBuild("android", "", ".", "linux", "arm64")
+	if inf.Image != "ghcr.io/cirruslabs/android-sdk:34" {
+		t.Errorf("image = %q, want the Android SDK image", inf.Image)
+	}
+	for _, want := range []string{"./gradlew assembleRelease", "apksigner sign", "base64 -d"} {
+		if !strings.Contains(inf.Command, want) {
+			t.Errorf("command missing %q; got %q", want, inf.Command)
+		}
+	}
+	if inf.Output != "app/build/outputs/apk/release/*.apk" {
+		t.Errorf("output = %q, want the release apk glob", inf.Output)
+	}
+	want := []string{"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"}
+	if strings.Join(inf.ForwardEnv, ",") != strings.Join(want, ",") {
+		t.Errorf("ForwardEnv = %v, want %v", inf.ForwardEnv, want)
+	}
+}
+
+// Plan threads ForwardEnv into the step meta so ExecuteStep forwards the secrets.
+func TestAndroidPlanForwardsSecrets(t *testing.T) {
+	steps, err := (&containerEngine{name: EngineAndroid, builder: "android"}).Plan(
+		context.Background(),
+		build.BuildConfig{ID: "app", From: ".", Platforms: []build.Target{{OS: "linux", Arch: "arm64"}}},
+	)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	meta := steps[0].Meta.(ContainerMeta)
+	if len(meta.ForwardEnv) == 0 || meta.ForwardEnv[0] != "ANDROID_KEYSTORE_BASE64" {
+		t.Errorf("ForwardEnv not threaded into meta: %v", meta.ForwardEnv)
+	}
+}
+
+func TestAndroidEngineRegistered(t *testing.T) {
+	eng, err := build.GetV2(EngineAndroid)
+	if err != nil {
+		t.Fatalf("GetV2(%q): %v", EngineAndroid, err)
+	}
+	if eng.Name() != EngineAndroid {
+		t.Errorf("Name = %q, want %q", eng.Name(), EngineAndroid)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

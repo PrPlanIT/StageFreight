@@ -38,11 +38,12 @@ func (p *pkgJSON) hasWorkspaces() bool {
 	return s != "" && s != "null" && s != "[]" && s != "{}"
 }
 
-// inferredBuild carries the convention's defaults for a node build.
+// inferredBuild carries the convention's defaults for a containerized build.
 type inferredBuild struct {
-	Image   string
-	Command string
-	Output  string
+	Image      string
+	Command    string
+	Output     string
+	ForwardEnv []string // host env vars (CI secrets) to pass into the container
 }
 
 // inferNodeBuild derives the default image/command/output for a node project at
@@ -133,6 +134,8 @@ func inferBuild(builder, rootDir, from, targetOS, targetArch string) inferredBui
 		return inferPythonBuild(rootDir, from)
 	case "jvm":
 		return inferJvmBuild(rootDir, from)
+	case "android":
+		return inferAndroidBuild(from)
 	default: // node
 		return inferNodeBuild(rootDir, from, targetOS)
 	}
@@ -274,6 +277,38 @@ func inferJvmBuild(rootDir, from string) inferredBuild {
 		Image:   "gradle:jdk21",
 		Command: gradle,
 		Output:  filepath.ToSlash(filepath.Join(from, "build", "libs", "*.jar")),
+	}
+}
+
+// androidSignSecrets are the CI-secret env vars a builder: android build reads to
+// sign the release APK — the CI-agnostic standard (base64-encoded keystore + creds),
+// forwarded from the runner into the build container.
+var androidSignSecrets = []string{
+	"ANDROID_KEYSTORE_BASE64",
+	"ANDROID_KEYSTORE_PASSWORD",
+	"ANDROID_KEY_ALIAS",
+	"ANDROID_KEY_PASSWORD",
+}
+
+// inferAndroidBuild is the Android convention: assemble a release APK via Gradle in
+// an Android SDK image, then SIGN it post-build with apksigner using a keystore
+// supplied as CI secrets (so SF owns signing — the app's build.gradle needs no
+// signingConfig). Defaults assume the conventional "app" module; override output:/
+// command: for multi-module or app-bundle (.aab) builds. Signing is done by SF, not
+// the app, to keep it self-contained across arbitrary community projects.
+func inferAndroidBuild(from string) inferredBuild {
+	command := strings.Join([]string{
+		`echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/sf-release.jks`,
+		`./gradlew assembleRelease`,
+		`APK=$(find . -path '*/outputs/apk/release/*.apk' | head -1)`,
+		`apksigner sign --ks /tmp/sf-release.jks --ks-pass env:ANDROID_KEYSTORE_PASSWORD ` +
+			`--ks-key-alias "$ANDROID_KEY_ALIAS" --key-pass env:ANDROID_KEY_PASSWORD "$APK"`,
+	}, " && ")
+	return inferredBuild{
+		Image:      "ghcr.io/cirruslabs/android-sdk:34",
+		Command:    command,
+		Output:     filepath.ToSlash(filepath.Join(from, "app", "build", "outputs", "apk", "release", "*.apk")),
+		ForwardEnv: androidSignSecrets,
 	}
 }
 

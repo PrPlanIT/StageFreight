@@ -27,9 +27,10 @@ const (
 	EngineNode   = "binary-node"
 	EngineElixir = "binary-elixir"
 	EngineDotnet = "binary-dotnet"
-	EngineC      = "binary-c"
-	EnginePython = "binary-python"
-	EngineJVM    = "binary-jvm"
+	EngineC       = "binary-c"
+	EnginePython  = "binary-python"
+	EngineJVM     = "binary-jvm"
+	EngineAndroid = "binary-android"
 )
 
 func init() {
@@ -39,6 +40,7 @@ func init() {
 	build.RegisterV2(EngineC, func() build.EngineV2 { return &containerEngine{name: EngineC, builder: "c"} })
 	build.RegisterV2(EnginePython, func() build.EngineV2 { return &containerEngine{name: EnginePython, builder: "python"} })
 	build.RegisterV2(EngineJVM, func() build.EngineV2 { return &containerEngine{name: EngineJVM, builder: "jvm"} })
+	build.RegisterV2(EngineAndroid, func() build.EngineV2 { return &containerEngine{name: EngineAndroid, builder: "android"} })
 }
 
 // containerEngine is shared across all containerized builders; builder selects the
@@ -93,11 +95,12 @@ func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]bu
 			Target:  tgt,
 			Outputs: []build.ArtifactRef{{Path: output, Type: "binary"}},
 			Meta: ContainerMeta{
-				Image:    image,
-				Command:  command,
-				WorkDir:  cfg.From,
-				Env:      cfg.Env,
-				Artifact: output,
+				Image:      image,
+				Command:    command,
+				WorkDir:    cfg.From,
+				Env:        cfg.Env,
+				Artifact:   output,
+				ForwardEnv: inf.ForwardEnv,
 			},
 		})
 	}
@@ -131,6 +134,13 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 	args := []string{"run", "--rm", "-v", rootDir + ":" + rootDir, "-w", workdir}
 	for k, v := range meta.Env {
 		args = append(args, "-e", k+"="+v)
+	}
+	// Forward named host env vars (CI secrets — e.g. an Android keystore) by value,
+	// only when actually set on the runner.
+	for _, name := range meta.ForwardEnv {
+		if v, ok := os.LookupEnv(name); ok {
+			args = append(args, "-e", name+"="+v)
+		}
 	}
 	args = append(args, meta.Image, "sh", "-c", meta.Command)
 

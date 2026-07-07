@@ -9,6 +9,9 @@ type ContainerMeta struct {
 	WorkDir  string            `json:"work_dir,omitempty"` // relative to repo root
 	Env      map[string]string `json:"env,omitempty"`
 	Artifact string            `json:"artifact"` // glob (relative to repo root) of produced file(s)
+	// ForwardEnv names host env vars (e.g. CI secrets) to pass into the build
+	// container by value — used for signing secrets like an Android keystore.
+	ForwardEnv []string `json:"forward_env,omitempty"`
 }
 
 // StepMetaKind returns the kind identifier for containerized build steps.
