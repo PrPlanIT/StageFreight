@@ -102,6 +102,46 @@ func inferNodeBuild(rootDir, from, targetOS string) inferredBuild {
 	}
 }
 
+// inferBuild dispatches to the per-language convention for a containerized builder.
+// Adding a language is a case here plus its infer* function — the engine, docker
+// run, artifact capture, and archiving are all shared.
+func inferBuild(builder, rootDir, from, targetOS string) inferredBuild {
+	switch builder {
+	case "elixir":
+		return inferElixirBuild(rootDir, from)
+	default: // node
+		return inferNodeBuild(rootDir, from, targetOS)
+	}
+}
+
+// inferElixirBuild is the elixir convention: fetch prod deps, build assets for a
+// Phoenix app, then `mix release` — producing a self-contained release tree under
+// _build/prod/rel/, captured as a directory artifact. Runs in an elixir image.
+// Escape hatch: a Phoenix app whose assets need node/yarn in the build sets image:
+// to an elixir+node image (a plain elixir image suffices for esbuild/tailwind).
+func inferElixirBuild(rootDir, from string) inferredBuild {
+	steps := []string{"mix deps.get --only prod"}
+	if isPhoenixApp(filepath.Join(rootDir, from)) {
+		steps = append(steps, "MIX_ENV=prod mix assets.deploy")
+	}
+	steps = append(steps, "MIX_ENV=prod mix release")
+	return inferredBuild{
+		Image:   "elixir:1.17",
+		Command: strings.Join(steps, " && "),
+		Output:  filepath.ToSlash(filepath.Join(from, "_build/prod/rel/*")),
+	}
+}
+
+// isPhoenixApp reports whether the mix project depends on phoenix — a text probe of
+// mix.exs, no Elixir parsing needed.
+func isPhoenixApp(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "mix.exs"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), ":phoenix")
+}
+
 // workspaceBuildCommand returns the recursive build for each package manager's
 // workspace model (build every package, not just the entry one).
 func workspaceBuildCommand(pm string, pkg *pkgJSON) string {

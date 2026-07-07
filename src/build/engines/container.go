@@ -16,24 +16,33 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build"
 )
 
-// EngineNode is the dispatch key for containerized builds. engineNameFor("node")
-// resolves to "binary-node", so a `builder: node` build routes here and rides the
-// binary contributor's orchestration + archiving. Unlike binary-go/binary-rust,
-// which compile natively, this engine runs a build COMMAND inside a declared
-// container IMAGE (repo mounted) and collects the produced artifact — the general
-// "run this build in this image, capture the output" primitive. Its first user is
-// Electron packaging via electronuserland/builder:wine, but it's build-agnostic.
-const EngineNode = "binary-node"
+// The containerized-build engine runs a build COMMAND inside a declared container
+// IMAGE (repo mounted) and captures the produced artifact — a file OR a directory
+// tree — for languages StageFreight doesn't compile natively. engineNameFor(<b>)
+// resolves to "binary-<b>", so each builder routes here and rides the binary
+// contributor's orchestration + archiving. One engine, one substrate; each language
+// is a small convention (inferBuild) on top. node was first; elixir rides the same
+// rails at a fraction of the cost — which is the whole point.
+const (
+	EngineNode   = "binary-node"
+	EngineElixir = "binary-elixir"
+)
 
 func init() {
-	build.RegisterV2(EngineNode, func() build.EngineV2 { return &nodeEngine{} })
+	build.RegisterV2(EngineNode, func() build.EngineV2 { return &containerEngine{name: EngineNode, builder: "node"} })
+	build.RegisterV2(EngineElixir, func() build.EngineV2 { return &containerEngine{name: EngineElixir, builder: "elixir"} })
 }
 
-type nodeEngine struct{}
+// containerEngine is shared across all containerized builders; builder selects the
+// convention (inferBuild), name is the dispatch key it was registered under.
+type containerEngine struct {
+	name    string
+	builder string
+}
 
-func (e *nodeEngine) Name() string { return EngineNode }
+func (e *containerEngine) Name() string { return e.name }
 
-func (e *nodeEngine) Capabilities() build.Capabilities {
+func (e *containerEngine) Capabilities() build.Capabilities {
 	return build.Capabilities{
 		// The image cross-builds (e.g. a Windows .exe via wine on Linux).
 		SupportsCrossCompile: true,
@@ -43,11 +52,11 @@ func (e *nodeEngine) Capabilities() build.Capabilities {
 	}
 }
 
-func (e *nodeEngine) Detect(ctx context.Context, rootDir string) (*build.Detection, error) {
+func (e *containerEngine) Detect(ctx context.Context, rootDir string) (*build.Detection, error) {
 	return build.DetectRepo(rootDir)
 }
 
-func (e *nodeEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build.UniversalStep, error) {
+func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build.UniversalStep, error) {
 	if cfg.From == "" {
 		return nil, fmt.Errorf("container engine: from is required (the package directory, e.g. ui/desktop)")
 	}
@@ -55,10 +64,10 @@ func (e *nodeEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build.U
 
 	var steps []build.UniversalStep
 	for _, tgt := range cfg.Platforms {
-		// The engine owns the build: convention (install → build → pack) fills
+		// The engine owns the build: the per-builder convention (inferBuild) fills
 		// image/command/output; explicit config overlays on top — the escape hatch,
 		// not the norm. Inference is per-target since the image/output vary by OS.
-		inf := inferNodeBuild(rootDir, cfg.From, tgt.OS)
+		inf := inferBuild(e.builder, rootDir, cfg.From, tgt.OS)
 		image := firstNonEmpty(cfg.Image, inf.Image)
 		command := resolveTemplateVars(firstNonEmpty(cfg.Command, inf.Command), cfg)
 		output := resolveTemplateVars(firstNonEmpty(cfg.Output, inf.Output), cfg)
@@ -66,7 +75,7 @@ func (e *nodeEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build.U
 		steps = append(steps, build.UniversalStep{
 			BuildID: cfg.ID,
 			StepID:  build.StepIDForTarget(cfg.ID, tgt),
-			Engine:  EngineNode,
+			Engine:  e.name,
 			Target:  tgt,
 			Outputs: []build.ArtifactRef{{Path: output, Type: "binary"}},
 			Meta: ContainerMeta{
@@ -88,7 +97,7 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-func (e *nodeEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) (*build.UniversalStepResult, error) {
+func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) (*build.UniversalStepResult, error) {
 	meta, ok := step.Meta.(ContainerMeta)
 	if !ok {
 		return nil, fmt.Errorf("container engine: expected ContainerMeta, got %T", step.Meta)

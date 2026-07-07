@@ -166,15 +166,15 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if b.Kind == "binary" {
 			switch b.Builder {
 			case "":
-				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go, rust, node)", bpath))
-			case "go", "rust", "node":
-				// Symmetric: builder owns the build, config supplies `from`. node
-				// infers image/command/output from convention (override optional).
+				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go, rust, node, elixir)", bpath))
+			case "go", "rust", "node", "elixir":
+				// Symmetric: builder owns the build, config supplies `from`. node and
+				// elixir infer image/command/output from convention (override optional).
 				if b.From == "" {
-					errs = append(errs, fmt.Sprintf("%s: kind binary requires from (go: source package; rust: the crate dir with Cargo.toml; node: the package directory)", bpath))
+					errs = append(errs, fmt.Sprintf("%s: kind binary requires from (go: source package; rust: the crate dir with Cargo.toml; node: the package dir; elixir: the mix project dir)", bpath))
 				}
 			default:
-				errs = append(errs, fmt.Sprintf("%s: unknown builder %q (supported: go, rust, node)", bpath, b.Builder))
+				errs = append(errs, fmt.Sprintf("%s: unknown builder %q (supported: go, rust, node, elixir)", bpath, b.Builder))
 			}
 			// Docker-only fields should not be set on binary builds
 			if b.Dockerfile != "" {

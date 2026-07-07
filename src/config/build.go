@@ -78,9 +78,10 @@ type BuildConfig struct {
 	// Default: basename of From.
 	Output string `yaml:"output,omitempty"`
 
-	// Image is the container image a `builder: node` build runs inside (with the
-	// repo mounted). Command runs in it; Output is the produced-artifact glob.
-	// e.g. electronuserland/builder:wine for Electron packaging.
+	// Image is the container image a containerized build (builder: node, elixir) runs
+	// inside (with the repo mounted). Command runs in it; Output is the produced
+	// artifact (file or directory tree). Defaults per builder; override for the odd
+	// case (e.g. electronuserland/builder:wine, or an elixir+node image for Phoenix).
 	Image string `yaml:"image,omitempty"`
 
 	// Args are ordered raw arguments passed directly to the selected builder.

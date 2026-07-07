@@ -13,7 +13,7 @@ import (
 var win = []build.Target{{OS: "windows", Arch: "amd64"}}
 
 func TestNodeEnginePlan_RequiresFrom(t *testing.T) {
-	if _, err := (&nodeEngine{}).Plan(context.Background(), build.BuildConfig{Platforms: win}); err == nil {
+	if _, err := (&containerEngine{name: EngineNode, builder: "node"}).Plan(context.Background(), build.BuildConfig{Platforms: win}); err == nil {
 		t.Error("expected an error when from is missing")
 	}
 }
@@ -26,7 +26,7 @@ func TestNodeEnginePlan_ConfigOverrides(t *testing.T) {
 		Image: "myimage:latest", Command: "make windows", Output: "out/*.exe",
 		Platforms: win,
 	}
-	steps, err := (&nodeEngine{}).Plan(context.Background(), cfg)
+	steps, err := (&containerEngine{name: EngineNode, builder: "node"}).Plan(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -124,6 +124,54 @@ func TestNodeEngineRegistered(t *testing.T) {
 	}
 	if eng.Name() != EngineNode {
 		t.Errorf("Name = %q, want %q", eng.Name(), EngineNode)
+	}
+}
+
+// Elixir rides the same engine: builder: elixir, from: <dir> infers deps → assets
+// (Phoenix) → mix release in an elixir image, capturing the release tree.
+func TestInferElixirBuild_Phoenix(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "mix.exs"), `defmodule App.MixProject do
+	  defp deps, do: [{:phoenix, "~> 1.7"}]
+	end`)
+
+	inf := inferBuild("elixir", dir, ".", "linux")
+	if inf.Image != "elixir:1.17" {
+		t.Errorf("image = %q, want elixir:1.17", inf.Image)
+	}
+	for _, want := range []string{"mix deps.get", "mix assets.deploy", "mix release"} {
+		if !strings.Contains(inf.Command, want) {
+			t.Errorf("command missing %q; got %q", want, inf.Command)
+		}
+	}
+	if inf.Output != "_build/prod/rel/*" {
+		t.Errorf("output = %q, want the release tree", inf.Output)
+	}
+}
+
+// A non-Phoenix elixir project skips the assets step (the detected specialization).
+func TestInferElixirBuild_PlainLib(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "mix.exs"), `defmodule Lib.MixProject do
+	  defp deps, do: [{:jason, "~> 1.4"}]
+	end`)
+
+	inf := inferBuild("elixir", dir, ".", "linux")
+	if strings.Contains(inf.Command, "assets.deploy") {
+		t.Errorf("a non-phoenix app must not build assets; got %q", inf.Command)
+	}
+	if !strings.Contains(inf.Command, "mix release") {
+		t.Errorf("command missing mix release; got %q", inf.Command)
+	}
+}
+
+func TestElixirEngineRegistered(t *testing.T) {
+	eng, err := build.GetV2(EngineElixir)
+	if err != nil {
+		t.Fatalf("GetV2(%q): %v", EngineElixir, err)
+	}
+	if eng.Name() != EngineElixir {
+		t.Errorf("Name = %q, want %q", eng.Name(), EngineElixir)
 	}
 }
 
