@@ -2,64 +2,70 @@ package engines
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 )
 
-func TestNodeEnginePlan(t *testing.T) {
-	e := &nodeEngine{}
-	win := []build.Target{{OS: "windows", Arch: "amd64"}}
+var win = []build.Target{{OS: "windows", Arch: "amd64"}}
 
-	// Required fields are enforced.
-	for _, tc := range []struct {
-		name string
-		cfg  build.BuildConfig
-	}{
-		{"no image", build.BuildConfig{Command: "x", Output: "y", Platforms: win}},
-		{"no command", build.BuildConfig{Image: "img", Output: "y", Platforms: win}},
-		{"no output", build.BuildConfig{Image: "img", Command: "x", Platforms: win}},
-	} {
-		if _, err := e.Plan(context.Background(), tc.cfg); err == nil {
-			t.Errorf("%s: expected a validation error", tc.name)
-		}
-	}
-
-	// Valid config → one step per platform carrying ContainerMeta.
-	cfg := build.BuildConfig{
-		ID:        "desktop",
-		Image:     "electronuserland/builder:wine",
-		Command:   "pnpm install && pnpm pack",
-		From:      "ui/desktop",
-		Output:    "ui/desktop/release/*.exe",
-		Env:       map[string]string{"CI": "1"},
-		Platforms: win,
-	}
-	steps, err := e.Plan(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("Plan: %v", err)
-	}
-	if len(steps) != 1 {
-		t.Fatalf("steps = %d, want 1", len(steps))
-	}
-	s := steps[0]
-	if s.Engine != EngineNode {
-		t.Errorf("Engine = %q, want %q", s.Engine, EngineNode)
-	}
-	meta, ok := s.Meta.(ContainerMeta)
-	if !ok {
-		t.Fatalf("Meta is %T, want ContainerMeta", s.Meta)
-	}
-	if meta.Image != cfg.Image || meta.Command != cfg.Command || meta.WorkDir != cfg.From || meta.Artifact != cfg.Output {
-		t.Errorf("meta mismatch: %+v", meta)
-	}
-	if meta.StepMetaKind() != "container" {
-		t.Errorf("StepMetaKind = %q, want container", meta.StepMetaKind())
+func TestNodeEnginePlan_RequiresFrom(t *testing.T) {
+	if _, err := (&nodeEngine{}).Plan(context.Background(), build.BuildConfig{Platforms: win}); err == nil {
+		t.Error("expected an error when from is missing")
 	}
 }
 
-// The engine is registered under the builder-node dispatch key, so a
-// `builder: node` build (engineNameFor → "binary-node") resolves to it.
+// Config is the escape hatch: explicit image/command/output override the
+// convention rather than being required.
+func TestNodeEnginePlan_ConfigOverrides(t *testing.T) {
+	cfg := build.BuildConfig{
+		ID: "desktop", From: "ui/desktop",
+		Image: "myimage:latest", Command: "make windows", Output: "out/*.exe",
+		Platforms: win,
+	}
+	steps, err := (&nodeEngine{}).Plan(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	meta := steps[0].Meta.(ContainerMeta)
+	if meta.Image != "myimage:latest" || meta.Command != "make windows" || meta.Artifact != "out/*.exe" {
+		t.Errorf("explicit config should override inference; got %+v", meta)
+	}
+}
+
+// The convention: builder: node, from: <dir> infers the whole build for a pnpm
+// electron app targeting Windows — wine image, install → recursive build → pack,
+// and the electron-builder output dir as a .exe glob.
+func TestInferNodeBuild_ElectronWindows(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "pnpm-workspace.yaml"), "packages:\n  - ui/*\n")
+	if err := os.MkdirAll(filepath.Join(dir, "ui/desktop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(dir, "ui/desktop/package.json"), `{
+	  "packageManager": "pnpm@9",
+	  "scripts": {"build": "vite build", "pack": "electron-builder --win"},
+	  "devDependencies": {"electron": "31.0.0"},
+	  "build": {"directories": {"output": "release"}}
+	}`)
+
+	inf := inferNodeBuild(dir, "ui/desktop", "windows")
+	if inf.Image != "electronuserland/builder:wine" {
+		t.Errorf("image = %q, want the wine image", inf.Image)
+	}
+	for _, want := range []string{"pnpm install", "pnpm -r build", "pnpm run pack"} {
+		if !strings.Contains(inf.Command, want) {
+			t.Errorf("command missing %q; got %q", want, inf.Command)
+		}
+	}
+	if inf.Output != "ui/desktop/release/*.exe" {
+		t.Errorf("output = %q, want ui/desktop/release/*.exe", inf.Output)
+	}
+}
+
 func TestNodeEngineRegistered(t *testing.T) {
 	eng, err := build.GetV2(EngineNode)
 	if err != nil {
@@ -67,5 +73,12 @@ func TestNodeEngineRegistered(t *testing.T) {
 	}
 	if eng.Name() != EngineNode {
 		t.Errorf("Name = %q, want %q", eng.Name(), EngineNode)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

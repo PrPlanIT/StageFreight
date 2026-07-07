@@ -412,11 +412,18 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	if len(platforms) == 0 {
 		platforms = []build.Target{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
 	}
+	// go/rust default the command ("build") + output (basename of from); node
+	// infers both from convention, so pass its raw (possibly empty) values so the
+	// engine can tell "unset" and fill defaults.
+	command, output := b.BuilderCommand(), b.OutputName()
+	if b.Builder == "node" {
+		command, output = b.Command, b.Output
+	}
 	return build.BuildConfig{
 		ID: b.ID, Kind: b.Kind, Platforms: platforms, BuildMode: b.BuildMode,
 		SelectTags: b.SelectTags, DependsOn: b.DependsOn, Version: v,
-		Builder: b.Builder, Command: b.BuilderCommand(), From: b.From,
-		Output: b.OutputName(), Args: b.Args, Env: b.Env, Compress: b.Compress,
+		Builder: b.Builder, Command: command, From: b.From,
+		Output: output, Args: b.Args, Env: b.Env, Compress: b.Compress,
 		Image: b.Image,
 	}
 }

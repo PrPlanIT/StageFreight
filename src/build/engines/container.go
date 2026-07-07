@@ -47,37 +47,44 @@ func (e *nodeEngine) Detect(ctx context.Context, rootDir string) (*build.Detecti
 }
 
 func (e *nodeEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build.UniversalStep, error) {
-	if cfg.Image == "" {
-		return nil, fmt.Errorf("container engine: image is required (the build image, e.g. electronuserland/builder:wine)")
+	if cfg.From == "" {
+		return nil, fmt.Errorf("container engine: from is required (the package directory, e.g. ui/desktop)")
 	}
-	if cfg.Command == "" {
-		return nil, fmt.Errorf("container engine: command is required (the build command to run inside the image)")
-	}
-	if cfg.Output == "" {
-		return nil, fmt.Errorf("container engine: output is required (produced-artifact glob, e.g. ui/desktop/release/*.exe)")
-	}
-
-	command := resolveTemplateVars(cfg.Command, cfg)
-	artifact := resolveTemplateVars(cfg.Output, cfg)
+	rootDir, _ := os.Getwd()
 
 	var steps []build.UniversalStep
 	for _, tgt := range cfg.Platforms {
+		// The engine owns the build: convention (install → build → pack) fills
+		// image/command/output; explicit config overlays on top — the escape hatch,
+		// not the norm. Inference is per-target since the image/output vary by OS.
+		inf := inferNodeBuild(rootDir, cfg.From, tgt.OS)
+		image := firstNonEmpty(cfg.Image, inf.Image)
+		command := resolveTemplateVars(firstNonEmpty(cfg.Command, inf.Command), cfg)
+		output := resolveTemplateVars(firstNonEmpty(cfg.Output, inf.Output), cfg)
+
 		steps = append(steps, build.UniversalStep{
 			BuildID: cfg.ID,
 			StepID:  build.StepIDForTarget(cfg.ID, tgt),
 			Engine:  EngineNode,
 			Target:  tgt,
-			Outputs: []build.ArtifactRef{{Path: artifact, Type: "binary"}},
+			Outputs: []build.ArtifactRef{{Path: output, Type: "binary"}},
 			Meta: ContainerMeta{
-				Image:    cfg.Image,
+				Image:    image,
 				Command:  command,
 				WorkDir:  cfg.From,
 				Env:      cfg.Env,
-				Artifact: artifact,
+				Artifact: output,
 			},
 		})
 	}
 	return steps, nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func (e *nodeEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) (*build.UniversalStepResult, error) {
