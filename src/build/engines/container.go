@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -116,18 +117,26 @@ func (e *nodeEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 		return nil, fmt.Errorf("container build failed (%s): %w\n%s", meta.Image, err, string(output))
 	}
 
-	// Collect the produced artifact(s) by glob, relative to the repo root — they
-	// were written into the mounted volume, so they're on the host now.
-	pattern := meta.Artifact
-	if !filepath.IsAbs(pattern) {
-		pattern = filepath.Join(rootDir, pattern)
+	// Collect the produced artifact(s) — written into the mounted volume, so on the
+	// host now. The output is a glob (an installer: release/*.exe), a single file,
+	// or a directory (a built tree: dist/). A tree is one artifact; the archive
+	// walks it.
+	artifactPath := meta.Artifact
+	if !filepath.IsAbs(artifactPath) {
+		artifactPath = filepath.Join(rootDir, artifactPath)
 	}
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("container engine: bad artifact glob %q: %w", meta.Artifact, err)
+	var matches []string
+	if strings.ContainsAny(meta.Artifact, "*?[") {
+		m, gerr := filepath.Glob(artifactPath)
+		if gerr != nil {
+			return nil, fmt.Errorf("container engine: bad artifact glob %q: %w", meta.Artifact, gerr)
+		}
+		matches = m
+	} else if _, serr := os.Stat(artifactPath); serr == nil {
+		matches = []string{artifactPath}
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("container engine: no artifact matched %q after the build", meta.Artifact)
+		return nil, fmt.Errorf("container engine: no artifact at %q after the build", meta.Artifact)
 	}
 	sort.Strings(matches)
 
@@ -137,16 +146,21 @@ func (e *nodeEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 		if err != nil {
 			return nil, fmt.Errorf("container engine: stat artifact %s: %w", m, err)
 		}
-		sum, err := fileSHA256(m)
-		if err != nil {
-			return nil, fmt.Errorf("container engine: hashing %s: %w", m, err)
+		if info.IsDir() {
+			// A tree artifact: size is the sum of files; integrity is carried by the
+			// archive that wraps it (a directory has no single content hash).
+			size, derr := dirSize(m)
+			if derr != nil {
+				return nil, fmt.Errorf("container engine: sizing %s: %w", m, derr)
+			}
+			artifacts = append(artifacts, build.ProducedArtifact{Path: m, Type: "tree", Size: size})
+			continue
 		}
-		artifacts = append(artifacts, build.ProducedArtifact{
-			Path:   m,
-			Type:   "binary",
-			Size:   info.Size(),
-			SHA256: sum,
-		})
+		sum, herr := fileSHA256(m)
+		if herr != nil {
+			return nil, fmt.Errorf("container engine: hashing %s: %w", m, herr)
+		}
+		artifacts = append(artifacts, build.ProducedArtifact{Path: m, Type: "binary", Size: info.Size(), SHA256: sum})
 	}
 
 	// binary_name is what the binary-archive target names the file inside the
@@ -158,6 +172,20 @@ func (e *nodeEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 		Metadata:  map[string]string{"image": meta.Image, "binary_name": binaryName},
 		Metrics:   build.StepMetrics{Duration: time.Since(start)},
 	}, nil
+}
+
+func dirSize(root string) (int64, error) {
+	var total int64
+	err := filepath.Walk(root, func(_ string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !fi.IsDir() {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total, err
 }
 
 func fileSHA256(path string) (string, error) {

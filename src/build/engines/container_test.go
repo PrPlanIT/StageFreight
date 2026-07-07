@@ -86,8 +86,34 @@ func TestInferNodeBuild_PlainWeb(t *testing.T) {
 	if strings.Contains(inf.Command, "pack") {
 		t.Errorf("a non-electron build must not pack; got %q", inf.Command)
 	}
-	if inf.Output != "dist/*" {
-		t.Errorf("output = %q, want dist/*", inf.Output)
+	if inf.Output != "dist" {
+		t.Errorf("output = %q, want the dist tree", inf.Output)
+	}
+}
+
+// Workspace detection isn't pnpm-only: a yarn (berry) workspace gets yarn install
+// + a recursive workspace build, no electron, dist tree output.
+func TestInferNodeBuild_YarnWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "yarn.lock"), "")
+	mustWrite(t, filepath.Join(dir, "package.json"), `{
+	  "packageManager": "yarn@3.6.0",
+	  "workspaces": ["packages/*"],
+	  "scripts": {"build": "tsc"}
+	}`)
+
+	inf := inferNodeBuild(dir, ".", "linux")
+	if !strings.Contains(inf.Command, "yarn install") {
+		t.Errorf("command = %q, want yarn install", inf.Command)
+	}
+	if !strings.Contains(inf.Command, "yarn workspaces foreach") {
+		t.Errorf("workspace build should be recursive; got %q", inf.Command)
+	}
+	if inf.Image != "node:20" {
+		t.Errorf("image = %q, want node:20", inf.Image)
+	}
+	if inf.Output != "dist" {
+		t.Errorf("output = %q, want the dist tree", inf.Output)
 	}
 }
 

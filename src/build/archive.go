@@ -105,10 +105,15 @@ func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 	// before any byte is written.
 	var entries []archiveEntry
 
-	entries = append(entries, archiveEntry{
-		sourcePath:  opts.BinaryPath,
-		archiveName: opts.BinaryName,
-	})
+	// The primary source may be a single file (a compiled binary, an installer)
+	// or a directory (a built tree — a web bundle, a packaged app). expandSource
+	// walks a directory into per-file entries so a tree archives as cleanly as one
+	// binary; a file stays a single entry.
+	binEntries, err := expandSource(opts.BinaryPath, opts.BinaryName)
+	if err != nil {
+		return nil, fmt.Errorf("archiving %q: %w", opts.BinaryPath, err)
+	}
+	entries = append(entries, binEntries...)
 
 	for _, inc := range opts.IncludeFiles {
 		srcPath := filepath.Join(opts.RepoRoot, inc)
@@ -208,6 +213,43 @@ func resolveArchiveName(tmpl, buildID string, tgt Target, v *VersionInfo) string
 type archiveEntry struct {
 	sourcePath  string
 	archiveName string
+}
+
+// expandSource turns a source path into archive entries: one entry for a file, or
+// one per file (walked) for a directory — so a build whose artifact is a tree (a
+// web bundle, a built app) archives as cleanly as a single binary. Directory files
+// are nested under archiveName so the tree extracts into its own dir rather than
+// exploding into the extraction cwd.
+func expandSource(sourcePath, archiveName string) ([]archiveEntry, error) {
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return []archiveEntry{{sourcePath: sourcePath, archiveName: archiveName}}, nil
+	}
+	var entries []archiveEntry
+	walkErr := filepath.Walk(sourcePath, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(sourcePath, path)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, archiveEntry{
+			sourcePath:  path,
+			archiveName: filepath.ToSlash(filepath.Join(archiveName, rel)),
+		})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return entries, nil
 }
 
 func createTarGz(outputPath string, entries []archiveEntry) error {
