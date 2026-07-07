@@ -294,6 +294,23 @@ func (c *crucibleContributor) Verify(rc *domains.RunContext) (domains.Contributi
 	}, nil
 }
 
+// crucibleStepOutput decides how the verified-artifact build step emits its image.
+// --local ALWAYS loads into the local daemon and NEVER pushes — that is the whole point of
+// --local, and its omission was the "tag is needed when pushing to registry" bug where a
+// local build fell through to the push branch and no image ever landed. Transport mode keeps
+// the image in the content store (distribution deferred), so it neither loads nor pushes.
+// Otherwise the verified artifact is pushed to its registries during this build.
+func crucibleStepOutput(local, transport bool) (load, push bool) {
+	switch {
+	case local:
+		return true, false
+	case transport:
+		return false, false
+	default:
+		return false, true
+	}
+}
+
 // Publish builds + retains the verified artifact (gated INSIDE crucible on the
 // trust verdict), records into the run's shared manifest (the run writes once),
 // then renders retention/provenance/verdict exactly as the monolith did.
@@ -307,11 +324,10 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 	if c.cruciblePassed && (c.verification == nil || !c.verification.HasHardFailure()) {
 		publishPlan := clonePlan(c.plan)
 		for i := range publishPlan.Steps {
-			publishPlan.Steps[i].Load = false
-			if transport {
-				publishPlan.Steps[i].Push = false
-			} else {
-				publishPlan.Steps[i].Push = true
+			load, push := crucibleStepOutput(rc.Local, transport)
+			publishPlan.Steps[i].Load = load
+			publishPlan.Steps[i].Push = push
+			if push {
 				publishPlan.Steps[i].CacheTo = c.cacheTo
 			}
 		}
@@ -319,7 +335,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 			build.NormalizeBuildPlan(publishPlan), version.Version, version.Commit, "crucible-verified", c.created))
 
 		loginFailed := false
-		if !transport {
+		if !transport && !rc.Local {
 			if err := loginForPushSteps(ctx, publishPlan.Steps); err != nil {
 				loginFailed = true
 				sec := output.NewSection(w, "Publish (verified artifact: pass 2)", 0, color)
