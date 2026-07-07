@@ -80,8 +80,9 @@ func TestInferNodeBuild_PlainWeb(t *testing.T) {
 	if inf.Image != "node:20" {
 		t.Errorf("image = %q, want node:20", inf.Image)
 	}
-	if !strings.Contains(inf.Command, "npm install") || !strings.Contains(inf.Command, "npm run build") {
-		t.Errorf("command = %q, want install + build", inf.Command)
+	// Frozen install by default: npm's frozen install is `npm ci`.
+	if !strings.Contains(inf.Command, "npm ci") || !strings.Contains(inf.Command, "npm run build") {
+		t.Errorf("command = %q, want npm ci + build", inf.Command)
 	}
 	if strings.Contains(inf.Command, "pack") {
 		t.Errorf("a non-electron build must not pack; got %q", inf.Command)

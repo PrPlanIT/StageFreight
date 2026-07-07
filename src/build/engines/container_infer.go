@@ -57,9 +57,24 @@ func inferNodeBuild(rootDir, from, targetOS string) inferredBuild {
 
 	// install → build → (pack, electron only). A workspace builds recursively so
 	// sibling packages a desktop app bundles (e.g. a web UI) are built first.
+	//
+	// FROZEN install by default: install exactly what the lockfile pins and FAIL on
+	// drift rather than silently re-resolving — silent re-resolution is the npm
+	// supply-chain attack surface, so the safe default matters more than convenience.
+	// A project with no lockfile fails here (commit one); override via command: only
+	// with intent.
 	install := pm + " install"
-	if pm == "pnpm" {
-		install = "pnpm install --no-frozen-lockfile"
+	switch pm {
+	case "pnpm":
+		install = "pnpm install --frozen-lockfile"
+	case "npm":
+		install = "npm ci"
+	case "yarn":
+		if yarnMajor(pkg) >= 2 {
+			install = "yarn install --immutable"
+		} else {
+			install = "yarn install --frozen-lockfile"
+		}
 	}
 	build := pm + " run build"
 	if workspace {
