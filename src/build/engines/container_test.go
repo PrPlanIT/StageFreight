@@ -305,6 +305,52 @@ func TestCAndPythonEnginesRegistered(t *testing.T) {
 	}
 }
 
+// JVM is one convention for the whole family: a gradle project (wrapper present)
+// builds via ./gradlew to build/libs/*.jar in a gradle image.
+func TestInferJvmBuild_Gradle(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "build.gradle.kts"), "plugins {}\n")
+	mustWrite(t, filepath.Join(dir, "gradlew"), "#!/bin/sh\n")
+
+	inf := inferBuild("jvm", dir, ".", "linux", "amd64")
+	if inf.Image != "gradle:jdk21" {
+		t.Errorf("image = %q, want gradle:jdk21", inf.Image)
+	}
+	if inf.Command != "./gradlew build" {
+		t.Errorf("command = %q, want ./gradlew build", inf.Command)
+	}
+	if inf.Output != "build/libs/*.jar" {
+		t.Errorf("output = %q, want build/libs/*.jar", inf.Output)
+	}
+}
+
+// A maven project (pom.xml) builds via mvn to target/*.jar — same builder.
+func TestInferJvmBuild_Maven(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "pom.xml"), "<project/>\n")
+
+	inf := inferBuild("jvm", dir, ".", "linux", "amd64")
+	if inf.Image != "maven:3-eclipse-temurin-21" {
+		t.Errorf("image = %q, want the maven image", inf.Image)
+	}
+	if !strings.Contains(inf.Command, "mvn -B package") {
+		t.Errorf("command = %q, want mvn package", inf.Command)
+	}
+	if inf.Output != "target/*.jar" {
+		t.Errorf("output = %q, want target/*.jar", inf.Output)
+	}
+}
+
+func TestJvmEngineRegistered(t *testing.T) {
+	eng, err := build.GetV2(EngineJVM)
+	if err != nil {
+		t.Fatalf("GetV2(%q): %v", EngineJVM, err)
+	}
+	if eng.Name() != EngineJVM {
+		t.Errorf("Name = %q, want %q", eng.Name(), EngineJVM)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

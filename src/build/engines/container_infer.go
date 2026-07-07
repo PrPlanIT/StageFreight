@@ -116,6 +116,8 @@ func inferBuild(builder, rootDir, from, targetOS, targetArch string) inferredBui
 		return inferCBuild(rootDir, from)
 	case "python":
 		return inferPythonBuild(rootDir, from)
+	case "jvm":
+		return inferJvmBuild(rootDir, from)
 	default: // node
 		return inferNodeBuild(rootDir, from, targetOS)
 	}
@@ -233,6 +235,31 @@ func findSpec(dir string) string {
 		return filepath.Base(matches[0])
 	}
 	return ""
+}
+
+// inferJvmBuild is the JVM convention — one path for the whole family (Kotlin, Java,
+// Scala, Groovy, Clojure), since they all build via Gradle or Maven to a jar. Maven
+// (pom.xml) → mvn package → target/*.jar; otherwise Gradle → ./gradlew build (the
+// wrapper if present, else the image's gradle) → build/libs/*.jar. A bare jar needs
+// a JVM to run; a fat/shadow jar bundles deps (via the command escape hatch).
+func inferJvmBuild(rootDir, from string) inferredBuild {
+	dir := filepath.Join(rootDir, from)
+	if fileExists(filepath.Join(dir, "pom.xml")) {
+		return inferredBuild{
+			Image:   "maven:3-eclipse-temurin-21",
+			Command: "mvn -B package",
+			Output:  filepath.ToSlash(filepath.Join(from, "target", "*.jar")),
+		}
+	}
+	gradle := "gradle build"
+	if fileExists(filepath.Join(dir, "gradlew")) {
+		gradle = "./gradlew build"
+	}
+	return inferredBuild{
+		Image:   "gradle:jdk21",
+		Command: gradle,
+		Output:  filepath.ToSlash(filepath.Join(from, "build", "libs", "*.jar")),
+	}
 }
 
 // workspaceBuildCommand returns the recursive build for each package manager's

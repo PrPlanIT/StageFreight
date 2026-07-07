@@ -29,6 +29,7 @@ const (
 	EngineDotnet = "binary-dotnet"
 	EngineC      = "binary-c"
 	EnginePython = "binary-python"
+	EngineJVM    = "binary-jvm"
 )
 
 func init() {
@@ -37,6 +38,7 @@ func init() {
 	build.RegisterV2(EngineDotnet, func() build.EngineV2 { return &containerEngine{name: EngineDotnet, builder: "dotnet"} })
 	build.RegisterV2(EngineC, func() build.EngineV2 { return &containerEngine{name: EngineC, builder: "c"} })
 	build.RegisterV2(EnginePython, func() build.EngineV2 { return &containerEngine{name: EnginePython, builder: "python"} })
+	build.RegisterV2(EngineJVM, func() build.EngineV2 { return &containerEngine{name: EngineJVM, builder: "jvm"} })
 }
 
 // containerEngine is shared across all containerized builders; builder selects the

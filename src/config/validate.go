@@ -166,17 +166,17 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if b.Kind == "binary" {
 			switch b.Builder {
 			case "":
-				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go, rust, node, elixir, dotnet, c, python)", bpath))
-			case "go", "rust", "node", "elixir", "dotnet", "c", "python":
+				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go, rust, node, elixir, dotnet, c, python, jvm)", bpath))
+			case "go", "rust", "node", "elixir", "dotnet", "c", "python", "jvm":
 				// Symmetric: builder owns the build, config supplies `from`. The
-				// containerized builders (node, elixir, dotnet, c, python) infer
+				// containerized builders (node, elixir, dotnet, c, python, jvm) infer
 				// image/command/output from convention (override optional; c with a
 				// raw Makefile needs output: since the artifact location is unknowable).
 				if b.From == "" {
-					errs = append(errs, fmt.Sprintf("%s: kind binary requires from (go: source package; rust: the crate dir with Cargo.toml; node: the package dir; elixir: the mix project dir; dotnet: the project/solution dir; c: the source dir; python: the project dir)", bpath))
+					errs = append(errs, fmt.Sprintf("%s: kind binary requires from (go: source package; rust: the crate dir with Cargo.toml; node: the package dir; elixir: the mix project dir; dotnet: the project/solution dir; c: the source dir; python: the project dir; jvm: the gradle/maven project dir)", bpath))
 				}
 			default:
-				errs = append(errs, fmt.Sprintf("%s: unknown builder %q (supported: go, rust, node, elixir, dotnet, c, python)", bpath, b.Builder))
+				errs = append(errs, fmt.Sprintf("%s: unknown builder %q (supported: go, rust, node, elixir, dotnet, c, python, jvm)", bpath, b.Builder))
 			}
 			// Docker-only fields should not be set on binary builds
 			if b.Dockerfile != "" {
