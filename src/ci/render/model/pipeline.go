@@ -94,6 +94,13 @@ type ArtifactSpec struct {
 	// ExpireIn is a human-readable duration string (e.g. "1 week", "2 hours").
 	// Empty means the forge default.
 	ExpireIn string
+
+	// WhenAlways uploads the artifacts even when the job FAILED (GitLab `artifacts: when:
+	// always`; Actions `if: always()`). Set on audition so its contract — the ledger — reaches
+	// perform whether or not audition's exit code was non-zero. The gate is the contract in the
+	// ledger, NOT the forge's default drop-on-failure; without this, a failed audition drops its
+	// ledger and the in-code gate is silently bypassed by forge behaviour.
+	WhenAlways bool
 }
 
 // RoutingSpec declares runner placement requirements for a job.

@@ -20,9 +20,9 @@ const (
 // SuiteResult is one suite's outcome — individually addressable for logs and
 // future narrate/reporting. Coverage/Artifacts are reserved (not populated in v1).
 type SuiteResult struct {
-	ID       string
-	Tool     config.TestTool
-	Gate     config.Gate
+	ID          string
+	Tool        config.TestTool
+	Gate        config.Gate
 	Status      string
 	Duration    time.Duration
 	Packages    []PackageResult // per-package detail (Go suites, parsed from -json)

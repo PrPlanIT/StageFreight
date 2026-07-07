@@ -157,6 +157,10 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 				fmt.Fprintf(buf, "      - %s\n", p)
 			}
 		}
+		if j.Artifacts.WhenAlways {
+			// Upload the ledger even on job failure, so downstream gates on the contract.
+			buf.WriteString("    when: always\n")
+		}
 		if j.Artifacts.ExpireIn != "" {
 			fmt.Fprintf(buf, "    expire_in: %s\n", j.Artifacts.ExpireIn)
 		}

@@ -65,6 +65,16 @@ type SubsystemState struct {
 	Required     bool   `json:"required"`      // true = failure is a hard pipeline fail
 	Outcome      string `json:"outcome"`       // success | failed | skipped | warning | not_applicable | cancelled
 	Reason       string `json:"reason,omitempty"`
+	// Blocking is the CONTROL truth about this subsystem's subject: may that subject
+	// continue producing distributable artifacts? A phase that consumes this NEVER
+	// branches on anything else. It is deliberately separate from Outcome (what happened)
+	// and Required (a forge-status policy). A remediated source is Blocking (the fix lives
+	// in Replacement, not in this subject), so it must never build.
+	Blocking bool `json:"blocking,omitempty"`
+	// Replacement is LINEAGE, never control: the commit that supersedes this subject when a
+	// fix was produced (the remediation candidate). Consumed by narrate / publish / the forge
+	// status renderer / webhooks — never by the orchestrator's build decision.
+	Replacement string `json:"replacement,omitempty"`
 }
 
 // PipelineStatus derives the aggregate pipeline outcome from all subsystems.

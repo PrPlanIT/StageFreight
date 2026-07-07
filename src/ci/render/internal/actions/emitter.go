@@ -315,7 +315,9 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 	// upload this job's artifacts for downstream consumers
 	if len(j.Artifacts.Paths) > 0 {
 		buf.WriteString("      - uses: actions/upload-artifact@v4\n")
-		if j.Policy.WhenAlways {
+		if j.Policy.WhenAlways || j.Artifacts.WhenAlways {
+			// Upload even on job failure — either because the job always runs (Policy) or
+			// because its artifact (the ledger) must reach downstream regardless (Artifacts).
 			buf.WriteString("        if: always()\n")
 		}
 		buf.WriteString("        with:\n")

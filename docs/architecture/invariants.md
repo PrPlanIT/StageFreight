@@ -154,6 +154,17 @@ there is something to enforce against:
   handle-representation axis must evolve together) that is real but unenforceable
   until a second store exists. Read before implementing one.
 
+- [`pipeline-flow.md`](pipeline-flow.md) — **authoritative** for how the pipeline gates: the
+  **audition contract** (`Outcome`/`Blocking`/`Replacement`) that audition publishes into the
+  ledger and perform gates on, in-code and forge-agnostic. Control lives in the ledger; the
+  forge only renders status and transports the ledger (`when: always`). The Fatal/Remediable
+  mutation-safety classification and the deps-autoremediation self-heal are described there.
+  Read before touching `depsRunner`, `performPhaseRunner`, `authorizePhase`, or the CI render.
+  (The pure `deriveAuditionContract`/`performGate` are unit-tested — this is close to
+  promotable to a hard invariant once the perform→audition edge has an enforcement test.)
+  The broader stewardship vision this grew from is recorded, superseded, in
+  [`audition-transformation.md`](audition-transformation.md).
+
 - **Mutation safety — the second of two distribution concerns.** A distribution
   capability answers two independent questions, with one home for each: (1) *should
   this fire?* — eligibility, Invariant 7, mechanically enforced; (2) *is it safe to

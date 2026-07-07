@@ -261,21 +261,43 @@ func mapIgnores(in []config.DependencyIgnore) []dependency.VulnIgnore {
 }
 
 func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	rootDir := resolveWorkspace(ciCtx)
+
 	if !appCfg.Dependency.Enabled {
+		// Deps disabled is an operator choice, not a failure — the subject is shippable.
+		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true}))
 		fmt.Println("  dependency update disabled in config")
 		return nil
 	}
 
-	rootDir := resolveWorkspace(ciCtx)
+	// The audition CONTRACT — the single authoritative record every downstream phase gates on
+	// (Blocking) and narrate/publish/forge project (Replacement, Reason). Fail-closed: the zero
+	// value blocks, so any early return below records a blocking contract unless a field was
+	// explicitly cleared. The defer fires on EVERY exit path — no gate can be bypassed.
+	in := auditionInputs{}
+	defer func() { recordAuditionContract(rootDir, deriveAuditionContract(in)) }()
 
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
 		return fmt.Errorf("deps subsystem: substrate unhealthy")
 	}
+	in.RunnerHealthy = true
 	if err := runConfigPhase(rootDir); err != nil {
 		return fmt.Errorf("deps subsystem: %w", err)
 	}
-	if err := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose); err != nil {
-		return fmt.Errorf("deps subsystem (lint): %w", err)
+	// Inspect → Classify → record into the audition contract. A Fatal finding (secret/conflict/
+	// broken tree) voids the source: block and do not mutate. A Remediable finding (a freshness/
+	// osv CVE) does NOT abort — it runs the deps update to produce a fix — but the SOURCE stays
+	// Blocking, because the fix lands in a replacement commit (C′), not in this subject. Both are
+	// Blocking in the contract; they differ only in whether a Replacement gets recorded below.
+	lintFindings, _ := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose)
+	mut := lint.Classify(lintFindings)
+	in.Fatal = mut.HasFatal()
+	in.Remediable = mut.HasRemediable()
+	if in.Fatal {
+		return fmt.Errorf("deps subsystem (lint): source has %d fatal finding(s) — not mutating a void tree", len(mut.Fatal))
+	}
+	if in.Remediable {
+		fmt.Printf("  deps: %d remediable finding(s) on the source — running the deps update to remediate\n", len(mut.Remediable))
 	}
 
 	// Correctness gate: run the tests on the COMMITTED tree — after lint, before any
@@ -283,8 +305,9 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// fails audition here (withholds cistate → halts downstream). deps re-verifies
 	// its own mutation separately (below) — it never trusts this run transitively.
 	if err := auditionTests(ctx, appCfg, rootDir); err != nil {
-		return err
+		return err // in.TestsPassed stays false → the contract blocks
 	}
+	in.TestsPassed = true
 
 	// Fetch security advisories from prior pipeline (cross-pipeline bridge).
 	if ciCtx.IsCI() {
@@ -306,6 +329,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// Run dependency update via the same code path as the CLI command
 	result, err := runDependencyUpdateLogic(ctx, appCfg, rootDir, opts.Verbose)
 	if err != nil {
+		in.DepsErrored = true
 		return fmt.Errorf("deps subsystem: %w", err)
 	}
 
@@ -400,6 +424,12 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		commitResult, commitErr := autoCommitViaPlanner(ctx, appCfg, rootDir, plannerOpts)
 		if commitErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: dependency auto-commit failed: %v\n", commitErr)
+		}
+		// Record the replacement commit as LINEAGE on the contract. It never changes Blocking —
+		// a remediable source stays blocked whether or not the fix pushed; this only records
+		// which commit (C′) supersedes this subject, for narrate / publish / the forge renderer.
+		if commitResult != nil && commitResult.Pushed && !commitResult.NoOp {
+			in.Replacement = commitResult.SHA
 		}
 
 		// MR mode: open merge request after successful push to bot branch
@@ -589,6 +619,26 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	if ciCtx.IsCI() {
 		st, _ := cistate.ReadState(rootDir)
 		buildSub := st.GetSubsystem("build")
+		aud := st.GetSubsystem("audition")
+		// Superseded/blocked subject: audition blocked it, so perform did not build and there is
+		// nothing to review. Skip cleanly (the subject is reviewed on its follow-up pipeline)
+		// rather than scanning a non-existent image and reporting a misleading failure.
+		if buildSub == nil && aud != nil && aud.Blocking {
+			reason := "audition blocked the subject — no artifact to review"
+			if aud.Reason != "" {
+				reason += " (" + aud.Reason + ")"
+			}
+			fmt.Printf("  security: skipping — %s\n", reason)
+			if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
+				s.RecordSubsystem(cistate.SubsystemState{
+					Name: "security", Attempted: true, Skipped: true, AllowFailure: secAllowFailure,
+					Outcome: "not_applicable", Reason: reason,
+				})
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+			}
+			return nil
+		}
 		if buildSub != nil && buildSub.Outcome == "success" && !st.Build.ProducedImages {
 			reason := "build completed but produced no images"
 			if buildSub.Reason != "" {
@@ -1918,7 +1968,11 @@ func executorPreflight(rootDir string, opts runner.Options) runner.ExecutionRepo
 
 // ── universal lint + docs orchestration ─────────────────────────────────────
 
-func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, verbose bool) error {
+// runUniversalLint runs the pre-build lint and returns its findings alongside the gate
+// error. Findings are surfaced so the audition can Classify them (Fatal vs Remediable);
+// the gate error is unchanged — a caller that only cares whether lint blocked still checks
+// the error exactly as before.
+func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, verbose bool) ([]lint.Finding, error) {
 	color := output.UseColor()
 	if strings.TrimSpace(string(appCfg.Lint.Level)) == "" {
 		col := trace.NewCollector()
@@ -1929,10 +1983,10 @@ func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string
 			col.MarkRendered(e)
 		}
 		sec.Close()
-		return nil
+		return nil, nil
 	}
-	_, _, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
-	return err
+	_, findings, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
+	return findings, err
 }
 
 // renderSyncPanel renders the DomainSync panel for mirror push outcomes.

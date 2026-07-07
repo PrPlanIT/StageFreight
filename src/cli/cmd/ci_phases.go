@@ -175,6 +175,20 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		renderPhaseIdentity()
 		return reconcileRunner(ctx, appCfg, ciCtx, opts)
 	default:
+		// Gate on the audition CONTRACT — in-code and forge-agnostic (the same check runs in
+		// CLI mode with no forge). CONTROL is performGate (reads Blocking only, fail-closed on a
+		// missing contract); the Warn-vs-Fail RENDER is projected by the exit code it returns
+		// (nil skip → Warn via the superseding pipeline; error → Fail). Never builds unaudited
+		// or blocked source.
+		c := auditionContract(rootDir)
+		build, gateErr := performGate(c)
+		if !build {
+			if gateErr != nil {
+				return silentExit(fmt.Errorf("perform: %w", gateErr))
+			}
+			fmt.Printf("  perform: source is blocked but superseded by %s — deferring to its pipeline\n", c.Replacement)
+			return nil
+		}
 		return buildRunner(ctx, appCfg, ciCtx, opts)
 	}
 }
@@ -297,5 +311,6 @@ func narratePhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "narrate"); err != nil {
 		return err
 	}
+	narrateAuditionLineage(rootDir)
 	return docsRunner(ctx, appCfg, ciCtx, opts)
 }

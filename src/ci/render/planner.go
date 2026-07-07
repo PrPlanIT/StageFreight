@@ -36,6 +36,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Artifacts: model.ArtifactSpec{
 					Paths:    []string{".stagefreight/"},
 					ExpireIn: "1 week",
+					// Deliver the audition CONTRACT even on a failed audition — perform gates on
+					// the ledger, forge-agnostically, not on the forge dropping the artifact.
+					WhenAlways: true,
 				},
 				Capabilities: model.CapabilitySpec{Docker: true, ForgeAPI: true},
 				Policy:       model.PolicySpec{AllowFailure: true},
