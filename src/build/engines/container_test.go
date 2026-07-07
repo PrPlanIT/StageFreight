@@ -135,7 +135,7 @@ func TestInferElixirBuild_Phoenix(t *testing.T) {
 	  defp deps, do: [{:phoenix, "~> 1.7"}]
 	end`)
 
-	inf := inferBuild("elixir", dir, ".", "linux")
+	inf := inferBuild("elixir", dir, ".", "linux", "amd64")
 	if inf.Image != "elixir:1.17" {
 		t.Errorf("image = %q, want elixir:1.17", inf.Image)
 	}
@@ -156,7 +156,7 @@ func TestInferElixirBuild_PlainLib(t *testing.T) {
 	  defp deps, do: [{:jason, "~> 1.4"}]
 	end`)
 
-	inf := inferBuild("elixir", dir, ".", "linux")
+	inf := inferBuild("elixir", dir, ".", "linux", "amd64")
 	if strings.Contains(inf.Command, "assets.deploy") {
 		t.Errorf("a non-phoenix app must not build assets; got %q", inf.Command)
 	}
@@ -172,6 +172,48 @@ func TestElixirEngineRegistered(t *testing.T) {
 	}
 	if eng.Name() != EngineElixir {
 		t.Errorf("Name = %q, want %q", eng.Name(), EngineElixir)
+	}
+}
+
+// .NET rides the same engine: builder: dotnet, from: <dir> infers restore →
+// self-contained publish for the target RID in the .NET SDK image, capturing the
+// publish tree. RID is the .NET analogue of GOOS/GOARCH.
+func TestInferDotnetBuild_Windows(t *testing.T) {
+	inf := inferBuild("dotnet", "", "src/App", "windows", "amd64")
+	if inf.Image != "mcr.microsoft.com/dotnet/sdk:8.0" {
+		t.Errorf("image = %q, want the .NET SDK image", inf.Image)
+	}
+	for _, want := range []string{"dotnet restore", "dotnet publish -c Release", "-r win-x64", "--self-contained"} {
+		if !strings.Contains(inf.Command, want) {
+			t.Errorf("command missing %q; got %q", want, inf.Command)
+		}
+	}
+	if inf.Output != "src/App/publish" {
+		t.Errorf("output = %q, want src/App/publish", inf.Output)
+	}
+}
+
+func TestDotnetRID(t *testing.T) {
+	cases := []struct{ os, arch, want string }{
+		{"windows", "amd64", "win-x64"},
+		{"linux", "amd64", "linux-x64"},
+		{"linux", "arm64", "linux-arm64"},
+		{"darwin", "arm64", "osx-arm64"},
+	}
+	for _, c := range cases {
+		if got := dotnetRID(c.os, c.arch); got != c.want {
+			t.Errorf("dotnetRID(%q,%q) = %q, want %q", c.os, c.arch, got, c.want)
+		}
+	}
+}
+
+func TestDotnetEngineRegistered(t *testing.T) {
+	eng, err := build.GetV2(EngineDotnet)
+	if err != nil {
+		t.Fatalf("GetV2(%q): %v", EngineDotnet, err)
+	}
+	if eng.Name() != EngineDotnet {
+		t.Errorf("Name = %q, want %q", eng.Name(), EngineDotnet)
 	}
 }
 

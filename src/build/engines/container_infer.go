@@ -2,6 +2,7 @@ package engines
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -105,10 +106,12 @@ func inferNodeBuild(rootDir, from, targetOS string) inferredBuild {
 // inferBuild dispatches to the per-language convention for a containerized builder.
 // Adding a language is a case here plus its infer* function — the engine, docker
 // run, artifact capture, and archiving are all shared.
-func inferBuild(builder, rootDir, from, targetOS string) inferredBuild {
+func inferBuild(builder, rootDir, from, targetOS, targetArch string) inferredBuild {
 	switch builder {
 	case "elixir":
 		return inferElixirBuild(rootDir, from)
+	case "dotnet":
+		return inferDotnetBuild(from, targetOS, targetArch)
 	default: // node
 		return inferNodeBuild(rootDir, from, targetOS)
 	}
@@ -140,6 +143,35 @@ func isPhoenixApp(dir string) bool {
 		return false
 	}
 	return strings.Contains(string(data), ":phoenix")
+}
+
+// inferDotnetBuild is the .NET convention (C#/F#/VB): restore, then publish a
+// self-contained Release build for the target runtime (RID) into publish/ — a
+// directory artifact the archive walks. Runs in the .NET SDK image. Self-contained
+// per-RID yields a standalone artifact like a go binary; drop --self-contained via
+// the command escape hatch for a framework-dependent build.
+func inferDotnetBuild(from, targetOS, targetArch string) inferredBuild {
+	rid := dotnetRID(targetOS, targetArch)
+	command := fmt.Sprintf("dotnet restore && dotnet publish -c Release -r %s --self-contained -o publish", rid)
+	return inferredBuild{
+		Image:   "mcr.microsoft.com/dotnet/sdk:8.0",
+		Command: command,
+		Output:  filepath.ToSlash(filepath.Join(from, "publish")),
+	}
+}
+
+// dotnetRID maps a target OS/arch to a .NET runtime identifier (win-x64, linux-arm64,
+// osx-arm64, …) — the .NET analogue of GOOS/GOARCH. Unknown parts pass through.
+func dotnetRID(targetOS, targetArch string) string {
+	osPart := map[string]string{"windows": "win", "linux": "linux", "darwin": "osx"}[targetOS]
+	if osPart == "" {
+		osPart = targetOS
+	}
+	archPart := map[string]string{"amd64": "x64", "386": "x86", "arm64": "arm64", "arm": "arm"}[targetArch]
+	if archPart == "" {
+		archPart = targetArch
+	}
+	return osPart + "-" + archPart
 }
 
 // workspaceBuildCommand returns the recursive build for each package manager's

@@ -26,11 +26,13 @@ import (
 const (
 	EngineNode   = "binary-node"
 	EngineElixir = "binary-elixir"
+	EngineDotnet = "binary-dotnet"
 )
 
 func init() {
 	build.RegisterV2(EngineNode, func() build.EngineV2 { return &containerEngine{name: EngineNode, builder: "node"} })
 	build.RegisterV2(EngineElixir, func() build.EngineV2 { return &containerEngine{name: EngineElixir, builder: "elixir"} })
+	build.RegisterV2(EngineDotnet, func() build.EngineV2 { return &containerEngine{name: EngineDotnet, builder: "dotnet"} })
 }
 
 // containerEngine is shared across all containerized builders; builder selects the
@@ -67,7 +69,7 @@ func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]bu
 		// The engine owns the build: the per-builder convention (inferBuild) fills
 		// image/command/output; explicit config overlays on top — the escape hatch,
 		// not the norm. Inference is per-target since the image/output vary by OS.
-		inf := inferBuild(e.builder, rootDir, cfg.From, tgt.OS)
+		inf := inferBuild(e.builder, rootDir, cfg.From, tgt.OS, tgt.Arch)
 		image := firstNonEmpty(cfg.Image, inf.Image)
 		command := resolveTemplateVars(firstNonEmpty(cfg.Command, inf.Command), cfg)
 		output := resolveTemplateVars(firstNonEmpty(cfg.Output, inf.Output), cfg)

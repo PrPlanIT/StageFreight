@@ -416,7 +416,8 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	// containerized builders (node, elixir) infer both from convention, so pass their
 	// raw (possibly empty) values so the engine can tell "unset" and fill defaults.
 	command, output := b.BuilderCommand(), b.OutputName()
-	if b.Builder == "node" || b.Builder == "elixir" {
+	switch b.Builder {
+	case "node", "elixir", "dotnet":
 		command, output = b.Command, b.Output
 	}
 	return build.BuildConfig{
