@@ -167,6 +167,7 @@ func (g *GitLabForge) UploadAsset(ctx context.Context, releaseID string, asset A
 
 	var uploadResp struct {
 		URL      string `json:"url"`
+		FullPath string `json:"full_path"`
 		Markdown string `json:"markdown"`
 	}
 	body, _ := io.ReadAll(resp.Body)
@@ -177,11 +178,20 @@ func (g *GitLabForge) UploadAsset(ctx context.Context, releaseID string, asset A
 		return err
 	}
 
+	// GitLab's /uploads returns a PROJECT-RELATIVE `url` (/uploads/<secret>/<file>); the
+	// resolvable path is `full_path` (/<namespace>/<project>/uploads/...). Using `url` drops
+	// the project prefix, so the release download permalink redirects to a namespace-less
+	// 404. Prefer full_path; fall back to url for older GitLab that omits it.
+	assetPath := uploadResp.FullPath
+	if assetPath == "" {
+		assetPath = uploadResp.URL
+	}
+
 	// Link the uploaded file to the release, with a permanent download permalink
 	// (/-/releases/<tag>/downloads/<name>) so consumers can curl a stable URL.
 	return g.AddReleaseLink(ctx, releaseID, ReleaseLink{
 		Name:            asset.Name,
-		URL:             g.BaseURL + uploadResp.URL,
+		URL:             g.BaseURL + assetPath,
 		LinkType:        "other",
 		DirectAssetPath: gitlabDirectAssetPath(asset.Name),
 	})

@@ -6,9 +6,50 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+// TestGitLabUploadAsset_UsesFullPath locks the release-download fix: GitLab's /uploads
+// returns a PROJECT-RELATIVE `url` (/uploads/...) plus a resolvable `full_path`
+// (/<namespace>/<project>/uploads/...). The asset link must point at full_path, else the
+// /-/releases/<tag>/downloads/<name> permalink redirects to a namespace-less 404.
+func TestGitLabUploadAsset_UsesFullPath(t *testing.T) {
+	var linkURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/uploads"):
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"url":"/uploads/abc/app.tar.gz","full_path":"/grp/proj/uploads/abc/app.tar.gz","markdown":"x"}`))
+		case strings.HasSuffix(r.URL.Path, "/assets/links"):
+			b, _ := io.ReadAll(r.Body)
+			m := map[string]string{}
+			_ = json.Unmarshal(b, &m)
+			linkURL = m["url"]
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	f, err := os.CreateTemp(t.TempDir(), "app-*.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("x")
+	_ = f.Close()
+
+	g := &GitLabForge{BaseURL: srv.URL, Token: "t", ProjectID: "grp/proj"}
+	if err := g.UploadAsset(context.Background(), "latest-dev", Asset{Name: "app.tar.gz", FilePath: f.Name()}); err != nil {
+		t.Fatalf("UploadAsset: %v", err)
+	}
+	want := srv.URL + "/grp/proj/uploads/abc/app.tar.gz"
+	if linkURL != want {
+		t.Fatalf("asset link url = %q, want %q (must use full_path, not the namespace-less /uploads url)", linkURL, want)
+	}
+}
 
 // TestGitLabAddReleaseLink_DirectAssetPath verifies the asset-link payload carries
 // direct_asset_path (which yields a permanent /-/releases/<tag>/downloads/<path>
