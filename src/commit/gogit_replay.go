@@ -33,9 +33,9 @@ const sfGeneratedTrailer = "X-StageFreight-Generated: true"
 //  5. For each commit: apply diff, stage, verify staging states, commit
 //  6. Race guard: upstream unchanged since fetch
 //
-// Push is NOT performed by Replay — the engine (Engine.doReplayThenPush) owns push
-// so the transition DIVERGED → REPLAY → CLEAN_AHEAD → PUSH remains in the engine's
-// state machine and the push is logged as a formal transition.
+// Push is NOT performed by Replay — the planner's executor owns it: a diverged plan is the
+// operation graph Confirm → Replay → Upload, so Execute runs the Upload after Replay returns.
+// Replay only rewrites local history; the push stays a separate, gated operation.
 //
 // Hooks are NOT run during replay — replay commits are machine-generated
 // re-applications; running hooks again would double-execute side effects.
@@ -186,8 +186,8 @@ func Replay(session *gitstate.SyncSession) (err error) {
 		return gitstate.ErrUpstreamMoved
 	}
 
-	// Push is the engine's responsibility — Replay() owns only the rebase.
-	// The caller (Engine.doReplayThenPush) will call doPush() after Replay returns.
+	// Push is the executor's responsibility — Replay() owns only the rebase. The Upload
+	// operation that follows Replay in the plan graph performs the push after Replay returns.
 	return nil
 }
 
