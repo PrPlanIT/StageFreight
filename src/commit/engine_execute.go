@@ -72,6 +72,11 @@ func (e *Engine) Execute(plan gitplan.Plan, opts ExecuteOptions) (*ExecuteResult
 			if err := e.session.Push(remote, "", false); err != nil {
 				return res, fmt.Errorf("upload: %w", err)
 			}
+		case gitplan.OpDirectPush:
+			// op.Detail carries the explicit refspec (CI detached-HEAD direct push).
+			if err := e.session.Push(remote, op.Detail, false); err != nil {
+				return res, fmt.Errorf("direct push: %w", err)
+			}
 		case gitplan.OpFastForward:
 			if err := e.session.FastForward(remote); err != nil {
 				return res, fmt.Errorf("fast-forward: %w", err)

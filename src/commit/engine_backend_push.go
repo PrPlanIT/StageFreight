@@ -21,10 +21,23 @@ func (g *GitBackend) pushViaPlanner(opts PushOptions) (*SyncResult, error) {
 	if remote == "" {
 		remote = "origin"
 	}
+	eng := NewEngine(session, EngineOptions{OnEvent: g.onSyncEvent})
+
+	// Explicit refspec (CI detached-HEAD): push HEAD straight to the ref — no fetch, no
+	// reconcile — matching the retired engine.Sync fast path.
+	if opts.Refspec != "" {
+		res, err := eng.Execute(gitplan.DirectPush(remote, opts.Refspec), ExecuteOptions{Approved: true})
+		if err != nil {
+			return nil, err
+		}
+		r := syncResultFromOps(res.Performed, remote)
+		r.PushedRef = opts.Refspec
+		return r, nil
+	}
+
 	if err := session.Fetch(remote); err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
-	eng := NewEngine(session, EngineOptions{OnEvent: g.onSyncEvent})
 	policy := gitplan.Policy{Protected: []string{"main", "master"}}
 	plan := gitplan.Resolve(gitplan.SituationFromStateConverge(session.State(), policy))
 	res, err := eng.Execute(plan, ExecuteOptions{Approved: true})
@@ -46,7 +59,7 @@ func syncResultFromOps(ops []gitplan.OpKind, remote string) *SyncResult {
 			r.ActionsExecuted = append(r.ActionsExecuted, SyncFastForward)
 		case gitplan.OpCreateTracking:
 			r.ActionsExecuted = append(r.ActionsExecuted, SyncSetUpstream, SyncPush)
-		case gitplan.OpUpload:
+		case gitplan.OpUpload, gitplan.OpDirectPush:
 			r.ActionsExecuted = append(r.ActionsExecuted, SyncPush)
 		case gitplan.OpNoop:
 			r.ActionsExecuted = append(r.ActionsExecuted, SyncNoop)

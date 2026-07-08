@@ -118,6 +118,26 @@ func TestEngineExecute_Upload(t *testing.T) {
 	}
 }
 
+// An explicit refspec push (CI detached-HEAD) flows through GitBackend.Push → the planner's
+// DirectPush: HEAD is pushed straight to the ref with no reconcile (engine.Sync retired).
+func TestGitBackendPush_Refspec(t *testing.T) {
+	remote, local, _, commitFile := execScratch(t)
+	commitFile(local, "a", "a\n", "local a")
+
+	backend := &GitBackend{RootDir: local}
+	if _, err := backend.Push(PushOptions{Enabled: true, Remote: "origin", Refspec: "HEAD:refs/heads/newbranch"}); err != nil {
+		t.Fatalf("refspec push: %v", err)
+	}
+	r, _ := git.PlainOpen(remote)
+	ref, err := r.Reference(plumbing.NewBranchReferenceName("newbranch"), true)
+	if err != nil {
+		t.Fatalf("newbranch not created on remote: %v", err)
+	}
+	if ref.Hash() != headHash(t, local) {
+		t.Fatal("refspec push did not point newbranch at local HEAD")
+	}
+}
+
 // Diverged: Confirm gates (no mutation without approval), Decide refuses, approved
 // Replay+Upload actually lands linearly.
 func TestEngineExecute_DivergedGates(t *testing.T) {

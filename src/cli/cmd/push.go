@@ -41,10 +41,10 @@ destination) replaying with your confirmation. It never silently rewrites a feat
 		if err != nil {
 			return fmt.Errorf("resolving working directory: %w", err)
 		}
-		// Explicit --refspec (CI detached-HEAD fast path) keeps the legacy convergence
-		// engine until the planner learns explicit destinations.
+		// Explicit --refspec (CI detached-HEAD): a direct push HEAD→ref, handled by the
+		// planner's DirectPush inside GitBackend.Push (no reconcile).
 		if pushRefspec != "" {
-			return legacyPush(rootDir)
+			return refspecPush(rootDir)
 		}
 		return runPlannerPush(rootDir, pushRemote, pushYes, os.Stdout)
 	},
@@ -95,18 +95,15 @@ func runPlannerPush(rootDir, remote string, approved bool, out io.Writer) error 
 	}
 }
 
-// legacyPush is the pre-planner convergence path (engine.Sync). It is TRANSITIONAL DEBT:
-// `commit --push` and `stagefreight push --refspec` still run it, so two "push" behaviors
-// coexist and can drift — the exact divergence the planner exists to prevent. Retire it
-// once the planner learns the explicit-destination + detached-HEAD/refspec case; then
-// `commit --push` and this both route through Plan/Execute, and engine.Sync is deleted.
-// Tracked in the git-planner plan (Slice 6: converge commit --push; Slice 7: delete Sync).
-func legacyPush(rootDir string) error {
+// refspecPush handles an explicit --refspec push (CI detached-HEAD): it flows through
+// GitBackend.Push → the planner's DirectPush (HEAD → ref, no reconcile). A thin entry point
+// because the refspec case renders its own concise status. engine.Sync is gone; there is
+// one push implementation now.
+func refspecPush(rootDir string) error {
 	opts := commit.PushOptions{
-		Enabled:         true,
-		Remote:          pushRemote,
-		Refspec:         pushRefspec,
-		RebaseOnDiverge: !pushNoRebase,
+		Enabled: true,
+		Remote:  pushRemote,
+		Refspec: pushRefspec,
 	}
 	backend := &commit.GitBackend{RootDir: rootDir}
 	result, err := backend.Push(opts)

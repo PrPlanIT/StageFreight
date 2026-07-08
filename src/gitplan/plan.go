@@ -26,6 +26,7 @@ const (
 	OpReplay         OpKind = "replay"          // rebase local commits onto the destination (new SHAs)
 	OpOfferMR        OpKind = "offer-mr"        // offer to open a merge request
 	OpRefuse         OpKind = "refuse"          // stop: no safe/allowed action
+	OpDirectPush     OpKind = "direct-push"     // push HEAD straight to an explicit refspec, no reconcile (CI detached-HEAD)
 
 	// Interaction operations — sequenced in the graph, never attributes.
 	OpTeach   OpKind = "teach"   // explain; execution continues
@@ -197,4 +198,15 @@ func diverged(s Situation) Plan {
 
 func newPlan(s Situation, summary string, ops ...Operation) Plan {
 	return Plan{Operations: ops, Dest: s.Dest, Summary: summary}
+}
+
+// DirectPush is the CI detached-HEAD / explicit-refspec case: push HEAD straight to the
+// given refspec with no fetch, classify, or reconcile — a trivial single-op plan that does
+// not fit the ahead/behind model. It replaces the pre-planner engine.Sync refspec fast path.
+func DirectPush(remote, refspec string) Plan {
+	return Plan{
+		Operations: []Operation{{Kind: OpDirectPush, Detail: refspec}},
+		Dest:       Destination{Remote: remote},
+		Summary:    "direct push (refspec)",
+	}
 }
