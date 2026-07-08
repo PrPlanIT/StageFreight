@@ -60,6 +60,12 @@ func runReleaseNotes(cmd *cobra.Command, args []string) error {
 		TagPatterns: tagPatterns,
 		Config:      cfg,
 	}
+	// Tier from the active release target's declared `prerelease` (the dev-channel signal),
+	// consistent with `release create`. GenerateNotes' auto-detect fallback additionally
+	// captures a prerelease git TAG, so both source-of-truth signals are honored here too.
+	if t := activeReleaseTarget(cfg); t != nil && t.Prerelease {
+		input.IsPrerelease = true
+	}
 
 	// Load security summary from file if provided
 	if rnSecuritySummary != "" {

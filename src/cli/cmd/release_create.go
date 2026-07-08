@@ -512,6 +512,17 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			}
 		}
 
+		// The release TIER combines the two SOURCE-OF-TRUTH signals — never the rendered
+		// version string (which is user-customizable via versioning.branch_builds[].format):
+		//   - versionInfo.IsPrerelease: the resolved git TAG is a prerelease (e.g. v1.0.0-rc1),
+		//   - the active release target's `prerelease` flag (a rolling dev channel), or
+		//   - an explicit --prerelease request.
+		// A dev channel derives from a stable base tag, so its tag signal is false — the target
+		// flag is what marks it; a prerelease tag needs no target flag. Both must be honored.
+		isPrerelease := req.Prerelease || versionInfo.IsPrerelease
+		if t := activeReleaseTarget(req.Config); t != nil && t.Prerelease {
+			isPrerelease = true
+		}
 		input := release.NotesInput{
 			RepoDir:      rootDir,
 			ToRef:        toRef,
@@ -520,7 +531,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			SecurityBody: secBody,
 			Version:      versionInfo.Version,
 			SHA:          sha,
-			IsPrerelease: versionInfo.IsPrerelease,
+			IsPrerelease: isPrerelease,
 			Images:       imageRows,
 			Downloads:    downloadRows,
 			Verify:       verify,
