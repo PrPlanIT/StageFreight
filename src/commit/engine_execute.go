@@ -65,7 +65,14 @@ func (e *Engine) Execute(plan gitplan.Plan, opts ExecuteOptions) (*ExecuteResult
 			}
 			// approved — fall through to the gated operations that follow
 		case gitplan.OpCreateTracking:
-			if err := e.session.Push(remote, "", true); err != nil {
+			// Push the branch explicitly (HEAD → its ref) and set tracking. A bare push of a
+			// no-upstream branch is rejected by system git ("no upstream branch"), so name the
+			// destination ref — this is the first-push that actually creates the remote branch.
+			branch := plan.Dest.Branch
+			if branch == "" {
+				branch = e.session.State().Branch
+			}
+			if err := e.session.Push(remote, "HEAD:refs/heads/"+branch, true); err != nil {
 				return res, fmt.Errorf("create tracking: %w", err)
 			}
 		case gitplan.OpUpload:
