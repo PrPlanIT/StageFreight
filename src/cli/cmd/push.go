@@ -54,6 +54,14 @@ destination) replaying with your confirmation. It never silently rewrites a feat
 // (gated on the plan's interaction ops). Extracted from the command so it is testable on a
 // scratch repo without cobra/chdir.
 func runPlannerPush(rootDir, remote string, approved bool, out io.Writer) error {
+	return runPlanned(rootDir, remote, approved, out, func(e *commit.Engine, p gitplan.Policy) gitplan.Plan {
+		return e.Plan(p)
+	})
+}
+
+// runPlanned is the shared fetch → Plan → Render (always) → Execute (gated) flow behind both
+// `push` and `pull`; planFn selects the direction (Plan vs PlanPull).
+func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn func(*commit.Engine, gitplan.Policy) gitplan.Plan) error {
 	session, err := gitstate.OpenSyncSession(rootDir)
 	if err != nil {
 		return fmt.Errorf("opening repository: %w", err)
@@ -68,9 +76,7 @@ func runPlannerPush(rootDir, remote string, approved bool, out io.Writer) error 
 			}
 		},
 	})
-	// Minimal policy for now (config-driven protected list is a follow-on).
-	policy := gitplan.Policy{Protected: []string{"main", "master"}}
-	plan := eng.Plan(policy)
+	plan := planFn(eng, gitplan.DefaultPolicy())
 	fmt.Fprint(out, gitplan.Render(plan))
 
 	_, execErr := eng.Execute(plan, commit.ExecuteOptions{Approved: approved})

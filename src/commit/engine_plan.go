@@ -11,3 +11,11 @@ func (e *Engine) Plan(policy gitplan.Policy) gitplan.Plan {
 	state := e.session.State()
 	return gitplan.Resolve(gitplan.SituationFromState(state, policy))
 }
+
+// PlanPull resolves the current state into a DOWN-sync plan (`stagefreight pull`): bring the
+// remote's commits into the local branch (fast-forward, or rebase-local-onto-remote when
+// diverged). Read-only; the same executor walks it.
+func (e *Engine) PlanPull(policy gitplan.Policy) gitplan.Plan {
+	state := e.session.State()
+	return gitplan.ResolvePull(gitplan.SituationFromState(state, policy))
+}

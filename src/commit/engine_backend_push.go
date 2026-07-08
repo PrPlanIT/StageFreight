@@ -38,7 +38,7 @@ func (g *GitBackend) pushViaPlanner(opts PushOptions) (*SyncResult, error) {
 	if err := session.Fetch(remote); err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
-	policy := gitplan.Policy{Protected: []string{"main", "master"}}
+	policy := gitplan.DefaultPolicy()
 	plan := gitplan.Resolve(gitplan.SituationFromStateConverge(session.State(), policy))
 	res, err := eng.Execute(plan, ExecuteOptions{Approved: true})
 	if err != nil {

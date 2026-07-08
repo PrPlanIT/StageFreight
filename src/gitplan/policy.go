@@ -9,6 +9,22 @@ type Policy struct {
 	Protected []string // glob patterns for protected destinations, e.g. "main", "release/*"
 }
 
+// DefaultPolicy is the fallback protected set when a repo declares none. Callers that have
+// a config-provided list should prefer it; this keeps the sensible-default in one place
+// instead of hardcoded at each call site.
+func DefaultPolicy() Policy {
+	return Policy{Protected: []string{"main", "master"}}
+}
+
+// WithProtected returns a Policy from a config-provided protected list, falling back to the
+// default when the list is empty.
+func WithProtected(protected []string) Policy {
+	if len(protected) == 0 {
+		return DefaultPolicy()
+	}
+	return Policy{Protected: protected}
+}
+
 // IsProtected reports whether a branch name matches any protected pattern.
 func (p Policy) IsProtected(branch string) bool {
 	for _, pat := range p.Protected {
