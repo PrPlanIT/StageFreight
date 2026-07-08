@@ -258,6 +258,7 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 | `command` | `command` | string | No | — | string value |
 | `from` | `from` | string | No | — | string value |
 | `output` | `output` | string | No | — | string value |
+| `image` | `image` | string | No | — | string value |
 | `args` | `args` | []string | No | — | []string value |
 | `env` | `env` | map[string]string | No | — | map[string]string value |
 | `compress` | `compress` | bool | No | — | bool value |
