@@ -89,6 +89,11 @@ type Situation struct {
 	// Interactive `sf push` leaves it false. The Confirm gate is still emitted for shared
 	// mutations; the auto-flow satisfies it via ExecuteOptions.Approved.
 	AutoConverge bool
+
+	// InProgressOp names a mid-flight git operation (merge/rebase/cherry-pick/revert). When
+	// non-empty the planner refuses with guidance — StageFreight is a first-class git citizen
+	// and never acts on a half-finished state (this is the "silent flatten" fix).
+	InProgressOp string
 }
 
 // InteractionLevel is DERIVED from which interaction op the graph contains — it is
@@ -134,6 +139,13 @@ func (p Plan) Interaction() InteractionLevel {
 // always yields the same Plan (no clock, no randomness). This is the whole "intelligence":
 // everything downstream is a consumer of the graph it returns.
 func Resolve(s Situation) Plan {
+	// First-class git citizen: never act on a half-finished git operation — refuse, explain.
+	if s.InProgressOp != "" {
+		return newPlan(s, "git operation in progress",
+			Operation{Kind: OpRefuse, Detail: fmt.Sprintf("a git %s is in progress", s.InProgressOp)},
+			Operation{Kind: OpTeach, Detail: fmt.Sprintf("finish or abort it first (e.g. `git %s --abort`), then retry — StageFreight won't act on a half-finished state", s.InProgressOp)},
+		)
+	}
 	switch {
 	case !s.HasUpstream:
 		return firstPush(s)

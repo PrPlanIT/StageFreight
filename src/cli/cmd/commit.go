@@ -10,6 +10,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
@@ -98,6 +99,13 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	rootDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	// First-class git citizen: never flatten a half-finished git operation. If a merge (or
+	// rebase/cherry-pick/revert) is mid-flight, refuse and point back to git — git owns
+	// history editing; StageFreight owns shared history.
+	if op := gitstate.DetectInProgressOp(rootDir); op != "" {
+		return fmt.Errorf("a git %s is in progress — finish it (git commit) or abort it (git %s --abort) first; StageFreight won't act on a half-finished state", op, op)
 	}
 
 	registry := commit.NewTypeRegistry(cfg.Commit.Types)

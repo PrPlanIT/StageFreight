@@ -47,6 +47,8 @@ func TestResolve_Table(t *testing.T) {
 			[]OpKind{OpFastForward}, Automatic},
 		{"auto-converge diverged → Confirm→Replay", Situation{Dest: feature, HasUpstream: true, Ahead: 1, Behind: 1, AutoConverge: true},
 			[]OpKind{OpConfirm, OpReplay, OpUpload}, Confirm},
+		{"in-progress merge → refuse (never acts on half-finished state)", Situation{Dest: feature, HasUpstream: true, Ahead: 3, InProgressOp: "merge"},
+			[]OpKind{OpRefuse, OpTeach}, Inform},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

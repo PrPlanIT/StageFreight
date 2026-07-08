@@ -26,6 +26,7 @@ type RepoState struct {
 	HeadHash            plumbing.Hash // current commit hash
 	UpstreamHash        plumbing.Hash // remote tracking hash (zero if not configured)
 	RemoteName          string        // e.g. "origin"
+	InProgressOp        string        // "merge"/"rebase"/"cherry-pick"/"revert" if a git op is mid-flight, else ""
 }
 
 // Diverged returns true when local and remote have independent commits.

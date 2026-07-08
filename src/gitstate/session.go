@@ -40,6 +40,9 @@ func OpenSyncSession(rootDir string) (*SyncSession, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading repo state: %w", err)
 	}
+	// First-class git citizen: recognize an in-progress git op (merge/rebase/…) so the
+	// planner can refuse with guidance instead of acting on a half-finished state.
+	state.InProgressOp = DetectInProgressOp(rootDir)
 
 	// Resolve the transport for the effective remote. When no upstream is
 	// configured (first push), RemoteName is empty — fall back to "origin" so the

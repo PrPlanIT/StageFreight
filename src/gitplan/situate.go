@@ -21,11 +21,12 @@ func SituationFromState(state gitstate.RepoState, policy Policy) Situation {
 		Protected: policy.IsProtected(state.Branch),
 	}
 	return Situation{
-		Dest:        dest,
-		HasUpstream: state.UpstreamConfigured,
-		Ahead:       state.AheadCount,
-		Behind:      state.BehindCount,
-		OnDiverge:   policy.DivergeRule(state.Branch),
+		Dest:         dest,
+		HasUpstream:  state.UpstreamConfigured,
+		Ahead:        state.AheadCount,
+		Behind:       state.BehindCount,
+		OnDiverge:    policy.DivergeRule(state.Branch),
+		InProgressOp: state.InProgressOp,
 	}
 }
 
