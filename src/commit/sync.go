@@ -35,9 +35,15 @@ func containsAction(actions []SyncAction, action SyncAction) bool {
 	return false
 }
 
-// Push synchronizes the current branch with its remote via the go-git engine.
+// Push synchronizes the current branch with its remote. Explicit --refspec (CI
+// detached-HEAD) or an explicit no-rebase keeps the legacy convergence engine; everything
+// else converges through the shared planner (Plan/Execute), so `commit --push` and
+// `stagefreight push` are one push implementation — retiring the two-path debt.
 func (g *GitBackend) Push(opts PushOptions) (*SyncResult, error) {
-	return g.pushViaEngine(opts)
+	if opts.Refspec != "" || !opts.RebaseOnDiverge {
+		return g.pushViaEngine(opts)
+	}
+	return g.pushViaPlanner(opts)
 }
 
 // pushViaEngine synchronizes the current branch using go-git — no git binary required.
