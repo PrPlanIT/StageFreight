@@ -33,8 +33,8 @@ It refuses on a mid-flight git operation rather than acting on a half-finished s
 		if err != nil {
 			return fmt.Errorf("resolving working directory: %w", err)
 		}
-		return runPlanned(rootDir, pullRemote, pullYes, os.Stdout, func(e *commit.Engine, p gitplan.Policy) gitplan.Plan {
-			return e.PlanPull(p)
+		return runPlanned(rootDir, pullRemote, pullYes, os.Stdout, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+			return e.PlanPull(p), nil
 		})
 	},
 }

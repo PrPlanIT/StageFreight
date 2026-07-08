@@ -29,13 +29,19 @@ func init() {
 }
 
 var pushCmd = &cobra.Command{
-	Use:   "push",
-	Short: "Plan and push the current branch to its remote",
-	Long: `Push the current branch to its remote.
+	Use:   "push [remote] [branch]",
+	Short: "Plan and push the current branch to its remote (or an explicit destination)",
+	Long: `Push the current branch to its remote, or to an explicit destination.
 
-StageFreight resolves the repository state and destination into a plan, shows it, and
-executes it — uploading, creating tracking, fast-forwarding, or (for a protected
-destination) replaying with your confirmation. It never silently rewrites a feature branch.`,
+With no arguments, StageFreight plans against the branch's own upstream — uploading,
+creating tracking, fast-forwarding, or (for a protected destination) replaying with your
+confirmation. It never silently rewrites a feature branch.
+
+With "push <remote> <branch>" it plans an explicit cross-target push (e.g. a feature branch
+onto origin/main): ahead/behind are computed against that destination — fast-forward when it
+is behind you (Confirm on protected trunk), refuse when it already contains you, and hand the
+rebase back to git when the two have diverged.`,
+	Args: cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir, err := os.Getwd()
 		if err != nil {
@@ -46,7 +52,19 @@ destination) replaying with your confirmation. It never silently rewrites a feat
 		if pushRefspec != "" {
 			return refspecPush(rootDir)
 		}
-		return runPlannerPush(rootDir, pushRemote, pushYes, os.Stdout)
+		// push <remote> <branch>: explicit cross-target push, ahead/behind vs the destination.
+		if len(args) == 2 {
+			remote, branch := args[0], args[1]
+			return runPlanned(rootDir, remote, pushYes, os.Stdout, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+				return e.PlanTo(remote, branch, p)
+			})
+		}
+		// push [remote]: own-upstream, with an optional remote override.
+		remote := pushRemote
+		if len(args) == 1 {
+			remote = args[0]
+		}
+		return runPlannerPush(rootDir, remote, pushYes, os.Stdout)
 	},
 }
 
@@ -54,14 +72,14 @@ destination) replaying with your confirmation. It never silently rewrites a feat
 // (gated on the plan's interaction ops). Extracted from the command so it is testable on a
 // scratch repo without cobra/chdir.
 func runPlannerPush(rootDir, remote string, approved bool, out io.Writer) error {
-	return runPlanned(rootDir, remote, approved, out, func(e *commit.Engine, p gitplan.Policy) gitplan.Plan {
-		return e.Plan(p)
+	return runPlanned(rootDir, remote, approved, out, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+		return e.Plan(p), nil
 	})
 }
 
-// runPlanned is the shared fetch → Plan → Render (always) → Execute (gated) flow behind both
-// `push` and `pull`; planFn selects the direction (Plan vs PlanPull).
-func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn func(*commit.Engine, gitplan.Policy) gitplan.Plan) error {
+// runPlanned is the shared fetch → Plan → Render (always) → Execute (gated) flow behind
+// `push`, `push <remote> <branch>`, and `pull`; planFn selects the direction.
+func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn func(*commit.Engine, gitplan.Policy) (gitplan.Plan, error)) error {
 	session, err := gitstate.OpenSyncSession(rootDir)
 	if err != nil {
 		return fmt.Errorf("opening repository: %w", err)
@@ -76,7 +94,10 @@ func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn fun
 			}
 		},
 	})
-	plan := planFn(eng, gitplan.DefaultPolicy())
+	plan, err := planFn(eng, gitplan.DefaultPolicy())
+	if err != nil {
+		return err
+	}
 	fmt.Fprint(out, gitplan.Render(plan))
 
 	_, execErr := eng.Execute(plan, commit.ExecuteOptions{Approved: approved})

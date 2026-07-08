@@ -20,8 +20,8 @@ func TestPull_BehindFastForwards(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := runPlanned(local, "origin", false, &buf, func(e *commit.Engine, p gitplan.Policy) gitplan.Plan {
-		return e.PlanPull(p)
+	err := runPlanned(local, "origin", false, &buf, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+		return e.PlanPull(p), nil
 	})
 	if err != nil {
 		t.Fatalf("pull: %v (out: %s)", err, buf.String())
