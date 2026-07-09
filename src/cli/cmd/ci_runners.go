@@ -749,7 +749,12 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	gen := appCfg.Docs.Generators
 
 	if gen.Badges {
-		if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
+		// Badges default on, but a project with none configured (e.g. a static site)
+		// should skip, not fail — "nothing to generate" is not an error in the
+		// automatic docs phase. The explicit `stagefreight badge generate` still errors.
+		if !hasConfiguredBadges(appCfg) {
+			fmt.Println("  docs: badges skipped — no badge items configured")
+		} else if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
 			return fmt.Errorf("docs subsystem (badges): %w", err)
 		}
 	}
