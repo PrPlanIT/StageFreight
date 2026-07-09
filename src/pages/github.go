@@ -2,18 +2,23 @@ package pages
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 // githubProvider deploys a publish workspace to GitHub Pages by force-pushing it to the
-// gh-pages branch of the target repo (replace mode — a single fresh commit). Runs git
-// in the workspace. The token is passed via git's env-based config (GIT_CONFIG_*), not
-// the remote URL or command args, so it never appears in the process table.
+// gh-pages branch of the target repo (replace mode — one fresh commit overwrites the
+// branch). Uses go-git, not the git binary: the runtime image has no git and shelling
+// it is forbidden (the no-git-exec invariant). The token rides in BasicAuth, never in a
+// remote URL or process arg.
 type githubProvider struct{}
 
 func (g *githubProvider) Credentials() []CredentialRequirement {
@@ -57,32 +62,40 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 		return fmt.Sprintf("[dry-run] would force-push %s to %s gh-pages", ws, repo), nil
 	}
 
-	// Auth via env-based git config so the token is never in argv or the remote URL.
-	auth := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	gitEnv := append(os.Environ(),
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
-		"GIT_CONFIG_VALUE_0=Authorization: Basic "+auth,
-		"GIT_TERMINAL_PROMPT=0",
-	)
-	remote := fmt.Sprintf("https://github.com/%s.git", repo)
-
-	steps := [][]string{
-		{"init", "-q"},
-		{"config", "user.email", "stagefreight@users.noreply.github.com"},
-		{"config", "user.name", "StageFreight"},
-		{"checkout", "-q", "-b", "gh-pages"},
-		{"add", "-A"},
-		{"commit", "-q", "-m", "deploy via StageFreight"},
-		{"push", "-q", "--force", remote, "gh-pages"},
+	// Init a repo over the workspace, commit everything, force-push HEAD → gh-pages.
+	r, err := git.PlainInit(ws, false)
+	if err != nil {
+		return "", fmt.Errorf("github pages: git init: %w", err)
 	}
-	for _, s := range steps {
-		cmd := exec.CommandContext(ctx, "git", s...)
-		cmd.Dir = ws
-		cmd.Env = gitEnv
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("github pages: git %s failed: %w\n%s", s[0], err, string(out))
-		}
+	wt, err := r.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("github pages: worktree: %w", err)
+	}
+	if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
+		return "", fmt.Errorf("github pages: staging: %w", err)
+	}
+	if _, err := wt.Commit("deploy via StageFreight", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "StageFreight",
+			Email: "stagefreight@users.noreply.github.com",
+			When:  time.Now(),
+		},
+	}); err != nil {
+		return "", fmt.Errorf("github pages: commit: %w", err)
+	}
+	if _, err := r.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{fmt.Sprintf("https://github.com/%s.git", repo)},
+	}); err != nil {
+		return "", fmt.Errorf("github pages: remote: %w", err)
+	}
+	if err := r.PushContext(ctx, &git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []gitconfig.RefSpec{"+HEAD:refs/heads/gh-pages"},
+		Auth:       &githttp.BasicAuth{Username: "x-access-token", Password: token},
+		Force:      true,
+	}); err != nil && err != git.NoErrAlreadyUpToDate {
+		return "", fmt.Errorf("github pages: push: %w", err)
 	}
 	return url, nil
 }
