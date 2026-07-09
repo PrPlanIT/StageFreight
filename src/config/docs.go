@@ -32,10 +32,14 @@ func DefaultDocsConfig() DocsConfig {
 	return DocsConfig{
 		Enabled: true,
 		Generators: DocsGeneratorsConfig{
-			Badges:       true,
-			ReferenceDocs: true,
-			Narrator:     true,
-			DockerReadme: true,
+			Badges: true,
+			// Opt-in: reference docs generate StageFreight's OWN CLI + config schema
+			// reference (from its Cobra tree / Go structs), which is only meaningful for
+			// StageFreight itself. Defaulting it on dumped those files into every
+			// downstream project; StageFreight enables it explicitly in its own config.
+			ReferenceDocs: false,
+			Narrator:      true,
+			DockerReadme:  true,
 		},
 		Commit: DocsCommitConfig{
 			Enabled: true,

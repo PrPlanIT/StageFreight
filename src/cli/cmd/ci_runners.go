@@ -767,7 +767,12 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	}
 
 	if gen.Narrator {
-		if err := RunNarrator(appCfg, rootDir, false, opts.Verbose); err != nil {
+		// Narrator defaults on, but a project with no narrator files should skip, not
+		// fail — same "nothing to do ≠ error" policy as badges. The explicit
+		// `stagefreight narrator run` still errors when nothing is configured.
+		if len(appCfg.Narrator) == 0 {
+			fmt.Println("  docs: narrator skipped — no narrator files configured")
+		} else if err := RunNarrator(appCfg, rootDir, false, opts.Verbose); err != nil {
 			return fmt.Errorf("docs subsystem (narrator): %w", err)
 		}
 	}
