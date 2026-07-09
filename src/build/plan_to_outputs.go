@@ -71,22 +71,29 @@ func PlanToOutputs(plan *BuildPlan, opts PlanToOutputsOpts) (artifact.OutputsMan
 			if step.Output != OutputImage {
 				continue
 			}
-			if len(step.Registries) == 0 {
-				continue
-			}
-			targets := make([]artifact.Target, 0, len(step.Registries))
-			for _, reg := range step.Registries {
-				tags := make([]string, len(reg.Tags))
-				copy(tags, reg.Tags)
-				targets = append(targets, artifact.Target{
-					Kind: "registry",
-					Registry: &artifact.RegistryTarget{
-						Host:       reg.URL,
-						Path:       reg.Path,
-						Tags:       tags,
-						NativeScan: reg.NativeScan,
-					},
-				})
+			// Produce is decided by builds:, not by whether a publish target
+			// matched this ref. Every image step becomes an outputs artifact so it
+			// is retained to the content store and review-scannable — even on a ref
+			// no target matches. Its Registries (target distribution intent) become
+			// the artifact's Targets; a step with no matching target yields an
+			// artifact with zero Targets ("produced != published"). Distribution of
+			// those bytes is the publish phase's decision, keyed on targets+events.
+			var targets []artifact.Target
+			if len(step.Registries) > 0 {
+				targets = make([]artifact.Target, 0, len(step.Registries))
+				for _, reg := range step.Registries {
+					tags := make([]string, len(reg.Tags))
+					copy(tags, reg.Tags)
+					targets = append(targets, artifact.Target{
+						Kind: "registry",
+						Registry: &artifact.RegistryTarget{
+							Host:       reg.URL,
+							Path:       reg.Path,
+							Tags:       tags,
+							NativeScan: reg.NativeScan,
+						},
+					})
+				}
 			}
 			platforms := make([]string, len(step.Platforms))
 			copy(platforms, step.Platforms)

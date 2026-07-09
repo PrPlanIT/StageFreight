@@ -34,6 +34,27 @@ func validDockerArtifact() Artifact {
 	}
 }
 
+func TestOutputsManifestAcceptsTargetlessDockerArtifact(t *testing.T) {
+	// Produced != published: a docker image produced on a ref that no publish
+	// target matches carries zero distribution targets. The truth model MUST
+	// accept it — it is a legitimate "produced but not distributed" record that
+	// review scans and publish discloses. (Binary/archive still forbid targets;
+	// only docker's ≥1-target minimum is relaxed.)
+	dir := t.TempDir()
+	a := validDockerArtifact()
+	a.Targets = nil
+	if err := WriteOutputsManifest(dir, OutputsManifest{Artifacts: []Artifact{a}}); err != nil {
+		t.Fatalf("WriteOutputsManifest rejected a targetless docker artifact: %v", err)
+	}
+	got, err := ReadOutputsManifest(dir)
+	if err != nil {
+		t.Fatalf("ReadOutputsManifest rejected a targetless docker artifact: %v", err)
+	}
+	if len(got.Artifacts) != 1 || len(got.Artifacts[0].Targets) != 0 {
+		t.Fatalf("round-trip altered the untargeted docker artifact: %+v", got.Artifacts)
+	}
+}
+
 func TestOutputsManifestRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	manifest := OutputsManifest{
@@ -273,15 +294,9 @@ func TestEmptyArtifactRejected(t *testing.T) {
 	}
 }
 
-func TestArtifactWithNoTargetsRejected(t *testing.T) {
-	dir := t.TempDir()
-	a := validDockerArtifact()
-	a.Targets = nil
-	err := WriteOutputsManifest(dir, OutputsManifest{Artifacts: []Artifact{a}})
-	if !errors.Is(err, ErrOutputsManifestInvalid) {
-		t.Fatalf("expected no-targets error, got %v", err)
-	}
-}
+// Note: a targetless docker artifact is now VALID (produced != published) —
+// see TestOutputsManifestAcceptsTargetlessDockerArtifact. Only binary/archive
+// forbid targets; that rule is exercised by the results/boundary tests.
 
 func TestRegistryTargetRequiredFields(t *testing.T) {
 	dir := t.TempDir()

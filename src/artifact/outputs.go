@@ -415,27 +415,30 @@ func normalizeArtifacts(artifacts []Artifact) error {
 	return nil
 }
 
-// kindRequiresTargets reports whether artifact kind k requires at least one
-// target. Docker artifacts publish to registries, so a target IS the
-// externalization destination. Binary and archive artifacts are un-targeted
-// by design (Q2, Phase 4 design): the build artifact IS the truth, and any
-// distribution destination is decided at a later layer (release_create),
-// not at build time. Mirrors the outcome-side outcomeTypeHasTarget rule.
-func kindRequiresTargets(k string) bool {
+// kindAllowsTargets reports whether artifact kind k may carry registry
+// targets. Docker artifacts publish to registries, so a target IS an
+// externalization destination — but targets are the DISTRIBUTION intent, not
+// the PRODUCE record. A docker image that a given ref has no matching publish
+// target for is still produced, retained, and review-scannable; it simply
+// carries zero targets ("produced != published"). Binary and archive artifacts
+// are un-targeted by design (Q2, Phase 4 design): the build artifact IS the
+// truth, and any distribution destination is decided at a later layer
+// (release_create), not at build time. Mirrors the outcome-side
+// outcomeTypeHasTarget rule.
+func kindAllowsTargets(k string) bool {
 	return k == "docker"
 }
 
-// validateKindTargetPresence enforces the symmetric intent-side rule of
-// outcomeTypeHasTarget: docker artifacts MUST have ≥1 target; binary and
-// archive artifacts MUST have zero targets. This hard boundary prevents
-// docker semantics (registry targets) from leaking into binary intent —
-// no pseudo "release_asset" targets, no fake "local_file" targets.
+// validateKindTargetPresence enforces the intent-side rule: binary and archive
+// artifacts MUST have zero targets (un-targeted by design). This hard boundary
+// prevents docker semantics (registry targets) from leaking into binary intent
+// — no pseudo "release_asset" targets, no fake "local_file" targets. Docker
+// artifacts MAY carry targets (their distribution destinations) or none at all:
+// producing an image is decided by builds:, while whether any target matches
+// this ref is a separate DISTRIBUTION question. A targetless docker artifact is
+// a legitimate "produced but not distributed on this ref" record.
 func validateKindTargetPresence(a Artifact, errType error) error {
-	if kindRequiresTargets(a.Kind) {
-		if len(a.Targets) == 0 {
-			return fmt.Errorf("%w: artifact %q: kind %q requires at least one target",
-				errType, a.ID, a.Kind)
-		}
+	if kindAllowsTargets(a.Kind) {
 		return nil
 	}
 	if len(a.Targets) > 0 {

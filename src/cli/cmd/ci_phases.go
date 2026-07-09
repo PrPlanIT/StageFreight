@@ -270,7 +270,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		// and exempt (ci.IsBranchHeadFresh returns true for tags).
 		if !ci.IsBranchHeadFresh(ciCtx) {
 			fmt.Fprintln(os.Stdout, "  publish: distribution skipped — pipeline SHA is not branch HEAD (a newer pipeline will ship)")
-		} else if n, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
+		} else if n, untargeted, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
 			return fmt.Errorf("publish promotion: %w", err)
 		} else if n > 0 {
 			// (The Distribution box already reports "N of N tag(s) published"; no
@@ -284,6 +284,12 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 			if rErr := cas.Retire(rootDir); rErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: content store retire: %v\n", rErr)
 			}
+		} else if untargeted > 0 {
+			// Produced != published: perform built and review scanned the image, but
+			// no publish target matches this ref (e.g. a feature branch when targets
+			// gate on branches:[main]/tags). Disclose the no-op instead of going dark
+			// — the retained bytes are simply not distributed on this ref.
+			fmt.Fprintln(os.Stdout, "  publish: no registry target matches this ref — nothing to distribute (produced artifact retained for review)")
 		}
 		// Remote registry tag retention — publish is the only phase allowed to
 		// mutate external distribution targets, and only here (post-push) is the
