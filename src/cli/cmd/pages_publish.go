@@ -60,8 +60,12 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 			return fmt.Errorf("pages subsystem: target %s: %w", t.ID, werr)
 		}
 
+		project := t.Project // cloudflare project name; falls back to the target id
+		if project == "" {
+			project = t.ID
+		}
 		dopts := pages.DeployOpts{
-			Project: t.ID,        // cloudflare project name (default: target id)
+			Project: project,     // cloudflare project name (explicit project:, else target id)
 			Repo:    t.ProjectID, // github OWNER/REPO (empty → current repo from env)
 			Domain:  t.Domain,
 			Include: t.Include,

@@ -578,6 +578,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	return warnings, nil
 }
 
+// cfPagesProjectRe matches Cloudflare Pages' project-name rule: lowercase letters,
+// digits, and hyphens; 1–58 chars; no leading or trailing hyphen. A single char is
+// allowed (the optional middle+tail group covers names of length 2+).
+var cfPagesProjectRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$`)
+
 // validateTarget checks kind-specific field constraints on a target.
 func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, matchers MatchersConfig, registries []RegistryConfig) []string {
 	var errs []string
@@ -734,6 +739,19 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		case "cloudflare", "github":
 		default:
 			errs = append(errs, fmt.Sprintf("%s: kind pages requires provider: cloudflare or github (got %q)", path, t.Provider))
+		}
+		// Cloudflare project name (project:, else the target id) must satisfy CF's
+		// naming rules — validated at load so it fails clearly here, not opaquely at
+		// deploy/create time. GitHub has no such constraint (it deploys to the
+		// gh-pages branch of an existing repo).
+		if t.Provider == "cloudflare" {
+			name := t.Project
+			if name == "" {
+				name = t.ID
+			}
+			if !cfPagesProjectRe.MatchString(name) {
+				errs = append(errs, fmt.Sprintf("%s: cloudflare pages project name %q is invalid (lowercase letters, digits, and hyphens; 1–58 chars; no leading/trailing hyphen) — set project: if the target id can't satisfy this", path, name))
+			}
 		}
 		// Versioning: P1 implements only "replace"; "keep" is reserved (fail loudly
 		// rather than silently ignore, so nobody assumes it works).

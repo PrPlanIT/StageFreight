@@ -178,6 +178,12 @@ type TargetConfig struct {
 	// site build whose output tree is published), Provider (cloudflare|github),
 	// Credentials (env-var prefix), When (release-gated), and Include.
 
+	// Project is the Cloudflare Pages project name (provider: cloudflare). Default:
+	// the target id. Cloudflare requires lowercase letters, digits, and hyphens,
+	// 1–58 chars, no leading/trailing hyphen — validated at load. Ignored by the
+	// github provider (which deploys to the gh-pages branch of the repo).
+	Project string `yaml:"project,omitempty"`
+
 	// Dir publishes a repo directory directly instead of a build's output tree
 	// (kind: pages). Exactly one of Build or Dir must be set.
 	Dir string `yaml:"dir,omitempty"`
