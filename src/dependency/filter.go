@@ -87,14 +87,16 @@ func ApplyIgnores(deps []freshness.Dependency, ignores []VulnIgnore, now time.Ti
 }
 
 func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
-	// A VULNERABLE indirect under security policy is a TRUE signal, not noise: the
-	// transitive-management assumption (bump direct → tidy pulls the fix) has FAILED for
-	// it — no direct parent requires a fixed version. It must be REMEDIATED (parent-bump-
-	// or-pin by the Go vuln remediator), so unlike an ordinary indirect it is NOT skipped,
-	// and it is exempt from the "unresolved" and "up to date" checks below (its Latest is
-	// empty by design; the target is the advisory's FixedIn). It still honors the
-	// ecosystem / auto-updatable / tracked-file gates.
-	vulnIndirect := dep.Indirect && cfg.Policy == "security" && len(dep.Vulnerabilities) > 0
+	// Vulnerability remediation is a FLOOR, not a policy preference — a vulnerable indirect is
+	// remediated under EVERY policy. The transitive-management assumption (bump a direct
+	// parent → `go mod tidy` pulls the fix) has demonstrably FAILED for it: nothing on the
+	// direct graph requires a fixed version. So it must be pinned / parent-bumped by the Go
+	// vuln remediator — unlike an ordinary indirect it is NOT skipped, and it is exempt from
+	// the "unresolved" and "up to date" checks below (its Latest is empty by design; the
+	// target is the advisory's FixedIn). It still honors the ecosystem / auto-updatable /
+	// tracked-file gates. The policy string governs only FRESHNESS of non-vulnerable deps
+	// (see the security-only gate below) — never whether a known vulnerability gets fixed.
+	vulnIndirect := dep.Indirect && len(dep.Vulnerabilities) > 0
 
 	// Non-vulnerable indirect deps are managed transitively (go mod tidy after direct
 	// updates), never updated directly, so resolution deliberately skips them — leaving
@@ -136,7 +138,10 @@ func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[
 		return "ecosystem not auto-updatable"
 	}
 
-	// Security-only policy: skip deps without vulnerabilities
+	// FRESHNESS AXIS — the only thing the policy string decides: `all` pursues freshness on
+	// non-vulnerable deps; `security` does not (it has already remediated every vulnerability
+	// above, and a non-vuln dep has nothing to fix). Vulnerable deps never reach here as a
+	// skip — they were kept as candidates by the floor above.
 	if cfg.Policy == "security" && len(dep.Vulnerabilities) == 0 {
 		return "no CVE (security-only policy)"
 	}
