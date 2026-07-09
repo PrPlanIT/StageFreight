@@ -353,6 +353,7 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `repo` | `repo` | string | No | — | string value |
 | `package` | `package` | string | No | — | string value |
 | `version` | `version` | string | No | — | string value |
+| `project` | `project` | string | No | — | string value |
 | `dir` | `dir` | string | No | — | string value |
 | `exclude` | `exclude` | []string | No | — | []string value |
 | `domain` | `domain` | string | No | — | string value |
