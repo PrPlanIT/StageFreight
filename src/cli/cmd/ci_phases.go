@@ -300,7 +300,12 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		}
 		// Generic package registry distribution (kind: generic-package) runs
 		// alongside releases — no-op when no package target matches the event.
-		return packagePublishRunner(ctx, appCfg, ciCtx, opts)
+		if err := packagePublishRunner(ctx, appCfg, ciCtx, opts); err != nil {
+			return err
+		}
+		// Static-site distribution (kind: pages) — deploy to Cloudflare/GitHub Pages,
+		// no-op when no pages target matches the event.
+		return pagesPublishRunner(ctx, appCfg, ciCtx, opts)
 	}
 }
 

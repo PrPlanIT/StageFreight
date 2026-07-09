@@ -227,12 +227,14 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 // records each archive (plus SHA256SUMS) into the shared run manifest.
 func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contribution, error) {
 	archiveTargets := pipeline.CollectTargetsByKind(rc.Config, "binary-archive")
-	if len(archiveTargets) == 0 || len(b.built) == 0 {
+	pagesTargets := pipeline.CollectTargetsByKind(rc.Config, "pages")
+	if (len(archiveTargets) == 0 && len(pagesTargets) == 0) || len(b.built) == 0 {
 		return domains.Contribution{Skip: true}, nil
 	}
 
 	var rows []string
 	archiveCount := 0
+	archivedBuilds := map[string]bool{} // build IDs already archived — dedupe pages vs binary-archive
 	for _, t := range archiveTargets {
 		// Gate on when: — a binary-archive only builds for its configured event/
 		// branch/tag (e.g. a dev archive on main-push, a stable archive on tag).
@@ -291,6 +293,7 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 				},
 			})
 			targetArchives = append(targetArchives, archResult)
+			archivedBuilds[pb.BuildID] = true
 		}
 
 		if t.Checksums && len(targetArchives) > 0 {
@@ -313,6 +316,57 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 			}
 		}
 		archiveCount += len(targetArchives)
+	}
+
+	// Archive builds referenced by pages targets so a static-site tree crosses the
+	// perform→publish boundary as a transport artifact under ManagedRoot — the pages
+	// publish runner resolves it via artifact.ResolveSuccessfulBuildOutput. Skip a
+	// build a binary-archive target already covered (the resolver finds either).
+	for _, t := range pagesTargets {
+		if t.Build == "" || archivedBuilds[t.Build] || !config.TargetMatchesEnv(t, rc.Config) {
+			continue
+		}
+		for _, pb := range b.built {
+			if pb.BuildID != t.Build {
+				continue
+			}
+			archResult, err := build.CreateArchive(build.ArchiveOpts{
+				Format:       "tar.gz",
+				OutputDir:    filepath.Join(rc.RootDir, build.DistDir),
+				NameTemplate: "{id}-{version}-pages",
+				BinaryPath:   pb.Path, // a directory (tree) — CreateArchive/expandSource walks it
+				BinaryName:   pb.Name,
+				RepoRoot:     rc.RootDir,
+				Target:       build.Target{OS: pb.OS, Arch: pb.Arch},
+				BuildID:      pb.BuildID,
+				Version:      b.version,
+			})
+			if err != nil {
+				return domains.Contribution{Rows: rows, Status: "failed", Summary: "pages transport archive failed"},
+					fmt.Errorf("pages transport archive for build %s: %w", pb.BuildID, err)
+			}
+			archiveArtifactName := filepath.Base(archResult.Path)
+			archiveArtifactID := artifact.NewArtifactID("archive", archiveArtifactName)
+			rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, artifact.Artifact{
+				Kind:    "archive",
+				Name:    archiveArtifactName,
+				Version: b.version.Version,
+				Archive: &artifact.ArchiveDescriptor{Format: archResult.Format, Path: archResult.Path},
+			})
+			sourceBinaryID := artifact.NewArtifactID("binary", uniqueBinaryArtifactName(pb.Name, pb.OS, pb.Arch))
+			rc.RB.Record(archiveArtifactID, artifact.Outcome{
+				Type: artifact.OutcomeTypeArchive,
+				Archive: &artifact.ArchiveOutcome{
+					Status: artifact.OutcomeSuccess, SHA256: archResult.SHA256, Path: archResult.Path,
+					Format: archResult.Format, Size: archResult.Size,
+					Sources: []artifact.ArtifactID{sourceBinaryID},
+				},
+			})
+			rows = append(rows, fmt.Sprintf("%-9s %-40s %s  (pages transport)",
+				"pages", filepath.Base(archResult.Path), output.StatusIcon("success", rc.Color)))
+			archivedBuilds[t.Build] = true
+			archiveCount++
+		}
 	}
 
 	return domains.Contribution{
