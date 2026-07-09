@@ -19,10 +19,42 @@ type Provider interface {
 	// and writes any provider-specific metadata (e.g. GitHub's CNAME/.nojekyll). Keeps
 	// provider quirks out of the publish runner.
 	Prepare(ws string, opts DeployOpts) error
-	// Deploy publishes the workspace and returns the resulting URL.
-	Deploy(ctx context.Context, ws string, opts DeployOpts) (url string, err error)
+	// Deploy publishes the workspace. A returned error means the SITE deploy itself
+	// failed (the critical operation). Custom-domain configuration is an enhancement
+	// carried in DeployResult.Domain and never surfaces as this error — a domain
+	// problem must not retroactively fail a successful deploy.
+	Deploy(ctx context.Context, ws string, opts DeployOpts) (DeployResult, error)
 	// Credentials declares the env vars this provider needs (for diagnostics + forwarding).
 	Credentials() []CredentialRequirement
+}
+
+// DeployResult separates the two distinct outcomes of a pages deploy: the site
+// reaching the host (critical — an error on Deploy) and the custom-domain
+// configuration (an enhancement — best-effort, reported as data, never fatal).
+type DeployResult struct {
+	URL    string         // deployment URL (e.g. https://abc.project.pages.dev)
+	Domain *DomainOutcome // nil when no custom domain was requested
+}
+
+// DNSProvider classifies where a domain's AUTHORITATIVE nameservers live (an NS lookup,
+// not the registrar) — the signal for whether the host can auto-configure DNS. Purely
+// informational: used to tailor diagnostics, never to gate the attach.
+type DNSProvider string
+
+const (
+	DNSCloudflare DNSProvider = "cloudflare" // every authoritative NS ends in .cloudflare.com
+	DNSExternal   DNSProvider = "external"   // authoritative DNS is hosted elsewhere
+	DNSUnknown    DNSProvider = "unknown"    // NS lookup failed or was inconclusive
+)
+
+// DomainOutcome is the DATA of a custom-domain attach attempt — the cli/cmd layer turns
+// it into tailored guidance (this package never renders). The Pages API is the authority
+// for whether the hostname is attached; DNSProvider only colors the advice.
+type DomainOutcome struct {
+	Name        string      // the requested custom domain
+	Attached    bool        // the host accepted the custom-domain association
+	DNSProvider DNSProvider // authoritative-NS classification (informational)
+	Err         string      // non-fatal attach error text; empty on success
 }
 
 // CredentialRequirement describes one credential a provider needs. Returning

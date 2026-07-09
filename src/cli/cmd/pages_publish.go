@@ -78,7 +78,7 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 			cleanup()
 			return fmt.Errorf("pages subsystem: target %s: prepare: %w", t.ID, err)
 		}
-		url, derr := provider.Deploy(ctx, ws, dopts)
+		res, derr := provider.Deploy(ctx, ws, dopts)
 		cleanup()
 		if derr != nil {
 			return fmt.Errorf("pages subsystem: target %s: deploy: %w", t.ID, derr)
@@ -89,7 +89,12 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		sec.Row("%-12s%s", "target", t.ID)
 		sec.Row("%-12s%s", "provider", t.Provider)
 		sec.Separator()
-		sec.Row("%s  DEPLOYED  %s", output.StatusIcon("success", color), url)
+		// Two distinct outcomes, reported separately: the site deploy (critical, above)
+		// and the custom-domain configuration (an enhancement — never fails the deploy).
+		sec.Row("%s  DEPLOYED  %s", output.StatusIcon("success", color), res.URL)
+		if res.Domain != nil {
+			renderDomainOutcome(sec, color, project, res.Domain)
+		}
 		sec.Close()
 		output.SectionEnd(w, "sf_pages")
 		deployed++
@@ -149,6 +154,39 @@ func pagesCredentials(p pages.Provider) map[string]string {
 		}
 	}
 	return env
+}
+
+// renderDomainOutcome renders the custom-domain result as its own reported outcome,
+// distinct from the site deploy. The pages package returns only data (attached? where's
+// DNS hosted?); the tailored guidance — which depends on whether Cloudflare controls the
+// zone — is composed here in the renderer, and is always advisory (never a failure).
+func renderDomainOutcome(sec *output.Section, color bool, project string, d *pages.DomainOutcome) {
+	target := project + ".pages.dev"
+	if d.Attached {
+		sec.Row("%s  DOMAIN    %s attached", output.StatusIcon("success", color), d.Name)
+	} else {
+		sec.Row("%s  DOMAIN    %s attach failed", output.StatusIcon("warning", color), d.Name)
+		if d.Err != "" {
+			sec.Row("%-12s%s", "", d.Err)
+		}
+		sec.Row("%-12s%s", "", "The deployment succeeded; the custom domain is not configured.")
+	}
+	switch d.DNSProvider {
+	case pages.DNSCloudflare:
+		if d.Attached {
+			sec.Row("%-12s%s", "", "Authoritative DNS: Cloudflare — the record auto-configures when the token")
+			sec.Row("%-12s%s", "", "has DNS:Edit; otherwise grant DNS:Edit or add the record in the dashboard.")
+		} else {
+			sec.Row("%-12s%s", "", "Authoritative DNS: Cloudflare — grant DNS:Edit to the token, or add the")
+			sec.Row("%-12s%s", "", "domain in the Cloudflare dashboard.")
+		}
+	case pages.DNSExternal:
+		sec.Row("%-12s%s", "", "Authoritative DNS: external — Cloudflare can't configure it. Create:")
+		sec.Row("%-12s%s", "", fmt.Sprintf("  %s → %s", d.Name, target))
+		sec.Row("%-12s%s", "", "at your DNS provider to activate the domain.")
+	default: // DNSUnknown
+		sec.Row("%-12s%s", "", fmt.Sprintf("Ensure %s → %s is configured to activate the domain.", d.Name, target))
+	}
 }
 
 func descendSingleDir(ws string) string {

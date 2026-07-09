@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -43,6 +44,7 @@ type cfPagesClient struct {
 	base      string // API base; overridable in tests
 	hasher    AssetHasher
 	http      *http.Client
+	lookupNS  func(string) ([]*net.NS, error) // authoritative-NS lookup; overridable in tests
 }
 
 func newCFPagesClient(apiToken, accountID, project, domain string) *cfPagesClient {
@@ -54,46 +56,84 @@ func newCFPagesClient(apiToken, accountID, project, domain string) *cfPagesClien
 		base:      cfAPIBase,
 		hasher:    cloudflarePagesV1Hasher{},
 		http:      &http.Client{Timeout: 2 * time.Minute},
+		lookupNS:  net.LookupNS,
 	}
 }
 
-// deploy runs the full Direct Upload flow and returns the deployment URL.
-func (c *cfPagesClient) deploy(ctx context.Context, ws string) (string, error) {
+// deploy runs the full Direct Upload flow. The SITE deploy is the critical operation —
+// any failure up to and including createDeployment returns an error. Custom-domain
+// configuration runs only AFTER a successful deploy and is best-effort: its outcome is
+// reported as data (DeployResult.Domain), never as the returned error.
+func (c *cfPagesClient) deploy(ctx context.Context, ws string) (DeployResult, error) {
 	assets, err := c.collectAssets(ws)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	if len(assets) == 0 {
-		return "", fmt.Errorf("cloudflare pages: no files to deploy in %s", ws)
+		return DeployResult{}, fmt.Errorf("cloudflare pages: no files to deploy in %s", ws)
 	}
 	// Idempotently ensure the project exists — no dashboard step, and no broader token
 	// than deploying already needs (Cloudflare Pages:Edit covers create + deploy).
 	if err := c.ensureProject(ctx); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	jwt, err := c.uploadToken(ctx)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	missing, err := c.checkMissing(ctx, jwt, assets)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	if err := c.uploadAssets(ctx, jwt, assets, missing); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	url, err := c.createDeployment(ctx, assets)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
-	// Idempotently attach the custom domain (same token scope). This is the apex
-	// cutover — Cloudflare points the domain at Pages — driven by the domain: config.
+	// Site is deployed. Domain configuration is a separate, non-fatal enhancement.
+	res := DeployResult{URL: url}
 	if c.domain != "" {
-		if err := c.ensureCustomDomain(ctx); err != nil {
-			return url, fmt.Errorf("cloudflare pages: deployed, but attaching domain %q failed: %w", c.domain, err)
+		res.Domain = c.attachDomain(ctx)
+	}
+	return res, nil
+}
+
+// attachDomain best-effort attaches the custom hostname to the Pages project and
+// reports the outcome as data. It NEVER returns an error — a domain problem must not
+// fail a successful deploy. It first classifies the domain's authoritative nameservers
+// (informational, to tailor later guidance), then lets the Pages API be the authority
+// for the attach itself — public DNS is eventually consistent and is never used as a
+// gate here (verification is a separate concern).
+func (c *cfPagesClient) attachDomain(ctx context.Context) *DomainOutcome {
+	out := &DomainOutcome{Name: c.domain, DNSProvider: c.classifyDNS(c.domain)}
+	url := fmt.Sprintf("%s/accounts/%s/pages/projects/%s/domains", c.base, c.accountID, c.project)
+	err := c.doJSON(ctx, http.MethodPost, url, c.apiToken, map[string]any{"name": c.domain}, nil)
+	if err == nil || isAlreadyExists(err) {
+		out.Attached = true
+		return out
+	}
+	out.Err = err.Error()
+	return out
+}
+
+// classifyDNS resolves the domain's authoritative nameservers and classifies where DNS
+// is hosted — the signal for whether the host can auto-configure records. Registrar is
+// irrelevant; only the NS delegation matters. An inconclusive lookup is DNSUnknown, not
+// a failure (this is advisory, not a gate).
+func (c *cfPagesClient) classifyDNS(domain string) DNSProvider {
+	ns, err := c.lookupNS(domain)
+	if err != nil || len(ns) == 0 {
+		return DNSUnknown
+	}
+	for _, n := range ns {
+		host := strings.ToLower(strings.TrimSuffix(n.Host, "."))
+		if !strings.HasSuffix(host, ".cloudflare.com") {
+			return DNSExternal // any non-Cloudflare authoritative NS ⇒ external
 		}
 	}
-	return url, nil
+	return DNSCloudflare
 }
 
 // ensureProject creates the Pages project if it doesn't already exist. GET-then-create
@@ -110,18 +150,6 @@ func (c *cfPagesClient) ensureProject(ctx context.Context) error {
 			return nil // created between the GET and POST
 		}
 		return fmt.Errorf("cloudflare pages: create project %q: %w", c.project, err)
-	}
-	return nil
-}
-
-// ensureCustomDomain attaches the custom domain to the project (idempotent).
-func (c *cfPagesClient) ensureCustomDomain(ctx context.Context) error {
-	url := fmt.Sprintf("%s/accounts/%s/pages/projects/%s/domains", c.base, c.accountID, c.project)
-	if err := c.doJSON(ctx, http.MethodPost, url, c.apiToken, map[string]any{"name": c.domain}, nil); err != nil {
-		if isAlreadyExists(err) {
-			return nil
-		}
-		return err
 	}
 	return nil
 }
