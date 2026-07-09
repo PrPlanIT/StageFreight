@@ -61,17 +61,47 @@ func TestFilterWorkspace_IncludeAllowlist(t *testing.T) {
 }
 
 func TestGet_ProviderSelection(t *testing.T) {
-	if _, err := Get(""); err != nil {
-		t.Errorf("empty should default to cloudflare: %v", err)
+	// Co-equal providers, no default — a name is required.
+	if _, err := Get(""); err == nil {
+		t.Error("empty provider should error (provider is required)")
 	}
 	if _, err := Get("cloudflare"); err != nil {
 		t.Errorf("cloudflare: %v", err)
 	}
-	if _, err := Get("github"); err == nil {
-		t.Error("github should be a not-implemented error in this phase")
+	if _, err := Get("github"); err != nil {
+		t.Errorf("github: %v", err)
 	}
 	if _, err := Get("bogus"); err == nil {
 		t.Error("unknown provider should error")
+	}
+}
+
+func TestGithubPrepare_MetadataAndFilter(t *testing.T) {
+	ws := t.TempDir()
+	writeWS(t, ws, "index.html", "x.map")
+	g := &githubProvider{}
+	if err := g.Prepare(ws, DeployOpts{Domain: "docs.example.com", Exclude: []string{"*.map"}}); err != nil {
+		t.Fatal(err)
+	}
+	// .nojekyll + CNAME written; the map filtered out.
+	if _, err := os.Stat(filepath.Join(ws, ".nojekyll")); err != nil {
+		t.Error(".nojekyll not written")
+	}
+	cname, err := os.ReadFile(filepath.Join(ws, "CNAME"))
+	if err != nil || string(cname) != "docs.example.com\n" {
+		t.Errorf("CNAME = %q (err %v), want the domain", string(cname), err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "x.map")); err == nil {
+		t.Error("x.map should have been filtered out")
+	}
+}
+
+func TestGithubPagesURL(t *testing.T) {
+	if got := githubPagesURL("acme/docs", ""); got != "https://acme.github.io/docs/" {
+		t.Errorf("project url = %q", got)
+	}
+	if got := githubPagesURL("acme/docs", "docs.example.com"); got != "https://docs.example.com/" {
+		t.Errorf("custom-domain url = %q", got)
 	}
 }
 

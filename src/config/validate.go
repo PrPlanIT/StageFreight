@@ -729,11 +729,11 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		if hasBuild == hasDir {
 			errs = append(errs, fmt.Sprintf("%s: kind pages requires exactly one of build or dir", path))
 		}
-		// Provider (default cloudflare) must be a known Pages host.
+		// Provider is required — Cloudflare and GitHub are co-equal, no default.
 		switch t.Provider {
-		case "", "cloudflare", "github":
+		case "cloudflare", "github":
 		default:
-			errs = append(errs, fmt.Sprintf("%s: kind pages provider %q unsupported (supported: cloudflare, github)", path, t.Provider))
+			errs = append(errs, fmt.Sprintf("%s: kind pages requires provider: cloudflare or github (got %q)", path, t.Provider))
 		}
 		// Versioning: P1 implements only "replace"; "keep" is reserved (fail loudly
 		// rather than silently ignore, so nobody assumes it works).

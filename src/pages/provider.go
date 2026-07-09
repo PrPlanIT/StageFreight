@@ -35,7 +35,8 @@ type CredentialRequirement struct {
 
 // DeployOpts carries the vendor-neutral inputs a deploy needs.
 type DeployOpts struct {
-	Project string            // provider project/site name (default: repo/target id)
+	Project string            // cloudflare project/site name (default: target id)
+	Repo    string            // github OWNER/REPO (default: current repo)
 	Domain  string            // custom domain, if any
 	Include []string          // workspace allowlist globs (empty = keep everything)
 	Exclude []string          // workspace denylist globs
@@ -43,16 +44,16 @@ type DeployOpts struct {
 	DryRun  bool              // stage but do not externalize
 }
 
-// Get returns the provider for a name. "" defaults to cloudflare. Unimplemented
-// providers fail loudly rather than pretending to exist.
+// Get returns the provider for a name. Cloudflare and GitHub are co-equal — there is
+// no default, so the caller must name one (a pages target requires provider:).
 func Get(name string) (Provider, error) {
 	switch name {
-	case "", "cloudflare":
+	case "cloudflare":
 		return &cloudflareProvider{}, nil
 	case "github":
-		return nil, fmt.Errorf("pages provider %q is not implemented yet (Cloudflare only in this phase)", name)
+		return &githubProvider{}, nil
 	default:
-		return nil, fmt.Errorf("unknown pages provider %q (supported: cloudflare)", name)
+		return nil, fmt.Errorf("pages requires provider: cloudflare or github (got %q)", name)
 	}
 }
 
