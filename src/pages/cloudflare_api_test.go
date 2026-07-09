@@ -12,9 +12,10 @@ import (
 )
 
 // A mock Cloudflare API server verifies the full Direct Upload protocol wiring —
-// endpoints, auth (API token vs upload JWT), the check-missing body, the upload
-// payload shape, and the deployment manifest — without a real Cloudflare account. The
-// hash itself is separately pinned to wrangler's vectors (cloudflare_hash_test.go).
+// idempotent project create, endpoints, auth (API token vs upload JWT), the
+// check-missing body, the upload payload shape, the deployment manifest, and the
+// custom-domain attach — without a real Cloudflare account. The hash itself is
+// separately pinned to wrangler's vectors (cloudflare_hash_test.go).
 func TestCFPagesClient_DeployProtocol(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "index.html"), []byte("<html>hi</html>"), 0o644); err != nil {
@@ -28,21 +29,39 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 	}
 
 	var (
+		gotProjectGet  bool
+		gotCreate      bool
 		gotUploadToken bool
 		gotCheckHashes []string
 		gotUploadItems []cfUploadItem
 		gotManifest    map[string]string
+		gotDomain      string
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
 		switch {
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/upload-token"):
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/upload-token"):
 			gotUploadToken = true
 			if r.Header.Get("Authorization") != "Bearer api-token" {
 				t.Errorf("upload-token auth = %q, want the API token", r.Header.Get("Authorization"))
 			}
 			writeCFResult(w, map[string]any{"jwt": "the-jwt"})
-		case r.URL.Path == "/pages/assets/check-missing":
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/pages/projects/proj"):
+			// Existence check → report not-found so the client creates it.
+			gotProjectGet = true
+			writeCFError(w, http.StatusNotFound, "project not found")
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/pages/projects"):
+			gotCreate = true
+			var body struct {
+				Name string `json:"name"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.Name != "proj" {
+				t.Errorf("create project name = %q, want proj", body.Name)
+			}
+			writeCFResult(w, map[string]any{"name": body.Name})
+		case p == "/pages/assets/check-missing":
 			if r.Header.Get("Authorization") != "Bearer the-jwt" {
 				t.Errorf("check-missing auth = %q, want the upload JWT", r.Header.Get("Authorization"))
 			}
@@ -51,27 +70,31 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			gotCheckHashes = body.Hashes
-			writeCFResult(w, body.Hashes) // report all as missing
-		case r.URL.Path == "/pages/assets/upload":
-			if r.Header.Get("Authorization") != "Bearer the-jwt" {
-				t.Errorf("upload auth = %q, want the upload JWT", r.Header.Get("Authorization"))
-			}
+			writeCFResult(w, body.Hashes)
+		case p == "/pages/assets/upload":
 			var items []cfUploadItem
 			_ = json.NewDecoder(r.Body).Decode(&items)
 			gotUploadItems = append(gotUploadItems, items...)
 			writeCFResult(w, true)
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/deployments"):
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/deployments"):
 			_ = r.ParseMultipartForm(1 << 20)
 			_ = json.Unmarshal([]byte(r.FormValue("manifest")), &gotManifest)
 			writeCFResult(w, map[string]any{"url": "https://abc.proj.pages.dev"})
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/domains"):
+			var body struct {
+				Name string `json:"name"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			gotDomain = body.Name
+			writeCFResult(w, map[string]any{"name": body.Name})
 		default:
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request: %s %s", r.Method, p)
 			http.Error(w, "unexpected", http.StatusBadRequest)
 		}
 	}))
 	defer srv.Close()
 
-	c := newCFPagesClient("api-token", "acct-1", "proj")
+	c := newCFPagesClient("api-token", "acct-1", "proj", "docs.example.com")
 	c.base = srv.URL
 
 	url, err := c.deploy(context.Background(), ws)
@@ -79,6 +102,9 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 		t.Fatalf("deploy: %v", err)
 	}
 
+	if !gotProjectGet || !gotCreate {
+		t.Errorf("project not created idempotently: get=%v create=%v", gotProjectGet, gotCreate)
+	}
 	if !gotUploadToken {
 		t.Error("upload-token was not requested")
 	}
@@ -96,6 +122,9 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 	if gotManifest["/index.html"] == "" || gotManifest["/assets/app.js"] == "" {
 		t.Errorf("manifest = %v, want leading-slash keys → hashes", gotManifest)
 	}
+	if gotDomain != "docs.example.com" {
+		t.Errorf("custom domain attach = %q, want docs.example.com", gotDomain)
+	}
 	if url != "https://abc.proj.pages.dev" {
 		t.Errorf("deploy url = %q, want the deployment result url", url)
 	}
@@ -104,4 +133,13 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 func writeCFResult(w http.ResponseWriter, result any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": result})
+}
+
+func writeCFError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": false,
+		"errors":  []map[string]any{{"code": 8000007, "message": msg}},
+	})
 }
