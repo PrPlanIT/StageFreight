@@ -18,13 +18,33 @@ import "context"
 
 // Vulnerability is a normalized finding from the discovery layer — the join identity every
 // contributor enriches. Kept minimal on purpose: each scanner maps its native output into this.
+//
+// ID is the identifier the discovering scanner used, but it is NOT the correlation contract:
+// the same underlying vulnerability carries several identifiers (CVE, GHSA, GO advisory), and
+// a contributor may report under a different one than discovery did. Aliases holds the other
+// known identifiers (OSV publishes them), and contributors correlate against Identifiers() —
+// the full set — never a single scanner-specific ID.
 type Vulnerability struct {
-	ID        string // advisory id, e.g. "GO-2026-5932", "CVE-2026-1234", "GHSA-…"
-	Ecosystem string // normalized: "go", "rust", "npm", "oci", …
-	Package   string // AFFECTED package (the reachability join key), e.g. "golang.org/x/crypto/openpgp"
-	Symbol    string // optional affected symbol
-	Severity  string // "CRITICAL" | "HIGH" | "MODERATE" | "LOW" | "" (as the scanner reported)
-	Source    string // which scanner discovered it: "osv" | "trivy" | "grype"
+	ID        string   // the discovering scanner's identifier, e.g. "GO-2026-5932", "CVE-2026-1234"
+	Aliases   []string // other identifiers for the same advisory, e.g. ["CVE-…", "GHSA-…"]
+	Ecosystem string   // normalized: "go", "rust", "npm", "oci", …
+	Package   string   // AFFECTED package (the reachability join key), e.g. "golang.org/x/crypto/openpgp"
+	Symbol    string   // optional affected symbol
+	Severity  string   // "CRITICAL" | "HIGH" | "MODERATE" | "LOW" | "" (as the scanner reported)
+	Source    string   // which scanner discovered it: "osv" | "trivy" | "grype"
+}
+
+// Identifiers returns every identifier this vulnerability is known by — its primary ID plus any
+// aliases. Contributors correlate their findings against this set so a CVE-keyed discovery still
+// joins a GO-advisory-keyed analyzer (and vice versa), without OSV-ID ever being the contract.
+func (v Vulnerability) Identifiers() []string {
+	if len(v.Aliases) == 0 {
+		return []string{v.ID}
+	}
+	ids := make([]string, 0, 1+len(v.Aliases))
+	ids = append(ids, v.ID)
+	ids = append(ids, v.Aliases...)
+	return ids
 }
 
 // VulnRef is the stable identity used to index evidence back onto a vulnerability.
