@@ -184,3 +184,17 @@ there is something to enforce against:
   until there is something to enforce against. Binding the rule to today's
   `IsBranchHeadFresh` mechanism would recreate the documentation trap that the
   freshness work itself removed.
+
+- **Publish consumes transport artifacts, never original build outputs.** Only
+  `ManagedRoot` (`.stagefreight/`) crosses the perform→publish job boundary, so every
+  artifact a Publish capability consumes must have a *transport representation* (an
+  archive) under `ManagedRoot` — binary→archive, package→archive, static-site tree→
+  tar.gz. Publish never reaches back to an original build output directory (e.g. a
+  `dist/` tree), which lives outside `ManagedRoot` and does not survive the boundary.
+  The emerging enforcement seam is `artifact.ResolveSuccessfulBuildOutput` (returns an
+  `ArtifactTransport`, manifest-sourced, never globs) — the sole path the `pages`
+  publish runner uses to reach a build's output. Not yet a hard invariant: it graduates
+  to a numbered one when the publish runner lands and a boundary test asserts no publish
+  capability opens a path outside `ManagedRoot`. Recorded now because the resolver seam
+  is the thing that keeps a future first-class tree artifact (or OCI/CAS transport) an
+  internal change rather than a `pages` change.

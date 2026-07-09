@@ -12,6 +12,7 @@ package config
 //   - gitlab-component: Publish to GitLab CI component catalog (standalone)
 //   - release: Create forge release + rolling git tags (standalone)
 //   - generic-package: Publish archives to a forge generic package registry (standalone)
+//   - pages: Deploy a static-site build's output to Cloudflare/GitHub Pages (build XOR dir)
 type TargetConfig struct {
 	// ID is the unique identifier for this target (logging, status, enable/disable).
 	ID string `yaml:"id"`
@@ -171,6 +172,39 @@ type TargetConfig struct {
 	// (a git ref): this names a package *version*, not a git tag. Required — every
 	// rolling Alias must have an immutable Version behind it.
 	Version string `yaml:"version,omitempty"`
+
+	// ── kind: pages ───────────────────────────────────────────────────────
+	// Deploy a static site to a Pages host (Cloudflare/GitHub). Reuses Build (the
+	// site build whose output tree is published), Provider (cloudflare|github),
+	// Credentials (env-var prefix), When (release-gated), and Include.
+
+	// Dir publishes a repo directory directly instead of a build's output tree
+	// (kind: pages). Exactly one of Build or Dir must be set.
+	Dir string `yaml:"dir,omitempty"`
+
+	// Exclude drops matching paths from the publish workspace before deploy
+	// (kind: pages). Globs, applied after extraction.
+	Exclude []string `yaml:"exclude,omitempty"`
+
+	// Domain is the custom domain (kind: pages). Cloudflare auto-wires DNS; GitHub
+	// writes a CNAME into the published tree.
+	Domain string `yaml:"domain,omitempty"`
+
+	// BasePath is the URL path the site is served under (kind: pages). Inferred per
+	// provider (Cloudflare "/", GitHub project "/<repo>/") and fed into the build.
+	BasePath string `yaml:"base_path,omitempty"`
+
+	// Versioning controls multi-version publishing (kind: pages). P1 accepts only
+	// mode: replace; mode: keep is reserved for phase 2 and rejected.
+	Versioning *PagesVersioning `yaml:"versioning,omitempty"`
+}
+
+// PagesVersioning controls how released versions of a static site are published.
+type PagesVersioning struct {
+	// Mode: "replace" (each release overwrites; the only mode implemented in P1) or
+	// "keep" (every released version stays browsable — reserved for phase 2, rejected
+	// in P1 rather than silently ignored).
+	Mode string `yaml:"mode,omitempty"`
 }
 
 // IsRemoteRelease returns true if this release target references a remote forge,
@@ -214,6 +248,7 @@ var validTargetKinds = map[string]bool{
 	"release":          true,
 	"binary-archive":   true,
 	"generic-package":  true,
+	"pages":            true,
 }
 
 // validArchiveFormats enumerates all recognized archive formats.
