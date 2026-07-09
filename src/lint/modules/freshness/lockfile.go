@@ -5,37 +5,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 const lockFilePath = ".stagefreight/freshness.lock"
 
-// DigestLock tracks non-versioned tag digests over time.
-type DigestLock struct {
-	Digests map[string]DigestEntry `yaml:"digests"`
-}
-
-// DigestEntry records a single image tag's digest.
-type DigestEntry struct {
-	Digest  string `yaml:"digest"`
-	Checked string `yaml:"checked"`
-}
-
 // checkDigestLock handles non-versioned tags (e.g. "latest", "noble") by
 // comparing manifest digests against a lock file.
-func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInfo, stages []stageInfo) []lint.Finding {
-	var nonVersioned []stageInfo
+func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInfo, stages []supplychain.StageInfo) []lint.Finding {
+	var nonVersioned []supplychain.StageInfo
 	for _, s := range stages {
-		_, tag := splitImageTag(s.Image)
+		_, tag := discovery.SplitImageTag(s.Image)
 		if tag == "" {
 			tag = "latest"
 		}
-		dt := decomposeTag(tag)
+		dt := version.DecomposeTag(tag)
 		if dt.Version == nil {
 			nonVersioned = append(nonVersioned, s)
 		}
@@ -57,7 +48,7 @@ func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInf
 	changed := false
 
 	for _, stage := range nonVersioned {
-		image, tag := splitImageTag(stage.Image)
+		image, tag := discovery.SplitImageTag(stage.Image)
 		if tag == "" {
 			tag = "latest"
 		}
@@ -65,7 +56,7 @@ func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInf
 		ref := normalizeImageRef(image) + ":" + tag
 
 		// Resolve current manifest digest.
-		digest, err := m.fetchManifestDigest(ctx, image, tag)
+		digest, err := m.resolver.FetchManifestDigest(ctx, image, tag)
 		if err != nil {
 			continue
 		}
@@ -75,7 +66,7 @@ func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInf
 
 		if !exists {
 			// First run — record and move on.
-			lock.Digests[ref] = DigestEntry{Digest: digest, Checked: now}
+			lock.Digests[ref] = supplychain.DigestEntry{Digest: digest, Checked: now}
 			changed = true
 			continue
 		}
@@ -88,7 +79,7 @@ func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInf
 				Severity: lint.SeverityInfo,
 				Message:  fmt.Sprintf("%s has a newer digest (last checked: %s)", ref, prev.Checked),
 			})
-			lock.Digests[ref] = DigestEntry{Digest: digest, Checked: now}
+			lock.Digests[ref] = supplychain.DigestEntry{Digest: digest, Checked: now}
 			changed = true
 		}
 	}
@@ -98,29 +89,6 @@ func (m *freshnessModule) checkDigestLock(ctx context.Context, file lint.FileInf
 	}
 
 	return findings
-}
-
-// fetchManifestDigest queries the registry v2 manifest endpoint.
-func (m *freshnessModule) fetchManifestDigest(ctx context.Context, image, tag string) (string, error) {
-	namespace, repo := splitImageNamespace(image)
-	ep := m.cfg.registryEndpoint(EcosystemDockerImage)
-	defaultURL := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/%s/tags/%s", namespace, repo, tag)
-	url := m.cfg.registryURL(EcosystemDockerImage, defaultURL)
-	if url != defaultURL {
-		// Custom registry: use v2 manifests endpoint.
-		url = strings.TrimRight(url, "/") + fmt.Sprintf("/%s/%s/manifests/%s", namespace, repo, tag)
-	}
-
-	var resp struct {
-		Digest string `json:"digest"`
-	}
-	if err := m.http.fetchJSON(ctx, url, &resp, ep); err != nil {
-		return "", err
-	}
-	if resp.Digest == "" {
-		return "", fmt.Errorf("no digest for %s/%s:%s", namespace, repo, tag)
-	}
-	return resp.Digest, nil
 }
 
 // normalizeImageRef ensures a fully qualified image reference.
@@ -152,20 +120,20 @@ func containsSlash(s string) bool {
 	return false
 }
 
-func loadLock(path string) DigestLock {
-	lock := DigestLock{Digests: make(map[string]DigestEntry)}
+func loadLock(path string) supplychain.DigestLock {
+	lock := supplychain.DigestLock{Digests: make(map[string]supplychain.DigestEntry)}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return lock
 	}
 	_ = yaml.Unmarshal(data, &lock)
 	if lock.Digests == nil {
-		lock.Digests = make(map[string]DigestEntry)
+		lock.Digests = make(map[string]supplychain.DigestEntry)
 	}
 	return lock
 }
 
-func saveLock(path string, lock DigestLock) error {
+func saveLock(path string, lock supplychain.DigestLock) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

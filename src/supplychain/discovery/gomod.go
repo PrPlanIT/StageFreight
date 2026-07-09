@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"bufio"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // goProxyLatest is the JSON response from proxy.golang.org/{mod}/@latest.
@@ -16,8 +17,8 @@ type goProxyLatest struct {
 }
 
 // checkGoMod parses go.mod and resolves latest versions via proxy.golang.org.
-func (m *freshnessModule) checkGoMod(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
-	if !m.cfg.sourceEnabled(EcosystemGoMod) {
+func (m *Resolver) checkGoMod(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
+	if !m.cfg.SourceEnabled(supplychain.EcosystemGoMod) {
 		return nil, nil
 	}
 
@@ -27,7 +28,7 @@ func (m *freshnessModule) checkGoMod(ctx context.Context, file lint.FileInfo) ([
 	}
 	defer f.Close()
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 	inRequire := false
@@ -50,10 +51,10 @@ func (m *freshnessModule) checkGoMod(ctx context.Context, file lint.FileInfo) ([
 		if strings.HasPrefix(line, "require ") && !strings.HasSuffix(line, "(") {
 			parts := strings.Fields(line)
 			if len(parts) >= 3 {
-				dep := Dependency{
+				dep := supplychain.Dependency{
 					Name:      parts[1],
 					Current:   parts[2],
-					Ecosystem: EcosystemGoMod,
+					Ecosystem: supplychain.EcosystemGoMod,
 					File:      file.Path,
 					Line:      lineNum,
 				}
@@ -73,10 +74,10 @@ func (m *freshnessModule) checkGoMod(ctx context.Context, file lint.FileInfo) ([
 				continue
 			}
 			indirect := strings.Contains(line, "// indirect")
-			dep := Dependency{
+			dep := supplychain.Dependency{
 				Name:      parts[0],
 				Current:   parts[1],
-				Ecosystem: EcosystemGoMod,
+				Ecosystem: supplychain.EcosystemGoMod,
 				File:      file.Path,
 				Line:      lineNum,
 				Indirect:  indirect,
@@ -102,9 +103,9 @@ func (m *freshnessModule) checkGoMod(ctx context.Context, file lint.FileInfo) ([
 }
 
 // resolveGoModule queries proxy.golang.org (or custom registry) for the latest version.
-func (m *freshnessModule) resolveGoModule(ctx context.Context, dep *Dependency) {
-	ep := m.cfg.registryEndpoint(EcosystemGoMod)
-	baseURL := m.cfg.registryURL(EcosystemGoMod, "https://proxy.golang.org")
+func (m *Resolver) resolveGoModule(ctx context.Context, dep *supplychain.Dependency) {
+	ep := m.cfg.registryEndpoint(supplychain.EcosystemGoMod)
+	baseURL := m.cfg.registryURL(supplychain.EcosystemGoMod, "https://proxy.golang.org")
 	// The module proxy protocol case-encodes the path: every uppercase letter becomes
 	// "!"+lowercase. Without it, any module with an uppercase letter (e.g.
 	// github.com/Masterminds/...) 404s and is silently reported "unresolved".

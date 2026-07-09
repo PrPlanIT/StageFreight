@@ -4,13 +4,15 @@ import (
 	"fmt"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // mapSeverity converts a VersionDelta into a lint.Severity using the
 // configured severity levels and tolerance thresholds.
 // Returns the severity and a human-readable summary, or ok=false if
 // the delta is within tolerance on all axes.
-func mapSeverity(delta VersionDelta, cfg SeverityConfig) (lint.Severity, string, bool) {
+func mapSeverity(delta version.VersionDelta, cfg discovery.SeverityConfig) (lint.Severity, string, bool) {
 	// Determine the highest-priority axis that exceeds tolerance.
 	// Major > Minor > Patch.
 	type axis struct {
@@ -61,7 +63,7 @@ func intToSeverity(v int) lint.Severity {
 }
 
 // deltaMessage produces a summary like "1 major, 3 minor behind".
-func deltaMessage(d VersionDelta) string {
+func deltaMessage(d version.VersionDelta) string {
 	var parts []string
 	if d.Major > 0 {
 		parts = append(parts, fmt.Sprintf("%d major", d.Major))

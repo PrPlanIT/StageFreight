@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"bytes"
@@ -7,19 +7,22 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // OSV ecosystem identifiers mapped from our internal ecosystem constants.
 // See https://ossf.github.io/osv-schema/#affectedpackage-field
 var osvEcosystemMap = map[string]string{
-	EcosystemGoMod:         "Go",
-	EcosystemNpm:           "npm",
-	EcosystemPip:           "PyPI",
-	EcosystemCargo:         "crates.io",
-	EcosystemAlpineAPK:     "Alpine",
-	EcosystemDebianAPT:     "Debian",
-	EcosystemDockerImage:   "", // no OSV ecosystem for container images
-	EcosystemGitHubRelease: "", // tools checked via GitHub advisories, not OSV
+	supplychain.EcosystemGoMod:         "Go",
+	supplychain.EcosystemNpm:           "npm",
+	supplychain.EcosystemPip:           "PyPI",
+	supplychain.EcosystemCargo:         "crates.io",
+	supplychain.EcosystemAlpineAPK:     "Alpine",
+	supplychain.EcosystemDebianAPT:     "Debian",
+	supplychain.EcosystemDockerImage:   "", // no OSV ecosystem for container images
+	supplychain.EcosystemGitHubRelease: "", // tools checked via GitHub advisories, not OSV
 }
 
 // osvQueryRequest is the POST body for api.osv.dev/v1/query.
@@ -89,7 +92,7 @@ type osvEvent struct {
 
 // correlateVulns queries the OSV API for each dependency and populates
 // the Vulnerabilities field. Only queries ecosystems that OSV supports.
-func (m *freshnessModule) correlateVulns(ctx context.Context, deps []Dependency) {
+func (m *Resolver) correlateVulns(ctx context.Context, deps []supplychain.Dependency) {
 	if !m.cfg.vulnEnabled() {
 		return
 	}
@@ -103,12 +106,12 @@ func (m *freshnessModule) correlateVulns(ctx context.Context, deps []Dependency)
 		}
 
 		// Clean version for OSV query (strip leading 'v').
-		version := strings.TrimPrefix(dep.Current, "v")
-		if version == "" {
+		depVersion := strings.TrimPrefix(dep.Current, "v")
+		if depVersion == "" {
 			continue
 		}
 
-		vulns, err := m.queryOSV(ctx, dep.Name, osvEco, version)
+		vulns, err := m.queryOSV(ctx, dep.Name, osvEco, depVersion)
 		if err != nil {
 			continue // non-fatal
 		}
@@ -126,7 +129,7 @@ func (m *freshnessModule) correlateVulns(ctx context.Context, deps []Dependency)
 			if !meetsMinSeverity(v.Severity, m.cfg.Vulnerability.MinSeverity) {
 				continue
 			}
-			vi := VulnInfo{
+			vi := supplychain.VulnInfo{
 				ID:       v.ID,
 				Summary:  v.Summary,
 				Severity: extractHighestSeverity(v.Severity),
@@ -135,7 +138,7 @@ func (m *freshnessModule) correlateVulns(ctx context.Context, deps []Dependency)
 			}
 			// Skip vulns already fixed in the installed version.
 			if vi.FixedIn != "" {
-				delta := compareDependencyVersions(version, vi.FixedIn, dep.Ecosystem)
+				delta := version.CompareDependencyVersions(depVersion, vi.FixedIn, dep.Ecosystem)
 				if delta.Major < 0 || (delta.Major == 0 && delta.Minor < 0) || (delta.Major == 0 && delta.Minor == 0 && delta.Patch <= 0) {
 					continue
 				}
@@ -147,7 +150,7 @@ func (m *freshnessModule) correlateVulns(ctx context.Context, deps []Dependency)
 
 // queryOSV queries the OSV API for vulnerabilities affecting a specific
 // package version.
-func (m *freshnessModule) queryOSV(ctx context.Context, name, ecosystem, version string) ([]osvVuln, error) {
+func (m *Resolver) queryOSV(ctx context.Context, name, ecosystem, version string) ([]osvVuln, error) {
 	body := osvQueryRequest{
 		Package: &osvPackage{
 			Name:      name,

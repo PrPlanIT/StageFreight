@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"bufio"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // githubReleaseLatest is the response from GitHub's releases/latest endpoint.
@@ -16,28 +17,28 @@ type githubReleaseLatest struct {
 }
 
 // checkTools resolves pinned tool versions (ENV *_VERSION + GitHub URLs).
-func (m *freshnessModule) checkTools(ctx context.Context, file lint.FileInfo, tools []pinnedTool) []Dependency {
+func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []supplychain.PinnedTool) []supplychain.Dependency {
 	// Enrich tools with GitHub owner/repo by scanning for release URLs.
 	ownerRepoMap := scanGitHubURLs(file.AbsPath)
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	for _, tool := range tools {
 		owner, repo := matchToolToGitHub(tool.EnvName, ownerRepoMap)
 		if owner == "" || repo == "" {
 			continue
 		}
 
-		dep := Dependency{
+		dep := supplychain.Dependency{
 			Name:      repo,
 			Current:   strings.TrimPrefix(tool.Version, "v"),
-			Ecosystem: EcosystemGitHubRelease,
+			Ecosystem: supplychain.EcosystemGitHubRelease,
 			File:      file.Path,
 			Line:      tool.Line,
 			Binding:   tool.EnvName,
 		}
 
 		ep := m.cfg.Registries.GitHub
-		baseURL := m.cfg.registryURL(EcosystemGitHubRelease, "https://api.github.com")
+		baseURL := m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com")
 		url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), owner, repo)
 		dep.SourceURL = url
 
@@ -104,8 +105,8 @@ func matchToolToGitHub(envName string, urlMap map[string]bool) (string, string) 
 }
 
 // checkToolsFromDockerfile is the entry point called from checkDockerfile.
-func (m *freshnessModule) checkToolsFromDockerfile(ctx context.Context, file lint.FileInfo, dfInfo *DockerFreshnessInfo) []Dependency {
-	if !m.cfg.sourceEnabled(EcosystemGitHubRelease) {
+func (m *Resolver) checkToolsFromDockerfile(ctx context.Context, file lint.FileInfo, dfInfo *supplychain.DockerFreshnessInfo) []supplychain.Dependency {
+	if !m.cfg.SourceEnabled(supplychain.EcosystemGitHubRelease) {
 		return nil
 	}
 	return m.checkTools(ctx, file, dfInfo.PinnedTools)

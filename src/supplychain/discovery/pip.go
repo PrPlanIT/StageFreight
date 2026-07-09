@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"bufio"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // pypiResponse matches the PyPI JSON API response.
@@ -18,8 +19,8 @@ type pypiResponse struct {
 }
 
 // checkPip parses requirements.txt / Pipfile and resolves latest versions via PyPI.
-func (m *freshnessModule) checkPip(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
-	if !m.cfg.sourceEnabled(EcosystemPip) {
+func (m *Resolver) checkPip(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
+	if !m.cfg.SourceEnabled(supplychain.EcosystemPip) {
 		return nil, nil
 	}
 
@@ -34,14 +35,14 @@ func (m *freshnessModule) checkPip(ctx context.Context, file lint.FileInfo) ([]D
 }
 
 // parseRequirementsTxt handles requirements.txt format.
-func (m *freshnessModule) parseRequirementsTxt(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
+func (m *Resolver) parseRequirementsTxt(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
 	f, err := os.Open(file.AbsPath)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 
@@ -72,10 +73,10 @@ func (m *freshnessModule) parseRequirementsTxt(ctx context.Context, file lint.Fi
 			continue
 		}
 
-		dep := Dependency{
+		dep := supplychain.Dependency{
 			Name:      name,
 			Current:   version,
-			Ecosystem: EcosystemPip,
+			Ecosystem: supplychain.EcosystemPip,
 			File:      file.Path,
 			Line:      lineNum,
 		}
@@ -91,14 +92,14 @@ func (m *freshnessModule) parseRequirementsTxt(ctx context.Context, file lint.Fi
 }
 
 // parsePipfile handles Pipfile format (basic TOML parsing for [packages]).
-func (m *freshnessModule) parsePipfile(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
+func (m *Resolver) parsePipfile(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
 	f, err := os.Open(file.AbsPath)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 	inPackages := false
@@ -134,10 +135,10 @@ func (m *freshnessModule) parsePipfile(ctx context.Context, file lint.FileInfo) 
 			version = strings.TrimLeft(spec, "=~<>!")
 		}
 
-		dep := Dependency{
+		dep := supplychain.Dependency{
 			Name:      name,
 			Current:   version,
-			Ecosystem: EcosystemPip,
+			Ecosystem: supplychain.EcosystemPip,
 			File:      file.Path,
 			Line:      lineNum,
 		}
@@ -171,9 +172,9 @@ func splitPipSpec(spec string) (string, string) {
 }
 
 // resolvePyPI queries PyPI (or custom registry) for the latest version.
-func (m *freshnessModule) resolvePyPI(ctx context.Context, dep *Dependency) {
-	ep := m.cfg.registryEndpoint(EcosystemPip)
-	baseURL := m.cfg.registryURL(EcosystemPip, "https://pypi.org/pypi")
+func (m *Resolver) resolvePyPI(ctx context.Context, dep *supplychain.Dependency) {
+	ep := m.cfg.registryEndpoint(supplychain.EcosystemPip)
+	baseURL := m.cfg.registryURL(supplychain.EcosystemPip, "https://pypi.org/pypi")
 	url := fmt.Sprintf("%s/%s/json", strings.TrimRight(baseURL, "/"), dep.Name)
 	dep.SourceURL = url
 
@@ -187,17 +188,17 @@ func (m *freshnessModule) resolvePyPI(ctx context.Context, dep *Dependency) {
 }
 
 // resolvePipPackages resolves pip packages found in Dockerfile RUN lines.
-func (m *freshnessModule) resolvePipPackages(ctx context.Context, file lint.FileInfo, pkgs []packageRef) []Dependency {
-	var deps []Dependency
+func (m *Resolver) resolvePipPackages(ctx context.Context, file lint.FileInfo, pkgs []supplychain.PackageRef) []supplychain.Dependency {
+	var deps []supplychain.Dependency
 	for _, pkg := range pkgs {
 		if pkg.Version == "" {
 			continue
 		}
 
-		dep := Dependency{
+		dep := supplychain.Dependency{
 			Name:      pkg.Name,
 			Current:   pkg.Version,
-			Ecosystem: EcosystemPip,
+			Ecosystem: supplychain.EcosystemPip,
 			File:      file.Path,
 			Line:      pkg.Line,
 		}

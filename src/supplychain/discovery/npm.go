@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 
 	masterminds "github.com/Masterminds/semver/v3"
 )
@@ -28,8 +30,8 @@ type npmFullDoc struct {
 }
 
 // checkNpm parses package.json and resolves latest versions via registry.npmjs.org.
-func (m *freshnessModule) checkNpm(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
-	if !m.cfg.sourceEnabled(EcosystemNpm) {
+func (m *Resolver) checkNpm(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
+	if !m.cfg.SourceEnabled(supplychain.EcosystemNpm) {
 		return nil, nil
 	}
 
@@ -48,16 +50,16 @@ func (m *freshnessModule) checkNpm(ctx context.Context, file lint.FileInfo) ([]D
 
 	lines := buildLineIndex(data)
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	for name, version := range pkg.Dependencies {
 		ver := stripNpmRange(version)
 		if ver == "" {
 			continue
 		}
-		deps = append(deps, Dependency{
+		deps = append(deps, supplychain.Dependency{
 			Name:      name,
 			Current:   ver,
-			Ecosystem: EcosystemNpm,
+			Ecosystem: supplychain.EcosystemNpm,
 			File:      file.Path,
 			Line:      findLineForJSON(lines, name),
 		})
@@ -68,10 +70,10 @@ func (m *freshnessModule) checkNpm(ctx context.Context, file lint.FileInfo) ([]D
 		if ver == "" {
 			continue
 		}
-		deps = append(deps, Dependency{
+		deps = append(deps, supplychain.Dependency{
 			Name:      name,
 			Current:   ver,
-			Ecosystem: EcosystemNpm,
+			Ecosystem: supplychain.EcosystemNpm,
 			File:      file.Path,
 			Line:      findLineForJSON(lines, name),
 		})
@@ -181,9 +183,9 @@ func stripNpmRange(ver string) string {
 // resolveNpmPackage queries the npm registry for the latest version. With a MinReleaseAge
 // cooldown configured, it recommends the newest STABLE release old enough to clear the
 // window instead of the bleeding edge — the supply-chain safeguard.
-func (m *freshnessModule) resolveNpmPackage(ctx context.Context, dep *Dependency) {
-	ep := m.cfg.registryEndpoint(EcosystemNpm)
-	baseURL := m.cfg.registryURL(EcosystemNpm, "https://registry.npmjs.org")
+func (m *Resolver) resolveNpmPackage(ctx context.Context, dep *supplychain.Dependency) {
+	ep := m.cfg.registryEndpoint(supplychain.EcosystemNpm)
+	baseURL := m.cfg.registryURL(supplychain.EcosystemNpm, "https://registry.npmjs.org")
 
 	// No cooldown → the abbreviated /latest endpoint is enough and cheap.
 	if m.cfg.minReleaseAge() <= 0 {
@@ -236,7 +238,7 @@ func agedLatestNpm(doc npmFullDoc, cutoff time.Time) string {
 		if err != nil || t.After(cutoff) {
 			continue // unparseable, or still inside the cooldown window
 		}
-		v := parseVersion(ver)
+		v := version.ParseVersion(ver)
 		if v == nil || v.Prerelease() != "" {
 			continue // stable releases only
 		}

@@ -14,7 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/workspace"
 )
@@ -144,7 +144,7 @@ type UpdateResult struct {
 
 // AppliedUpdate records a single dependency that was successfully updated.
 type AppliedUpdate struct {
-	Dep         freshness.Dependency
+	Dep         supplychain.Dependency
 	OldVer      string
 	NewVer      string
 	UpdateType  string // "major", "minor", "patch", "tag", "security"
@@ -153,7 +153,7 @@ type AppliedUpdate struct {
 }
 
 // Update resolves, filters, applies, verifies, and generates artifacts for dependency updates.
-func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) (*UpdateResult, error) {
+func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
 	w := cfg.Writer
@@ -356,16 +356,16 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []freshness.Dependency) 
 	return result, nil
 }
 
-func groupByEcosystem(deps []freshness.Dependency) (gomod, docker, tc, cargo []freshness.Dependency) {
+func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo []supplychain.Dependency) {
 	for _, dep := range deps {
 		switch dep.Ecosystem {
-		case freshness.EcosystemGoMod:
+		case supplychain.EcosystemGoMod:
 			gomod = append(gomod, dep)
-		case freshness.EcosystemDockerImage, freshness.EcosystemGitHubRelease:
+		case supplychain.EcosystemDockerImage, supplychain.EcosystemGitHubRelease:
 			docker = append(docker, dep)
-		case freshness.EcosystemToolchain:
+		case supplychain.EcosystemToolchain:
 			tc = append(tc, dep)
-		case freshness.EcosystemCargo:
+		case supplychain.EcosystemCargo:
 			cargo = append(cargo, dep)
 		}
 	}

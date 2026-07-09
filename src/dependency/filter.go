@@ -4,31 +4,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // SkippedDep records a dependency that was not updated, with a reason.
 type SkippedDep struct {
-	Dep    freshness.Dependency
+	Dep    supplychain.Dependency
 	Reason string
 }
 
 // autoUpdatableEcosystems defines which ecosystems can be automatically updated.
 var autoUpdatableEcosystems = map[string]bool{
-	freshness.EcosystemDockerImage:   true,
-	freshness.EcosystemGitHubRelease: true,
-	freshness.EcosystemGoMod:         true,
-	freshness.EcosystemToolchain:     true,
-	freshness.EcosystemCargo:         true,
-	freshness.EcosystemNpm:           false,
-	freshness.EcosystemAlpineAPK:     false,
-	freshness.EcosystemDebianAPT:     false,
-	freshness.EcosystemPip:           false,
+	supplychain.EcosystemDockerImage:   true,
+	supplychain.EcosystemGitHubRelease: true,
+	supplychain.EcosystemGoMod:         true,
+	supplychain.EcosystemToolchain:     true,
+	supplychain.EcosystemCargo:         true,
+	supplychain.EcosystemNpm:           false,
+	supplychain.EcosystemAlpineAPK:     false,
+	supplychain.EcosystemDebianAPT:     false,
+	supplychain.EcosystemPip:           false,
 }
 
 // FilterUpdateCandidates separates deps into actionable candidates and skipped.
 // Each skipped dep gets an explicit reason string.
-func FilterUpdateCandidates(deps []freshness.Dependency, cfg UpdateConfig, trackedFiles map[string]bool) (candidates []freshness.Dependency, skipped []SkippedDep) {
+func FilterUpdateCandidates(deps []supplychain.Dependency, cfg UpdateConfig, trackedFiles map[string]bool) (candidates []supplychain.Dependency, skipped []SkippedDep) {
 	ecosystemFilter := make(map[string]bool, len(cfg.Ecosystems))
 	for _, e := range cfg.Ecosystems {
 		ecosystemFilter[e] = true
@@ -50,7 +50,7 @@ func FilterUpdateCandidates(deps []freshness.Dependency, cfg UpdateConfig, track
 // match case-insensitively. A malformed or expired `until` is treated as expired: it must
 // never silently drop a real finding. A dependency whose every advisory is ignored is
 // left with zero vulnerabilities and thus falls out of security-policy scope.
-func ApplyIgnores(deps []freshness.Dependency, ignores []VulnIgnore, now time.Time) []freshness.Dependency {
+func ApplyIgnores(deps []supplychain.Dependency, ignores []VulnIgnore, now time.Time) []supplychain.Dependency {
 	active := make(map[string]bool, len(ignores))
 	for _, ig := range ignores {
 		id := strings.ToUpper(strings.TrimSpace(ig.ID))
@@ -68,7 +68,7 @@ func ApplyIgnores(deps []freshness.Dependency, ignores []VulnIgnore, now time.Ti
 	if len(active) == 0 {
 		return deps
 	}
-	out := make([]freshness.Dependency, len(deps))
+	out := make([]supplychain.Dependency, len(deps))
 	copy(out, deps)
 	for i := range out {
 		if len(out[i].Vulnerabilities) == 0 {
@@ -86,7 +86,7 @@ func ApplyIgnores(deps []freshness.Dependency, ignores []VulnIgnore, now time.Ti
 	return out
 }
 
-func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
+func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
 	// Vulnerability remediation is a FLOOR, not a policy preference — a vulnerable indirect is
 	// remediated under EVERY policy. The transitive-management assumption (bump a direct
 	// parent → `go mod tidy` pulls the fix) has demonstrably FAILED for it: nothing on the
@@ -152,7 +152,7 @@ func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[
 	}
 
 	// Docker-image specific skips
-	if dep.Ecosystem == freshness.EcosystemDockerImage {
+	if dep.Ecosystem == supplychain.EcosystemDockerImage {
 		if reason := dockerImageSkipReason(dep); reason != "" {
 			return reason
 		}
@@ -161,7 +161,7 @@ func skipReason(dep freshness.Dependency, cfg UpdateConfig, ecosystemFilter map[
 	return ""
 }
 
-func dockerImageSkipReason(dep freshness.Dependency) string {
+func dockerImageSkipReason(dep supplychain.Dependency) string {
 	name := dep.Name
 
 	// Digest-pinned images

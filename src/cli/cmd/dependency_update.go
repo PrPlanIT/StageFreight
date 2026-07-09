@@ -14,8 +14,10 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/dependency"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/lint"
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // Exit codes for dependency update.
@@ -118,7 +120,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve dependencies
-	deps, err := freshness.ResolveDeps(ctx, freshnessOpts, files)
+	deps, err := discovery.Resolve(ctx, freshnessOpts, files)
 	if err != nil {
 		output.SectionEnd(w, "sf_deps_resolve")
 		return &ExitError{Code: exitUpdateFail, Err: fmt.Errorf("resolving dependencies: %w", err)}
@@ -219,7 +221,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.UpdateConfig, deps []freshness.Dependency) error {
+func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.UpdateConfig, deps []supplychain.Dependency) error {
 	output.SectionStart(w, "sf_deps_dryrun", "Dry Run")
 	start := time.Now()
 
@@ -293,18 +295,18 @@ func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.Updat
 	return nil
 }
 
-func dryRunUpdateType(dep freshness.Dependency) string {
+func dryRunUpdateType(dep supplychain.Dependency) string {
 	// Classify against the eligible IN-LINE target the update will apply, not the
 	// family-wide newest (which may be an out-of-line major held for review).
 	target := dep.UpdateTarget()
 	if target == "" || dep.Current == target {
 		return "tag"
 	}
-	delta := freshness.CompareDependencyVersions(dep.Current, target, dep.Ecosystem)
+	delta := version.CompareDependencyVersions(dep.Current, target, dep.Ecosystem)
 	if delta.IsZero() {
 		return "tag"
 	}
-	return freshness.DominantUpdateType(delta)
+	return version.DominantUpdateType(delta)
 }
 
 // discoverRepoRootFromDir finds the git repository root from the given directory.

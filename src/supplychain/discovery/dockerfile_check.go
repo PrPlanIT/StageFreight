@@ -1,24 +1,26 @@
-package freshness
+package discovery
 
 import (
 	"context"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // checkDockerfile is the top-level dispatcher for Dockerfile freshness.
 // It parses the file once, then fans out to sub-checkers for images,
 // tools, apk, apt, and pip.
-func (m *freshnessModule) checkDockerfile(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
+func (m *Resolver) checkDockerfile(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
 	dfInfo, err := parseDockerfileForFreshness(file.AbsPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 
 	// Base image freshness
-	if m.cfg.sourceEnabled(EcosystemDockerImage) {
+	if m.cfg.SourceEnabled(supplychain.EcosystemDockerImage) {
 		deps = append(deps, m.checkImages(ctx, file, dfInfo.Stages)...)
 	}
 
@@ -26,7 +28,7 @@ func (m *freshnessModule) checkDockerfile(ctx context.Context, file lint.FileInf
 	deps = append(deps, m.checkToolsFromDockerfile(ctx, file, dfInfo)...)
 
 	// Alpine APK packages
-	if m.cfg.sourceEnabled(EcosystemAlpineAPK) && len(dfInfo.ApkPackages) > 0 {
+	if m.cfg.SourceEnabled(supplychain.EcosystemAlpineAPK) && len(dfInfo.ApkPackages) > 0 {
 		alpineVer := detectAlpineVersion(dfInfo.Stages)
 		if alpineVer != "" {
 			apkDeps := m.checkAPK(ctx, file, dfInfo.ApkPackages, alpineVer)
@@ -35,7 +37,7 @@ func (m *freshnessModule) checkDockerfile(ctx context.Context, file lint.FileInf
 	}
 
 	// Debian/Ubuntu APT packages
-	if m.cfg.sourceEnabled(EcosystemDebianAPT) && len(dfInfo.AptPackages) > 0 {
+	if m.cfg.SourceEnabled(supplychain.EcosystemDebianAPT) && len(dfInfo.AptPackages) > 0 {
 		distro, codename := detectDebianDistro(dfInfo.Stages)
 		if distro != "" && codename != "" {
 			aptDeps := m.checkAPT(ctx, file, dfInfo.AptPackages, distro, codename)
@@ -44,7 +46,7 @@ func (m *freshnessModule) checkDockerfile(ctx context.Context, file lint.FileInf
 	}
 
 	// pip packages found in RUN pip install
-	if m.cfg.sourceEnabled(EcosystemPip) && len(dfInfo.PipPackages) > 0 {
+	if m.cfg.SourceEnabled(supplychain.EcosystemPip) && len(dfInfo.PipPackages) > 0 {
 		pipDeps := m.resolvePipPackages(ctx, file, dfInfo.PipPackages)
 		deps = append(deps, pipDeps...)
 	}
@@ -54,28 +56,28 @@ func (m *freshnessModule) checkDockerfile(ctx context.Context, file lint.FileInf
 
 // detectAlpineVersion extracts the Alpine version from base images.
 // e.g. "alpine:3.22" → "3.22", "golang:1.25-alpine3.22" → "3.22"
-func detectAlpineVersion(stages []stageInfo) string {
+func detectAlpineVersion(stages []supplychain.StageInfo) string {
 	for _, s := range stages {
-		_, tag := splitImageTag(s.Image)
+		_, tag := SplitImageTag(s.Image)
 		if tag == "" {
 			continue
 		}
 		// Direct alpine image
-		image, _ := splitImageTag(s.Image)
-		ns, repo := splitImageNamespace(image)
+		image, _ := SplitImageTag(s.Image)
+		ns, repo := SplitImageNamespace(image)
 		if (ns == "library" || ns == "") && repo == "alpine" {
-			dt := decomposeTag(tag)
+			dt := version.DecomposeTag(tag)
 			if dt.Version != nil {
 				return tag
 			}
 		}
 		// Suffix-based (e.g. "1.25-alpine3.22")
-		dt := decomposeTag(tag)
+		dt := version.DecomposeTag(tag)
 		if dt.Suffix != "" {
 			// Look for "alpine" prefix in suffix, e.g. "alpine3.22"
 			if len(dt.Suffix) > 6 && dt.Suffix[:6] == "alpine" {
 				ver := dt.Suffix[6:]
-				if v := parseVersion(ver); v != nil {
+				if v := version.ParseVersion(ver); v != nil {
 					return ver
 				}
 			}
@@ -90,13 +92,13 @@ func detectAlpineVersion(stages []stageInfo) string {
 
 // detectDebianDistro detects Debian/Ubuntu from base images.
 // Returns (distro, codename) e.g. ("debian", "bookworm") or ("ubuntu", "noble").
-func detectDebianDistro(stages []stageInfo) (string, string) {
+func detectDebianDistro(stages []supplychain.StageInfo) (string, string) {
 	for _, s := range stages {
-		image, tag := splitImageTag(s.Image)
+		image, tag := SplitImageTag(s.Image)
 		if tag == "" {
 			continue
 		}
-		_, repo := splitImageNamespace(image)
+		_, repo := SplitImageNamespace(image)
 
 		switch repo {
 		case "debian":
@@ -106,7 +108,7 @@ func detectDebianDistro(stages []stageInfo) (string, string) {
 		}
 
 		// Check suffix for debian/ubuntu base
-		dt := decomposeTag(tag)
+		dt := version.DecomposeTag(tag)
 		if dt.Suffix != "" {
 			for _, d := range []string{"bookworm", "bullseye", "buster", "trixie"} {
 				if dt.Suffix == d {

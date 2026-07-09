@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
@@ -60,7 +60,7 @@ func resolveCargoRunner(repoRoot string) (cargoRunner, error) {
 // line-edit discipline as the Dockerfile updater, then runs `cargo update` to sync each
 // crate's Cargo.lock. Returns applied/skipped plus touched files (Cargo.toml and, when
 // the lock changes, Cargo.lock per crate).
-func applyCargoUpdates(ctx context.Context, deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, CargoChurn, error) {
+func applyCargoUpdates(ctx context.Context, deps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, CargoChurn, error) {
 	var applied []AppliedUpdate
 	var skipped []SkippedDep
 
@@ -243,7 +243,7 @@ func cargoDeclaresWorkspace(manifest []byte) bool {
 // e.g. `serde = "1.0.150"` or `tokio = { version = "1.0.150", features = [...] }`.
 // Replaces the first occurrence of the current version so the crate name is never
 // touched. Returns the new line + a skip reason (empty if eligible).
-func buildCargoReplacement(dep freshness.Dependency, origLine string) (string, string) {
+func buildCargoReplacement(dep supplychain.Dependency, origLine string) (string, string) {
 	if dep.Current == "" {
 		return origLine, "no current version to replace"
 	}

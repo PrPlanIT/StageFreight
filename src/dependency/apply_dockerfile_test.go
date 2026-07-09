@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // buildFromReplacement must do a targeted swap of the resolved tag, preserving
@@ -13,8 +13,8 @@ import (
 // (the freshness layer guarantees the version line + variant), the apply layer
 // keeps the "fpm-alpine" variant intact.
 func TestBuildFromReplacement_PreservesVariant(t *testing.T) {
-	dep := freshness.Dependency{
-		Ecosystem: freshness.EcosystemDockerImage,
+	dep := supplychain.Dependency{
+		Ecosystem: supplychain.EcosystemDockerImage,
 		Current:   "8.3-fpm-alpine",
 		Latest:    "8.3.15-fpm-alpine",
 	}
@@ -31,8 +31,8 @@ func TestBuildFromReplacement_PreservesVariant(t *testing.T) {
 // the true-latest awareness value. With Latest now correctly set to the
 // out-of-line "8.5.7-fpm-alpine3.23", the FROM line must still go to 8.3.15.
 func TestBuildFromReplacement_BumpsToEligibleNotLatest(t *testing.T) {
-	dep := freshness.Dependency{
-		Ecosystem:      freshness.EcosystemDockerImage,
+	dep := supplychain.Dependency{
+		Ecosystem:      supplychain.EcosystemDockerImage,
 		Current:        "8.3-fpm-alpine",
 		Latest:         "8.5.7-fpm-alpine3.23",
 		LatestEligible: "8.3.15-fpm-alpine",
@@ -50,8 +50,8 @@ func TestBuildFromReplacement_BumpsToEligibleNotLatest(t *testing.T) {
 // release / ENV pins), UpdateTarget falls back to Latest, so behavior is
 // unchanged: the bump goes to Latest.
 func TestBuildEnvReplacement_FallsBackToLatest(t *testing.T) {
-	dep := freshness.Dependency{
-		Ecosystem: freshness.EcosystemGitHubRelease,
+	dep := supplychain.Dependency{
+		Ecosystem: supplychain.EcosystemGitHubRelease,
 		Current:   "1.2.3",
 		Latest:    "1.5.0",
 		Binding:   "FOO_VERSION",
@@ -75,16 +75,16 @@ func TestApplyDockerfileUpdates_FromLineBump(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dep := freshness.Dependency{
+	dep := supplychain.Dependency{
 		Name:      "php:8.3-fpm-alpine",
-		Ecosystem: freshness.EcosystemDockerImage,
+		Ecosystem: supplychain.EcosystemDockerImage,
 		Current:   "8.3-fpm-alpine",
 		Latest:    "8.3.15-fpm-alpine",
 		File:      "Dockerfile",
 		Line:      1,
 	}
 
-	applied, skipped, touched, err := applyDockerfileUpdates([]freshness.Dependency{dep}, dir)
+	applied, skipped, touched, err := applyDockerfileUpdates([]supplychain.Dependency{dep}, dir)
 	if err != nil {
 		t.Fatalf("applyDockerfileUpdates: %v", err)
 	}

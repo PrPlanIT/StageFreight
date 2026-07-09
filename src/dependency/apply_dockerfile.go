@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // NormalizeSkipReason maps internal parser-detail skip reasons to operator-facing language.
@@ -40,7 +40,7 @@ var (
 
 // dockerfileEdit represents a pending line replacement with hash guard.
 type dockerfileEdit struct {
-	dep      freshness.Dependency
+	dep      supplychain.Dependency
 	line     int // 1-based line number
 	origHash [32]byte
 	newLine  string
@@ -48,7 +48,7 @@ type dockerfileEdit struct {
 
 // applyDockerfileUpdates applies Dockerfile dependency updates.
 // Returns touchedFiles (repo-root-relative Dockerfile paths) as the 3rd value.
-func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
+func applyDockerfileUpdates(deps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
 	var applied []AppliedUpdate
 	var skipped []SkippedDep
 
@@ -132,11 +132,11 @@ func applyDockerfileUpdates(deps []freshness.Dependency, repoRoot string) ([]App
 
 // buildReplacement constructs the replacement line for a Dockerfile dependency.
 // Returns the new line and a skip reason (empty if eligible).
-func buildReplacement(dep freshness.Dependency, origLine string) (string, string) {
+func buildReplacement(dep supplychain.Dependency, origLine string) (string, string) {
 	switch dep.Ecosystem {
-	case freshness.EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage:
 		return buildFromReplacement(dep, origLine)
-	case freshness.EcosystemGitHubRelease:
+	case supplychain.EcosystemGitHubRelease:
 		return buildEnvReplacement(dep, origLine)
 	default:
 		return origLine, "unsupported ecosystem for Dockerfile edit"
@@ -144,7 +144,7 @@ func buildReplacement(dep freshness.Dependency, origLine string) (string, string
 }
 
 // buildFromReplacement handles FROM line image tag replacement.
-func buildFromReplacement(dep freshness.Dependency, origLine string) (string, string) {
+func buildFromReplacement(dep supplychain.Dependency, origLine string) (string, string) {
 	m := fromRe.FindStringSubmatch(origLine)
 	if m == nil {
 		return origLine, "line does not match FROM pattern"
@@ -175,7 +175,7 @@ func buildFromReplacement(dep freshness.Dependency, origLine string) (string, st
 // buildEnvReplacement handles ENV VERSION line replacement.
 // Supports both single-var (ENV KEY=VALUE) and multi-var (ENV K1=V1 K2=V2) lines.
 // Uses dep.Binding (the ENV var name) to locate the specific key=value pair.
-func buildEnvReplacement(dep freshness.Dependency, origLine string) (string, string) {
+func buildEnvReplacement(dep supplychain.Dependency, origLine string) (string, string) {
 	// If Binding is set, use it for targeted replacement within multi-var lines.
 	if dep.Binding != "" {
 		// Build a regex that finds this specific binding anywhere in the line:

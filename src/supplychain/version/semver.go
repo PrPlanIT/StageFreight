@@ -1,20 +1,22 @@
-package freshness
+package version
 
 import (
 	"fmt"
 	"strings"
 	"unicode"
 
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+
 	masterminds "github.com/Masterminds/semver/v3"
 )
 
-// latestEligibleSemver returns the highest version in `available` that is
+// LatestEligibleSemver returns the highest version in `available` that is
 // semver-COMPATIBLE with the caret range of `current` (^current). It is the safe
 // autonomous-update target — a version OUTSIDE this range is a constraint-expanding
 // major upgrade, held for review. Generic across semver ecosystems (cargo first;
 // npm/pip/etc. plug in the same way). Empty if `current` is unparseable or nothing
 // in range. Yanked/prerelease filtering is the caller's job (it has the metadata).
-func latestEligibleSemver(current string, available []string) string {
+func LatestEligibleSemver(current string, available []string) string {
 	constraint, err := masterminds.NewConstraint("^" + strings.TrimSpace(current))
 	if err != nil {
 		return ""
@@ -45,7 +47,7 @@ func (d VersionDelta) IsZero() bool {
 	return d.Major == 0 && d.Minor == 0 && d.Patch == 0
 }
 
-// decomposedTag holds the semver portion and any suffix of a container tag.
+// DecomposedTag holds the semver portion and any suffix of a container tag.
 // Example: "1.25-alpine" → Version "1.25.0", Suffix "alpine", Family "alpine"
 //
 //	"3.22.1"      → Version "3.22.1", Suffix "",       Family ""
@@ -56,7 +58,7 @@ func (d VersionDelta) IsZero() bool {
 // consumers (detectAlpineVersion, detectDebianDistro). Family is a normalized
 // key used only for tag grouping — it strips per-release metadata like commit
 // hashes, rebuild numbers, and pre-release counters.
-type decomposedTag struct {
+type DecomposedTag struct {
 	Version   *masterminds.Version
 	Suffix    string // raw suffix after first hyphen (unchanged for downstream consumers)
 	Family    string // normalized family key for grouping
@@ -66,7 +68,7 @@ type decomposedTag struct {
 	Raw       string
 }
 
-// decomposeTag splits a tag string into its semver version, suffix, and
+// DecomposeTag splits a tag string into its semver version, suffix, and
 // normalized family key. Returns a non-nil Version when the tag starts with
 // a parseable version.
 //
@@ -74,8 +76,8 @@ type decomposedTag struct {
 //  1. MinIO RELEASE.YYYY-MM-DDTHH-MM-SSZ → encoded as semver date
 //  2. sha-<hash> prefix → non-versioned, Family "sha"
 //  3. Standard decomposition with progressive parsing for 4+ dot versions
-func decomposeTag(tag string) decomposedTag {
-	dt := decomposedTag{Raw: tag}
+func DecomposeTag(tag string) DecomposedTag {
+	dt := DecomposedTag{Raw: tag}
 
 	// Stage 1: MinIO RELEASE detection.
 	// RELEASE.2025-09-07T16-13-09Z → Version encoded as YYYYMMDD.HHMMSS.0
@@ -344,8 +346,8 @@ func extractTrailingNumber(s string) int {
 
 // compareVersionStrings compares two bare version strings (no tag suffix).
 func compareVersionStrings(current, latest string) VersionDelta {
-	cur := parseVersion(current)
-	lat := parseVersion(latest)
+	cur := ParseVersion(current)
+	lat := ParseVersion(latest)
 	if cur == nil || lat == nil {
 		return VersionDelta{}
 	}
@@ -387,9 +389,9 @@ func CompareVersions(v, target, ecosystem string) int {
 // before semver comparison; all other ecosystems use plain semver.
 func compareDependencyVersions(current, latest, ecosystem string) VersionDelta {
 	switch ecosystem {
-	case EcosystemAlpineAPK:
+	case supplychain.EcosystemAlpineAPK:
 		return compareAPKVersions(current, latest)
-	case EcosystemDebianAPT:
+	case supplychain.EcosystemDebianAPT:
 		return compareAPTVersions(current, latest)
 	default:
 		return compareVersionStrings(current, latest)
@@ -406,8 +408,8 @@ func compareAPKVersions(current, latest string) VersionDelta {
 	curUp, curRev := splitAPKRevision(current)
 	latUp, latRev := splitAPKRevision(latest)
 
-	curVer := parseVersion(stripAPKSuffixes(curUp))
-	latVer := parseVersion(stripAPKSuffixes(latUp))
+	curVer := ParseVersion(stripAPKSuffixes(curUp))
+	latVer := ParseVersion(stripAPKSuffixes(latUp))
 
 	if curVer == nil || latVer == nil {
 		return VersionDelta{}
@@ -471,8 +473,8 @@ func compareAPTVersions(current, latest string) VersionDelta {
 	curEpoch, curUp, curRev := splitAPTVersion(current)
 	latEpoch, latUp, latRev := splitAPTVersion(latest)
 
-	curVer := parseVersion(stripAPTSuffixes(curUp))
-	latVer := parseVersion(stripAPTSuffixes(latUp))
+	curVer := ParseVersion(stripAPTSuffixes(curUp))
+	latVer := ParseVersion(stripAPTSuffixes(latUp))
 
 	if curVer == nil || latVer == nil {
 		return VersionDelta{}
@@ -536,8 +538,8 @@ func stripAPTSuffixes(ver string) string {
 	return ver
 }
 
-// parseVersion attempts to parse a version string, stripping leading 'v'.
-func parseVersion(s string) *masterminds.Version {
+// ParseVersion attempts to parse a version string, stripping leading 'v'.
+func ParseVersion(s string) *masterminds.Version {
 	clean := strings.TrimPrefix(s, "v")
 	v, err := masterminds.NewVersion(clean)
 	if err != nil {
@@ -560,11 +562,11 @@ func countVersionPrecision(versionPart string) int {
 	return n
 }
 
-// isVersionLike reports whether value looks like a semver/numeric version,
+// IsVersionLike reports whether value looks like a semver/numeric version,
 // optionally with a leading "v" (e.g. "1.2.3", "8.3", "v0.31.1"). Branch names
 // and arbitrary refs ("develop", "master", "main") are NOT version-like and must
 // not be treated as updatable dependencies.
-func isVersionLike(value string) bool {
+func IsVersionLike(value string) bool {
 	v := strings.TrimSpace(value)
 	v = strings.TrimPrefix(v, "v")
 	if v == "" || v[0] < '0' || v[0] > '9' {
@@ -574,15 +576,15 @@ func isVersionLike(value string) bool {
 	return err == nil
 }
 
-// filterTagsByVersionLine returns tags that pin the SAME version line and the
+// FilterTagsByVersionLine returns tags that pin the SAME version line and the
 // EXACT same variant suffix as current. The version line is defined by current's
 // precision: precision 1 ("8") constrains to the same major; precision ≥2
 // ("8.3", "8.3.1") constrains to the same major AND minor. This respects the
 // line the current tag pins and preserves its variant — so "8.3-fpm-alpine"
 // never jumps to "8.4"/"8.5" and never changes to "fpm-alpine3.23". Tilde-style
 // (version-line) semantics, distinct from the caret range used for Go/Cargo.
-func filterTagsByVersionLine(tags []string, current decomposedTag) []decomposedTag {
-	var out []decomposedTag
+func FilterTagsByVersionLine(tags []string, current DecomposedTag) []DecomposedTag {
+	var out []DecomposedTag
 	if current.Version == nil {
 		return out
 	}
@@ -591,8 +593,8 @@ func filterTagsByVersionLine(tags []string, current decomposedTag) []decomposedT
 		depth = 2
 	}
 	for _, t := range tags {
-		dt := decomposeTag(t)
-		if dt.Version == nil || isDateLikeVersion(dt.Version) {
+		dt := DecomposeTag(t)
+		if dt.Version == nil || IsDateLikeVersion(dt.Version) {
 			continue
 		}
 		// Exact same variant suffix (keep "fpm-alpine", reject "fpm-alpine3.23").
@@ -610,30 +612,30 @@ func filterTagsByVersionLine(tags []string, current decomposedTag) []decomposedT
 	return out
 }
 
-// filterTagsByFamily returns tags from the list that share the same normalized
+// FilterTagsByFamily returns tags from the list that share the same normalized
 // family key, excluding date-like tags (e.g. "20220328") that aren't real semver.
-func filterTagsByFamily(tags []string, family string) []decomposedTag {
-	var out []decomposedTag
+func FilterTagsByFamily(tags []string, family string) []DecomposedTag {
+	var out []DecomposedTag
 	for _, t := range tags {
-		dt := decomposeTag(t)
-		if dt.Version != nil && dt.Family == family && !isDateLikeVersion(dt.Version) {
+		dt := DecomposeTag(t)
+		if dt.Version != nil && dt.Family == family && !IsDateLikeVersion(dt.Version) {
 			out = append(out, dt)
 		}
 	}
 	return out
 }
 
-// isDateLikeVersion returns true if the version looks like a date (YYYYMMDD)
+// IsDateLikeVersion returns true if the version looks like a date (YYYYMMDD)
 // rather than real semver. These show up in Docker Hub tags for Alpine, Ubuntu,
 // etc. and would otherwise win any semver comparison (20220328.0.0 > 3.22.1).
-func isDateLikeVersion(v *masterminds.Version) bool {
+func IsDateLikeVersion(v *masterminds.Version) bool {
 	// Date tags are single-component numbers >= 19700101 with no minor/patch.
 	return v.Minor() == 0 && v.Patch() == 0 && v.Major() >= 19700101
 }
 
-// latestInFamily finds the best version among decomposed tags, preferring
+// LatestInFamily finds the best version among decomposed tags, preferring
 // stable releases over pre-releases at the same version.
-func latestInFamily(tags []decomposedTag) *decomposedTag {
+func LatestInFamily(tags []DecomposedTag) *DecomposedTag {
 	if len(tags) == 0 {
 		return nil
 	}
@@ -650,7 +652,7 @@ func latestInFamily(tags []decomposedTag) *decomposedTag {
 // Stable releases always beat pre-releases at the same version.
 // Among pre-releases at the same version, higher rank (lower number) wins,
 // then higher pre-release number wins.
-func tagNewer(a, b *decomposedTag) bool {
+func tagNewer(a, b *DecomposedTag) bool {
 	if a.Version.GreaterThan(b.Version) {
 		return true
 	}
@@ -675,4 +677,16 @@ func CompareDependencyVersions(current, latest, ecosystem string) VersionDelta {
 // It returns "major", "minor", or "patch" for the highest-priority axis in a delta.
 func DominantUpdateType(d VersionDelta) string {
 	return dominantUpdateType(d)
+}
+
+// dominantUpdateType returns "major", "minor", or "patch" for the
+// highest-priority axis in a delta.
+func dominantUpdateType(d VersionDelta) string {
+	if d.Major > 0 {
+		return "major"
+	}
+	if d.Minor > 0 {
+		return "minor"
+	}
+	return "patch"
 }

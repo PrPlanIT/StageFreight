@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -14,7 +14,7 @@ import (
 // Uses section-scoped line-level YAML editing to preserve file structure and comments.
 // Only edits version lines within the toolchains.desired section — never touches
 // identically-named keys elsewhere in the file.
-func applyToolchainDesiredUpdates(deps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
+func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
 	configPath := filepath.Join(repoRoot, ".stagefreight.yml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {

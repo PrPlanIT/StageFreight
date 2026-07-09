@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -24,8 +26,8 @@ type cratesIOResponse struct {
 }
 
 // checkCargo parses Cargo.toml and resolves latest versions via crates.io.
-func (m *freshnessModule) checkCargo(ctx context.Context, file lint.FileInfo) ([]Dependency, error) {
-	if !m.cfg.sourceEnabled(EcosystemCargo) {
+func (m *Resolver) checkCargo(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
+	if !m.cfg.SourceEnabled(supplychain.EcosystemCargo) {
 		return nil, nil
 	}
 
@@ -44,7 +46,7 @@ func (m *freshnessModule) checkCargo(ctx context.Context, file lint.FileInfo) ([
 	}
 
 	// Convert to dependencies
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	lines := buildLineIndex(data)
 
 	for name, spec := range cargo.Dependencies {
@@ -52,10 +54,10 @@ func (m *freshnessModule) checkCargo(ctx context.Context, file lint.FileInfo) ([
 		if ver == "" {
 			continue
 		}
-		deps = append(deps, Dependency{
+		deps = append(deps, supplychain.Dependency{
 			Name:      name,
 			Current:   ver,
-			Ecosystem: EcosystemCargo,
+			Ecosystem: supplychain.EcosystemCargo,
 			File:      file.Path,
 			Line:      findLineForKey(lines, name),
 		})
@@ -66,10 +68,10 @@ func (m *freshnessModule) checkCargo(ctx context.Context, file lint.FileInfo) ([
 		if ver == "" {
 			continue
 		}
-		deps = append(deps, Dependency{
+		deps = append(deps, supplychain.Dependency{
 			Name:      name,
 			Current:   ver,
-			Ecosystem: EcosystemCargo,
+			Ecosystem: supplychain.EcosystemCargo,
 			File:      file.Path,
 			Line:      findLineForKey(lines, name),
 		})
@@ -86,7 +88,7 @@ func (m *freshnessModule) checkCargo(ctx context.Context, file lint.FileInfo) ([
 	if locked := loadCargoLockVersions(findNearestFile(filepath.Dir(file.AbsPath), "Cargo.lock")); locked != nil {
 		for i := range deps {
 			if vers := locked[deps[i].Name]; len(vers) > 0 {
-				if resolved := latestEligibleSemver(deps[i].Current, vers); resolved != "" {
+				if resolved := version.LatestEligibleSemver(deps[i].Current, vers); resolved != "" {
 					deps[i].Current = resolved
 				}
 			}
@@ -177,9 +179,9 @@ func stripCargoRange(ver string) string {
 }
 
 // resolveCrate queries crates.io (or custom registry) for the latest version.
-func (m *freshnessModule) resolveCrate(ctx context.Context, dep *Dependency) {
-	ep := m.cfg.registryEndpoint(EcosystemCargo)
-	baseURL := m.cfg.registryURL(EcosystemCargo, "https://crates.io/api/v1")
+func (m *Resolver) resolveCrate(ctx context.Context, dep *supplychain.Dependency) {
+	ep := m.cfg.registryEndpoint(supplychain.EcosystemCargo)
+	baseURL := m.cfg.registryURL(supplychain.EcosystemCargo, "https://crates.io/api/v1")
 	url := fmt.Sprintf("%s/crates/%s", strings.TrimRight(baseURL, "/"), dep.Name)
 	dep.SourceURL = url
 
@@ -206,7 +208,7 @@ func (m *freshnessModule) resolveCrate(ctx context.Context, dep *Dependency) {
 			nums = append(nums, v.Num)
 		}
 	}
-	dep.LatestEligible = latestEligibleSemver(dep.Current, nums)
+	dep.LatestEligible = version.LatestEligibleSemver(dep.Current, nums)
 }
 
 // buildLineIndex creates a map from content lines for lookup.

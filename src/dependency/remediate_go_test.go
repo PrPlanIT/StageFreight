@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 func TestMaxFixedVersion(t *testing.T) {
-	dep := freshness.Dependency{
-		Ecosystem: freshness.EcosystemGoMod,
-		Vulnerabilities: []freshness.VulnInfo{
+	dep := supplychain.Dependency{
+		Ecosystem: supplychain.EcosystemGoMod,
+		Vulnerabilities: []supplychain.VulnInfo{
 			{ID: "a", FixedIn: "0.53.0"},
 			{ID: "b", FixedIn: "0.55.0"}, // highest — the version that clears ALL advisories
 			{ID: "c", FixedIn: ""},       // no known fix → ignored
@@ -20,7 +20,7 @@ func TestMaxFixedVersion(t *testing.T) {
 	if got := maxFixedVersion(dep); got != "0.55.0" {
 		t.Fatalf("maxFixedVersion = %q, want 0.55.0", got)
 	}
-	if got := maxFixedVersion(freshness.Dependency{}); got != "" {
+	if got := maxFixedVersion(supplychain.Dependency{}); got != "" {
 		t.Fatalf("maxFixedVersion(no advisories) = %q, want empty", got)
 	}
 }
@@ -85,9 +85,9 @@ func TestResponsibleParentModule(t *testing.T) {
 
 func TestApplyIgnores(t *testing.T) {
 	now := time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC)
-	deps := []freshness.Dependency{
-		{Name: "x/net", Vulnerabilities: []freshness.VulnInfo{{ID: "GHSA-aaa"}, {ID: "GHSA-bbb"}}},
-		{Name: "x/text", Vulnerabilities: []freshness.VulnInfo{{ID: "GHSA-ccc"}}},
+	deps := []supplychain.Dependency{
+		{Name: "x/net", Vulnerabilities: []supplychain.VulnInfo{{ID: "GHSA-aaa"}, {ID: "GHSA-bbb"}}},
+		{Name: "x/text", Vulnerabilities: []supplychain.VulnInfo{{ID: "GHSA-ccc"}}},
 	}
 	ignores := []VulnIgnore{
 		{ID: "ghsa-aaa"},                      // case-insensitive, no expiry → suppress
@@ -108,7 +108,7 @@ func TestApplyIgnores(t *testing.T) {
 
 	// A malformed `until` is treated as expired — never silently drop a real finding.
 	bad := ApplyIgnores(
-		[]freshness.Dependency{{Vulnerabilities: []freshness.VulnInfo{{ID: "GHSA-xyz"}}}},
+		[]supplychain.Dependency{{Vulnerabilities: []supplychain.VulnInfo{{ID: "GHSA-xyz"}}}},
 		[]VulnIgnore{{ID: "GHSA-xyz", Until: "not-a-date"}}, now)
 	if len(bad[0].Vulnerabilities) != 1 {
 		t.Fatalf("malformed until should not suppress; got %v", bad[0].Vulnerabilities)
@@ -143,7 +143,7 @@ func TestParseGoGetConflict(t *testing.T) {
 	}
 }
 
-func vulnIDList(d freshness.Dependency) []string {
+func vulnIDList(d supplychain.Dependency) []string {
 	ids := make([]string, 0, len(d.Vulnerabilities))
 	for _, v := range d.Vulnerabilities {
 		ids = append(ids, v.ID)

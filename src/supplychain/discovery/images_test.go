@@ -1,6 +1,11 @@
-package freshness
+package discovery
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
+)
 
 // selectImageVersions must split the two model targets correctly:
 //   - Latest         = TRUE newest in the family (awareness; drives MajorAvailable)
@@ -80,7 +85,7 @@ func TestSelectImageVersions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			current := decomposeTag(tc.current)
+			current := version.DecomposeTag(tc.current)
 			latest, eligible := selectImageVersions(current, tc.tags)
 			if latest != tc.wantLatest {
 				t.Errorf("Latest = %q, want %q", latest, tc.wantLatest)
@@ -92,7 +97,7 @@ func TestSelectImageVersions(t *testing.T) {
 			if eligible != tc.wantElig {
 				t.Errorf("LatestEligible = %q, want %q", eligible, tc.wantElig)
 			}
-			dep := Dependency{Current: tc.current, Latest: latest, LatestEligible: eligible}
+			dep := supplychain.Dependency{Current: tc.current, Latest: latest, LatestEligible: eligible}
 			if dep.MajorAvailable() != tc.wantMajor {
 				t.Errorf("MajorAvailable = %v, want %v", dep.MajorAvailable(), tc.wantMajor)
 			}
@@ -126,7 +131,7 @@ func TestSelectImageVersions_RealisticPhpTags(t *testing.T) {
 		"8.3-fpm",
 		"latest",
 	}
-	current := decomposeTag("8.3-fpm-alpine")
+	current := version.DecomposeTag("8.3-fpm-alpine")
 	latest, eligible := selectImageVersions(current, tags)
 
 	if latest != "8.5.7-fpm-alpine3.23" {
@@ -137,69 +142,11 @@ func TestSelectImageVersions_RealisticPhpTags(t *testing.T) {
 	}
 
 	// Model behavior: in-line PATCH bump to 8.3.31, with the out-of-line major flagged.
-	dep := Dependency{Current: "8.3-fpm-alpine", Latest: latest, LatestEligible: eligible}
+	dep := supplychain.Dependency{Current: "8.3-fpm-alpine", Latest: latest, LatestEligible: eligible}
 	if dep.UpdateTarget() != "8.3.31-fpm-alpine" {
 		t.Errorf("UpdateTarget = %q, want 8.3.31-fpm-alpine", dep.UpdateTarget())
 	}
 	if !dep.MajorAvailable() {
 		t.Error("MajorAvailable = false, want true (8.5.7 exists out of line)")
-	}
-}
-
-// precision must reflect the numeric components of the ORIGINAL tag token.
-func TestCountVersionPrecision(t *testing.T) {
-	cases := map[string]int{
-		"8":           1,
-		"8.3":         2,
-		"8.3.1":       3,
-		"1.40.2.8395": 4,
-		"noble":       0,
-	}
-	for in, want := range cases {
-		if got := countVersionPrecision(in); got != want {
-			t.Errorf("countVersionPrecision(%q) = %d, want %d", in, got, want)
-		}
-	}
-}
-
-func TestIsVersionLike(t *testing.T) {
-	versionLike := []string{"1.2.3", "8.3", "8", "v0.31.1", "1.18.4", "v2"}
-	for _, v := range versionLike {
-		if !isVersionLike(v) {
-			t.Errorf("isVersionLike(%q) = false, want true", v)
-		}
-	}
-	notVersionLike := []string{"develop", "master", "main", "release-1.2", "latest", "", "  "}
-	for _, v := range notVersionLike {
-		if isVersionLike(v) {
-			t.Errorf("isVersionLike(%q) = true, want false", v)
-		}
-	}
-}
-
-// A *_VERSION whose value is a branch ref (develop) must NOT be classified as a
-// pinned, updatable tool. A real version value (1.2.3) must be.
-func TestCrossRefTools_SkipsBranchRef(t *testing.T) {
-	info := &DockerFreshnessInfo{
-		EnvVars: map[string]envVar{
-			"OSTICKET_PLUGINS_VERSION": {Name: "OSTICKET_PLUGINS_VERSION", Value: "develop", Line: 10},
-			"BAR_VERSION":              {Name: "BAR_VERSION", Value: "1.2.3", Line: 11},
-		},
-	}
-	tools := crossRefTools(info)
-
-	byName := make(map[string]pinnedTool, len(tools))
-	for _, tl := range tools {
-		byName[tl.EnvName] = tl
-	}
-	if _, ok := byName["OSTICKET_PLUGINS_VERSION"]; ok {
-		t.Error("branch ref OSTICKET_PLUGINS_VERSION=develop was classified as a pinned tool; want skipped")
-	}
-	bar, ok := byName["BAR_VERSION"]
-	if !ok {
-		t.Fatal("BAR_VERSION=1.2.3 was not classified as a pinned tool; want kept")
-	}
-	if bar.Version != "1.2.3" {
-		t.Errorf("BAR_VERSION value = %q, want 1.2.3", bar.Version)
 	}
 }

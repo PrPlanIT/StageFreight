@@ -3,7 +3,7 @@ package dependency
 import (
 	"testing"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // TestFilterUpdateCandidates_PolicyMatrix locks the scoping principle:
@@ -14,11 +14,11 @@ import (
 // The headline regression: a vulnerable INDIRECT under `all` must be remediated, not skipped
 // as "indirect dependency" (the bug that left downstream repos with an unfixable critical).
 func TestFilterUpdateCandidates_PolicyMatrix(t *testing.T) {
-	vuln := []freshness.VulnInfo{{ID: "GHSA-5cv4-jp36-h3mw", Severity: "CRITICAL", FixedIn: "0.55.0"}}
-	dep := func(indirect bool, vulns []freshness.VulnInfo, cur, latest string) freshness.Dependency {
-		return freshness.Dependency{
+	vuln := []supplychain.VulnInfo{{ID: "GHSA-5cv4-jp36-h3mw", Severity: "CRITICAL", FixedIn: "0.55.0"}}
+	dep := func(indirect bool, vulns []supplychain.VulnInfo, cur, latest string) supplychain.Dependency {
+		return supplychain.Dependency{
 			Name:            "golang.org/x/net",
-			Ecosystem:       freshness.EcosystemGoMod, // auto-updatable
+			Ecosystem:       supplychain.EcosystemGoMod, // auto-updatable
 			File:            "go.mod",
 			Current:         cur,
 			Latest:          latest,
@@ -29,7 +29,7 @@ func TestFilterUpdateCandidates_PolicyMatrix(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		dep        freshness.Dependency
+		dep        supplychain.Dependency
 		policy     string
 		wantCand   bool   // true = candidate; false = skipped
 		wantReason string // expected skip reason when skipped
@@ -44,7 +44,7 @@ func TestFilterUpdateCandidates_PolicyMatrix(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cands, skipped := FilterUpdateCandidates([]freshness.Dependency{tc.dep}, UpdateConfig{Policy: tc.policy}, nil)
+			cands, skipped := FilterUpdateCandidates([]supplychain.Dependency{tc.dep}, UpdateConfig{Policy: tc.policy}, nil)
 			if tc.wantCand {
 				if len(cands) != 1 {
 					t.Fatalf("want candidate, got skipped: %+v", skipped)

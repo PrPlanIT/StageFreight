@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"bufio"
@@ -10,12 +10,14 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // checkAPK resolves Alpine APK package freshness by parsing APKINDEX.
-func (m *freshnessModule) checkAPK(ctx context.Context, file lint.FileInfo, pkgs []packageRef, alpineVer string) []Dependency {
+func (m *Resolver) checkAPK(ctx context.Context, file lint.FileInfo, pkgs []supplychain.PackageRef, alpineVer string) []supplychain.Dependency {
 	// Parse the Alpine major.minor from the version string.
-	v := parseVersion(alpineVer)
+	v := version.ParseVersion(alpineVer)
 	if v == nil {
 		return nil
 	}
@@ -23,7 +25,7 @@ func (m *freshnessModule) checkAPK(ctx context.Context, file lint.FileInfo, pkgs
 
 	// Fetch and parse APKINDEX for the main repository.
 	ep := m.cfg.Registries.Alpine
-	baseURL := m.cfg.registryURL(EcosystemAlpineAPK, "https://dl-cdn.alpinelinux.org/alpine")
+	baseURL := m.cfg.registryURL(supplychain.EcosystemAlpineAPK, "https://dl-cdn.alpinelinux.org/alpine")
 	indexURL := fmt.Sprintf("%s/%s/main/x86_64/APKINDEX.tar.gz", strings.TrimRight(baseURL, "/"), branch)
 	pkgVersions, err := m.fetchAPKIndex(ctx, indexURL, ep)
 	if err != nil {
@@ -41,7 +43,7 @@ func (m *freshnessModule) checkAPK(ctx context.Context, file lint.FileInfo, pkgs
 		}
 	}
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	for _, pkg := range pkgs {
 		if pkg.Version == "" {
 			continue // unpinned — nothing to compare
@@ -52,11 +54,11 @@ func (m *freshnessModule) checkAPK(ctx context.Context, file lint.FileInfo, pkgs
 			continue
 		}
 
-		deps = append(deps, Dependency{
+		deps = append(deps, supplychain.Dependency{
 			Name:      pkg.Name,
 			Current:   pkg.Version,
 			Latest:    repoVer,
-			Ecosystem: EcosystemAlpineAPK,
+			Ecosystem: supplychain.EcosystemAlpineAPK,
 			File:      file.Path,
 			Line:      pkg.Line,
 			SourceURL: indexURL,
@@ -68,7 +70,7 @@ func (m *freshnessModule) checkAPK(ctx context.Context, file lint.FileInfo, pkgs
 
 // fetchAPKIndex downloads and parses an APKINDEX.tar.gz file.
 // Returns a map of package name → version.
-func (m *freshnessModule) fetchAPKIndex(ctx context.Context, url string, ep *RegistryEndpoint) (map[string]string, error) {
+func (m *Resolver) fetchAPKIndex(ctx context.Context, url string, ep *RegistryEndpoint) (map[string]string, error) {
 	data, err := m.http.fetchBytes(ctx, url, ep)
 	if err != nil {
 		return nil, err

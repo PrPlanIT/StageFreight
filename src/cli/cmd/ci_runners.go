@@ -29,10 +29,10 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/lint"
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/PrPlanIT/StageFreight/src/test"
 	"github.com/PrPlanIT/StageFreight/src/trace"
@@ -513,7 +513,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		return nil, fmt.Errorf("collecting files: %w", err)
 	}
 
-	deps, err := freshness.ResolveDeps(ctx, freshnessOpts, files)
+	deps, err := discovery.Resolve(ctx, freshnessOpts, files)
 	if err != nil {
 		output.SectionEnd(w, "sf_deps_resolve")
 		return nil, fmt.Errorf("resolving dependencies: %w", err)

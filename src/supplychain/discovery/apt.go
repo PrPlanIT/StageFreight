@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"bufio"
@@ -10,10 +10,11 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // checkAPT resolves Debian/Ubuntu APT package freshness by parsing Packages.gz.
-func (m *freshnessModule) checkAPT(ctx context.Context, file lint.FileInfo, pkgs []packageRef, distro, codename string) []Dependency {
+func (m *Resolver) checkAPT(ctx context.Context, file lint.FileInfo, pkgs []supplychain.PackageRef, distro, codename string) []supplychain.Dependency {
 	url := m.aptRepoURL(distro, codename)
 	if url == "" {
 		return nil
@@ -25,7 +26,7 @@ func (m *freshnessModule) checkAPT(ctx context.Context, file lint.FileInfo, pkgs
 		return nil
 	}
 
-	var deps []Dependency
+	var deps []supplychain.Dependency
 	for _, pkg := range pkgs {
 		if pkg.Version == "" {
 			continue // unpinned
@@ -36,11 +37,11 @@ func (m *freshnessModule) checkAPT(ctx context.Context, file lint.FileInfo, pkgs
 			continue
 		}
 
-		deps = append(deps, Dependency{
+		deps = append(deps, supplychain.Dependency{
 			Name:      pkg.Name,
 			Current:   pkg.Version,
 			Latest:    repoVer,
-			Ecosystem: EcosystemDebianAPT,
+			Ecosystem: supplychain.EcosystemDebianAPT,
 			File:      file.Path,
 			Line:      pkg.Line,
 			SourceURL: url,
@@ -51,7 +52,7 @@ func (m *freshnessModule) checkAPT(ctx context.Context, file lint.FileInfo, pkgs
 }
 
 // aptRepoURL returns the Packages.gz URL, using custom registry if configured.
-func (m *freshnessModule) aptRepoURL(distro, codename string) string {
+func (m *Resolver) aptRepoURL(distro, codename string) string {
 	switch distro {
 	case "debian":
 		ep := m.cfg.Registries.Debian
@@ -71,7 +72,7 @@ func (m *freshnessModule) aptRepoURL(distro, codename string) string {
 }
 
 // aptEndpoint returns the registry endpoint for the distro.
-func (m *freshnessModule) aptEndpoint(distro string) *RegistryEndpoint {
+func (m *Resolver) aptEndpoint(distro string) *RegistryEndpoint {
 	switch distro {
 	case "debian":
 		return m.cfg.Registries.Debian
@@ -84,7 +85,7 @@ func (m *freshnessModule) aptEndpoint(distro string) *RegistryEndpoint {
 
 // fetchPackagesGz downloads and parses a Packages.gz file.
 // Returns a map of package name → version.
-func (m *freshnessModule) fetchPackagesGz(ctx context.Context, url string, ep *RegistryEndpoint) (map[string]string, error) {
+func (m *Resolver) fetchPackagesGz(ctx context.Context, url string, ep *RegistryEndpoint) (map[string]string, error) {
 	data, err := m.http.fetchBytes(ctx, url, ep)
 	if err != nil {
 		return nil, err

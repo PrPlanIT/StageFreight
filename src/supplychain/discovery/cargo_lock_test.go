@@ -1,9 +1,11 @@
-package freshness
+package discovery
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 func TestCargoLockResolution(t *testing.T) {
@@ -41,7 +43,7 @@ version = "0.10.81"
 		{"openssl", "0.10", "0.10.81"}, // patched
 	}
 	for _, c := range cases {
-		got := latestEligibleSemver(c.declared, m[c.name])
+		got := version.LatestEligibleSemver(c.declared, m[c.name])
 		if got != c.want {
 			t.Errorf("%s declared %q → resolved %q, want %q (locked: %v)", c.name, c.declared, got, c.want, m[c.name])
 		}

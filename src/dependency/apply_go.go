@@ -11,9 +11,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -58,7 +59,7 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 // direct parents and their compatible targets. Returns touched module dirs (repoRoot-
 // relative) as the 3rd value, and touched files (go.mod, go.sum per module) as the 4th —
 // only dirs/files where the update(s) succeeded.
-func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []freshness.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
+func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
 	// Check for go.work — workspace mode uses -C with relative paths
 	hasWorkspace := false
 	if _, err := os.Stat(filepath.Join(repoRoot, "go.work")); err == nil {
@@ -70,7 +71,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []
 	directNames := make(map[string]bool)
 	directTargets := make(map[string]string)
 	for _, d := range allDeps {
-		if d.Ecosystem != freshness.EcosystemGoMod || d.Indirect {
+		if d.Ecosystem != supplychain.EcosystemGoMod || d.Indirect {
 			continue
 		}
 		directNames[d.Name] = true
@@ -82,7 +83,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []
 	// Group deps by module dir (derived from dep.File)
 	type moduleGroup struct {
 		dir  string // repoRoot-relative
-		deps []freshness.Dependency
+		deps []supplychain.Dependency
 	}
 	groupMap := make(map[string]*moduleGroup)
 	for _, dep := range deps {
@@ -90,7 +91,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []
 		if g, ok := groupMap[dir]; ok {
 			g.deps = append(g.deps, dep)
 		} else {
-			groupMap[dir] = &moduleGroup{dir: dir, deps: []freshness.Dependency{dep}}
+			groupMap[dir] = &moduleGroup{dir: dir, deps: []supplychain.Dependency{dep}}
 		}
 	}
 
@@ -147,7 +148,7 @@ func applyGoUpdates(ctx context.Context, deps []freshness.Dependency, allDeps []
 		// Split candidates: vulnerable indirects route through the security remediator
 		// (parent-bump-or-pin, FixedIn target — see remediate_go.go); everything else is a
 		// normal batched `go get @Latest`.
-		var normal, vulnIndirect []freshness.Dependency
+		var normal, vulnIndirect []supplychain.Dependency
 		for _, dep := range group.deps {
 			if replaceSet != nil && replaceSet[dep.Name] {
 				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "replace directive present"})
@@ -241,7 +242,7 @@ type ToolchainDependency struct {
 // hasAppliedGolangBuilderUpdate returns true if any applied update was a golang builder image.
 func hasAppliedGolangBuilderUpdate(applied []AppliedUpdate) bool {
 	for _, a := range applied {
-		if a.Dep.Ecosystem == freshness.EcosystemDockerImage && isGolangImage(a.Dep.Name) {
+		if a.Dep.Ecosystem == supplychain.EcosystemDockerImage && isGolangImage(a.Dep.Name) {
 			return true
 		}
 	}
@@ -258,9 +259,9 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 			strings.Join(conflict.Versions, " vs "),
 			strings.Join(conflict.Sources, ", "))
 		result.Skipped = append(result.Skipped, SkippedDep{
-			Dep: freshness.Dependency{
+			Dep: supplychain.Dependency{
 				Name:      "stdlib",
-				Ecosystem: freshness.EcosystemGoMod,
+				Ecosystem: supplychain.EcosystemGoMod,
 				File:      moduleGoModPath(conflict.ModuleDir),
 			},
 			Reason: detail,
@@ -300,11 +301,11 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 		}
 
 		result.Applied = append(result.Applied, AppliedUpdate{
-			Dep: freshness.Dependency{
+			Dep: supplychain.Dependency{
 				Name:      "stdlib",
 				Current:   cur,
 				Latest:    t.GoVersion,
-				Ecosystem: freshness.EcosystemGoMod,
+				Ecosystem: supplychain.EcosystemGoMod,
 				File:      moduleGoModPath(t.ModuleDir),
 			},
 			OldVer:     cur,
@@ -351,7 +352,7 @@ func collectGoDirectiveSyncTargets(repoRoot string, applied []AppliedUpdate) goD
 	conflicted := make(map[string]bool)
 
 	for _, a := range applied {
-		if a.Dep.Ecosystem != freshness.EcosystemDockerImage || !isGolangImage(a.Dep.Name) {
+		if a.Dep.Ecosystem != supplychain.EcosystemDockerImage || !isGolangImage(a.Dep.Name) {
 			continue
 		}
 
@@ -413,7 +414,7 @@ func collectToolchainDepsFromResolved(resolved goDirectiveSyncResult, applied []
 	// Index applied golang builder updates by Dockerfile path
 	bySource := make(map[string]AppliedUpdate)
 	for _, a := range applied {
-		if a.Dep.Ecosystem == freshness.EcosystemDockerImage && isGolangImage(a.Dep.Name) {
+		if a.Dep.Ecosystem == supplychain.EcosystemDockerImage && isGolangImage(a.Dep.Name) {
 			bySource[a.Dep.File] = a
 		}
 	}
@@ -444,7 +445,7 @@ func collectConflictDetail(applied []AppliedUpdate, repoRoot, moduleDir string) 
 	var sources []string
 
 	for _, a := range applied {
-		if a.Dep.Ecosystem != freshness.EcosystemDockerImage || !isGolangImage(a.Dep.Name) {
+		if a.Dep.Ecosystem != supplychain.EcosystemDockerImage || !isGolangImage(a.Dep.Name) {
 			continue
 		}
 		goVer := extractGoVersionFromTag(a.NewVer)
@@ -537,12 +538,12 @@ func extractGoVersionFromTag(tag string) string {
 // detectGoDirectiveDrift scans all resolved dependencies for golang builder images
 // whose version is strictly newer than the corresponding go.mod directive. Returns
 // sync targets for modules where the Dockerfile's golang version exceeds go.mod.
-func detectGoDirectiveDrift(repoRoot string, allDeps []freshness.Dependency) goDirectiveSyncResult {
+func detectGoDirectiveDrift(repoRoot string, allDeps []supplychain.Dependency) goDirectiveSyncResult {
 	byModuleDir := make(map[string]goDirectiveSyncTarget)
 	conflicted := make(map[string]bool)
 
 	for _, dep := range allDeps {
-		if dep.Ecosystem != freshness.EcosystemDockerImage || !isGolangImage(dep.Name) {
+		if dep.Ecosystem != supplychain.EcosystemDockerImage || !isGolangImage(dep.Name) {
 			continue
 		}
 
@@ -566,7 +567,7 @@ func detectGoDirectiveDrift(repoRoot string, allDeps []freshness.Dependency) goD
 		if cur == "" {
 			continue
 		}
-		delta := freshness.CompareDependencyVersions(cur, goVer, freshness.EcosystemGoMod)
+		delta := version.CompareDependencyVersions(cur, goVer, supplychain.EcosystemGoMod)
 		if delta.Major <= 0 && delta.Minor <= 0 && delta.Patch <= 0 {
 			continue // go.mod is equal or newer — no drift
 		}
@@ -725,7 +726,7 @@ func detectReplaceDirectives(moduleDir string) (map[string]bool, error) {
 
 // updateType determines the semver update type between two versions.
 func updateType(current, latest string) string {
-	delta := freshness.CompareDependencyVersions(current, latest, freshness.EcosystemGoMod)
+	delta := version.CompareDependencyVersions(current, latest, supplychain.EcosystemGoMod)
 	if delta.IsZero() {
 		return "tag"
 	}

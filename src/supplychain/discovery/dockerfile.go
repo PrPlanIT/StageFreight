@@ -1,48 +1,14 @@
-package freshness
+package discovery
 
 import (
 	"bufio"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
-
-// DockerFreshnessInfo holds everything extracted from a Dockerfile
-// relevant to freshness checking.
-type DockerFreshnessInfo struct {
-	Stages      []stageInfo
-	EnvVars     map[string]envVar
-	PinnedTools []pinnedTool
-	ApkPackages []packageRef
-	AptPackages []packageRef
-	PipPackages []packageRef
-}
-
-type stageInfo struct {
-	Image string // full image reference (e.g. "golang:1.25-alpine")
-	Name  string // AS alias
-	Line  int
-}
-
-type envVar struct {
-	Name  string
-	Value string
-	Line  int
-}
-
-type pinnedTool struct {
-	EnvName string // e.g. "BUILDX_VERSION"
-	Version string // e.g. "v0.31.1"
-	Owner   string // GitHub owner
-	Repo    string // GitHub repo
-	Line    int    // line of the ENV declaration
-}
-
-type packageRef struct {
-	Name    string
-	Version string // empty if unpinned
-	Line    int
-}
 
 var (
 	// FROM [--platform=...] <image> [AS <name>]
@@ -61,15 +27,15 @@ var (
 
 // parseDockerfileForFreshness does a richer parse than build.ParseDockerfile,
 // extracting ENV vars, RUN-line package installs, and pinned tool patterns.
-func parseDockerfileForFreshness(path string) (*DockerFreshnessInfo, error) {
+func parseDockerfileForFreshness(path string) (*supplychain.DockerFreshnessInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	info := &DockerFreshnessInfo{
-		EnvVars: make(map[string]envVar),
+	info := &supplychain.DockerFreshnessInfo{
+		EnvVars: make(map[string]supplychain.EnvVar),
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -84,7 +50,7 @@ func parseDockerfileForFreshness(path string) (*DockerFreshnessInfo, error) {
 
 		// FROM
 		if m := fromRe.FindStringSubmatch(line); m != nil {
-			stage := stageInfo{Image: m[1], Line: endLine}
+			stage := supplychain.StageInfo{Image: m[1], Line: endLine}
 			if len(m) > 2 {
 				stage.Name = m[2]
 			}
@@ -105,7 +71,7 @@ func parseDockerfileForFreshness(path string) (*DockerFreshnessInfo, error) {
 			value := strings.TrimSpace(m[2])
 			value = strings.Trim(value, `"'`)
 			if strings.HasSuffix(strings.ToUpper(name), "_VERSION") {
-				info.EnvVars[name] = envVar{Name: name, Value: value, Line: endLine}
+				info.EnvVars[name] = supplychain.EnvVar{Name: name, Value: value, Line: endLine}
 			}
 			return
 		}
@@ -159,7 +125,7 @@ func parseDockerfileForFreshness(path string) (*DockerFreshnessInfo, error) {
 //	New-style (multi-var):   ENV K1=V1 K2=V2 K3="value with spaces"
 //
 // New-style is detected by the presence of '=' in the first token.
-func parseEnvLine(info *DockerFreshnessInfo, body string, line int) {
+func parseEnvLine(info *supplychain.DockerFreshnessInfo, body string, line int) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return
@@ -179,7 +145,7 @@ func parseEnvLine(info *DockerFreshnessInfo, body string, line int) {
 		name := body[:firstSpace]
 		value := strings.TrimSpace(body[firstSpace+1:])
 		value = strings.Trim(value, `"'`)
-		info.EnvVars[name] = envVar{Name: name, Value: value, Line: line}
+		info.EnvVars[name] = supplychain.EnvVar{Name: name, Value: value, Line: line}
 		return
 	}
 
@@ -188,7 +154,7 @@ func parseEnvLine(info *DockerFreshnessInfo, body string, line int) {
 		name := body[:firstSpace]
 		value := strings.TrimSpace(body[firstSpace+1:])
 		value = strings.Trim(value, `"'`)
-		info.EnvVars[name] = envVar{Name: name, Value: value, Line: line}
+		info.EnvVars[name] = supplychain.EnvVar{Name: name, Value: value, Line: line}
 		return
 	}
 
@@ -233,12 +199,12 @@ func parseEnvLine(info *DockerFreshnessInfo, body string, line int) {
 			}
 		}
 
-		info.EnvVars[name] = envVar{Name: name, Value: value, Line: line}
+		info.EnvVars[name] = supplychain.EnvVar{Name: name, Value: value, Line: line}
 	}
 }
 
 // parseRunLine extracts package installs and GitHub URLs from a RUN instruction body.
-func parseRunLine(info *DockerFreshnessInfo, body string, line int) {
+func parseRunLine(info *supplychain.DockerFreshnessInfo, body string, line int) {
 	// Split on && to handle chained commands
 	cmds := strings.Split(body, "&&")
 	for _, cmd := range cmds {
@@ -271,8 +237,8 @@ func parseRunLine(info *DockerFreshnessInfo, body string, line int) {
 }
 
 // parsePackageList splits "pkg1=ver pkg2 pkg3=ver" into packageRefs.
-func parsePackageList(raw string, versionSep string) []packageRef {
-	var refs []packageRef
+func parsePackageList(raw string, versionSep string) []supplychain.PackageRef {
+	var refs []supplychain.PackageRef
 	fields := strings.Fields(raw)
 	for _, field := range fields {
 		// Skip flags like --no-cache, -y, etc.
@@ -283,7 +249,7 @@ func parsePackageList(raw string, versionSep string) []packageRef {
 		if field == `\` {
 			continue
 		}
-		pr := packageRef{}
+		pr := supplychain.PackageRef{}
 		if idx := strings.Index(field, versionSep); idx >= 0 {
 			pr.Name = field[:idx]
 			pr.Version = field[idx+len(versionSep):]
@@ -300,11 +266,11 @@ func parsePackageList(raw string, versionSep string) []packageRef {
 
 // crossRefTools matches ENV *_VERSION variables with GitHub release URLs
 // found in RUN lines to identify pinned tool versions.
-func crossRefTools(info *DockerFreshnessInfo) []pinnedTool {
+func crossRefTools(info *supplychain.DockerFreshnessInfo) []supplychain.PinnedTool {
 	// Collect all GitHub owner/repo pairs from the Dockerfile.
 	// We scan the raw stages aren't enough — we need the full RUN lines.
 	// Re-read isn't needed since we already have EnvVars.
-	var tools []pinnedTool
+	var tools []supplychain.PinnedTool
 
 	for name, ev := range info.EnvVars {
 		if !strings.HasSuffix(strings.ToUpper(name), "_VERSION") {
@@ -313,12 +279,12 @@ func crossRefTools(info *DockerFreshnessInfo) []pinnedTool {
 		// Skip *_VERSION entries whose value is a branch/ref rather than a
 		// version (e.g. "develop", "master", an arbitrary branch). These are
 		// not updatable dependencies and must never be rewritten to a release tag.
-		if !isVersionLike(ev.Value) {
+		if !version.IsVersionLike(ev.Value) {
 			continue
 		}
 		// For now, record the tool. The GitHub owner/repo resolution
 		// happens in tools.go where we have the full file content.
-		tools = append(tools, pinnedTool{
+		tools = append(tools, supplychain.PinnedTool{
 			EnvName: name,
 			Version: ev.Value,
 			Line:    ev.Line,

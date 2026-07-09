@@ -18,7 +18,8 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -138,9 +139,9 @@ func writeResolveJSON(path string, result *UpdateResult) error {
 		dep := s.Dep
 		ut := "tag"
 		if dep.Latest != "" && dep.Current != dep.Latest {
-			delta := freshness.CompareDependencyVersions(dep.Current, dep.Latest, dep.Ecosystem)
+			delta := depversion.CompareDependencyVersions(dep.Current, dep.Latest, dep.Ecosystem)
 			if !delta.IsZero() {
-				ut = freshness.DominantUpdateType(delta)
+				ut = depversion.DominantUpdateType(delta)
 			}
 		}
 		rj.Deps = append(rj.Deps, resolveDepJSON{
@@ -429,30 +430,30 @@ func writeBundle(ctx context.Context, repoRoot, bundleFile string, filesChanged 
 }
 
 // sourceShortName returns a short resolver name for a dependency.
-func sourceShortName(dep freshness.Dependency) string {
+func sourceShortName(dep supplychain.Dependency) string {
 	switch dep.Ecosystem {
-	case freshness.EcosystemGoMod:
+	case supplychain.EcosystemGoMod:
 		return "proxy.golang.org"
-	case freshness.EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage:
 		return "dockerhub"
-	case freshness.EcosystemGitHubRelease:
+	case supplychain.EcosystemGitHubRelease:
 		return "github"
-	case freshness.EcosystemNpm:
+	case supplychain.EcosystemNpm:
 		return "npmjs"
-	case freshness.EcosystemPip:
+	case supplychain.EcosystemPip:
 		return "pypi"
-	case freshness.EcosystemCargo:
+	case supplychain.EcosystemCargo:
 		return "crates.io"
-	case freshness.EcosystemAlpineAPK:
+	case supplychain.EcosystemAlpineAPK:
 		return "alpine"
-	case freshness.EcosystemDebianAPT:
+	case supplychain.EcosystemDebianAPT:
 		return "debian"
 	default:
 		return "unknown"
 	}
 }
 
-func vulnsToJSON(vulns []freshness.VulnInfo) []vulnJSON {
+func vulnsToJSON(vulns []supplychain.VulnInfo) []vulnJSON {
 	out := make([]vulnJSON, len(vulns))
 	for i, v := range vulns {
 		out[i] = vulnJSON{

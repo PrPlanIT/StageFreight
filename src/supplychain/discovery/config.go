@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // FreshnessConfig holds per-source toggles, severity mapping, package rules,
@@ -199,11 +201,11 @@ func DefaultConfig() FreshnessConfig {
 	}
 }
 
-// cacheTTL returns the cache TTL as a time.Duration.
+// CacheTTL returns the cache TTL as a time.Duration.
 //   - >0 → cache with expiry (e.g. 300 → 5m)
 //   - 0  → cache forever (content-hash only)
 //   - <0 → never cache (always re-run)
-func (c *FreshnessConfig) cacheTTL() time.Duration {
+func (c *FreshnessConfig) CacheTTL() time.Duration {
 	if c.CacheTTLSecs < 0 {
 		return -1 // signal "never cache" to engine
 	}
@@ -218,9 +220,9 @@ func (c *FreshnessConfig) vulnEnabled() bool {
 	return *c.Vulnerability.Enabled
 }
 
-// vulnSeverityOverride returns whether CVE-affected deps should be
+// VulnSeverityOverride returns whether CVE-affected deps should be
 // escalated to critical regardless of version delta.
-func (c *FreshnessConfig) vulnSeverityOverride() bool {
+func (c *FreshnessConfig) VulnSeverityOverride() bool {
 	if c.Vulnerability.SeverityOverride == nil {
 		return true // default on
 	}
@@ -246,8 +248,8 @@ func parseConfig(opts map[string]any) (FreshnessConfig, error) {
 	return cfg, nil
 }
 
-// sourceEnabled checks whether a particular ecosystem is turned on.
-func (c *FreshnessConfig) sourceEnabled(ecosystem string) bool {
+// SourceEnabled checks whether a particular ecosystem is turned on.
+func (c *FreshnessConfig) SourceEnabled(ecosystem string) bool {
 	check := func(flag *bool) bool {
 		if flag == nil {
 			return true // default on
@@ -255,30 +257,30 @@ func (c *FreshnessConfig) sourceEnabled(ecosystem string) bool {
 		return *flag
 	}
 	switch ecosystem {
-	case EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage:
 		return check(c.Sources.DockerImages)
-	case EcosystemGitHubRelease:
+	case supplychain.EcosystemGitHubRelease:
 		return check(c.Sources.GitHubReleases)
-	case EcosystemGoMod:
+	case supplychain.EcosystemGoMod:
 		return check(c.Sources.GoModules)
-	case EcosystemCargo:
+	case supplychain.EcosystemCargo:
 		return check(c.Sources.RustCrates)
-	case EcosystemNpm:
+	case supplychain.EcosystemNpm:
 		return check(c.Sources.NpmPackages)
-	case EcosystemAlpineAPK:
+	case supplychain.EcosystemAlpineAPK:
 		return check(c.Sources.AlpineAPK)
-	case EcosystemDebianAPT:
+	case supplychain.EcosystemDebianAPT:
 		return check(c.Sources.DebianAPT)
-	case EcosystemPip:
+	case supplychain.EcosystemPip:
 		return check(c.Sources.PipPackages)
 	default:
 		return true
 	}
 }
 
-// isIgnored returns true if name matches any ignore glob or a package rule
+// IsIgnored returns true if name matches any ignore glob or a package rule
 // disables it.
-func (c *FreshnessConfig) isIgnored(name string) bool {
+func (c *FreshnessConfig) IsIgnored(name string) bool {
 	for _, pattern := range c.Ignore {
 		if matched, _ := filepath.Match(pattern, name); matched {
 			return true
@@ -289,7 +291,7 @@ func (c *FreshnessConfig) isIgnored(name string) bool {
 
 // matchRule finds the first PackageRule that matches a dependency.
 // Returns nil if no rule matches. All specified match fields must match (AND).
-func (c *FreshnessConfig) matchRule(dep Dependency, updateType string) *PackageRule {
+func (c *FreshnessConfig) matchRule(dep supplychain.Dependency, updateType string) *PackageRule {
 	for i := range c.PackageRules {
 		rule := &c.PackageRules[i]
 		if !ruleMatches(rule, dep, updateType) {
@@ -302,7 +304,7 @@ func (c *FreshnessConfig) matchRule(dep Dependency, updateType string) *PackageR
 
 // ruleMatches checks if all specified match fields on a rule match the dep.
 // hasVuln indicates whether the dependency has known vulnerabilities.
-func ruleMatches(rule *PackageRule, dep Dependency, updateType string) bool {
+func ruleMatches(rule *PackageRule, dep supplychain.Dependency, updateType string) bool {
 	// match_vulnerability: if set, dep must have (or not have) vulns.
 	if rule.MatchVulnerability != nil {
 		depHasVuln := len(dep.Vulnerabilities) > 0
@@ -356,9 +358,9 @@ func ruleMatches(rule *PackageRule, dep Dependency, updateType string) bool {
 	return true
 }
 
-// effectiveSeverity returns the severity config for a dependency,
+// EffectiveSeverity returns the severity config for a dependency,
 // checking packageRules first, then falling back to the global config.
-func (c *FreshnessConfig) effectiveSeverity(dep Dependency, updateType string) SeverityConfig {
+func (c *FreshnessConfig) EffectiveSeverity(dep supplychain.Dependency, updateType string) SeverityConfig {
 	rule := c.matchRule(dep, updateType)
 	if rule != nil && rule.Severity != nil {
 		// Merge: rule fields override global, zero values mean "use global".
@@ -367,8 +369,8 @@ func (c *FreshnessConfig) effectiveSeverity(dep Dependency, updateType string) S
 	return c.Severity
 }
 
-// isDisabledByRule checks if a package rule explicitly disables this dep.
-func (c *FreshnessConfig) isDisabledByRule(dep Dependency) bool {
+// IsDisabledByRule checks if a package rule explicitly disables this dep.
+func (c *FreshnessConfig) IsDisabledByRule(dep supplychain.Dependency) bool {
 	rule := c.matchRule(dep, "")
 	if rule != nil && rule.Enabled != nil {
 		return !*rule.Enabled
@@ -376,8 +378,8 @@ func (c *FreshnessConfig) isDisabledByRule(dep Dependency) bool {
 	return false
 }
 
-// groupForDep returns the group name assigned by a matching package rule.
-func (c *FreshnessConfig) groupForDep(dep Dependency, updateType string) string {
+// GroupForDep returns the group name assigned by a matching package rule.
+func (c *FreshnessConfig) GroupForDep(dep supplychain.Dependency, updateType string) string {
 	rule := c.matchRule(dep, updateType)
 	if rule != nil {
 		return rule.Group
@@ -398,21 +400,21 @@ func (c *FreshnessConfig) registryURL(ecosystem, defaultURL string) string {
 // registryEndpoint returns the RegistryEndpoint for an ecosystem, or nil.
 func (c *FreshnessConfig) registryEndpoint(ecosystem string) *RegistryEndpoint {
 	switch ecosystem {
-	case EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage:
 		return c.Registries.Docker
-	case EcosystemGitHubRelease:
+	case supplychain.EcosystemGitHubRelease:
 		return c.Registries.GitHub
-	case EcosystemGoMod:
+	case supplychain.EcosystemGoMod:
 		return c.Registries.Go
-	case EcosystemNpm:
+	case supplychain.EcosystemNpm:
 		return c.Registries.Npm
-	case EcosystemPip:
+	case supplychain.EcosystemPip:
 		return c.Registries.PyPI
-	case EcosystemCargo:
+	case supplychain.EcosystemCargo:
 		return c.Registries.Crates
-	case EcosystemAlpineAPK:
+	case supplychain.EcosystemAlpineAPK:
 		return c.Registries.Alpine
-	case EcosystemDebianAPT:
+	case supplychain.EcosystemDebianAPT:
 		// Check distro-specific first (handled by callers), fall back.
 		return c.Registries.Debian
 	default:

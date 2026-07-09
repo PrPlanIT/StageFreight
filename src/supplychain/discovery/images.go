@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // dockerHubTagsResponse matches the Docker Hub v2 tags list API.
@@ -21,8 +23,8 @@ type dockerHubTagsResponse struct {
 const maxTagPages = 10
 
 // checkImages resolves base image freshness for all FROM stages.
-func (m *freshnessModule) checkImages(ctx context.Context, file lint.FileInfo, stages []stageInfo) []Dependency {
-	var deps []Dependency
+func (m *Resolver) checkImages(ctx context.Context, file lint.FileInfo, stages []supplychain.StageInfo) []supplychain.Dependency {
+	var deps []supplychain.Dependency
 
 	for _, stage := range stages {
 		// Skip scratch and build-stage references (no colon, no registry).
@@ -45,26 +47,26 @@ func (m *freshnessModule) checkImages(ctx context.Context, file lint.FileInfo, s
 
 // resolveImage queries Docker Hub for available tags and computes
 // the version delta for a single base image.
-func (m *freshnessModule) resolveImage(ctx context.Context, filePath string, stage stageInfo) *Dependency {
-	image, tag := splitImageTag(stage.Image)
+func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supplychain.StageInfo) *supplychain.Dependency {
+	image, tag := SplitImageTag(stage.Image)
 	if tag == "" {
 		tag = "latest"
 	}
 
-	namespace, repo := splitImageNamespace(image)
+	namespace, repo := SplitImageNamespace(image)
 
-	dep := &Dependency{
+	dep := &supplychain.Dependency{
 		Name:      stage.Image,
 		Current:   tag,
-		Ecosystem: EcosystemDockerImage,
+		Ecosystem: supplychain.EcosystemDockerImage,
 		File:      filePath,
 		Line:      stage.Line,
 	}
 
 	// Fetch tags — use custom registry if configured, else Docker Hub public API.
-	ep := m.cfg.registryEndpoint(EcosystemDockerImage)
+	ep := m.cfg.registryEndpoint(supplychain.EcosystemDockerImage)
 	defaultURL := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, repo)
-	url := m.cfg.registryURL(EcosystemDockerImage, defaultURL)
+	url := m.cfg.registryURL(supplychain.EcosystemDockerImage, defaultURL)
 	if url != defaultURL {
 		// Custom registry: use v2 tags/list endpoint.
 		url = strings.TrimRight(url, "/") + fmt.Sprintf("/%s/%s/tags/list", namespace, repo)
@@ -93,7 +95,7 @@ func (m *freshnessModule) resolveImage(ctx context.Context, filePath string, sta
 	}
 
 	// Decompose current tag and find latest in same suffix family.
-	current := decomposeTag(tag)
+	current := version.DecomposeTag(tag)
 	if current.Version == nil {
 		// Non-versioned tag (e.g. "latest", "noble", "sha-...") — can't do
 		// semver comparison. Digest tracking handled by lockfile.go.
@@ -137,11 +139,11 @@ func (m *freshnessModule) resolveImage(ctx context.Context, filePath string, sta
 //     (the safe autonomous bump target).
 //
 // Either may be "" when no matching tag is found; callers guard independently.
-func selectImageVersions(current decomposedTag, tags []string) (latest, eligible string) {
-	if lt := latestInFamily(filterTagsByFamily(tags, current.Family)); lt != nil {
+func selectImageVersions(current version.DecomposedTag, tags []string) (latest, eligible string) {
+	if lt := version.LatestInFamily(version.FilterTagsByFamily(tags, current.Family)); lt != nil {
 		latest = lt.Raw
 	}
-	if el := latestInFamily(filterTagsByVersionLine(tags, current)); el != nil {
+	if el := version.LatestInFamily(version.FilterTagsByVersionLine(tags, current)); el != nil {
 		eligible = el.Raw
 	}
 	return latest, eligible
@@ -150,16 +152,16 @@ func selectImageVersions(current decomposedTag, tags []string) (latest, eligible
 // suggestStableUpgrade checks if a non-versioned or pre-release tag has a
 // matching stable release available by sampling the already-fetched registry
 // tags. Returns an advisory message or empty string.
-func suggestStableUpgrade(current decomposedTag, tags []string) string {
+func suggestStableUpgrade(current version.DecomposedTag, tags []string) string {
 	// Group all tags by family, find families that have stable releases.
 	type familyInfo struct {
-		latest *decomposedTag
+		latest *version.DecomposedTag
 	}
 	families := make(map[string]*familyInfo)
 
 	for _, t := range tags {
-		dt := decomposeTag(t)
-		if dt.Version == nil || isDateLikeVersion(dt.Version) {
+		dt := version.DecomposeTag(t)
+		if dt.Version == nil || version.IsDateLikeVersion(dt.Version) {
 			continue
 		}
 		if dt.PreRank > 0 {
@@ -183,7 +185,7 @@ func suggestStableUpgrade(current decomposedTag, tags []string) string {
 	// For sha- tags: report that stable releases exist.
 	if current.Family == "sha" {
 		// Find the best stable family to suggest.
-		var bestTag *decomposedTag
+		var bestTag *version.DecomposedTag
 		for _, fi := range families {
 			if fi.latest != nil {
 				if bestTag == nil || fi.latest.Version.GreaterThan(bestTag.Version) {
@@ -212,7 +214,7 @@ func suggestStableUpgrade(current decomposedTag, tags []string) string {
 	}
 
 	// For other non-versioned tags (e.g. "latest", "noble"): check any stable.
-	var bestTag *decomposedTag
+	var bestTag *version.DecomposedTag
 	for _, fi := range families {
 		if fi.latest != nil {
 			if bestTag == nil || fi.latest.Version.GreaterThan(bestTag.Version) {
@@ -226,8 +228,8 @@ func suggestStableUpgrade(current decomposedTag, tags []string) string {
 	return ""
 }
 
-// splitImageTag splits "golang:1.25-alpine" into ("golang", "1.25-alpine").
-func splitImageTag(ref string) (string, string) {
+// SplitImageTag splits "golang:1.25-alpine" into ("golang", "1.25-alpine").
+func SplitImageTag(ref string) (string, string) {
 	// Handle digest references (image@sha256:...)
 	if idx := strings.Index(ref, "@"); idx >= 0 {
 		return ref[:idx], ""
@@ -246,11 +248,11 @@ func splitImageTag(ref string) (string, string) {
 	return ref[:lastColon], afterColon
 }
 
-// splitImageNamespace splits an image name into (namespace, repo) for Docker Hub.
+// SplitImageNamespace splits an image name into (namespace, repo) for Docker Hub.
 // "golang" → ("library", "golang")
 // "prplanit/stagefreight" → ("prplanit", "stagefreight")
 // "ghcr.io/owner/repo" → not Docker Hub, skip.
-func splitImageNamespace(image string) (string, string) {
+func SplitImageNamespace(image string) (string, string) {
 	// Strip registry prefix if present.
 	// Docker Hub images may have docker.io/ prefix.
 	image = strings.TrimPrefix(image, "docker.io/")

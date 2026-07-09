@@ -3,7 +3,7 @@ package dependency
 import (
 	"testing"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // buildCargoReplacement swaps the pinned version without touching the crate name; the
@@ -20,7 +20,7 @@ func TestBuildCargoReplacement(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, skip := buildCargoReplacement(freshness.Dependency{Current: c.cur, Latest: c.latest}, c.line)
+			got, skip := buildCargoReplacement(supplychain.Dependency{Current: c.cur, Latest: c.latest}, c.line)
 			if c.skip != "" {
 				if skip != c.skip {
 					t.Fatalf("skip = %q, want %q", skip, c.skip)
@@ -39,16 +39,16 @@ func TestBuildCargoReplacement(t *testing.T) {
 
 // Cargo must be in the auto-updatable set now (the whole point of the slice).
 func TestCargoIsAutoUpdatable(t *testing.T) {
-	if !autoUpdatableEcosystems[freshness.EcosystemCargo] {
+	if !autoUpdatableEcosystems[supplychain.EcosystemCargo] {
 		t.Error("cargo must be auto-updatable")
 	}
 }
 
 // groupByEcosystem routes cargo deps to the cargo bucket (not dropped).
 func TestGroupByEcosystem_Cargo(t *testing.T) {
-	_, _, _, cargo := groupByEcosystem([]freshness.Dependency{
-		{Name: "serde", Ecosystem: freshness.EcosystemCargo},
-		{Name: "cobra", Ecosystem: freshness.EcosystemGoMod},
+	_, _, _, cargo := groupByEcosystem([]supplychain.Dependency{
+		{Name: "serde", Ecosystem: supplychain.EcosystemCargo},
+		{Name: "cobra", Ecosystem: supplychain.EcosystemGoMod},
 	})
 	if len(cargo) != 1 || cargo[0].Name != "serde" {
 		t.Fatalf("cargo dep must route to the cargo bucket, got %+v", cargo)

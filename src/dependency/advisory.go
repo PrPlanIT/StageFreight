@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/forge"
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/security"
 )
 
@@ -61,7 +61,7 @@ type EnrichmentDetail struct {
 // Conservative matching: requires both ecosystem AND normalized package name match.
 // Skips advisories with ecosystem "unknown" — no guessing.
 // Returns details for each enriched dependency, sorted by advisory count desc then name asc.
-func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advisory) []EnrichmentDetail {
+func EnrichDependencies(deps []supplychain.Dependency, advisories []security.Advisory) []EnrichmentDetail {
 	if len(advisories) == 0 {
 		return nil
 	}
@@ -123,7 +123,7 @@ func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advis
 			}
 			seen[dk] = true
 
-			dep.Vulnerabilities = append(dep.Vulnerabilities, freshness.VulnInfo{
+			dep.Vulnerabilities = append(dep.Vulnerabilities, supplychain.VulnInfo{
 				ID:       adv.ID,
 				Summary:  "",
 				Severity: adv.Severity,
@@ -158,21 +158,21 @@ func EnrichDependencies(deps []freshness.Dependency, advisories []security.Advis
 func mapAdvisoryEcosystem(eco string) string {
 	switch strings.ToLower(eco) {
 	case "gomod":
-		return freshness.EcosystemGoMod
+		return supplychain.EcosystemGoMod
 	case "alpine-apk":
-		return freshness.EcosystemAlpineAPK
+		return supplychain.EcosystemAlpineAPK
 	case "npm":
-		return freshness.EcosystemNpm
+		return supplychain.EcosystemNpm
 	case "pip":
-		return freshness.EcosystemPip
+		return supplychain.EcosystemPip
 	case "cargo":
-		return freshness.EcosystemCargo
+		return supplychain.EcosystemCargo
 	case "docker-image":
-		return freshness.EcosystemDockerImage
+		return supplychain.EcosystemDockerImage
 	case "docker-tool", "github-release":
-		return freshness.EcosystemGitHubRelease
+		return supplychain.EcosystemGitHubRelease
 	case "debian-apt":
-		return freshness.EcosystemDebianAPT
+		return supplychain.EcosystemDebianAPT
 	default:
 		return ""
 	}

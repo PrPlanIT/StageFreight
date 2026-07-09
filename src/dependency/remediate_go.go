@@ -8,7 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/lint/modules/freshness"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // A vulnerable INDIRECT Go dependency is a true signal that transitive management has
@@ -43,7 +44,7 @@ func (g goModCtx) run(ctx context.Context, args ...string) ([]byte, error) {
 
 // vulnPin is a case-2 remediation target: pin dep to at least its fixed version.
 type vulnPin struct {
-	dep   freshness.Dependency
+	dep   supplychain.Dependency
 	fixed string // OSV fixed version (no "v" prefix)
 }
 
@@ -51,7 +52,7 @@ type vulnPin struct {
 // responsible for pulling it has a COMPATIBLE update that raises the module to >= fixed,
 // apply that — the vuln dissolves with no pin. Returns (update, true) on success, or
 // (_, false) to fall through to a case-2 pin. A failed trial is reverted to a clean tree.
-func tryParentBump(ctx context.Context, gc goModCtx, dep freshness.Dependency, fixed string, directNames map[string]bool, directTargets map[string]string) (AppliedUpdate, bool) {
+func tryParentBump(ctx context.Context, gc goModCtx, dep supplychain.Dependency, fixed string, directNames map[string]bool, directTargets map[string]string) (AppliedUpdate, bool) {
 	parent := responsibleParentModule(ctx, gc, dep.Name, directNames)
 	if parent == "" {
 		return AppliedUpdate{}, false
@@ -67,7 +68,7 @@ func tryParentBump(ctx context.Context, gc goModCtx, dep freshness.Dependency, f
 	if _, err := gc.run(ctx, "get", parent+"@"+goVersionQuery(target)); err == nil {
 		if _, err := gc.run(ctx, "mod", "tidy"); err == nil {
 			if sel := selectedVersion(ctx, gc, dep.Name); sel != "" &&
-				freshness.CompareVersions(sel, fixed, dep.Ecosystem) >= 0 {
+				version.CompareVersions(sel, fixed, dep.Ecosystem) >= 0 {
 				return AppliedUpdate{
 					Dep: dep, OldVer: dep.Current, NewVer: sel, UpdateType: "security",
 					CVEsFixed:   advisoryIDs(dep),
@@ -125,7 +126,7 @@ func batchPinVulns(ctx context.Context, gc goModCtx, pins []vulnPin) ([]AppliedU
 	var skipped []SkippedDep
 	for _, p := range pins {
 		got := selectedVersion(ctx, gc, p.dep.Name)
-		if got == "" || freshness.CompareVersions(got, p.fixed, p.dep.Ecosystem) < 0 {
+		if got == "" || version.CompareVersions(got, p.fixed, p.dep.Ecosystem) < 0 {
 			skipped = append(skipped, SkippedDep{Dep: p.dep,
 				Reason: fmt.Sprintf("pin did not hold: got %q, need >= %s", got, p.fixed)})
 			continue
@@ -179,14 +180,14 @@ func goVersionQuery(v string) string {
 
 // maxFixedVersion returns the highest FixedIn across dep's advisories — the version that
 // clears ALL of them. Empty when no advisory reports a fixed version.
-func maxFixedVersion(dep freshness.Dependency) string {
+func maxFixedVersion(dep supplychain.Dependency) string {
 	best := ""
 	for _, v := range dep.Vulnerabilities {
 		f := strings.TrimSpace(v.FixedIn)
 		if f == "" {
 			continue
 		}
-		if best == "" || freshness.CompareVersions(f, best, dep.Ecosystem) > 0 {
+		if best == "" || version.CompareVersions(f, best, dep.Ecosystem) > 0 {
 			best = f
 		}
 	}
@@ -194,7 +195,7 @@ func maxFixedVersion(dep freshness.Dependency) string {
 }
 
 // advisoryIDs collects the advisory IDs a remediation clears (for reporting).
-func advisoryIDs(dep freshness.Dependency) []string {
+func advisoryIDs(dep supplychain.Dependency) []string {
 	if len(dep.Vulnerabilities) == 0 {
 		return nil
 	}

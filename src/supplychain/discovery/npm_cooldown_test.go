@@ -1,4 +1,4 @@
-package freshness
+package discovery
 
 import (
 	"encoding/json"

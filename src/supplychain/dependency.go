@@ -1,4 +1,4 @@
-package freshness
+package supplychain
 
 // Dependency is a version-pinned reference extracted from a project file.
 // It is the bridge type consumed by both lint reporting and future update
