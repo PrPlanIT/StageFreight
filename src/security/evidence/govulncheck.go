@@ -39,8 +39,13 @@ func (g *GoReachability) Contribute(ctx context.Context, target Target, vulns []
 	byID := parseGovulncheck(out)
 	res := make(map[VulnRef]Evidence)
 	for _, v := range vulns {
-		if ev, ok := byID[v.ID]; ok {
-			res[v.Ref()] = ev
+		// govulncheck reports under Go advisory IDs; correlate against every identifier the
+		// vulnerability is known by, so a CVE- or GHSA-keyed discovery still joins its finding.
+		for _, id := range v.Identifiers() {
+			if ev, ok := byID[id]; ok {
+				res[v.Ref()] = ev
+				break
+			}
 		}
 	}
 	return res, nil

@@ -71,3 +71,23 @@ func TestGoReachability_Contribute(t *testing.T) {
 		t.Fatalf("unreachable critical must downgrade to INFO, got %s", VerdictFor(findings[0]))
 	}
 }
+
+// A vulnerability discovered under a CVE/GHSA id still correlates to govulncheck's GO-advisory
+// finding via its aliases — OSV ID is never the correlation contract.
+func TestGoReachability_CorrelatesByAlias(t *testing.T) {
+	c := &GoReachability{Run: func(context.Context, string) ([]byte, error) {
+		return []byte(govulncheckStream), nil
+	}}
+	// Discovery reported this under a CVE, with the GO advisory only as an alias.
+	discovered := Vulnerability{ID: "CVE-2026-55555", Aliases: []string{"GHSA-aaaa-bbbb-cccc", "GO-2026-5932"},
+		Ecosystem: "go", Package: "golang.org/x/crypto/openpgp", Severity: "CRITICAL"}
+
+	res, err := c.Contribute(context.Background(), Target{}, []Vulnerability{discovered})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := res[discovered.Ref()].(ReachabilityEvidence)
+	if !ok || r.State != ReachUnreachable {
+		t.Fatalf("expected join via GO-alias → unreachable evidence, got %v (ok=%v)", res[discovered.Ref()], ok)
+	}
+}
