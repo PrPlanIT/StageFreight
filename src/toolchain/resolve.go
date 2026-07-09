@@ -117,6 +117,9 @@ func FetchArtifactSHA256(tool, version string) (string, error) {
 	if version == "" {
 		version = def.DefaultVer
 	}
+	if def.DownloadURL == nil {
+		return "", fmt.Errorf("toolchain %q has no downloadable artifact (provisioned via source)", tool)
+	}
 	archivePath, err := downloadToTemp(def.DownloadURL(version, runtime.GOOS, runtime.GOARCH))
 	if err != nil {
 		return "", fmt.Errorf("fetch %s %s: %w", tool, version, err)
@@ -132,7 +135,6 @@ func FetchArtifactSHA256(tool, version string) (string, error) {
 func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Result, error) {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
-	sourceURL := def.DownloadURL(version, goos, goarch)
 
 	// Search all read roots for a valid cached install.
 	for _, root := range ReadRoots(rootDir) {
@@ -192,85 +194,51 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 		}
 	}
 
-	// Establish the trust source, strongest available first: an explicit config pin
-	// (fingerprint), then the upstream-published checksum, then TOFU — first-use trust
-	// when the upstream offers no claim to verify against (cached + re-verified every
-	// run thereafter). No unverifiable-and-unrecorded path: every outcome is labelled.
-	downloadFilename := filepath.Base(sourceURL)
-	var expectedSHA, trust string
-	switch {
-	case pinnedSHA != "":
-		expectedSHA, trust = pinnedSHA, TrustPinned
-	case def.ChecksumURL != nil:
-		expectedSHA, err = fetchChecksumFromURL(def.ChecksumURL(version, goos, goarch), downloadFilename)
-		if err != nil {
-			return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
-		}
-		trust = TrustChecksum
-	default:
-		trust = TrustTOFU
-	}
-
-	// Download
-	archivePath, err := downloadToTemp(sourceURL)
-	if err != nil {
-		return Result{}, fmt.Errorf("toolchain %s %s: download failed: %w", def.Name, version, err)
-	}
-	defer os.Remove(archivePath)
-
-	// Verify archive/binary checksum
-	actualSHA, err := fileSHA256(archivePath)
-	if err != nil {
-		return Result{}, fmt.Errorf("toolchain %s %s: checksum computation failed: %w", def.Name, version, err)
-	}
-	if expectedSHA != "" && actualSHA != expectedSHA {
-		return Result{}, fmt.Errorf("toolchain %s %s: checksum mismatch\n  expected: %s\n  actual:   %s\n  source:   %s", def.Name, version, expectedSHA, actualSHA, sourceURL)
-	}
-	// TOFU (expectedSHA == ""): the computed digest becomes the established fingerprint,
-	// persisted below and re-verified against the cached binary on every later run.
-
-	// Install based on format
+	// Materialize the binary through the tool's source (released-binary download, go install,
+	// …). The source obtains the binary and reports provenance; caching, the binary checksum,
+	// and metadata stay the resolver's — so every source inherits the same cache and trust
+	// recording, and none is a special case.
 	if err := os.MkdirAll(filepath.Join(installDir, "bin"), 0755); err != nil {
 		return Result{}, fmt.Errorf("toolchain %s %s: creating install dir: %w", def.Name, version, err)
 	}
-
-	switch def.Format {
-	case "binary":
-		if err := installStandaloneBinary(archivePath, binPath); err != nil {
-			os.RemoveAll(installDir)
-			return Result{}, fmt.Errorf("toolchain %s %s: install failed: %w", def.Name, version, err)
-		}
-	case "tar.gz":
-		if err := installFromArchive(archivePath, binPath, def.BinaryName); err != nil {
-			os.RemoveAll(installDir)
-			return Result{}, fmt.Errorf("toolchain %s %s: install failed: %w", def.Name, version, err)
-		}
-	default:
-		return Result{}, fmt.Errorf("toolchain %s %s: unsupported format %q", def.Name, version, def.Format)
+	sr, err := def.source().Materialize(SourceRequest{
+		Def:        def,
+		Version:    version,
+		GOOS:       goos,
+		GOARCH:     goarch,
+		RootDir:    rootDir,
+		InstallDir: installDir,
+		BinPath:    binPath,
+		PinnedSHA:  pinnedSHA,
+	})
+	if err != nil {
+		os.RemoveAll(installDir)
+		return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
 	}
 
-	// Verify binary exists
+	// Verify the binary landed.
 	if _, err := os.Stat(binPath); err != nil {
 		os.RemoveAll(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: binary not found after install at %s", def.Name, version, binPath)
 	}
 
-	// Compute binary checksum
+	// Compute the binary checksum — cache validation on later runs, and the TOFU fingerprint
+	// for sources with no upstream binary digest.
 	binSHA, err := fileSHA256(binPath)
 	if err != nil {
 		os.RemoveAll(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: binary checksum failed: %w", def.Name, version, err)
 	}
 
-	// Write metadata — hard failure
+	// Write metadata — hard failure.
 	meta := Metadata{
 		Tool:      def.Name,
 		Version:   version,
 		Platform:  fmt.Sprintf("%s/%s", goos, goarch),
-		SourceURL: sourceURL,
-		SHA256:    actualSHA,
+		SourceURL: sr.SourceURL,
+		SHA256:    sr.SHA256,
 		BinSHA256: binSHA,
-		Trust:     trust,
+		Trust:     sr.Trust,
 	}
 	if err := writeMetadataTo(installRoot, def.Name, version, meta); err != nil {
 		os.RemoveAll(installDir)
@@ -282,10 +250,10 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 		Version:   version,
 		Path:      binPath,
 		CacheHit:  false,
-		SourceURL: sourceURL,
-		SHA256:    actualSHA,
+		SourceURL: sr.SourceURL,
+		SHA256:    sr.SHA256,
 		BinSHA256: binSHA,
-		Trust:     trust,
+		Trust:     sr.Trust,
 	}, nil
 }
 

@@ -13,6 +13,21 @@ type ToolDef struct {
 	ArchiveStrip string                                    // prefix to strip from tar entries (e.g. "go/")
 	GitHubOwner  string                                    // GitHub owner for release checking (e.g. "aquasecurity")
 	GitHubRepo   string                                    // GitHub repo for release checking (e.g. "trivy")
+
+	// Source materializes the binary. When nil, the tool is a released-binary download
+	// (DownloadURL + Format) — the historical default. A non-nil Source (e.g. GoInstallSource)
+	// provisions by another means; DownloadURL/ChecksumURL/Format are then unused.
+	Source ToolSource
+}
+
+// source returns the tool's materialization source: its explicit Source, or the default
+// released-binary downloader. Keeps the resolver source-agnostic — download tools and
+// go-install tools flow through one code path.
+func (d ToolDef) source() ToolSource {
+	if d.Source != nil {
+		return d.Source
+	}
+	return releaseBinarySource{}
 }
 
 // AllTools returns a copy of all registered tool definitions.
@@ -81,6 +96,17 @@ var registry = map[string]ToolDef{
 			return fmt.Sprintf("https://github.com/google/osv-scanner/releases/download/v%s/osv-scanner_SHA256SUMS", ver)
 		},
 		Format: "binary",
+	},
+	// govulncheck ships no release binaries — it is `go install`-only — so it is provisioned
+	// through GoInstallSource rather than a DownloadURL. It backs the Go reachability evidence
+	// contributor (call-graph analysis over the built module).
+	"govulncheck": {
+		Name:       "govulncheck",
+		BinaryName: "govulncheck",
+		DefaultVer: "1.5.0",
+		GitHubOwner: "golang",
+		GitHubRepo:  "vuln",
+		Source:     GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
 	},
 	"cosign": {
 		Name:        "cosign",
