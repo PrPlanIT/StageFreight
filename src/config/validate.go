@@ -720,6 +720,39 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		if len(t.Tags) > 0 {
 			errs = append(errs, fmt.Sprintf("%s: tags is not valid for kind generic-package (use version/aliases)", path))
 		}
+
+	case "pages":
+		// Exactly one source: a build's output tree OR a repo directory. Empty is
+		// treated as unset (so build: "" is rejected the same as missing).
+		hasBuild := t.Build != ""
+		hasDir := t.Dir != ""
+		if hasBuild == hasDir {
+			errs = append(errs, fmt.Sprintf("%s: kind pages requires exactly one of build or dir", path))
+		}
+		// Provider is required — Cloudflare and GitHub are co-equal, no default.
+		switch t.Provider {
+		case "cloudflare", "github":
+		default:
+			errs = append(errs, fmt.Sprintf("%s: kind pages requires provider: cloudflare or github (got %q)", path, t.Provider))
+		}
+		// Versioning: P1 implements only "replace"; "keep" is reserved (fail loudly
+		// rather than silently ignore, so nobody assumes it works).
+		if t.Versioning != nil {
+			switch t.Versioning.Mode {
+			case "", "replace":
+			case "keep":
+				errs = append(errs, fmt.Sprintf("%s: kind pages versioning mode \"keep\" is not yet implemented (only \"replace\")", path))
+			default:
+				errs = append(errs, fmt.Sprintf("%s: kind pages unknown versioning mode %q (supported: replace)", path, t.Versioning.Mode))
+			}
+		}
+		// Reject fields that belong to other kinds.
+		if t.URL != "" || t.Path != "" || t.Registry != "" || t.Repo != "" {
+			errs = append(errs, fmt.Sprintf("%s: url/path/registry/repo are not valid for kind pages", path))
+		}
+		if len(t.Tags) > 0 || len(t.Aliases) > 0 {
+			errs = append(errs, fmt.Sprintf("%s: tags/aliases are not valid for kind pages", path))
+		}
 	}
 
 	return errs
