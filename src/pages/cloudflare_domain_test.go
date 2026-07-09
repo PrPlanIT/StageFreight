@@ -13,6 +13,68 @@ import (
 	"testing"
 )
 
+// TestEnsureProject_GloballyTakenNameIsClearError covers the collision hardening: a
+// create rejected as "already taken" while the account-scoped GET keeps returning
+// not-found means the name is owned by ANOTHER account (Pages names are global). We must
+// re-GET to disambiguate and surface an actionable error, not swallow it as success.
+func TestEnsureProject_GloballyTakenNameIsClearError(t *testing.T) {
+	var getCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/pages/projects/taken"):
+			getCount++
+			writeCFError(w, http.StatusNotFound, "project not found") // never in our account
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pages/projects"):
+			writeCFError(w, http.StatusBadRequest, "the name has already been taken")
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := newCFPagesClient("t", "acct", "taken", "")
+	c.base = srv.URL
+	err := c.ensureProject(context.Background())
+	if err == nil {
+		t.Fatal("expected an error for a globally-taken name, got nil (would fail opaquely later)")
+	}
+	if !strings.Contains(err.Error(), "already taken on Cloudflare") {
+		t.Errorf("error = %q, want the globally-taken guidance", err.Error())
+	}
+	if getCount < 2 {
+		t.Errorf("re-GET not performed to disambiguate: getCount = %d, want >= 2", getCount)
+	}
+}
+
+// TestEnsureProject_CreateRaceIsSuccess covers the other side: a create "already exists"
+// where the re-GET now finds the project in OUR account is a benign concurrent-create
+// race, and must resolve to success.
+func TestEnsureProject_CreateRaceIsSuccess(t *testing.T) {
+	var getCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/pages/projects/mine"):
+			getCount++
+			if getCount == 1 {
+				writeCFError(w, http.StatusNotFound, "project not found") // first GET: not yet
+			} else {
+				writeCFResult(w, map[string]any{"name": "mine"}) // re-GET: present (race won)
+			}
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pages/projects"):
+			writeCFError(w, http.StatusBadRequest, "already exists")
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := newCFPagesClient("t", "acct", "mine", "")
+	c.base = srv.URL
+	if err := c.ensureProject(context.Background()); err != nil {
+		t.Fatalf("a concurrent-create race should resolve to success, got: %v", err)
+	}
+}
+
 // TestClassifyDNS pins the authoritative-nameserver classification: Cloudflare only
 // when EVERY NS is under .cloudflare.com; any other NS ⇒ external; an inconclusive
 // lookup ⇒ unknown (advisory, never a hard failure).

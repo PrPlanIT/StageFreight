@@ -141,17 +141,30 @@ func (c *cfPagesClient) classifyDNS(domain string) DNSProvider {
 func (c *cfPagesClient) ensureProject(ctx context.Context) error {
 	getURL := fmt.Sprintf("%s/accounts/%s/pages/projects/%s", c.base, c.accountID, c.project)
 	if err := c.doJSON(ctx, http.MethodGet, getURL, c.apiToken, nil, nil); err == nil {
-		return nil // already exists
+		return nil // already exists in this account
 	}
 	createURL := fmt.Sprintf("%s/accounts/%s/pages/projects", c.base, c.accountID)
 	body := map[string]any{"name": c.project, "production_branch": "main"}
-	if err := c.doJSON(ctx, http.MethodPost, createURL, c.apiToken, body, nil); err != nil {
-		if isAlreadyExists(err) {
-			return nil // created between the GET and POST
-		}
-		return fmt.Errorf("cloudflare pages: create project %q: %w", c.project, err)
+	err := c.doJSON(ctx, http.MethodPost, createURL, c.apiToken, body, nil)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if isAlreadyExists(err) {
+		// "already exists"/"already taken" is ambiguous. The account-scoped GET above
+		// just told us the project is NOT in this account, so a create-time "taken"
+		// means one of two things:
+		//   (a) a concurrent create in THIS account between our GET and POST — benign, or
+		//   (b) the name is owned by ANOTHER account — Pages project names are globally
+		//       unique (they're <name>.pages.dev subdomains on a shared domain).
+		// Re-GET scoped to our account to disambiguate: present now ⇒ (a), success;
+		// still absent ⇒ (b), a name we can't use — surface an actionable error rather
+		// than swallowing it and failing opaquely later at upload-token/deployment.
+		if gerr := c.doJSON(ctx, http.MethodGet, getURL, c.apiToken, nil, nil); gerr == nil {
+			return nil // (a) it's ours after all — a race
+		}
+		return fmt.Errorf("cloudflare pages: project name %q is already taken on Cloudflare (Pages project names are globally unique) — set project: to a unique name", c.project)
+	}
+	return fmt.Errorf("cloudflare pages: create project %q: %w", c.project, err)
 }
 
 // isAlreadyExists tolerates the "resource already exists" family of Cloudflare errors
