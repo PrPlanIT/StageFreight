@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // Module is the interface every lint check implements.
@@ -32,6 +33,22 @@ type ConfigurableModule interface {
 type ToolchainAwareModule interface {
 	Module
 	SetToolchainDesired(desired map[string]config.ToolPinConfig)
+}
+
+// SnapshotAwareModule is implemented by modules that can consume a
+// pre-resolved supplychain.Snapshot instead of resolving dependencies
+// themselves. The engine calls SetSnapshot after construction, before Run(),
+// if the module implements this interface AND a Snapshot was provided by the
+// caller (e.g. the audition pipeline, which resolves once via
+// discovery.Discover and shares the result across lint and dependency-update
+// rather than resolving per-consumer). Mirrors ToolchainAwareModule.
+//
+// When no Snapshot is provided (Engine.Snapshot is nil), modules implementing
+// this interface must fall back to on-demand resolution — this keeps
+// standalone `stagefreight lint` working.
+type SnapshotAwareModule interface {
+	Module
+	SetSnapshot(snapshot *supplychain.Snapshot)
 }
 
 // CacheTTLModule controls time-based cache expiry.

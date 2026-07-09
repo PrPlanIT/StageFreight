@@ -132,3 +132,19 @@ func Resolve(ctx context.Context, opts map[string]any, files []lint.FileInfo) ([
 	m.correlateVulns(ctx, all)
 	return all, nil
 }
+
+// Discover runs the full dependency resolution pipeline once and returns an
+// immutable supplychain.Snapshot. It is the single public Snapshot producer —
+// callers that need ONE resolution pass shared across multiple consumers
+// (e.g. the audition pipeline, which threads the Snapshot to both the
+// freshness lint module and the dependency-update step) call Discover
+// exactly once and pass the result down explicitly. Resolve remains the
+// entry point for standalone callers (e.g. `stagefreight dependency update`)
+// that don't need a shared Snapshot; Discover wraps it so both stay in sync.
+func Discover(ctx context.Context, opts map[string]any, files []lint.FileInfo) (*supplychain.Snapshot, error) {
+	deps, err := Resolve(ctx, opts, files)
+	if err != nil {
+		return nil, err
+	}
+	return &supplychain.Snapshot{Dependencies: deps}, nil
+}

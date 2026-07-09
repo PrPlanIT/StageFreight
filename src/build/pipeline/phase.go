@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/trace"
 )
 
@@ -335,7 +336,12 @@ func runnerHealthStatus(h runner.HealthGrade) string {
 // Findings are surfaced — not just the gate error — so the audition can Classify them
 // (Fatal vs Remediable) rather than treating every blocking finding as an abort. The gate
 // verdict is still lintSum.GateError(); nothing about the threshold changes here.
-func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Config, ci bool, color bool, isVerbose bool, w io.Writer) (string, []lint.Finding, error) {
+//
+// snapshot is an optional, pre-resolved supply-chain Snapshot (produced once by
+// discovery.Discover in the audition path) threaded onto the engine so the freshness
+// module renders from it instead of resolving again. nil for standalone `stagefreight
+// lint`, where the freshness module falls back to on-demand resolution.
+func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Config, ci bool, color bool, isVerbose bool, w io.Writer, snapshot *supplychain.Snapshot) (string, []lint.Finding, error) {
 	cacheDir := lint.ResolveCacheDir(rootDir, appCfg.Lint.CacheDir)
 	cache := &lint.Cache{
 		Dir:     cacheDir,
@@ -346,6 +352,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	if err != nil {
 		return "", nil, err
 	}
+	lintEngine.Snapshot = snapshot
 
 	files, err := lintEngine.CollectFiles()
 	if err != nil {
@@ -486,9 +493,10 @@ func CollectTargetsByKind(cfg *config.Config, kind string) []config.TargetConfig
 // RunLint delegates to the pre-build lint implementation, returning (summary, findings,
 // gate error). Findings are surfaced so callers can Classify them rather than only knowing
 // the run failed. Called by runUniversalLint in ci_runners — decouples runner layer from
-// lint internals.
-func RunLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, color bool, verbose bool, w io.Writer) (string, []lint.Finding, error) {
-	return runPreBuildLintImpl(ctx, rootDir, appCfg, isCI, color, verbose, w)
+// lint internals. snapshot is threaded straight through to runPreBuildLintImpl; see its
+// doc comment.
+func RunLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, color bool, verbose bool, w io.Writer, snapshot *supplychain.Snapshot) (string, []lint.Finding, error) {
+	return runPreBuildLintImpl(ctx, rootDir, appCfg, isCI, color, verbose, w, snapshot)
 }
 
 // sectionProvenanceIcon returns the display icon for a config section's provenance.

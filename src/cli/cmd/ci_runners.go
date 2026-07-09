@@ -32,6 +32,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/PrPlanIT/StageFreight/src/test"
@@ -284,12 +285,36 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	if err := runConfigPhase(rootDir); err != nil {
 		return fmt.Errorf("deps subsystem: %w", err)
 	}
+
+	// Discover dependencies ONCE for the whole audition — a single Snapshot shared,
+	// read-only, by both the lint pass (below, via runUniversalLint) and the
+	// dependency-update step (runDependencyUpdateLogic). Previously each resolved
+	// independently; unifying onto one Snapshot removes the duplicate resolution pass
+	// (registry lookups, OSV correlation) while keeping both consumers' output
+	// byte-identical to before.
+	var freshnessOpts map[string]any
+	if mc, ok := appCfg.Lint.Modules["freshness"]; ok {
+		freshnessOpts = mc.Options
+	}
+	collectEngine, err := lint.NewEngine(appCfg.Lint, rootDir, []string{"freshness"}, nil, opts.Verbose, nil)
+	if err != nil {
+		return fmt.Errorf("deps subsystem: creating lint engine: %w", err)
+	}
+	discoveryFiles, err := collectEngine.CollectFiles()
+	if err != nil {
+		return fmt.Errorf("deps subsystem: collecting files: %w", err)
+	}
+	snapshot, err := discovery.Discover(ctx, freshnessOpts, discoveryFiles)
+	if err != nil {
+		return fmt.Errorf("deps subsystem: resolving dependencies: %w", err)
+	}
+
 	// Inspect → Classify → record into the audition contract. A Fatal finding (secret/conflict/
 	// broken tree) voids the source: block and do not mutate. A Remediable finding (a freshness/
 	// osv CVE) does NOT abort — it runs the deps update to produce a fix — but the SOURCE stays
 	// Blocking, because the fix lands in a replacement commit (C′), not in this subject. Both are
 	// Blocking in the contract; they differ only in whether a Replacement gets recorded below.
-	lintFindings, _ := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose)
+	lintFindings, _ := runUniversalLint(ctx, appCfg, rootDir, ciCtx.IsCI(), opts.Verbose, snapshot)
 	mut := lint.Classify(lintFindings)
 	in.Fatal = mut.HasFatal()
 	in.Remediable = mut.HasRemediable()
@@ -326,8 +351,9 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
-	// Run dependency update via the same code path as the CLI command
-	result, err := runDependencyUpdateLogic(ctx, appCfg, rootDir, opts.Verbose)
+	// Run dependency update via the same code path as the CLI command, reusing the
+	// Snapshot resolved once above rather than resolving a second time.
+	result, err := runDependencyUpdateLogic(ctx, appCfg, rootDir, opts.Verbose, snapshot)
 	if err != nil {
 		in.DepsErrored = true
 		return fmt.Errorf("deps subsystem: %w", err)
@@ -483,41 +509,25 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	return nil
 }
 
-// runDependencyUpdateLogic runs the dependency update pipeline (resolve → filter → apply → verify → artifacts).
-// Extracted from the Cobra command for reuse by CI runners.
-func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDir string, isVerbose bool) (*dependency.UpdateResult, error) {
+// runDependencyUpdateLogic runs the dependency update pipeline (filter → apply → verify →
+// artifacts) against a Snapshot resolved once by the caller. Extracted from the Cobra
+// command for reuse by CI runners.
+//
+// snapshot is the audition-wide dependency Snapshot produced once by depsRunner (via
+// discovery.Discover), shared read-only with the lint pass. This function never resolves
+// dependencies itself — it consumes Snapshot.Dependencies. Advisory enrichment below
+// appends to per-dependency Vulnerabilities slices, so a defensive top-level copy is taken
+// first: Snapshot must stay immutable for any other consumer.
+func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDir string, isVerbose bool, snapshot *supplychain.Snapshot) (*dependency.UpdateResult, error) {
 	w := os.Stdout
-
-	// Load freshness options from config
-	var freshnessOpts map[string]any
-	if mc, ok := appCfg.Lint.Modules["freshness"]; ok {
-		freshnessOpts = mc.Options
-	}
 
 	// Resolve ecosystems from config
 	ecosystems := appCfg.Dependency.Scope.ScopeToEcosystems()
 
-	// Collect files via lint engine
 	output.SectionStart(w, "sf_deps_resolve", "Resolve")
 
-	engine, err := lint.NewEngine(appCfg.Lint, rootDir, []string{"freshness"}, nil, isVerbose, nil)
-	if err != nil {
-		output.SectionEnd(w, "sf_deps_resolve")
-		return nil, fmt.Errorf("creating lint engine: %w", err)
-	}
-	engine.ToolchainDesired = appCfg.Toolchains.Desired
-
-	files, err := engine.CollectFiles()
-	if err != nil {
-		output.SectionEnd(w, "sf_deps_resolve")
-		return nil, fmt.Errorf("collecting files: %w", err)
-	}
-
-	deps, err := discovery.Resolve(ctx, freshnessOpts, files)
-	if err != nil {
-		output.SectionEnd(w, "sf_deps_resolve")
-		return nil, fmt.Errorf("resolving dependencies: %w", err)
-	}
+	// Defensive copy — never mutate the shared Snapshot's backing slice.
+	deps := append([]supplychain.Dependency(nil), snapshot.Dependencies...)
 
 	// Enrich dependencies with security scanner advisories from prior pipeline run.
 	advisories, advErr := dependency.LoadAdvisories(rootDir)
@@ -1972,7 +1982,11 @@ func executorPreflight(rootDir string, opts runner.Options) runner.ExecutionRepo
 // error. Findings are surfaced so the audition can Classify them (Fatal vs Remediable);
 // the gate error is unchanged — a caller that only cares whether lint blocked still checks
 // the error exactly as before.
-func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, verbose bool) ([]lint.Finding, error) {
+// snapshot, when non-nil, is an audition-wide dependency Snapshot (resolved once by the
+// caller via discovery.Discover) threaded straight through to pipeline.RunLint so the
+// freshness lint module renders from it instead of resolving again. nil for callers with
+// no shared Snapshot (e.g. the build pipeline's own lint gate).
+func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string, isCI bool, verbose bool, snapshot *supplychain.Snapshot) ([]lint.Finding, error) {
 	color := output.UseColor()
 	if strings.TrimSpace(string(appCfg.Lint.Level)) == "" {
 		col := trace.NewCollector()
@@ -1985,7 +1999,7 @@ func runUniversalLint(ctx context.Context, appCfg *config.Config, rootDir string
 		sec.Close()
 		return nil, nil
 	}
-	_, findings, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout)
+	_, findings, err := pipeline.RunLint(ctx, appCfg, rootDir, isCI, color, verbose, os.Stdout, snapshot)
 	return findings, err
 }
 

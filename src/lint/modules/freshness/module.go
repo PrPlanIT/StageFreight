@@ -19,10 +19,23 @@ import (
 // dependencies into lint findings.
 type freshnessModule struct {
 	resolver *discovery.Resolver
+
+	// snapshot, when set by the engine (SnapshotAwareModule), is a
+	// pre-resolved supplychain.Snapshot shared across the audition — Check
+	// narrows it to the current file instead of resolving on demand. nil
+	// when no audition-provided Snapshot exists (e.g. standalone
+	// `stagefreight lint`), in which case Check falls back to
+	// resolver.ResolveFile as before.
+	snapshot *supplychain.Snapshot
 }
 
 func (m *freshnessModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
 	m.resolver.SetToolchainDesired(desired)
+}
+
+// SetSnapshot implements lint.SnapshotAwareModule.
+func (m *freshnessModule) SetSnapshot(snapshot *supplychain.Snapshot) {
+	m.snapshot = snapshot
 }
 
 func newModule() *freshnessModule {
@@ -54,11 +67,23 @@ func (m *freshnessModule) Configure(opts map[string]any) error {
 	return m.resolver.Configure(opts)
 }
 
-// Check dispatches to the resolver, then converts the resolved dependencies
-// into lint findings. Each checker extracts []Dependency, resolves latest
-// versions, and converts to lint findings. The raw dependencies are preserved
-// for future update commands.
+// Check renders findings for file, then converts the resolved dependencies
+// into lint findings. When an audition-provided Snapshot is set, it narrows
+// the pre-resolved dependency set to this file — NO resolution happens here.
+// Otherwise it falls back to resolving this file directly via the resolver,
+// which is what keeps standalone `stagefreight lint` working. Either way,
+// depsToFindings does the rendering (rules, severity, vulnerabilities).
 func (m *freshnessModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
+	if m.snapshot != nil {
+		var deps []supplychain.Dependency
+		for _, dep := range m.snapshot.Dependencies {
+			if dep.File == file.Path {
+				deps = append(deps, dep)
+			}
+		}
+		return m.depsToFindings(deps), nil
+	}
+
 	deps, err := m.resolver.ResolveFile(ctx, file)
 	if err != nil {
 		return nil, err

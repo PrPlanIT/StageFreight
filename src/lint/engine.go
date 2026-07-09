@@ -15,6 +15,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -26,6 +27,16 @@ type Engine struct {
 	Cache            *Cache
 	Verbose          bool
 	ToolchainDesired map[string]config.ToolPinConfig
+
+	// Snapshot is an optional, pre-resolved supply-chain Snapshot produced
+	// once (via discovery.Discover) and shared by the caller across
+	// consumers — e.g. the audition pipeline threads the same Snapshot into
+	// both the lint pass and the dependency-update step so resolution runs
+	// once instead of per-consumer. Set by the caller before RunWithStats,
+	// mirroring ToolchainDesired. nil means "no shared Snapshot" — modules
+	// implementing SnapshotAwareModule must fall back to on-demand
+	// resolution (this is what keeps standalone `stagefreight lint` working).
+	Snapshot *supplychain.Snapshot
 
 	CacheHits   atomic.Int64
 	CacheMisses atomic.Int64
@@ -175,6 +186,19 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		for _, m := range e.Modules {
 			if ta, ok := m.(ToolchainAwareModule); ok {
 				ta.SetToolchainDesired(e.ToolchainDesired)
+			}
+		}
+	}
+
+	// Propagate a pre-resolved Snapshot to modules that need it. Modules
+	// implementing SnapshotAwareModule use this to skip on-demand resolution
+	// entirely when the caller already resolved once (the audition path);
+	// when Snapshot is nil (standalone `stagefreight lint`), SetSnapshot is
+	// never called and modules fall back to resolving per-file.
+	if e.Snapshot != nil {
+		for _, m := range e.Modules {
+			if sa, ok := m.(SnapshotAwareModule); ok {
+				sa.SetSnapshot(e.Snapshot)
 			}
 		}
 	}
