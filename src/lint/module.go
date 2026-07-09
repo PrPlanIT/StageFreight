@@ -9,6 +9,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 )
 
 // Module is the interface every lint check implements.
@@ -49,6 +50,21 @@ type ToolchainAwareModule interface {
 type SnapshotAwareModule interface {
 	Module
 	SetSnapshot(snapshot *supplychain.Snapshot)
+}
+
+// AssessmentAwareModule is implemented by modules that render a pre-built
+// supply-chain vulnerability Assessment instead of building one themselves. The
+// engine calls SetAssessment after construction, before Run(), if the module
+// implements this interface AND an Assessment was provided by the caller (the
+// audition threads the single Assessment produced once per pass). Mirrors
+// SnapshotAwareModule exactly.
+//
+// When no Assessment is provided (Engine.Assessment is nil), modules implementing
+// this interface fall back to self-building one — this keeps standalone
+// `stagefreight lint` working.
+type AssessmentAwareModule interface {
+	Module
+	SetAssessment(assessment *analysis.Assessment)
 }
 
 // CacheTTLModule controls time-based cache expiry.

@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -37,6 +38,14 @@ type Engine struct {
 	// implementing SnapshotAwareModule must fall back to on-demand
 	// resolution (this is what keeps standalone `stagefreight lint` working).
 	Snapshot *supplychain.Snapshot
+
+	// Assessment is an optional, pre-built supply-chain vulnerability
+	// Assessment produced once by the caller (the audition) and threaded in so
+	// the vulnerabilities module renders it instead of self-building. Set before
+	// RunWithStats, mirroring Snapshot. nil means "no shared Assessment" —
+	// AssessmentAwareModule implementers self-build (standalone `stagefreight
+	// lint`).
+	Assessment *analysis.Assessment
 
 	CacheHits   atomic.Int64
 	CacheMisses atomic.Int64
@@ -199,6 +208,16 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		for _, m := range e.Modules {
 			if sa, ok := m.(SnapshotAwareModule); ok {
 				sa.SetSnapshot(e.Snapshot)
+			}
+		}
+	}
+
+	// Propagate a pre-built Assessment to modules that render it, mirroring the
+	// Snapshot propagation above. nil → AssessmentAwareModules self-build.
+	if e.Assessment != nil {
+		for _, m := range e.Modules {
+			if aa, ok := m.(AssessmentAwareModule); ok {
+				aa.SetAssessment(e.Assessment)
 			}
 		}
 	}

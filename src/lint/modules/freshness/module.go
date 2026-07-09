@@ -3,7 +3,6 @@ package freshness
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -109,9 +108,11 @@ func (m *freshnessModule) depsToFindings(deps []supplychain.Dependency) []lint.F
 			continue
 		}
 
-		// Emit vulnerability findings regardless of version freshness.
-		// A dep can be on the latest version and still have unpatched CVEs.
-		findings = append(findings, m.vulnFindings(dep)...)
+		// Per-advisory vulnerability findings are rendered by the dedicated
+		// vulnerabilities module (one finding per advisory across all sources),
+		// not here. Freshness still annotates the outdated-dependency finding
+		// with the dep's CVE count / severity escalation below, reading the
+		// same discovery-correlated dep.Vulnerabilities.
 
 		// Emit advisory finding for non-versioned/pre-release tags with
 		// stable releases available (e.g. sha-pinned images).
@@ -206,40 +207,4 @@ func (m *freshnessModule) depsToFindings(deps []supplychain.Dependency) []lint.F
 	}
 
 	return findings
-}
-
-// vulnFindings produces individual findings for each known vulnerability.
-func (m *freshnessModule) vulnFindings(dep supplychain.Dependency) []lint.Finding {
-	if len(dep.Vulnerabilities) == 0 {
-		return nil
-	}
-
-	var findings []lint.Finding
-	for _, v := range dep.Vulnerabilities {
-		sev := vulnSeverityToLint(v.Severity)
-		msg := fmt.Sprintf("%s@%s has known vulnerability %s: %s", dep.Name, dep.Current, v.ID, v.Summary)
-		if v.FixedIn != "" {
-			msg += fmt.Sprintf(" (fixed in %s)", v.FixedIn)
-		}
-		findings = append(findings, lint.Finding{
-			File:     dep.File,
-			Line:     dep.Line,
-			Module:   "freshness",
-			Severity: sev,
-			Message:  msg,
-		})
-	}
-	return findings
-}
-
-// vulnSeverityToLint maps OSV severity labels to lint severity.
-func vulnSeverityToLint(sev string) lint.Severity {
-	switch strings.ToUpper(sev) {
-	case "CRITICAL", "HIGH":
-		return lint.SeverityCritical
-	case "MODERATE":
-		return lint.SeverityWarning
-	default:
-		return lint.SeverityInfo
-	}
 }

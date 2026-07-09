@@ -14,7 +14,7 @@ import (
 // for them — a new CVE appears because the world moved, not because the diff did — so they
 // are excluded from baseline finding diffs (and skipped in the base re-lint, which also
 // avoids their network calls).
-var worldModules = map[string]bool{"freshness": true, "osv": true}
+var worldModules = map[string]bool{"freshness": true, "osv": true, "vulnerabilities": true}
 
 // NewFindings returns the set of fingerprints in `current` that are newly introduced
 // relative to the baseline. For each changed file it lints the baseline version and diffs
