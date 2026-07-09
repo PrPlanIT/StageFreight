@@ -50,6 +50,64 @@ func TestCanonicalizeMergesByAliasIntersection(t *testing.T) {
 	}
 }
 
+// TestCanonicalizeSharedNonPrimaryAliasStaysSeparate (fix #4): two DISTINCT
+// advisories that merely cross-reference a common CVE alias must NOT collapse.
+// A={GHSA-A, CVE-X} and B={GHSA-B, CVE-X} share CVE-X, but neither's PRIMARY id
+// is contained in the other's id-set, so they remain two vulnerabilities (a bare
+// id-set intersection would wrongly merge them and lose one advisory).
+func TestCanonicalizeSharedNonPrimaryAliasStaysSeparate(t *testing.T) {
+	obs := []AdvisoryObservation{
+		{
+			Source: "osv-api", VulnID: "GHSA-A", Aliases: []string{"CVE-X"},
+			Package: "pkg-a", Severity: "HIGH", File: "go.mod",
+		},
+		{
+			Source: "osv-scanner", VulnID: "GHSA-B", Aliases: []string{"CVE-X"},
+			Package: "pkg-b", Severity: "MODERATE", File: "go.mod",
+		},
+	}
+	vulns := canonicalize(obs)
+	if len(vulns) != 2 {
+		t.Fatalf("want 2 distinct vulnerabilities (shared non-primary alias must NOT merge), got %d: %+v", len(vulns), vulns)
+	}
+	if vulns[0].ID != "GHSA-A" || vulns[1].ID != "GHSA-B" {
+		t.Errorf("ids = [%s %s], want [GHSA-A GHSA-B]", vulns[0].ID, vulns[1].ID)
+	}
+}
+
+// TestCanonicalizePrimaryContainmentMerges (fix #4): an OSV-API observation whose
+// PRIMARY id (GO-2026-5932) appears in an osv-scanner observation's id-set (as an
+// alias) is the SAME advisory → ONE vulnerability.
+func TestCanonicalizePrimaryContainmentMerges(t *testing.T) {
+	obs := []AdvisoryObservation{
+		{
+			Source: "osv-api", VulnID: "GO-2026-5932", Package: "golang.org/x/net",
+			Version: "0.38.0", Severity: "HIGH", File: "go.mod", Line: 5,
+		},
+		{
+			Source: "osv-scanner", VulnID: "GHSA-zzzz", Aliases: []string{"GO-2026-5932", "CVE-2026-9"},
+			Package: "golang.org/x/net", Version: "0.38.0", Severity: "CRITICAL",
+			FixedIn: "0.40.0", File: "go.mod",
+		},
+	}
+	vulns := canonicalize(obs)
+	if len(vulns) != 1 {
+		t.Fatalf("want 1 canonical vulnerability (primary id carried as scanner alias), got %d: %+v", len(vulns), vulns)
+	}
+	v := vulns[0]
+	// Canonical ID is the lexicographically smallest primary: "GHSA-zzzz" < "GO-2026-5932".
+	if v.ID != "GHSA-zzzz" {
+		t.Errorf("canonical ID = %q, want smallest primary GHSA-zzzz", v.ID)
+	}
+	if v.Severity != "CRITICAL" {
+		t.Errorf("severity = %q, want highest (CRITICAL)", v.Severity)
+	}
+	// fix #6: the affected package carries its version for triage.
+	if !reflect.DeepEqual(v.Packages, []string{"golang.org/x/net@0.38.0"}) {
+		t.Errorf("packages = %v, want [golang.org/x/net@0.38.0]", v.Packages)
+	}
+}
+
 // TestCanonicalizeKeepsDistinctAdvisoriesSeparate: two advisories with no shared
 // identifier stay separate, and output is deterministically ordered by ID.
 func TestCanonicalizeKeepsDistinctAdvisoriesSeparate(t *testing.T) {

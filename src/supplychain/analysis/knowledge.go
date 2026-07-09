@@ -3,52 +3,68 @@ package analysis
 import "sort"
 
 // canonicalize groups observations that describe the SAME advisory into one
-// Vulnerability each. Two observations share identity if their id-sets
-// ({VulnID} ∪ {Aliases}) intersect; identity is transitive (a chain of shared
-// ids links a component), which a union-find over id strings resolves. For each
-// component it unions the affected packages and aliases, keeps the HIGHEST
-// severity, and picks a deterministic representative summary / fixed-in /
-// location. Pure, policy-free, and deterministic: the same observations always
-// produce the same vulnerabilities in the same order.
+// Vulnerability each. Two observations are the same vulnerability ONLY when one's
+// PRIMARY id (its VulnID) is contained in the other's id-set ({VulnID} ∪
+// {Aliases}) — NOT when they merely share a non-primary alias. This is
+// deliberately conservative: two DISTINCT advisories that both cross-reference a
+// common CVE (A={GHSA-A, CVE-X}, B={GHSA-B, CVE-X}) stay separate, where a bare
+// id-set intersection would wrongly collapse them and lose one advisory. Identity
+// stays transitive for real alias chains (union-find over the relation), so a
+// chain P1→P2→P3 still links. For each component it unions the affected packages
+// and aliases, keeps the HIGHEST severity, and picks a deterministic
+// representative summary / fixed-in / location. Pure, policy-free, deterministic.
 func canonicalize(obs []AdvisoryObservation) []Vulnerability {
-	// Union-find over identifier strings.
-	parent := map[string]string{}
-	var find func(string) string
-	find = func(x string) string {
+	n := len(obs)
+
+	// Union-find over observation indices.
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(x int) int {
 		for parent[x] != x {
 			parent[x] = parent[parent[x]] // path halving
 			x = parent[x]
 		}
 		return x
 	}
-	union := func(a, b string) {
+	union := func(a, b int) {
 		ra, rb := find(a), find(b)
 		if ra != rb {
 			parent[ra] = rb
 		}
 	}
 
-	// Register every id and link all ids of a single observation together.
-	for _, o := range obs {
-		ids := observationIDs(o)
-		for _, id := range ids {
-			if _, ok := parent[id]; !ok {
-				parent[id] = id
-			}
+	// Precompute each observation's id-set and primary id.
+	idSets := make([]map[string]bool, n)
+	primaries := make([]string, n)
+	for i, o := range obs {
+		set := map[string]bool{}
+		for _, id := range observationIDs(o) {
+			set[id] = true
 		}
-		for i := 1; i < len(ids); i++ {
-			union(ids[0], ids[i])
+		idSets[i] = set
+		primaries[i] = o.VulnID
+	}
+
+	// Link observations that name the same advisory under the primary-containment
+	// relation. O(n²) over the (small) per-file observation set.
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			if sameVulnerability(primaries[i], idSets[i], primaries[j], idSets[j]) {
+				union(i, j)
+			}
 		}
 	}
 
 	// Bucket observation indices by their component root.
-	buckets := map[string][]int{}
-	for i, o := range obs {
-		ids := observationIDs(o)
-		if len(ids) == 0 {
+	buckets := map[int][]int{}
+	for i := range obs {
+		if len(idSets[i]) == 0 {
 			continue // no identifier — cannot be a vulnerability
 		}
-		root := find(ids[0])
+		root := find(i)
 		buckets[root] = append(buckets[root], i)
 	}
 
@@ -61,6 +77,19 @@ func canonicalize(obs []AdvisoryObservation) []Vulnerability {
 	// iteration: sort by canonical ID.
 	sort.Slice(vulns, func(i, j int) bool { return vulns[i].ID < vulns[j].ID })
 	return vulns
+}
+
+// sameVulnerability reports whether two observations describe one advisory: one's
+// primary id must be an identifier of the other. Sharing only a non-primary alias
+// does NOT match (distinct advisories cross-referencing a common CVE stay apart).
+func sameVulnerability(primaryA string, idsA map[string]bool, primaryB string, idsB map[string]bool) bool {
+	if primaryA != "" && idsB[primaryA] {
+		return true
+	}
+	if primaryB != "" && idsA[primaryB] {
+		return true
+	}
+	return false
 }
 
 // observationIDs returns the non-empty identifier set of an observation.
@@ -99,7 +128,7 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 	})
 
 	idSet := map[string]bool{}
-	pkgSet := map[string]bool{}
+	pkgVersions := map[string]string{} // package name → representative version ("" if unknown)
 	var primaryIDs []string
 	var v Vulnerability
 	bestRank := -1
@@ -113,7 +142,11 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 			primaryIDs = append(primaryIDs, o.VulnID)
 		}
 		if o.Package != "" {
-			pkgSet[o.Package] = true
+			// First observation (in the deterministic sorted order) with a
+			// non-empty version wins; osv-api sorts before osv-scanner.
+			if cur, seen := pkgVersions[o.Package]; !seen || (cur == "" && o.Version != "") {
+				pkgVersions[o.Package] = o.Version
+			}
 		}
 		if r := severityRank(o.Severity); r > bestRank {
 			bestRank = r
@@ -135,8 +168,26 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 	// smallest id overall if no observation carried a primary).
 	v.ID = pickCanonicalID(primaryIDs, idSet)
 	v.Aliases = sortedSetExcept(idSet, v.ID)
-	v.Packages = sortedSet(pkgSet)
+	v.Packages = formatPackages(pkgVersions)
 	return v
+}
+
+// formatPackages renders the affected package set as sorted "name@version"
+// entries (bare "name" when the version is unknown), for triage in the message.
+func formatPackages(pkgVersions map[string]string) []string {
+	if len(pkgVersions) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(pkgVersions))
+	for name, ver := range pkgVersions {
+		if ver != "" {
+			out = append(out, name+"@"+ver)
+		} else {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // sourcePriority ranks sources for representative selection (lower = preferred).
@@ -181,19 +232,6 @@ func pickCanonicalID(primaries []string, idSet map[string]bool) string {
 		}
 	}
 	return best
-}
-
-// sortedSet returns the set's members in sorted order.
-func sortedSet(set map[string]bool) []string {
-	if len(set) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(set))
-	for k := range set {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // sortedSetExcept returns the set's members, minus one, in sorted order.

@@ -44,6 +44,7 @@ type osvQueryResponse struct {
 type osvVuln struct {
 	ID       string        `json:"id"`
 	Summary  string        `json:"summary"`
+	Aliases  []string      `json:"aliases"`
 	Severity []osvSeverity `json:"severity"`
 	Affected []osvAffected `json:"affected"`
 }
@@ -131,6 +132,7 @@ func (m *Resolver) correlateVulns(ctx context.Context, deps []supplychain.Depend
 			}
 			vi := supplychain.VulnInfo{
 				ID:       v.ID,
+				Aliases:  v.Aliases,
 				Summary:  v.Summary,
 				Severity: extractHighestSeverity(v.Severity),
 				FixedIn:  extractFixedVersion(v.Affected, dep.Name, osvEco),

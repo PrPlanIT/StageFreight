@@ -16,7 +16,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
-	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -38,14 +37,6 @@ type Engine struct {
 	// implementing SnapshotAwareModule must fall back to on-demand
 	// resolution (this is what keeps standalone `stagefreight lint` working).
 	Snapshot *supplychain.Snapshot
-
-	// Assessment is an optional, pre-built supply-chain vulnerability
-	// Assessment produced once by the caller (the audition) and threaded in so
-	// the vulnerabilities module renders it instead of self-building. Set before
-	// RunWithStats, mirroring Snapshot. nil means "no shared Assessment" —
-	// AssessmentAwareModule implementers self-build (standalone `stagefreight
-	// lint`).
-	Assessment *analysis.Assessment
 
 	CacheHits   atomic.Int64
 	CacheMisses atomic.Int64
@@ -106,17 +97,22 @@ func contentTypeLabel(c Content) string {
 func NewEngine(cfg config.LintConfig, rootDir string, moduleNames []string, skipNames []string, verbose bool, cache *Cache) (*Engine, error) {
 	skipSet := make(map[string]bool, len(skipNames))
 	for _, name := range skipNames {
-		skipSet[name] = true
+		skipSet[canonicalModuleName(name)] = true
 	}
 
 	var modules []Module
 
 	if len(moduleNames) > 0 {
-		// Explicit module selection
-		for _, name := range moduleNames {
-			if skipSet[name] {
+		// Explicit module selection. Resolve deprecated aliases (e.g. "osv" →
+		// "vulnerabilities") to their canonical registered name and de-duplicate,
+		// so `--module osv` and an explicit list containing "osv" both work.
+		seen := make(map[string]bool, len(moduleNames))
+		for _, raw := range moduleNames {
+			name := canonicalModuleName(raw)
+			if skipSet[name] || seen[name] {
 				continue
 			}
+			seen[name] = true
 			m, err := Get(name)
 			if err != nil {
 				return nil, err
@@ -137,8 +133,10 @@ func NewEngine(cfg config.LintConfig, rootDir string, moduleNames []string, skip
 				return nil, err
 			}
 
-			// Check config for explicit enable/disable override
-			mc, hasCfg := cfg.Modules[name]
+			// Check config for explicit enable/disable override, honoring
+			// deprecated alias keys (e.g. lint.modules.osv still configures the
+			// vulnerabilities module).
+			mc, hasCfg := moduleConfigFor(cfg, name)
 			if hasCfg && mc.Enabled != nil {
 				if !*mc.Enabled {
 					continue // explicitly disabled
@@ -208,16 +206,6 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		for _, m := range e.Modules {
 			if sa, ok := m.(SnapshotAwareModule); ok {
 				sa.SetSnapshot(e.Snapshot)
-			}
-		}
-	}
-
-	// Propagate a pre-built Assessment to modules that render it, mirroring the
-	// Snapshot propagation above. nil → AssessmentAwareModules self-build.
-	if e.Assessment != nil {
-		for _, m := range e.Modules {
-			if aa, ok := m.(AssessmentAwareModule); ok {
-				aa.SetAssessment(e.Assessment)
 			}
 		}
 	}
@@ -538,18 +526,65 @@ func (e *Engine) isModuleExcluded(moduleName, path string) bool {
 	return false
 }
 
+// moduleAliases maps deprecated/alternate module names to their canonical
+// registered name, so config and CLI selection using the old name keep working
+// after a rename. The osv module was unified into vulnerabilities.
+var moduleAliases = map[string]string{
+	"osv": "vulnerabilities",
+}
+
+// canonicalModuleName resolves a possibly-deprecated module name to its
+// registered name.
+func canonicalModuleName(name string) string {
+	if canon, ok := moduleAliases[name]; ok {
+		return canon
+	}
+	return name
+}
+
+// moduleConfigFor returns the ModuleConfig for a canonical module name, honoring
+// deprecated alias keys (e.g. lint.modules.osv still enables/disables the
+// vulnerabilities module). The canonical key wins when both are present.
+func moduleConfigFor(cfg config.LintConfig, name string) (config.ModuleConfig, bool) {
+	if mc, ok := cfg.Modules[name]; ok {
+		return mc, true
+	}
+	for alias, canon := range moduleAliases {
+		if canon == name {
+			if mc, ok := cfg.Modules[alias]; ok {
+				return mc, true
+			}
+		}
+	}
+	return config.ModuleConfig{}, false
+}
+
+// moduleOptions returns the YAML options a module should be configured with. The
+// vulnerabilities module renders the OSV-API correlation that lives under the
+// freshness config (min_severity, vulnerability toggle, ignores, source
+// toggles), so it sources its options from the freshness section rather than its
+// own — keeping both modules on the same vulnerability config.
+func moduleOptions(cfg config.LintConfig, name string) map[string]any {
+	if name == "vulnerabilities" {
+		if mc, ok := cfg.Modules["freshness"]; ok {
+			return mc.Options
+		}
+		return nil
+	}
+	if mc, ok := moduleConfigFor(cfg, name); ok {
+		return mc.Options
+	}
+	return nil
+}
+
 // configureModule passes YAML options to modules that implement ConfigurableModule.
 func configureModule(m Module, cfg config.LintConfig, name string) error {
 	cm, ok := m.(ConfigurableModule)
 	if !ok {
 		return nil
 	}
-	mc, exists := cfg.Modules[name]
-	if !exists || mc.Options == nil {
-		// Call with empty map so the module can apply defaults.
-		return cm.Configure(nil)
-	}
-	return cm.Configure(mc.Options)
+	// Call with a nil map (module applies defaults) when no options are present.
+	return cm.Configure(moduleOptions(cfg, name))
 }
 
 func (e *Engine) moduleConfigJSON(name string) string {

@@ -3,14 +3,12 @@ package vulnerabilities
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -19,27 +17,33 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
-// vulnModule is the single supply-chain vulnerability renderer. It turns a
-// canonical analysis.Assessment into lint findings — exactly ONE finding per
-// advisory — so a given CVE renders once regardless of how many sources
-// (OSV-API correlation, osv-scanner) observed it.
+// vulnModule is the single supply-chain vulnerability renderer. Per file it
+// gathers advisory observations from both sources — the OSV-API correlation
+// already attached to the file's dependencies, and a per-file osv-scanner run —
+// canonicalizes them into ONE Vulnerability per advisory (deduping the former
+// freshness-INFO + osv-scanner-WARN double report), and emits one lint.Finding
+// per canonical vulnerability.
 //
-// It builds the Assessment once per run (sync.Once) and distributes the
-// resulting findings across files by each vulnerability's representative
-// location, mirroring how the freshness module attributes findings to the file
-// a dependency lives in. Findings are emitted the first time the module is asked
-// about their file; every other Check returns the pre-computed slice for its file.
+// It mirrors the freshness module's threading: when the audition provides a
+// pre-resolved Snapshot it narrows that to the current file (no per-file
+// resolution); standalone it self-resolves via the shared discovery.Resolver
+// (the RESOLVER, not a whole-repo discovery pass) so `stagefreight lint <path>`
+// scans the target, not the process's working directory.
 type vulnModule struct {
-	once     sync.Once
-	byFile   map[string][]lint.Finding
+	resolver *discovery.Resolver
 	desired  map[string]config.ToolPinConfig
 	snapshot *supplychain.Snapshot
-	// assessment, when set by the engine (AssessmentAwareModule), is the
-	// pre-built Assessment threaded by the audition. nil → self-build.
-	assessment *analysis.Assessment
+
+	// osv-scanner binary, resolved once across the run. resolveErr is set only
+	// when a PINNED version fails to resolve — a hard-fail of the gate.
+	once       sync.Once
+	binPath    string
+	resolveErr error
 }
 
-func newModule() *vulnModule { return &vulnModule{} }
+func newModule() *vulnModule {
+	return &vulnModule{resolver: discovery.NewResolver()}
+}
 
 func (m *vulnModule) Name() string         { return "vulnerabilities" }
 func (m *vulnModule) DefaultEnabled() bool { return true }
@@ -68,119 +72,144 @@ func (m *vulnModule) AutoDetect() []string {
 	}
 }
 
-// SetToolchainDesired implements lint.ToolchainAwareModule (osv-scanner pin).
+// SetToolchainDesired implements lint.ToolchainAwareModule (osv-scanner pin). It
+// also threads the pin into the resolver so the OSV-API leg's toolchain-desired
+// discovery stays consistent.
 func (m *vulnModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
 	m.desired = desired
+	m.resolver.SetToolchainDesired(desired)
 }
 
 // SetSnapshot implements lint.SnapshotAwareModule.
 func (m *vulnModule) SetSnapshot(snapshot *supplychain.Snapshot) { m.snapshot = snapshot }
 
-// SetAssessment implements lint.AssessmentAwareModule.
-func (m *vulnModule) SetAssessment(assessment *analysis.Assessment) { m.assessment = assessment }
+// Configure implements lint.ConfigurableModule. The engine sources these options
+// from the freshness config section, so the vulnerabilities module reads the same
+// vulnerability config (min_severity, correlation enable, ignores, source
+// toggles) the freshness/osv paths read — no vuln config is silently dropped.
+func (m *vulnModule) Configure(opts map[string]any) error {
+	return m.resolver.Configure(opts)
+}
 
-// Check returns the vulnerability findings attributed to file. The Assessment is
-// built exactly once (on the first Check that reaches this body); every call
-// thereafter reads the pre-computed per-file map.
+// Check gathers this file's advisory observations from both sources, reduces
+// them to one vulnerability per advisory, and renders each as a finding.
 func (m *vulnModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
-	m.once.Do(func() { m.build(ctx) })
-	return m.byFile[file.Path], nil
-}
-
-// build produces the Assessment and buckets its findings by representative file.
-// It never fails the lint: any collection problem is logged and the module
-// renders whatever the Assessment contains.
-func (m *vulnModule) build(ctx context.Context) {
-	m.byFile = map[string][]lint.Finding{}
-
-	assessment := m.assessment
-	if assessment == nil {
-		assessment = m.selfBuild(ctx)
-	}
-	if assessment == nil {
-		return
-	}
-	for _, v := range assessment.Vulnerabilities {
-		f := toFinding(v)
-		m.byFile[f.File] = append(m.byFile[f.File], f)
-	}
-}
-
-// selfBuild produces an Assessment when the audition did not thread one
-// (standalone `stagefreight lint`): it sources OSV-API observations from the
-// threaded Snapshot (self-discovering one if none was threaded) and runs
-// osv-scanner. Mirrors how the freshness/osv modules self-discover today.
-func (m *vulnModule) selfBuild(ctx context.Context) *analysis.Assessment {
-	root, _ := os.Getwd()
-
-	snapshot := m.snapshot
-	if snapshot == nil {
-		s, err := discovery.Discover(ctx, nil, collectFiles(root))
-		if err != nil {
-			diag.Warn("vulnerabilities: dependency discovery failed: %v", err)
-		}
-		snapshot = s
-	}
-
-	cfg := analysis.Config{RootDir: root}
-	if bin := m.resolveScanner(ctx, root); bin != "" {
-		cfg.ScannerBinPath = bin
-		cfg.ScannerEnv = toolchain.CleanEnv()
-	}
-
-	assessment, err := analysis.Analyze(ctx, snapshot, cfg)
+	obs, err := m.observe(ctx, file)
 	if err != nil {
-		diag.Warn("vulnerabilities: %v", err)
+		return nil, err
 	}
-	return assessment
+	if len(obs) == 0 {
+		return nil, nil
+	}
+	var findings []lint.Finding
+	for _, v := range analysis.Reduce(obs) {
+		findings = append(findings, toFinding(v))
+	}
+	return findings, nil
 }
 
-// resolveScanner resolves the osv-scanner binary. A missing (unpinned) binary is
-// a silent skip; a pinned version that fails is logged but never fails the lint.
-func (m *vulnModule) resolveScanner(ctx context.Context, root string) string {
-	ver, pinned := toolchain.ResolveVersion("osv-scanner", "", m.desired)
-	result, err := provision.Resolve(ctx, root, "osv-scanner", ver, "dependency vulnerability audit")
+// observe collects this file's advisory observations from both sources.
+func (m *vulnModule) observe(ctx context.Context, file lint.FileInfo) ([]analysis.AdvisoryObservation, error) {
+	var obs []analysis.AdvisoryObservation
+
+	// (a) OSV-API leg — the vulnerabilities already correlated onto this file's
+	// dependencies. Gated by the same config the freshness renderer applied to
+	// its (now-removed) per-advisory findings: ignore globs, package-rule
+	// disables, and per-source toggles.
+	deps, err := m.deps(ctx, file)
 	if err != nil {
-		if pinned {
-			diag.Warn("vulnerabilities: osv-scanner pinned version %s failed to resolve: %v", ver, err)
-		}
-		return ""
+		return nil, err
 	}
-	return result.Path
-}
+	obs = append(obs, analysis.ObserveDependencies(m.eligibleDeps(deps))...)
 
-// collectFiles walks root for regular files (skipping hidden directories),
-// mirroring the lint engine's CollectFiles, so a self-discovered Snapshot sees
-// the same manifest set the engine would.
-func collectFiles(root string) []lint.FileInfo {
-	var files []lint.FileInfo
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	// (b) osv-scanner leg — a per-file scan of this lockfile, ungated (mirroring
+	// the former standalone osv module). A pinned-but-unresolvable scanner
+	// hard-fails the gate; unpinned+unavailable skips the scanner but keeps (a).
+	base := filepath.Base(file.Path)
+	if analysis.IsScannableLockfile(base, file.AbsPath) {
+		bin, resErr := m.scanner(ctx, file)
+		if resErr != nil {
+			return nil, resErr
 		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		if d.IsDir() {
-			base := filepath.Base(rel)
-			if strings.HasPrefix(base, ".") && base != "." {
-				return filepath.SkipDir
+		if bin != "" {
+			scannerObs, scanErr := analysis.ObserveScanner(ctx, bin, toolchain.CleanEnv(), file.AbsPath, file.Path)
+			if scanErr != nil {
+				return nil, scanErr
 			}
-			return nil
+			obs = append(obs, scannerObs...)
 		}
-		if !d.Type().IsRegular() {
-			return nil
+	}
+	return obs, nil
+}
+
+// deps returns this file's dependencies: narrowed from the audition Snapshot
+// when set (no resolution), else self-resolved via the resolver — mirroring the
+// freshness module's standalone fallback.
+func (m *vulnModule) deps(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
+	if m.snapshot != nil {
+		var deps []supplychain.Dependency
+		for _, dep := range m.snapshot.Dependencies {
+			if dep.File == file.Path {
+				deps = append(deps, dep)
+			}
 		}
-		files = append(files, lint.FileInfo{Path: rel, AbsPath: path})
-		return nil
+		return deps, nil
+	}
+	return m.resolver.ResolveFile(ctx, file)
+}
+
+// eligibleDeps applies the config gates the freshness renderer applied to its
+// per-advisory findings before they moved here: ignore globs, package-rule
+// disables, and per-source toggles. The osv-scanner leg stays ungated (the
+// former osv module applied none of these).
+func (m *vulnModule) eligibleDeps(deps []supplychain.Dependency) []supplychain.Dependency {
+	cfg := m.resolver.Config()
+	var out []supplychain.Dependency
+	for _, dep := range deps {
+		if cfg.IsIgnored(dep.Name) || cfg.IsDisabledByRule(dep) || !cfg.SourceEnabled(dep.Ecosystem) {
+			continue
+		}
+		out = append(out, dep)
+	}
+	return out
+}
+
+// scanner resolves the osv-scanner binary once. A PINNED version that fails to
+// resolve returns an error (hard-fails the gate, reproducing the former osv
+// module's pinned-version contract); an UNPINNED unavailable binary returns
+// ("", nil) — a silent skip that still lets the OSV-API leg emit.
+func (m *vulnModule) scanner(ctx context.Context, file lint.FileInfo) (string, error) {
+	m.once.Do(func() {
+		root := repoRoot(file)
+		ver, pinned := toolchain.ResolveVersion("osv-scanner", "", m.desired)
+		result, err := provision.Resolve(ctx, root, "osv-scanner", ver, "dependency vulnerability audit")
+		if err != nil {
+			if pinned {
+				m.resolveErr = fmt.Errorf("osv-scanner pinned version %s failed to resolve: %w", ver, err)
+			}
+			return
+		}
+		m.binPath = result.Path
 	})
-	return files
+	return m.binPath, m.resolveErr
+}
+
+// repoRoot derives the lint target root from a file's absolute and repo-relative
+// paths, so tool resolution's workspace-local cache lands under the scanned tree
+// — not os.Getwd(), which is wrong for `stagefreight lint <other-path>`.
+func repoRoot(file lint.FileInfo) string {
+	abs := filepath.ToSlash(file.AbsPath)
+	rel := filepath.ToSlash(file.Path)
+	if trimmed := strings.TrimSuffix(abs, rel); trimmed != abs {
+		return filepath.FromSlash(strings.TrimRight(trimmed, "/"))
+	}
+	return filepath.Dir(file.AbsPath)
 }
 
 // toFinding renders one canonical vulnerability as a single lint finding. RuleID
 // carries the advisory id (stable identity for baseline diffing); Message is
-// presentation, unifying the wording the freshness and osv modules used.
+// presentation, including the affected package@version for triage (as the former
+// osv `pkg@version` and freshness `name@current` messages did).
 func toFinding(v analysis.Vulnerability) lint.Finding {
 	summary := v.Summary
 	if summary == "" {

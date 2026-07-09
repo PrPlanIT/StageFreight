@@ -13,75 +13,53 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
-// collectObservations gathers advisory observations from every source, WITHOUT
-// running any new OSV-API query: source (a) reads the vulnerabilities already
-// correlated onto the Snapshot's dependencies during discovery (Source
-// "osv-api"), and source (b) runs osv-scanner over the repository's lockfiles
-// (Source "osv-scanner"). The osv-scanner error is returned so callers may
-// surface it, but observations gathered so far are always returned.
-func collectObservations(ctx context.Context, snapshot *supplychain.Snapshot, cfg Config) ([]AdvisoryObservation, error) {
+// ObserveDependencies turns the OSV-API vulnerabilities already correlated onto
+// deps (during discovery) into advisory observations (Source "osv-api"). Per-file
+// callers pass the dependency subset for one manifest; deps with no correlated
+// vulnerability contribute nothing. Policy-free: the caller applies any ignore /
+// source-toggle filtering before handing deps in.
+func ObserveDependencies(deps []supplychain.Dependency) []AdvisoryObservation {
 	var obs []AdvisoryObservation
-
-	// (a) OSV-API — already correlated onto the snapshot's dependencies.
-	if snapshot != nil {
-		for _, dep := range snapshot.Dependencies {
-			for _, v := range dep.Vulnerabilities {
-				if v.ID == "" {
-					continue
-				}
-				obs = append(obs, AdvisoryObservation{
-					Source:    "osv-api",
-					VulnID:    v.ID,
-					Package:   dep.Name,
-					Ecosystem: dep.Ecosystem,
-					Severity:  normalizeLabel(v.Severity),
-					FixedIn:   v.FixedIn,
-					Summary:   v.Summary,
-					File:      dep.File,
-					Line:      dep.Line,
-				})
+	for _, dep := range deps {
+		for _, v := range dep.Vulnerabilities {
+			if v.ID == "" {
+				continue
 			}
+			obs = append(obs, AdvisoryObservation{
+				Source:    "osv-api",
+				VulnID:    v.ID,
+				Aliases:   v.Aliases,
+				Package:   dep.Name,
+				Version:   dep.Current,
+				Ecosystem: dep.Ecosystem,
+				Severity:  normalizeLabel(v.Severity),
+				FixedIn:   v.FixedIn,
+				Summary:   v.Summary,
+				File:      dep.File,
+				Line:      dep.Line,
+			})
 		}
 	}
-
-	// (b) osv-scanner.
-	scannerObs, err := scanOSV(ctx, cfg)
-	obs = append(obs, scannerObs...)
-	return obs, err
+	return obs
 }
 
-// scanOSV runs the (already-resolved) osv-scanner binary over every
-// non-dominated lockfile beneath cfg.RootDir, producing observations. An empty
-// ScannerBinPath skips the source silently. Relocated from the former osv lint
-// module (binary resolution now happens in the caller).
-func scanOSV(ctx context.Context, cfg Config) ([]AdvisoryObservation, error) {
-	if cfg.ScannerBinPath == "" {
-		return nil, nil
+// IsScannableLockfile reports whether osv-scanner should run over the file at
+// absPath (base is its filename): it must be a supported lockfile and not a
+// nested/dominated one (a vendored crate's lock, a sub-project). Mirrors the
+// former osv lint module's per-file gate.
+func IsScannableLockfile(base, absPath string) bool {
+	if !lockfiles[base] {
+		return false
 	}
+	return !isDominatedLockfile(absPath, base)
+}
 
-	root := cfg.RootDir
-	if root == "" {
-		root, _ = os.Getwd()
-	}
-
-	lockfilePaths := discoverLockfiles(root)
-	if len(lockfilePaths) == 0 {
-		return nil, nil
-	}
-
-	var obs []AdvisoryObservation
-	for _, abs := range lockfilePaths {
-		rel, relErr := filepath.Rel(root, abs)
-		if relErr != nil {
-			rel = abs
-		}
-		o, scanErr := scanLockfile(ctx, cfg.ScannerBinPath, cfg.ScannerEnv, abs, rel)
-		if scanErr != nil {
-			return obs, scanErr
-		}
-		obs = append(obs, o...)
-	}
-	return obs, nil
+// ObserveScanner runs the resolved osv-scanner binary over one lockfile at
+// absPath and returns its advisory observations (Source "osv-scanner"),
+// attributing each to relPath. Callers gate the file with IsScannableLockfile
+// first. Per-file counterpart used by the vulnerabilities lint module.
+func ObserveScanner(ctx context.Context, binPath string, env []string, absPath, relPath string) ([]AdvisoryObservation, error) {
+	return scanLockfile(ctx, binPath, env, absPath, relPath)
 }
 
 // scanLockfile runs osv-scanner against a single lockfile and converts its
@@ -115,6 +93,7 @@ func scanLockfile(ctx context.Context, binPath string, env []string, absPath, re
 					VulnID:    primaryID,
 					Aliases:   groupAliases(group),
 					Package:   pkg.Package.Name,
+					Version:   pkg.Package.Version,
 					Ecosystem: pkg.Package.Ecosystem,
 					Severity:  scoreToLabel(group.MaxSeverity),
 					FixedIn:   vulnFixedIn(primaryID, pkg.Vulnerabilities, pkg.Package.Name),
@@ -125,38 +104,6 @@ func scanLockfile(ctx context.Context, binPath string, env []string, absPath, re
 		}
 	}
 	return obs, nil
-}
-
-// discoverLockfiles walks root for osv-scanner-supported lockfiles, skipping
-// hidden directories (mirroring the lint engine's file collection) and dominated
-// (nested/vendored) lockfiles. Returns absolute paths.
-func discoverLockfiles(root string) []string {
-	var paths []string
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			base := filepath.Base(path)
-			if strings.HasPrefix(base, ".") && path != root {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		base := filepath.Base(path)
-		if !lockfiles[base] {
-			return nil
-		}
-		if isDominatedLockfile(path, base) {
-			return nil
-		}
-		paths = append(paths, path)
-		return nil
-	})
-	return paths
 }
 
 // isDominatedLockfile reports whether a same-named lockfile exists in an ancestor

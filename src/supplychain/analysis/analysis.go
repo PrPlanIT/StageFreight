@@ -1,26 +1,22 @@
 // Package analysis is the supply-chain vulnerability analysis layer. It takes
-// raw per-source advisory reports (the OSV-API correlation already attached to a
-// Snapshot's dependencies, plus a fresh osv-scanner run) and reduces them to ONE
+// raw per-source advisory observations (the OSV-API correlation already attached
+// to a dependency, plus a per-file osv-scanner run) and reduces them to ONE
 // canonical vulnerability per advisory with ONE verdict, so a given advisory is
 // reported exactly once regardless of how many sources observed it.
 //
-// The pipeline is collect → canonicalize → evaluate:
+// The pipeline is observe → canonicalize → evaluate:
 //
-//   - collect   gathers AdvisoryObservations from every source (policy-free I/O).
-//   - canonicalize groups observations that describe the SAME advisory (their
-//     id-sets intersect) into one Vulnerability — pure, deterministic, policy-free.
-//   - evaluate  assigns exactly one Verdict per Vulnerability from its severity.
+//   - ObserveDependencies / ObserveScanner gather AdvisoryObservations from each
+//     source (policy-free).
+//   - canonicalize groups observations that describe the SAME advisory (one
+//     observation's primary id is contained in another's id-set) into a single
+//     Vulnerability — pure, deterministic, policy-free.
+//   - evaluate assigns exactly one Verdict per Vulnerability from its severity.
 //
-// The resulting Assessment is immutable: produced once, shared read-only. Rendering
-// to lint findings lives OUTSIDE this package (src/lint/modules/vulnerabilities) so
-// analysis carries no dependency on the lint layer.
+// Reduce composes canonicalize → evaluate. Rendering to lint findings lives
+// OUTSIDE this package (src/lint/modules/vulnerabilities) so analysis carries no
+// dependency on the lint layer.
 package analysis
-
-import (
-	"context"
-
-	"github.com/PrPlanIT/StageFreight/src/supplychain"
-)
 
 // Verdict is the analysis-layer severity classification for a canonical
 // vulnerability — the single verdict rendered per advisory. Its tiers mirror the
@@ -56,6 +52,7 @@ type AdvisoryObservation struct {
 	VulnID    string
 	Aliases   []string
 	Package   string
+	Version   string // affected package version, for triage in the rendered message
 	Ecosystem string
 	Severity  string // normalized OSV severity label
 	FixedIn   string
@@ -66,9 +63,9 @@ type AdvisoryObservation struct {
 
 // Vulnerability is one canonical advisory: the union of every observation that
 // describes it. It carries the highest severity seen, a representative
-// summary/fixed-in, and the set of affected packages. Verdict is assigned by
-// evaluate. File/Line attribute the single rendered finding to a representative
-// source location.
+// summary/fixed-in, and the set of affected packages (each "name@version" when a
+// version is known). Verdict is assigned by evaluate. File/Line attribute the
+// single rendered finding to a representative source location.
 type Vulnerability struct {
 	ID       string
 	Aliases  []string
@@ -81,35 +78,13 @@ type Vulnerability struct {
 	Verdict  Verdict
 }
 
-// Assessment is the immutable result of one analysis pass: the canonical set of
-// vulnerabilities, each already carrying its verdict. Produced once.
-type Assessment struct {
-	Vulnerabilities []Vulnerability
-}
-
-// Config carries the inputs collection needs beyond the Snapshot. analysis is
-// deliberately free of the provisioning/lint layers (so lint may depend on it
-// without a cycle): the caller resolves the osv-scanner binary and hands its path
-// and a clean environment in. An empty ScannerBinPath skips the osv-scanner
-// source entirely.
-type Config struct {
-	RootDir        string
-	ScannerBinPath string   // resolved osv-scanner binary; "" → skip osv-scanner
-	ScannerEnv     []string // environment for the osv-scanner process
-}
-
-// Analyze composes collect → canonicalize → evaluate into an immutable
-// Assessment. snapshot supplies the OSV-API observations (already correlated onto
-// its dependencies); cfg drives the osv-scanner run. The returned error is
-// non-nil only for a genuine collection failure (e.g. a pinned osv-scanner
-// version that will not resolve, or a scanner crash); the Assessment is still
-// returned with whatever observations were gathered, so a scanner problem never
-// discards the OSV-API findings.
-func Analyze(ctx context.Context, snapshot *supplychain.Snapshot, cfg Config) (*Assessment, error) {
-	obs, err := collectObservations(ctx, snapshot, cfg)
+// Reduce composes canonicalize → evaluate: it groups observations into one
+// Vulnerability per advisory and assigns each a Verdict. Pure and deterministic —
+// the same observations always produce the same vulnerabilities in the same order.
+func Reduce(obs []AdvisoryObservation) []Vulnerability {
 	vulns := canonicalize(obs)
 	for i := range vulns {
 		vulns[i].Verdict = evaluate(vulns[i])
 	}
-	return &Assessment{Vulnerabilities: vulns}, err
+	return vulns
 }

@@ -69,11 +69,12 @@ func (d Dependency) MajorAvailable() bool {
 
 // VulnInfo describes a single known vulnerability affecting a dependency.
 type VulnInfo struct {
-	ID       string // e.g. "GHSA-xxxx-yyyy-zzzz", "CVE-2024-12345"
-	Summary  string // short description
-	Severity string // "LOW", "MODERATE", "HIGH", "CRITICAL" (from OSV/CVSS)
-	FixedIn  string // version that fixes the vulnerability (if known)
-	Source   string // provenance: "osv" (default), "trivy", "grype", "trivy+grype"
+	ID       string   // e.g. "GHSA-xxxx-yyyy-zzzz", "CVE-2024-12345"
+	Aliases  []string // other identifiers for the SAME advisory (CVE/GHSA/GO-… cross-refs)
+	Summary  string   // short description
+	Severity string   // "LOW", "MODERATE", "HIGH", "CRITICAL" (from OSV/CVSS)
+	FixedIn  string   // version that fixes the vulnerability (if known)
+	Source   string   // provenance: "osv" (default), "trivy", "grype", "trivy+grype"
 }
 
 // Ecosystem constants identify the origin of a dependency.
