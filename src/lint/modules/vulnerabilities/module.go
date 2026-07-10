@@ -146,14 +146,42 @@ func (m *vulnModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lin
 	// reg is nil on non-Go repos or when govulncheck can't provision, in which
 	// case Assess reduces to severity-only (identical to the former Reduce path).
 	reg, target := m.reachability(ctx, files, allObs)
+	vulns := analysis.Assess(ctx, allObs, target, reg)
+
+	// Persist the canonical source Assessment as a cross-phase catalogue artifact
+	// so review can reconcile its image-scan findings against these source
+	// findings by vuln ID. Best-effort and additive — never affects the lint.
+	m.persistCatalogue(files, vulns)
+
 	var findings []lint.Finding
-	for _, v := range analysis.Assess(ctx, allObs, target, reg) {
+	for _, v := range vulns {
 		findings = append(findings, toFinding(v))
 	}
 	if len(errs) > 0 {
 		return findings, errors.Join(errs...)
 	}
 	return findings, nil
+}
+
+// persistCatalogue writes the canonical source Assessment to
+// .stagefreight/security/source-vulns.json under the scanned repo root — the
+// cross-phase catalogue the review phase reads back to collapse source and image
+// vulnerabilities by advisory ID. Strictly additive and best-effort: any failure
+// is swallowed so it can never change the lint result, and nothing is written
+// when there is no vulnerability to record.
+func (m *vulnModule) persistCatalogue(files []lint.FileInfo, vulns []analysis.Vulnerability) {
+	if len(files) == 0 || len(vulns) == 0 {
+		return
+	}
+	data, err := analysis.MarshalSourceAssessment(vulns)
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(repoRoot(files[0]), ".stagefreight", "security")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "source-vulns.json"), data, 0o644)
 }
 
 // reachability builds the Go reachability contributor when (a) there is at least

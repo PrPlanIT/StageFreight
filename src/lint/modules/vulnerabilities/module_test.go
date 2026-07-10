@@ -1,11 +1,53 @@
 package vulnerabilities
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 )
+
+// TestPersistCatalogue: the source Assessment is written to
+// .stagefreight/security/source-vulns.json under the scanned root, and parses
+// back — the cross-phase catalogue the review phase consumes.
+func TestPersistCatalogue(t *testing.T) {
+	dir := t.TempDir()
+	files := []lint.FileInfo{{Path: "go.mod", AbsPath: filepath.Join(dir, "go.mod")}}
+	vulns := []analysis.Vulnerability{{
+		ID: "GO-2026-5932", Severity: "MODERATE", Verdict: analysis.VerdictInfo,
+		Packages: []string{"golang.org/x/crypto@v0.54.0"}, File: "go.mod", Line: 17,
+		Surfaces: []analysis.Surface{analysis.SurfaceSource},
+	}}
+
+	newModule().persistCatalogue(files, vulns)
+
+	data, err := os.ReadFile(filepath.Join(dir, ".stagefreight", "security", "source-vulns.json"))
+	if err != nil {
+		t.Fatalf("catalogue not written: %v", err)
+	}
+	sa, err := analysis.UnmarshalSourceAssessment(data)
+	if err != nil {
+		t.Fatalf("catalogue not valid JSON: %v", err)
+	}
+	if len(sa.Vulnerabilities) != 1 || sa.Vulnerabilities[0].ID != "GO-2026-5932" {
+		t.Fatalf("round-trip lost the vuln: %+v", sa.Vulnerabilities)
+	}
+	if got := sa.Vulnerabilities[0].Surfaces; len(got) != 1 || got[0] != "source" {
+		t.Errorf("surfaces = %v, want [source]", got)
+	}
+}
+
+// TestPersistCatalogueSkipsEmpty: no vulnerabilities → no file (additive, no noise).
+func TestPersistCatalogueSkipsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	files := []lint.FileInfo{{Path: "go.mod", AbsPath: filepath.Join(dir, "go.mod")}}
+	newModule().persistCatalogue(files, nil)
+	if _, err := os.Stat(filepath.Join(dir, ".stagefreight", "security", "source-vulns.json")); !os.IsNotExist(err) {
+		t.Error("empty vulns should not write a catalogue file")
+	}
+}
 
 // TestToFindingRendersPackageVersion (fix #6): the rendered message includes the
 // affected package@version (as the former osv `pkg@version` and freshness
