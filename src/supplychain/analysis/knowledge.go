@@ -1,6 +1,10 @@
 package analysis
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/PrPlanIT/StageFreight/src/severity"
+)
 
 // canonicalize groups observations that describe the SAME advisory into one
 // Vulnerability each. Two observations are the same vulnerability ONLY when one's
@@ -152,7 +156,7 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 				pkgVersions[o.Package] = o.Version
 			}
 		}
-		if r := SeverityRank(o.Severity); r > bestRank {
+		if r := severity.Rank(o.Severity); r > bestRank {
 			bestRank = r
 			v.Severity = normalizeLabel(o.Severity)
 		}
@@ -218,37 +222,6 @@ func sourcePriority(source string) int {
 		return 0
 	}
 	return 1
-}
-
-// SeverityRank maps a severity label to a comparable rank (higher = worse),
-// spanning both the OSV vocabulary ("MODERATE") and the CVSS/image-scan
-// vocabulary ("MEDIUM"). Unknown/empty ranks 0. Shared by the canonical-vuln
-// merge and the image-scan gate so severity ordering has one definition.
-func SeverityRank(label string) int {
-	switch normalizeLabel(label) {
-	case "CRITICAL":
-		return 4
-	case "HIGH":
-		return 3
-	case "MODERATE", "MEDIUM":
-		return 2
-	case "LOW":
-		return 1
-	default:
-		return 0
-	}
-}
-
-// severityMaxRank is the rank of the most severe label (CRITICAL) — the ceiling
-// used to invert SeverityRank into an ascending sort order.
-const severityMaxRank = 4
-
-// SeverityOrder returns an ASCENDING sort key where the most severe label sorts
-// FIRST (CRITICAL=0, HIGH=1, MEDIUM/MODERATE=2, LOW=3, unknown=4) — the inverse
-// of SeverityRank, for severity-descending displays and "is this at least high"
-// (order <= 1) checks. One definition shared with the render/deps-update paths.
-func SeverityOrder(label string) int {
-	return severityMaxRank - SeverityRank(label)
 }
 
 // pickCanonicalID chooses the canonical advisory id: the smallest primary id, or

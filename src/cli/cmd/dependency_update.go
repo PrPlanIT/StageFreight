@@ -15,7 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
-	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
+	"github.com/PrPlanIT/StageFreight/src/severity"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
@@ -425,7 +425,7 @@ func collectCVEsFixed(updates []dependency.AppliedUpdate) []output.CVEFixed {
 	}
 
 	sort.SliceStable(cves, func(i, j int) bool {
-		ri, rj := analysis.SeverityOrder(cves[i].Severity), analysis.SeverityOrder(cves[j].Severity)
+		ri, rj := severity.Order(cves[i].Severity), severity.Order(cves[j].Severity)
 		if ri != rj {
 			return ri < rj
 		}

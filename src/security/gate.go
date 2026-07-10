@@ -3,7 +3,7 @@ package security
 import (
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
+	"github.com/PrPlanIT/StageFreight/src/severity"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
 )
 
@@ -37,7 +37,7 @@ func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachable
 	if base == 0 || unreachablePolicy != "pass" || cs == nil {
 		return base
 	}
-	minRank := analysis.SeverityRank(failOn)
+	minRank := severity.Rank(failOn)
 
 	// Advisory ids (and aliases) the cross-surface reconciliation proved unreachable.
 	excusedIDs := map[string]bool{}
@@ -56,7 +56,7 @@ func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachable
 
 	excused := 0
 	for _, v := range result.Vulnerabilities {
-		if excusedIDs[v.ID] && analysis.SeverityRank(v.Severity) >= minRank {
+		if excusedIDs[v.ID] && severity.Rank(v.Severity) >= minRank {
 			excused++
 		}
 	}

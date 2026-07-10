@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
+	"github.com/PrPlanIT/StageFreight/src/severity"
 )
 
 const (
@@ -103,7 +103,7 @@ func SectionVulns(sec *Section, vulns []VulnRow, color bool, budget int, ux Secu
 			break
 		}
 
-		r := analysis.SeverityOrder(v.Severity)
+		r := severity.Order(v.Severity)
 		if r <= 1 {
 			// CRIT/HIGH always shown (until AbsoluteMax).
 			renderVulnRow(sec, v, color)
@@ -131,8 +131,8 @@ func SectionVulns(sec *Section, vulns []VulnRow, color bool, budget int, ux Secu
 // VulnSeverityTag returns a short severity label, optionally colored.
 // CRITICAL→"CRIT" red, HIGH→"HIGH" red, MEDIUM/MODERATE→"MOD " yellow,
 // LOW→"LOW " gray, UNKNOWN/empty→"UNK " gray.
-func VulnSeverityTag(severity string, color bool) string {
-	sev := normalizeSeverity(severity)
+func VulnSeverityTag(label string, color bool) string {
+	sev := severity.Normalize(label)
 
 	tag := "UNK "
 	ansi := colorGray
@@ -179,22 +179,6 @@ func bold(color bool, s string) string {
 	return colorBold + s + colorReset
 }
 
-func normalizeSeverity(severity string) string {
-	s := strings.TrimSpace(strings.ToUpper(severity))
-	if s == "" {
-		return "UNKNOWN"
-	}
-	if s == "MODERATE" {
-		return "MEDIUM"
-	}
-	switch s {
-	case "CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN":
-		return s
-	default:
-		return "UNKNOWN"
-	}
-}
-
 func sortVulns(vulns []VulnRow) []VulnRow {
 	out := make([]VulnRow, len(vulns))
 	copy(out, vulns)
@@ -202,7 +186,7 @@ func sortVulns(vulns []VulnRow) []VulnRow {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 
-		ra, rb := analysis.SeverityOrder(a.Severity), analysis.SeverityOrder(b.Severity)
+		ra, rb := severity.Order(a.Severity), severity.Order(b.Severity)
 		if ra != rb {
 			return ra < rb // ascending rank = descending severity
 		}
@@ -241,7 +225,7 @@ func renderVulnRow(sec *Section, v VulnRow, color bool) {
 	}
 
 	// URL line only for CRIT/HIGH to save vertical space.
-	if analysis.SeverityOrder(v.Severity) <= 1 && id != "" {
+	if severity.Order(v.Severity) <= 1 && id != "" {
 		sec.Row("%s", Dimmed("    "+VulnURL(id), color))
 	}
 }
