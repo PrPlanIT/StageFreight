@@ -36,11 +36,6 @@ workflow:
   DOCKER_CERT_PATH: "/certs/client"
 
 default:
-  # TEMPORARY (branch-only, REVERT BEFORE MERGE): govern-self dogfood — run this
-  # branch's pipeline on the candidate binary it just built, not latest-dev.
-  # Pulled DIRECT from Harbor (cr.pcfae.com), not the docker.cr.pcfae.com
-  # docker.io pull-through mirror: this image is Harbor-only (never on Docker Hub),
-  # so the mirror can't resolve it.
   image: cr.pcfae.com/prplanit/stagefreight:latest-test-refactor-supplychain-domain
   interruptible: true
 

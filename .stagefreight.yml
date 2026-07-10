@@ -1,7 +1,11 @@
 version: 1
 
 ci:
-  image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
+  # TEMPORARY (branch-only, REVERT to docker.cr.pcfae.com/...:latest-dev BEFORE
+  # MERGE): govern-self dogfood — the branch pipeline runs on the candidate image
+  # it just built. Harbor-direct (cr.pcfae.com), not the docker.io pull-through
+  # mirror, since this test image is Harbor-only.
+  image: cr.pcfae.com/prplanit/stagefreight:latest-test-refactor-supplychain-domain
 
 matchers:
   branches:
