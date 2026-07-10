@@ -125,6 +125,22 @@ targets:
     tags: ["dev-{sha:8}", "latest-dev"]
     when: { branches: [main], events: [push] }
 
+  # ── Harbor: per-branch test builds (Harbor ONLY, never Docker Hub) ──
+  # Every non-main branch push crucible-builds to Harbor so a protected branch
+  # pipeline can point its CI image at the branch build and let the candidate
+  # govern itself end-to-end before merge. The test-* / latest-test-* tag
+  # namespace IS the throwaway channel — images carry no release/prerelease flag
+  # (that is a forge-release concept, not an image one).
+  - id: harbor-test
+    kind: registry
+    registry: harbor
+    build: stagefreight
+    tags: ["test-{branch}-{sha:8}", "latest-test-{branch}"]
+    when: { branches: ["!main"], events: [push] }
+    retention:
+      keep_last: 6
+      protect: ["latest-test-{branch}"]
+
   # ── Harbor: stable releases ─────────────────────────────────
   - id: harbor-stable
     kind: registry
