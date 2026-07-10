@@ -202,7 +202,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	// Tally (severity counts + blocking subset) via the shared summarizer, so this path and
 	// the CI audition path (build/pipeline) gate identically.
-	summary := lint.Summarize(findings)
+	summary := lint.Summarize(findings, cfg.Lint.EffectiveFailOn())
 	var totalFiles, totalCached int
 	for _, ms := range modStats {
 		totalFiles += ms.Files
@@ -334,7 +334,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	// the base ref — pre-existing ones are surfaced but do not fail CI. Otherwise gate on the
 	// full blocking set.
 	if baseline != nil && newFindingFp != nil {
-		return lint.GateErrorSince(findings, newFindingFp, baseLabel)
+		return lint.GateErrorSince(findings, newFindingFp, baseLabel, cfg.Lint.EffectiveFailOn())
 	}
 	return summary.GateError()
 }

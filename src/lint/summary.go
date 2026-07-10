@@ -15,9 +15,34 @@ type Summary struct {
 	Blocking int // findings that fail CI: Severity==Critical && Confidence != Heuristic (Finding.Blocks)
 }
 
-// Summarize tallies findings by severity and counts the blocking subset.
-func Summarize(findings []Finding) Summary {
+// blockThreshold maps a fail_on label (lint's own importance vocabulary) to a
+// (threshold, gateEnabled) pair. "off" disables the gate; empty/"critical" →
+// Critical (today's default); "warning" → Warning; "info" → Info.
+func blockThreshold(failOn string) (Severity, bool) {
+	switch failOn {
+	case "off":
+		return SeverityCritical, false
+	case "info":
+		return SeverityInfo, true
+	case "warning":
+		return SeverityWarning, true
+	default: // "critical" or empty
+		return SeverityCritical, true
+	}
+}
+
+// blocksAt reports whether a finding blocks at the given fail_on threshold — the
+// module-outcomes Policy stage over a lint finding, in lint's own tier ordering.
+func blocksAt(f Finding, threshold Severity, gateOn bool) bool {
+	return gateOn && f.Severity >= threshold
+}
+
+// Summarize tallies findings by severity and counts the blocking subset at the
+// given fail_on threshold (lint's importance vocabulary; "" → "critical", the
+// historical default of blocking only critical findings).
+func Summarize(findings []Finding, failOn string) Summary {
 	s := Summary{Total: len(findings)}
+	threshold, gateOn := blockThreshold(failOn)
 	for _, f := range findings {
 		switch f.Severity {
 		case SeverityCritical:
@@ -27,7 +52,7 @@ func Summarize(findings []Finding) Summary {
 		case SeverityInfo:
 			s.Info++
 		}
-		if f.Blocks() {
+		if blocksAt(f, threshold, gateOn) {
 			s.Blocking++
 		}
 	}
@@ -38,7 +63,7 @@ func Summarize(findings []Finding) Summary {
 // return this, so the threshold and wording stay identical.
 func (s Summary) GateError() error {
 	if s.Blocking > 0 {
-		return fmt.Errorf("lint failed: %d blocking critical findings", s.Blocking)
+		return fmt.Errorf("lint failed: %d blocking finding(s)", s.Blocking)
 	}
 	return nil
 }
@@ -48,10 +73,11 @@ func (s Summary) GateError() error {
 // the baseline) are surfaced but do not block, so a known, tracked, can't-fix-now advisory
 // stays loud without wedging the gate, while a genuinely new regression still fails. label
 // names the baseline in the failure message.
-func GateErrorSince(findings []Finding, isNew map[string]bool, label string) error {
+func GateErrorSince(findings []Finding, isNew map[string]bool, label, failOn string) error {
+	threshold, gateOn := blockThreshold(failOn)
 	n := 0
 	for _, f := range findings {
-		if f.Blocks() && isNew[f.Fingerprint()] {
+		if blocksAt(f, threshold, gateOn) && isNew[f.Fingerprint()] {
 			n++
 		}
 	}

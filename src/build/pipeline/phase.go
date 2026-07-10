@@ -375,7 +375,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 
 	// Tally (severity counts + blocking subset) via the shared summarizer — identical gate
 	// logic to the lint CLI, so the two paths can never diverge again.
-	lintSum := lint.Summarize(findings)
+	lintSum := lint.Summarize(findings, appCfg.Lint.EffectiveFailOn())
 	var totalFiles, totalCached int
 	for _, ms := range modStats {
 		totalFiles += ms.Files

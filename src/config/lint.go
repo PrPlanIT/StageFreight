@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // Level controls how much of the codebase gets scanned.
 type Level string
 
@@ -26,6 +28,26 @@ type LintConfig struct {
 	Provenance   ProvenanceConfig        `yaml:"provenance,omitempty"`
 	Remediation  RemediationConfig       `yaml:"remediation,omitempty"`
 	Cache        LintCacheConfig         `yaml:"cache,omitempty"`
+
+	// FailOn is the DIAGNOSTIC-IMPORTANCE threshold at or above which a lint
+	// finding blocks the build: "critical" | "warning" | "info" | "off". This is
+	// lint's OWN ordered vocabulary (info < warning < critical) — deliberately NOT
+	// the vulnerability severity scale; a lint warning and a CVSS High are
+	// incomparable. Empty defaults to "critical" (today's behavior: only critical
+	// findings block). Note this is a SECOND control axis on top of each module's
+	// own severity: raising fail_on reclassifies lower-importance findings from
+	// other lint modules as blocking too.
+	FailOn string `yaml:"fail_on,omitempty"`
+}
+
+// EffectiveFailOn resolves the lint gate threshold, defaulting to "critical"
+// (today's behavior). Returns a lowercased "critical" | "warning" | "info" |
+// "off". The lint package maps this onto its Severity tiers.
+func (c LintConfig) EffectiveFailOn() string {
+	if v := strings.ToLower(strings.TrimSpace(c.FailOn)); v != "" {
+		return v
+	}
+	return "critical"
 }
 
 // ProvenanceConfig lets a project DECLARE file provenance that can't be inferred from
