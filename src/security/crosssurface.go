@@ -15,9 +15,10 @@ import (
 // with the surface(s) it was observed on.
 type CrossSurfaceResult struct {
 	Vulnerabilities []analysis.Vulnerability
-	SourceOnly      int // observed only in source (manifests/lockfiles), not the image
-	ImageOnly       int // observed only in the built image, not in source
-	Both            int // observed on both surfaces
+	SourceOnly      int  // observed only in source (manifests/lockfiles), not the image
+	ImageOnly       int  // observed only in the built image, not in source
+	Both            int  // observed on both surfaces
+	SourceFound     bool // the audition's source catalogue was present and read
 }
 
 // CrossSurface reconciles the image scan's vulnerabilities with the source-side
@@ -78,7 +79,7 @@ func CrossSurface(rootDir string, imageVulns []Vulnerability) *CrossSurfaceResul
 	if src != nil {
 		attachSourceReachability(vulns, src)
 	}
-	res := &CrossSurfaceResult{Vulnerabilities: vulns}
+	res := &CrossSurfaceResult{Vulnerabilities: vulns, SourceFound: src != nil}
 	for _, v := range vulns {
 		switch surfaceClass(v.Surfaces) {
 		case "both":

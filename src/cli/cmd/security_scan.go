@@ -522,6 +522,12 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		sec.Row("")
 		sec.Row("%-16s%d advisories — %d source-only, %d image-only, %d on both",
 			"cross-surface", len(cs.Vulnerabilities), cs.SourceOnly, cs.ImageOnly, cs.Both)
+		// In CI the audition should have produced the source catalogue; if it's
+		// missing, the artifact forwarding likely broke — surface that instead of
+		// silently degrading to an image-only view.
+		if !cs.SourceFound && os.Getenv("CI") == "true" {
+			sec.Row("%-16s⚠ source catalogue not found — image-only; audition artifact may not have forwarded", "")
+		}
 		for _, line := range cs.DisclosureLines() {
 			sec.Row("%-16s%s", "", line)
 		}

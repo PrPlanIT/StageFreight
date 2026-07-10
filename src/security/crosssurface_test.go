@@ -95,6 +95,9 @@ func TestCrossSurface_ImageOnlyWhenNoCatalogue(t *testing.T) {
 	if cs == nil || len(cs.Vulnerabilities) != 1 || cs.ImageOnly != 1 {
 		t.Fatalf("want 1 image-only vuln, got %+v", cs)
 	}
+	if cs.SourceFound {
+		t.Error("SourceFound should be false when no catalogue is present (drives the CI degradation warning)")
+	}
 }
 
 // TestCrossSurface_NilWhenNothing: no image vulns and no catalogue → nil.
