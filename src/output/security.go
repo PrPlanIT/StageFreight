@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/severity"
+	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
 )
 
 const (
@@ -103,7 +103,7 @@ func SectionVulns(sec *Section, vulns []VulnRow, color bool, budget int, ux Secu
 			break
 		}
 
-		r := severity.Order(v.Severity)
+		r := severity.Order(severity.Normalize(v.Severity))
 		if r <= 1 {
 			// CRIT/HIGH always shown (until AbsoluteMax).
 			renderVulnRow(sec, v, color)
@@ -186,7 +186,7 @@ func sortVulns(vulns []VulnRow) []VulnRow {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 
-		ra, rb := severity.Order(a.Severity), severity.Order(b.Severity)
+		ra, rb := severity.Order(severity.Normalize(a.Severity)), severity.Order(severity.Normalize(b.Severity))
 		if ra != rb {
 			return ra < rb // ascending rank = descending severity
 		}
@@ -225,7 +225,7 @@ func renderVulnRow(sec *Section, v VulnRow, color bool) {
 	}
 
 	// URL line only for CRIT/HIGH to save vertical space.
-	if severity.Order(v.Severity) <= 1 && id != "" {
+	if severity.Order(severity.Normalize(v.Severity)) <= 1 && id != "" {
 		sec.Row("%s", Dimmed("    "+VulnURL(id), color))
 	}
 }

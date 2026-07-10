@@ -3,7 +3,7 @@ package analysis
 import (
 	"sort"
 
-	"github.com/PrPlanIT/StageFreight/src/severity"
+	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
 )
 
 // canonicalize groups observations that describe the SAME advisory into one
@@ -156,7 +156,7 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 				pkgVersions[o.Package] = o.Version
 			}
 		}
-		if r := severity.Rank(o.Severity); r > bestRank {
+		if r := severity.Rank(severity.Normalize(o.Severity)); r > bestRank {
 			bestRank = r
 			v.Severity = normalizeLabel(o.Severity)
 		}
