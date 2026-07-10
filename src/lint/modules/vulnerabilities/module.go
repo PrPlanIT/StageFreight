@@ -2,6 +2,7 @@ package vulnerabilities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -109,19 +110,32 @@ func (m *vulnModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Find
 // dedup work for ecosystems whose manifest and lockfile are distinct files.
 func (m *vulnModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lint.Finding, error) {
 	var allObs []analysis.AdvisoryObservation
+	var errs []error
 	for _, file := range files {
 		obs, err := m.observe(ctx, file)
 		if err != nil {
-			return nil, err
+			// Isolate per-file failures: one file that fails to observe (a
+			// malformed manifest, an osv-scanner error, a pinned-scanner
+			// resolution failure) must NOT discard the observations already
+			// collected from other files. The old per-file engine dispatch ran
+			// each file in its own goroutine, so a single file's error only
+			// dropped that file — every other file's findings still gated. Match
+			// that: record the error, keep going, and still reduce+render the
+			// observations that succeeded. Returning nil here instead would let a
+			// single bad file suppress a real critical on go.mod and — because the
+			// gate keys on the findings slice, not the returned error — ship it.
+			errs = append(errs, fmt.Errorf("%s: %w", file.Path, err))
+			continue
 		}
 		allObs = append(allObs, obs...)
 	}
-	if len(allObs) == 0 {
-		return nil, nil
-	}
+
 	var findings []lint.Finding
 	for _, v := range analysis.Reduce(allObs) {
 		findings = append(findings, toFinding(v))
+	}
+	if len(errs) > 0 {
+		return findings, errors.Join(errs...)
 	}
 	return findings, nil
 }

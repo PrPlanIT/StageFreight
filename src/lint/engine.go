@@ -435,8 +435,12 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		modStats[im.idx].Files = len(subset)
 		results, err := wr.CheckAll(ctx, subset)
 		if err != nil {
+			// Record the error but DO NOT discard results: a whole-repo module
+			// may return partial findings alongside a per-file error (e.g. the
+			// vulnerabilities module keeps the advisories it did observe when one
+			// file fails). Dropping them here would recreate the fail-open gate
+			// this dispatch is meant to avoid — the gate keys on findings.
 			errs = append(errs, fmt.Errorf("%s: %w", im.mod.Name(), err))
-			continue
 		}
 		for _, r := range results {
 			modStats[im.idx].Findings++

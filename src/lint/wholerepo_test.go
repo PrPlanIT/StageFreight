@@ -127,6 +127,43 @@ func TestWholeRepoCheckGuardErrors(t *testing.T) {
 	}
 }
 
+// fakeWholeRepoPartial returns a finding AND an error together, modelling a
+// whole-repo module (like vulnerabilities) that keeps the observations it
+// gathered from good files when one file fails.
+type fakeWholeRepoPartial struct{}
+
+func (fakeWholeRepoPartial) Name() string        { return "wrpartial" }
+func (fakeWholeRepoPartial) DefaultEnabled() bool { return true }
+func (fakeWholeRepoPartial) AutoDetect() []string { return nil }
+func (fakeWholeRepoPartial) Check(_ context.Context, _ FileInfo) ([]Finding, error) {
+	return nil, fmt.Errorf("guard")
+}
+func (fakeWholeRepoPartial) CheckAll(_ context.Context, _ []FileInfo) ([]Finding, error) {
+	return []Finding{{File: "go.mod", Module: "wrpartial", Severity: SeverityCritical, Message: "real CVE"}},
+		fmt.Errorf("bad.json: one file failed to observe")
+}
+
+// TestWholeRepoPartialFindingsSurviveError is the security-critical contract: a
+// whole-repo module that returns partial findings alongside an error must have
+// those findings RETAINED (and counted) so the gate — which keys on the findings
+// slice, not the returned error — still sees a real critical. Dropping them on
+// error would be fail-open.
+func TestWholeRepoPartialFindingsSurviveError(t *testing.T) {
+	dir, files := makeFiles(t, "a.txt")
+	engine := &Engine{Config: config.LintConfig{}, RootDir: dir, Modules: []Module{fakeWholeRepoPartial{}}}
+
+	findings, modStats, err := engine.RunWithStats(context.Background(), files)
+	if err == nil {
+		t.Error("module error should surface through RunWithStats")
+	}
+	if len(findings) != 1 || findings[0].Severity != SeverityCritical {
+		t.Fatalf("partial findings dropped on error: got %+v, want the critical retained", findings)
+	}
+	if s := statsByName(modStats)["wrpartial"]; s.Findings != 1 || s.Critical != 1 {
+		t.Errorf("stats = %+v, want Findings=1 Critical=1 counted despite the error", s)
+	}
+}
+
 func statsByName(stats []ModuleStats) map[string]ModuleStats {
 	m := make(map[string]ModuleStats, len(stats))
 	for _, s := range stats {
