@@ -42,6 +42,49 @@ type DependencyConfig struct {
 	// severity scale), NOT lint's importance tiers. Empty defaults to "off":
 	// deps stays fix-forward and never hard-fails, exactly as today.
 	FailOn string `yaml:"fail_on,omitempty"`
+
+	// Policy is the freshness SCOPE — which non-vulnerable dependencies to pursue:
+	// "all" (default — every dep to its latest eligible) or "security" (only
+	// vulnerable deps; leave everything else where it is). A known vulnerability is
+	// a floor, remediated under EVERY policy — Policy only governs freshness of
+	// NON-vulnerable deps. Empty defaults to "all" (today's audition behavior).
+	Policy string `yaml:"policy,omitempty"`
+
+	// MaxUpdate is the update-type CEILING — how far a dependency may move:
+	// "major" (latest — allow constraint-expanding majors), "minor" (n.x.n — lock
+	// the major, allow minor+patch), or "patch" (n.n.x — lock major and minor,
+	// allow patch only). Empty defaults to "minor" — today's behavior, where a
+	// major upgrade is held for review. A security fix is still applied even if it
+	// exceeds the ceiling (remediation floor), disclosed as a ceiling override.
+	MaxUpdate string `yaml:"max_update,omitempty"`
+
+	// MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is
+	// not recommended (freshness) nor applied (deps) — dodging the window in which
+	// a compromised or yanked release is briefly live. Accepts durations like
+	// "3d", "72h". Owned here as a supply-chain policy; the freshness lint module
+	// reads the SAME value so its recommendations match what deps will apply.
+	// Empty falls back to lint.modules.freshness.options.min_release_age (its
+	// historical home) for back-compat, then to disabled.
+	MinReleaseAge string `yaml:"min_release_age,omitempty"`
+}
+
+// EffectivePolicy resolves the freshness scope, defaulting to "all". Lowercased
+// "all" | "security".
+func (c DependencyConfig) EffectivePolicy() string {
+	if v := strings.ToLower(strings.TrimSpace(c.Policy)); v != "" {
+		return v
+	}
+	return "all"
+}
+
+// EffectiveMaxUpdate resolves the update-type ceiling, defaulting to "minor"
+// (today's behavior: majors held for review). Lowercased "major" | "minor" |
+// "patch".
+func (c DependencyConfig) EffectiveMaxUpdate() string {
+	if v := strings.ToLower(strings.TrimSpace(c.MaxUpdate)); v != "" {
+		return v
+	}
+	return "minor"
 }
 
 // RemediateEnabled reports whether the update pass patches eligible dependencies.

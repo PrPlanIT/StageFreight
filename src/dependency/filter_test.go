@@ -60,3 +60,24 @@ func TestFilterUpdateCandidates_PolicyMatrix(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateTypeExceedsCeiling(t *testing.T) {
+	cases := []struct {
+		ut, ceiling string
+		want        bool
+	}{
+		{"minor", "patch", true},     // minor exceeds a patch ceiling
+		{"patch", "patch", false},    // patch within patch
+		{"major", "minor", true},     // major exceeds minor
+		{"minor", "minor", false},    // minor within minor (default)
+		{"minor", "", false},         // empty ceiling defaults to minor
+		{"minor", "major", false},    // nothing in-range exceeds major
+		{"patch", "minor", false},    // patch within minor
+		{"security", "patch", false}, // security treated as patch-level
+	}
+	for _, c := range cases {
+		if got := updateTypeExceedsCeiling(c.ut, c.ceiling); got != c.want {
+			t.Errorf("updateTypeExceedsCeiling(%q, %q) = %v, want %v", c.ut, c.ceiling, got, c.want)
+		}
+	}
+}

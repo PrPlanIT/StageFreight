@@ -146,6 +146,20 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 		return "no CVE (security-only policy)"
 	}
 
+	// UPDATE-TYPE CEILING (max_update) — caps how far a NON-vulnerable dep may
+	// move within its constraint range. A vulnerable dep is exempt: the
+	// remediation floor overrides the ceiling. Out-of-range majors are already
+	// held for review above regardless of ceiling (auto-applying a major is unsafe
+	// — e.g. a Go v2+ module-path change); this gate adds the tighter in-range
+	// caps, e.g. "patch" holds an in-range minor so only patches land.
+	if len(dep.Vulnerabilities) == 0 && updateTypeExceedsCeiling(updateType(dep.Current, dep.UpdateTarget()), cfg.MaxUpdate) {
+		label := cfg.MaxUpdate
+		if label == "" {
+			label = "minor"
+		}
+		return "exceeds max_update ceiling (" + label + ")"
+	}
+
 	// File not tracked by git
 	if trackedFiles != nil && !trackedFiles[dep.File] {
 		return "file not tracked by git"
@@ -202,4 +216,29 @@ func extractTag(image string) string {
 		return ""
 	}
 	return nameAndTag[colonIdx+1:]
+}
+
+// updateTypeExceedsCeiling reports whether an update of type ut (from
+// updateType(): major/minor/patch/tag/security) is beyond the max_update
+// ceiling. Empty ceiling defaults to "minor" (today's behavior). patch < minor <
+// major; tag and security are treated as patch-level (revision / floor bumps).
+func updateTypeExceedsCeiling(ut, maxUpdate string) bool {
+	rank := func(t string) int {
+		switch t {
+		case "major":
+			return 3
+		case "minor":
+			return 2
+		default: // patch, tag, security, unknown
+			return 1
+		}
+	}
+	ceiling := 2 // default: minor
+	switch maxUpdate {
+	case "patch":
+		ceiling = 1
+	case "major":
+		ceiling = 3
+	}
+	return rank(ut) > ceiling
 }

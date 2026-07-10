@@ -581,7 +581,8 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		Verify:     true,
 		Vulncheck:  true,
 		Ecosystems: ecosystems,
-		Policy:     "all",
+		Policy:     appCfg.Dependency.EffectivePolicy(),
+		MaxUpdate:  appCfg.Dependency.EffectiveMaxUpdate(),
 		Ignore:     mapIgnores(appCfg.Dependency.Ignore),
 		Writer:     w, // render the Dependencies card alongside the other phase cards
 	}

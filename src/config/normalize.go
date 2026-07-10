@@ -19,6 +19,13 @@ func Normalize(cfg *Config) error {
 	// when no vars are defined — so they precede the vars short-circuit.
 	cfg.Signing = NormalizeSigning(cfg.Signing)
 
+	// The supply-chain cooldown is OWNED by dependency.min_release_age but consumed
+	// by the freshness discovery resolver (which powers both the freshness lint
+	// module AND dependency updates). Propagate the owned value into the freshness
+	// module options — its historical home — so every consumer reads ONE value.
+	// Like Signing above, this runs before the vars short-circuit.
+	propagateCooldown(cfg)
+
 	if len(cfg.Vars) == 0 {
 		return nil
 	}
@@ -32,6 +39,27 @@ func Normalize(cfg *Config) error {
 
 	resolveValue(reflect.ValueOf(cfg), cfg.Vars)
 	return nil
+}
+
+// propagateCooldown copies the dependency-owned min_release_age into the
+// freshness lint module's options (its historical home + the resolver's read
+// path), so freshness recommendations match what deps will apply. Dependency's
+// value wins; when unset, any existing freshness-options value stands for
+// back-compat.
+func propagateCooldown(cfg *Config) {
+	mra := strings.TrimSpace(cfg.Dependency.MinReleaseAge)
+	if mra == "" {
+		return
+	}
+	if cfg.Lint.Modules == nil {
+		cfg.Lint.Modules = map[string]ModuleConfig{}
+	}
+	fm := cfg.Lint.Modules["freshness"]
+	if fm.Options == nil {
+		fm.Options = map[string]any{}
+	}
+	fm.Options["min_release_age"] = mra
+	cfg.Lint.Modules["freshness"] = fm
 }
 
 // resolveValue is the single recursive traversal engine. Visits every reachable

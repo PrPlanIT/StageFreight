@@ -11,7 +11,8 @@ type UpdateConfig struct {
 	Verify     bool      // run tests after update (default true)
 	Vulncheck  bool      // run govulncheck after update (default true)
 	Ecosystems []string  // filter by ecosystem (empty = all)
-	Policy     string    // "all" (default), "security"
+	Policy     string    // freshness SCOPE: "all" (default), "security"
+	MaxUpdate  string    // update-type CEILING: "major" | "minor" (default) | "patch"
 	Ignore     []VulnIgnore // accepted-risk advisory suppressions (id/reason/until)
 	Writer     io.Writer // section-card output target (default os.Stderr); the deps progress card renders here
 }
