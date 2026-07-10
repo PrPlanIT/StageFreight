@@ -115,7 +115,9 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 			if reg.Provider != "local" || !reg.Retention.Active() {
 				continue
 			}
-			sec.Row("%-40skept %d, pruned %d", reg.URL+"/"+reg.Path, totalKept, totalDeleted)
+			// Two-space separator so an over-40-char registry path (which %-40s can't pad)
+			// never butts up against "kept".
+			sec.Row("%-40s  kept %d, pruned %d", reg.URL+"/"+reg.Path, totalKept, totalDeleted)
 		}
 	}
 	for _, d := range deletedNames {
