@@ -51,6 +51,27 @@ type SnapshotAwareModule interface {
 	SetSnapshot(snapshot *supplychain.Snapshot)
 }
 
+// WholeRepoModule is implemented by modules that analyze the ENTIRE file set in
+// one pass instead of once per file. When a module implements this interface the
+// engine invokes CheckAll exactly once — with every eligible file (engine-wide
+// and this module's own excludes already applied) — and NEVER calls Check on it.
+//
+// This is the seam for cross-file analyses that a per-file Check cannot express:
+// canonical-vulnerability dedup across a manifest and its lockfile (which are
+// DIFFERENT files, so a per-file reduce sees only one leg of each advisory), or
+// an external whole-repo linter (e.g. golangci-lint) that owns its own file
+// walking and reports over a whole module at once.
+//
+// A whole-repo module still satisfies Module so it registers, configures, and
+// auto-detects identically. Its Check is a mis-dispatch guard: because the
+// engine routes whole-repo modules to CheckAll, a call to Check means something
+// bypassed that dispatch, and the module should fail loud rather than silently
+// emit nothing.
+type WholeRepoModule interface {
+	Module
+	CheckAll(ctx context.Context, files []FileInfo) ([]Finding, error)
+}
+
 // CacheTTLModule controls time-based cache expiry.
 //
 // Modules that do not implement this interface are cached forever.

@@ -108,6 +108,44 @@ func TestCanonicalizePrimaryContainmentMerges(t *testing.T) {
 	}
 }
 
+// TestCanonicalizeMergesAcrossDifferentFiles is the property the whole-repo
+// vulnerabilities dispatch relies on: an ecosystem whose manifest and lockfile
+// are SEPARATE files (npm: package.json vs package-lock.json). The OSV-API leg
+// attaches the advisory to the manifest dependency; the osv-scanner leg reports
+// it against the lockfile. A per-file reduce sees only one leg per file and
+// double-reports; reducing the whole observation set at once collapses them into
+// ONE vulnerability, anchored to the MANIFEST (osv-api is the preferred
+// representative). This is what the per-file Check could never do and CheckAll
+// now does.
+func TestCanonicalizeMergesAcrossDifferentFiles(t *testing.T) {
+	obs := []AdvisoryObservation{
+		{
+			Source: "osv-api", VulnID: "GHSA-npm1", Package: "lodash",
+			Ecosystem: "npm", Version: "4.17.20", Severity: "HIGH",
+			File: "package.json", Line: 12,
+		},
+		{
+			Source: "osv-scanner", VulnID: "CVE-2026-777", Aliases: []string{"GHSA-npm1"},
+			Package: "lodash", Ecosystem: "npm", Version: "4.17.20", Severity: "CRITICAL",
+			FixedIn: "4.17.21", File: "package-lock.json",
+		},
+	}
+	vulns := canonicalize(obs)
+	if len(vulns) != 1 {
+		t.Fatalf("cross-file: want 1 canonical vulnerability, got %d: %+v", len(vulns), vulns)
+	}
+	v := vulns[0]
+	if v.File != "package.json" {
+		t.Errorf("anchor file = %q, want the manifest package.json (osv-api representative)", v.File)
+	}
+	if v.Line != 12 {
+		t.Errorf("anchor line = %d, want 12 (from the manifest observation)", v.Line)
+	}
+	if v.Severity != "CRITICAL" {
+		t.Errorf("severity = %q, want highest across both legs (CRITICAL)", v.Severity)
+	}
+}
+
 // TestCanonicalizeKeepsDistinctAdvisoriesSeparate: two advisories with no shared
 // identifier stay separate, and output is deterministically ordered by ID.
 func TestCanonicalizeKeepsDistinctAdvisoriesSeparate(t *testing.T) {

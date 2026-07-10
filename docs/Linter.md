@@ -85,6 +85,18 @@ produces two findings:
 Both legs are reduced to one canonical `Vulnerability` per advisory before
 rendering — a CVE surfaced by both sources still yields a single finding.
 
+This module runs as a **whole-repo module**: instead of the engine fanning a
+check out once per file, it receives every eligible file in a single pass and
+reduces the *entire* observation set at once. That is what makes cross-file
+dedup correct for ecosystems whose manifest and lockfile are **separate files**
+(npm's `package.json` vs `package-lock.json`): the OSV-API leg attaches an
+advisory to the manifest dependency while osv-scanner reports it against the
+lockfile — a per-file reduce would see only one leg per file and report the
+advisory twice, whereas the whole-repo reduce collapses them into one finding
+(anchored to the manifest). The whole-repo dispatch is a general engine seam
+(`lint.WholeRepoModule`); it is also the integration point for external
+whole-repo linters (e.g. golangci-lint) that own their own file walking.
+
 ```yaml
     vulnerabilities:       # "osv" is a deprecated alias for this key
       enabled: true

@@ -244,6 +244,28 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		modStats[i].Name = m.Name()
 	}
 
+	// Partition modules by dispatch shape. Per-file modules fan out one Check per
+	// (file, module) below; whole-repo modules run ONCE over the whole eligible
+	// set after the per-file pass (see WholeRepoModule). Original indices are kept
+	// so both paths write the same modStats slots.
+	type indexedModule struct {
+		idx int
+		mod Module
+	}
+	var perFile, wholeRepo []indexedModule
+	for mi, mod := range e.Modules {
+		if _, ok := mod.(WholeRepoModule); ok {
+			wholeRepo = append(wholeRepo, indexedModule{mi, mod})
+		} else {
+			perFile = append(perFile, indexedModule{mi, mod})
+		}
+	}
+
+	// classified retains every file that survived engine-wide exclusion, WITH its
+	// content/provenance classification applied, so whole-repo modules receive the
+	// same enriched FileInfo the per-file pass saw — computed once.
+	var classified []FileInfo
+
 	for _, file := range files {
 		if e.isExcluded(file.Path) {
 			continue
@@ -287,7 +309,11 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 			})
 		}
 
-		for mi, mod := range e.Modules {
+		// Retain the classified file (value copy) for the whole-repo pass.
+		classified = append(classified, file)
+
+		for _, im := range perFile {
+			mod, mi := im.mod, im.idx
 			wg.Add(1)
 			sem.Acquire(ctx, 1)
 			go func(m Module, f FileInfo, data []byte, idx int) {
@@ -388,6 +414,40 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 	}
 
 	wg.Wait()
+
+	// Whole-repo pass: each whole-repo module runs ONCE over its eligible file
+	// subset (engine-wide exclusion already applied via `classified`; this
+	// module's own excludes applied here). Sequential and after the per-file
+	// barrier, so appends to findings/modStats need no locking. Whole-repo
+	// modules bypass the per-file content-hash cache — their result is a function
+	// of the WHOLE set, which that cache does not model.
+	for _, im := range wholeRepo {
+		wr := im.mod.(WholeRepoModule)
+
+		subset := make([]FileInfo, 0, len(classified))
+		for _, f := range classified {
+			if e.isModuleExcluded(im.mod.Name(), f.Path) {
+				continue
+			}
+			subset = append(subset, f)
+		}
+
+		modStats[im.idx].Files = len(subset)
+		results, err := wr.CheckAll(ctx, subset)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", im.mod.Name(), err))
+			continue
+		}
+		for _, r := range results {
+			modStats[im.idx].Findings++
+			if r.Severity == SeverityCritical {
+				modStats[im.idx].Critical++
+			} else if r.Severity == SeverityWarning {
+				modStats[im.idx].Warnings++
+			}
+		}
+		findings = append(findings, results...)
+	}
 
 	if len(errs) > 0 {
 		return findings, modStats, fmt.Errorf("%d module errors (first: %w)", len(errs), errs[0])

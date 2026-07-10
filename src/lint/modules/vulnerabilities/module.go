@@ -91,18 +91,36 @@ func (m *vulnModule) Configure(opts map[string]any) error {
 	return m.resolver.Configure(opts)
 }
 
-// Check gathers this file's advisory observations from both sources, reduces
-// them to one vulnerability per advisory, and renders each as a finding.
+// Check is the mis-dispatch guard for this whole-repo module. The engine routes
+// whole-repo modules to CheckAll and never calls Check; a call here means
+// something bypassed that dispatch, so fail loud rather than silently reduce one
+// file in isolation (which would resurrect the cross-file double-report this
+// module exists to prevent).
 func (m *vulnModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
-	obs, err := m.observe(ctx, file)
-	if err != nil {
-		return nil, err
+	return nil, fmt.Errorf("vulnerabilities is a whole-repo module; the engine must call CheckAll, not Check")
+}
+
+// CheckAll implements lint.WholeRepoModule. It gathers advisory observations
+// from BOTH sources across EVERY file, then reduces the whole set at once — so
+// an advisory observed on a manifest (OSV-API leg, e.g. package.json) and on its
+// separate lockfile (osv-scanner leg, e.g. package-lock.json) canonicalizes into
+// ONE vulnerability. A per-file reduce could only ever see one leg of such an
+// advisory, double-reporting it; accumulating first is what makes cross-file
+// dedup work for ecosystems whose manifest and lockfile are distinct files.
+func (m *vulnModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lint.Finding, error) {
+	var allObs []analysis.AdvisoryObservation
+	for _, file := range files {
+		obs, err := m.observe(ctx, file)
+		if err != nil {
+			return nil, err
+		}
+		allObs = append(allObs, obs...)
 	}
-	if len(obs) == 0 {
+	if len(allObs) == 0 {
 		return nil, nil
 	}
 	var findings []lint.Finding
-	for _, v := range analysis.Reduce(obs) {
+	for _, v := range analysis.Reduce(allObs) {
 		findings = append(findings, toFinding(v))
 	}
 	return findings, nil
