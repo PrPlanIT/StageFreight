@@ -170,6 +170,15 @@ func (m *vulnModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lin
 // is swallowed so it can never change the lint result, and nothing is written
 // when there is no vulnerability to record.
 func (m *vulnModule) persistCatalogue(files []lint.FileInfo, vulns []analysis.Vulnerability) {
+	// The catalogue is a cross-phase CI artifact — the audition writes it, review
+	// reads it. Produce it only in CI (same check as output.IsCI, inlined to avoid
+	// pulling the output package into a lint module): that scopes it to the phase
+	// pipeline and, since the CI audition scans the whole repo while a local `lint
+	// --level changed` sees only changed files, prevents a partial local run from
+	// overwriting a fuller catalogue.
+	if os.Getenv("CI") != "true" {
+		return
+	}
 	if len(files) == 0 || len(vulns) == 0 {
 		return
 	}

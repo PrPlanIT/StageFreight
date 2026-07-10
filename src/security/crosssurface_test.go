@@ -103,3 +103,58 @@ func TestCrossSurface_NilWhenNothing(t *testing.T) {
 		t.Error("no image vulns + no catalogue should reconcile to nil")
 	}
 }
+
+// TestCrossSurface_NoReachabilityCrossContamination: two DISTINCT advisories that
+// only share a non-primary alias (CVE-A) must not swap reachability. GHSA-Y is
+// reachable; GHSA-Z (same alias, no reachability) must NOT inherit it.
+func TestCrossSurface_NoReachabilityCrossContamination(t *testing.T) {
+	dir := t.TempDir()
+	writeSourceCatalogue(t, dir, []analysis.Vulnerability{
+		{
+			ID: "GHSA-Y", Aliases: []string{"CVE-A"}, Severity: "HIGH",
+			Surfaces: []analysis.Surface{analysis.SurfaceSource},
+			Evidence: []evidence.Evidence{evidence.ReachabilityEvidence{
+				State: evidence.ReachReachable, Analyzer: "govulncheck", Confidence: evidence.ConfidenceHigh,
+			}},
+		},
+		{ID: "GHSA-Z", Aliases: []string{"CVE-A"}, Severity: "HIGH", Surfaces: []analysis.Surface{analysis.SurfaceSource}},
+	})
+
+	cs := CrossSurface(dir, nil)
+	if cs == nil {
+		t.Fatal("nil result")
+	}
+	var y, z *analysis.Vulnerability
+	for i := range cs.Vulnerabilities {
+		switch cs.Vulnerabilities[i].ID {
+		case "GHSA-Y":
+			y = &cs.Vulnerabilities[i]
+		case "GHSA-Z":
+			z = &cs.Vulnerabilities[i]
+		}
+	}
+	if y == nil || z == nil {
+		t.Fatalf("want GHSA-Y and GHSA-Z as distinct advisories, got %+v", cs.Vulnerabilities)
+	}
+	if _, ok := reachabilityOf(*y); !ok {
+		t.Error("GHSA-Y should keep its own reachability")
+	}
+	if _, ok := reachabilityOf(*z); ok {
+		t.Error("GHSA-Z must NOT inherit GHSA-Y's reachability via the shared alias CVE-A")
+	}
+}
+
+// TestSplitPkgVersion covers scoped-npm names (leading @) and normal cases.
+func TestSplitPkgVersion(t *testing.T) {
+	cases := []struct{ in, name, ver string }{
+		{"golang.org/x/crypto@v0.54.0", "golang.org/x/crypto", "v0.54.0"},
+		{"@scope/pkg", "@scope/pkg", ""},
+		{"@scope/pkg@1.2.3", "@scope/pkg", "1.2.3"},
+		{"lodash", "lodash", ""},
+	}
+	for _, c := range cases {
+		if n, v := splitPkgVersion(c.in); n != c.name || v != c.ver {
+			t.Errorf("splitPkgVersion(%q) = (%q, %q), want (%q, %q)", c.in, n, v, c.name, c.ver)
+		}
+	}
+}

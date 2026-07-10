@@ -13,6 +13,7 @@ import (
 // .stagefreight/security/source-vulns.json under the scanned root, and parses
 // back — the cross-phase catalogue the review phase consumes.
 func TestPersistCatalogue(t *testing.T) {
+	t.Setenv("CI", "true") // catalogue is produced only in CI
 	dir := t.TempDir()
 	files := []lint.FileInfo{{Path: "go.mod", AbsPath: filepath.Join(dir, "go.mod")}}
 	vulns := []analysis.Vulnerability{{
@@ -41,11 +42,25 @@ func TestPersistCatalogue(t *testing.T) {
 
 // TestPersistCatalogueSkipsEmpty: no vulnerabilities → no file (additive, no noise).
 func TestPersistCatalogueSkipsEmpty(t *testing.T) {
+	t.Setenv("CI", "true")
 	dir := t.TempDir()
 	files := []lint.FileInfo{{Path: "go.mod", AbsPath: filepath.Join(dir, "go.mod")}}
 	newModule().persistCatalogue(files, nil)
 	if _, err := os.Stat(filepath.Join(dir, ".stagefreight", "security", "source-vulns.json")); !os.IsNotExist(err) {
 		t.Error("empty vulns should not write a catalogue file")
+	}
+}
+
+// TestPersistCatalogueSkipsOutsideCI: outside CI the catalogue is NOT written, so
+// a local `lint --level changed` can't clobber a fuller catalogue.
+func TestPersistCatalogueSkipsOutsideCI(t *testing.T) {
+	t.Setenv("CI", "") // not CI
+	dir := t.TempDir()
+	files := []lint.FileInfo{{Path: "go.mod", AbsPath: filepath.Join(dir, "go.mod")}}
+	vulns := []analysis.Vulnerability{{ID: "GO-2026-5932", Severity: "HIGH", File: "go.mod"}}
+	newModule().persistCatalogue(files, vulns)
+	if _, err := os.Stat(filepath.Join(dir, ".stagefreight", "security", "source-vulns.json")); !os.IsNotExist(err) {
+		t.Error("catalogue must not be written outside CI")
 	}
 }
 

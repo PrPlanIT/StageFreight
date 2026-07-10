@@ -143,29 +143,24 @@ func (r *CrossSurfaceResult) Marshal() ([]byte, error) {
 // preserve WHY a source advisory was downgraded. The observation legs cannot
 // carry the Evidence interface through canonicalize, so it is restored here.
 func attachSourceReachability(vulns []analysis.Vulnerability, src *analysis.SourceAssessment) {
-	byID := map[string]*analysis.ReachabilityRecord{}
+	// Index reachability by each source record's PRIMARY id only. A collapsed vuln
+	// matches a record only when the record's primary id is in the vuln's
+	// identifier set — the same conservative primary-containment rule canonicalize
+	// uses (knowledge.go). Keying by aliases too would re-introduce the collision
+	// canonicalize deliberately avoids: two distinct advisories that merely share
+	// a non-primary CVE alias would cross-contaminate each other's reachability.
+	byPrimary := map[string]*analysis.ReachabilityRecord{}
 	for i := range src.Vulnerabilities {
 		r := &src.Vulnerabilities[i]
-		if r.Reachability == nil {
-			continue
-		}
-		byID[r.ID] = r.Reachability
-		for _, a := range r.Aliases {
-			byID[a] = r.Reachability
+		if r.Reachability != nil && r.ID != "" {
+			byPrimary[r.ID] = r.Reachability
 		}
 	}
-	if len(byID) == 0 {
+	if len(byPrimary) == 0 {
 		return
 	}
 	for i := range vulns {
-		rr := byID[vulns[i].ID]
-		if rr == nil {
-			for _, a := range vulns[i].Aliases {
-				if rr = byID[a]; rr != nil {
-					break
-				}
-			}
-		}
+		rr := reachForVuln(byPrimary, vulns[i])
 		if rr == nil {
 			continue
 		}
@@ -176,6 +171,23 @@ func attachSourceReachability(vulns []analysis.Vulnerability, src *analysis.Sour
 			Facts:      rr.Facts,
 		})
 	}
+}
+
+// reachForVuln returns the reachability record whose source advisory is the SAME
+// as v — its primary id equals v's canonical id or one of v's aliases. Because a
+// merged source observation contributes its primary id to v's identifier set,
+// this reliably matches the same advisory while never matching a distinct one
+// that only shares a non-primary alias.
+func reachForVuln(byPrimary map[string]*analysis.ReachabilityRecord, v analysis.Vulnerability) *analysis.ReachabilityRecord {
+	if rr := byPrimary[v.ID]; rr != nil {
+		return rr
+	}
+	for _, a := range v.Aliases {
+		if rr := byPrimary[a]; rr != nil {
+			return rr
+		}
+	}
+	return nil
 }
 
 // readSourceCatalogue loads the audition's source-vulns.json, returning nil if it
@@ -226,7 +238,10 @@ func firstOf(ss []string) string {
 // splitPkgVersion splits a "name@version" package string on its last "@"; returns
 // (name, "") when there is no version suffix.
 func splitPkgVersion(s string) (name, version string) {
-	if at := strings.LastIndex(s, "@"); at >= 0 {
+	// at > 0 (not >= 0): a leading "@" is a scoped-npm name prefix (e.g.
+	// "@scope/pkg" with no version), NOT a version separator — splitting there
+	// would yield an empty name.
+	if at := strings.LastIndex(s, "@"); at > 0 {
 		return s[:at], s[at+1:]
 	}
 	return s, ""
