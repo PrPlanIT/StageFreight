@@ -412,6 +412,14 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		}
 	}
 
+	// Resolve the gate threshold + unreachable policy once — used by the
+	// cross-surface disclosure below and the final gate.
+	failOn := req.Config.Security.EffectiveFailOn()
+	if failOn == "off" && req.FailOnCritical {
+		failOn = "critical"
+	}
+	unreachablePolicy := req.Config.Security.UnreachablePolicy()
+
 	// Resolve detail level from rules (CLI override > tag/branch rules > default)
 	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail, req.Config.Matchers)
 
@@ -522,6 +530,13 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		sec.Row("")
 		sec.Row("%-16s%d advisories — %d source-only, %d image-only, %d on both",
 			"cross-surface", len(cs.Vulnerabilities), cs.SourceOnly, cs.ImageOnly, cs.Both)
+		// Disclose vulnerabilities the gate excused as proven-unreachable, so a
+		// pass despite an at-threshold vuln is never silent.
+		if failOn != "off" && unreachablePolicy == "pass" {
+			if excused := security.CountAtOrAbove(result, failOn) - security.GatingCount(result, cs, failOn, unreachablePolicy); excused > 0 {
+				sec.Row("%-16s%d at or above %s excused — proven unreachable", "", excused, failOn)
+			}
+		}
 		// In CI the audition should have produced the source catalogue; if it's
 		// missing, the artifact forwarding likely broke — surface that instead of
 		// silently degrading to an image-only view.
@@ -577,17 +592,12 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		fmt.Print(summaryBody)
 	}
 
-	// Fail if any vulnerability is at or above the configured severity threshold.
-	// Precedence: config fail_on (or the deprecated fail_on_critical) resolves the
-	// threshold; the --fail-on-critical CLI flag forces "critical" only when config
-	// left it "off". Default is "off" (informational), so this preserves today's
-	// opt-in gate exactly.
-	failOn := req.Config.Security.EffectiveFailOn()
-	if failOn == "off" && req.FailOnCritical {
-		failOn = "critical"
-	}
+	// Fail if any NON-EXCUSED vulnerability is at or above the configured severity
+	// threshold. failOn / unreachablePolicy were resolved once above; GatingCount
+	// excuses proven-unreachable vulns when the policy is "pass". Default failOn is
+	// "off" (informational), preserving today's opt-in gate.
 	if failOn != "off" {
-		if n := security.CountAtOrAbove(result, failOn); n > 0 {
+		if n := security.GatingCount(result, cs, failOn, unreachablePolicy); n > 0 {
 			word := "vulnerabilities"
 			if n == 1 {
 				word = "vulnerability"
