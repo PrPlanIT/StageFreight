@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // ScannersConfig controls which vulnerability scanners are enabled.
 // Both default to true — scanners still require their binary in PATH.
 // Uses *bool so omitting a key preserves the default instead of zeroing it.
@@ -31,8 +33,21 @@ type SecurityConfig struct {
 	Required       *bool          `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
 	Scanners       ScannersConfig `yaml:"scanners"`         // per-scanner toggles
 	SBOMEnabled    bool           `yaml:"sbom"`             // generate SBOM artifacts (default: true)
-	FailOnCritical bool           `yaml:"fail_on_critical"` // fail the pipeline if critical vulns found
+	FailOnCritical bool           `yaml:"fail_on_critical"` // DEPRECATED: use fail_on. Alias — true → fail_on: critical.
 	OutputDir      string         `yaml:"output"`           // directory for scan artifacts (default: .stagefreight/security)
+
+	// FailOn is the severity threshold at or above which the scan fails the build:
+	// "critical" | "high" | "medium" | "low" | "off". Empty falls back to the
+	// deprecated fail_on_critical (true → "critical"), then to "off" — so the
+	// default stays informational (no gate), exactly as today.
+	FailOn string `yaml:"fail_on,omitempty"`
+
+	// UnreachableVulns is the policy for vulnerabilities a reachability analyzer
+	// proved are never called: "pass" (default — excused from the gate) or "fail"
+	// (gated on severity regardless of reachability). Only vulns with a
+	// proven-unreachable verdict are affected; everything else is "unknown" and
+	// gates normally.
+	UnreachableVulns string `yaml:"unreachable_vulns,omitempty"`
 
 	// ReleaseDetail is the default detail level for security info in release notes.
 	// Values: "none", "counts", "detailed", "full" (default: "counts").
@@ -89,6 +104,30 @@ func (s SecurityConfig) IsRequired() bool {
 		return *s.Required
 	}
 	return false
+}
+
+// EffectiveFailOn resolves the severity threshold at or above which the security
+// scan fails the build. Precedence: explicit fail_on > the deprecated
+// fail_on_critical bool (true → "critical") > "off" — so with neither set the
+// scan stays informational, exactly as it does today. Returns a lowercased
+// "critical" | "high" | "medium" | "low" | "off".
+func (s SecurityConfig) EffectiveFailOn() string {
+	if v := strings.ToLower(strings.TrimSpace(s.FailOn)); v != "" {
+		return v
+	}
+	if s.FailOnCritical {
+		return "critical"
+	}
+	return "off"
+}
+
+// UnreachablePolicy resolves how proven-unreachable vulnerabilities are gated:
+// "pass" (default — excused) or "fail".
+func (s SecurityConfig) UnreachablePolicy() string {
+	if v := strings.ToLower(strings.TrimSpace(s.UnreachableVulns)); v != "" {
+		return v
+	}
+	return "pass"
 }
 
 // DefaultSecurityConfig returns sensible defaults for security scanning.

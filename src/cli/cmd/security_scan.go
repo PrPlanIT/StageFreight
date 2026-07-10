@@ -577,9 +577,23 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		fmt.Print(summaryBody)
 	}
 
-	// Fail if configured and critical vulns found
-	if scanCfg.FailOnCritical && result.Critical > 0 {
-		return fmt.Errorf("security scan failed: %d critical vulnerabilities", result.Critical)
+	// Fail if any vulnerability is at or above the configured severity threshold.
+	// Precedence: config fail_on (or the deprecated fail_on_critical) resolves the
+	// threshold; the --fail-on-critical CLI flag forces "critical" only when config
+	// left it "off". Default is "off" (informational), so this preserves today's
+	// opt-in gate exactly.
+	failOn := req.Config.Security.EffectiveFailOn()
+	if failOn == "off" && req.FailOnCritical {
+		failOn = "critical"
+	}
+	if failOn != "off" {
+		if n := security.CountAtOrAbove(result, failOn); n > 0 {
+			word := "vulnerabilities"
+			if n == 1 {
+				word = "vulnerability"
+			}
+			return fmt.Errorf("security scan failed: %d %s at or above %s severity", n, word, failOn)
+		}
 	}
 
 	// Strict mode checks
