@@ -239,6 +239,18 @@ func SeverityRank(label string) int {
 	}
 }
 
+// severityMaxRank is the rank of the most severe label (CRITICAL) — the ceiling
+// used to invert SeverityRank into an ascending sort order.
+const severityMaxRank = 4
+
+// SeverityOrder returns an ASCENDING sort key where the most severe label sorts
+// FIRST (CRITICAL=0, HIGH=1, MEDIUM/MODERATE=2, LOW=3, unknown=4) — the inverse
+// of SeverityRank, for severity-descending displays and "is this at least high"
+// (order <= 1) checks. One definition shared with the render/deps-update paths.
+func SeverityOrder(label string) int {
+	return severityMaxRank - SeverityRank(label)
+}
+
 // pickCanonicalID chooses the canonical advisory id: the smallest primary id, or
 // the smallest id overall if none were primary.
 func pickCanonicalID(primaries []string, idSet map[string]bool) string {

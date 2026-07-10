@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 )
 
 const (
@@ -101,7 +103,7 @@ func SectionVulns(sec *Section, vulns []VulnRow, color bool, budget int, ux Secu
 			break
 		}
 
-		r := severityRank(v.Severity)
+		r := analysis.SeverityOrder(v.Severity)
 		if r <= 1 {
 			// CRIT/HIGH always shown (until AbsoluteMax).
 			renderVulnRow(sec, v, color)
@@ -193,22 +195,6 @@ func normalizeSeverity(severity string) string {
 	}
 }
 
-// severityRank: lower is more severe (CRITICAL=0 ... UNKNOWN=4).
-func severityRank(severity string) int {
-	switch normalizeSeverity(severity) {
-	case "CRITICAL":
-		return 0
-	case "HIGH":
-		return 1
-	case "MEDIUM":
-		return 2
-	case "LOW":
-		return 3
-	default:
-		return 4
-	}
-}
-
 func sortVulns(vulns []VulnRow) []VulnRow {
 	out := make([]VulnRow, len(vulns))
 	copy(out, vulns)
@@ -216,7 +202,7 @@ func sortVulns(vulns []VulnRow) []VulnRow {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 
-		ra, rb := severityRank(a.Severity), severityRank(b.Severity)
+		ra, rb := analysis.SeverityOrder(a.Severity), analysis.SeverityOrder(b.Severity)
 		if ra != rb {
 			return ra < rb // ascending rank = descending severity
 		}
@@ -255,7 +241,7 @@ func renderVulnRow(sec *Section, v VulnRow, color bool) {
 	}
 
 	// URL line only for CRIT/HIGH to save vertical space.
-	if severityRank(v.Severity) <= 1 && id != "" {
+	if analysis.SeverityOrder(v.Severity) <= 1 && id != "" {
 		sec.Row("%s", Dimmed("    "+VulnURL(id), color))
 	}
 }

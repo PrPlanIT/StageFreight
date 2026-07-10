@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
@@ -425,7 +425,7 @@ func collectCVEsFixed(updates []dependency.AppliedUpdate) []output.CVEFixed {
 	}
 
 	sort.SliceStable(cves, func(i, j int) bool {
-		ri, rj := cveSeverityRank(cves[i].Severity), cveSeverityRank(cves[j].Severity)
+		ri, rj := analysis.SeverityOrder(cves[i].Severity), analysis.SeverityOrder(cves[j].Severity)
 		if ri != rj {
 			return ri < rj
 		}
@@ -435,18 +435,3 @@ func collectCVEsFixed(updates []dependency.AppliedUpdate) []output.CVEFixed {
 	return cves
 }
 
-// cveSeverityRank returns a sort rank (lower = more severe).
-func cveSeverityRank(severity string) int {
-	switch strings.ToUpper(strings.TrimSpace(severity)) {
-	case "CRITICAL":
-		return 0
-	case "HIGH":
-		return 1
-	case "MODERATE", "MEDIUM":
-		return 2
-	case "LOW":
-		return 3
-	default:
-		return 4
-	}
-}
