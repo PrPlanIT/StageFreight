@@ -402,15 +402,14 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// records the surface(s) it was seen on. Reads the optional source catalogue,
 	// writes a supplementary artifact, and prints one disclosure line — it never
 	// alters result.Vulnerabilities, the counts, the gate, or existing artifacts.
-	if cs := security.CrossSurface(req.RootDir, result.Vulnerabilities); cs != nil {
+	cs := security.CrossSurface(req.RootDir, result.Vulnerabilities)
+	if cs != nil {
 		if data, mErr := cs.Marshal(); mErr == nil {
 			csPath := scanCfg.OutputDir + "/cross-surface.json"
 			if os.WriteFile(csPath, data, 0o644) == nil {
 				artifacts = append(artifacts, csPath)
 			}
 		}
-		fmt.Fprintf(w, "  cross-surface: %d advisories reconciled — %d source-only, %d image-only, %d on both\n",
-			len(cs.Vulnerabilities), cs.SourceOnly, cs.ImageOnly, cs.Both)
 	}
 
 	// Resolve detail level from rules (CLI override > tag/branch rules > default)
@@ -513,6 +512,19 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		}
 		sec.Row("%-16s%s", "failed", strings.Join(failedNames, ", "))
 		sec.Row("%-16s\u26a0 scan incomplete \u2014 %d scanner(s) failed; results may under-report", "", len(result.ScannersFailed))
+	}
+
+	// Cross-surface reconciliation (additive): how this image's vulnerabilities
+	// line up with the audition's source findings, collapsed by advisory id —
+	// the [source+image] overlap is where a vulnerable dependency is both
+	// declared and compiled in, with reachability carried from source.
+	if cs != nil {
+		sec.Row("")
+		sec.Row("%-16s%d advisories — %d source-only, %d image-only, %d on both",
+			"cross-surface", len(cs.Vulnerabilities), cs.SourceOnly, cs.ImageOnly, cs.Both)
+		for _, line := range cs.DisclosureLines() {
+			sec.Row("%-16s%s", "", line)
+		}
 	}
 
 	// Vuln table gated on detail level.

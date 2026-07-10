@@ -38,6 +38,20 @@ func (s ReachabilityState) String() string {
 	}
 }
 
+// ParseReachabilityState is the inverse of String — it reconstructs a state from
+// its serialized form (e.g. when reading a persisted catalogue). Unrecognized
+// input is ReachUnknown (the fail-closed default).
+func ParseReachabilityState(s string) ReachabilityState {
+	switch s {
+	case "reachable":
+		return ReachReachable
+	case "unreachable":
+		return ReachUnreachable
+	default:
+		return ReachUnknown
+	}
+}
+
 // Confidence qualifies an analyzer's verdict without gating policy — it is DISCLOSED to the
 // operator (govulncheck is High; an experimental Rust analyzer may be Medium/Experimental) so
 // they know how much to trust a downgrade.
@@ -60,6 +74,21 @@ func (c Confidence) String() string {
 		return "experimental"
 	default:
 		return "none"
+	}
+}
+
+// ParseConfidence is the inverse of String, for reconstructing from a persisted
+// catalogue. Unrecognized input is ConfidenceNone.
+func ParseConfidence(s string) Confidence {
+	switch s {
+	case "high":
+		return ConfidenceHigh
+	case "medium":
+		return ConfidenceMedium
+	case "experimental":
+		return ConfidenceExperimental
+	default:
+		return ConfidenceNone
 	}
 }
 

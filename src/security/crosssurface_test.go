@@ -3,10 +3,42 @@ package security
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
 )
+
+// TestCrossSurface_CarriesReachability: reachability attached to a source record
+// survives the persist→read→collapse round-trip onto the collapsed vulnerability,
+// and the disclosure line shows it.
+func TestCrossSurface_CarriesReachability(t *testing.T) {
+	dir := t.TempDir()
+	writeSourceCatalogue(t, dir, []analysis.Vulnerability{{
+		ID: "CVE-2026-1", Severity: "HIGH",
+		Packages: []string{"github.com/docker/docker@v28.5.2"},
+		Surfaces: []analysis.Surface{analysis.SurfaceSource},
+		Evidence: []evidence.Evidence{evidence.ReachabilityEvidence{
+			State: evidence.ReachUnreachable, Analyzer: "govulncheck",
+			Confidence: evidence.ConfidenceHigh, Facts: []string{"not imported"},
+		}},
+	}})
+	cs := CrossSurface(dir, []Vulnerability{
+		{ID: "CVE-2026-1", Severity: "HIGH", Package: "github.com/docker/docker", Installed: "v28.5.2", Source: "trivy"},
+	})
+	if cs == nil || cs.Both != 1 {
+		t.Fatalf("want 1 both-surface advisory, got %+v", cs)
+	}
+	rr, ok := reachabilityOf(cs.Vulnerabilities[0])
+	if !ok || rr.State != evidence.ReachUnreachable {
+		t.Errorf("reachability not carried onto collapsed vuln: ok=%v state=%v", ok, rr.State)
+	}
+	lines := cs.DisclosureLines()
+	if len(lines) != 1 || !strings.Contains(lines[0], "CVE-2026-1") || !strings.Contains(lines[0], "unreachable") {
+		t.Errorf("disclosure = %v, want CVE-2026-1 [source+image] [unreachable]", lines)
+	}
+}
 
 // writeSourceCatalogue writes a source-vulns.json under dir for the test.
 func writeSourceCatalogue(t *testing.T, dir string, vulns []analysis.Vulnerability) {

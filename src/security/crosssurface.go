@@ -1,11 +1,13 @@
 package security
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
 )
 
 // CrossSurfaceResult is the reconciliation of this image scan against the
@@ -49,7 +51,8 @@ func CrossSurface(rootDir string, imageVulns []Vulnerability) *CrossSurfaceResul
 	}
 
 	// Source leg: the audition catalogue, if present.
-	if src := readSourceCatalogue(rootDir); src != nil {
+	src := readSourceCatalogue(rootDir)
+	if src != nil {
 		for _, r := range src.Vulnerabilities {
 			if r.ID == "" {
 				continue
@@ -72,6 +75,9 @@ func CrossSurface(rootDir string, imageVulns []Vulnerability) *CrossSurfaceResul
 	}
 
 	vulns := analysis.Reduce(obs)
+	if src != nil {
+		attachSourceReachability(vulns, src)
+	}
 	res := &CrossSurfaceResult{Vulnerabilities: vulns}
 	for _, v := range vulns {
 		switch surfaceClass(v.Surfaces) {
@@ -86,11 +92,90 @@ func CrossSurface(rootDir string, imageVulns []Vulnerability) *CrossSurfaceResul
 	return res
 }
 
+// DisclosureLines returns human-readable rows for the review section: the
+// advisories observed on BOTH surfaces — the cross-surface overlap worth
+// highlighting (a vulnerable module in source AND compiled into the image) —
+// each with its id and, when carried from source, its reachability verdict.
+// Capped so the section stays readable; the full set lives in cross-surface.json.
+func (r *CrossSurfaceResult) DisclosureLines() []string {
+	const limit = 8
+	var lines []string
+	for _, v := range r.Vulnerabilities {
+		if surfaceClass(v.Surfaces) != "both" {
+			continue
+		}
+		if len(lines) >= limit {
+			break
+		}
+		line := v.ID + " [source+image]"
+		if rr, ok := reachabilityOf(v); ok && rr.State != evidence.ReachUnknown {
+			line += " [" + rr.State.String() + "]"
+		}
+		lines = append(lines, line)
+	}
+	if r.Both > limit {
+		lines = append(lines, fmt.Sprintf("… and %d more on both surfaces", r.Both-limit))
+	}
+	return lines
+}
+
+// reachabilityOf returns the reachability evidence attached to a collapsed
+// vulnerability, if any.
+func reachabilityOf(v analysis.Vulnerability) (evidence.ReachabilityEvidence, bool) {
+	for _, e := range v.Evidence {
+		if r, ok := e.(evidence.ReachabilityEvidence); ok {
+			return r, true
+		}
+	}
+	return evidence.ReachabilityEvidence{}, false
+}
+
 // Marshal renders the reconciled vulnerabilities as the cross-surface catalogue
 // artifact, reusing the source-assessment JSON shape (which already carries the
 // surfaces field).
 func (r *CrossSurfaceResult) Marshal() ([]byte, error) {
 	return analysis.MarshalSourceAssessment(r.Vulnerabilities)
+}
+
+// attachSourceReachability re-attaches the reachability evidence that source
+// records carry onto the collapsed vulnerabilities, matched by any shared
+// identifier (canonical ID or alias), so the cross-surface view and artifact
+// preserve WHY a source advisory was downgraded. The observation legs cannot
+// carry the Evidence interface through canonicalize, so it is restored here.
+func attachSourceReachability(vulns []analysis.Vulnerability, src *analysis.SourceAssessment) {
+	byID := map[string]*analysis.ReachabilityRecord{}
+	for i := range src.Vulnerabilities {
+		r := &src.Vulnerabilities[i]
+		if r.Reachability == nil {
+			continue
+		}
+		byID[r.ID] = r.Reachability
+		for _, a := range r.Aliases {
+			byID[a] = r.Reachability
+		}
+	}
+	if len(byID) == 0 {
+		return
+	}
+	for i := range vulns {
+		rr := byID[vulns[i].ID]
+		if rr == nil {
+			for _, a := range vulns[i].Aliases {
+				if rr = byID[a]; rr != nil {
+					break
+				}
+			}
+		}
+		if rr == nil {
+			continue
+		}
+		vulns[i].Evidence = append(vulns[i].Evidence, evidence.ReachabilityEvidence{
+			State:      evidence.ParseReachabilityState(rr.State),
+			Analyzer:   rr.Analyzer,
+			Confidence: evidence.ParseConfidence(rr.Confidence),
+			Facts:      rr.Facts,
+		})
+	}
 }
 
 // readSourceCatalogue loads the audition's source-vulns.json, returning nil if it
