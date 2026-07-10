@@ -159,8 +159,33 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 		if b.Kind == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind is required", bpath))
-		} else if b.Kind != "docker" && b.Kind != "binary" {
-			errs = append(errs, fmt.Sprintf("%s: unknown build kind %q (supported: docker, binary)", bpath, b.Kind))
+		} else if b.Kind != "docker" && b.Kind != "binary" && b.Kind != "command" {
+			errs = append(errs, fmt.Sprintf("%s: unknown build kind %q (supported: docker, binary, command)", bpath, b.Kind))
+		}
+
+		// kind: command — the escape hatch: an explicit command + ≥1 typed output.
+		if b.Kind == "command" {
+			if strings.TrimSpace(string(b.Command)) == "" {
+				errs = append(errs, fmt.Sprintf("%s: kind command requires command (the command to run in the image)", bpath))
+			}
+			if len(b.Outputs) == 0 {
+				errs = append(errs, fmt.Sprintf("%s: kind command requires at least one output ({type, source})", bpath))
+			}
+			for i, o := range b.Outputs {
+				switch o.Type {
+				case "tree", "file", "binary":
+				default:
+					errs = append(errs, fmt.Sprintf("%s: outputs[%d].type %q is invalid (supported: tree, file, binary)", bpath, i, o.Type))
+				}
+				if strings.TrimSpace(o.Source) == "" {
+					errs = append(errs, fmt.Sprintf("%s: outputs[%d].source is required (the path the command produced, repo-relative)", bpath, i))
+				} else if strings.HasPrefix(o.Source, "/") || strings.Contains(o.Source, "..") {
+					errs = append(errs, fmt.Sprintf("%s: outputs[%d].source %q must be repo-relative (no leading / or ..)", bpath, i, o.Source))
+				}
+			}
+			if b.Builder != "" {
+				errs = append(errs, fmt.Sprintf("%s: builder is not valid for kind command (it has no language inference)", bpath))
+			}
 		}
 
 		// DependsOn reference validation (deferred until all IDs collected)

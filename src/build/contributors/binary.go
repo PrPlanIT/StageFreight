@@ -53,7 +53,7 @@ func (b *binaryContributor) Order() int   { return 10 }
 
 func (b *binaryContributor) Applies(rc *domains.RunContext) bool {
 	for _, bld := range rc.Config.Builds {
-		if bld.Kind == "binary" {
+		if bld.Kind == "binary" || bld.Kind == "command" {
 			return true
 		}
 	}
@@ -83,7 +83,7 @@ func (b *binaryContributor) Detect(rc *domains.RunContext) (domains.Contribution
 	b.version = v
 
 	for _, bc := range rc.Config.Builds {
-		if bc.Kind != "binary" {
+		if bc.Kind != "binary" && bc.Kind != "command" {
 			continue
 		}
 		if rc.BuildID != "" && bc.ID != rc.BuildID {
@@ -116,6 +116,10 @@ func (b *binaryContributor) Plan(rc *domains.RunContext) (domains.Contribution, 
 
 	for _, bc := range ordered {
 		cfg := toBuildConfig(bc, b.version)
+		// kind: command defaults its image to the ci.image (how SF runs its own CLI).
+		if cfg.Kind == "command" && cfg.Image == "" {
+			cfg.Image = rc.Config.CI.Image
+		}
 		if rc.Local {
 			cfg.Platforms = []build.Target{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
 		}
@@ -470,14 +474,24 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	// containerized builders (node, elixir) infer both from convention, so pass their
 	// raw (possibly empty) values so the engine can tell "unset" and fill defaults.
 	command, output := b.BuilderCommand(), b.OutputName()
+	builder := b.Builder
 	switch b.Builder {
 	case "node", "elixir", "dotnet", "c", "python", "jvm", "android":
-		command, output = b.Command, b.Output
+		command, output = string(b.Command), b.Output
+	}
+	// kind: command — no builder, no inference: the command + first output's source
+	// come straight from config. Routed to the container engine as builder "command".
+	if b.Kind == "command" {
+		builder = "command"
+		command = string(b.Command)
+		if len(b.Outputs) > 0 {
+			output = b.Outputs[0].Source
+		}
 	}
 	return build.BuildConfig{
 		ID: b.ID, Kind: b.Kind, Platforms: platforms, BuildMode: b.BuildMode,
 		SelectTags: b.SelectTags, DependsOn: b.DependsOn, Version: v,
-		Builder: b.Builder, Command: command, From: b.From,
+		Builder: builder, Command: command, From: b.From,
 		Output: output, Args: b.Args, Env: b.Env, Compress: b.Compress,
 		Image: b.Image,
 	}

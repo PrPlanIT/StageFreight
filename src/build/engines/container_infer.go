@@ -124,6 +124,9 @@ func inferNodeBuild(rootDir, from, targetOS string) inferredBuild {
 // run, artifact capture, and archiving are all shared.
 func inferBuild(builder, rootDir, from, targetOS, targetArch string) inferredBuild {
 	switch builder {
+	case "command":
+		// The escape hatch: no inference. Image/Command/Output come purely from config.
+		return inferredBuild{}
 	case "elixir":
 		return inferElixirBuild(rootDir, from)
 	case "dotnet":

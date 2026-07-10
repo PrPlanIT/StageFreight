@@ -3,7 +3,56 @@ package config
 import (
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
+
+// CommandSpec is a build command that accepts either a scalar shell string
+// (`command: "go build"`) or a sequence / argv list (`command: [go, build]`),
+// normalized to a single string for `sh -c`. The sequence form is shell-quoted so
+// args with spaces survive. Used by binary builders (a subcommand) and kind: command
+// (the full command).
+type CommandSpec string
+
+// UnmarshalYAML accepts a scalar or a sequence of strings.
+func (c *CommandSpec) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.SequenceNode {
+		var parts []string
+		if err := value.Decode(&parts); err != nil {
+			return err
+		}
+		*c = CommandSpec(shellJoin(parts))
+		return nil
+	}
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return err
+	}
+	*c = CommandSpec(s)
+	return nil
+}
+
+// shellJoin joins argv parts into a POSIX sh command, single-quoting any part that
+// contains characters the shell would interpret, so `[echo, a b]` → `echo 'a b'`.
+func shellJoin(parts []string) string {
+	quoted := make([]string, len(parts))
+	for i, p := range parts {
+		if p != "" && !strings.ContainsAny(p, " \t\n'\"\\$`&|;<>(){}[]*?~#!") {
+			quoted[i] = p
+			continue
+		}
+		quoted[i] = "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
+	}
+	return strings.Join(quoted, " ")
+}
+
+// OutputSpec declares one captured build output: what the command produced (Source,
+// repo-relative) and its artifact class (Type ∈ tree | file | binary). The consumer
+// (a narrate commit binding, a pages target, …) owns where it lands.
+type OutputSpec struct {
+	Type   string `yaml:"type"`
+	Source string `yaml:"source"`
+}
 
 // BuildConfig defines a named build artifact. Each build has a unique ID
 // (referenced by targets) and a kind that determines which fields are valid.
@@ -15,7 +64,12 @@ type BuildConfig struct {
 	ID string `yaml:"id"`
 
 	// Kind is the build type. Determines which fields are valid.
-	// Supported: "docker", "binary".
+	// Supported: "docker", "binary", "command".
+	//   - docker:  build an OCI image
+	//   - binary:  build an executable via a language builder (opinionated inference)
+	//   - command: run an arbitrary command in an image, capture typed outputs (the
+	//              un-opinionated escape hatch; no inference). Prefer a `builder:` when
+	//              one fits; reach for command only when none does.
 	Kind string `yaml:"kind"`
 
 	// SelectTags enables CLI filtering via --select.
@@ -66,9 +120,9 @@ type BuildConfig struct {
 	// Supported: "go". Future: "rust", "zig", "cargo".
 	Builder string `yaml:"builder,omitempty"`
 
-	// Command is the builder subcommand. e.g., "build" for "go build".
-	// Default: "build".
-	Command string `yaml:"command,omitempty"`
+	// Command is the builder subcommand (binary: e.g. "build") or the full command
+	// (kind: command). Accepts a scalar string or an argv sequence. Default: "build".
+	Command CommandSpec `yaml:"command,omitempty"`
 
 	// From is the source/input root or entry point.
 	// e.g., "./src/cli" (Go package), "./src/main.rs" (Rust).
@@ -97,6 +151,13 @@ type BuildConfig struct {
 
 	// Crucible holds crucible-specific configuration for binary builds.
 	Crucible *CrucibleConfig `yaml:"crucible,omitempty"`
+
+	// ── kind: command ─────────────────────────────────────────────────────
+	// Run Command in Image (default: ci.image), capture the declared Outputs. No
+	// language inference — the un-opinionated escape hatch. Reuses Image/Command/Env.
+
+	// Outputs declares what the command produced and each output's artifact class.
+	Outputs []OutputSpec `yaml:"outputs,omitempty"`
 }
 
 // CrucibleConfig holds crucible-specific build configuration.
@@ -126,7 +187,7 @@ func (b BuildConfig) IsRequired() bool {
 // BuilderCommand returns the builder command, defaulting to "build".
 func (b BuildConfig) BuilderCommand() string {
 	if b.Command != "" {
-		return b.Command
+		return string(b.Command)
 	}
 	return "build"
 }

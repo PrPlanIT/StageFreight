@@ -31,10 +31,12 @@ const (
 	EnginePython  = "binary-python"
 	EngineJVM     = "binary-jvm"
 	EngineAndroid = "binary-android"
+	EngineCommand = "binary-command"
 )
 
 func init() {
 	build.RegisterV2(EngineNode, func() build.EngineV2 { return &containerEngine{name: EngineNode, builder: "node"} })
+	build.RegisterV2(EngineCommand, func() build.EngineV2 { return &containerEngine{name: EngineCommand, builder: "command"} })
 	build.RegisterV2(EngineElixir, func() build.EngineV2 { return &containerEngine{name: EngineElixir, builder: "elixir"} })
 	build.RegisterV2(EngineDotnet, func() build.EngineV2 { return &containerEngine{name: EngineDotnet, builder: "dotnet"} })
 	build.RegisterV2(EngineC, func() build.EngineV2 { return &containerEngine{name: EngineC, builder: "c"} })
@@ -67,7 +69,9 @@ func (e *containerEngine) Detect(ctx context.Context, rootDir string) (*build.De
 }
 
 func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]build.UniversalStep, error) {
-	if cfg.From == "" {
+	// kind: command runs at the repo root by default (from is optional); the language
+	// builders need a package directory.
+	if cfg.From == "" && e.builder != "command" {
 		return nil, fmt.Errorf("container engine: from is required (the package directory, e.g. ui/desktop)")
 	}
 	rootDir, _ := os.Getwd()
