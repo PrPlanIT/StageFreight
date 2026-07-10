@@ -560,12 +560,18 @@ func moduleConfigFor(cfg config.LintConfig, name string) (config.ModuleConfig, b
 }
 
 // moduleOptions returns the YAML options a module should be configured with. The
-// vulnerabilities module renders the OSV-API correlation that lives under the
-// freshness config (min_severity, vulnerability toggle, ignores, source
-// toggles), so it sources its options from the freshness section rather than its
-// own — keeping both modules on the same vulnerability config.
+// vulnerabilities module renders the OSV-API correlation that shares config with
+// freshness (min_severity, vulnerability toggle, ignores, source toggles), so by
+// default it sources its options from the freshness section — keeping both
+// modules on the same vulnerability config. But options placed under the
+// module's own canonical key (lint.modules.vulnerabilities.options, or the
+// deprecated "osv" alias) take precedence when present, so a project that wants
+// vulnerabilities configured independently of freshness isn't silently ignored.
 func moduleOptions(cfg config.LintConfig, name string) map[string]any {
 	if name == "vulnerabilities" {
+		if mc, ok := moduleConfigFor(cfg, name); ok && mc.Options != nil {
+			return mc.Options
+		}
 		if mc, ok := cfg.Modules["freshness"]; ok {
 			return mc.Options
 		}

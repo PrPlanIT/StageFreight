@@ -14,6 +14,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/spf13/cobra"
 )
 
@@ -136,6 +138,42 @@ func runLint(cmd *cobra.Command, args []string) error {
 	ci := output.IsCI()
 	color := output.UseColor()
 	w := os.Stdout
+
+	// Discover dependencies ONCE and thread the Snapshot to the engine, mirroring the
+	// audition path (depsRunner in ci_runners.go). Without this, the freshness and
+	// vulnerabilities modules each self-resolve independently, running OSV correlation
+	// and registry lookups twice over the same manifests. Options are sourced from the
+	// same lint.modules.freshness.options section runDependencyUpdateLogic/
+	// runPreBuildLintImpl use.
+	//
+	// Deliberately NOT the package-level discovery.Discover/Resolve helpers here: those
+	// construct a bare Resolver with no ToolchainDesired, so a .stagefreight.yml pin
+	// (toolchains.desired) would silently resolve zero dependencies — dropping every
+	// freshness finding for pinned tool versions (cosign, flux, grype, …). The old
+	// per-module self-resolution never had that gap because the engine calls
+	// SetToolchainDesired on each module's own resolver. Build and configure a Resolver
+	// the same way, then resolve each file once (ResolveFile is what self-resolution
+	// called per module, so this is byte-for-byte the same resolution — just shared
+	// instead of duplicated), scoped to exactly the files that will be scanned
+	// (post-delta-filter).
+	var freshnessOpts map[string]any
+	if mc, ok := cfg.Lint.Modules["freshness"]; ok {
+		freshnessOpts = mc.Options
+	}
+	resolver := discovery.NewResolver()
+	resolver.SetToolchainDesired(cfg.Toolchains.Desired)
+	if err := resolver.Configure(freshnessOpts); err != nil {
+		return fmt.Errorf("configuring dependency resolver: %w", err)
+	}
+	var snapshotDeps []supplychain.Dependency
+	for _, f := range files {
+		deps, err := resolver.ResolveFile(ctx, f)
+		if err != nil {
+			return fmt.Errorf("resolving %s: %w", f.Path, err)
+		}
+		snapshotDeps = append(snapshotDeps, deps...)
+	}
+	engine.Snapshot = &supplychain.Snapshot{Dependencies: snapshotDeps}
 
 	start := time.Now()
 	findings, modStats, runErr := engine.RunWithStats(ctx, files)

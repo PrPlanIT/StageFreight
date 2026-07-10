@@ -31,9 +31,10 @@ lint:
 
 ## Modules
 
-9 lint modules, each independently togglable. Content-only modules produce
+10 lint modules, each independently togglable. Content-only modules produce
 deterministic output and are cached forever by content hash. The freshness
-module depends on external state and uses TTL-based caching.
+and vulnerabilities modules depend on external state (registries, the OSV
+database, osv-scanner) and use TTL-based caching.
 
 ### Content-Only Modules
 
@@ -69,6 +70,36 @@ against the OSV vulnerability database.
 
 See the conceptual docs below for full freshness configuration including
 severity mapping, package rules, groups, and registry overrides.
+
+### Vulnerabilities Module (TTL-Aware)
+
+Emits one finding per canonical advisory (RuleID = the advisory ID, e.g.
+`GHSA-…` / `CVE-…`), unifying two observation sources so the same CVE never
+produces two findings:
+
+- **OSV-API correlation** — the vulnerabilities already attached to a
+  file's resolved dependencies (the same correlation `freshness` reads for
+  its `[N CVE(s)]` annotation).
+- **osv-scanner** — a per-file scan of the lockfile itself.
+
+Both legs are reduced to one canonical `Vulnerability` per advisory before
+rendering — a CVE surfaced by both sources still yields a single finding.
+
+```yaml
+    vulnerabilities:       # "osv" is a deprecated alias for this key
+      enabled: true
+```
+
+Vulnerability config (`min_severity`, `enabled`, `severity_override`,
+ignores, source toggles) is **shared with `freshness`** by default: this
+module reads its options from `lint.modules.freshness.options` unless
+options are placed directly under `lint.modules.vulnerabilities.options`
+(or its `osv` alias), which take precedence when present — letting a
+project configure vulnerability correlation independently of freshness.
+
+A **pinned** `osv-scanner` version that fails to resolve hard-fails the
+gate; an unpinned/unavailable scanner silently skips the osv-scanner leg
+(the OSV-API leg still runs).
 
 ---
 
