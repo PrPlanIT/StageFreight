@@ -18,6 +18,8 @@
 // dependency on the lint layer.
 package analysis
 
+import "github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
+
 // Verdict is the analysis-layer severity classification for a canonical
 // vulnerability — the single verdict rendered per advisory. Its tiers mirror the
 // lint severity tiers (info / warning / critical) WITHOUT importing lint; the
@@ -76,6 +78,14 @@ type Vulnerability struct {
 	File     string
 	Line     int
 	Verdict  Verdict
+
+	// Ecosystem is the representative ecosystem for this advisory, used to route
+	// evidence contributors (e.g. "gomod" → the Go reachability analyzer). Chosen
+	// deterministically by mergeComponent.
+	Ecosystem string
+	// Evidence holds enrichment facts (reachability today; KEV/EPSS/fix later)
+	// attached by Assess. Reduce attaches none, so it stays nil there.
+	Evidence []evidence.Evidence
 }
 
 // Reduce composes canonicalize → evaluate: it groups observations into one

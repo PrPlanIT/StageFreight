@@ -162,6 +162,9 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 			v.File = o.File
 			v.Line = o.Line
 		}
+		if v.Ecosystem == "" && o.Ecosystem != "" {
+			v.Ecosystem = o.Ecosystem
+		}
 	}
 
 	// Canonical ID: the lexicographically smallest primary id (falls back to the
