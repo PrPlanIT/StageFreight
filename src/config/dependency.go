@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // DependencyHandoff controls what happens when dependency repair creates a new commit.
 //   - "continue"          — advisory only, current pipeline continues regardless
 //   - "restart_pipeline"  — request pipeline rerun on repaired revision; downstream shipping stops
@@ -26,6 +28,39 @@ type DependencyConfig struct {
 	Commit  DependencyCommitConfig `yaml:"commit"`
 	CI      DependencyCIConfig     `yaml:"ci"`
 	Ignore  []DependencyIgnore     `yaml:"ignore,omitempty"`
+
+	// Remediate controls whether the update pass PATCHES eligible dependencies
+	// (true, default — fix-forward) or only evaluates them without changing
+	// anything (false). It is the module's remediation stage, orthogonal to
+	// fail_on (the policy stage).
+	Remediate *bool `yaml:"remediate,omitempty"`
+
+	// FailOn is the vulnerability-severity threshold at or above which a RESIDUAL
+	// vulnerability — one still present after the remediation stage (a held major,
+	// no fix available, or ignored) — fails the build: "critical" | "high" |
+	// "medium" | "low" | "off". Vulnerability severity vocabulary (the shared
+	// severity scale), NOT lint's importance tiers. Empty defaults to "off":
+	// deps stays fix-forward and never hard-fails, exactly as today.
+	FailOn string `yaml:"fail_on,omitempty"`
+}
+
+// RemediateEnabled reports whether the update pass patches eligible dependencies.
+// Default: true (fix-forward).
+func (c DependencyConfig) RemediateEnabled() bool {
+	if c.Remediate != nil {
+		return *c.Remediate
+	}
+	return true
+}
+
+// EffectiveFailOn resolves the residual-vulnerability gate threshold, defaulting
+// to "off" (deps never hard-fails today). Lowercased "critical" | "high" |
+// "medium" | "low" | "off".
+func (c DependencyConfig) EffectiveFailOn() string {
+	if v := strings.ToLower(strings.TrimSpace(c.FailOn)); v != "" {
+		return v
+	}
+	return "off"
 }
 
 // DependencyIgnore suppresses a specific security advisory from remediation — an

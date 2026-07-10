@@ -506,6 +506,25 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
+	// Residual-vulnerability gate (the module's Policy stage). After the
+	// remediation stage above patched what it could and committed the fixes, fail
+	// the build if any vulnerability at or above dependency.fail_on remains
+	// UNremediated — a held major, no fix available, or ignored. Default fail_on
+	// "off" → no gate, so this is zero-change until a project opts in.
+	if failOn := appCfg.Dependency.EffectiveFailOn(); failOn != "off" {
+		if residual := dependency.ResidualVulnerabilities(snapshot.Dependencies, result, failOn); len(residual) > 0 {
+			for _, r := range residual {
+				fmt.Fprintf(os.Stderr, "  deps: unremediated %s (%s@%s, %s)\n", r.VulnID, r.Dep, r.Version, r.Severity)
+			}
+			word := "vulnerabilities"
+			if len(residual) == 1 {
+				word = "vulnerability"
+			}
+			in.DepsErrored = true
+			return fmt.Errorf("dependency gate: %d unremediated %s at or above %s severity", len(residual), word, failOn)
+		}
+	}
+
 	return nil
 }
 
@@ -556,7 +575,9 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 	updateCfg := dependency.UpdateConfig{
 		RootDir:    rootDir,
 		OutputDir:  outputDir,
-		DryRun:     false,
+		// remediate:false → the update pass only evaluates (no patching), so the
+		// residual gate sees the current, unremediated vulnerabilities.
+		DryRun:     !appCfg.Dependency.RemediateEnabled(),
 		Verify:     true,
 		Vulncheck:  true,
 		Ecosystems: ecosystems,
