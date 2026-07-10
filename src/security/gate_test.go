@@ -57,14 +57,3 @@ func TestCountAtOrAbove(t *testing.T) {
 	}
 }
 
-func TestSeverityRank(t *testing.T) {
-	if SeverityRank("CRITICAL") <= SeverityRank("high") {
-		t.Error("critical must outrank high")
-	}
-	if SeverityRank("moderate") != SeverityRank("medium") {
-		t.Error("moderate must equal medium (OSV vs CVSS vocab)")
-	}
-	if SeverityRank("") != 0 || SeverityRank("nonsense") != 0 {
-		t.Error("unknown severity must rank 0")
-	}
-}

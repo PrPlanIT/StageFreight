@@ -224,3 +224,17 @@ func TestEvaluateMirrorsSeverityMapping(t *testing.T) {
 		}
 	}
 }
+
+// TestSeverityRank covers the shared severity ordering, including the OSV
+// ("MODERATE") vs CVSS/image-scan ("MEDIUM") vocabulary equivalence.
+func TestSeverityRank(t *testing.T) {
+	if SeverityRank("CRITICAL") <= SeverityRank("high") {
+		t.Error("critical must outrank high")
+	}
+	if SeverityRank("moderate") != SeverityRank("MEDIUM") || SeverityRank("medium") != 2 {
+		t.Error("moderate must equal medium (both rank 2)")
+	}
+	if SeverityRank("") != 0 || SeverityRank("nonsense") != 0 {
+		t.Error("unknown severity must rank 0")
+	}
+}

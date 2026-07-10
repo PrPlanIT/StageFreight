@@ -152,7 +152,7 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 				pkgVersions[o.Package] = o.Version
 			}
 		}
-		if r := severityRank(o.Severity); r > bestRank {
+		if r := SeverityRank(o.Severity); r > bestRank {
 			bestRank = r
 			v.Severity = normalizeLabel(o.Severity)
 		}
@@ -220,14 +220,17 @@ func sourcePriority(source string) int {
 	return 1
 }
 
-// severityRank maps an OSV severity label to a comparable rank (higher = worse).
-func severityRank(label string) int {
+// SeverityRank maps a severity label to a comparable rank (higher = worse),
+// spanning both the OSV vocabulary ("MODERATE") and the CVSS/image-scan
+// vocabulary ("MEDIUM"). Unknown/empty ranks 0. Shared by the canonical-vuln
+// merge and the image-scan gate so severity ordering has one definition.
+func SeverityRank(label string) int {
 	switch normalizeLabel(label) {
 	case "CRITICAL":
 		return 4
 	case "HIGH":
 		return 3
-	case "MODERATE":
+	case "MODERATE", "MEDIUM":
 		return 2
 	case "LOW":
 		return 1

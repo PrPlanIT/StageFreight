@@ -3,25 +3,9 @@ package security
 import (
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
 )
-
-// SeverityRank maps a severity label to a comparable rank (higher = worse).
-// Unknown/empty is 0. "moderate" is treated as "medium" (OSV vs CVSS vocab).
-func SeverityRank(label string) int {
-	switch strings.ToLower(strings.TrimSpace(label)) {
-	case "critical":
-		return 4
-	case "high":
-		return 3
-	case "medium", "moderate":
-		return 2
-	case "low":
-		return 1
-	default:
-		return 0
-	}
-}
 
 // CountAtOrAbove returns how many of the scan's vulnerabilities are at or above
 // the given severity threshold ("critical" | "high" | "medium" | "low"). "off"
@@ -53,7 +37,7 @@ func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachable
 	if base == 0 || unreachablePolicy != "pass" || cs == nil {
 		return base
 	}
-	minRank := SeverityRank(failOn)
+	minRank := analysis.SeverityRank(failOn)
 
 	// Advisory ids (and aliases) the cross-surface reconciliation proved unreachable.
 	excusedIDs := map[string]bool{}
@@ -72,7 +56,7 @@ func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachable
 
 	excused := 0
 	for _, v := range result.Vulnerabilities {
-		if excusedIDs[v.ID] && SeverityRank(v.Severity) >= minRank {
+		if excusedIDs[v.ID] && analysis.SeverityRank(v.Severity) >= minRank {
 			excused++
 		}
 	}
