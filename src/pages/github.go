@@ -37,12 +37,25 @@ func (g *githubProvider) Prepare(ws string, opts DeployOpts) error {
 	if err := os.WriteFile(filepath.Join(ws, ".nojekyll"), nil, 0o644); err != nil {
 		return err
 	}
-	if opts.Domain != "" {
-		if err := os.WriteFile(filepath.Join(ws, "CNAME"), []byte(opts.Domain+"\n"), 0o644); err != nil {
+	// GitHub Pages serves a single custom domain (one CNAME record). Config validation
+	// rejects a multi-domain list for the github provider, so at most one is set here;
+	// firstDomain is a defensive fallback that also handles the empty case.
+	if d := firstDomain(opts.Domains); d != "" {
+		if err := os.WriteFile(filepath.Join(ws, "CNAME"), []byte(d+"\n"), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// firstDomain returns the first non-empty domain, or "" when there are none.
+func firstDomain(domains []string) string {
+	for _, d := range domains {
+		if d != "" {
+			return d
+		}
+	}
+	return ""
 }
 
 func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts) (DeployResult, error) {
@@ -57,7 +70,7 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 	if token == "" {
 		return DeployResult{}, fmt.Errorf("github pages: missing required credential GITHUB_TOKEN")
 	}
-	url := githubPagesURL(repo, opts.Domain)
+	url := githubPagesURL(repo, firstDomain(opts.Domains))
 	if opts.DryRun {
 		return DeployResult{URL: fmt.Sprintf("[dry-run] would force-push %s to %s gh-pages", ws, repo)}, nil
 	}
@@ -99,7 +112,7 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 	}
 	// GitHub's custom-domain model is the CNAME file written into the tree during
 	// Prepare (not an API attach), so there's no separate DomainOutcome to report; the
-	// returned URL already reflects opts.Domain when set.
+	// returned URL already reflects the custom domain when set.
 	return DeployResult{URL: url}, nil
 }
 

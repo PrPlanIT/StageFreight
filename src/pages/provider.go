@@ -21,7 +21,7 @@ type Provider interface {
 	Prepare(ws string, opts DeployOpts) error
 	// Deploy publishes the workspace. A returned error means the SITE deploy itself
 	// failed (the critical operation). Custom-domain configuration is an enhancement
-	// carried in DeployResult.Domain and never surfaces as this error — a domain
+	// carried in DeployResult.Domains and never surfaces as this error — a domain
 	// problem must not retroactively fail a successful deploy.
 	Deploy(ctx context.Context, ws string, opts DeployOpts) (DeployResult, error)
 	// Credentials declares the env vars this provider needs (for diagnostics + forwarding).
@@ -32,8 +32,8 @@ type Provider interface {
 // reaching the host (critical — an error on Deploy) and the custom-domain
 // configuration (an enhancement — best-effort, reported as data, never fatal).
 type DeployResult struct {
-	URL    string         // deployment URL (e.g. https://abc.project.pages.dev)
-	Domain *DomainOutcome // nil when no custom domain was requested
+	URL     string          // deployment URL (e.g. https://abc.project.pages.dev)
+	Domains []DomainOutcome // one per requested custom domain; empty when none requested
 }
 
 // DNSProvider classifies where a domain's AUTHORITATIVE nameservers live (an NS lookup,
@@ -69,7 +69,7 @@ type CredentialRequirement struct {
 type DeployOpts struct {
 	Project string            // cloudflare project/site name (default: target id)
 	Repo    string            // github OWNER/REPO (default: current repo)
-	Domain  string            // custom domain, if any
+	Domains []string          // custom domain(s) to attach, if any
 	Include []string          // workspace allowlist globs (empty = keep everything)
 	Exclude []string          // workspace denylist globs
 	Env     map[string]string // resolved credentials to forward into the deploy

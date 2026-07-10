@@ -35,7 +35,7 @@ func (c *cloudflareProvider) Deploy(ctx context.Context, ws string, opts DeployO
 		return DeployResult{}, fmt.Errorf("cloudflare pages: missing required credential CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID")
 	}
 
-	client := newCFPagesClient(token, account, opts.Project, opts.Domain)
+	client := newCFPagesClient(token, account, opts.Project, opts.Domains)
 	if opts.DryRun {
 		// Safe first pass: hash the workspace (exercising the full asset pipeline)
 		// without any external call.

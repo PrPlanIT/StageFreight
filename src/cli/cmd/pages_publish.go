@@ -67,7 +67,7 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		dopts := pages.DeployOpts{
 			Project: project,     // cloudflare project name (explicit project:, else target id)
 			Repo:    t.ProjectID, // github OWNER/REPO (empty → current repo from env)
-			Domain:  t.Domain,
+			Domains: t.Domain,    // one or more custom domains (config StringOrList)
 			Include: t.Include,
 			Exclude: t.Exclude,
 			Env:     pagesCredentials(provider),
@@ -92,8 +92,8 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		// Two distinct outcomes, reported separately: the site deploy (critical, above)
 		// and the custom-domain configuration (an enhancement — never fails the deploy).
 		sec.Row("%s  DEPLOYED  %s", output.StatusIcon("success", color), res.URL)
-		if res.Domain != nil {
-			renderDomainOutcome(sec, color, project, res.Domain)
+		for i := range res.Domains {
+			renderDomainOutcome(sec, color, project, &res.Domains[i])
 		}
 		sec.Close()
 		output.SectionEnd(w, "sf_pages")

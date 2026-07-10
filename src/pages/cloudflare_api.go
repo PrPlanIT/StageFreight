@@ -40,19 +40,19 @@ type cfPagesClient struct {
 	apiToken  string
 	accountID string
 	project   string
-	domain    string // optional custom domain to attach
-	base      string // API base; overridable in tests
+	domains   []string // optional custom domain(s) to attach
+	base      string   // API base; overridable in tests
 	hasher    AssetHasher
 	http      *http.Client
 	lookupNS  func(string) ([]*net.NS, error) // authoritative-NS lookup; overridable in tests
 }
 
-func newCFPagesClient(apiToken, accountID, project, domain string) *cfPagesClient {
+func newCFPagesClient(apiToken, accountID, project string, domains []string) *cfPagesClient {
 	return &cfPagesClient{
 		apiToken:  apiToken,
 		accountID: accountID,
 		project:   project,
-		domain:    domain,
+		domains:   domains,
 		base:      cfAPIBase,
 		hasher:    cloudflarePagesV1Hasher{},
 		http:      &http.Client{Timeout: 2 * time.Minute},
@@ -63,7 +63,7 @@ func newCFPagesClient(apiToken, accountID, project, domain string) *cfPagesClien
 // deploy runs the full Direct Upload flow. The SITE deploy is the critical operation —
 // any failure up to and including createDeployment returns an error. Custom-domain
 // configuration runs only AFTER a successful deploy and is best-effort: its outcome is
-// reported as data (DeployResult.Domain), never as the returned error.
+// reported as data (DeployResult.Domains), never as the returned error.
 func (c *cfPagesClient) deploy(ctx context.Context, ws string) (DeployResult, error) {
 	assets, err := c.collectAssets(ws)
 	if err != nil {
@@ -93,9 +93,14 @@ func (c *cfPagesClient) deploy(ctx context.Context, ws string) (DeployResult, er
 		return DeployResult{}, err
 	}
 	// Site is deployed. Domain configuration is a separate, non-fatal enhancement.
+	// A Pages project can carry several custom domains, so attach each one and report
+	// its outcome independently — one failing domain never affects the others.
 	res := DeployResult{URL: url}
-	if c.domain != "" {
-		res.Domain = c.attachDomain(ctx)
+	for _, d := range c.domains {
+		if d == "" {
+			continue
+		}
+		res.Domains = append(res.Domains, c.attachDomain(ctx, d))
 	}
 	return res, nil
 }
@@ -106,10 +111,10 @@ func (c *cfPagesClient) deploy(ctx context.Context, ws string) (DeployResult, er
 // (informational, to tailor later guidance), then lets the Pages API be the authority
 // for the attach itself — public DNS is eventually consistent and is never used as a
 // gate here (verification is a separate concern).
-func (c *cfPagesClient) attachDomain(ctx context.Context) *DomainOutcome {
-	out := &DomainOutcome{Name: c.domain, DNSProvider: c.classifyDNS(c.domain)}
+func (c *cfPagesClient) attachDomain(ctx context.Context, domain string) DomainOutcome {
+	out := DomainOutcome{Name: domain, DNSProvider: c.classifyDNS(domain)}
 	url := fmt.Sprintf("%s/accounts/%s/pages/projects/%s/domains", c.base, c.accountID, c.project)
-	err := c.doJSON(ctx, http.MethodPost, url, c.apiToken, map[string]any{"name": c.domain}, nil)
+	err := c.doJSON(ctx, http.MethodPost, url, c.apiToken, map[string]any{"name": domain}, nil)
 	if err == nil || isAlreadyExists(err) {
 		out.Attached = true
 		return out
@@ -168,11 +173,13 @@ func (c *cfPagesClient) ensureProject(ctx context.Context) error {
 }
 
 // isAlreadyExists tolerates the "resource already exists" family of Cloudflare errors
-// so create/attach stay idempotent.
+// so create/attach stay idempotent. "already added" covers the custom-domain attach
+// case (CF error 8000018: "You have already added this custom domain."), which a
+// re-deploy hits every time — it is idempotent success, not a failure.
 func isAlreadyExists(err error) bool {
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "already exists") || strings.Contains(s, "already been taken") ||
-		strings.Contains(s, "duplicate")
+		strings.Contains(s, "duplicate") || strings.Contains(s, "already added")
 }
 
 // collectAssets walks the workspace into upload assets: manifest key (leading slash),

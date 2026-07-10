@@ -32,7 +32,7 @@ func TestEnsureProject_GloballyTakenNameIsClearError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newCFPagesClient("t", "acct", "taken", "")
+	c := newCFPagesClient("t", "acct", "taken", nil)
 	c.base = srv.URL
 	err := c.ensureProject(context.Background())
 	if err == nil {
@@ -68,7 +68,7 @@ func TestEnsureProject_CreateRaceIsSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newCFPagesClient("t", "acct", "mine", "")
+	c := newCFPagesClient("t", "acct", "mine", nil)
 	c.base = srv.URL
 	if err := c.ensureProject(context.Background()); err != nil {
 		t.Fatalf("a concurrent-create race should resolve to success, got: %v", err)
@@ -142,7 +142,7 @@ func TestDeploy_DomainFailureIsNonFatal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newCFPagesClient("api-token", "acct-1", "proj", "example.com")
+	c := newCFPagesClient("api-token", "acct-1", "proj", []string{"example.com"})
 	c.base = srv.URL
 	c.lookupNS = func(string) ([]*net.NS, error) {
 		return []*net.NS{{Host: "ns1.porkbun.com."}}, nil // external DNS
@@ -155,16 +155,87 @@ func TestDeploy_DomainFailureIsNonFatal(t *testing.T) {
 	if res.URL != "https://abc.proj.pages.dev" {
 		t.Errorf("res.URL = %q, want the deployment url", res.URL)
 	}
-	if res.Domain == nil {
-		t.Fatal("res.Domain = nil, want the failed-attach outcome")
+	if len(res.Domains) != 1 {
+		t.Fatalf("res.Domains = %v, want one failed-attach outcome", res.Domains)
 	}
-	if res.Domain.Attached {
-		t.Error("res.Domain.Attached = true, want false (the attach 403'd)")
+	if res.Domains[0].Attached {
+		t.Error("res.Domains[0].Attached = true, want false (the attach 403'd)")
 	}
-	if res.Domain.Err == "" {
-		t.Error("res.Domain.Err is empty, want the attach error text")
+	if res.Domains[0].Err == "" {
+		t.Error("res.Domains[0].Err is empty, want the attach error text")
 	}
-	if res.Domain.DNSProvider != DNSExternal {
-		t.Errorf("res.Domain.DNSProvider = %q, want external", res.Domain.DNSProvider)
+	if res.Domains[0].DNSProvider != DNSExternal {
+		t.Errorf("res.Domains[0].DNSProvider = %q, want external", res.Domains[0].DNSProvider)
+	}
+}
+
+// TestDeploy_MultipleDomainsEachAttached covers the multi-domain path: a project can
+// carry several custom domains, each is POSTed to the domains endpoint independently,
+// and each yields its own DomainOutcome. One list, N attaches, N outcomes.
+func TestDeploy_MultipleDomainsEachAttached(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "index.html"), []byte("<html>hi</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var attached []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/upload-token"):
+			writeCFResult(w, map[string]any{"jwt": "the-jwt"})
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/pages/projects/proj"):
+			writeCFResult(w, map[string]any{"name": "proj"})
+		case p == "/pages/assets/check-missing":
+			var body struct {
+				Hashes []string `json:"hashes"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			writeCFResult(w, body.Hashes)
+		case p == "/pages/assets/upload":
+			writeCFResult(w, true)
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/deployments"):
+			writeCFResult(w, map[string]any{"url": "https://abc.proj.pages.dev"})
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/domains"):
+			var body struct {
+				Name string `json:"name"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			// The second domain reports CF error 8000018 wording — a re-attach that must
+			// be tolerated as idempotent success, not surfaced as a failure.
+			if body.Name == "prplanit.com" {
+				writeCFError(w, http.StatusBadRequest, "You have already added this custom domain.")
+				return
+			}
+			attached = append(attached, body.Name)
+			writeCFResult(w, map[string]any{"name": body.Name})
+		default:
+			http.Error(w, "unexpected", http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	c := newCFPagesClient("api-token", "acct-1", "proj", []string{"precisionplanit.com", "prplanit.com"})
+	c.base = srv.URL
+	c.lookupNS = func(string) ([]*net.NS, error) {
+		return []*net.NS{{Host: "adam.ns.cloudflare.com."}}, nil
+	}
+
+	res, err := c.deploy(context.Background(), ws)
+	if err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	if len(res.Domains) != 2 {
+		t.Fatalf("res.Domains = %v, want one outcome per requested domain", res.Domains)
+	}
+	// First domain: a clean attach. Second: "already added" ⇒ idempotent success.
+	if res.Domains[0].Name != "precisionplanit.com" || !res.Domains[0].Attached {
+		t.Errorf("res.Domains[0] = %+v, want precisionplanit.com attached", res.Domains[0])
+	}
+	if res.Domains[1].Name != "prplanit.com" || !res.Domains[1].Attached {
+		t.Errorf("res.Domains[1] = %+v, want prplanit.com attached (already-added is success)", res.Domains[1])
+	}
+	if res.Domains[1].Err != "" {
+		t.Errorf("res.Domains[1].Err = %q, want empty (already-added must not read as failure)", res.Domains[1].Err)
 	}
 }

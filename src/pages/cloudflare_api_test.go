@@ -95,7 +95,7 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newCFPagesClient("api-token", "acct-1", "proj", "docs.example.com")
+	c := newCFPagesClient("api-token", "acct-1", "proj", []string{"docs.example.com"})
 	c.base = srv.URL
 	// Inject NS so the attach's DNS classification is deterministic and offline.
 	c.lookupNS = func(string) ([]*net.NS, error) {
@@ -135,17 +135,17 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 		t.Errorf("deploy url = %q, want the deployment result url", url)
 	}
 	// Domain outcome is reported as data alongside the deploy, not folded into it.
-	if res.Domain == nil {
-		t.Fatal("res.Domain = nil, want a domain outcome for the requested custom domain")
+	if len(res.Domains) != 1 {
+		t.Fatalf("res.Domains = %v, want one outcome for the requested custom domain", res.Domains)
 	}
-	if !res.Domain.Attached {
-		t.Errorf("res.Domain.Attached = false, want true (attach succeeded)")
+	if !res.Domains[0].Attached {
+		t.Errorf("res.Domains[0].Attached = false, want true (attach succeeded)")
 	}
-	if res.Domain.DNSProvider != DNSCloudflare {
-		t.Errorf("res.Domain.DNSProvider = %q, want cloudflare (all NS end in .cloudflare.com)", res.Domain.DNSProvider)
+	if res.Domains[0].DNSProvider != DNSCloudflare {
+		t.Errorf("res.Domains[0].DNSProvider = %q, want cloudflare (all NS end in .cloudflare.com)", res.Domains[0].DNSProvider)
 	}
-	if res.Domain.Err != "" {
-		t.Errorf("res.Domain.Err = %q, want empty on success", res.Domain.Err)
+	if res.Domains[0].Err != "" {
+		t.Errorf("res.Domains[0].Err = %q, want empty on success", res.Domains[0].Err)
 	}
 }
 
