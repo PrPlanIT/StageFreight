@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -40,6 +43,14 @@ type vulnModule struct {
 	once       sync.Once
 	binPath    string
 	resolveErr error
+
+	// govulncheck + its Go toolchain, resolved once across the run for
+	// reachability enrichment. gvErr is NEVER hard-failed: reachability is
+	// enrichment, so a provisioning failure just means no downgrade (fail-closed).
+	gvOnce sync.Once
+	gvBin  string
+	gvEnv  []string
+	gvErr  error
 }
 
 func newModule() *vulnModule {
@@ -130,14 +141,117 @@ func (m *vulnModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lin
 		allObs = append(allObs, obs...)
 	}
 
+	// Enrich with reachability (govulncheck) when there is a Go advisory to
+	// potentially downgrade — Assess folds a proven-unreachable vuln to Info.
+	// reg is nil on non-Go repos or when govulncheck can't provision, in which
+	// case Assess reduces to severity-only (identical to the former Reduce path).
+	reg, target := m.reachability(ctx, files, allObs)
 	var findings []lint.Finding
-	for _, v := range analysis.Reduce(allObs) {
+	for _, v := range analysis.Assess(ctx, allObs, target, reg) {
 		findings = append(findings, toFinding(v))
 	}
 	if len(errs) > 0 {
 		return findings, errors.Join(errs...)
 	}
 	return findings, nil
+}
+
+// reachability builds the Go reachability contributor when (a) there is at least
+// one Go advisory a downgrade could apply to and (b) govulncheck plus a Go
+// toolchain to drive it provision. Returns (nil, zero Target) to SKIP enrichment
+// — Assess then reduces to severity-only. Fail-closed: any provisioning failure
+// means no reachability, never a wrong downgrade or a crash. Skipping the
+// compile-heavy govulncheck run when there are no Go advisories keeps lint cheap
+// on non-Go repos and on Go repos with no known vulnerabilities.
+func (m *vulnModule) reachability(ctx context.Context, files []lint.FileInfo, obs []analysis.AdvisoryObservation) (*evidence.Registry, evidence.Target) {
+	if len(files) == 0 {
+		return nil, evidence.Target{}
+	}
+	hasGo := false
+	for _, o := range obs {
+		if o.Ecosystem == supplychain.EcosystemGoMod {
+			hasGo = true
+			break
+		}
+	}
+	if !hasGo {
+		return nil, evidence.Target{}
+	}
+	root := repoRoot(files[0])
+	bin, env, err := m.govulncheck(ctx, root)
+	if err != nil || bin == "" {
+		return nil, evidence.Target{}
+	}
+	reg := evidence.NewRegistry(&evidence.GoReachability{Run: govulncheckRunner(bin, env)})
+	return reg, evidence.Target{EcosystemDir: map[string]string{"go": root}}
+}
+
+// govulncheck provisions the govulncheck binary AND a Go toolchain to drive it
+// (govulncheck shells out to `go` for call-graph analysis), resolved once across
+// the run. It returns the binary path and the environment to run it with (Go on
+// PATH + the shared module/build caches). Unlike the PINNED osv-scanner, a
+// govulncheck failure is never hard — reachability is enrichment.
+func (m *vulnModule) govulncheck(ctx context.Context, root string) (string, []string, error) {
+	m.gvOnce.Do(func() {
+		gvVer, _ := toolchain.ResolveVersion("govulncheck", "", m.desired)
+		gvRes, err := provision.Resolve(ctx, root, "govulncheck", gvVer, "vulnerability reachability analysis")
+		if err != nil {
+			m.gvErr = err
+			return
+		}
+		goRes, err := provision.Resolve(ctx, root, "go", toolchain.ResolveGoVersion(root, root), "Go toolchain for reachability analysis")
+		if err != nil {
+			m.gvErr = err
+			return
+		}
+		m.gvBin = gvRes.Path
+		m.gvEnv = govulncheckEnv(goRes.Path)
+	})
+	return m.gvBin, m.gvEnv, m.gvErr
+}
+
+// govulncheckEnv mirrors the test suite's go env (goSuiteEnv): a clean base, the
+// shared module/build caches, and the provisioned go's OWN directory FIRST on
+// PATH — load-bearing, since govulncheck spawns a child `go` for the compile and
+// would otherwise fail with `exec: "go": executable file not found`.
+func govulncheckEnv(goBin string) []string {
+	env := toolchain.CleanEnv()
+	if gomod, gocache := toolchain.GoCacheDirs(); gomod != "" {
+		env = append(env, "GOMODCACHE="+gomod, "GOCACHE="+gocache)
+	}
+	return setEnvVar(env, "PATH", filepath.Dir(goBin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// govulncheckRunner returns the GoReachability.Run closure: it runs the
+// provisioned govulncheck over the whole module rooted at dir in -json mode.
+// govulncheck exits non-zero when it finds vulnerabilities but still emits valid
+// JSON, so a non-empty output is success regardless of exit code.
+func govulncheckRunner(bin string, env []string) func(ctx context.Context, dir string) ([]byte, error) {
+	return func(ctx context.Context, dir string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, bin, "-json", "./...")
+		if dir != "" {
+			cmd.Dir = dir
+		}
+		cmd.Env = env
+		out, _ := cmd.Output()
+		if len(out) == 0 {
+			return nil, fmt.Errorf("govulncheck produced no output")
+		}
+		return out, nil
+	}
+}
+
+// setEnvVar sets key=val in a KEY=VALUE slice, replacing any existing entry so a
+// base env's PATH is overridden rather than shadowed.
+func setEnvVar(env []string, key, val string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + val
+			return env
+		}
+	}
+	return append(env, prefix+val)
 }
 
 // observe collects this file's advisory observations from both sources.
@@ -252,6 +366,11 @@ func toFinding(v analysis.Vulnerability) lint.Finding {
 		msg += ", fixed in " + v.FixedIn
 	}
 	msg += ")"
+	// Disclose the reachability verdict that drove the severity — a downgrade
+	// must show its reason.
+	if r, ok := reachabilityOf(v); ok {
+		msg += reachabilityNote(r)
+	}
 	return lint.Finding{
 		File:     v.File,
 		Line:     v.Line,
@@ -259,6 +378,37 @@ func toFinding(v analysis.Vulnerability) lint.Finding {
 		Severity: verdictSeverity(v.Verdict),
 		Message:  msg,
 		RuleID:   v.ID,
+	}
+}
+
+// reachabilityOf extracts the reachability evidence attached to a canonical
+// vulnerability, if a contributor produced it.
+func reachabilityOf(v analysis.Vulnerability) (evidence.ReachabilityEvidence, bool) {
+	for _, e := range v.Evidence {
+		if r, ok := e.(evidence.ReachabilityEvidence); ok {
+			return r, true
+		}
+	}
+	return evidence.ReachabilityEvidence{}, false
+}
+
+// reachabilityNote discloses the reachability verdict that drove the severity.
+// Unknown (no analyzer ran) is not annotated — only a proven reachable or
+// unreachable state, since only those change the outcome.
+func reachabilityNote(r evidence.ReachabilityEvidence) string {
+	switch r.State {
+	case evidence.ReachUnreachable:
+		if len(r.Facts) > 0 {
+			return fmt.Sprintf(" [unreachable: %s]", r.Facts[0])
+		}
+		return " [unreachable]"
+	case evidence.ReachReachable:
+		if len(r.Facts) > 0 {
+			return fmt.Sprintf(" [reachable: %s]", r.Facts[0])
+		}
+		return " [reachable]"
+	default:
+		return ""
 	}
 }
 
