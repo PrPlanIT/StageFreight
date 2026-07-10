@@ -129,6 +129,7 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 
 	idSet := map[string]bool{}
 	pkgVersions := map[string]string{} // package name → representative version ("" if unknown)
+	surfaceSet := map[Surface]bool{}   // distinct surfaces this advisory was observed on
 	var primaryIDs []string
 	var v Vulnerability
 	bestRank := -1
@@ -137,6 +138,9 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 		o := obs[i]
 		for _, id := range observationIDs(o) {
 			idSet[id] = true
+		}
+		if o.Surface != "" {
+			surfaceSet[o.Surface] = true
 		}
 		if o.VulnID != "" {
 			primaryIDs = append(primaryIDs, o.VulnID)
@@ -172,7 +176,22 @@ func mergeComponent(obs []AdvisoryObservation, idxs []int) Vulnerability {
 	v.ID = pickCanonicalID(primaryIDs, idSet)
 	v.Aliases = sortedSetExcept(idSet, v.ID)
 	v.Packages = formatPackages(pkgVersions)
+	v.Surfaces = sortedSurfaces(surfaceSet)
 	return v
+}
+
+// sortedSurfaces returns the distinct surfaces in a set, sorted for
+// determinism; nil when the set is empty.
+func sortedSurfaces(set map[Surface]bool) []Surface {
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]Surface, 0, len(set))
+	for s := range set {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // formatPackages renders the affected package set as sorted "name@version"

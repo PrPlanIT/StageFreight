@@ -162,6 +162,51 @@ func TestCanonicalizeKeepsDistinctAdvisoriesSeparate(t *testing.T) {
 	}
 }
 
+// TestCanonicalizeAggregatesDistinctSourceSurface: two SOURCE-side observations
+// of one advisory yield a single deduped Surfaces == [source].
+func TestCanonicalizeAggregatesDistinctSourceSurface(t *testing.T) {
+	obs := []AdvisoryObservation{
+		{
+			Source: "osv-api", VulnID: "GHSA-surf", Package: "golang.org/x/net",
+			Severity: "HIGH", File: "go.mod", Surface: SurfaceSource,
+		},
+		{
+			Source: "osv-scanner", VulnID: "GO-2026-1", Aliases: []string{"GHSA-surf"},
+			Package: "golang.org/x/net", Severity: "CRITICAL", File: "go.mod", Surface: SurfaceSource,
+		},
+	}
+	vulns := canonicalize(obs)
+	if len(vulns) != 1 {
+		t.Fatalf("want 1 canonical vulnerability, got %d: %+v", len(vulns), vulns)
+	}
+	if !reflect.DeepEqual(vulns[0].Surfaces, []Surface{SurfaceSource}) {
+		t.Errorf("surfaces = %v, want single deduped [source]", vulns[0].Surfaces)
+	}
+}
+
+// TestCanonicalizeAggregatesCrossSurface proves cross-surface aggregation ahead
+// of the image-scan consumer: a component with one SOURCE observation and one
+// IMAGE observation sharing an ID yields sorted Surfaces == [image source].
+func TestCanonicalizeAggregatesCrossSurface(t *testing.T) {
+	obs := []AdvisoryObservation{
+		{
+			Source: "osv-api", VulnID: "GHSA-x", Package: "pkg",
+			Severity: "HIGH", File: "go.mod", Surface: SurfaceSource,
+		},
+		{
+			Source: "trivy", VulnID: "GHSA-x", Package: "pkg",
+			Severity: "CRITICAL", File: "image", Surface: SurfaceImage,
+		},
+	}
+	vulns := canonicalize(obs)
+	if len(vulns) != 1 {
+		t.Fatalf("want 1 canonical vulnerability, got %d: %+v", len(vulns), vulns)
+	}
+	if !reflect.DeepEqual(vulns[0].Surfaces, []Surface{SurfaceImage, SurfaceSource}) {
+		t.Errorf("surfaces = %v, want sorted [image source]", vulns[0].Surfaces)
+	}
+}
+
 // TestEvaluateMirrorsSeverityMapping: verdict assignment reproduces the
 // freshness/osv severity→lint mapping.
 func TestEvaluateMirrorsSeverityMapping(t *testing.T) {

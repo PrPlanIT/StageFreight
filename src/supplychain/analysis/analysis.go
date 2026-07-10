@@ -43,6 +43,18 @@ func (v Verdict) String() string {
 	}
 }
 
+// Surface is the artifact an advisory was observed on: the project's SOURCE
+// (manifests/lockfiles scanned before build) or the built IMAGE (a container
+// scan in the review phase). One canonical advisory may be seen on either or
+// both; recording the surface lets review reconcile image-scan observations
+// against the source Assessment persisted by the audition.
+type Surface string
+
+const (
+	SurfaceSource Surface = "source"
+	SurfaceImage  Surface = "image"
+)
+
 // AdvisoryObservation is one raw per-source report that a package version is
 // affected by an advisory. Several observations (from different sources, or the
 // same advisory under different IDs) may describe one real vulnerability;
@@ -61,6 +73,7 @@ type AdvisoryObservation struct {
 	Summary   string
 	File      string // repo-relative manifest/lockfile, for finding attribution
 	Line      int
+	Surface   Surface // which surface this observation came from (source vs image)
 }
 
 // Vulnerability is one canonical advisory: the union of every observation that
@@ -83,6 +96,11 @@ type Vulnerability struct {
 	// evidence contributors (e.g. "gomod" → the Go reachability analyzer). Chosen
 	// deterministically by mergeComponent.
 	Ecosystem string
+	// Surfaces is the DISTINCT surfaces this advisory was observed on, sorted and
+	// deduped — [source], [image], or [image source]. Aggregated by mergeComponent
+	// from the component's observations; an observation with an empty Surface
+	// contributes nothing.
+	Surfaces []Surface
 	// Evidence holds enrichment facts (reachability today; KEV/EPSS/fix later)
 	// attached by Assess. Reduce attaches none, so it stays nil there.
 	Evidence []evidence.Evidence

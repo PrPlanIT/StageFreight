@@ -37,6 +37,7 @@ func ObserveDependencies(deps []supplychain.Dependency) []AdvisoryObservation {
 				Summary:   v.Summary,
 				File:      dep.File,
 				Line:      dep.Line,
+				Surface:   SurfaceSource,
 			})
 		}
 	}
@@ -99,6 +100,7 @@ func scanLockfile(ctx context.Context, binPath string, env []string, absPath, re
 					FixedIn:   vulnFixedIn(primaryID, pkg.Vulnerabilities, pkg.Package.Name),
 					Summary:   vulnSummary(group.IDs, pkg.Vulnerabilities),
 					File:      rel,
+					Surface:   SurfaceSource,
 				})
 			}
 		}
