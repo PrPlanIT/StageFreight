@@ -307,11 +307,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, werrs...)
 	}
 
-	// ── Badges ───────────────────────────────────────────────────────────
+	// ── Narrate: badges ──────────────────────────────────────────────────
 
 	badgeIDs := make(map[string]bool)
-	for i, b := range cfg.Badges.Items {
-		bpath := fmt.Sprintf("badges.items[%d]", i)
+	for i, b := range cfg.Narrate.Badges {
+		bpath := fmt.Sprintf("narrate.badges[%d]", i)
 		if b.ID == "" {
 			errs = append(errs, fmt.Sprintf("%s: id is required", bpath))
 		} else if badgeIDs[b.ID] {
@@ -330,10 +330,10 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
-	// ── Narrator ──────────────────────────────────────────────────────────
+	// ── Narrate: patches ─────────────────────────────────────────────────
 
-	for fi, f := range cfg.Narrator {
-		fpath := fmt.Sprintf("narrator[%d]", fi)
+	for fi, f := range cfg.Narrate.Patches {
+		fpath := fmt.Sprintf("narrate.patches[%d]", fi)
 
 		if f.File == "" {
 			errs = append(errs, fmt.Sprintf("%s: file is required", fpath))
@@ -426,26 +426,41 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, "dependency.commit: promotion \"mr\" requires push to be true (no remote branch means no merge request)")
 	}
 
-	// ── Docs ─────────────────────────────────────────────────────────────
+	// ── Narrate: commit ──────────────────────────────────────────────────
 
-	if cfg.Docs.Commit.Type != "" {
+	if cfg.Narrate.Commit.Type != "" {
 		commitTypeKeyRe3 := regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-		if !commitTypeKeyRe3.MatchString(cfg.Docs.Commit.Type) {
-			errs = append(errs, fmt.Sprintf("docs.commit.type: %q must match ^[a-z][a-z0-9_-]*$", cfg.Docs.Commit.Type))
+		if !commitTypeKeyRe3.MatchString(cfg.Narrate.Commit.Type) {
+			errs = append(errs, fmt.Sprintf("narrate.commit.type: %q must match ^[a-z][a-z0-9_-]*$", cfg.Narrate.Commit.Type))
 		}
 	}
-	for i, p := range cfg.Docs.Commit.Add {
-		if pathErrs := validateOutputPath(p, fmt.Sprintf("docs.commit.add[%d]", i)); len(pathErrs) > 0 {
+	for i, p := range cfg.Narrate.Commit.Add {
+		if pathErrs := validateOutputPath(p, fmt.Sprintf("narrate.commit.add[%d]", i)); len(pathErrs) > 0 {
 			errs = append(errs, pathErrs...)
 		}
 	}
-	if cfg.Docs.Enabled {
-		g := cfg.Docs.Generators
-		if !g.Badges && !g.ReferenceDocs && !g.Narrator && !g.DockerReadme {
-			errs = append(errs, "docs: at least one generator must be true when enabled")
+	// narrate.commit.builds land a command-build's tree at a repo path before commit.
+	// Fail loudly (not silently) if a binding points at a missing or non-command build.
+	commandBuildIDs := make(map[string]bool)
+	for _, b := range cfg.Builds {
+		if b.Kind == "command" {
+			commandBuildIDs[b.ID] = true
 		}
-		if cfg.Docs.Commit.Enabled && cfg.Docs.Commit.Message == "" {
-			errs = append(errs, "docs.commit: message is required when commit enabled")
+	}
+	for i, bd := range cfg.Narrate.Commit.Builds {
+		bp := fmt.Sprintf("narrate.commit.builds[%d]", i)
+		switch {
+		case bd.Build == "":
+			errs = append(errs, fmt.Sprintf("%s: build is required (the kind: command build whose tree to land)", bp))
+		case !buildIDs[bd.Build]:
+			errs = append(errs, fmt.Sprintf("%s: unknown build %q (not in builds[])", bp, bd.Build))
+		case !commandBuildIDs[bd.Build]:
+			errs = append(errs, fmt.Sprintf("%s: build %q is not a kind: command build — only command builds produce a committable tree here", bp, bd.Build))
+		}
+		if bd.Destination == "" {
+			errs = append(errs, fmt.Sprintf("%s: destination is required (the in-repo path to land the tree)", bp))
+		} else if dErrs := validateOutputPath(bd.Destination, bp+".destination"); len(dErrs) > 0 {
+			errs = append(errs, dErrs...)
 		}
 	}
 

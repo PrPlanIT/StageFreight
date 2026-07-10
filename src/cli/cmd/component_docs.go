@@ -84,7 +84,7 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 	docs := component.GenerateDocs(specs)
 
 	// Resolve target and section name once from narrator config.
-	cfgTarget, cfgSection := resolveComponentTarget(cfg.Narrator)
+	cfgTarget, cfgSection := resolveComponentTarget(cfg.Narrate.Patches)
 
 	// Resolve target file: --readme CLI flag → narrator config lookup
 	target := cdReadme

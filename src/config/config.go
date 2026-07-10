@@ -55,14 +55,6 @@ type Config struct {
 	// Targets defines distribution targets and side-effects.
 	Targets []TargetConfig `yaml:"targets"`
 
-	// Badges defines badge artifact generation (SVGs).
-	// Badge system owns definitions; narrator references them via badge_ref.
-	// Artifact serving URL derived from publish-origin repo role.
-	Badges BadgesConfig `yaml:"badges"`
-
-	// Narrator defines content composition for file targets.
-	Narrator []NarratorFile `yaml:"narrator"`
-
 	// Lint holds lint-specific configuration (unchanged from v1).
 	Lint LintConfig `yaml:"lint"`
 
@@ -75,8 +67,11 @@ type Config struct {
 	// Dependency holds configuration for the dependency update subsystem.
 	Dependency DependencyConfig `yaml:"dependency"`
 
-	// Docs holds configuration for the docs generation subsystem.
-	Docs DocsConfig `yaml:"docs"`
+	// Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled;
+	// dissolves the old docs:/badges:/narrator: surface. Reference docs are a
+	// kind: command build committed via narrate.commit.builds, not a subsystem here.
+	Narrate NarrateConfig `yaml:"narrate"`
+
 	Test TestConfig `yaml:"test"`
 
 	// Manifest holds configuration for the manifest subsystem.
@@ -179,7 +174,6 @@ func defaults() *Config {
 		Security:   DefaultSecurityConfig(),
 		Commit:     DefaultCommitConfig(),
 		Dependency: DefaultDependencyConfig(),
-		Docs:       DefaultDocsConfig(),
 		Test:       DefaultTestConfig(),
 		Manifest:     DefaultManifestConfig(),
 		Release:      DefaultReleaseConfig(),

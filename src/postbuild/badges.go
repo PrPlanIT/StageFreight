@@ -31,7 +31,7 @@ func BadgeHook(appCfg *config.Config, runner BadgeRunner) pipeline.PostBuildHook
 	return pipeline.PostBuildHook{
 		Name: "badges",
 		Condition: func(pc *pipeline.PipelineContext) bool {
-			for _, f := range appCfg.Narrator {
+			for _, f := range appCfg.Narrate.Patches {
 				for _, item := range f.Items {
 					if item.HasGeneration() {
 						return true
@@ -180,7 +180,7 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 // CollectNarratorBadgeItems returns all narrator items with badge generation configured.
 func CollectNarratorBadgeItems(appCfg *config.Config) []config.NarratorItem {
 	var items []config.NarratorItem
-	for _, f := range appCfg.Narrator {
+	for _, f := range appCfg.Narrate.Patches {
 		for _, item := range f.Items {
 			if item.HasGeneration() {
 				items = append(items, item)

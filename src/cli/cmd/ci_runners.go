@@ -755,33 +755,30 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		return nil
 	}
 
-	if !appCfg.Docs.Enabled {
-		fmt.Println("  docs generation disabled in config")
+	// Presence-enabled: nothing configured for the narrate phase → nothing to do.
+	if appCfg.Narrate.IsZero() {
 		return nil
 	}
 
 	if !ci.IsBranchHeadFresh(ciCtx) {
-		fmt.Println("  docs: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
+		fmt.Println("  narrate: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
 		return nil
 	}
 
-	// Loop prevention: if the current commit was created by StageFreight's docs subsystem,
-	// do not re-run docs. StageFreight recognizes its own output.
-	// This is intelligence, not [skip ci] suppression.
+	// Loop prevention: skip if the current commit is StageFreight's own narrate
+	// auto-commit — recognize our own output rather than [skip ci]-suppressing.
 	if isDocsAutoCommit(appCfg, ciCtx) {
-		fmt.Println("  docs: skipping — current commit is a StageFreight docs auto-commit")
+		fmt.Println("  narrate: skipping — current commit is a StageFreight narrate auto-commit")
 		return nil
 	}
 
 	rootDir := resolveWorkspace(ciCtx)
 
 	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("docs subsystem: substrate unhealthy")
+		return fmt.Errorf("narrate subsystem: substrate unhealthy")
 	}
 
-	// Resolve BUILD_STATUS from pipeline state — not hardcoded in skeleton.
-	// Reads accumulated subsystem state; docs is always the last consumer.
-	// Missing state = something failed upstream = default to failing (not unknown).
+	// Resolve BUILD_STATUS from pipeline state (badges render it). Missing = default failing.
 	if os.Getenv("BUILD_STATUS") == "" || os.Getenv("BUILD_STATUS") == "passing" {
 		if st, err := cistate.ReadState(rootDir); err == nil {
 			os.Setenv("BUILD_STATUS", st.PipelineStatus())
@@ -790,65 +787,45 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
-	gen := appCfg.Docs.Generators
-
-	if gen.Badges {
-		// Badges default on, but a project with none configured (e.g. a static site)
-		// should skip, not fail — "nothing to generate" is not an error in the
-		// automatic docs phase. The explicit `stagefreight badge generate` still errors.
-		if !hasConfiguredBadges(appCfg) {
-			fmt.Println("  docs: badges skipped — no badge items configured")
-		} else if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
-			return fmt.Errorf("docs subsystem (badges): %w", err)
+	// Producers: render badges from build metadata (presence-enabled — narrate.badges
+	// or narrator-inline badge items).
+	if hasConfiguredBadges(appCfg) {
+		if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
+			return fmt.Errorf("narrate (badges): %w", err)
 		}
 	}
 
-	if gen.ReferenceDocs {
-		outDir := rootDir + "/docs/modules"
-		if err := RunDocsGenerate(rootCmd, outDir); err != nil {
-			return fmt.Errorf("docs subsystem (reference docs): %w", err)
+	// Transform: apply marked-region patches to files (presence-enabled).
+	if len(appCfg.Narrate.Patches) > 0 {
+		if err := RunNarrator(appCfg, rootDir, false, opts.Verbose); err != nil {
+			return fmt.Errorf("narrate (patches): %w", err)
 		}
 	}
 
-	if gen.Narrator {
-		// Narrator defaults on, but a project with no narrator files should skip, not
-		// fail — same "nothing to do ≠ error" policy as badges. The explicit
-		// `stagefreight narrator run` still errors when nothing is configured.
-		if len(appCfg.Narrator) == 0 {
-			fmt.Println("  docs: narrator skipped — no narrator files configured")
-		} else if err := RunNarrator(appCfg, rootDir, false, opts.Verbose); err != nil {
-			return fmt.Errorf("docs subsystem (narrator): %w", err)
-		}
-	}
-
-	if gen.DockerReadme {
-		if err := RunDockerReadme(ctx, appCfg, rootDir, false); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: docker readme sync failed: %v\n", err)
-			// Non-fatal — registry sync may fail without credentials
-		}
-	}
-
-	// Auto-commit if configured — gated by run_from policy.
-	// GitLab CI checks out detached HEAD by default. The planner handles this
-	// by constructing refspecs from CI_COMMIT_BRANCH/CI_COMMIT_REF_NAME to
-	// push HEAD to the correct branch ref. No branch checkout needed.
-	if appCfg.Docs.Commit.Enabled {
-		rfResult := config.EvaluateRunFrom(appCfg.Docs.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
+	// Sink: land each command-build's output tree at its destination, then commit.
+	// Gated by run_from. GitLab CI detached-HEAD is handled by the planner's refspecs.
+	if !appCfg.Narrate.Commit.IsZero() {
+		rfResult := config.EvaluateRunFrom(appCfg.Narrate.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 		switch {
 		case !rfResult.Matched && rfResult.Mode == "exit":
-			fmt.Fprintf(os.Stderr, "  docs commit: blocked (%s)\n", rfResult.Reason)
+			fmt.Fprintf(os.Stderr, "  narrate commit: blocked (%s)\n", rfResult.Reason)
 		case !rfResult.Matched && rfResult.Mode == "read-only":
-			fmt.Fprintf(os.Stderr, "  docs commit: read-only (%s)\n", rfResult.Reason)
+			fmt.Fprintf(os.Stderr, "  narrate commit: read-only (%s)\n", rfResult.Reason)
 		default: // matched or ignore
+			for _, bd := range appCfg.Narrate.Commit.Builds {
+				if err := landBuildTree(rootDir, bd.Build, bd.Destination); err != nil {
+					return fmt.Errorf("narrate: landing build %q → %q: %w", bd.Build, bd.Destination, err)
+				}
+			}
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
-				Type:    appCfg.Docs.Commit.Type,
-				Message: appCfg.Docs.Commit.Message,
-				Body:    "Narrator: StageFreight\nCue: docs/narrator",
-				Paths:   appCfg.Docs.Commit.Add,
-				SkipCI:  boolPtr(appCfg.Docs.Commit.SkipCI),
-				Push:    boolPtr(appCfg.Docs.Commit.Push),
+				Type:    appCfg.Narrate.Commit.Type,
+				Message: appCfg.Narrate.Commit.Message,
+				Body:    "Narrator: StageFreight\nCue: narrate",
+				Paths:   appCfg.Narrate.Commit.Add,
+				SkipCI:  boolPtr(appCfg.Narrate.Commit.SkipCI),
+				Push:    boolPtr(appCfg.Narrate.Commit.Push),
 			}); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: docs auto-commit failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "warning: narrate auto-commit failed: %v\n", err)
 			}
 		}
 	}

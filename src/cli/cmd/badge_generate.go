@@ -126,13 +126,13 @@ func generateConfigBadges(eng *badge.Engine, names []string) error {
 	return generateConfigBadgesImpl(eng, cfg, rootDir, names, bgStatus)
 }
 
-// hasConfiguredBadges reports whether any badge items are declared — top-level badges:
+// hasConfiguredBadges reports whether any badge items are declared (narrate.badges
 // or legacy narrator badge items with output. The docs/narrate phase defaults badges on,
 // but a project without badges (e.g. a static site) should SKIP generation, not fail.
 // Only the explicit `stagefreight badge generate` treats "none configured" as an error;
 // the automatic narrate path gates on this and skips when it returns false.
 func hasConfiguredBadges(appCfg *config.Config) bool {
-	return len(appCfg.Badges.Items) > 0 || len(postbuild.CollectNarratorBadgeItems(appCfg)) > 0
+	return len(appCfg.Narrate.Badges) > 0 || len(postbuild.CollectNarratorBadgeItems(appCfg)) > 0
 }
 
 func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir string, names []string, status string) error {
@@ -144,9 +144,9 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	items := postbuild.CollectNarratorBadgeItems(appCfg)
 
 	// Add badges from top-level config (sorted by ID for deterministic generation).
-	if len(appCfg.Badges.Items) > 0 {
-		sorted := make([]config.BadgeConfig, len(appCfg.Badges.Items))
-		copy(sorted, appCfg.Badges.Items)
+	if len(appCfg.Narrate.Badges) > 0 {
+		sorted := make([]config.BadgeConfig, len(appCfg.Narrate.Badges))
+		copy(sorted, appCfg.Narrate.Badges)
 		sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 		for _, b := range sorted {
 			items = append(items, config.NarratorItem{

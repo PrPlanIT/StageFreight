@@ -1,15 +1,7 @@
 package config
 
-// BadgesConfig is the top-level badges configuration.
-// Badge system owns definitions; narrator references them via badge_ref.
-// Artifact serving URL derived from publish-origin repo role.
-type BadgesConfig struct {
-	Preset string        `yaml:"preset,omitempty"`
-	Items  []BadgeConfig `yaml:"items"`
-}
-
-// BadgeConfig is the user-facing badge definition in .stagefreight.yml.
-// Badge system owns this — narrator references badges by ID via badge_ref.
+// BadgeConfig is the user-facing badge definition (narrate.badges[]).
+// Narrate patches reference badges by ID via kind: badge_ref.
 type BadgeConfig struct {
 	ID       string  `yaml:"id"`                  // stable user-defined ID for narrator reference
 	Text     string  `yaml:"text"`                // left side label

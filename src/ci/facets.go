@@ -66,10 +66,12 @@ var FacetRegistry = []FacetDef{
 		Predicate: func(c *config.Config) bool { return len(c.Governance.Clusters) > 0 },
 	},
 	{
-		Name:      "docs",
+		Name:      "narrate",
 		Subsystem: "docs",
 		NeedsDinD: false,
-		Predicate: func(c *config.Config) bool { return c.Docs.Enabled },
+		// Presence-enabled: the narrate stage emits when anything is configured
+		// (badges, patches, or a commit) — no toggle.
+		Predicate: func(c *config.Config) bool { return !c.Narrate.IsZero() },
 	},
 }
 

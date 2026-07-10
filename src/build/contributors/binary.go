@@ -232,7 +232,8 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contribution, error) {
 	archiveTargets := pipeline.CollectTargetsByKind(rc.Config, "binary-archive")
 	pagesTargets := pipeline.CollectTargetsByKind(rc.Config, "pages")
-	if (len(archiveTargets) == 0 && len(pagesTargets) == 0) || len(b.built) == 0 {
+	narrateBuilds := rc.Config.Narrate.Commit.Builds
+	if (len(archiveTargets) == 0 && len(pagesTargets) == 0 && len(narrateBuilds) == 0) || len(b.built) == 0 {
 		return domains.Contribution{Skip: true}, nil
 	}
 
@@ -369,6 +370,57 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 			rows = append(rows, fmt.Sprintf("%-9s %-40s %s  (pages transport)",
 				"pages", filepath.Base(archResult.Path), output.StatusIcon("success", rc.Color)))
 			archivedBuilds[t.Build] = true
+			archiveCount++
+		}
+	}
+
+	// Archive builds referenced by narrate.commit.builds so a command-build's output
+	// tree crosses the perform→narrate boundary as a transport artifact under
+	// ManagedRoot — the narrate runner resolves it via ResolveSuccessfulBuildOutput.
+	// Same mechanism as pages; skip a build a pages/binary-archive target already covered.
+	for _, bd := range narrateBuilds {
+		if bd.Build == "" || archivedBuilds[bd.Build] {
+			continue
+		}
+		for _, pb := range b.built {
+			if pb.BuildID != bd.Build {
+				continue
+			}
+			archResult, err := build.CreateArchive(build.ArchiveOpts{
+				Format:       "tar.gz",
+				OutputDir:    filepath.Join(rc.RootDir, build.DistDir),
+				NameTemplate: "{id}-{version}-narrate",
+				BinaryPath:   pb.Path, // a directory (tree) — expandSource walks it
+				BinaryName:   pb.Name,
+				RepoRoot:     rc.RootDir,
+				Target:       build.Target{OS: pb.OS, Arch: pb.Arch},
+				BuildID:      pb.BuildID,
+				Version:      b.version,
+			})
+			if err != nil {
+				return domains.Contribution{Rows: rows, Status: "failed", Summary: "narrate transport archive failed"},
+					fmt.Errorf("narrate transport archive for build %s: %w", pb.BuildID, err)
+			}
+			archiveArtifactName := filepath.Base(archResult.Path)
+			archiveArtifactID := artifact.NewArtifactID("archive", archiveArtifactName)
+			rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, artifact.Artifact{
+				Kind:    "archive",
+				Name:    archiveArtifactName,
+				Version: b.version.Version,
+				Archive: &artifact.ArchiveDescriptor{Format: archResult.Format, Path: archResult.Path},
+			})
+			sourceBinaryID := artifact.NewArtifactID("binary", uniqueBinaryArtifactName(pb.Name, pb.OS, pb.Arch))
+			rc.RB.Record(archiveArtifactID, artifact.Outcome{
+				Type: artifact.OutcomeTypeArchive,
+				Archive: &artifact.ArchiveOutcome{
+					Status: artifact.OutcomeSuccess, SHA256: archResult.SHA256, Path: archResult.Path,
+					Format: archResult.Format, Size: archResult.Size,
+					Sources: []artifact.ArtifactID{sourceBinaryID},
+				},
+			})
+			rows = append(rows, fmt.Sprintf("%-9s %-40s %s  (narrate transport)",
+				"narrate", filepath.Base(archResult.Path), output.StatusIcon("success", rc.Color)))
+			archivedBuilds[bd.Build] = true
 			archiveCount++
 		}
 	}

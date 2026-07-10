@@ -1,23 +1,18 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
 
 var docsRunCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run all enabled documentation generators",
-	Long: `Composed command that runs all enabled generators from docs config:
-badges, reference docs, narrator, and docker readme.
-
-Reads docs.generators in .stagefreight.yml to determine which generators
-to run. This is the same logic used by 'stagefreight ci run docs'
-(without auto-commit — use ci run docs for that).`,
+	Short: "Run the narrate producers locally (badges + patches)",
+	Long: `Runs the presence-enabled narrate producers from config — render badges and
+apply marked-region patches to files — without committing. Same producer logic as
+'stagefreight ci run narrate' (which also lands build trees + auto-commits).`,
 	RunE: runDocsRun,
 }
 
@@ -26,8 +21,8 @@ func init() {
 }
 
 func runDocsRun(cmd *cobra.Command, args []string) error {
-	if !cfg.Docs.Enabled {
-		fmt.Println("  docs generation disabled in config")
+	if cfg.Narrate.IsZero() {
+		fmt.Println("  narrate: nothing configured")
 		return nil
 	}
 
@@ -36,32 +31,15 @@ func runDocsRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	gen := cfg.Docs.Generators
-	ctx := context.Background()
-
-	if gen.Badges {
+	if len(cfg.Narrate.Badges) > 0 {
 		if err := RunConfigBadges(cfg, rootDir, nil, ""); err != nil {
-			return fmt.Errorf("docs run (badges): %w", err)
+			return fmt.Errorf("narrate run (badges): %w", err)
 		}
 	}
 
-	if gen.ReferenceDocs {
-		outDir := filepath.Join(rootDir, "docs/modules")
-		if err := RunDocsGenerate(rootCmd, outDir); err != nil {
-			return fmt.Errorf("docs run (reference docs): %w", err)
-		}
-	}
-
-	if gen.Narrator {
+	if len(cfg.Narrate.Patches) > 0 {
 		if err := RunNarrator(cfg, rootDir, false, verbose); err != nil {
-			return fmt.Errorf("docs run (narrator): %w", err)
-		}
-	}
-
-	if gen.DockerReadme {
-		if err := RunDockerReadme(ctx, cfg, rootDir, false); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: docker readme sync failed: %v\n", err)
-			// Non-fatal — registry sync may fail without credentials
+			return fmt.Errorf("narrate run (patches): %w", err)
 		}
 	}
 

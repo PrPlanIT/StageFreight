@@ -53,7 +53,7 @@ type narratorFileResult struct {
 // RunNarrator runs narrator items from config.
 // Extracted for reuse by both Cobra command and CI runners.
 func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose bool) error {
-	if len(appCfg.Narrator) == 0 {
+	if len(appCfg.Narrate.Patches) == 0 {
 		return fmt.Errorf("no narrator files configured")
 	}
 
@@ -68,7 +68,7 @@ func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose b
 	publishBase, poErr := config.ResolvePublishOrigin(appCfg)
 	if poErr != nil {
 		hasBadgeRef := false
-		for _, f := range appCfg.Narrator {
+		for _, f := range appCfg.Narrate.Patches {
 			for _, item := range f.Items {
 				if item.Kind == "badge_ref" {
 					hasBadgeRef = true
@@ -94,7 +94,7 @@ func RunNarrator(appCfg *config.Config, rootDir string, dryRun bool, isVerbose b
 	w := os.Stdout
 
 	var results []narratorFileResult
-	for _, fileCfg := range appCfg.Narrator {
+	for _, fileCfg := range appCfg.Narrate.Patches {
 		result, content, err := processNarratorFile(appCfg, fileCfg, rootDir, versionInfo, linkBase, publishBase, isVerbose, dryRun)
 		if err != nil {
 			return err
@@ -303,8 +303,8 @@ func buildModulesV2(appCfg *config.Config, items []config.NarratorItem, linkBase
 
 	// Build badge lookup map for badge_ref resolution.
 	// Map enforces uniqueness and O(1) lookup.
-	badgeMap := make(map[string]config.BadgeConfig, len(appCfg.Badges.Items))
-	for _, b := range appCfg.Badges.Items {
+	badgeMap := make(map[string]config.BadgeConfig, len(appCfg.Narrate.Badges))
+	for _, b := range appCfg.Narrate.Badges {
 		badgeMap[b.ID] = b
 	}
 

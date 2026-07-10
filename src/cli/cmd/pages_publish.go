@@ -189,6 +189,34 @@ func renderDomainOutcome(sec *output.Section, color bool, project string, d *pag
 	}
 }
 
+// landBuildTree resolves a command-build's transported output tree (produced in Perform,
+// archived under .stagefreight/) and lands its content AT destination in the repo, so the
+// narrate commit can stage it. The archive nests the tree under the artifact basename, so
+// descend into that single dir before copying. destination is replaced wholesale.
+func landBuildTree(rootDir, buildID, destination string) error {
+	transport, err := artifact.ResolveSuccessfulBuildOutput(rootDir, buildID)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp("", "sf-narrate-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	if err := transport.Extract(tmp); err != nil {
+		return err
+	}
+	src := descendSingleDir(tmp)
+	dest := filepath.Join(rootDir, destination)
+	if err := os.RemoveAll(dest); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	return copyDirInto(src, dest)
+}
+
 func descendSingleDir(ws string) string {
 	entries, err := os.ReadDir(ws)
 	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
