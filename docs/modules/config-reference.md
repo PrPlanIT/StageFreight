@@ -505,6 +505,8 @@ Security scanning configuration. Controls vulnerability scanning (Trivy, Grype),
 | `sbom` | `sbom` | bool | Yes | true | Generate SBOM artifacts via Syft. |
 | `fail_on_critical` | `fail_on_critical` | bool | Yes | false | Fail the pipeline if critical vulnerabilities are found. |
 | `output` | `output` | string | Yes | .stagefreight/security | Directory for scan artifacts (JSON, SARIF, SBOM, summary). |
+| `fail_on` | `fail_on` | string | No | — | string value |
+| `unreachable_vulns` | `unreachable_vulns` | string | No | — | string value |
 | `release_detail` | `release_detail` | string | Yes | counts | Default detail level for security info in release notes. |
 | `tag` | `release_detail_rules.tag` | string | No | — | Git tag pattern to match. Prefix with `!` to negate. |
 | `branch` | `release_detail_rules.branch` | string | No | — | Branch pattern to match. Prefix with `!` to negate. |
