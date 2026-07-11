@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -126,38 +127,72 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 	start := time.Now()
 
 	rootDir, _ := os.Getwd()
-	workdir := rootDir
+
+	// The container engine is daemon-agnostic. It does NOT bind-mount the workspace:
+	// a `-v` mount resolves against the *daemon's* filesystem, which under DinD is a
+	// separate host from the job checkout, so the produced artifact never lands where
+	// the pipeline looks. Instead we `docker cp` the repo INTO a created container,
+	// run the command, then `docker cp` the produced artifact back OUT onto the host.
+	// Both stream over the daemon API, so this works with a local OR a remote/DinD
+	// daemon (Crucible's buildkit-cert plumbing is still not needed here).
+	const containerRoot = "/workspace"
+	workdir := containerRoot
 	if meta.WorkDir != "" {
-		workdir = filepath.Join(rootDir, meta.WorkDir)
+		workdir = path.Join(containerRoot, meta.WorkDir)
 	}
 
-	// docker run --rm, repo mounted at its own absolute path, cwd = workdir,
-	// forwarded env, build command via `sh -c`. This is the general containerized
-	// build primitive — electron's wine case needs none of Crucible's DinD /
-	// buildkit-cert plumbing, so it stays deliberately minimal.
-	args := []string{"run", "--rm", "-v", rootDir + ":" + rootDir, "-w", workdir}
+	// create (not run) so the container survives for the artifact cp-out; forward env
+	// the same way — declared Env, plus named host vars (CI secrets) when actually set.
+	createArgs := []string{"create", "-w", workdir}
 	for k, v := range meta.Env {
-		args = append(args, "-e", k+"="+v)
+		createArgs = append(createArgs, "-e", k+"="+v)
 	}
-	// Forward named host env vars (CI secrets — e.g. an Android keystore) by value,
-	// only when actually set on the runner.
 	for _, name := range meta.ForwardEnv {
 		if v, ok := os.LookupEnv(name); ok {
-			args = append(args, "-e", name+"="+v)
+			createArgs = append(createArgs, "-e", name+"="+v)
 		}
 	}
-	args = append(args, meta.Image, "sh", "-c", meta.Command)
+	createArgs = append(createArgs, meta.Image, "sh", "-c", meta.Command)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	output, err := cmd.CombinedOutput()
+	idOut, err := exec.CommandContext(ctx, "docker", createArgs...).Output()
 	if err != nil {
-		return nil, fmt.Errorf("container build failed (%s): %w\n%s", meta.Image, err, string(output))
+		return nil, fmt.Errorf("container engine: docker create (%s): %w", meta.Image, err)
+	}
+	containerID := strings.TrimSpace(string(idOut))
+	defer exec.Command("docker", "rm", "-f", containerID).Run()
+
+	// Stage the repo into the container at the workspace root. The trailing "/." copies
+	// the source directory's CONTENTS into /workspace whether or not it pre-exists —
+	// and `-w` pre-creates it, which would otherwise nest the repo under /workspace/<base>.
+	if out, cerr := exec.CommandContext(ctx, "docker", "cp", rootDir+"/.", containerID+":"+containerRoot).CombinedOutput(); cerr != nil {
+		return nil, fmt.Errorf("container engine: staging workspace into container: %w\n%s", cerr, string(out))
 	}
 
-	// Collect the produced artifact(s) — written into the mounted volume, so on the
-	// host now. The output is a glob (an installer: release/*.exe), a single file,
-	// or a directory (a built tree: dist/). A tree is one artifact; the archive
-	// walks it.
+	// Run the build command.
+	if out, rerr := exec.CommandContext(ctx, "docker", "start", "-a", containerID).CombinedOutput(); rerr != nil {
+		return nil, fmt.Errorf("container build failed (%s): %w\n%s", meta.Image, rerr, string(out))
+	}
+
+	// Copy the produced artifact back onto the host at its in-repo path, so the rest
+	// of the pipeline (archive, transport) reads it exactly as before. The output is a
+	// glob (an installer: release/*.exe), a single file, or a directory tree (dist/).
+	// docker cp can't glob, so for a glob artifact we extract its fixed leading
+	// directory and let the host-side glob below resolve the pattern within it.
+	extractRel := meta.Artifact
+	if strings.ContainsAny(meta.Artifact, "*?[") {
+		extractRel = globBaseDir(meta.Artifact)
+	}
+	hostDest := filepath.Join(rootDir, extractRel)
+	if err := os.MkdirAll(filepath.Dir(hostDest), 0o755); err != nil {
+		return nil, fmt.Errorf("container engine: preparing artifact dir: %w", err)
+	}
+	_ = os.RemoveAll(hostDest) // deterministic landing: DEST must not pre-exist
+	if out, xerr := exec.CommandContext(ctx, "docker", "cp", containerID+":"+path.Join(containerRoot, extractRel), hostDest).CombinedOutput(); xerr != nil {
+		return nil, fmt.Errorf("container engine: no artifact at %q after the build: %w\n%s", meta.Artifact, xerr, string(out))
+	}
+
+	// Resolve the produced artifact(s) on the host now. A tree is one artifact; the
+	// archive walks it.
 	artifactPath := meta.Artifact
 	if !filepath.IsAbs(artifactPath) {
 		artifactPath = filepath.Join(rootDir, artifactPath)
@@ -209,6 +244,23 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 		Metadata:  map[string]string{"image": meta.Image, "binary_name": binaryName},
 		Metrics:   build.StepMetrics{Duration: time.Since(start)},
 	}, nil
+}
+
+// globBaseDir returns the longest leading path of a glob pattern that contains no
+// wildcard, so the concrete subtree can be docker-cp'd out before host-side globbing
+// resolves the pattern within it. "release/*.exe" -> "release"; "*.exe" -> ".".
+func globBaseDir(pattern string) string {
+	var base []string
+	for _, p := range strings.Split(pattern, "/") {
+		if strings.ContainsAny(p, "*?[") {
+			break
+		}
+		base = append(base, p)
+	}
+	if len(base) == 0 {
+		return "."
+	}
+	return strings.Join(base, "/")
 }
 
 func dirSize(root string) (int64, error) {
