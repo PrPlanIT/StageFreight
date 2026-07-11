@@ -10,14 +10,16 @@ import (
 	masterminds "github.com/Masterminds/semver/v3"
 )
 
-// LatestEligibleSemver returns the highest version in `available` that is
-// semver-COMPATIBLE with the caret range of `current` (^current). It is the safe
-// autonomous-update target — a version OUTSIDE this range is a constraint-expanding
-// major upgrade, held for review. Generic across semver ecosystems (cargo first;
-// npm/pip/etc. plug in the same way). Empty if `current` is unparseable or nothing
-// in range. Yanked/prerelease filtering is the caller's job (it has the metadata).
-func LatestEligibleSemver(current string, available []string) string {
-	constraint, err := masterminds.NewConstraint("^" + strings.TrimSpace(current))
+// LatestSatisfying returns the highest version in `available` that satisfies the
+// raw manifest `constraint`, HONORING its operator: "^1.8"/"~1.2"/"=1.8.0"/">=1, <2"/
+// "1.8.*" all mean what the ecosystem says. A bare version ("1.8.0", no operator)
+// follows the caret convention (Cargo/npm treat it as ^1.8.0). Empty if the
+// constraint is unparseable or nothing in `available` satisfies it. Yanked/prerelease
+// filtering is the caller's job. This is the "honor the native constraint" selector —
+// it replaces treating every manifest pin as a caret.
+func LatestSatisfying(constraint string, available []string) string {
+	c := caretIfBare(constraint)
+	constr, err := masterminds.NewConstraint(c)
 	if err != nil {
 		return ""
 	}
@@ -28,11 +30,34 @@ func LatestEligibleSemver(current string, available []string) string {
 		if err != nil {
 			continue
 		}
-		if constraint.Check(ver) && (best == nil || ver.GreaterThan(best)) {
+		if constr.Check(ver) && (best == nil || ver.GreaterThan(best)) {
 			best, bestRaw = ver, raw
 		}
 	}
 	return bestRaw
+}
+
+// caretIfBare applies the "bare version means caret" convention: a plain numeric
+// version ("1.8.0") becomes "^1.8.0"; anything carrying an operator, wildcard, or
+// range ("=1.8.0", "~1.2", "1.8.*", ">=1, <2") passes through unchanged.
+func caretIfBare(c string) string {
+	c = strings.TrimPrefix(strings.TrimSpace(c), "v")
+	if c == "" {
+		return c
+	}
+	for _, r := range c {
+		if !((r >= '0' && r <= '9') || r == '.') {
+			return c // has an operator / wildcard / range — honor it verbatim
+		}
+	}
+	return "^" + c
+}
+
+// LatestEligibleSemver returns the highest version in `available` compatible with
+// the caret range of a BARE `current` (^current). Retained as the caret-convenience
+// form; it delegates to LatestSatisfying, which also honors explicit operators.
+func LatestEligibleSemver(current string, available []string) string {
+	return LatestSatisfying(current, available)
 }
 
 // VersionDelta describes how far behind a dependency is.

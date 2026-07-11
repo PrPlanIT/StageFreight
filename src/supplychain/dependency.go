@@ -5,7 +5,14 @@ package supplychain
 // commands (à la Renovate managers).
 type Dependency struct {
 	Name    string // e.g. "golang", "github.com/spf13/cobra", "react"
-	Current string // currently pinned version string
+	Current string // currently pinned/resolved concrete version string
+
+	// Constraint is the RAW manifest version requirement, operator included, for
+	// ecosystems whose manifests express a range (cargo "^1.8" / "~1.2" / "=1.8.0" /
+	// ">=1, <2"). It is the native intent honored during eligibility selection —
+	// distinct from Current (the concrete resolved version). Empty for ecosystems
+	// that pin an exact version (go.mod, toolchain), where Current is the pin.
+	Constraint string
 
 	// Latest is the newest version the registry publishes — "latest AVAILABLE".
 	// It is NOT necessarily a safe autonomous-update target: a major / out-of-range

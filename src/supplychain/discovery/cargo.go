@@ -50,30 +50,32 @@ func (m *Resolver) checkCargo(ctx context.Context, file lint.FileInfo) ([]supply
 	lines := buildLineIndex(data)
 
 	for name, spec := range cargo.Dependencies {
-		ver := extractCargoVersion(spec)
-		if ver == "" {
+		raw := extractCargoVersion(spec)
+		if raw == "" {
 			continue
 		}
 		deps = append(deps, supplychain.Dependency{
-			Name:      name,
-			Current:   ver,
-			Ecosystem: supplychain.EcosystemCargo,
-			File:      file.Path,
-			Line:      findLineForKey(lines, name),
+			Name:       name,
+			Constraint: raw,                  // native intent, operator preserved
+			Current:    stripCargoRange(raw), // bare version for display/comparison
+			Ecosystem:  supplychain.EcosystemCargo,
+			File:       file.Path,
+			Line:       findLineForKey(lines, name),
 		})
 	}
 
 	for name, spec := range cargo.DevDependencies {
-		ver := extractCargoVersion(spec)
-		if ver == "" {
+		raw := extractCargoVersion(spec)
+		if raw == "" {
 			continue
 		}
 		deps = append(deps, supplychain.Dependency{
-			Name:      name,
-			Current:   ver,
-			Ecosystem: supplychain.EcosystemCargo,
-			File:      file.Path,
-			Line:      findLineForKey(lines, name),
+			Name:       name,
+			Constraint: raw,
+			Current:    stripCargoRange(raw),
+			Ecosystem:  supplychain.EcosystemCargo,
+			File:       file.Path,
+			Line:       findLineForKey(lines, name),
 		})
 	}
 
@@ -88,7 +90,7 @@ func (m *Resolver) checkCargo(ctx context.Context, file lint.FileInfo) ([]supply
 	if locked := loadCargoLockVersions(findNearestFile(filepath.Dir(file.AbsPath), "Cargo.lock")); locked != nil {
 		for i := range deps {
 			if vers := locked[deps[i].Name]; len(vers) > 0 {
-				if resolved := version.LatestEligibleSemver(deps[i].Current, vers); resolved != "" {
+				if resolved := version.LatestSatisfying(deps[i].Constraint, vers); resolved != "" {
 					deps[i].Current = resolved
 				}
 			}
@@ -151,14 +153,17 @@ func findNearestFile(startDir, name string) string {
 }
 
 // extractCargoVersion handles both "1.0" and {version = "1.0"} dependency specs.
+// extractCargoVersion returns the RAW version requirement (operator included) so the
+// declared constraint (^/~/=/range) can be honored. The bare form is derived
+// separately via stripCargoRange for display/comparison.
 func extractCargoVersion(spec any) string {
 	switch v := spec.(type) {
 	case string:
-		return stripCargoRange(v)
+		return strings.TrimSpace(v)
 	case map[string]any:
 		if ver, ok := v["version"]; ok {
 			if s, ok := ver.(string); ok {
-				return stripCargoRange(s)
+				return strings.TrimSpace(s)
 			}
 		}
 	}
@@ -208,7 +213,9 @@ func (m *Resolver) resolveCrate(ctx context.Context, dep *supplychain.Dependency
 			nums = append(nums, v.Num)
 		}
 	}
-	dep.LatestEligible = version.LatestEligibleSemver(dep.Current, nums)
+	// Honor the DECLARED constraint (operator included), not a forced caret on the
+	// resolved version — a "=1.8.0" exact pin stays exact, a "~1.2" stays patch-level.
+	dep.LatestEligible = version.LatestSatisfying(dep.Constraint, nums)
 	// Retain the (already-fetched) list so the deps layer can re-target within a
 	// max_update ceiling — free here, no extra request.
 	dep.AvailableVersions = nums
