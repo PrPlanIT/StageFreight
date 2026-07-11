@@ -42,6 +42,13 @@ type Dependency struct {
 	// discovery-side counterpart to what apply already honors, so both agree.
 	Pinned string
 
+	// LockPending marks a dependency whose resolvable target exists but whose lockfile
+	// entry has not been written yet — a wildcard toolchain constraint with no
+	// .stagefreight/toolchains.lock entry. Current already equals the target (nothing to
+	// bump), yet the update pass must still MATERIALIZE the lock, so the filter treats it
+	// as a candidate rather than "up to date". This is how a first lock is born.
+	LockPending bool
+
 	Ecosystem string // one of the Ecosystem* constants below
 	File      string // relative path from repo root
 	Line      int    // line number of the pinned version

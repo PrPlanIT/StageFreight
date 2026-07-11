@@ -157,8 +157,10 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// safe to apply: it's up to date — unless a higher version exists OUT of the
 	// constraint range, which is a constraint-expanding major upgrade held for review
 	// (review-domain, may need feature renames / API migration), never auto-applied.
-	// (A vuln-indirect is exempt: UpdateTarget derives from an empty Latest.)
-	if !vulnIndirect && dep.UpdateTarget() == dep.Current {
+	// (A vuln-indirect is exempt: UpdateTarget derives from an empty Latest. A
+	// LockPending dep is exempt too: Current equals the target, but its lock has not been
+	// written yet, so it must reach apply to be materialized — not skipped as up to date.)
+	if !vulnIndirect && !dep.LockPending && dep.UpdateTarget() == dep.Current {
 		if dep.MajorAvailable() {
 			return SkipMajorHeld, "major upgrade held — review (" + dep.Latest + " out of range)"
 		}

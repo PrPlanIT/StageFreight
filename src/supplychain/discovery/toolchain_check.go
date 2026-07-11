@@ -142,6 +142,11 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 				if dep.Latest == "" {
 					dep.Latest = locked // line vanished upstream → stay locked, not "unresolved"
 				}
+			} else if dep.Latest != "" {
+				// Resolvable wildcard with no lock entry yet: Current already equals the
+				// target, but the lock must still be born. Flag it so the filter routes it
+				// to apply (which writes the first lock) instead of skipping "up to date".
+				dep.LockPending = true
 			}
 		}
 

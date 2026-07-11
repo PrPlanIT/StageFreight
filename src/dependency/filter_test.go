@@ -165,6 +165,26 @@ func TestSkipReasonCategories(t *testing.T) {
 	}
 }
 
+// TestLockPending_RoutesAsCandidate: an unlocked wildcard toolchain (Current == Latest,
+// nothing to bump) must still reach apply so its first lock is written — LockPending
+// exempts it from the "up to date" skip, unlike an ordinary Current == Latest dep.
+func TestLockPending_RoutesAsCandidate(t *testing.T) {
+	base := supplychain.Dependency{
+		Name: "trivy", Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml",
+		Current: "0.69.5", Latest: "0.69.5", // resolvable, but Current already equals target
+	}
+	// Without the flag it is up to date (nothing to do).
+	if cat, _ := skipReason(base, UpdateConfig{}, nil, nil); cat != SkipUpToDate {
+		t.Errorf("plain Current==Latest = %q, want up_to_date", cat)
+	}
+	// With LockPending it is a candidate (empty category = not skipped).
+	pending := base
+	pending.LockPending = true
+	if cat, msg := skipReason(pending, UpdateConfig{}, nil, nil); cat != SkipNone {
+		t.Errorf("LockPending must route as candidate, got %q/%q", cat, msg)
+	}
+}
+
 // TestSkipReason_PinnedByReplace: a replace-governed dep is skipped (matching apply),
 // not treated as unresolved despite an empty Latest.
 func TestSkipReason_PinnedByReplace(t *testing.T) {

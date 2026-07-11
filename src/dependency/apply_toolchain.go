@@ -70,13 +70,14 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 
 		if version.IsWildcardConstraint(lineValue(lines[verIdx])) {
 			// The constraint (a range) stays in the config; only the resolved-LOCK moves.
-			// dep.Latest is the newest in-line member (the target); dep.Current is the
-			// current lock. First lock is just an empty lock being filled.
+			// dep.Latest is the newest in-line member (the target). The PRIOR lock value is
+			// what moves — "" on a first lock, which reads as a birth, not a bump.
 			if dep.Latest == "" {
 				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "wildcard unresolved — nothing to lock"})
 				continue
 			}
-			if lock.Resolved(toolName) == dep.Latest {
+			prior := lock.Resolved(toolName)
+			if prior == dep.Latest {
 				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "lock already at newest in-line"})
 				continue
 			}
@@ -87,7 +88,7 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 			}
 			if lock.Set(toolName, dep.Latest, sha) {
 				lockModified = true
-				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)})
+				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest)})
 			}
 			continue
 		}
