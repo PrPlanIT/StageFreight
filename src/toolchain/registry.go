@@ -14,6 +14,12 @@ type ToolDef struct {
 	GitHubOwner  string                                    // GitHub owner for release checking (e.g. "aquasecurity")
 	GitHubRepo   string                                    // GitHub repo for release checking (e.g. "trivy")
 
+	// ReleaseSource names WHERE version discovery reads the release list — declared
+	// data, so the resolver dispatches on strategy, never on the tool's name: "github"
+	// (releases API, the default when GitHubOwner/Repo are set) or "k8s" (dl.k8s.io
+	// stable channels). This is distinct from Source, which materializes the binary.
+	ReleaseSource string
+
 	// Source materializes the binary. When nil, the tool is a released-binary download
 	// (DownloadURL + Format) — the historical default. A non-nil Source (e.g. GoInstallSource)
 	// provisions by another means; DownloadURL/ChecksumURL/Format are then unused.
@@ -28,6 +34,19 @@ func (d ToolDef) source() ToolSource {
 		return d.Source
 	}
 	return releaseBinarySource{}
+}
+
+// ReleaseSourceKind resolves the version-discovery strategy: an explicit
+// ReleaseSource, else "github" when a GitHub repo is declared, else "" (no upstream
+// version discovery). Lets the resolver dispatch on capability, not identity.
+func (d ToolDef) ReleaseSourceKind() string {
+	if d.ReleaseSource != "" {
+		return d.ReleaseSource
+	}
+	if d.GitHubOwner != "" && d.GitHubRepo != "" {
+		return "github"
+	}
+	return ""
 }
 
 // AllTools returns a copy of all registered tool definitions.
@@ -137,9 +156,10 @@ var registry = map[string]ToolDef{
 		Format: "tar.gz",
 	},
 	"kubectl": {
-		Name:       "kubectl",
-		BinaryName: "kubectl",
-		DefaultVer: "1.34.2",
+		Name:          "kubectl",
+		BinaryName:    "kubectl",
+		DefaultVer:    "1.34.2",
+		ReleaseSource: "k8s", // dl.k8s.io stable channels, not GitHub releases
 		DownloadURL: func(ver, goos, goarch string) string {
 			return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/amd64/kubectl", ver)
 		},

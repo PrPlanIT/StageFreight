@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // Validate checks structural invariants of a loaded v2 Config.
@@ -582,18 +584,14 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, fmt.Sprintf("%s: constraint is required", tpath))
 			continue
 		}
-		// Wildcard constraints (e.g. 1.26.x) are recognized grammar but their
-		// resolution — constraint → candidate set → selection — is not wired yet;
-		// pin an exact version until it lands.
-		if isWildcardConstraint(constraint) {
-			errs = append(errs, fmt.Sprintf("%s: wildcard constraint %q is not yet supported — pin an exact version", tpath, constraint))
+		if verr := depversion.ValidateConstraint(constraint); verr != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", tpath, verr))
 			continue
 		}
 		// SHA256 authenticates exactly one artifact, so it is only meaningful with an
-		// exact constraint. (Exact-only today makes this trivially satisfied; the check
-		// is here so it holds the moment wildcard resolution is enabled.)
-		if c.SHA256 != "" && isWildcardConstraint(constraint) {
-			errs = append(errs, fmt.Sprintf("%s: sha256 requires an exact constraint (a single digest cannot authenticate a version line)", tpath))
+		// exact constraint — a single digest cannot authenticate a version line.
+		if c.SHA256 != "" && depversion.IsWildcardConstraint(constraint) {
+			errs = append(errs, fmt.Sprintf("%s: sha256 requires an exact constraint (a single digest cannot authenticate a version line %q)", tpath, constraint))
 		}
 	}
 
@@ -603,18 +601,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	return warnings, nil
 }
 
-// isWildcardConstraint reports whether a toolchain constraint contains a wildcard
-// component ("x"/"X"), e.g. "1.26.x" or "1.x.x". An exact version like "1.26.4"
-// has none. Full wildcard grammar (suffix-contiguity, bare-partial rejection) is
-// enforced alongside wildcard resolution.
-func isWildcardConstraint(constraint string) bool {
-	for _, seg := range strings.Split(constraint, ".") {
-		if seg == "x" || seg == "X" {
-			return true
-		}
-	}
-	return false
-}
 
 // cfPagesProjectRe matches Cloudflare Pages' project-name rule: lowercase letters,
 // digits, and hyphens; 1–58 chars; no leading or trailing hyphen. A single char is

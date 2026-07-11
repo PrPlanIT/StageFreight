@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	version "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -52,9 +53,18 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 				continue
 			}
 			keyIndent := leadIndentWidth(lines[i])
-			verIdx, shaIdx := findToolBlockLines(lines, i, keyIndent, desiredEnd)
+			verIdx, verKey, shaIdx := findToolBlockLines(lines, i, keyIndent, desiredEnd)
 			if verIdx < 0 {
-				continue // this occurrence has no version line — keep looking
+				continue // this occurrence has no constraint/version line — keep looking
+			}
+
+			// A wildcard constraint (1.26.x) auto-resolves at build time — the declared
+			// line already permits newer members, so there is nothing to rewrite. The
+			// newer out-of-line version is surfaced informationally, never applied.
+			if version.IsWildcardConstraint(lineValue(lines[verIdx])) {
+				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipWildcardManaged, Reason: "wildcard constraint auto-resolves; not rewritten"})
+				found = true
+				break
 			}
 
 			// A digest-pinned tool must update version AND sha256 TOGETHER, or neither
@@ -71,7 +81,7 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 				newSHA = s
 			}
 
-			lines[verIdx] = leadIndent(lines[verIdx]) + fmt.Sprintf(`version: "%s"`, dep.Latest)
+			lines[verIdx] = leadIndent(lines[verIdx]) + fmt.Sprintf(`%s: "%s"`, verKey, dep.Latest)
 			if shaIdx >= 0 {
 				lines[shaIdx] = leadIndent(lines[shaIdx]) + fmt.Sprintf(`sha256: "%s"`, newSHA)
 			}
@@ -158,7 +168,7 @@ func leadIndentWidth(line string) int { return len(line) - len(strings.TrimLeft(
 
 // findToolBlockLines returns the version and sha256 line indices within one tool's
 // block — the lines indented under keyIdx up to sectionEnd — or -1 for each.
-func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verIdx, shaIdx int) {
+func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verIdx int, verKey string, shaIdx int) {
 	verIdx, shaIdx = -1, -1
 	for j := keyIdx + 1; j <= sectionEnd && j < len(lines); j++ {
 		t := strings.TrimSpace(lines[j])
@@ -168,12 +178,25 @@ func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verI
 		if leadIndentWidth(lines[j]) <= keyIndent {
 			break // dedent — left this tool's block
 		}
-		if strings.HasPrefix(t, "version:") {
-			verIdx = j
+		// Accept the canonical `constraint:` key and the legacy `version:` alias; the
+		// rewrite preserves whichever the operator wrote.
+		if strings.HasPrefix(t, "constraint:") {
+			verIdx, verKey = j, "constraint"
+		} else if strings.HasPrefix(t, "version:") {
+			verIdx, verKey = j, "version"
 		}
 		if strings.HasPrefix(t, "sha256:") {
 			shaIdx = j
 		}
 	}
 	return
+}
+
+// lineValue extracts the (unquoted) value of a `key: value` YAML line.
+func lineValue(line string) string {
+	t := strings.TrimSpace(line)
+	if idx := strings.Index(t, ":"); idx >= 0 {
+		return strings.Trim(strings.TrimSpace(t[idx+1:]), `"'`)
+	}
+	return ""
 }

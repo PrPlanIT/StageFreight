@@ -25,6 +25,34 @@ type ToolchainConfig struct {
 	Desired map[string]ToolConstraint `yaml:"desired,omitempty"`
 }
 
+// UnmarshalYAML iterates the desired mapping at the map level so a parse error can
+// name the offending tool (toolchains.desired.<name>) — the per-entry unmarshaler
+// alone cannot, since it never sees its own map key.
+func (c *ToolchainConfig) UnmarshalYAML(node *yaml.Node) error {
+	var raw struct {
+		Desired yaml.Node `yaml:"desired"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	if raw.Desired.Kind == 0 {
+		return nil // no desired section
+	}
+	if raw.Desired.Kind != yaml.MappingNode {
+		return fmt.Errorf("toolchains.desired: must be a mapping of tool -> constraint")
+	}
+	c.Desired = make(map[string]ToolConstraint, len(raw.Desired.Content)/2)
+	for i := 0; i+1 < len(raw.Desired.Content); i += 2 {
+		name := raw.Desired.Content[i].Value
+		tc, err := parseToolConstraint(raw.Desired.Content[i+1])
+		if err != nil {
+			return fmt.Errorf("toolchains.desired.%s: %w", name, err)
+		}
+		c.Desired[name] = tc
+	}
+	return nil
+}
+
 // ToolConstraint declares the acceptable version(s) for a single tool — a
 // predicate over versions, not necessarily one exact version (e.g. "1.26.4" is
 // exact; "1.26.x" is a line). SHA256 is optional verification material for tools
@@ -50,10 +78,23 @@ type ToolConstraint struct {
 // The one structural rule enforced here (because it needs both raw keys, which only
 // the loader sees): `constraint` and `version` are mutually exclusive.
 func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
+	parsed, err := parseToolConstraint(node)
+	if err != nil {
+		return err
+	}
+	*t = parsed
+	return nil
+}
+
+// parseToolConstraint is the shared normalization core: scalar-or-map → one
+// ToolConstraint. Errors carry no tool name; callers with the map key (see
+// ToolchainConfig.UnmarshalYAML) wrap them with toolchains.desired.<name>.
+func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
+	var t ToolConstraint
 	// Scalar shorthand desugars to constraint (never to the legacy `version`).
 	if node.Kind == yaml.ScalarNode {
 		t.Constraint = node.Value
-		return nil
+		return t, nil
 	}
 	var raw struct {
 		Constraint string `yaml:"constraint"`
@@ -61,15 +102,15 @@ func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 		SHA256     string `yaml:"sha256"`
 	}
 	if err := node.Decode(&raw); err != nil {
-		return err
+		return t, err
 	}
 	if raw.Constraint != "" && raw.Version != "" {
-		return fmt.Errorf("toolchain entry sets both 'constraint' and 'version'; use one ('version' is the legacy name for 'constraint')")
+		return t, fmt.Errorf("sets both 'constraint' and 'version'; use one ('version' is the legacy name for 'constraint')")
 	}
 	t.Constraint = raw.Constraint
 	if t.Constraint == "" {
 		t.Constraint = raw.Version // legacy alias
 	}
 	t.SHA256 = raw.SHA256
-	return nil
+	return t, nil
 }

@@ -46,17 +46,42 @@ func TestToolConstraintParse(t *testing.T) {
 	}
 }
 
-// TestToolConstraintValidate: exact constraints pass; wildcards are rejected until
-// resolution is wired.
+// TestToolConstraintValidate: exact + well-formed wildcard pass; malformed grammar
+// and wildcard-plus-sha256 are rejected.
 func TestToolConstraintValidate(t *testing.T) {
-	exact := &Config{Version: 1, Toolchains: ToolchainConfig{Desired: map[string]ToolConstraint{"go": {Constraint: "1.26.4"}}}}
-	if _, err := Validate(exact); err != nil {
-		t.Errorf("exact constraint must validate, got %v", err)
+	valid := func(c ToolConstraint) error {
+		cfg := &Config{Version: 1, Toolchains: ToolchainConfig{Desired: map[string]ToolConstraint{"trivy": c}}}
+		_, err := Validate(cfg)
+		return err
 	}
+	if err := valid(ToolConstraint{Constraint: "1.26.4"}); err != nil {
+		t.Errorf("exact must validate, got %v", err)
+	}
+	if err := valid(ToolConstraint{Constraint: "1.26.x"}); err != nil {
+		t.Errorf("wildcard must validate now, got %v", err)
+	}
+	if err := valid(ToolConstraint{Constraint: "1.x.4"}); err == nil {
+		t.Error("non-suffix-contiguous wildcard must be rejected")
+	}
+	if err := valid(ToolConstraint{Constraint: "1.26"}); err == nil {
+		t.Error("bare partial must be rejected")
+	}
+	if err := valid(ToolConstraint{Constraint: "1.26.x", SHA256: "abc"}); err == nil {
+		t.Error("wildcard + sha256 must be rejected")
+	}
+	if err := valid(ToolConstraint{Constraint: "1.26.4", SHA256: "abc"}); err != nil {
+		t.Errorf("exact + sha256 must validate, got %v", err)
+	}
+}
 
-	wild := &Config{Version: 1, Toolchains: ToolchainConfig{Desired: map[string]ToolConstraint{"go": {Constraint: "1.26.x"}}}}
-	_, err := Validate(wild)
-	if err == nil || !strings.Contains(err.Error(), "wildcard") {
-		t.Errorf("wildcard constraint must be rejected in slice 1, got %v", err)
+// TestToolConstraintToolNameError: the both-keys error names the offending tool.
+func TestToolConstraintToolNameError(t *testing.T) {
+	var cfg struct {
+		Toolchains ToolchainConfig `yaml:"toolchains"`
+	}
+	y := "toolchains:\n  desired:\n    helm:\n      constraint: 1.26.4\n      version: 1.26.5"
+	err := yaml.Unmarshal([]byte(y), &cfg)
+	if err == nil || !strings.Contains(err.Error(), "helm") {
+		t.Errorf("error must name the tool 'helm', got %v", err)
 	}
 }
