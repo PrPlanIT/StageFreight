@@ -581,8 +581,6 @@ commit:
 | `skip_ci` | `commit.skip_ci` | bool | No | — | bool value |
 | `allow` | `commit.run_from.allow` | []string | No | — | []string value |
 | `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
-| `build` | `commit.builds.build` | string | Yes | — | string value |
-| `destination` | `commit.builds.destination` | string | Yes | — | string value |
 
 ---
 
