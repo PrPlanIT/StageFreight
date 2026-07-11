@@ -164,3 +164,13 @@ func TestSkipReasonCategories(t *testing.T) {
 		})
 	}
 }
+
+// TestSkipReason_PinnedByReplace: a replace-governed dep is skipped (matching apply),
+// not treated as unresolved despite an empty Latest.
+func TestSkipReason_PinnedByReplace(t *testing.T) {
+	dep := supplychain.Dependency{Name: "example.com/x", Ecosystem: supplychain.EcosystemGoMod, File: "go.mod", Current: "1.0.0", Pinned: "replace directive"}
+	cat, msg := skipReason(dep, UpdateConfig{}, nil, nil)
+	if cat != SkipReplaceDirective || msg != "replace directive present" {
+		t.Errorf("pinned dep skip = %q/%q, want replace_directive/'replace directive present'", cat, msg)
+	}
+}

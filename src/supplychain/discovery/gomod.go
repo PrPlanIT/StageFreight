@@ -29,9 +29,11 @@ func (m *Resolver) checkGoMod(ctx context.Context, file lint.FileInfo) ([]supply
 	defer f.Close()
 
 	var deps []supplychain.Dependency
+	replaced := map[string]bool{} // modules governed by a replace directive
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 	inRequire := false
+	inReplace := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -44,6 +46,30 @@ func (m *Resolver) checkGoMod(ctx context.Context, file lint.FileInfo) ([]supply
 		}
 		if inRequire && line == ")" {
 			inRequire = false
+			continue
+		}
+
+		// Handle replace directives (block + single-line). The replaced module is the
+		// left-hand side of "=>"; discovery marks it Pinned so it is neither resolved
+		// nor reported outdated — the go toolchain has already selected its version.
+		if line == "replace (" {
+			inReplace = true
+			continue
+		}
+		if inReplace && line == ")" {
+			inReplace = false
+			continue
+		}
+		if strings.HasPrefix(line, "replace ") && strings.Contains(line, "=>") {
+			if name := replacedModule(strings.TrimPrefix(line, "replace ")); name != "" {
+				replaced[name] = true
+			}
+			continue
+		}
+		if inReplace && strings.Contains(line, "=>") {
+			if name := replacedModule(line); name != "" {
+				replaced[name] = true
+			}
 			continue
 		}
 
@@ -90,16 +116,39 @@ func (m *Resolver) checkGoMod(ctx context.Context, file lint.FileInfo) ([]supply
 		return nil, err
 	}
 
+	// Mark replace-governed modules before resolution — the toolchain has already
+	// chosen their version, so they are pinned, not update candidates.
+	for i := range deps {
+		if replaced[deps[i].Name] {
+			deps[i].Pinned = "replace directive"
+		}
+	}
+
 	// Resolve latest versions
 	for i := range deps {
-		// Skip indirect by default
-		if deps[i].Indirect {
+		// Skip indirect (managed transitively) and replace-pinned (toolchain-governed).
+		if deps[i].Indirect || deps[i].Pinned != "" {
 			continue
 		}
 		m.resolveGoModule(ctx, &deps[i])
 	}
 
 	return deps, nil
+}
+
+// replacedModule extracts the replaced module path (the left-hand side of "=>")
+// from the body of a replace directive, e.g. "example.com/a v1 => ./local" → "example.com/a".
+// Returns "" if there is no "=>" or no left-hand module.
+func replacedModule(body string) string {
+	i := strings.Index(body, "=>")
+	if i < 0 {
+		return ""
+	}
+	lhs := strings.Fields(strings.TrimSpace(body[:i]))
+	if len(lhs) == 0 {
+		return ""
+	}
+	return lhs[0]
 }
 
 // resolveGoModule queries proxy.golang.org (or custom registry) for the latest version.

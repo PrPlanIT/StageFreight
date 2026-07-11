@@ -128,6 +128,13 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// target is the advisory's FixedIn). It still honors the ecosystem / auto-updatable /
 	// tracked-file gates. The policy string governs only FRESHNESS of non-vulnerable deps
 	// (see the security-only gate below) — never whether a known vulnerability gets fixed.
+	// A native selection directive (e.g. go.mod replace) already governs this dep:
+	// the toolchain has chosen its version, so StageFreight proposes no update. Checked
+	// FIRST so a pinned dep with no resolved Latest is not mislabeled "unresolved".
+	if dep.Pinned != "" {
+		return SkipReplaceDirective, "replace directive present"
+	}
+
 	vulnIndirect := dep.Indirect && len(dep.Vulnerabilities) > 0
 
 	// Non-vulnerable indirect deps are managed transitively (go mod tidy after direct

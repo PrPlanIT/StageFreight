@@ -107,6 +107,11 @@ func (m *freshnessModule) depsToFindings(deps []supplychain.Dependency) []lint.F
 		if !cfg.SourceEnabled(dep.Ecosystem) {
 			continue
 		}
+		// A native selection directive (go.mod replace) governs this dep — the
+		// toolchain pins its version, so it is not "outdated". Held, not reported.
+		if dep.Pinned != "" {
+			continue
+		}
 
 		// Per-advisory vulnerability findings are rendered by the dedicated
 		// vulnerabilities module (one finding per advisory across all sources),

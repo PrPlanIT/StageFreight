@@ -35,6 +35,13 @@ type Dependency struct {
 	// layer selects a target from it; discovery just records what exists.
 	AvailableVersions []string
 
+	// Pinned records that a NATIVE dependency-selection directive already governs
+	// this dependency, so StageFreight neither reports it outdated nor proposes an
+	// update — it respects the toolchain's own decision. The value names the
+	// mechanism (e.g. "replace directive"). Empty = freely resolvable. This is the
+	// discovery-side counterpart to what apply already honors, so both agree.
+	Pinned string
+
 	Ecosystem string // one of the Ecosystem* constants below
 	File      string // relative path from repo root
 	Line      int    // line number of the pinned version
