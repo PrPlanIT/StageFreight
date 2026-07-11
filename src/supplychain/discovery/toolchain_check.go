@@ -98,7 +98,6 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 					return out, nil
 				})
 				dep.Current = version.SelectConstraint(constraint, tags) // resolved line member
-				dep.Latest = version.SelectConstraint("x.x.x", tags)      // highest overall stable
 			} else {
 				url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
 				dep.SourceURL = url
@@ -126,8 +125,23 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 			dep.SourceURL = "" // no upstream resolver; exact constraint stands alone
 		}
 
-		// A wildcard that matched nothing upstream is unresolved — the declared line
-		// does not exist. Never render that as up-to-date.
+		// Wildcard resolved-lock: the switch resolved the newest in-line member into
+		// Current — that is the update TARGET (where the lock should move to). A LOCKED
+		// wildcard uses its recorded `resolved` version as Current for CONTINUITY (it
+		// stays put until an update pass deliberately moves the lock); an unlocked one
+		// resolves to the newest in-line (first resolution → Current == target).
+		if wildcard {
+			dep.Latest = dep.Current // newest in-line = update target
+			if pin.Resolved != "" {
+				dep.Current = pin.Resolved
+				if dep.Latest == "" {
+					dep.Latest = pin.Resolved // line vanished upstream → stay locked, not "unresolved"
+				}
+			}
+		}
+
+		// A wildcard that matched nothing upstream AND has no lock is unresolved — the
+		// declared line does not exist. Never render that as up-to-date.
 		if wildcard && dep.Current == "" {
 			dep.ResolutionError = fmt.Sprintf("no released version matches constraint %q", pin.Constraint)
 		}

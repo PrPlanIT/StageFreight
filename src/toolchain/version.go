@@ -21,8 +21,14 @@ func ResolveVersion(tool, requestedVersion string, desired map[string]config.Too
 		return requestedVersion, false
 	}
 	if desired != nil {
-		if pin, ok := desired[tool]; ok && pin.Constraint != "" {
-			return pin.Constraint, true
+		// EffectiveVersion is the concrete version: the constraint when exact, or the
+		// machine-locked `resolved` version when it is a wildcard. A wildcard string
+		// ("1.26.x") is not downloadable, so an unlocked wildcard returns "" here and
+		// falls through to the tool default until an update pass writes the lock.
+		if pin, ok := desired[tool]; ok {
+			if v := pin.EffectiveVersion(); v != "" {
+				return v, true
+			}
 		}
 	}
 	if def, ok := LookupTool(tool); ok {

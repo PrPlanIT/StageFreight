@@ -588,10 +588,12 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, fmt.Sprintf("%s: %v", tpath, verr))
 			continue
 		}
-		// SHA256 authenticates exactly one artifact, so it is only meaningful with an
-		// exact constraint — a single digest cannot authenticate a version line.
-		if c.SHA256 != "" && depversion.IsWildcardConstraint(constraint) {
-			errs = append(errs, fmt.Sprintf("%s: sha256 requires an exact constraint (a single digest cannot authenticate a version line %q)", tpath, constraint))
+		// SHA256 authenticates exactly one artifact. For an exact constraint the
+		// constraint IS that artifact; for a WILDCARD the artifact is the machine-locked
+		// `resolved` version — so a sha256 on a wildcard requires a `resolved` lock. A
+		// bare hand-written sha256 (no resolved) cannot authenticate a moving line.
+		if c.SHA256 != "" && depversion.IsWildcardConstraint(constraint) && strings.TrimSpace(c.Resolved) == "" {
+			errs = append(errs, fmt.Sprintf("%s: sha256 on a wildcard constraint requires a `resolved` lock — a single digest cannot authenticate a version line %q", tpath, constraint))
 		}
 	}
 

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"gopkg.in/yaml.v3"
 )
 
@@ -64,7 +65,26 @@ func (c *ToolchainConfig) UnmarshalYAML(node *yaml.Node) error {
 // exact constraint (validated). Empty SHA256 means "verify via upstream ChecksumURL".
 type ToolConstraint struct {
 	Constraint string `yaml:"constraint,omitempty"`
-	SHA256     string `yaml:"sha256,omitempty"`
+	// Resolved is the concrete version a WILDCARD constraint is currently locked to —
+	// machine-maintained (the update pass writes it, like a Cargo.lock entry). Normal
+	// runs provision/verify this exact version, so a wildcard stays put until an update
+	// pass deliberately moves the lock forward. Empty/unused for an exact constraint
+	// (where Constraint is itself the version).
+	Resolved string `yaml:"resolved,omitempty"`
+	SHA256   string `yaml:"sha256,omitempty"`
+}
+
+// EffectiveVersion is the concrete version to provision and verify: the Constraint
+// itself when it is exact, or the machine-locked Resolved version when the Constraint
+// is a wildcard. Empty when a wildcard has no lock yet — the caller falls back to the
+// tool default until an update pass resolves it. This is what makes a wildcard
+// toolchain both continuous (same version between deliberate moves) and provisionable
+// (a wildcard string like "1.26.x" is not a downloadable version).
+func (t ToolConstraint) EffectiveVersion() string {
+	if depversion.IsWildcardConstraint(t.Constraint) {
+		return t.Resolved
+	}
+	return t.Constraint
 }
 
 // UnmarshalYAML accepts three input forms and NORMALIZES them to one internal
@@ -99,6 +119,7 @@ func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	var raw struct {
 		Constraint string `yaml:"constraint"`
 		Version    string `yaml:"version"` // legacy alias, normalized away here
+		Resolved   string `yaml:"resolved"`
 		SHA256     string `yaml:"sha256"`
 	}
 	if err := node.Decode(&raw); err != nil {
@@ -111,6 +132,7 @@ func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	if t.Constraint == "" {
 		t.Constraint = raw.Version // legacy alias
 	}
+	t.Resolved = raw.Resolved
 	t.SHA256 = raw.SHA256
 	return t, nil
 }

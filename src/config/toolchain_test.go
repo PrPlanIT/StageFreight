@@ -85,3 +85,32 @@ func TestToolConstraintToolNameError(t *testing.T) {
 		t.Errorf("error must name the tool 'helm', got %v", err)
 	}
 }
+
+func TestEffectiveVersion(t *testing.T) {
+	cases := []struct{ constraint, resolved, want string }{
+		{"1.26.4", "", "1.26.4"},       // exact → the constraint itself
+		{"1.26.x", "1.26.7", "1.26.7"}, // wildcard + lock → resolved
+		{"1.26.x", "", ""},             // wildcard, no lock → empty (caller falls back to default)
+	}
+	for _, c := range cases {
+		if got := (ToolConstraint{Constraint: c.constraint, Resolved: c.resolved}).EffectiveVersion(); got != c.want {
+			t.Errorf("EffectiveVersion(%q,%q) = %q, want %q", c.constraint, c.resolved, got, c.want)
+		}
+	}
+}
+
+func TestValidate_WildcardSha256RequiresResolved(t *testing.T) {
+	mk := func(c ToolConstraint) error {
+		_, err := Validate(&Config{Version: 1, Toolchains: ToolchainConfig{Desired: map[string]ToolConstraint{"trivy": c}}})
+		return err
+	}
+	if err := mk(ToolConstraint{Constraint: "1.26.x", SHA256: "abc"}); err == nil {
+		t.Error("wildcard + sha256 WITHOUT resolved must be rejected")
+	}
+	if err := mk(ToolConstraint{Constraint: "1.26.x", Resolved: "1.26.7", SHA256: "abc"}); err != nil {
+		t.Errorf("wildcard + resolved + sha256 (the lock) must validate, got %v", err)
+	}
+	if err := mk(ToolConstraint{Constraint: "1.26.4", SHA256: "abc"}); err != nil {
+		t.Errorf("exact + sha256 must validate, got %v", err)
+	}
+}
