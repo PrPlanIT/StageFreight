@@ -39,17 +39,15 @@ func FilterUpdateCandidates(deps []supplychain.Dependency, cfg UpdateConfig, tra
 	}
 
 	for _, dep := range deps {
-		if cat, reason := skipReason(dep, cfg, ecosystemFilter, trackedFiles); cat != SkipNone {
-			skipped = append(skipped, SkippedDep{Dep: dep, Category: cat, Reason: reason})
+		// One policy evaluation per dep — the updater, remediation, and freshness all
+		// read this same CandidateSet (see candidate.go). Here the updater consumes it.
+		cs := Construct(dep, cfg, ecosystemFilter, trackedFiles)
+		if !cs.Eligible {
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: cs.Category, Reason: cs.Reason})
 			continue
 		}
-		// A non-vulnerable candidate whose natural target exceeds the ceiling is kept
-		// (not skipped) only because an in-ceiling re-target exists — record it so the
-		// apply path advances to that lower version, not the natural latest.
-		if len(dep.Vulnerabilities) == 0 {
-			if t := ceilingRetarget(dep, cfg.MaxUpdate); t != "" {
-				dep.ResolvedTarget = t
-			}
+		if cs.ResolvedTarget != "" {
+			dep.ResolvedTarget = cs.ResolvedTarget // ceiling re-target → apply advances here
 		}
 		candidates = append(candidates, dep)
 	}

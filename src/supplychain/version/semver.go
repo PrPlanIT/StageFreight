@@ -60,6 +60,28 @@ func LatestEligibleSemver(current string, available []string) string {
 	return LatestSatisfying(current, available)
 }
 
+// Satisfies reports whether a SPECIFIC version v meets the raw manifest constraint
+// (operator honored, bare = caret). The version-level counterpart of LatestSatisfying,
+// used to test one candidate — e.g. an advisory's fixed-in — against declared policy.
+func Satisfies(constraint, v string) bool {
+	constr, err := masterminds.NewConstraint(caretIfBare(constraint))
+	if err != nil {
+		return false
+	}
+	ver, err := masterminds.NewVersion(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), "v")))
+	if err != nil {
+		return false
+	}
+	return constr.Check(ver)
+}
+
+// IsPrerelease reports whether v carries a semver pre-release component (e.g.
+// "1.2.0-rc1"). Unparseable versions are treated as non-prerelease.
+func IsPrerelease(v string) bool {
+	pv := ParseVersion(v)
+	return pv != nil && pv.Prerelease() != ""
+}
+
 // VersionDelta describes how far behind a dependency is.
 type VersionDelta struct {
 	Major int
