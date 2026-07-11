@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
+	"github.com/PrPlanIT/StageFreight/src/layout"
 )
 
 // OutputsManifest is the immutable description of the outputs produced by
@@ -202,7 +203,7 @@ const (
 // writes a publish-consumed file outside ManagedRoot reopens the seam where
 // publish receives manifest metadata for files it does not possess (the
 // v0.6.1 "binary archives didn't attach" failure). See the boundary tests.
-const ManagedRoot = ".stagefreight"
+const ManagedRoot = layout.Root
 
 // WithinManagedRoot reports whether path p (relative to repoRoot, or absolute)
 // resolves to a location at or beneath repoRoot/.stagefreight. It is the
