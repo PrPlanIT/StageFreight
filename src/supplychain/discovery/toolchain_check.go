@@ -11,6 +11,36 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
+const (
+	releasesPerPage = 100 // GitHub releases page size
+	maxReleasePages = 10  // bound: up to 1000 releases scanned before giving up on a wildcard line
+)
+
+// collectMatchingReleaseTags paginates release tags (GitHub returns them NEWEST-first)
+// until the constraint's line is FOUND, a page is exhausted, or the page cap is hit.
+// Because releases are newest-first, the newest member of a line is its highest patch —
+// so once selection finds a match, older pages can only hold lower versions and we stop.
+// fetchPage returns the (v-stripped) tags for a 1-indexed page; an empty slice = no more.
+// Bounded so a nonexistent line cannot loop forever (the caller then sees no match →
+// unresolved). This replaces the prior single-page (100 release) cap.
+func collectMatchingReleaseTags(constraint string, fetchPage func(page int) ([]string, error)) []string {
+	var tags []string
+	for page := 1; page <= maxReleasePages; page++ {
+		pageTags, err := fetchPage(page)
+		if err != nil || len(pageTags) == 0 {
+			break
+		}
+		tags = append(tags, pageTags...)
+		if version.SelectConstraint(constraint, tags) != "" {
+			break // found the line's newest (= highest) member
+		}
+		if len(pageTags) < releasesPerPage {
+			break // partial page → last page
+		}
+	}
+	return tags
+}
+
 // checkToolchainDesired generates Dependency entries from toolchains.desired config.
 // Each desired tool version is checked against its upstream GitHub release.
 // This is the replacement for Dockerfile ENV scanning — versions now live in config.
@@ -49,20 +79,26 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 			ep := m.cfg.Registries.GitHub
 			baseURL := m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com")
 			if wildcard {
-				// Candidate set: the release list. Selection: highest matching member.
-				url := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=100", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
-				dep.SourceURL = url
-				var rels []githubReleaseLatest
-				if err := m.http.fetchJSON(ctx, url, &rels, ep); err == nil {
-					tags := make([]string, 0, len(rels))
+				// Candidate set: the release list (PAGINATED — a wildcard's line may be
+				// older than the 100 most-recent releases). Selection: highest matching member.
+				listURL := fmt.Sprintf("%s/repos/%s/%s/releases", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
+				dep.SourceURL = listURL
+				tags := collectMatchingReleaseTags(constraint, func(page int) ([]string, error) {
+					pageURL := fmt.Sprintf("%s?per_page=%d&page=%d", listURL, releasesPerPage, page)
+					var rels []githubReleaseLatest
+					if err := m.http.fetchJSON(ctx, pageURL, &rels, ep); err != nil {
+						return nil, err
+					}
+					out := make([]string, 0, len(rels))
 					for _, r := range rels {
 						if r.TagName != "" {
-							tags = append(tags, strings.TrimPrefix(r.TagName, "v"))
+							out = append(out, strings.TrimPrefix(r.TagName, "v"))
 						}
 					}
-					dep.Current = version.SelectConstraint(constraint, tags) // resolved line member
-					dep.Latest = version.SelectConstraint("x.x.x", tags)      // highest overall stable
-				}
+					return out, nil
+				})
+				dep.Current = version.SelectConstraint(constraint, tags) // resolved line member
+				dep.Latest = version.SelectConstraint("x.x.x", tags)      // highest overall stable
 			} else {
 				url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
 				dep.SourceURL = url
