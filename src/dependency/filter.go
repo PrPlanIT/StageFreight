@@ -24,7 +24,7 @@ var autoUpdatableEcosystems = map[string]bool{
 	supplychain.EcosystemGoMod:         true,
 	supplychain.EcosystemToolchain:     true,
 	supplychain.EcosystemCargo:         true,
-	supplychain.EcosystemNpm:           false,
+	supplychain.EcosystemNpm:           true, // package.json ranges (apply_npm.go); lock re-gen via hardened npm
 	supplychain.EcosystemAlpineAPK:     false,
 	supplychain.EcosystemDebianAPT:     false,
 	supplychain.EcosystemPip:           true, // requirements.txt exact pins (apply_pip.go); Pipfile/poetry skipped there

@@ -220,9 +220,9 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	// 5. Eligibility — candidates by ecosystem; ecosystems named ONLY when present.
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
-	gomodDeps, dockerDeps, toolchainDeps, cargoDeps, pipDeps := groupByEcosystem(candidates)
+	gomodDeps, dockerDeps, toolchainDeps, cargoDeps, pipDeps, npmDeps := groupByEcosystem(candidates)
 	eligible := eligibleDetail(len(candidates), map[string]int{
-		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps), "pip": len(pipDeps),
+		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps), "pip": len(pipDeps), "npm": len(npmDeps),
 	})
 	// "latest available" ≠ "autonomous-safe target": surface constraint-expanding
 	// majors that are held for review rather than auto-applied.
@@ -308,6 +308,19 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
+	if len(npmDeps) > 0 {
+		t0 = time.Now()
+		applied, npmSkipped, touchedFiles, err := applyNpmUpdates(ctx, npmDeps, repoRoot)
+		if err != nil {
+			steps = append(steps, depStep{label: "npm", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			return result, fmt.Errorf("applying npm updates: %w", err)
+		}
+		steps = append(steps, ecosystemStep("npm", applied, npmSkipped, nil, time.Since(t0)))
+		result.Applied = append(result.Applied, applied...)
+		result.Skipped = append(result.Skipped, npmSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+	}
+
 	// 5a. Normalize, deduplicate, and sort FilesChanged
 	result.FilesChanged = deduplicateAndSort(result.FilesChanged)
 
@@ -369,7 +382,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	return result, nil
 }
 
-func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, pip []supplychain.Dependency) {
+func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, pip, npm []supplychain.Dependency) {
 	for _, dep := range deps {
 		switch dep.Ecosystem {
 		case supplychain.EcosystemGoMod:
@@ -382,6 +395,8 @@ func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, 
 			cargo = append(cargo, dep)
 		case supplychain.EcosystemPip:
 			pip = append(pip, dep)
+		case supplychain.EcosystemNpm:
+			npm = append(npm, dep)
 		}
 	}
 	return

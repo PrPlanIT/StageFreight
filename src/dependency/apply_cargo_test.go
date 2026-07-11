@@ -46,7 +46,7 @@ func TestCargoIsAutoUpdatable(t *testing.T) {
 
 // groupByEcosystem routes cargo deps to the cargo bucket (not dropped).
 func TestGroupByEcosystem_Cargo(t *testing.T) {
-	_, _, _, cargo, _ := groupByEcosystem([]supplychain.Dependency{
+	_, _, _, cargo, _, _ := groupByEcosystem([]supplychain.Dependency{
 		{Name: "serde", Ecosystem: supplychain.EcosystemCargo},
 		{Name: "cobra", Ecosystem: supplychain.EcosystemGoMod},
 	})
