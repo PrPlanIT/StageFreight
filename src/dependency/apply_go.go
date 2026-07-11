@@ -166,8 +166,11 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 			var getArgs []string
 			var pending []AppliedUpdate
 			for _, dep := range normal {
-				getArgs = append(getArgs, dep.Name+"@"+dep.Latest)
-				u := AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)}
+				// UpdateTarget() honors a ceiling re-target (ResolvedTarget) when the
+				// deps layer selected a lower in-range version; otherwise it is dep.Latest.
+				target := dep.UpdateTarget()
+				getArgs = append(getArgs, dep.Name+"@"+target)
+				u := AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: target, UpdateType: updateType(dep.Current, target)}
 				for _, v := range dep.Vulnerabilities {
 					u.CVEsFixed = append(u.CVEsFixed, v.ID)
 				}

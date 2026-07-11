@@ -19,6 +19,15 @@ type Dependency struct {
 	// constraint-expanding, never auto-applied.
 	LatestEligible string
 
+	// AvailableVersions is the set of published versions the registry lists — a pure
+	// registry fact retained so the deps layer can re-target within a max_update
+	// ceiling (e.g. patch-lock selecting the newest patch of the current minor rather
+	// than holding on a minor bump). Populated only where cheaply available: cargo (the
+	// list is already fetched to compute LatestEligible) and Go (via an @v/list fetch
+	// enabled only under patch-lock). Empty otherwise. Never a policy input — the deps
+	// layer selects a target from it; discovery just records what exists.
+	AvailableVersions []string
+
 	Ecosystem string // one of the Ecosystem* constants below
 	File      string // relative path from repo root
 	Line      int    // line number of the pinned version
@@ -48,12 +57,23 @@ type Dependency struct {
 	// Used by future update commands for MR grouping and automerge.
 	Group     string // assigned group name from package rules
 	Automerge bool   // whether this dep's MR should automerge
+
+	// ResolvedTarget, when set by the deps layer, is a ceiling-constrained update
+	// target that OVERRIDES the natural UpdateTarget(). It lets a max_update ceiling
+	// re-target to a lower in-range version — e.g. patch-lock choosing the newest
+	// patch of the current minor instead of holding — rather than skipping the dep
+	// entirely. Empty means "use the natural target". Never set by discovery.
+	ResolvedTarget string
 }
 
-// UpdateTarget is the version autonomous remediation should advance to: the latest
-// semver-COMPATIBLE version when known, else the latest available (ecosystems with no
-// compatibility model, e.g. exact go.mod pins). This is the perform-domain action.
+// UpdateTarget is the version autonomous remediation should advance to. A deps-layer
+// ResolvedTarget (a max_update re-target) wins; otherwise the latest semver-COMPATIBLE
+// version when known, else the latest available (ecosystems with no compatibility model,
+// e.g. exact go.mod pins). This is the perform-domain action.
 func (d Dependency) UpdateTarget() string {
+	if d.ResolvedTarget != "" {
+		return d.ResolvedTarget
+	}
 	if d.LatestEligible != "" {
 		return d.LatestEligible
 	}

@@ -81,3 +81,54 @@ func TestUpdateTypeExceedsCeiling(t *testing.T) {
 		}
 	}
 }
+
+// TestCeilingRetarget verifies that patch-lock re-targets to the newest in-range
+// patch (via AvailableVersions) instead of holding on a minor bump — and still
+// holds when no in-ceiling upgrade is available.
+func TestCeilingRetarget(t *testing.T) {
+	base := func() supplychain.Dependency {
+		return supplychain.Dependency{
+			Name:      "example.com/foo",
+			Ecosystem: supplychain.EcosystemGoMod,
+			File:      "go.mod",
+			Current:   "1.2.3",
+			Latest:    "1.3.0", // natural target is a MINOR bump
+		}
+	}
+
+	t.Run("patch-lock re-targets to newest in-range patch", func(t *testing.T) {
+		dep := base()
+		dep.AvailableVersions = []string{"1.2.3", "1.2.5", "1.2.7", "1.3.0", "2.0.0"}
+		cands, skipped := FilterUpdateCandidates([]supplychain.Dependency{dep}, UpdateConfig{MaxUpdate: "patch"}, nil)
+		if len(cands) != 1 {
+			t.Fatalf("want 1 candidate, got %d (skipped: %+v)", len(cands), skipped)
+		}
+		if cands[0].UpdateTarget() != "1.2.7" {
+			t.Fatalf("UpdateTarget = %q, want re-target 1.2.7", cands[0].UpdateTarget())
+		}
+	})
+
+	t.Run("patch-lock holds when no in-range patch exists", func(t *testing.T) {
+		dep := base()
+		dep.AvailableVersions = []string{"1.2.3", "1.3.0", "1.4.0"} // only minors above current
+		cands, skipped := FilterUpdateCandidates([]supplychain.Dependency{dep}, UpdateConfig{MaxUpdate: "patch"}, nil)
+		if len(cands) != 0 || len(skipped) != 1 {
+			t.Fatalf("want held, got %d candidates / %d skipped", len(cands), len(skipped))
+		}
+		if skipped[0].Reason != "exceeds max_update ceiling (patch)" {
+			t.Fatalf("reason = %q", skipped[0].Reason)
+		}
+	})
+
+	t.Run("minor ceiling takes the natural minor (no re-target)", func(t *testing.T) {
+		dep := base()
+		dep.AvailableVersions = []string{"1.2.3", "1.2.7", "1.3.0"}
+		cands, _ := FilterUpdateCandidates([]supplychain.Dependency{dep}, UpdateConfig{MaxUpdate: "minor"}, nil)
+		if len(cands) != 1 || cands[0].UpdateTarget() != "1.3.0" {
+			t.Fatalf("want natural 1.3.0, got %+v", cands)
+		}
+		if cands[0].ResolvedTarget != "" {
+			t.Fatalf("ResolvedTarget should be empty under minor ceiling, got %q", cands[0].ResolvedTarget)
+		}
+	})
+}

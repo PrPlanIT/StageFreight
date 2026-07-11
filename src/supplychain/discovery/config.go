@@ -31,6 +31,14 @@ type FreshnessConfig struct {
 	// "7d", "2w", "72h", or any Go duration. Empty/0 = disabled. Implemented for npm (the
 	// registry exposes per-version publish times); other ecosystems ignore it until wired.
 	MinReleaseAge string `json:"min_release_age"`
+
+	// FetchVersionLists is a capability flag (NOT a policy): when set, resolvers that
+	// would otherwise fetch only the latest version also retrieve the full published
+	// version list into Dependency.AvailableVersions. The deps layer enables it solely
+	// under a patch-lock ceiling — the only case that re-targets to a lower in-range
+	// version and thus needs the list — so the default path pays no extra network. A
+	// resolver that already has the list for free (cargo) populates it regardless.
+	FetchVersionLists bool `json:"fetch_version_lists"`
 }
 
 // minReleaseAge parses the configured cooldown into a duration (0 = disabled).

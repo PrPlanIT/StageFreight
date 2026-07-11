@@ -119,6 +119,22 @@ func (m *Resolver) resolveGoModule(ctx context.Context, dep *supplychain.Depende
 	if resp.Version != "" {
 		dep.Latest = resp.Version
 	}
+
+	// Under a patch-lock ceiling the deps layer needs the full version list to
+	// re-target to the newest patch of the current minor (proxy @latest only gives
+	// the single newest, which may be a minor). Gated behind FetchVersionLists so
+	// the default path makes no extra request. Best-effort: a list failure leaves
+	// AvailableVersions empty and the dep is simply held, as before.
+	if m.cfg.FetchVersionLists {
+		listURL := fmt.Sprintf("%s/%s/@v/list", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name))
+		if data, err := m.http.fetchBytes(ctx, listURL, ep); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if v := strings.TrimSpace(line); v != "" {
+					dep.AvailableVersions = append(dep.AvailableVersions, v)
+				}
+			}
+		}
+	}
 }
 
 // escapeModPath applies the Go module proxy's case-encoding — every uppercase letter

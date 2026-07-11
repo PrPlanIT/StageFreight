@@ -304,7 +304,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	if err != nil {
 		return fmt.Errorf("deps subsystem: collecting files: %w", err)
 	}
-	snapshot, err := discovery.Discover(ctx, freshnessOpts, discoveryFiles)
+	snapshot, err := discovery.Discover(ctx, withVersionLists(freshnessOpts, appCfg.Dependency.EffectiveMaxUpdate()), discoveryFiles)
 	if err != nil {
 		return fmt.Errorf("deps subsystem: resolving dependencies: %w", err)
 	}

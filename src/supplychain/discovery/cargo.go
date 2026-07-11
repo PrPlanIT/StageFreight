@@ -209,6 +209,9 @@ func (m *Resolver) resolveCrate(ctx context.Context, dep *supplychain.Dependency
 		}
 	}
 	dep.LatestEligible = version.LatestEligibleSemver(dep.Current, nums)
+	// Retain the (already-fetched) list so the deps layer can re-target within a
+	// max_update ceiling — free here, no extra request.
+	dep.AvailableVersions = nums
 }
 
 // buildLineIndex creates a map from content lines for lookup.

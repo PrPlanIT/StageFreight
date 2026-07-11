@@ -35,6 +35,7 @@ var (
 	depEcosystems []string
 	depOutputDir  string
 	depPolicy     string
+	depMaxUpdate  string
 )
 
 var dependencyUpdateCmd = &cobra.Command{
@@ -55,8 +56,27 @@ func init() {
 	dependencyUpdateCmd.Flags().StringSliceVar(&depEcosystems, "ecosystem", nil, "filter to specific ecosystem(s)")
 	dependencyUpdateCmd.Flags().StringVar(&depOutputDir, "output", ".stagefreight/deps", "output directory for artifacts")
 	dependencyUpdateCmd.Flags().StringVar(&depPolicy, "policy", "all", "update policy: all, security")
+	dependencyUpdateCmd.Flags().StringVar(&depMaxUpdate, "max-update", "", "update-type ceiling: major, minor, patch (default from config, else minor)")
 
 	dependencyCmd.AddCommand(dependencyUpdateCmd)
+}
+
+// withVersionLists returns freshnessOpts with the discovery version-list fetch
+// capability enabled when the deps ceiling is patch-lock — the only ceiling that
+// re-targets to a lower in-range version (the newest patch of the current minor)
+// and thus needs the full published version list. This bounds the extra @v/list
+// fetches (Go) to exactly that config; every other path is untouched. The input
+// map is never mutated. Shared by the audition (Discover) and CLI (Resolve) paths.
+func withVersionLists(opts map[string]any, maxUpdate string) map[string]any {
+	if maxUpdate != "patch" {
+		return opts
+	}
+	out := make(map[string]any, len(opts)+1)
+	for k, v := range opts {
+		out[k] = v
+	}
+	out["fetch_version_lists"] = true
+	return out
 }
 
 func runDependencyUpdate(cmd *cobra.Command, args []string) error {
@@ -76,12 +96,28 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 			depEcosystems = ecosystems
 		}
 	}
+	// Config supplies the freshness scope + update-type ceiling; an explicit flag
+	// overrides. Without this the CLI path would ignore dependency.policy /
+	// dependency.max_update that the audition already honors.
+	if !cmd.Flags().Changed("policy") {
+		depPolicy = cfg.Dependency.EffectivePolicy()
+	}
+	if !cmd.Flags().Changed("max-update") {
+		depMaxUpdate = cfg.Dependency.EffectiveMaxUpdate()
+	}
 
 	// Validate policy
 	if depPolicy != "all" && depPolicy != "security" {
 		return &ExitError{
 			Code: exitUpdateFail,
 			Err:  fmt.Errorf("unknown policy %q: valid values are \"all\", \"security\"", depPolicy),
+		}
+	}
+	// Validate max-update
+	if depMaxUpdate != "major" && depMaxUpdate != "minor" && depMaxUpdate != "patch" {
+		return &ExitError{
+			Code: exitUpdateFail,
+			Err:  fmt.Errorf("unknown max-update %q: valid values are \"major\", \"minor\", \"patch\"", depMaxUpdate),
 		}
 	}
 
@@ -120,7 +156,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve dependencies
-	deps, err := discovery.Resolve(ctx, freshnessOpts, files)
+	deps, err := discovery.Resolve(ctx, withVersionLists(freshnessOpts, depMaxUpdate), files)
 	if err != nil {
 		output.SectionEnd(w, "sf_deps_resolve")
 		return &ExitError{Code: exitUpdateFail, Err: fmt.Errorf("resolving dependencies: %w", err)}
@@ -156,6 +192,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 		Vulncheck:  !depNoVuln,
 		Ecosystems: depEcosystems,
 		Policy:     depPolicy,
+		MaxUpdate:  depMaxUpdate,
 		Ignore:     mapIgnores(cfg.Dependency.Ignore),
 	}
 

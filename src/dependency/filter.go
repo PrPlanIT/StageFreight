@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // SkippedDep records a dependency that was not updated, with a reason.
@@ -39,9 +40,35 @@ func FilterUpdateCandidates(deps []supplychain.Dependency, cfg UpdateConfig, tra
 			skipped = append(skipped, SkippedDep{Dep: dep, Reason: reason})
 			continue
 		}
+		// A non-vulnerable candidate whose natural target exceeds the ceiling is kept
+		// (not skipped) only because an in-ceiling re-target exists — record it so the
+		// apply path advances to that lower version, not the natural latest.
+		if len(dep.Vulnerabilities) == 0 {
+			if t := ceilingRetarget(dep, cfg.MaxUpdate); t != "" {
+				dep.ResolvedTarget = t
+			}
+		}
 		candidates = append(candidates, dep)
 	}
 	return
+}
+
+// ceilingRetarget returns a lower in-ceiling update target when a dependency's
+// natural target would be HELD by the max_update ceiling but the registry lists a
+// smaller in-ceiling upgrade — e.g. patch-lock selecting the newest patch of the
+// current minor rather than holding on a minor bump. Returns "" when the natural
+// target is already within the ceiling (nothing to re-target) or no in-ceiling
+// upgrade is available (the dep is genuinely held). Requires AvailableVersions,
+// which discovery populates only under patch-lock (and free for cargo).
+func ceilingRetarget(dep supplychain.Dependency, maxUpdate string) string {
+	if !updateTypeExceedsCeiling(updateType(dep.Current, dep.UpdateTarget()), maxUpdate) {
+		return "" // natural target already fits — it IS the best in-ceiling choice
+	}
+	t := depversion.CeilingTarget(dep.Current, dep.AvailableVersions, maxUpdate, dep.Ecosystem)
+	if t == dep.Current {
+		return ""
+	}
+	return t
 }
 
 // ApplyIgnores strips advisories the operator has explicitly accepted (dependency.ignore)
@@ -153,11 +180,17 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// — e.g. a Go v2+ module-path change); this gate adds the tighter in-range
 	// caps, e.g. "patch" holds an in-range minor so only patches land.
 	if len(dep.Vulnerabilities) == 0 && updateTypeExceedsCeiling(updateType(dep.Current, dep.UpdateTarget()), cfg.MaxUpdate) {
-		label := cfg.MaxUpdate
-		if label == "" {
-			label = "minor"
+		// The natural target exceeds the ceiling. Re-target to the highest in-ceiling
+		// version if the registry lists one (e.g. patch-lock grabbing the newest patch
+		// of the current minor); only HOLD when no in-ceiling upgrade exists. The
+		// re-target itself is recorded on the candidate in FilterUpdateCandidates.
+		if ceilingRetarget(dep, cfg.MaxUpdate) == "" {
+			label := cfg.MaxUpdate
+			if label == "" {
+				label = "minor"
+			}
+			return "exceeds max_update ceiling (" + label + ")"
 		}
-		return "exceeds max_update ceiling (" + label + ")"
 	}
 
 	// File not tracked by git
