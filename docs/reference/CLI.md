@@ -791,6 +791,7 @@ Use --dry-run to resolve and report without applying changes.
 | `--bundle` | bool | — | include deps-updated.tgz |
 | `--dry-run` | bool | — | resolve and report without applying changes |
 | `--ecosystem` | stringSlice | — | filter to specific ecosystem(s) |
+| `--max-update` | string | — | update-type ceiling: major, minor, patch (default from config, else minor) |
 | `--no-verify` | bool | — | skip go test after update |
 | `--no-vulncheck` | bool | — | skip govulncheck after update |
 | `--output` | string | `.stagefreight/deps` | output directory for artifacts |

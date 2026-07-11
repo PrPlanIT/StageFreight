@@ -471,6 +471,7 @@ Linting configuration. Controls scan mode, module toggles, and per-module option
 | `final_newline` | `remediation.final_newline` | bool | No | — | bool value |
 | `max_age` | `cache.max_age` | string | No | — | string value |
 | `max_size` | `cache.max_size` | string | No | — | string value |
+| `fail_on` | `fail_on` | string | No | — | string value |
 
 **`level` allowed values:** `changed`, `full`
 
@@ -600,6 +601,11 @@ commit:
 | `id` | `ignore.id` | string | Yes | — | string value |
 | `reason` | `ignore.reason` | string | No | — | string value |
 | `until` | `ignore.until` | string | No | — | string value |
+| `remediate` | `remediate` | bool | No | — | bool value |
+| `fail_on` | `fail_on` | string | No | — | string value |
+| `policy` | `policy` | string | No | — | string value |
+| `max_update` | `max_update` | string | No | — | string value |
+| `min_release_age` | `min_release_age` | string | No | — | string value |
 
 ---
 
