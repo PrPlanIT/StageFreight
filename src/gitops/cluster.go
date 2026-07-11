@@ -67,7 +67,7 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 	fmt.Fprintf(os.Stderr, "prepare[flux]: auth method=%s\n", credName)
 
 	// Resolve kubectl via toolchain.
-	kubectlVer, kubectlPinned := toolchain.ResolveVersion("kubectl", "", desired)
+	kubectlVer, kubectlPinned := toolchain.ResolveVersion(rctx.RepoRoot, "kubectl", "", desired)
 	kubectlResult, resolveErr := provision.Resolve(ctx, rctx.RepoRoot, "kubectl", kubectlVer, "cluster queries")
 	if resolveErr != nil {
 		if kubectlPinned {

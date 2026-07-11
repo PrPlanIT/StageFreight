@@ -204,7 +204,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Run Trivy if enabled.
 	if cfg.TrivyEnabled {
 		output.SectionStartCollapsed(sw, "sf_trivy_raw", "Trivy scanner (raw)")
-		trivyVer, trivyPinned := toolchain.ResolveVersion("trivy", "", cfg.ToolchainDesired)
+		trivyVer, trivyPinned := toolchain.ResolveVersion(cfg.RootDir, "trivy", "", cfg.ToolchainDesired)
 		trivyResult, trivyErr := provision.Resolve(ctx, cfg.RootDir, "trivy", trivyVer, "vulnerability scan (trivy)")
 		if trivyErr != nil {
 			if trivyPinned {
@@ -244,7 +244,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Run Grype if enabled.
 	if cfg.GrypeEnabled {
 		output.SectionStartCollapsed(sw, "sf_grype_raw", "Grype scanner (raw)")
-		grypeVer, grypePinned := toolchain.ResolveVersion("grype", "", cfg.ToolchainDesired)
+		grypeVer, grypePinned := toolchain.ResolveVersion(cfg.RootDir, "grype", "", cfg.ToolchainDesired)
 		grypeResult, grypeErr := provision.Resolve(ctx, cfg.RootDir, "grype", grypeVer, "vulnerability scan (grype)")
 		if grypeErr != nil {
 			if grypePinned {
@@ -293,7 +293,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	// Generate SBOM if enabled
 	if cfg.SBOMEnabled {
 		output.SectionStartCollapsed(sw, "sf_syft_raw", "Syft SBOM (raw)")
-		syftVer, syftPinned := toolchain.ResolveVersion("syft", "", cfg.ToolchainDesired)
+		syftVer, syftPinned := toolchain.ResolveVersion(cfg.RootDir, "syft", "", cfg.ToolchainDesired)
 		syftResult, syftErr := provision.Resolve(ctx, cfg.RootDir, "syft", syftVer, "SBOM generation (syft)")
 		if syftErr != nil {
 			output.SectionEnd(sw, "sf_syft_raw")

@@ -575,25 +575,18 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	}
 
 	// ── Toolchains ───────────────────────────────────────────────────────
-	// Semantic validation of the parsed constraint model (grammar / sha256 rule).
-	// Parsing already normalized the three input forms into ToolConstraint.
+	// Semantic validation of the parsed constraint model (grammar only). The config is
+	// pure intent; the machine-maintained resolution + digest live in
+	// .stagefreight/toolchains.lock, so there is no sha256/resolved to validate here.
 	for name, c := range cfg.Toolchains.Desired {
 		tpath := fmt.Sprintf("toolchains.desired.%s", name)
 		constraint := strings.TrimSpace(c.Constraint)
 		if constraint == "" {
-			errs = append(errs, fmt.Sprintf("%s: constraint is required", tpath))
+			errs = append(errs, fmt.Sprintf("%s: version is required", tpath))
 			continue
 		}
 		if verr := depversion.ValidateConstraint(constraint); verr != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", tpath, verr))
-			continue
-		}
-		// SHA256 authenticates exactly one artifact. For an exact constraint the
-		// constraint IS that artifact; for a WILDCARD the artifact is the machine-locked
-		// `resolved` version — so a sha256 on a wildcard requires a `resolved` lock. A
-		// bare hand-written sha256 (no resolved) cannot authenticate a moving line.
-		if c.SHA256 != "" && depversion.IsWildcardConstraint(constraint) && strings.TrimSpace(c.Resolved) == "" {
-			errs = append(errs, fmt.Sprintf("%s: sha256 on a wildcard constraint requires a `resolved` lock — a single digest cannot authenticate a version line %q", tpath, constraint))
 		}
 	}
 

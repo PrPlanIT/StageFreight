@@ -64,7 +64,7 @@ func SignBlob(ctx context.Context, rootDir string, desired map[string]config.Too
 
 // Available reports whether cosign can be resolved via the toolchain.
 func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
-	ver, _ := toolchain.ResolveVersion("cosign", "", desired)
+	ver, _ := toolchain.ResolveVersion(rootDir, "cosign", "", desired)
 	_, err := toolchain.Resolve(rootDir, "cosign", ver)
 	return err == nil
 }
@@ -72,7 +72,7 @@ func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
 // run resolves cosign and execs it with the rendered args and a class-appropriate
 // environment. The sole exec point; warnings carry cosign's stderr for diagnosis.
 func run(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, op string, args []string) error {
-	ver, pinned := toolchain.ResolveVersion("cosign", "", desired)
+	ver, pinned := toolchain.ResolveVersion(rootDir, "cosign", "", desired)
 	result, err := provision.Resolve(ctx, rootDir, "cosign", ver, "artifact signing")
 	if err != nil {
 		if pinned {

@@ -212,7 +212,7 @@ func finalize(v map[KustomizationKey]*Verdict) map[KustomizationKey]Verdict {
 // → a silent bypass. Under enforcement, an unavailable tool MUST become a Fail,
 // not a skip.
 func resolveTool(ctx context.Context, rootDir, tool, purpose string, desired map[string]config.ToolConstraint) (toolchain.Result, error) {
-	ver, pinned := toolchain.ResolveVersion(tool, "", desired)
+	ver, pinned := toolchain.ResolveVersion(rootDir, tool, "", desired)
 	res, err := provision.Resolve(ctx, rootDir, tool, ver, purpose) // resolves AND records in the ctx ledger
 	if err != nil {
 		if pinned {

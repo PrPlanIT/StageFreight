@@ -230,7 +230,7 @@ func (m *vulnModule) reachability(ctx context.Context, files []lint.FileInfo, ob
 // govulncheck failure is never hard — reachability is enrichment.
 func (m *vulnModule) govulncheck(ctx context.Context, root string) (string, []string, error) {
 	m.gvOnce.Do(func() {
-		gvVer, _ := toolchain.ResolveVersion("govulncheck", "", m.desired)
+		gvVer, _ := toolchain.ResolveVersion(root, "govulncheck", "", m.desired)
 		gvRes, err := provision.Resolve(ctx, root, "govulncheck", gvVer, "vulnerability reachability analysis")
 		if err != nil {
 			m.gvErr = err
@@ -364,7 +364,7 @@ func (m *vulnModule) eligibleDeps(deps []supplychain.Dependency) []supplychain.D
 func (m *vulnModule) scanner(ctx context.Context, file lint.FileInfo) (string, error) {
 	m.once.Do(func() {
 		root := repoRoot(file)
-		ver, pinned := toolchain.ResolveVersion("osv-scanner", "", m.desired)
+		ver, pinned := toolchain.ResolveVersion(root, "osv-scanner", "", m.desired)
 		result, err := provision.Resolve(ctx, root, "osv-scanner", ver, "dependency vulnerability audit")
 		if err != nil {
 			if pinned {

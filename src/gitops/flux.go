@@ -42,7 +42,7 @@ func (f *FluxBackend) Capabilities() []runtime.Capability {
 // Validate checks that the flux CLI is available and cluster config is complete.
 func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
 	// Resolve flux CLI via toolchain.
-	fluxVer, fluxPinned := toolchain.ResolveVersion("flux", "", cfg.Toolchains.Desired)
+	fluxVer, fluxPinned := toolchain.ResolveVersion(rctx.RepoRoot, "flux", "", cfg.Toolchains.Desired)
 	fluxResult, err := provision.Resolve(ctx, rctx.RepoRoot, "flux", fluxVer, "Flux reconcile")
 	if err != nil {
 		if fluxPinned {

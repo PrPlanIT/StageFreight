@@ -124,7 +124,7 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 // verifyCosignSignature runs cosign verify against a digest reference.
 func verifyCosignSignature(ctx context.Context, r *VerificationResult, opts VerifyOpts) {
 	rootDir, _ := os.Getwd()
-	cosignVer, _ := toolchain.ResolveVersion("cosign", "", opts.ToolchainDesired)
+	cosignVer, _ := toolchain.ResolveVersion(rootDir, "cosign", "", opts.ToolchainDesired)
 	cosignResult, resolveErr := provision.Resolve(ctx, rootDir, "cosign", cosignVer, "signature verification")
 	if resolveErr != nil {
 		diag.Debug(false, "cosign: toolchain resolve failed, skipping signature verification: %v", resolveErr)

@@ -5,47 +5,28 @@ import (
 	"testing"
 )
 
-func TestFindToolBlockLines(t *testing.T) {
+func TestFindToolConstraintLine(t *testing.T) {
 	lines := strings.Split(`toolchains:
   desired:
     cargo-llvm-cov:
       version: "0.8.7"
-      sha256: "abc123"
     trivy:
-      version: "0.69.3"
-    kubectl:
-      constraint: "1.26.x"
-      resolved: "1.26.7"
-      sha256: "def456"
+      version: "0.69.x"
+    empty:
+      other: 1
 `, "\n")
 
-	// cargo-llvm-cov block (key at line 2, indent 4) has version + sha256, no resolved.
-	if v, k, r, s := findToolBlockLines(lines, 2, 4, 6); v != 3 || k != "version" || r != -1 || s != 4 {
-		t.Errorf("cargo-llvm-cov: verIdx=%d key=%q resolvedIdx=%d shaIdx=%d, want 3,version,-1,4", v, k, r, s)
+	// cargo-llvm-cov block (key at line 2, indent 4): the `version:` line.
+	if v, k := findToolConstraintLine(lines, 2, 4, 8); v != 3 || k != "version" {
+		t.Errorf("cargo-llvm-cov: verIdx=%d key=%q, want 3,version", v, k)
 	}
-	// trivy block (key at line 5) has only a version line — no digest to touch.
-	if v, k, r, s := findToolBlockLines(lines, 5, 4, 7); v != 6 || k != "version" || r != -1 || s != -1 {
-		t.Errorf("trivy: verIdx=%d key=%q resolvedIdx=%d shaIdx=%d, want 6,version,-1,-1", v, k, r, s)
+	// trivy block (key at line 4): a wildcard version.
+	if v, k := findToolConstraintLine(lines, 4, 4, 8); v != 5 || k != "version" {
+		t.Errorf("trivy: verIdx=%d key=%q, want 5,version", v, k)
 	}
-	// kubectl block (key at line 7) is a wildcard lock: constraint + resolved + sha256.
-	if v, k, r, s := findToolBlockLines(lines, 7, 4, 10); v != 8 || k != "constraint" || r != 9 || s != 10 {
-		t.Errorf("kubectl: verIdx=%d key=%q resolvedIdx=%d shaIdx=%d, want 8,constraint,9,10", v, k, r, s)
-	}
-}
-
-func TestInsertLine(t *testing.T) {
-	base := []string{"a", "b", "c"}
-	got := insertLine(base, 1, "X")
-	if strings.Join(got, ",") != "a,X,b,c" {
-		t.Errorf("insert at 1 = %v, want [a X b c]", got)
-	}
-	// The source slice must be untouched (fresh backing array).
-	if strings.Join(base, ",") != "a,b,c" {
-		t.Errorf("insertLine mutated source: %v", base)
-	}
-	// Append at the end.
-	if end := insertLine(base, len(base), "Z"); strings.Join(end, ",") != "a,b,c,Z" {
-		t.Errorf("insert at end = %v, want [a b c Z]", end)
+	// A block with no version line → not found.
+	if v, k := findToolConstraintLine(lines, 6, 4, 8); v != -1 || k != "" {
+		t.Errorf("empty: verIdx=%d key=%q, want -1,''", v, k)
 	}
 }
 

@@ -49,6 +49,11 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 		return nil
 	}
 
+	// The machine-maintained resolution of each wildcard constraint lives in
+	// .stagefreight/toolchains.lock (read relative to cwd, the same repo-root assumption
+	// under which .stagefreight.yml is read). A missing lock yields an empty one.
+	lock, _ := toolchain.ReadLock("")
+
 	var deps []supplychain.Dependency
 
 	for _, def := range toolchain.AllTools() {
@@ -68,7 +73,7 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 			Name:      def.Name,
 			Ecosystem: supplychain.EcosystemToolchain,
 			File:      ".stagefreight.yml",
-			Binding:   fmt.Sprintf("toolchains.desired.%s.constraint", def.Name),
+			Binding:   fmt.Sprintf("toolchains.desired.%s.version", def.Name),
 		}
 		if !wildcard {
 			dep.Current = constraint
@@ -132,10 +137,10 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 		// resolves to the newest in-line (first resolution → Current == target).
 		if wildcard {
 			dep.Latest = dep.Current // newest in-line = update target
-			if pin.Resolved != "" {
-				dep.Current = pin.Resolved
+			if locked := lock.Resolved(def.Name); locked != "" {
+				dep.Current = locked
 				if dep.Latest == "" {
-					dep.Latest = pin.Resolved // line vanished upstream → stay locked, not "unresolved"
+					dep.Latest = locked // line vanished upstream → stay locked, not "unresolved"
 				}
 			}
 		}

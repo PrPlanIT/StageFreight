@@ -195,11 +195,17 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 // resolves). Fails clearly when the tool isn't pinned — coverage requires an explicit
 // project trust root.
 func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolConstraint) ([]string, error) {
-	// Both fields optional: version → registry DefaultVer, sha256 → TOFU. A user MAY
-	// pin either in toolchains.desired for stronger guarantees, but coverage works with
-	// nothing configured.
-	pin := desired["cargo-llvm-cov"]
-	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", pin.Constraint, pin.SHA256)
+	// Both optional: an absent version → registry DefaultVer, an absent digest → TOFU. A
+	// user MAY pin either for stronger guarantees, but coverage works with nothing
+	// configured. The digest now lives in .stagefreight/toolchains.lock, not the config.
+	ver, _ := toolchain.ResolveVersion(rootDir, "cargo-llvm-cov", "", desired)
+	sha := ""
+	if lock, lerr := toolchain.ReadLock(rootDir); lerr == nil {
+		if e, ok := lock.Get("cargo-llvm-cov"); ok {
+			sha = e.SHA256
+		}
+	}
+	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", ver, sha)
 	if err != nil {
 		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}
