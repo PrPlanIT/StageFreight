@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -66,29 +65,28 @@ func applyNpmUpdates(ctx context.Context, deps []supplychain.Dependency, repoRoo
 		touchedFiles = append(touchedFiles, file)
 	}
 
-	// Regenerate package-lock.json for each edited manifest that has one — via the
-	// hardened runner. node is provisioned lazily (only if a lock needs syncing).
-	var runNpm npmRunner
+	// Regenerate the lockfile (npm / yarn / pnpm) for each edited manifest that has one,
+	// via the format-aware hardened runner. node (which bundles npm + corepack) is
+	// provisioned lazily — only when a recognized lockfile is actually present.
+	var tools *nodeToolRunner
 	for file := range byFile {
 		dir := filepath.Dir(filepath.Join(repoRoot, file))
-		lock := filepath.Join(dir, "package-lock.json")
-		if _, err := os.Stat(lock); err != nil {
-			continue // no lockfile — the manifest edit stands alone
+		if _, _, _, _, ok := nodeLockCommand(dir); !ok {
+			continue // no recognized lockfile — the manifest edit stands alone
 		}
-		if runNpm == nil {
-			r, err := resolveNpmRunner(repoRoot)
+		if tools == nil {
+			t, err := resolveNodeTools(repoRoot)
 			if err != nil {
 				return applied, skipped, deduplicateAndSort(touchedFiles), fmt.Errorf("provisioning node for lockfile sync: %w", err)
 			}
-			runNpm = r
+			tools = t
 		}
-		if out, err := runNpm(ctx, dir, "install", "--package-lock-only"); err != nil {
-			rel, _ := filepath.Rel(repoRoot, dir)
-			return applied, skipped, deduplicateAndSort(touchedFiles),
-				fmt.Errorf("npm install --package-lock-only in %s: %w\n%s", rel, err, strings.TrimSpace(string(out)))
+		lock, err := tools.syncLock(ctx, repoRoot, dir)
+		if err != nil {
+			return applied, skipped, deduplicateAndSort(touchedFiles), err
 		}
-		if rel, relErr := filepath.Rel(repoRoot, lock); relErr == nil {
-			touchedFiles = append(touchedFiles, rel)
+		if lock != "" {
+			touchedFiles = append(touchedFiles, lock)
 		}
 	}
 	return applied, skipped, deduplicateAndSort(touchedFiles), nil
