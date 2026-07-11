@@ -35,14 +35,23 @@ builds:
     build_mode: crucible
     platforms: [linux/amd64]
 
-  # Reference docs are a build: run SF's own doc generator (in ci.image — SF *is* the
-  # image) and capture the tree. narrate.commit lands it at docs/modules, where the
-  # narrator include items assemble it into docs/reference.
+  # Reference docs are a build: generate them from THIS commit's binary, not a stale one.
+  # stage recycles the freshly-built stagefreight-bin into the workspace as ./stagefreight
+  # (same mechanism as a docker build's stage:), so docs reflect the CLI + config being
+  # shipped — never the previous release's schema — with no recompile. No image is pinned:
+  # kind: command defaults to ci.image, which is just the sandbox — we execute the staged
+  # static binary, not whatever the image ships. `worktree: true` lands the tree at the
+  # output's source path (docs/modules) at the start of Narrate, where the narrator include
+  # items assemble it into docs/reference; `{output}` names the path once. This is the
+  # general shape any project uses: build your tool, stage it, run it.
   - id: reference
     kind: command
-    command: [stagefreight, docs, generate, --output-dir, docs/generated]
+    stage:
+      from: stagefreight-bin
+      as: stagefreight
+    command: [./stagefreight, docs, generate, --output-dir, "{output}"]
     outputs:
-      - { type: tree, source: docs/generated }
+      - { type: tree, source: docs/modules, worktree: true }
 
   - id: stagefreight-bin
     kind: binary
@@ -587,8 +596,6 @@ narrate:
     # the image — e.g. FAIRER-pages — keep this false: there a docs change is a
     # real build input.) Broader X-StageFreight-Generated-keyed policy is TODO.
     skip_ci: true
-    builds:
-      - { build: reference, destination: docs/modules }
 
 lint:
   level: full

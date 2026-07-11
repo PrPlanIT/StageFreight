@@ -182,9 +182,25 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				} else if strings.HasPrefix(o.Source, "/") || strings.Contains(o.Source, "..") {
 					errs = append(errs, fmt.Sprintf("%s: outputs[%d].source %q must be repo-relative (no leading / or ..)", bpath, i, o.Source))
 				}
+				// worktree (if a rename path) must be repo-relative — it's landed in the tree.
+				if o.Worktree != nil && o.Worktree.Path != "" {
+					if pErrs := validateOutputPath(o.Worktree.Path, fmt.Sprintf("%s.outputs[%d].worktree", bpath, i)); len(pErrs) > 0 {
+						errs = append(errs, pErrs...)
+					}
+				}
 			}
 			if b.Builder != "" {
 				errs = append(errs, fmt.Sprintf("%s: builder is not valid for kind command (it has no language inference)", bpath))
+			}
+			// stage recycles a binary build's output INTO the command's workspace, so the
+			// command can invoke a freshly-built tool (./tool) — same field as docker's stage.
+			if b.Stage != nil {
+				if b.Stage.From == "" {
+					errs = append(errs, fmt.Sprintf("%s: stage requires from (the binary build id to recycle into the workspace)", bpath))
+				}
+				if b.Stage.As == "" {
+					errs = append(errs, fmt.Sprintf("%s: stage requires as (the workspace path to place it, e.g. \"stagefreight\")", bpath))
+				}
 			}
 		}
 
@@ -264,8 +280,16 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				errs = append(errs, fmt.Sprintf("%s: depends_on cannot reference itself", bpath))
 			}
 		}
-		if b.Stage != nil && b.Stage.From != "" && !buildIDs[b.Stage.From] {
-			errs = append(errs, fmt.Sprintf("builds[%d]: stage.from references unknown build %q", i, b.Stage.From))
+		if b.Stage != nil && b.Stage.From != "" {
+			if !buildIDs[b.Stage.From] {
+				errs = append(errs, fmt.Sprintf("builds[%d]: stage.from references unknown build %q", i, b.Stage.From))
+			} else {
+				for _, sb := range cfg.Builds {
+					if sb.ID == b.Stage.From && sb.Kind != "binary" {
+						errs = append(errs, fmt.Sprintf("builds[%d]: stage.from %q must be a kind: binary build (only binaries produce a stageable executable)", i, b.Stage.From))
+					}
+				}
+			}
 		}
 	}
 
@@ -439,29 +463,17 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, pathErrs...)
 		}
 	}
-	// narrate.commit.builds land a command-build's tree at a repo path before commit.
-	// Fail loudly (not silently) if a binding points at a missing or non-command build.
-	commandBuildIDs := make(map[string]bool)
-	for _, b := range cfg.Builds {
-		if b.Kind == "command" {
-			commandBuildIDs[b.ID] = true
+	// Build outputs reach the working tree via outputs[].worktree (materialized at the
+	// start of Narrate), not a binding here — so two outputs must not collide on the
+	// same landing path, which would make the tree's contents order-dependent.
+	worktreePaths := make(map[string]string)
+	for _, wo := range cfg.WorktreeOutputs() {
+		path := wo.Output.WorktreePath()
+		if prev, ok := worktreePaths[path]; ok {
+			errs = append(errs, fmt.Sprintf("builds %q and %q both land in the working tree at %q — worktree paths must be unique", prev, wo.BuildID, path))
+			continue
 		}
-	}
-	for i, bd := range cfg.Narrate.Commit.Builds {
-		bp := fmt.Sprintf("narrate.commit.builds[%d]", i)
-		switch {
-		case bd.Build == "":
-			errs = append(errs, fmt.Sprintf("%s: build is required (the kind: command build whose tree to land)", bp))
-		case !buildIDs[bd.Build]:
-			errs = append(errs, fmt.Sprintf("%s: unknown build %q (not in builds[])", bp, bd.Build))
-		case !commandBuildIDs[bd.Build]:
-			errs = append(errs, fmt.Sprintf("%s: build %q is not a kind: command build — only command builds produce a committable tree here", bp, bd.Build))
-		}
-		if bd.Destination == "" {
-			errs = append(errs, fmt.Sprintf("%s: destination is required (the in-repo path to land the tree)", bp))
-		} else if dErrs := validateOutputPath(bd.Destination, bp+".destination"); len(dErrs) > 0 {
-			errs = append(errs, dErrs...)
-		}
+		worktreePaths[path] = wo.BuildID
 	}
 
 	// ── Manifest ────────────────────────────────────────────────────

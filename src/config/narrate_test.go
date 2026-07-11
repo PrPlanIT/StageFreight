@@ -17,36 +17,35 @@ func TestNarrateConfig_IsZero(t *testing.T) {
 	}
 }
 
-// TestValidate_NarrateCommitBuilds covers the build-binding safeguard: a narrate commit
-// may only land a kind: command build's tree, and only to a repo-relative destination.
-func TestValidate_NarrateCommitBuilds(t *testing.T) {
-	cmdBuild := BuildConfig{ID: "ref", Kind: "command", Command: "x", Outputs: []OutputSpec{{Type: "tree", Source: "docs/generated"}}}
-	dockerBuild := BuildConfig{ID: "img", Kind: "docker"}
-
-	errStr := func(builds []BuildConfig, bindings []NarrateBuildBinding) string {
-		cfg := &Config{Version: 1, Builds: builds, Narrate: NarrateConfig{Commit: NarrateCommitConfig{Builds: bindings}}}
-		_, err := Validate(cfg)
-		if err == nil {
-			return ""
-		}
-		return err.Error()
+// TestOutputSpec_Worktree covers the worktree opt-in semantics: absent = pure artifact,
+// true = land at source, path = land at a rename target.
+func TestOutputSpec_Worktree(t *testing.T) {
+	none := OutputSpec{Type: "tree", Source: "docs/modules"}
+	if none.LandsInWorktree() {
+		t.Error("no worktree → should not land")
 	}
 
-	// Valid: binds a command build to a repo-relative destination.
-	if e := errStr([]BuildConfig{cmdBuild}, []NarrateBuildBinding{{Build: "ref", Destination: "docs/reference"}}); strings.Contains(e, "narrate.commit.builds") {
-		t.Errorf("valid binding produced an error: %s", e)
+	yes := OutputSpec{Type: "tree", Source: "docs/modules", Worktree: &WorktreeSpec{Set: true}}
+	if !yes.LandsInWorktree() || yes.WorktreePath() != "docs/modules" {
+		t.Errorf("worktree: true → lands at source; got lands=%v path=%q", yes.LandsInWorktree(), yes.WorktreePath())
 	}
 
-	check := func(name string, builds []BuildConfig, b NarrateBuildBinding, want string) {
-		t.Run(name, func(t *testing.T) {
-			if e := errStr(builds, []NarrateBuildBinding{b}); !strings.Contains(e, want) {
-				t.Errorf("want %q, got: %s", want, e)
-			}
-		})
+	renamed := OutputSpec{Type: "tree", Source: "dist", Worktree: &WorktreeSpec{Set: true, Path: "docs/site"}}
+	if !renamed.LandsInWorktree() || renamed.WorktreePath() != "docs/site" {
+		t.Errorf("worktree: <path> → lands at path; got lands=%v path=%q", renamed.LandsInWorktree(), renamed.WorktreePath())
 	}
-	check("missing build", []BuildConfig{cmdBuild}, NarrateBuildBinding{Destination: "docs/reference"}, "build is required")
-	check("unknown build", []BuildConfig{cmdBuild}, NarrateBuildBinding{Build: "nope", Destination: "docs/reference"}, "unknown build")
-	check("non-command build", []BuildConfig{dockerBuild}, NarrateBuildBinding{Build: "img", Destination: "docs/reference"}, "not a kind: command build")
-	check("missing destination", []BuildConfig{cmdBuild}, NarrateBuildBinding{Build: "ref"}, "destination is required")
-	check("absolute destination", []BuildConfig{cmdBuild}, NarrateBuildBinding{Build: "ref", Destination: "/etc/x"}, "narrate.commit.builds[0].destination")
+}
+
+// TestValidate_WorktreeCollision covers the safeguard that two build outputs may not land
+// at the same working-tree path (which would make the tree order-dependent).
+func TestValidate_WorktreeCollision(t *testing.T) {
+	mk := func(id, src string) BuildConfig {
+		return BuildConfig{ID: id, Kind: "command", Command: "x",
+			Outputs: []OutputSpec{{Type: "tree", Source: src, Worktree: &WorktreeSpec{Set: true}}}}
+	}
+	cfg := &Config{Version: 1, Builds: []BuildConfig{mk("a", "docs/modules"), mk("b", "docs/modules")}}
+	_, err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "worktree paths must be unique") {
+		t.Errorf("colliding worktree paths should fail; got: %v", err)
+	}
 }

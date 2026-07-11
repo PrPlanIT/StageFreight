@@ -80,7 +80,31 @@ type guardedFile struct {
 }
 
 func snapshotArtifactDir(repoRoot string) string {
-	return filepath.Join(repoRoot, ".git", "stagefreight", "worktree-snapshots")
+	return filepath.Join(resolveGitDir(repoRoot), "stagefreight", "worktree-snapshots")
+}
+
+// resolveGitDir returns repoRoot's git directory. In a normal checkout that's
+// repoRoot/.git (a directory); in a LINKED WORKTREE, .git is a *file* holding
+// "gitdir: <path>" pointing at the per-worktree git dir — MkdirAll under the file would
+// fail ("not a directory"), so follow the pointer. Falls back to repoRoot/.git so the
+// caller's MkdirAll surfaces any real error.
+func resolveGitDir(repoRoot string) string {
+	dot := filepath.Join(repoRoot, ".git")
+	if info, err := os.Stat(dot); err == nil && info.IsDir() {
+		return dot
+	}
+	data, err := os.ReadFile(dot)
+	if err != nil {
+		return dot
+	}
+	line := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:"))
+	if line == "" {
+		return dot
+	}
+	if !filepath.IsAbs(line) {
+		line = filepath.Join(repoRoot, line)
+	}
+	return line
 }
 
 // snapshotFileJSON is the on-disk serialization of one preserved path. Content is

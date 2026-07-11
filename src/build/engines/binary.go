@@ -216,5 +216,8 @@ func resolveTemplateVars(s string, cfg build.BuildConfig) string {
 		}
 	}
 	s = strings.ReplaceAll(s, "{date}", time.Now().UTC().Format(time.RFC3339))
+	// {output} resolves to the build's declared output path so a command can name it once:
+	//   outputs: [{ source: docs/modules }]  →  command: [..., --output-dir, "{output}"]
+	s = strings.ReplaceAll(s, "{output}", cfg.Output)
 	return s
 }

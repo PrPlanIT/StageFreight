@@ -19,23 +19,15 @@ type NarrateConfig struct {
 }
 
 // NarrateCommitConfig is the auto-commit ACTION — it uses the top-level `commit:` engine
-// for formatting/backend and adds: which command-builds' trees to land in the repo
-// (Builds) and which paths to stage (Add).
+// for formatting/backend and declares which paths to stage (Add). Build outputs reach the
+// working tree via the build's own `outputs[].worktree`, not a binding here.
 type NarrateCommitConfig struct {
-	Type    string                `yaml:"type,omitempty"`    // conventional type; default: engine's
-	Message string                `yaml:"message,omitempty"`
-	Add     []string              `yaml:"add,omitempty"`
-	Push    bool                  `yaml:"push,omitempty"`
-	SkipCI  bool                  `yaml:"skip_ci,omitempty"`
-	RunFrom RunFromConfig         `yaml:"run_from,omitempty"` // gate mutation to declared origin
-	Builds  []NarrateBuildBinding `yaml:"builds,omitempty"`   // extract build tree → destination, then stage
-}
-
-// NarrateBuildBinding lands a command-build's output tree at a repo destination before
-// the commit stages it — the producer (build) owns what it made; this owns where it goes.
-type NarrateBuildBinding struct {
-	Build       string `yaml:"build"`
-	Destination string `yaml:"destination"`
+	Type    string        `yaml:"type,omitempty"` // conventional type; default: engine's
+	Message string        `yaml:"message,omitempty"`
+	Add     []string      `yaml:"add,omitempty"`
+	Push    bool          `yaml:"push,omitempty"`
+	SkipCI  bool          `yaml:"skip_ci,omitempty"`
+	RunFrom RunFromConfig `yaml:"run_from,omitempty"` // gate mutation to declared origin
 }
 
 // IsZero reports whether nothing is configured (Narrate is inactive).
@@ -45,6 +37,6 @@ func (n NarrateConfig) IsZero() bool {
 
 // IsZero reports whether the commit action has nothing to do.
 func (c NarrateCommitConfig) IsZero() bool {
-	return c.Type == "" && c.Message == "" && len(c.Add) == 0 && len(c.Builds) == 0 &&
+	return c.Type == "" && c.Message == "" && len(c.Add) == 0 &&
 		!c.Push && !c.SkipCI
 }

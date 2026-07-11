@@ -5,6 +5,8 @@ package contributors
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -172,8 +174,22 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 		rows = append(rows, fmt.Sprintf("%-9s cache %s · %s", "binary", toolchain.CacheRoot(), state))
 	}
 
+	rootDir, _ := os.Getwd()
 	for i := range b.steps {
 		step := b.steps[i]
+		// Stage: if this build recycles a prior binary build's output (stage: {from, as}),
+		// place it in the workspace BEFORE the step runs, so a command build can invoke the
+		// freshly-built tool (./stagefreight) instead of recompiling or running a stale
+		// image binary. depends_on guarantees the binary is already in b.built (topo order);
+		// the container engine copies the workspace in, so the staged file rides along.
+		if sc := stageForBuild(rc.Config, step.BuildID); sc != nil {
+			if err := stageIntoWorkspace(rootDir, sc, step.Target, b.built); err != nil {
+				rows = append(rows, fmt.Sprintf("%-9s %-30s %s  %s",
+					"binary", step.StepID, step.Target.String(), output.StatusIcon("failed", rc.Color)))
+				return domains.Contribution{Rows: rows, Status: "failed", Summary: "binary build failed"},
+					fmt.Errorf("staging for %s: %w", step.StepID, err)
+			}
+		}
 		// Per-step dispatch: the step's Engine ("binary-go", later "binary-rust") is
 		// the key, so a single run can mix language engines under one pipeline.
 		eng, err := build.GetV2(step.Engine)
@@ -232,8 +248,8 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contribution, error) {
 	archiveTargets := pipeline.CollectTargetsByKind(rc.Config, "binary-archive")
 	pagesTargets := pipeline.CollectTargetsByKind(rc.Config, "pages")
-	narrateBuilds := rc.Config.Narrate.Commit.Builds
-	if (len(archiveTargets) == 0 && len(pagesTargets) == 0 && len(narrateBuilds) == 0) || len(b.built) == 0 {
+	worktreeOutputs := rc.Config.WorktreeOutputs()
+	if (len(archiveTargets) == 0 && len(pagesTargets) == 0 && len(worktreeOutputs) == 0) || len(b.built) == 0 {
 		return domains.Contribution{Skip: true}, nil
 	}
 
@@ -374,16 +390,16 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 		}
 	}
 
-	// Archive builds referenced by narrate.commit.builds so a command-build's output
-	// tree crosses the perform→narrate boundary as a transport artifact under
-	// ManagedRoot — the narrate runner resolves it via ResolveSuccessfulBuildOutput.
-	// Same mechanism as pages; skip a build a pages/binary-archive target already covered.
-	for _, bd := range narrateBuilds {
-		if bd.Build == "" || archivedBuilds[bd.Build] {
+	// Archive builds with a worktree output so the tree crosses the perform→narrate
+	// boundary as a transport artifact under ManagedRoot — the narrate runner materializes
+	// it via ResolveSuccessfulBuildOutput at the start of Narrate. Same mechanism as pages;
+	// skip a build a pages/binary-archive target already covered.
+	for _, wo := range worktreeOutputs {
+		if wo.BuildID == "" || archivedBuilds[wo.BuildID] {
 			continue
 		}
 		for _, pb := range b.built {
-			if pb.BuildID != bd.Build {
+			if pb.BuildID != wo.BuildID {
 				continue
 			}
 			archResult, err := build.CreateArchive(build.ArchiveOpts{
@@ -420,7 +436,7 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 			})
 			rows = append(rows, fmt.Sprintf("%-9s %-40s %s  (narrate transport)",
 				"narrate", filepath.Base(archResult.Path), output.StatusIcon("success", rc.Color)))
-			archivedBuilds[bd.Build] = true
+			archivedBuilds[wo.BuildID] = true
 			archiveCount++
 		}
 	}
@@ -515,6 +531,57 @@ type builtBinary struct {
 
 func uniqueBinaryArtifactName(binaryName, osName, arch string) string {
 	return binaryName + "-" + osName + "-" + arch
+}
+
+// stageForBuild returns the stage config of the build with the given ID, or nil.
+func stageForBuild(cfg *config.Config, buildID string) *config.StageConfig {
+	if cfg == nil {
+		return nil
+	}
+	for i := range cfg.Builds {
+		if cfg.Builds[i].ID == buildID {
+			return cfg.Builds[i].Stage
+		}
+	}
+	return nil
+}
+
+// stageIntoWorkspace copies a prior binary build's output into the workspace at the
+// stage's `as` path ({arch}/{os} substituted), so a command build running in a bare image
+// can invoke it. The staged binary is already in `built` — depends_on ordered it first.
+func stageIntoWorkspace(rootDir string, sc *config.StageConfig, tgt build.Target, built []builtBinary) error {
+	dest := strings.NewReplacer("{arch}", tgt.Arch, "{os}", tgt.OS).Replace(sc.As)
+	for _, pb := range built {
+		if pb.BuildID != sc.From {
+			continue
+		}
+		if pb.Arch != "" && tgt.Arch != "" && pb.Arch != tgt.Arch {
+			continue // multi-arch: match the platform being built
+		}
+		return copyExecutable(pb.Path, filepath.Join(rootDir, dest))
+	}
+	return fmt.Errorf("stage.from %q produced no binary for %s (did that binary build run and succeed?)", sc.From, tgt.String())
+}
+
+// copyExecutable copies src to dst (creating parents), preserving the executable bit.
+func copyExecutable(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfig {

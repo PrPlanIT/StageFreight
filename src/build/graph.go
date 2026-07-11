@@ -34,6 +34,16 @@ func BuildOrder(builds []config.BuildConfig) ([]config.BuildConfig, error) {
 			inDegree[b.ID]++
 			dependents[b.DependsOn] = append(dependents[b.DependsOn], b.ID)
 		}
+		// stage: {from} recycles another build's output, so it's an ordering edge too —
+		// the staged build must run first. Skip when it's the same as depends_on (already
+		// counted) to avoid a double edge.
+		if b.Stage != nil && b.Stage.From != "" && b.Stage.From != b.DependsOn {
+			if _, ok := byID[b.Stage.From]; !ok {
+				return nil, fmt.Errorf("build %q stages from unknown build %q", b.ID, b.Stage.From)
+			}
+			inDegree[b.ID]++
+			dependents[b.Stage.From] = append(dependents[b.Stage.From], b.ID)
+		}
 	}
 
 	// Kahn's algorithm: start with builds that have no dependencies

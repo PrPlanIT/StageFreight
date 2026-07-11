@@ -787,6 +787,18 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
+	// Materialize FIRST: land every build output opted into the working tree
+	// (outputs[].worktree) before badges/patches/commit, so patches can read them and
+	// commit can stage them. The build produced these in Perform; they cross the boundary
+	// as transport artifacts and are resolved here. Runs regardless of the commit gate —
+	// patches may consume a materialized tree even when this pipeline won't commit.
+	for _, wo := range appCfg.WorktreeOutputs() {
+		dest := wo.Output.WorktreePath()
+		if err := landBuildTree(rootDir, wo.BuildID, dest); err != nil {
+			return fmt.Errorf("narrate: materializing build %q into %q: %w", wo.BuildID, dest, err)
+		}
+	}
+
 	// Producers: render badges from build metadata (presence-enabled — narrate.badges
 	// or narrator-inline badge items).
 	if hasConfiguredBadges(appCfg) {
@@ -802,7 +814,7 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		}
 	}
 
-	// Sink: land each command-build's output tree at its destination, then commit.
+	// Sink: commit the materialized trees, rendered badges, and patched files.
 	// Gated by run_from. GitLab CI detached-HEAD is handled by the planner's refspecs.
 	if !appCfg.Narrate.Commit.IsZero() {
 		rfResult := config.EvaluateRunFrom(appCfg.Narrate.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
@@ -812,11 +824,6 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		case !rfResult.Matched && rfResult.Mode == "read-only":
 			fmt.Fprintf(os.Stderr, "  narrate commit: read-only (%s)\n", rfResult.Reason)
 		default: // matched or ignore
-			for _, bd := range appCfg.Narrate.Commit.Builds {
-				if err := landBuildTree(rootDir, bd.Build, bd.Destination); err != nil {
-					return fmt.Errorf("narrate: landing build %q → %q: %w", bd.Build, bd.Destination, err)
-				}
-			}
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
 				Type:    appCfg.Narrate.Commit.Type,
 				Message: appCfg.Narrate.Commit.Message,
