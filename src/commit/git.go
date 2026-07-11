@@ -3,6 +3,7 @@ package commit
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/workspace"
 )
 
 // GitBackend executes commits via go-git — no git binary required.
@@ -45,6 +47,20 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 	wt, err := repo.Worktree()
 	if err != nil {
 		return nil, fmt.Errorf("opening worktree: %w", err)
+	}
+
+	// 0. Ensure the StageFreight namespace ignore file is present and current before
+	// staging. This is what makes the "ephemeral ignored, durable committed" guarantee
+	// UNIVERSAL: SF plants a self-contained .stagefreight/.gitignore in every repo it
+	// commits to, so no project needs a hand-edited root .gitignore. Stage it only when
+	// it changed, so ordinary commits are untouched and the file rides along exactly when
+	// it is first created or its durable allowlist changes.
+	if changed, werr := workspace.EnsureGitignore(g.RootDir); werr != nil {
+		return nil, fmt.Errorf("ensuring namespace gitignore: %w", werr)
+	} else if changed {
+		if _, aerr := wt.Add(filepath.Join(workspace.NamespaceDir, ".gitignore")); aerr != nil {
+			return nil, fmt.Errorf("staging namespace gitignore: %w", aerr)
+		}
 	}
 
 	// 1. Stage files

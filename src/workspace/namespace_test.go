@@ -17,11 +17,14 @@ func TestIsEphemeral(t *testing.T) {
 		{".stagefreight/deps/report.json", true},
 		{".stagefreight/security/sbom.json", true},
 		{".stagefreight/dist/jetpack.tar.gz", true},
-		{".stagefreight/badges/build.svg", false}, // persistent carve-out
-		{".stagefreight/.gitignore", false},       // managed, stays tracked
-		{"src/main.go", false},                    // user source — never
-		{"deps/x", false},                         // outside the namespace
-		{".stagefreight/reportsX/y", false},       // not the reports/ dir
+		{".stagefreight/anything-new.json", true},  // inverted: unknown output → ephemeral by default
+		{".stagefreight/reportsX/y", true},         // not a durable entry → ephemeral (was false under enumerate)
+		{".stagefreight/badges/build.svg", false},  // durable carve-out
+		{".stagefreight/preset-cache/x.yml", false}, // durable carve-out
+		{".stagefreight/toolchains.lock", false},   // durable carve-out
+		{".stagefreight/.gitignore", false},        // managed, stays tracked
+		{"src/main.go", false},                     // user source — never
+		{"deps/x", false},                          // outside the namespace
 	}
 	for _, c := range cases {
 		if got := IsEphemeral(c.path); got != c.want {
@@ -32,13 +35,38 @@ func TestIsEphemeral(t *testing.T) {
 
 func TestGitignoreManaged(t *testing.T) {
 	g := gitignoreManaged()
-	for _, want := range []string{"/deps/", "/reports/", "/security/", "/dist/", "/pipeline.json"} {
+	// Allowlist body: ignore everything, then re-include the durable set.
+	for _, want := range []string{"/*", "!/.gitignore", "!/badges/", "!/preset-cache/", "!/toolchains.lock"} {
 		if !strings.Contains(g, want) {
 			t.Errorf("managed gitignore missing %q:\n%s", want, g)
 		}
 	}
-	if strings.Contains(g, "/badges") {
-		t.Errorf("persistent badges/ must NOT have an ignore rule:\n%s", g)
+	// Ephemeral outputs must NOT be enumerated — they are covered by /* and stay ignored.
+	for _, absent := range []string{"/deps/", "/reports/", "/pipeline.json"} {
+		if strings.Contains(g, absent) {
+			t.Errorf("ephemeral entry %q must not be enumerated (covered by /*):\n%s", absent, g)
+		}
+	}
+}
+
+// TestDurableAllowlistComplete is the load-bearing invariant of the inverted model:
+// every durable entry must be carved out of BOTH the ephemeral classifier and the
+// managed ignore body. A missed entry is silently ignored AND untracked, so this ties
+// the allowlist to both mechanisms — add a durable file to persistentEntries and it is
+// checked automatically.
+func TestDurableAllowlistComplete(t *testing.T) {
+	g := gitignoreManaged()
+	for _, p := range persistentEntries {
+		probe := NamespaceDir + "/" + p
+		if strings.HasSuffix(p, "/") {
+			probe += "probe" // a file inside the durable directory
+		}
+		if IsEphemeral(probe) {
+			t.Errorf("durable entry %q classified ephemeral (probe %q)", p, probe)
+		}
+		if !strings.Contains(g, "!/"+p) {
+			t.Errorf("durable entry %q missing from managed gitignore allowlist", p)
+		}
 	}
 }
 

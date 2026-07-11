@@ -25,21 +25,17 @@ import (
 // root; layout is the single source of truth (see src/layout).
 const NamespaceDir = layout.Root
 
-// ephemeralEntries are run-generated outputs under .stagefreight/ that must NOT
-// be version controlled — rewritten every run. Directory entries end with "/".
-var ephemeralEntries = []string{
-	"deps/",
-	"reports/",
-	"security/",
-	"dist/",
-	"pipeline.json",
-}
-
-// persistentEntries are deliberately trackable — published assets referenced
-// from the README. They are carved OUT of the ignore set and the clean-tree
-// exclusion, so they keep their normal version-controlled behavior.
+// persistentEntries is the DURABLE allowlist — the only content under .stagefreight/
+// that is committed. Everything else in the namespace is ephemeral run output. This is
+// the small, stable side of the split, so enumerating it (rather than the growing set of
+// ephemeral outputs) is what makes new outputs ignored by default. Directory entries end
+// with "/". Adding a durable file here is what carves it out of the ignore set and the
+// clean-tree exclusion; miss one and it is silently treated as ephemeral — hence the
+// completeness test.
 var persistentEntries = []string{
-	"badges/",
+	"badges/",       // published status assets referenced from the README
+	"preset-cache/", // resolved config presets, committed for reproducibility
+	"toolchains.lock", // machine-maintained toolchain resolved-lock (durable state)
 }
 
 // GitignorePath is the managed ignore file — INSIDE the namespace, never root.
@@ -47,44 +43,52 @@ func GitignorePath(rootDir string) string {
 	return filepath.Join(rootDir, NamespaceDir, ".gitignore")
 }
 
-// gitignoreManaged is the full managed body of .stagefreight/.gitignore. Paths
-// are anchored ("/") relative to the file's own directory (.stagefreight/).
+// gitignoreManaged is the full managed body of .stagefreight/.gitignore. It is an
+// ALLOWLIST: ignore everything under the namespace, then carve out the durable set —
+// so a new ephemeral output is ignored by default and only a deliberate addition to
+// persistentEntries makes something committable. Paths are anchored ("/") relative to
+// the file's own directory (.stagefreight/). "/*" matches direct children only, so
+// re-including a durable directory keeps its contents tracked.
 func gitignoreManaged() string {
 	var b strings.Builder
 	b.WriteString("# Managed by StageFreight — do not edit.\n")
-	b.WriteString("# Ephemeral run outputs; persistent assets (badges/) stay tracked.\n")
-	for _, e := range ephemeralEntries {
-		b.WriteString("/" + e + "\n")
+	b.WriteString("# Everything here is ephemeral run output and ignored, EXCEPT the\n")
+	b.WriteString("# durable set carved out below (allowlist — new outputs stay ignored).\n")
+	b.WriteString("/*\n")
+	b.WriteString("!/.gitignore\n")
+	for _, p := range persistentEntries {
+		b.WriteString("!/" + p + "\n")
 	}
 	return b.String()
 }
 
 // IsEphemeral reports whether a repo-relative path is a StageFreight-owned
-// ephemeral output. Used both to detect tracked artifacts and to exclude
-// StageFreight's own generated files from clean-tree gates (layer C). The
-// persistent carve-out always wins.
+// ephemeral output: anything under the namespace that is NOT in the durable
+// allowlist. Used both to detect tracked artifacts and to exclude StageFreight's
+// own generated files from clean-tree gates (layer C). This is the inverse of the
+// allowlist — an UNKNOWN output under .stagefreight/ is ephemeral by default (safe:
+// a new output can never accidentally be treated as committable), and the durable
+// carve-out (including the managed .gitignore) always wins.
 func IsEphemeral(relPath string) bool {
 	rel := filepath.ToSlash(relPath)
 	prefix := NamespaceDir + "/"
 	if !strings.HasPrefix(rel, prefix) {
-		return false
+		return false // outside the namespace — not ours
 	}
 	tail := strings.TrimPrefix(rel, prefix)
+	if tail == ".gitignore" {
+		return false // the managed ignore file is durable
+	}
 	for _, p := range persistentEntries {
-		if strings.HasPrefix(tail, p) {
-			return false
-		}
-	}
-	for _, e := range ephemeralEntries {
-		if strings.HasSuffix(e, "/") {
-			if strings.HasPrefix(tail, e) {
-				return true
+		if strings.HasSuffix(p, "/") {
+			if strings.HasPrefix(tail, p) {
+				return false // inside a durable directory
 			}
-		} else if tail == e {
-			return true
+		} else if tail == p {
+			return false // a durable file
 		}
 	}
-	return false
+	return true // under the namespace, not durable → ephemeral
 }
 
 // EnsureGitignore writes/updates .stagefreight/.gitignore to the managed body.

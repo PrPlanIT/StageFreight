@@ -1,5 +1,6 @@
-.stagefreight/*
-!.stagefreight/badges/
+# .stagefreight/ hygiene lives in the self-contained .stagefreight/.gitignore that
+# StageFreight plants and commits (a durable allowlist) — the same mechanism every
+# SF-managed repo gets, so no per-repo root rule is needed here.
 src/output/banner_art_gen.go
 
 # compiled binaries — never commit these
@@ -9,6 +10,6 @@ src/output/banner_art_gen.go
 *.exe
 
 # binary build output (.stagefreight/dist/<os>-<arch>/ binaries, archives,
-# SHA256SUMS) is already covered by the .stagefreight/* rule above. The bare
-# /dist/ guard remains for legacy/`--output-dir dist` local builds.
+# SHA256SUMS) is covered by .stagefreight/.gitignore. The bare /dist/ guard
+# remains for legacy/`--output-dir dist` local builds.
 /dist/
