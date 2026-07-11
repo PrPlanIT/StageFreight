@@ -132,13 +132,6 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 	for _, group := range actionable {
 		modulePath := filepath.Join(repoRoot, group.dir)
 
-		// Detect replace directives for this module
-		replaceSet, err := detectReplaceDirectives(modulePath)
-		if err != nil && len(replaceSet) == 0 {
-			// Non-fatal — continue without replace detection
-			replaceSet = nil
-		}
-
 		goDir := modulePath
 		if hasWorkspace {
 			goDir = repoRoot
@@ -148,12 +141,10 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 		// Split candidates: vulnerable indirects route through the security remediator
 		// (parent-bump-or-pin, FixedIn target — see remediate_go.go); everything else is a
 		// normal batched `go get @Latest`.
+		// replace-governed modules were already marked Pinned in discovery and skipped by
+		// the filter (never candidates) — no re-derivation here. Just split by remediation route.
 		var normal, vulnIndirect []supplychain.Dependency
 		for _, dep := range group.deps {
-			if replaceSet != nil && replaceSet[dep.Name] {
-				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipReplaceDirective, Reason: "replace directive present"})
-				continue
-			}
 			if dep.Indirect && len(dep.Vulnerabilities) > 0 {
 				vulnIndirect = append(vulnIndirect, dep)
 			} else {
@@ -682,50 +673,6 @@ func parseGoDirectiveFromFile(path string) string {
 		}
 	}
 	return goVer
-}
-
-// detectReplaceDirectives parses go.mod and returns a set of replaced module paths.
-func detectReplaceDirectives(moduleDir string) (map[string]bool, error) {
-	gomod := filepath.Join(moduleDir, "go.mod")
-	f, err := os.Open(gomod)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	replaced := make(map[string]bool)
-	scanner := bufio.NewScanner(f)
-	inReplace := false
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		if strings.HasPrefix(line, "replace (") || strings.HasPrefix(line, "replace(") {
-			inReplace = true
-			continue
-		}
-		if inReplace {
-			if line == ")" {
-				inReplace = false
-				continue
-			}
-			// Inside replace block: "module => replacement"
-			parts := strings.Fields(line)
-			if len(parts) >= 3 && parts[1] == "=>" {
-				replaced[parts[0]] = true
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "replace ") {
-			// Single-line replace: "replace module => replacement"
-			parts := strings.Fields(line)
-			if len(parts) >= 4 && parts[2] == "=>" {
-				replaced[parts[1]] = true
-			}
-		}
-	}
-
-	return replaced, scanner.Err()
 }
 
 // updateType determines the semver update type between two versions.
