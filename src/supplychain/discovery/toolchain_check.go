@@ -13,7 +13,7 @@ import (
 // checkToolchainDesired generates Dependency entries from toolchains.desired config.
 // Each desired tool version is checked against its upstream GitHub release.
 // This is the replacement for Dockerfile ENV scanning — versions now live in config.
-func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string]config.ToolPinConfig) []supplychain.Dependency {
+func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string]config.ToolConstraint) []supplychain.Dependency {
 	if !m.cfg.SourceEnabled(supplychain.EcosystemToolchain) {
 		return nil
 	}
@@ -22,16 +22,18 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 
 	for _, def := range toolchain.AllTools() {
 		pin, ok := desired[def.Name]
-		if !ok || pin.Version == "" {
+		if !ok || pin.Constraint == "" {
 			continue // not materialized in desired — skip
 		}
 
+		// Slice 1: constraints are exact, so the constraint IS the current version.
+		// Wildcard resolution (constraint → candidate set → selection) lands next.
 		dep := supplychain.Dependency{
 			Name:      def.Name,
-			Current:   strings.TrimPrefix(pin.Version, "v"),
+			Current:   strings.TrimPrefix(pin.Constraint, "v"),
 			Ecosystem: supplychain.EcosystemToolchain,
 			File:      ".stagefreight.yml",
-			Binding:   fmt.Sprintf("toolchains.desired.%s.version", def.Name),
+			Binding:   fmt.Sprintf("toolchains.desired.%s.constraint", def.Name),
 		}
 
 		// Check upstream for latest version

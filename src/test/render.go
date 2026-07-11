@@ -37,7 +37,7 @@ func (i Intent) title() string {
 // collapsed to one callout. Derived from `go test -json`, never raw transport. The
 // single presentation surface for the audition gate, deps re-verification, and the
 // `stagefreight test` CLI. Returns the verdict.
-func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desired map[string]config.ToolPinConfig, w io.Writer, intent Intent) *TestResult {
+func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desired map[string]config.ToolConstraint, w io.Writer, intent Intent) *TestResult {
 	color := output.UseColor()
 
 	// Provisioning phase: realize native capabilities and resolve each suite's

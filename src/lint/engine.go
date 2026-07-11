@@ -26,7 +26,7 @@ type Engine struct {
 	Modules          []Module
 	Cache            *Cache
 	Verbose          bool
-	ToolchainDesired map[string]config.ToolPinConfig
+	ToolchainDesired map[string]config.ToolConstraint
 
 	// Snapshot is an optional, pre-resolved supply-chain Snapshot produced
 	// once (via discovery.Discover) and shared by the caller across

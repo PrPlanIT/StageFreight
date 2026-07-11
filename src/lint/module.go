@@ -32,7 +32,7 @@ type ConfigurableModule interface {
 // if the module implements this interface.
 type ToolchainAwareModule interface {
 	Module
-	SetToolchainDesired(desired map[string]config.ToolPinConfig)
+	SetToolchainDesired(desired map[string]config.ToolConstraint)
 }
 
 // SnapshotAwareModule is implemented by modules that can consume a

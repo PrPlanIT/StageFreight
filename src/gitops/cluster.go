@@ -18,7 +18,7 @@ import (
 // CA is resolved from environment: <PREFIX>_CA_FILE or <PREFIX>_CA_B64.
 // OIDC token is resolved from STAGEFREIGHT_OIDC.
 // All ephemeral files are registered for cleanup on rctx.Resolved.
-func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolPinConfig) error {
+func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolConstraint) error {
 	prefix := envPrefix(cfg.Name)
 
 	// Create isolated kubeconfig — never mutate ~/.kube/config.

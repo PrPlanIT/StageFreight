@@ -33,7 +33,7 @@ type ScanConfig struct {
 	OCILayoutDir     string                          // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
 	OutputDir        string                          // directory for scan artifacts
 	RootDir          string                          // workspace root for toolchain resolution
-	ToolchainDesired map[string]config.ToolPinConfig // from appCfg.Toolchains.Desired
+	ToolchainDesired map[string]config.ToolConstraint // from appCfg.Toolchains.Desired
 	SectionWriter    io.Writer                       // writer for CI section markers (nil = os.Stderr)
 	TrivyCacheMax    string                          // max_size for Trivy DB cache (full-clear when exceeded)
 	TrivyCacheMaxAge string                          // max_age for Trivy DB cache (full-clear when oldest file exceeds)

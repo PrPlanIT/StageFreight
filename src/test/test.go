@@ -65,7 +65,7 @@ func goSuiteEnv(toolPath string, race bool) []string {
 	return env
 }
 
-func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolchain.Result, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
+func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolchain.Result, desired map[string]config.ToolConstraint, onPkg func(PackageResult)) SuiteResult {
 	sr := SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate}
 	if len(s.Argv) == 0 {
 		sr.Status = StatusSkipped
@@ -124,7 +124,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 // "Running <binary>" to stderr and the libtest results to stdout, so both are merged
 // into one ordered stream. A compile failure (nothing parsed + non-zero exit) is
 // surfaced as a synthetic failure so the section still says why.
-func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s ResolvedSuite, argv, env []string, desired map[string]config.ToolPinConfig, onPkg func(PackageResult)) SuiteResult {
+func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s ResolvedSuite, argv, env []string, desired map[string]config.ToolConstraint, onPkg func(PackageResult)) SuiteResult {
 	sr.CoverageMin, sr.Coverage = s.CoverageMin, -1
 	cargoBin := argv[0]
 	runArgv := argv
@@ -194,12 +194,12 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 // rust prefix, and returns an env with cargo-llvm-cov on PATH (so `cargo llvm-cov`
 // resolves). Fails clearly when the tool isn't pinned — coverage requires an explicit
 // project trust root.
-func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolPinConfig) ([]string, error) {
+func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolConstraint) ([]string, error) {
 	// Both fields optional: version → registry DefaultVer, sha256 → TOFU. A user MAY
 	// pin either in toolchains.desired for stronger guarantees, but coverage works with
 	// nothing configured.
 	pin := desired["cargo-llvm-cov"]
-	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", pin.Version, pin.SHA256)
+	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", pin.Constraint, pin.SHA256)
 	if err != nil {
 		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}

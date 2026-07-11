@@ -16,13 +16,13 @@ import (
 // Returns the version string and whether it came from a config pin.
 // The isPinned flag is critical: pinned versions that fail to resolve
 // must hard-fail with no fallback to default.
-func ResolveVersion(tool, requestedVersion string, desired map[string]config.ToolPinConfig) (version string, isPinned bool) {
+func ResolveVersion(tool, requestedVersion string, desired map[string]config.ToolConstraint) (version string, isPinned bool) {
 	if requestedVersion != "" {
 		return requestedVersion, false
 	}
 	if desired != nil {
-		if pin, ok := desired[tool]; ok && pin.Version != "" {
-			return pin.Version, true
+		if pin, ok := desired[tool]; ok && pin.Constraint != "" {
+			return pin.Constraint, true
 		}
 	}
 	if def, ok := LookupTool(tool); ok {
@@ -35,13 +35,13 @@ func ResolveVersion(tool, requestedVersion string, desired map[string]config.Too
 // default versions. Used to populate toolchains.desired for new repos so that
 // all managed tools are explicitly materialized in config from the start.
 // Go is excluded — its version comes from go.mod, not the toolchain registry.
-func SeedDesired() map[string]config.ToolPinConfig {
-	desired := make(map[string]config.ToolPinConfig)
+func SeedDesired() map[string]config.ToolConstraint {
+	desired := make(map[string]config.ToolConstraint)
 	for _, def := range AllTools() {
 		if def.Name == "" || def.Name == "go" {
 			continue // Go version is authoritative from go.mod, not desired config
 		}
-		desired[def.Name] = config.ToolPinConfig{Version: def.DefaultVer}
+		desired[def.Name] = config.ToolConstraint{Constraint: def.DefaultVer}
 	}
 	return desired
 }

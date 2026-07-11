@@ -23,7 +23,7 @@ import (
 
 // SignImage signs an image digest ref (repo@sha256:…; tags are never used) per the
 // plan's trust contract. opts.MultiArch adds --recursive (sign the whole index).
-func SignImage(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
+func SignImage(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
 	args, err := Render(plan, sign.OpSignImage, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign: %w", err)
@@ -38,7 +38,7 @@ func SignImage(ctx context.Context, rootDir string, desired map[string]config.To
 // Attest binds a predicate to an image digest ref per the plan. The predicate
 // path AND type are caller-supplied (opts) — the executor serializes them, it
 // never defaults a predicate semantic of its own.
-func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
+func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
 	if opts.PredicatePath == "" || opts.PredicateType == "" {
 		return fmt.Errorf("cosign attest: predicate path and type are required (the executor never defaults them)")
 	}
@@ -53,7 +53,7 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolP
 // SignBlob signs a detached blob (e.g. SHA256SUMS) per the plan, writing the
 // detached signature to sigPath. The caller chooses sigPath so additive,
 // multi-tier signing can write distinct files (never clobbering a lower-tier sig).
-func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, blobPath, sigPath string, plan sign.SignPlan, env Env) error {
+func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, blobPath, sigPath string, plan sign.SignPlan, env Env) error {
 	args, err := Render(plan, sign.OpSignBlob, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign-blob: %w", err)
@@ -63,7 +63,7 @@ func SignBlob(ctx context.Context, rootDir string, desired map[string]config.Too
 }
 
 // Available reports whether cosign can be resolved via the toolchain.
-func Available(rootDir string, desired map[string]config.ToolPinConfig) bool {
+func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
 	ver, _ := toolchain.ResolveVersion("cosign", "", desired)
 	_, err := toolchain.Resolve(rootDir, "cosign", ver)
 	return err == nil
@@ -71,7 +71,7 @@ func Available(rootDir string, desired map[string]config.ToolPinConfig) bool {
 
 // run resolves cosign and execs it with the rendered args and a class-appropriate
 // environment. The sole exec point; warnings carry cosign's stderr for diagnosis.
-func run(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig, plan sign.SignPlan, op string, args []string) error {
+func run(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, op string, args []string) error {
 	ver, pinned := toolchain.ResolveVersion("cosign", "", desired)
 	result, err := provision.Resolve(ctx, rootDir, "cosign", ver, "artifact signing")
 	if err != nil {

@@ -38,7 +38,7 @@ type SigningContext struct {
 // explicit-profile no-downgrade), surfaced unchanged. sign.go does NOT use this: a
 // human-chosen profile compiles directly with no Tier-0 fallback, so it builds a
 // SigningContext itself and shares only Evidence().
-func ResolveSigningContext(ctx context.Context, cfg config.SigningConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolPinConfig, now string) (SigningContext, error) {
+func ResolveSigningContext(ctx context.Context, cfg config.SigningConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolConstraint, now string) (SigningContext, error) {
 	plan, tier, doSign, err := EffectiveSigner(ctx, cfg, profile, rootDir, repoRoot, desired, now)
 	if err != nil {
 		return SigningContext{}, err
@@ -74,7 +74,7 @@ func (c SigningContext) Evidence(signedAt string) artifact.TrustEvidence {
 //     when auto-provisioned) — recorded so trust is never overstated
 //   - ok:   whether signing should proceed
 //   - err:  FATAL (continuity violation, state-dir guard, resolve failure)
-func EffectiveSigner(ctx context.Context, cfg config.SigningConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolPinConfig, now string) (sign.SignPlan, string, bool, error) {
+func EffectiveSigner(ctx context.Context, cfg config.SigningConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolConstraint, now string) (sign.SignPlan, string, bool, error) {
 	if !cfg.SigningEnabled() {
 		return sign.SignPlan{}, "", false, nil // global kill switch
 	}
@@ -101,7 +101,7 @@ func EffectiveSigner(ctx context.Context, cfg config.SigningConfig, profile *con
 	return tier0Fill(ctx, cfg, sign.SignPlan{TrustClass: sign.ClassKey}, rootDir, repoRoot, desired, now)
 }
 
-func tier0Fill(ctx context.Context, cfg config.SigningConfig, plan sign.SignPlan, rootDir, repoRoot string, desired map[string]config.ToolPinConfig, now string) (sign.SignPlan, string, bool, error) {
+func tier0Fill(ctx context.Context, cfg config.SigningConfig, plan sign.SignPlan, rootDir, repoRoot string, desired map[string]config.ToolConstraint, now string) (sign.SignPlan, string, bool, error) {
 	if !cfg.AutoProvision || !cfg.StateDir.Configured() {
 		return sign.SignPlan{}, "", false, nil // not consented / nowhere to persist
 	}

@@ -107,7 +107,7 @@ const datreeCatalog = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/m
 // Kustomization plus repository-scoped meta. The error return is reserved for
 // infrastructure failures (graph discovery, pinned tool resolution); a repo with
 // no Flux content returns an empty map and zero-roots meta.
-func ValidateManifests(ctx context.Context, rootDir string, desired map[string]config.ToolPinConfig) (map[KustomizationKey]Verdict, *ValidationMeta, error) {
+func ValidateManifests(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint) (map[KustomizationKey]Verdict, *ValidationMeta, error) {
 	graph, err := DiscoverFluxGraph(rootDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("discovering flux graph: %w", err)
@@ -211,7 +211,7 @@ func finalize(v map[KustomizationKey]*Verdict) map[KustomizationKey]Verdict {
 // merge (required), a tool-resolution failure here would produce no Fail verdicts
 // → a silent bypass. Under enforcement, an unavailable tool MUST become a Fail,
 // not a skip.
-func resolveTool(ctx context.Context, rootDir, tool, purpose string, desired map[string]config.ToolPinConfig) (toolchain.Result, error) {
+func resolveTool(ctx context.Context, rootDir, tool, purpose string, desired map[string]config.ToolConstraint) (toolchain.Result, error) {
 	ver, pinned := toolchain.ResolveVersion(tool, "", desired)
 	res, err := provision.Resolve(ctx, rootDir, tool, ver, purpose) // resolves AND records in the ctx ledger
 	if err != nil {

@@ -28,7 +28,7 @@ type freshnessModule struct {
 	snapshot *supplychain.Snapshot
 }
 
-func (m *freshnessModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
+func (m *freshnessModule) SetToolchainDesired(desired map[string]config.ToolConstraint) {
 	m.resolver.SetToolchainDesired(desired)
 }
 

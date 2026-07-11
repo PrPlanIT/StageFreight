@@ -35,7 +35,7 @@ import (
 // scans the target, not the process's working directory.
 type vulnModule struct {
 	resolver *discovery.Resolver
-	desired  map[string]config.ToolPinConfig
+	desired  map[string]config.ToolConstraint
 	snapshot *supplychain.Snapshot
 
 	// osv-scanner binary, resolved once across the run. resolveErr is set only
@@ -87,7 +87,7 @@ func (m *vulnModule) AutoDetect() []string {
 // SetToolchainDesired implements lint.ToolchainAwareModule (osv-scanner pin). It
 // also threads the pin into the resolver so the OSV-API leg's toolchain-desired
 // discovery stays consistent.
-func (m *vulnModule) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
+func (m *vulnModule) SetToolchainDesired(desired map[string]config.ToolConstraint) {
 	m.desired = desired
 	m.resolver.SetToolchainDesired(desired)
 }

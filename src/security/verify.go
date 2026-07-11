@@ -71,7 +71,7 @@ type VerifyOpts struct {
 	CosignKeyPath     string
 	CredResolver      func(string) (string, string)
 	CredRef           string
-	ToolchainDesired  map[string]config.ToolPinConfig
+	ToolchainDesired  map[string]config.ToolConstraint
 }
 
 // Verify performs 6-layer artifact verification against a digest reference.

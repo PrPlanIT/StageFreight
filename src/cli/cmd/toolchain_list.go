@@ -119,7 +119,7 @@ func runToolchainList(_ *cobra.Command, _ []string) error {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			fmt.Printf("  %-14s %s\n", k, cfg.Toolchains.Desired[k].Version)
+			fmt.Printf("  %-14s %s\n", k, cfg.Toolchains.Desired[k].Constraint)
 		}
 	}
 

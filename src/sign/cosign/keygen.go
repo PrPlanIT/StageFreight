@@ -18,7 +18,7 @@ import (
 // harden by climbing the custody ladder (SoftHSM → Vault → hardware).
 type KeyGen struct {
 	RootDir string
-	Desired map[string]config.ToolPinConfig
+	Desired map[string]config.ToolConstraint
 }
 
 // GenerateKeyPair writes cosign.key/cosign.pub into dir. cosign emits exactly those

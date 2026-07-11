@@ -18,7 +18,7 @@ import (
 type Resolver struct {
 	cfg     FreshnessConfig
 	http    *httpClient
-	desired map[string]config.ToolPinConfig
+	desired map[string]config.ToolConstraint
 	now     func() time.Time // injectable clock for cooldown evaluation; nil → time.Now
 }
 
@@ -37,7 +37,7 @@ func (m *Resolver) clock() time.Time {
 
 // SetToolchainDesired records the toolchains.desired config used by
 // checkToolchainDesired.
-func (m *Resolver) SetToolchainDesired(desired map[string]config.ToolPinConfig) {
+func (m *Resolver) SetToolchainDesired(desired map[string]config.ToolConstraint) {
 	m.desired = desired
 }
 
