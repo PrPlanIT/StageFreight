@@ -6,19 +6,21 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
-const manifestsDir = ".stagefreight/manifests"
+const manifestsDir = paths.Root + "/manifests"
 
 // InventoryManifest is the scoped k8s inventory manifest.
 // Lives at .stagefreight/manifests/k8s-inventory-<cluster>.json
 // Manifest accelerates truth — it never becomes truth.
 type InventoryManifest struct {
-	SchemaVersion   int                       `json:"schema_version"`
-	Cluster         string                    `json:"cluster"`
-	GeneratedAt     time.Time                 `json:"generated_at"`
-	DiscoveryStatus DiscoveryStatus           `json:"discovery_status"`
-	Apps            map[string]AppManifest    `json:"apps"` // key: namespace/identity
+	SchemaVersion   int                    `json:"schema_version"`
+	Cluster         string                 `json:"cluster"`
+	GeneratedAt     time.Time              `json:"generated_at"`
+	DiscoveryStatus DiscoveryStatus        `json:"discovery_status"`
+	Apps            map[string]AppManifest `json:"apps"` // key: namespace/identity
 }
 
 // DiscoveryStatus records whether discovery completed fully.
@@ -31,16 +33,16 @@ type DiscoveryStatus struct {
 // AppManifest is the per-app section in the inventory manifest.
 // Three clean planes: lifecycle (memory), observed (snapshot), identity_cache (enrichment).
 type AppManifest struct {
-	Lifecycle          AppLifecycle         `json:"lifecycle"`
-	Observed           AppObserved          `json:"observed"`
-	IdentityCache      IdentityCache        `json:"identity_cache"`
-	IdentityCacheStatus CacheStatus         `json:"identity_cache_status"`
-	EnrichmentMeta     map[string]EnrichMeta `json:"enrichment_meta,omitempty"`
+	Lifecycle           AppLifecycle          `json:"lifecycle"`
+	Observed            AppObserved           `json:"observed"`
+	IdentityCache       IdentityCache         `json:"identity_cache"`
+	IdentityCacheStatus CacheStatus           `json:"identity_cache_status"`
+	EnrichmentMeta      map[string]EnrichMeta `json:"enrichment_meta,omitempty"`
 }
 
 // AppLifecycle tracks active/graveyard state transitions.
 type AppLifecycle struct {
-	State        string     `json:"state"`                   // active | graveyard
+	State        string     `json:"state"` // active | graveyard
 	LastSeen     time.Time  `json:"last_seen"`
 	MissingSince *time.Time `json:"missing_since,omitempty"`
 }
@@ -63,15 +65,15 @@ type IdentityCache struct {
 
 // CacheStatus tracks freshness of the identity cache.
 type CacheStatus struct {
-	State          string     `json:"state"`                      // fresh | stale
-	Reason         string     `json:"reason,omitempty"`            // why stale
+	State           string     `json:"state"`            // fresh | stale
+	Reason          string     `json:"reason,omitempty"` // why stale
 	LastAttemptedAt *time.Time `json:"last_attempted_at,omitempty"`
 }
 
 // EnrichMeta tracks provenance for a single cached field.
 type EnrichMeta struct {
-	Source    string `json:"source"`               // oci_label, helm_chart, annotation
-	UpdatedAt string `json:"updated_at"`
+	Source    string       `json:"source"` // oci_label, helm_chart, annotation
+	UpdatedAt string       `json:"updated_at"`
 	Basis     *EnrichBasis `json:"basis,omitempty"` // invalidation key
 }
 
@@ -183,7 +185,7 @@ func ReconcileLifecycle(manifest *InventoryManifest, activeApps []AppRecord, dis
 					State:    "active",
 					LastSeen: now,
 				},
-				Observed: buildObserved(app),
+				Observed:            buildObserved(app),
 				IdentityCacheStatus: CacheStatus{State: "stale", Reason: "new_app"},
 			}
 			changed = true

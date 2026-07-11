@@ -14,8 +14,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/workspace"
 )
 
@@ -369,7 +370,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	// 7. Generate artifacts
 	outputDir := cfg.OutputDir
 	if outputDir == "" {
-		outputDir = ".stagefreight/deps"
+		outputDir = paths.Ephemeral("", "deps")
 	}
 	if !filepath.IsAbs(outputDir) {
 		outputDir = filepath.Join(repoRoot, outputDir)

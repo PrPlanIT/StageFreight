@@ -9,13 +9,14 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
-const lockFilePath = ".stagefreight/freshness.lock"
+const lockFilePath = paths.Root + "/freshness.lock"
 
 // checkDigestLock handles non-versioned tags (e.g. "latest", "noble") by
 // comparing manifest digests against a lock file.

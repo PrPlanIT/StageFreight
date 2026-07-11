@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // ResultsManifest records what was actually externalized by publish. It is
@@ -254,7 +255,7 @@ func (s OutcomeStatus) Valid() bool {
 }
 
 const (
-	ResultsManifestPath  = ".stagefreight/published.json"
+	ResultsManifestPath  = paths.Root + "/published.json"
 	ResultsSchemaVersion = "2"
 )
 

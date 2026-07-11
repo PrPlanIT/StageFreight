@@ -12,6 +12,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // GenerateOptions controls manifest generation behavior.
@@ -40,7 +41,7 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]*Manifest, error) {
 		outputDir = cfg.Manifest.OutputDir
 	}
 	if outputDir == "" {
-		outputDir = ".stagefreight/manifests"
+		outputDir = paths.Ephemeral("", "manifests")
 	}
 
 	if !filepath.IsAbs(outputDir) {
@@ -312,7 +313,7 @@ func convertPackage(p docker.PackageInfo) InvItem {
 func ResolveManifestPath(rootDir string, cfg *config.Config, buildID string) string {
 	outputDir := cfg.Manifest.OutputDir
 	if outputDir == "" {
-		outputDir = ".stagefreight/manifests"
+		outputDir = paths.Ephemeral("", "manifests")
 	}
 
 	slug := build.SlugifyBuildID(buildID)

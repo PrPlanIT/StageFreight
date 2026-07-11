@@ -17,10 +17,11 @@ import (
 	"path/filepath"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // ResultsPath is the workspace-relative path where audition proof results live.
-const ResultsPath = ".stagefreight/proof-results.json"
+const ResultsPath = paths.Root + "/proof-results.json"
 
 // Results is the per-run set of audition proof outcomes. Each proof is a typed,
 // omit-empty field so the JSON grows additively as proofs adopt the model.

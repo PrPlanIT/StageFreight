@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
 // FailureDetailFile is the well-known path (relative to rootDir) where the
 // inner build writes FailureDetail for the outer crucible to pick up.
-const FailureDetailFile = ".stagefreight/failure-detail.json"
+const FailureDetailFile = paths.Root + "/failure-detail.json"
 
 // renderSummary writes the summary table from accumulated PhaseResults.
 func renderSummary(pc *PipelineContext) {

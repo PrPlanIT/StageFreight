@@ -5,6 +5,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/ci/render/model"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // Plan builds a forge-neutral Pipeline from StageFreight configuration.
@@ -34,7 +35,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Commands: []string{"stagefreight ci run audition"},
 				Source:   model.SourceSpec{FullClone: true},
 				Artifacts: model.ArtifactSpec{
-					Paths:    []string{".stagefreight/"},
+					Paths:    []string{paths.Root + "/"},
 					ExpireIn: "1 week",
 					// Deliver the audition CONTRACT even on a failed audition — perform gates on
 					// the ledger, forge-agnostically, not on the forge dropping the artifact.
@@ -56,7 +57,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// retried hours after perform. 2h was tuned for manifests only
 					// and is too tight once the layout rides along; 1 day covers a
 					// realistic perform→publish gap including a manual publish gate.
-					Paths:    []string{".stagefreight/"},
+					Paths:    []string{paths.Root + "/"},
 					ExpireIn: "1 day",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
@@ -73,7 +74,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// blind. security/ holds the scan reports themselves. (review
 					// deliberately does NOT re-forward the whole .stagefreight/ —
 					// that would drag perform's content store along with it.)
-					Paths:    []string{".stagefreight/security/", ".stagefreight/pipeline.json"},
+					Paths:    []string{paths.Ephemeral("", "security") + "/", paths.Ephemeral("", "pipeline.json")},
 					ExpireIn: "1 week",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true},

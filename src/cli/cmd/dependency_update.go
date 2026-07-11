@@ -8,16 +8,17 @@ import (
 	"sort"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/PrPlanIT/StageFreight/src/dependency"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
-	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
+	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/cobra"
 )
 
 // Exit codes for dependency update.
@@ -54,7 +55,7 @@ func init() {
 	dependencyUpdateCmd.Flags().BoolVar(&depNoVerify, "no-verify", false, "skip go test after update")
 	dependencyUpdateCmd.Flags().BoolVar(&depNoVuln, "no-vulncheck", false, "skip govulncheck after update")
 	dependencyUpdateCmd.Flags().StringSliceVar(&depEcosystems, "ecosystem", nil, "filter to specific ecosystem(s)")
-	dependencyUpdateCmd.Flags().StringVar(&depOutputDir, "output", ".stagefreight/deps", "output directory for artifacts")
+	dependencyUpdateCmd.Flags().StringVar(&depOutputDir, "output", paths.Ephemeral("", "deps"), "output directory for artifacts")
 	dependencyUpdateCmd.Flags().StringVar(&depPolicy, "policy", "all", "update policy: all, security")
 	dependencyUpdateCmd.Flags().StringVar(&depMaxUpdate, "max-update", "", "update-type ceiling: major, minor, patch (default from config, else minor)")
 
@@ -297,7 +298,7 @@ func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.Updat
 	// Generate resolve.json + report (no patch in dry-run)
 	outputDir := cfg.OutputDir
 	if outputDir == "" {
-		outputDir = ".stagefreight/deps"
+		outputDir = paths.Ephemeral("", "deps")
 	}
 	if !filepath.IsAbs(outputDir) {
 		outputDir = filepath.Join(repoRoot, outputDir)
@@ -471,4 +472,3 @@ func collectCVEsFixed(updates []dependency.AppliedUpdate) []output.CVEFixed {
 
 	return cves
 }
-

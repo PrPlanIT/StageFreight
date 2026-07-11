@@ -8,11 +8,12 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // StatePath is the workspace-relative path where pipeline state is persisted.
-const StatePath = ".stagefreight/pipeline.json"
+const StatePath = paths.Root + "/pipeline.json"
 
 // State is the per-run ledger for the current pipeline workspace.
 // Each subsystem records what it did; downstream stages read the ledger
@@ -86,7 +87,6 @@ type SubsystemState struct {
 //   - Any subsystem with outcome "warning" → warning
 //   - Nothing attempted → unknown
 //   - Otherwise → passing
-//
 func (st *State) PipelineStatus() string {
 	subs := st.Subsystems
 
@@ -132,7 +132,6 @@ func (st *State) PipelineStatus() string {
 	}
 	return "passing"
 }
-
 
 // CIState captures the CI environment for this pipeline run.
 type CIState struct {

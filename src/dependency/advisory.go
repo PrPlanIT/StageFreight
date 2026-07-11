@@ -10,8 +10,9 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/forge"
-	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/security"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // LoadAdvisories reads the security advisory bridge file.
@@ -25,7 +26,7 @@ func LoadAdvisories(rootDir string) ([]security.Advisory, error) {
 // so subsequent LoadAdvisories calls find it.
 // Returns the advisories, or nil+nil if unavailable (not an error).
 func FetchAdvisories(ctx context.Context, fc forge.Forge, ref, rootDir string) ([]security.Advisory, error) {
-	data, err := fc.DownloadJobArtifact(ctx, ref, "security-scan", ".stagefreight/security/advisories.json")
+	data, err := fc.DownloadJobArtifact(ctx, ref, "security-scan", paths.Ephemeral("", "security", "advisories.json"))
 	if err != nil {
 		// Expected absence or unsupported forge — quiet no-op.
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, forge.ErrNotSupported) {

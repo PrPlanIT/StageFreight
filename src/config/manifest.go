@@ -1,5 +1,7 @@
 package config
 
+import "github.com/PrPlanIT/StageFreight/src/paths"
+
 // ManifestConfig holds configuration for the manifest subsystem.
 type ManifestConfig struct {
 	Preset string `yaml:"preset,omitempty"`
@@ -24,7 +26,7 @@ func DefaultManifestConfig() ManifestConfig {
 	return ManifestConfig{
 		Enabled:   false,
 		Mode:      "ephemeral",
-		OutputDir: ".stagefreight/manifests",
+		OutputDir: paths.Ephemeral("", "manifests"),
 	}
 }
 

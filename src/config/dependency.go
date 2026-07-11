@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
+)
 
 // DependencyHandoff controls what happens when dependency repair creates a new commit.
 //   - "continue"          — advisory only, current pipeline continues regardless
@@ -121,7 +125,7 @@ type DependencyIgnore struct {
 
 // DependencyScopeConfig controls which dependency ecosystems are managed.
 type DependencyScopeConfig struct {
-	GoModules    bool `yaml:"go_modules"`
+	GoModules     bool `yaml:"go_modules"`
 	DockerfileEnv bool `yaml:"dockerfile_env"` // umbrella for docker-image + github-release
 }
 
@@ -148,16 +152,16 @@ type DependencyCommitConfig struct {
 	SkipCI    bool                      `yaml:"skip_ci"`
 	Promotion DependencyCommitPromotion `yaml:"promotion"` // "direct" or "mr"
 	MR        DependencyMRConfig        `yaml:"mr"`
-	RunFrom   RunFromConfig              `yaml:"run_from,omitempty"` // gate mutation to declared origin
+	RunFrom   RunFromConfig             `yaml:"run_from,omitempty"` // gate mutation to declared origin
 }
 
 // DefaultDependencyConfig returns sensible defaults for dependency management.
 func DefaultDependencyConfig() DependencyConfig {
 	return DependencyConfig{
 		Enabled: true,
-		Output:  ".stagefreight/deps",
+		Output:  paths.Ephemeral("", "deps"),
 		Scope: DependencyScopeConfig{
-			GoModules:    true,
+			GoModules:     true,
 			DockerfileEnv: true,
 		},
 		Commit: DependencyCommitConfig{

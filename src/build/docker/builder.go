@@ -12,6 +12,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
 
@@ -219,7 +220,7 @@ func ResolveBuilderInfo(info BuilderInfo) BuilderInfo {
 	name := info.Name
 	if name == "" || name == "(default)" {
 		// Fallback: read from builder.json if EnsureBuilder wasn't called.
-		if recordBytes, err := os.ReadFile(".stagefreight/runtime/docker/builder.json"); err == nil {
+		if recordBytes, err := os.ReadFile(paths.Ephemeral("", "runtime", "docker", "builder.json")); err == nil {
 			var record struct {
 				Name   string `json:"name"`
 				Action string `json:"action"`

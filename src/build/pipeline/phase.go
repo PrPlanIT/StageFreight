@@ -11,6 +11,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -385,7 +386,7 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 	// Write JUnit XML in CI for GitLab test reporting
 	if ci {
 		moduleNames := lintEngine.ModuleNames()
-		if jErr := output.WriteLintJUnit(".stagefreight/reports", findings, files, moduleNames, elapsed); jErr != nil {
+		if jErr := output.WriteLintJUnit(paths.Ephemeral("", "reports"), findings, files, moduleNames, elapsed); jErr != nil {
 			diag.Warn("failed to write junit report: %v", jErr)
 		}
 	}

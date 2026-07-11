@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -212,7 +213,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	// Write JUnit XML in CI for GitLab test reporting
 	if ci {
 		moduleNames := engine.ModuleNames()
-		if jErr := output.WriteLintJUnit(".stagefreight/reports", findings, files, moduleNames, elapsed); jErr != nil {
+		if jErr := output.WriteLintJUnit(paths.Ephemeral("", "reports"), findings, files, moduleNames, elapsed); jErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to write junit report: %v\n", jErr)
 		}
 	}
@@ -455,7 +456,7 @@ func renderProvenanceDisclosure(w io.Writer, entries []lint.ProvenanceEntry, col
 // writeNonTextArtifact persists the full non-text inventory for diffing across runs —
 // the high-signal event is "what non-text APPEARED", not "non-text exists".
 func writeNonTextArtifact(nonText []lint.NonTextEntry) {
-	const dir = ".stagefreight/reports"
+	const dir = paths.Root + "/reports"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}

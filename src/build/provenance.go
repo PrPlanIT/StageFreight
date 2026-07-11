@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // ProvenanceStatement follows the in-toto Statement v1 / SLSA Provenance v1
@@ -78,7 +80,7 @@ func WriteProvenance(path string, stmt ProvenanceStatement) error {
 }
 
 // ProvenanceDir is where build provenance statements are written, relative to root.
-const ProvenanceDir = ".stagefreight/provenance"
+const ProvenanceDir = paths.Root + "/provenance"
 
 // ExtractPredicate reads an in-toto Statement and writes its predicate BODY to a
 // sibling `.predicate.json` for cosign attest (cosign frames the predicate with the

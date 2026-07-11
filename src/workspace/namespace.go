@@ -18,12 +18,12 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/layout"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // NamespaceDir is the StageFreight-owned generated namespace. It is the Durable-bucket
-// root; layout is the single source of truth (see src/layout).
-const NamespaceDir = layout.Root
+// root; paths is the single source of truth (see src/paths).
+const NamespaceDir = paths.Root
 
 // persistentEntries is the DURABLE allowlist — the only content under .stagefreight/
 // that is committed. Everything else in the namespace is ephemeral run output. This is

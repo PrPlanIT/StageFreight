@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // DistDir is the StageFreight-managed output root for binary builds and their
@@ -22,7 +23,7 @@ import (
 // references. Binaries, archives, and SHA256SUMS all live beneath this single
 // root — splitting them (e.g. a bare top-level dist/) reopens the seam where
 // publish receives metadata for files it does not possess.
-const DistDir = ".stagefreight/dist"
+const DistDir = paths.Root + "/dist"
 
 // ArchiveOpts holds configuration for archive creation.
 type ArchiveOpts struct {

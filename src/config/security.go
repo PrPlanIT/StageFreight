@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
+)
 
 // ScannersConfig controls which vulnerability scanners are enabled.
 // Both default to true — scanners still require their binary in PATH.
@@ -29,12 +33,12 @@ func (s ScannersConfig) GrypeEnabled() bool {
 // SecurityConfig holds security scanning configuration.
 type SecurityConfig struct {
 	Preset         string         `yaml:"preset,omitempty"`
-	Enabled        bool           `yaml:"enabled"`          // run vulnerability scanning (default: true)
+	Enabled        bool           `yaml:"enabled"`            // run vulnerability scanning (default: true)
 	Required       *bool          `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
-	Scanners       ScannersConfig `yaml:"scanners"`         // per-scanner toggles
-	SBOMEnabled    bool           `yaml:"sbom"`             // generate SBOM artifacts (default: true)
-	FailOnCritical bool           `yaml:"fail_on_critical"` // DEPRECATED: use fail_on. Alias — true → fail_on: critical.
-	OutputDir      string         `yaml:"output"`           // directory for scan artifacts (default: .stagefreight/security)
+	Scanners       ScannersConfig `yaml:"scanners"`           // per-scanner toggles
+	SBOMEnabled    bool           `yaml:"sbom"`               // generate SBOM artifacts (default: true)
+	FailOnCritical bool           `yaml:"fail_on_critical"`   // DEPRECATED: use fail_on. Alias — true → fail_on: critical.
+	OutputDir      string         `yaml:"output"`             // directory for scan artifacts (default: .stagefreight/security)
 
 	// FailOn is the severity threshold at or above which the scan fails the build:
 	// "critical" | "high" | "medium" | "low" | "off". Empty falls back to the
@@ -138,7 +142,7 @@ func DefaultSecurityConfig() SecurityConfig {
 		Scanners:       ScannersConfig{Trivy: &t, Grype: &t},
 		SBOMEnabled:    true,
 		FailOnCritical: false,
-		OutputDir:      ".stagefreight/security",
+		OutputDir:      paths.Ephemeral("", "security"),
 		ReleaseDetail:  "counts",
 	}
 }

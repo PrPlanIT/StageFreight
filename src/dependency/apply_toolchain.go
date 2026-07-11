@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/layout"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	version "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
@@ -123,7 +123,7 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 		if err := toolchain.WriteLock(repoRoot, lock); err != nil {
 			return nil, nil, nil, fmt.Errorf("writing toolchain lock: %w", err)
 		}
-		changedFiles = append(changedFiles, layout.Durable("", "toolchains.lock"))
+		changedFiles = append(changedFiles, paths.Durable("", "toolchains.lock"))
 	}
 	return applied, skipped, changedFiles, nil
 }

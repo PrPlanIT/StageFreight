@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/PrPlanIT/StageFreight/src/layout"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // LockfileVersion is the schema version of .stagefreight/toolchains.lock. Bump only on
@@ -36,10 +36,10 @@ type Lock struct {
 }
 
 // lockRelPath is the repo-relative path of the lock (a durable committed artifact).
-func lockRelPath() string { return layout.Durable("", "toolchains.lock") }
+func lockRelPath() string { return paths.Durable("", "toolchains.lock") }
 
 // LockPath returns the absolute path of the lock under rootDir.
-func LockPath(rootDir string) string { return layout.Durable(rootDir, "toolchains.lock") }
+func LockPath(rootDir string) string { return paths.Durable(rootDir, "toolchains.lock") }
 
 // ReadLock loads the lock from rootDir. A missing file is not an error — it returns an
 // empty lock (nothing resolved yet), so first-lock is just an empty lock being filled.

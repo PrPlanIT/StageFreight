@@ -28,6 +28,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitops"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/provision"
@@ -580,12 +581,12 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 	// Build update config
 	outputDir := appCfg.Dependency.Output
 	if outputDir == "" {
-		outputDir = ".stagefreight/deps"
+		outputDir = paths.Ephemeral("", "deps")
 	}
 
 	updateCfg := dependency.UpdateConfig{
-		RootDir:    rootDir,
-		OutputDir:  outputDir,
+		RootDir:   rootDir,
+		OutputDir: outputDir,
 		// remediate:false → the update pass only evaluates (no patching), so the
 		// residual gate sees the current, unremediated vulnerabilities.
 		DryRun:     !appCfg.Dependency.RemediateEnabled(),

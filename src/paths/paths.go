@@ -1,4 +1,4 @@
-// Package layout is the single source of truth for where StageFreight writes on
+// Package paths is the single source of truth for where StageFreight writes on
 // disk. Every path StageFreight produces belongs to exactly one BUCKET with a
 // distinct lifecycle, and all writes route through this package so a bucket's
 // physical location is declared ONCE — renaming or re-backing a bucket is a change
@@ -16,7 +16,7 @@
 //	          repo tree; backed by a persistent volume (self-hosted), the forge cache
 //	          mechanism (hosted), or nothing (cold). NEVER a correctness dependency.
 //	State   — host/deployment persistent state (signing/KMS). Machine-scoped, not per-repo.
-package layout
+package paths
 
 import "path/filepath"
 
@@ -45,6 +45,18 @@ const (
 // is anchored under the repo; with rootDir "" it is repo-relative — the form many call
 // sites and CI specs use. sub segments are joined beneath Root.
 func Durable(rootDir string, sub ...string) string {
+	return under(rootDir, append([]string{Root}, sub...))
+}
+
+// Ephemeral returns a path for a per-run pipeline OUTPUT under the namespace (reports,
+// scan results, manifests, the perform→publish handoff, dist). It resolves to the same
+// place as Durable — flat under Root, kept top-level for investigatability — but names
+// the opposite lifecycle: these are regenerated every run and gitignored (the workspace
+// ignore is an allowlist, so anything NOT durable is ignored by default). The commit
+// distinction is enforced by workspace.persistentEntries, not the path; this accessor is
+// the single seam through which every ephemeral output flows, so relocating them later
+// (e.g. under ScratchName) is one edit here.
+func Ephemeral(rootDir string, sub ...string) string {
 	return under(rootDir, append([]string{Root}, sub...))
 }
 
