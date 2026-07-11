@@ -84,6 +84,15 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 		return r, err
 	}
 
+	// python is a DISTRIBUTION (tree, python-build-standalone) — its own resolver.
+	if tool == "python" {
+		r, err := resolvePython(rootDir, version)
+		if err == nil && r.Trust == "" {
+			r.Trust = TrustChecksum
+		}
+		return r, err
+	}
+
 	def, ok := LookupTool(tool)
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported toolchain %q", tool)
