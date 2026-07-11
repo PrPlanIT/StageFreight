@@ -472,9 +472,16 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 				fmt.Fprintf(os.Stderr, "warning: forge client init failed, cannot create MR: %v\n", fcErr)
 			} else {
 				commitSubject := strings.SplitN(commitResult.Message, "\n", 2)[0]
+				// Enrich the MR body with the remediation verdict so a HUMAN reviewer sees
+				// remediated / unremediable-under-policy / no-fix at a glance before merging.
+				desc := buildMRDescription(result)
+				evalCfg := dependency.UpdateConfig{MaxUpdate: appCfg.Dependency.EffectiveMaxUpdate(), Policy: appCfg.Dependency.EffectivePolicy()}
+				if rem := dependency.RemediationSummaryMarkdown(dependency.EvaluateRemediation(snapshot.Dependencies, evalCfg, result)); rem != "" {
+					desc = desc + "\n\n" + rem
+				}
 				mr, mrErr := fc.CreateMR(ctx, forge.MROptions{
 					Title:        commitSubject,
-					Description:  buildMRDescription(result),
+					Description:  desc,
 					SourceBranch: botBranch,
 					TargetBranch: target,
 				})

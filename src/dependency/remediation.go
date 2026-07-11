@@ -1,6 +1,7 @@
 package dependency
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -101,6 +102,52 @@ func Residuals(evals []RemediationEvaluation, failOn string) []RemediationEvalua
 		}
 	}
 	return out
+}
+
+// RemediationSummaryMarkdown renders the advisory verdicts as a Markdown section for
+// a merge-request body, so a HUMAN reviewer sees remediated / unremediable-under-policy
+// / no-fix at a glance — the human-in-the-loop enabler (the bot opens a self-explaining
+// PR; a person merges). Returns "" when there are no advisories. States are grouped,
+// with "unremediable under declared policy" surfaced as its own prominent section.
+func RemediationSummaryMarkdown(evals []RemediationEvaluation) string {
+	if len(evals) == 0 {
+		return ""
+	}
+	groups := map[RemediationState][]RemediationEvaluation{}
+	for _, e := range evals {
+		groups[e.State] = append(groups[e.State], e)
+	}
+
+	var b strings.Builder
+	b.WriteString("## Security remediation\n\n")
+	section := func(icon, label string, state RemediationState, suffix func(RemediationEvaluation) string) {
+		es := groups[state]
+		if len(es) == 0 {
+			return
+		}
+		b.WriteString(fmt.Sprintf("**%s %s (%d)**\n", icon, label, len(es)))
+		for _, e := range es {
+			b.WriteString(fmt.Sprintf("- `%s` %s (%s@%s)%s\n", e.VulnID, e.Severity, e.Package, e.Version, suffix(e)))
+		}
+		b.WriteString("\n")
+	}
+	section("✅", "Remediated", StateRemediated, func(e RemediationEvaluation) string {
+		if e.FixedIn != "" {
+			return " → fixed in " + e.FixedIn
+		}
+		return ""
+	})
+	section("⛔", "Unremediable under declared policy", StateBlockedByPolicy, func(e RemediationEvaluation) string {
+		return " → fix " + e.FixedIn + " excluded by " + string(e.BlockedBy) + " (" + e.Detail + ") — widen policy to remediate"
+	})
+	section("⏳", "Held by cooldown", StateBlockedByCooldown, func(e RemediationEvaluation) string {
+		return " → fix " + e.FixedIn + " held by cooldown"
+	})
+	section("⚠️", "Reachable but not applied", StateReachableUnapplied, func(e RemediationEvaluation) string {
+		return " → fix " + e.FixedIn + " reachable (enable remediate to apply)"
+	})
+	section("ℹ️", "No fix available upstream", StateNoFix, func(RemediationEvaluation) string { return "" })
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // Explain renders a residual's reason for disclosure. blocked_by_policy is surfaced
