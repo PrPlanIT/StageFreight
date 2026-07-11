@@ -53,17 +53,63 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 				continue
 			}
 			keyIndent := leadIndentWidth(lines[i])
-			verIdx, verKey, shaIdx := findToolBlockLines(lines, i, keyIndent, desiredEnd)
+			verIdx, verKey, resolvedIdx, shaIdx := findToolBlockLines(lines, i, keyIndent, desiredEnd)
 			if verIdx < 0 {
 				continue // this occurrence has no constraint/version line — keep looking
 			}
 
-			// A wildcard constraint (1.26.x) auto-resolves at build time — the declared
-			// line already permits newer members, so there is nothing to rewrite. The
-			// newer out-of-line version is surfaced informationally, never applied.
+			// A WILDCARD constraint (1.26.x) is not rewritten — its resolved-LOCK is.
+			// Move the lock forward: the newest in-line member (dep.Latest, from discovery)
+			// becomes `resolved`, its digest becomes `sha256` — replaced if present, inserted
+			// right after the constraint line on first lock. The constraint line is untouched.
 			if version.IsWildcardConstraint(lineValue(lines[verIdx])) {
-				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipWildcardManaged, Reason: "wildcard constraint auto-resolves; not rewritten"})
+				// dep.Latest is the newest in-line member (the target the lock should hold).
+				// Nothing to write when the line resolves to nothing, or the lock line is
+				// already at that target. Note: on FIRST lock the line is absent (resolvedIdx<0)
+				// even when Latest==Current, so the write proceeds — that is how the lock is born.
+				if dep.Latest == "" {
+					skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "wildcard unresolved — nothing to lock"})
+					found = true
+					break
+				}
+				if resolvedIdx >= 0 && lineValue(lines[resolvedIdx]) == dep.Latest {
+					skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "lock already at newest in-line"})
+					found = true
+					break
+				}
+				newSHA, shaErr := toolchain.FetchArtifactSHA256(toolName, dep.Latest)
+				if shaErr != nil {
+					skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "could not derive resolved sha256: " + shaErr.Error()})
+					found = true
+					break
+				}
+				indent := leadIndent(lines[verIdx])
+				resolvedLine := indent + fmt.Sprintf(`resolved: "%s"`, dep.Latest)
+				shaLine := indent + fmt.Sprintf(`sha256: "%s"`, newSHA)
+				if resolvedIdx >= 0 {
+					lines[resolvedIdx] = resolvedLine
+				} else {
+					lines = insertLine(lines, verIdx+1, resolvedLine)
+					desiredEnd++
+					if shaIdx > verIdx {
+						shaIdx++
+					}
+					resolvedIdx = verIdx + 1
+				}
+				if shaIdx >= 0 {
+					lines[shaIdx] = shaLine
+				} else {
+					lines = insertLine(lines, resolvedIdx+1, shaLine)
+					desiredEnd++
+				}
 				found = true
+				modified = true
+				applied = append(applied, AppliedUpdate{
+					Dep:        dep,
+					OldVer:     dep.Current,
+					NewVer:     dep.Latest,
+					UpdateType: updateType(dep.Current, dep.Latest),
+				})
 				break
 			}
 
@@ -166,10 +212,11 @@ func findDesiredSection(lines []string) (int, int) {
 func leadIndent(line string) string   { return line[:leadIndentWidth(line)] }
 func leadIndentWidth(line string) int { return len(line) - len(strings.TrimLeft(line, " ")) }
 
-// findToolBlockLines returns the version and sha256 line indices within one tool's
-// block — the lines indented under keyIdx up to sectionEnd — or -1 for each.
-func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verIdx int, verKey string, shaIdx int) {
-	verIdx, shaIdx = -1, -1
+// findToolBlockLines returns the constraint/version, resolved, and sha256 line indices
+// within one tool's block — the lines indented under keyIdx up to sectionEnd — or -1
+// for each. resolvedIdx is the wildcard resolved-lock line (may be absent).
+func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verIdx int, verKey string, resolvedIdx, shaIdx int) {
+	verIdx, resolvedIdx, shaIdx = -1, -1, -1
 	for j := keyIdx + 1; j <= sectionEnd && j < len(lines); j++ {
 		t := strings.TrimSpace(lines[j])
 		if t == "" || strings.HasPrefix(t, "#") {
@@ -185,11 +232,23 @@ func findToolBlockLines(lines []string, keyIdx, keyIndent, sectionEnd int) (verI
 		} else if strings.HasPrefix(t, "version:") {
 			verIdx, verKey = j, "version"
 		}
+		if strings.HasPrefix(t, "resolved:") {
+			resolvedIdx = j
+		}
 		if strings.HasPrefix(t, "sha256:") {
 			shaIdx = j
 		}
 	}
 	return
+}
+
+// insertLine returns lines with `line` spliced in at index at (fresh backing array).
+func insertLine(lines []string, at int, line string) []string {
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, lines[:at]...)
+	out = append(out, line)
+	out = append(out, lines[at:]...)
+	return out
 }
 
 // lineValue extracts the (unquoted) value of a `key: value` YAML line.

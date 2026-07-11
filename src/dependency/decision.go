@@ -36,7 +36,6 @@ const (
 	SkipReplaceDirective   SkipCategory = "replace_directive"   // go.mod replace present
 	SkipNoFixedVersion     SkipCategory = "no_fixed_version"    // advisory with no known fixed version
 	SkipConflict           SkipCategory = "conflict"            // conflicting desired versions within a module
-	SkipWildcardManaged    SkipCategory = "wildcard_managed"    // wildcard constraint auto-resolves; nothing to rewrite
 
 	// SkipOther is the fallback for a decision not yet given its own category.
 	SkipOther SkipCategory = "other"
