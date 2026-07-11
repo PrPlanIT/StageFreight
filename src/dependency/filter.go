@@ -192,7 +192,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 		if ceilingRetarget(dep, cfg.MaxUpdate) == "" {
 			label := cfg.MaxUpdate
 			if label == "" {
-				label = "minor"
+				label = "major"
 			}
 			return SkipCeilingExceeded, "exceeds max_update ceiling (" + label + ")"
 		}
@@ -258,8 +258,9 @@ func extractTag(image string) string {
 
 // updateTypeExceedsCeiling reports whether an update of type ut (from
 // updateType(): major/minor/patch/tag/security) is beyond the max_update
-// ceiling. Empty ceiling defaults to "minor" (today's behavior). patch < minor <
-// major; tag and security are treated as patch-level (revision / floor bumps).
+// ceiling. Empty ceiling defaults to "major" — a no-op (nothing exceeds it), so an
+// unset ceiling never holds anything the ecosystem's own model would allow. patch <
+// minor < major; tag and security are treated as patch-level (revision / floor bumps).
 func updateTypeExceedsCeiling(ut, maxUpdate string) bool {
 	rank := func(t string) int {
 		switch t {
@@ -271,12 +272,12 @@ func updateTypeExceedsCeiling(ut, maxUpdate string) bool {
 			return 1
 		}
 	}
-	ceiling := 2 // default: minor
+	ceiling := 3 // default (empty): major — no ceiling beyond the ecosystem compat model
 	switch maxUpdate {
 	case "patch":
 		ceiling = 1
-	case "major":
-		ceiling = 3
+	case "minor":
+		ceiling = 2
 	}
 	return rank(ut) > ceiling
 }

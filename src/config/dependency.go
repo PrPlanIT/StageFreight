@@ -51,11 +51,14 @@ type DependencyConfig struct {
 	Policy string `yaml:"policy,omitempty"`
 
 	// MaxUpdate is the update-type CEILING — how far a dependency may move:
-	// "major" (latest — allow constraint-expanding majors), "minor" (n.x.n — lock
-	// the major, allow minor+patch), or "patch" (n.n.x — lock major and minor,
-	// allow patch only). Empty defaults to "minor" — today's behavior, where a
-	// major upgrade is held for review. A security fix is still applied even if it
-	// exceeds the ceiling (remediation floor), disclosed as a ceiling override.
+	// "major" (allow the ecosystem's own maximum), "minor" (n.x.n — lock the major,
+	// allow minor+patch), or "patch" (n.n.x — lock major and minor, allow patch
+	// only). Empty defaults to "major" — a NO-OP that imposes no ceiling beyond each
+	// ecosystem's native compatibility model (cargo/docker still hold out-of-range
+	// majors via their `^`/tag-line semantics; gomod/github-release/toolchain retain
+	// their prior auto-apply). Setting "minor"/"patch" is an explicit opt-in to hold
+	// majors (and minors). A security fix is applied even if it exceeds the ceiling
+	// (remediation floor).
 	MaxUpdate string `yaml:"max_update,omitempty"`
 
 	// MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is
@@ -77,14 +80,14 @@ func (c DependencyConfig) EffectivePolicy() string {
 	return "all"
 }
 
-// EffectiveMaxUpdate resolves the update-type ceiling, defaulting to "minor"
-// (today's behavior: majors held for review). Lowercased "major" | "minor" |
-// "patch".
+// EffectiveMaxUpdate resolves the update-type ceiling, defaulting to "major" — a
+// no-op that preserves each ecosystem's native behavior (holding majors is an
+// explicit opt-in, never a silent default). Lowercased "major" | "minor" | "patch".
 func (c DependencyConfig) EffectiveMaxUpdate() string {
 	if v := strings.ToLower(strings.TrimSpace(c.MaxUpdate)); v != "" {
 		return v
 	}
-	return "minor"
+	return "major"
 }
 
 // RemediateEnabled reports whether the update pass patches eligible dependencies.
