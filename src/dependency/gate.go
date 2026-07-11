@@ -2,7 +2,6 @@ package dependency
 
 import (
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
-	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
 )
 
 // ResidualVuln is a vulnerability still present AFTER the update pass — its
@@ -14,39 +13,16 @@ type ResidualVuln struct {
 	Severity string
 }
 
-// ResidualVulnerabilities is the deps module's Policy stage: over the residual
-// findings (vulnerabilities whose advisory id was NOT fixed by any Applied
-// update — a held major, no fix available, or ignored), return those at or above
-// the failOn threshold. failOn "off"/"" or an unrecognized label → no gate (nil).
-// Same evaluation shape as the other modules, in the vulnerability severity scale.
-//
-// remediate=false shows up naturally: with nothing applied, no advisory is fixed,
-// so every vulnerability at/above the threshold is residual.
+// ResidualVulnerabilities is the deps module's Policy stage: the residual
+// vulnerabilities (not fixed by any Applied update) at or above the failOn threshold.
+// It is the simple []ResidualVuln view over the richer RemediationEvaluation model
+// (EvaluateRemediation + Residuals) — behavior-identical: the residual SET is the
+// state != remediated advisories. Callers wanting the WHY use EvaluateRemediation.
+// failOn "off"/"" or an unrecognized label → no gate (nil).
 func ResidualVulnerabilities(deps []supplychain.Dependency, result *UpdateResult, failOn string) []ResidualVuln {
-	minRank := severity.Rank(severity.Normalize(failOn))
-	if minRank == 0 { // "off" / unrecognized → no gate
-		return nil
-	}
-
-	fixed := map[string]bool{}
-	if result != nil {
-		for _, a := range result.Applied {
-			for _, id := range a.CVEsFixed {
-				fixed[id] = true
-			}
-		}
-	}
-
 	var out []ResidualVuln
-	for _, d := range deps {
-		for _, v := range d.Vulnerabilities {
-			if v.ID == "" || fixed[v.ID] {
-				continue
-			}
-			if severity.Rank(severity.Normalize(v.Severity)) >= minRank {
-				out = append(out, ResidualVuln{Dep: d.Name, Version: d.Current, VulnID: v.ID, Severity: v.Severity})
-			}
-		}
+	for _, e := range Residuals(EvaluateRemediation(deps, UpdateConfig{}, result), failOn) {
+		out = append(out, ResidualVuln{Dep: e.Package, Version: e.Version, VulnID: e.VulnID, Severity: e.Severity})
 	}
 	return out
 }

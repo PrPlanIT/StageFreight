@@ -512,9 +512,13 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// UNremediated — a held major, no fix available, or ignored. Default fail_on
 	// "off" → no gate, so this is zero-change until a project opts in.
 	if failOn := appCfg.Dependency.EffectiveFailOn(); failOn != "off" {
-		if residual := dependency.ResidualVulnerabilities(snapshot.Dependencies, result, failOn); len(residual) > 0 {
+		// Evaluate each advisory's remediation state against declared policy, then gate
+		// on the residual set (state != remediated) — the SAME set as before, now
+		// carrying WHY (no-fix / blocked-by-policy / reachable-unapplied) in disclosure.
+		evalCfg := dependency.UpdateConfig{MaxUpdate: appCfg.Dependency.EffectiveMaxUpdate(), Policy: appCfg.Dependency.EffectivePolicy()}
+		if residual := dependency.Residuals(dependency.EvaluateRemediation(snapshot.Dependencies, evalCfg, result), failOn); len(residual) > 0 {
 			for _, r := range residual {
-				fmt.Fprintf(os.Stderr, "  deps: unremediated %s (%s@%s, %s)\n", r.VulnID, r.Dep, r.Version, r.Severity)
+				fmt.Fprintf(os.Stderr, "  deps: unremediated %s (%s@%s, %s) — %s\n", r.VulnID, r.Package, r.Version, r.Severity, r.Explain())
 			}
 			word := "vulnerabilities"
 			if len(residual) == 1 {
