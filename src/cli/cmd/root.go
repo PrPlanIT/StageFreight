@@ -15,13 +15,29 @@ var (
 	cfg     *config.Config
 )
 
+// configFreeCommands are top-level commands that must run without loading the
+// project config (.stagefreight.yml). They act on the binary or the host, not the
+// repo, so an absent or unparseable config must never block them — see the
+// PersistentPreRunE rationale below.
+var configFreeCommands = map[string]bool{
+	"version": true, // prints build info
+	"update":  true, // replaces this binary; must not be gated on config it can't parse
+	"du":      true, // host disk-attribution diagnostic
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "stagefreight",
 	Short: "Declarative lifecycle runtime — there's a setting for every stage, this is theatre!",
 	Long:  "StageFreight — a declarative lifecycle runtime that governs Git as the source of truth, enforcing operator-defined intent across GitOps workflows, Kubernetes, Docker, and CI ecosystems.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip config loading for commands that don't need it.
-		if cmd.Name() == "version" {
+		// Skip config loading for commands that operate on the binary or the host,
+		// not the project — they MUST work even when .stagefreight.yml is absent or
+		// unparseable by the current binary. In particular `update` replaces the very
+		// binary that would understand a newer config schema, so gating it on a config
+		// parse is a bootstrap trap (a repo pinned to new syntax could never update the
+		// old binary that chokes on it). `du` is a host disk diagnostic and `version`
+		// prints build info; neither reads project config.
+		if configFreeCommands[cmd.Name()] {
 			return nil
 		}
 		var warnings []string

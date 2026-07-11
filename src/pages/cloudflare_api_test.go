@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -94,13 +95,18 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newCFPagesClient("api-token", "acct-1", "proj", "docs.example.com")
+	c := newCFPagesClient("api-token", "acct-1", "proj", []string{"docs.example.com"})
 	c.base = srv.URL
+	// Inject NS so the attach's DNS classification is deterministic and offline.
+	c.lookupNS = func(string) ([]*net.NS, error) {
+		return []*net.NS{{Host: "adam.ns.cloudflare.com."}, {Host: "kara.ns.cloudflare.com."}}, nil
+	}
 
-	url, err := c.deploy(context.Background(), ws)
+	res, err := c.deploy(context.Background(), ws)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
+	url := res.URL
 
 	if !gotProjectGet || !gotCreate {
 		t.Errorf("project not created idempotently: get=%v create=%v", gotProjectGet, gotCreate)
@@ -127,6 +133,19 @@ func TestCFPagesClient_DeployProtocol(t *testing.T) {
 	}
 	if url != "https://abc.proj.pages.dev" {
 		t.Errorf("deploy url = %q, want the deployment result url", url)
+	}
+	// Domain outcome is reported as data alongside the deploy, not folded into it.
+	if len(res.Domains) != 1 {
+		t.Fatalf("res.Domains = %v, want one outcome for the requested custom domain", res.Domains)
+	}
+	if !res.Domains[0].Attached {
+		t.Errorf("res.Domains[0].Attached = false, want true (attach succeeded)")
+	}
+	if res.Domains[0].DNSProvider != DNSCloudflare {
+		t.Errorf("res.Domains[0].DNSProvider = %q, want cloudflare (all NS end in .cloudflare.com)", res.Domains[0].DNSProvider)
+	}
+	if res.Domains[0].Err != "" {
+		t.Errorf("res.Domains[0].Err = %q, want empty on success", res.Domains[0].Err)
 	}
 }
 

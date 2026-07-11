@@ -25,25 +25,25 @@ func (c *cloudflareProvider) Prepare(ws string, opts DeployOpts) error {
 	return FilterWorkspace(ws, opts)
 }
 
-func (c *cloudflareProvider) Deploy(ctx context.Context, ws string, opts DeployOpts) (string, error) {
+func (c *cloudflareProvider) Deploy(ctx context.Context, ws string, opts DeployOpts) (DeployResult, error) {
 	if opts.Project == "" {
-		return "", fmt.Errorf("cloudflare pages: project name required (target id or project:)")
+		return DeployResult{}, fmt.Errorf("cloudflare pages: project name required (target id or project:)")
 	}
 	token := opts.Env["CLOUDFLARE_API_TOKEN"]
 	account := opts.Env["CLOUDFLARE_ACCOUNT_ID"]
 	if token == "" || account == "" {
-		return "", fmt.Errorf("cloudflare pages: missing required credential CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID")
+		return DeployResult{}, fmt.Errorf("cloudflare pages: missing required credential CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID")
 	}
 
-	client := newCFPagesClient(token, account, opts.Project, opts.Domain)
+	client := newCFPagesClient(token, account, opts.Project, opts.Domains)
 	if opts.DryRun {
 		// Safe first pass: hash the workspace (exercising the full asset pipeline)
 		// without any external call.
 		assets, err := client.collectAssets(ws)
 		if err != nil {
-			return "", err
+			return DeployResult{}, err
 		}
-		return fmt.Sprintf("[dry-run] would deploy %d file(s) to cloudflare project %q", len(assets), opts.Project), nil
+		return DeployResult{URL: fmt.Sprintf("[dry-run] would deploy %d file(s) to cloudflare project %q", len(assets), opts.Project)}, nil
 	}
 	return client.deploy(ctx, ws)
 }

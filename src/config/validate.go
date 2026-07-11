@@ -772,6 +772,13 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 				errs = append(errs, fmt.Sprintf("%s: cloudflare pages project name %q is invalid (lowercase letters, digits, and hyphens; 1–58 chars; no leading/trailing hyphen) — set project: if the target id can't satisfy this", path, name))
 			}
 		}
+		// GitHub Pages serves a single custom domain per site (one CNAME record), so a
+		// list is a configuration mistake, not a silent truncation. Cloudflare attaches
+		// every listed domain. To serve the extras on GitHub Pages, redirect/proxy them
+		// to the canonical one, or use provider: cloudflare for native multi-domain.
+		if t.Provider == "github" && len(t.Domain) > 1 {
+			errs = append(errs, fmt.Sprintf("%s: kind pages provider github supports a single custom domain, got %d (%s) — GitHub Pages writes one CNAME; redirect/proxy the others or use provider: cloudflare for native multi-domain", path, len(t.Domain), strings.Join(t.Domain, ", ")))
+		}
 		// Versioning: P1 implements only "replace"; "keep" is reserved (fail loudly
 		// rather than silently ignore, so nobody assumes it works).
 		if t.Versioning != nil {

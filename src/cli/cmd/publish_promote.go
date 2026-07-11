@@ -32,11 +32,11 @@ import (
 // transport not active). In that case the caller's existing distribution path
 // remains responsible. This is the explicit fallback condition, staged toward
 // removing the perform-time rebuild-push once promotion is proven in production.
-func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string, w io.Writer) (promoted int, err error) {
+func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string, w io.Writer) (promoted int, untargeted int, err error) {
 	outputs, readErr := artifact.ReadOutputsManifest(rootDir)
 	if readErr != nil {
 		// No outputs manifest = nothing perform recorded to promote. Not an error.
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	// Publish owns publication outcome records: it is the only phase that mutates
@@ -90,6 +90,14 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		}
 		layoutDir := a.Persistence.OCILayout.Path
 		if layoutDir == "" {
+			continue
+		}
+		// Produced but not distributed on this ref: the image was built and
+		// retained (review scanned it), but no publish target matches this
+		// branch/tag. There is nothing to promote — disclose it rather than
+		// render a misleading empty "PUBLISHED" box. (Produced != published.)
+		if !hasRegistryTarget(a.Targets) {
+			untargeted++
 			continue
 		}
 		// Re-hash before distributing: never push bytes we cannot verify against
@@ -248,20 +256,32 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	if recordedResults {
 		results, bErr := rb.Build(outputs)
 		if bErr != nil {
-			return promoted, fmt.Errorf("building publication results manifest: %w", bErr)
+			return promoted, untargeted, fmt.Errorf("building publication results manifest: %w", bErr)
 		}
 		if wErr := artifact.WriteResultsManifest(rootDir, results); wErr != nil {
-			return promoted, fmt.Errorf("writing publication results manifest: %w", wErr)
+			return promoted, untargeted, fmt.Errorf("writing publication results manifest: %w", wErr)
 		}
 	}
 	if len(failures) > 0 {
 		// Partial distribution: report exactly which tags succeeded (promoted)
 		// and which failed, so an operator can re-run (idempotent) to converge
 		// rather than guess at a half-published state.
-		return promoted, fmt.Errorf("publish promotion: %d tag(s) succeeded, %d failed: %v",
+		return promoted, untargeted, fmt.Errorf("publish promotion: %d tag(s) succeeded, %d failed: %v",
 			promoted, len(failures), failures)
 	}
-	return promoted, nil
+	return promoted, untargeted, nil
+}
+
+// hasRegistryTarget reports whether an artifact carries at least one registry
+// distribution target. A retained docker artifact with none is "produced but
+// not distributed on this ref" — the publish phase discloses it, never pushes.
+func hasRegistryTarget(targets []artifact.Target) bool {
+	for _, t := range targets {
+		if t.Kind == "registry" && t.Registry != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // resolvePromoteAuth resolves registry credentials for a target host by matching

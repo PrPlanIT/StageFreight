@@ -55,4 +55,11 @@ func TestValidateTarget_Pages(t *testing.T) {
 	check("max length (58 chars) valid", func(tc *TargetConfig) { tc.Project = strings.Repeat("a", 58) }, "")
 	// A github target with an id CF would reject must NOT trip the CF rule.
 	check("github ignores cf name rule", func(tc *TargetConfig) { tc.Provider = "github"; tc.ID = "My_Docs" }, "")
+
+	// Domain: Cloudflare attaches every listed domain; GitHub serves one CNAME, so a
+	// list is rejected at load rather than silently truncated to the first entry.
+	check("cloudflare single domain valid", func(tc *TargetConfig) { tc.Domain = StringOrList{"a.com"} }, "")
+	check("cloudflare multi domain valid", func(tc *TargetConfig) { tc.Domain = StringOrList{"a.com", "b.com"} }, "")
+	check("github single domain valid", func(tc *TargetConfig) { tc.Provider = "github"; tc.Domain = StringOrList{"a.com"} }, "")
+	check("github multi domain rejected", func(tc *TargetConfig) { tc.Provider = "github"; tc.Domain = StringOrList{"a.com", "b.com"} }, "supports a single custom domain")
 }

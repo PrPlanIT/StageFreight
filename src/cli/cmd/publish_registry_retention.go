@@ -102,7 +102,9 @@ func pruneRemoteRegistries(ctx context.Context, appCfg *config.Config, rootDir s
 
 	sec := output.NewSection(w, "Retention", time.Since(start), color)
 	for _, r := range results {
-		sec.Row("%-40skept %d, pruned %d", r.label, r.kept, len(r.deleted))
+		// Two-space separator so an over-40-char registry path (which %-40s can't pad)
+		// never butts up against "kept".
+		sec.Row("%-40s  kept %d, pruned %d", r.label, r.kept, len(r.deleted))
 		for _, d := range r.deleted {
 			sec.Row("  - %s", d)
 		}

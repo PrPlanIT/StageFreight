@@ -192,9 +192,15 @@ type TargetConfig struct {
 	// (kind: pages). Globs, applied after extraction.
 	Exclude []string `yaml:"exclude,omitempty"`
 
-	// Domain is the custom domain (kind: pages). Cloudflare auto-wires DNS; GitHub
-	// writes a CNAME into the published tree.
-	Domain string `yaml:"domain,omitempty"`
+	// Domain is the custom domain(s) (kind: pages). Accepts a bare scalar or a list:
+	//
+	//	domain: precisionplanit.com
+	//	domain: [precisionplanit.com, prplanit.com]
+	//
+	// Cloudflare attaches every listed domain to the project (each auto-wires DNS).
+	// GitHub Pages serves a single custom domain, so a list is rejected at load; the
+	// one entry is written as the CNAME.
+	Domain StringOrList `yaml:"domain,omitempty"`
 
 	// BasePath is the URL path the site is served under (kind: pages). Inferred per
 	// provider (Cloudflare "/", GitHub project "/<repo>/") and fed into the build.

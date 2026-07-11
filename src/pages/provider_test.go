@@ -80,7 +80,7 @@ func TestGithubPrepare_MetadataAndFilter(t *testing.T) {
 	ws := t.TempDir()
 	writeWS(t, ws, "index.html", "x.map")
 	g := &githubProvider{}
-	if err := g.Prepare(ws, DeployOpts{Domain: "docs.example.com", Exclude: []string{"*.map"}}); err != nil {
+	if err := g.Prepare(ws, DeployOpts{Domains: []string{"docs.example.com"}, Exclude: []string{"*.map"}}); err != nil {
 		t.Fatal(err)
 	}
 	// .nojekyll + CNAME written; the map filtered out.

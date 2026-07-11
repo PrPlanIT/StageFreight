@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,61 +40,105 @@ type cfPagesClient struct {
 	apiToken  string
 	accountID string
 	project   string
-	domain    string // optional custom domain to attach
-	base      string // API base; overridable in tests
+	domains   []string // optional custom domain(s) to attach
+	base      string   // API base; overridable in tests
 	hasher    AssetHasher
 	http      *http.Client
+	lookupNS  func(string) ([]*net.NS, error) // authoritative-NS lookup; overridable in tests
 }
 
-func newCFPagesClient(apiToken, accountID, project, domain string) *cfPagesClient {
+func newCFPagesClient(apiToken, accountID, project string, domains []string) *cfPagesClient {
 	return &cfPagesClient{
 		apiToken:  apiToken,
 		accountID: accountID,
 		project:   project,
-		domain:    domain,
+		domains:   domains,
 		base:      cfAPIBase,
 		hasher:    cloudflarePagesV1Hasher{},
 		http:      &http.Client{Timeout: 2 * time.Minute},
+		lookupNS:  net.LookupNS,
 	}
 }
 
-// deploy runs the full Direct Upload flow and returns the deployment URL.
-func (c *cfPagesClient) deploy(ctx context.Context, ws string) (string, error) {
+// deploy runs the full Direct Upload flow. The SITE deploy is the critical operation —
+// any failure up to and including createDeployment returns an error. Custom-domain
+// configuration runs only AFTER a successful deploy and is best-effort: its outcome is
+// reported as data (DeployResult.Domains), never as the returned error.
+func (c *cfPagesClient) deploy(ctx context.Context, ws string) (DeployResult, error) {
 	assets, err := c.collectAssets(ws)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	if len(assets) == 0 {
-		return "", fmt.Errorf("cloudflare pages: no files to deploy in %s", ws)
+		return DeployResult{}, fmt.Errorf("cloudflare pages: no files to deploy in %s", ws)
 	}
 	// Idempotently ensure the project exists — no dashboard step, and no broader token
 	// than deploying already needs (Cloudflare Pages:Edit covers create + deploy).
 	if err := c.ensureProject(ctx); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	jwt, err := c.uploadToken(ctx)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	missing, err := c.checkMissing(ctx, jwt, assets)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	if err := c.uploadAssets(ctx, jwt, assets, missing); err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
 	url, err := c.createDeployment(ctx, assets)
 	if err != nil {
-		return "", err
+		return DeployResult{}, err
 	}
-	// Idempotently attach the custom domain (same token scope). This is the apex
-	// cutover — Cloudflare points the domain at Pages — driven by the domain: config.
-	if c.domain != "" {
-		if err := c.ensureCustomDomain(ctx); err != nil {
-			return url, fmt.Errorf("cloudflare pages: deployed, but attaching domain %q failed: %w", c.domain, err)
+	// Site is deployed. Domain configuration is a separate, non-fatal enhancement.
+	// A Pages project can carry several custom domains, so attach each one and report
+	// its outcome independently — one failing domain never affects the others.
+	res := DeployResult{URL: url}
+	for _, d := range c.domains {
+		if d == "" {
+			continue
+		}
+		res.Domains = append(res.Domains, c.attachDomain(ctx, d))
+	}
+	return res, nil
+}
+
+// attachDomain best-effort attaches the custom hostname to the Pages project and
+// reports the outcome as data. It NEVER returns an error — a domain problem must not
+// fail a successful deploy. It first classifies the domain's authoritative nameservers
+// (informational, to tailor later guidance), then lets the Pages API be the authority
+// for the attach itself — public DNS is eventually consistent and is never used as a
+// gate here (verification is a separate concern).
+func (c *cfPagesClient) attachDomain(ctx context.Context, domain string) DomainOutcome {
+	out := DomainOutcome{Name: domain, DNSProvider: c.classifyDNS(domain)}
+	url := fmt.Sprintf("%s/accounts/%s/pages/projects/%s/domains", c.base, c.accountID, c.project)
+	err := c.doJSON(ctx, http.MethodPost, url, c.apiToken, map[string]any{"name": domain}, nil)
+	if err == nil || isAlreadyExists(err) {
+		out.Attached = true
+		return out
+	}
+	out.Err = err.Error()
+	return out
+}
+
+// classifyDNS resolves the domain's authoritative nameservers and classifies where DNS
+// is hosted — the signal for whether the host can auto-configure records. Registrar is
+// irrelevant; only the NS delegation matters. An inconclusive lookup is DNSUnknown, not
+// a failure (this is advisory, not a gate).
+func (c *cfPagesClient) classifyDNS(domain string) DNSProvider {
+	ns, err := c.lookupNS(domain)
+	if err != nil || len(ns) == 0 {
+		return DNSUnknown
+	}
+	for _, n := range ns {
+		host := strings.ToLower(strings.TrimSuffix(n.Host, "."))
+		if !strings.HasSuffix(host, ".cloudflare.com") {
+			return DNSExternal // any non-Cloudflare authoritative NS ⇒ external
 		}
 	}
-	return url, nil
+	return DNSCloudflare
 }
 
 // ensureProject creates the Pages project if it doesn't already exist. GET-then-create
@@ -101,37 +146,40 @@ func (c *cfPagesClient) deploy(ctx context.Context, ws string) (string, error) {
 func (c *cfPagesClient) ensureProject(ctx context.Context) error {
 	getURL := fmt.Sprintf("%s/accounts/%s/pages/projects/%s", c.base, c.accountID, c.project)
 	if err := c.doJSON(ctx, http.MethodGet, getURL, c.apiToken, nil, nil); err == nil {
-		return nil // already exists
+		return nil // already exists in this account
 	}
 	createURL := fmt.Sprintf("%s/accounts/%s/pages/projects", c.base, c.accountID)
 	body := map[string]any{"name": c.project, "production_branch": "main"}
-	if err := c.doJSON(ctx, http.MethodPost, createURL, c.apiToken, body, nil); err != nil {
-		if isAlreadyExists(err) {
-			return nil // created between the GET and POST
-		}
-		return fmt.Errorf("cloudflare pages: create project %q: %w", c.project, err)
+	err := c.doJSON(ctx, http.MethodPost, createURL, c.apiToken, body, nil)
+	if err == nil {
+		return nil
 	}
-	return nil
-}
-
-// ensureCustomDomain attaches the custom domain to the project (idempotent).
-func (c *cfPagesClient) ensureCustomDomain(ctx context.Context) error {
-	url := fmt.Sprintf("%s/accounts/%s/pages/projects/%s/domains", c.base, c.accountID, c.project)
-	if err := c.doJSON(ctx, http.MethodPost, url, c.apiToken, map[string]any{"name": c.domain}, nil); err != nil {
-		if isAlreadyExists(err) {
-			return nil
+	if isAlreadyExists(err) {
+		// "already exists"/"already taken" is ambiguous. The account-scoped GET above
+		// just told us the project is NOT in this account, so a create-time "taken"
+		// means one of two things:
+		//   (a) a concurrent create in THIS account between our GET and POST — benign, or
+		//   (b) the name is owned by ANOTHER account — Pages project names are globally
+		//       unique (they're <name>.pages.dev subdomains on a shared domain).
+		// Re-GET scoped to our account to disambiguate: present now ⇒ (a), success;
+		// still absent ⇒ (b), a name we can't use — surface an actionable error rather
+		// than swallowing it and failing opaquely later at upload-token/deployment.
+		if gerr := c.doJSON(ctx, http.MethodGet, getURL, c.apiToken, nil, nil); gerr == nil {
+			return nil // (a) it's ours after all — a race
 		}
-		return err
+		return fmt.Errorf("cloudflare pages: project name %q is already taken on Cloudflare (Pages project names are globally unique) — set project: to a unique name", c.project)
 	}
-	return nil
+	return fmt.Errorf("cloudflare pages: create project %q: %w", c.project, err)
 }
 
 // isAlreadyExists tolerates the "resource already exists" family of Cloudflare errors
-// so create/attach stay idempotent.
+// so create/attach stay idempotent. "already added" covers the custom-domain attach
+// case (CF error 8000018: "You have already added this custom domain."), which a
+// re-deploy hits every time — it is idempotent success, not a failure.
 func isAlreadyExists(err error) bool {
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "already exists") || strings.Contains(s, "already been taken") ||
-		strings.Contains(s, "duplicate")
+		strings.Contains(s, "duplicate") || strings.Contains(s, "already added")
 }
 
 // collectAssets walks the workspace into upload assets: manifest key (leading slash),

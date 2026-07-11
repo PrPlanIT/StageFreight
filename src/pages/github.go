@@ -37,42 +37,55 @@ func (g *githubProvider) Prepare(ws string, opts DeployOpts) error {
 	if err := os.WriteFile(filepath.Join(ws, ".nojekyll"), nil, 0o644); err != nil {
 		return err
 	}
-	if opts.Domain != "" {
-		if err := os.WriteFile(filepath.Join(ws, "CNAME"), []byte(opts.Domain+"\n"), 0o644); err != nil {
+	// GitHub Pages serves a single custom domain (one CNAME record). Config validation
+	// rejects a multi-domain list for the github provider, so at most one is set here;
+	// firstDomain is a defensive fallback that also handles the empty case.
+	if d := firstDomain(opts.Domains); d != "" {
+		if err := os.WriteFile(filepath.Join(ws, "CNAME"), []byte(d+"\n"), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts) (string, error) {
+// firstDomain returns the first non-empty domain, or "" when there are none.
+func firstDomain(domains []string) string {
+	for _, d := range domains {
+		if d != "" {
+			return d
+		}
+	}
+	return ""
+}
+
+func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts) (DeployResult, error) {
 	repo := opts.Repo
 	if repo == "" {
 		repo = os.Getenv("GITHUB_REPOSITORY") // "OWNER/REPO" on GitHub Actions
 	}
 	if repo == "" {
-		return "", fmt.Errorf("github pages: target repo unknown — set the target's project_id (OWNER/REPO)")
+		return DeployResult{}, fmt.Errorf("github pages: target repo unknown — set the target's project_id (OWNER/REPO)")
 	}
 	token := opts.Env["GITHUB_TOKEN"]
 	if token == "" {
-		return "", fmt.Errorf("github pages: missing required credential GITHUB_TOKEN")
+		return DeployResult{}, fmt.Errorf("github pages: missing required credential GITHUB_TOKEN")
 	}
-	url := githubPagesURL(repo, opts.Domain)
+	url := githubPagesURL(repo, firstDomain(opts.Domains))
 	if opts.DryRun {
-		return fmt.Sprintf("[dry-run] would force-push %s to %s gh-pages", ws, repo), nil
+		return DeployResult{URL: fmt.Sprintf("[dry-run] would force-push %s to %s gh-pages", ws, repo)}, nil
 	}
 
 	// Init a repo over the workspace, commit everything, force-push HEAD → gh-pages.
 	r, err := git.PlainInit(ws, false)
 	if err != nil {
-		return "", fmt.Errorf("github pages: git init: %w", err)
+		return DeployResult{}, fmt.Errorf("github pages: git init: %w", err)
 	}
 	wt, err := r.Worktree()
 	if err != nil {
-		return "", fmt.Errorf("github pages: worktree: %w", err)
+		return DeployResult{}, fmt.Errorf("github pages: worktree: %w", err)
 	}
 	if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
-		return "", fmt.Errorf("github pages: staging: %w", err)
+		return DeployResult{}, fmt.Errorf("github pages: staging: %w", err)
 	}
 	if _, err := wt.Commit("deploy via StageFreight", &git.CommitOptions{
 		Author: &object.Signature{
@@ -81,13 +94,13 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 			When:  time.Now(),
 		},
 	}); err != nil {
-		return "", fmt.Errorf("github pages: commit: %w", err)
+		return DeployResult{}, fmt.Errorf("github pages: commit: %w", err)
 	}
 	if _, err := r.CreateRemote(&gitconfig.RemoteConfig{
 		Name: "origin",
 		URLs: []string{fmt.Sprintf("https://github.com/%s.git", repo)},
 	}); err != nil {
-		return "", fmt.Errorf("github pages: remote: %w", err)
+		return DeployResult{}, fmt.Errorf("github pages: remote: %w", err)
 	}
 	if err := r.PushContext(ctx, &git.PushOptions{
 		RemoteName: "origin",
@@ -95,9 +108,12 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 		Auth:       &githttp.BasicAuth{Username: "x-access-token", Password: token},
 		Force:      true,
 	}); err != nil && err != git.NoErrAlreadyUpToDate {
-		return "", fmt.Errorf("github pages: push: %w", err)
+		return DeployResult{}, fmt.Errorf("github pages: push: %w", err)
 	}
-	return url, nil
+	// GitHub's custom-domain model is the CNAME file written into the tree during
+	// Prepare (not an API attach), so there's no separate DomainOutcome to report; the
+	// returned URL already reflects the custom domain when set.
+	return DeployResult{URL: url}, nil
 }
 
 func githubPagesURL(repo, domain string) string {

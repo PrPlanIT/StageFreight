@@ -123,13 +123,16 @@ func TestPlanToOutputsSkipsNonImageSteps(t *testing.T) {
 	}
 }
 
-func TestPlanToOutputsSkipsImageStepsWithNoRegistry(t *testing.T) {
-	// Steps configured for local-only builds (no remote distribution) have
-	// no place in OutputsManifest — there's nothing to externalize.
+func TestPlanToOutputsEmitsUntargetedImageStep(t *testing.T) {
+	// Produced != published: an image step with no matching publish target (no
+	// Registries) is still PRODUCED — it must appear in OutputsManifest so it is
+	// retained to the content store and review-scannable. It simply carries zero
+	// distribution Targets. This is the decoupling: builds: decides what is
+	// produced; targets:+events decide only what is distributed.
 	plan := &BuildPlan{
 		Steps: []BuildStep{
 			{
-				Name: "local-only", Output: OutputImage,
+				Name: "no-target", Output: OutputImage,
 				Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"},
 				Registries: nil,
 			},
@@ -139,8 +142,31 @@ func TestPlanToOutputsSkipsImageStepsWithNoRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanToOutputs: %v", err)
 	}
-	if len(out.Artifacts) != 0 {
-		t.Fatalf("expected 0 artifacts for local-only step, got %d", len(out.Artifacts))
+	if len(out.Artifacts) != 1 {
+		t.Fatalf("expected 1 produced artifact for untargeted step, got %d", len(out.Artifacts))
+	}
+	a := out.Artifacts[0]
+	if a.Kind != "docker" || a.Name != "no-target" {
+		t.Fatalf("artifact identity: %+v", a)
+	}
+	if a.Docker == nil {
+		t.Fatal("Docker descriptor nil — the produced image must still be described")
+	}
+	if len(a.Targets) != 0 {
+		t.Fatalf("untargeted step must carry zero distribution targets, got %d", len(a.Targets))
+	}
+	// The whole point of decoupling: this produced-but-untargeted manifest must
+	// still be a structurally-valid OutputsManifest (write/read round-trips).
+	dir := t.TempDir()
+	if err := artifact.WriteOutputsManifest(dir, out); err != nil {
+		t.Fatalf("WriteOutputsManifest rejected a targetless docker artifact: %v", err)
+	}
+	got, err := artifact.ReadOutputsManifest(dir)
+	if err != nil {
+		t.Fatalf("ReadOutputsManifest rejected a targetless docker artifact: %v", err)
+	}
+	if len(got.Artifacts) != 1 || len(got.Artifacts[0].Targets) != 0 {
+		t.Fatalf("round-trip lost the untargeted artifact: %+v", got.Artifacts)
 	}
 }
 

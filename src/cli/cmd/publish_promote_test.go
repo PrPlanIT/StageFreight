@@ -92,12 +92,15 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 
 	// 4. Publish-side promotion (no creds for the local registry).
 	appCfg := &config.Config{}
-	n, err := promoteArtifacts(context.Background(), appCfg, rootDir, os.Stderr)
+	n, untargeted, err := promoteArtifacts(context.Background(), appCfg, rootDir, os.Stderr)
 	if err != nil {
 		t.Fatalf("promoteArtifacts: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("promoted %d tags, want 1", n)
+	}
+	if untargeted != 0 {
+		t.Fatalf("untargeted %d, want 0 (this artifact carries a registry target)", untargeted)
 	}
 
 	// 4b. PUBLISH OWNS PUBLICATION OUTCOMES: published.json now records the
@@ -172,7 +175,7 @@ func TestPromoteArtifacts_PartialFailureReportsAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := promoteArtifacts(context.Background(), &config.Config{}, root, io.Discard)
+	_, _, err := promoteArtifacts(context.Background(), &config.Config{}, root, io.Discard)
 	if err == nil {
 		t.Fatal("expected an aggregated error for unreachable targets")
 	}
@@ -182,5 +185,46 @@ func TestPromoteArtifacts_PartialFailureReportsAll(t *testing.T) {
 	}
 	if !strings.Contains(msg, "x/app:b") {
 		t.Errorf("error does not reference tag b — did promotion stop early? %v", msg)
+	}
+}
+
+// TestPromoteArtifacts_UntargetedDiscloses proves the produce-vs-publish
+// decoupling on the publish side: a retained docker artifact that carries NO
+// registry target (no publish target matched this ref) is NOT distributed and
+// NOT rendered as a misleading "PUBLISHED" event — it is counted as untargeted
+// so the publish phase can disclose the no-op instead of going dark.
+func TestPromoteArtifacts_UntargetedDiscloses(t *testing.T) {
+	root := t.TempDir()
+	layoutDir, digest := writeValidLayout(t, []byte("untargeted-manifest"))
+	m := artifact.OutputsManifest{
+		Artifacts: []artifact.Artifact{{
+			Kind:        "docker",
+			Name:        "app",
+			Digest:      digest,
+			Docker:      &artifact.DockerDescriptor{Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"}},
+			Persistence: artifact.PersistenceHandle{Kind: artifact.PersistenceOCILayout, OCILayout: &artifact.OCILayoutRef{Path: layoutDir}},
+			Targets:     nil, // produced, but no publish target matches this ref
+		}},
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".stagefreight"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := artifact.WriteOutputsManifest(root, m); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf strings.Builder
+	promoted, untargeted, err := promoteArtifacts(context.Background(), &config.Config{}, root, &buf)
+	if err != nil {
+		t.Fatalf("promoteArtifacts: %v", err)
+	}
+	if promoted != 0 {
+		t.Fatalf("promoted %d, want 0 (nothing to distribute for an untargeted artifact)", promoted)
+	}
+	if untargeted != 1 {
+		t.Fatalf("untargeted %d, want 1 (the retained image has no target for this ref)", untargeted)
+	}
+	if strings.Contains(buf.String(), "PUBLISHED") {
+		t.Fatalf("untargeted artifact must not render a PUBLISHED event, got:\n%s", buf.String())
 	}
 }
