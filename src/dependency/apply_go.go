@@ -112,7 +112,7 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 		}
 		if !moduleHasGoFiles(filepath.Join(repoRoot, group.dir)) {
 			for _, dep := range group.deps {
-				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no Go source (content/tooling module)"})
+				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipNoGoSource, Reason: "no Go source (content/tooling module)"})
 			}
 			continue
 		}
@@ -151,7 +151,7 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 		var normal, vulnIndirect []supplychain.Dependency
 		for _, dep := range group.deps {
 			if replaceSet != nil && replaceSet[dep.Name] {
-				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "replace directive present"})
+				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipReplaceDirective, Reason: "replace directive present"})
 				continue
 			}
 			if dep.Indirect && len(dep.Vulnerabilities) > 0 {
@@ -193,7 +193,7 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 		for _, dep := range vulnIndirect {
 			fixed := maxFixedVersion(dep)
 			if fixed == "" {
-				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no known fixed version for advisories"})
+				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipNoFixedVersion, Reason: "no known fixed version for advisories"})
 				continue
 			}
 			if u, ok := tryParentBump(ctx, gc, dep, fixed, directNames, directTargets); ok {
@@ -267,7 +267,8 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 				Ecosystem: supplychain.EcosystemGoMod,
 				File:      moduleGoModPath(conflict.ModuleDir),
 			},
-			Reason: detail,
+			Category: SkipConflict,
+			Reason:   detail,
 		})
 	}
 

@@ -127,7 +127,7 @@ func batchPinVulns(ctx context.Context, gc goModCtx, pins []vulnPin) ([]AppliedU
 	for _, p := range pins {
 		got := selectedVersion(ctx, gc, p.dep.Name)
 		if got == "" || version.CompareVersions(got, p.fixed, p.dep.Ecosystem) < 0 {
-			skipped = append(skipped, SkippedDep{Dep: p.dep,
+			skipped = append(skipped, SkippedDep{Dep: p.dep, Category: SkipOther,
 				Reason: fmt.Sprintf("pin did not hold: got %q, need >= %s", got, p.fixed)})
 			continue
 		}
@@ -143,7 +143,7 @@ func batchPinVulns(ctx context.Context, gc goModCtx, pins []vulnPin) ([]AppliedU
 func skipAll(pins []vulnPin, reason string) []SkippedDep {
 	sk := make([]SkippedDep, 0, len(pins))
 	for _, p := range pins {
-		sk = append(sk, SkippedDep{Dep: p.dep, Reason: reason})
+		sk = append(sk, SkippedDep{Dep: p.dep, Category: SkipOther, Reason: reason})
 	}
 	return sk
 }

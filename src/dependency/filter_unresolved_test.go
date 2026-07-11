@@ -15,19 +15,19 @@ func TestSkipReason_UnresolvedNeverUpToDate(t *testing.T) {
 	// Registry lookup failed → unresolved.
 	d := supplychain.Dependency{Name: "chrono", Current: "0.4.31", Ecosystem: supplychain.EcosystemCargo,
 		ResolutionError: "crates.io lookup failed: timeout"}
-	if r := skipReason(d, cfg, nil, nil); !strings.HasPrefix(r, "unresolved") {
-		t.Errorf("resolution error must be unresolved, got %q", r)
+	if cat, r := skipReason(d, cfg, nil, nil); cat != SkipUnresolved || !strings.HasPrefix(r, "unresolved") {
+		t.Errorf("resolution error must be unresolved, got %q/%q", cat, r)
 	}
 
 	// Empty Latest, no error → still unresolved (could not verify).
 	d2 := supplychain.Dependency{Name: "x", Current: "1.0.0", Ecosystem: supplychain.EcosystemCargo}
-	if r := skipReason(d2, cfg, nil, nil); !strings.HasPrefix(r, "unresolved") {
-		t.Errorf("empty Latest must be unresolved, got %q", r)
+	if cat, r := skipReason(d2, cfg, nil, nil); cat != SkipUnresolved || !strings.HasPrefix(r, "unresolved") {
+		t.Errorf("empty Latest must be unresolved, got %q/%q", cat, r)
 	}
 
 	// Verified current (Latest resolved == Current) → up to date.
 	d3 := supplychain.Dependency{Name: "y", Current: "1.0.0", Latest: "1.0.0", Ecosystem: supplychain.EcosystemCargo}
-	if r := skipReason(d3, cfg, nil, nil); r != "up to date" {
-		t.Errorf("verified-equal must be up to date, got %q", r)
+	if cat, r := skipReason(d3, cfg, nil, nil); cat != SkipUpToDate || r != "up to date" {
+		t.Errorf("verified-equal must be up to date, got %q/%q", cat, r)
 	}
 }

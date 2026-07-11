@@ -32,14 +32,14 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 	if desiredStart < 0 {
 		// No toolchains.desired section — can't update
 		for _, dep := range deps {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no toolchains.desired section in config"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: "no toolchains.desired section in config"})
 		}
 		return nil, skipped, nil, nil
 	}
 
 	for _, dep := range deps {
 		if dep.Latest == "" || dep.Latest == dep.Current {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: "up to date"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "up to date"})
 			continue
 		}
 
@@ -64,7 +64,7 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 			if shaIdx >= 0 {
 				s, shaErr := toolchain.FetchArtifactSHA256(toolName, dep.Latest)
 				if shaErr != nil {
-					skipped = append(skipped, SkippedDep{Dep: dep, Reason: "could not derive pinned sha256: " + shaErr.Error()})
+					skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "could not derive pinned sha256: " + shaErr.Error()})
 					found = true
 					break
 				}
@@ -87,7 +87,7 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 		}
 
 		if !found {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: "version line not found in toolchains.desired"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: "version line not found in toolchains.desired"})
 		}
 	}
 

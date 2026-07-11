@@ -76,16 +76,16 @@ func applyCargoUpdates(ctx context.Context, deps []supplychain.Dependency, repoR
 		absPath := filepath.Join(repoRoot, dep.File)
 		origLine, err := readLineAt(absPath, dep.Line)
 		if err != nil {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: fmt.Sprintf("cannot read line %d: %v", dep.Line, err)})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: fmt.Sprintf("cannot read line %d: %v", dep.Line, err)})
 			continue
 		}
 		newLine, skip := buildCargoReplacement(dep, origLine)
 		if skip != "" {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: skip})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: skip})
 			continue
 		}
 		if newLine == origLine {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no change after replacement"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipNoChange, Reason: "no change after replacement"})
 			continue
 		}
 		fe, ok := byFile[dep.File]

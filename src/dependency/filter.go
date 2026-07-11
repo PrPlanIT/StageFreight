@@ -8,10 +8,13 @@ import (
 	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
-// SkippedDep records a dependency that was not updated, with a reason.
+// SkippedDep records a dependency that was not updated. Category is the typed
+// classification of the decision (the source of truth); Reason is its human-readable
+// presentation, kept verbatim so existing output is unchanged.
 type SkippedDep struct {
-	Dep    supplychain.Dependency
-	Reason string
+	Dep      supplychain.Dependency
+	Category SkipCategory
+	Reason   string
 }
 
 // autoUpdatableEcosystems defines which ecosystems can be automatically updated.
@@ -36,8 +39,8 @@ func FilterUpdateCandidates(deps []supplychain.Dependency, cfg UpdateConfig, tra
 	}
 
 	for _, dep := range deps {
-		if reason := skipReason(dep, cfg, ecosystemFilter, trackedFiles); reason != "" {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: reason})
+		if cat, reason := skipReason(dep, cfg, ecosystemFilter, trackedFiles); cat != SkipNone {
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: cat, Reason: reason})
 			continue
 		}
 		// A non-vulnerable candidate whose natural target exceeds the ceiling is kept
@@ -113,7 +116,9 @@ func ApplyIgnores(deps []supplychain.Dependency, ignores []VulnIgnore, now time.
 	return out
 }
 
-func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) string {
+// skipReason evaluates a dependency and returns the typed decision plus its
+// human-readable reason. SkipNone (empty category) means "not skipped — a candidate".
+func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter map[string]bool, trackedFiles map[string]bool) (SkipCategory, string) {
 	// Vulnerability remediation is a FLOOR, not a policy preference — a vulnerable indirect is
 	// remediated under EVERY policy. The transitive-management assumption (bump a direct
 	// parent → `go mod tidy` pulls the fix) has demonstrably FAILED for it: nothing on the
@@ -130,7 +135,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// Latest empty. Classify BEFORE the unresolved check, or they masquerade as "could
 	// not verify" when nothing was ever attempted.
 	if dep.Indirect && !vulnIndirect {
-		return "indirect dependency"
+		return SkipIndirect, "indirect dependency"
 	}
 
 	// Unresolved: the latest version could NOT be verified (registry failure, empty
@@ -139,7 +144,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// (A vuln-indirect legitimately has an empty Latest — remediation targets the
 	// advisory FixedIn, not Latest — so it is exempt.)
 	if !vulnIndirect && (dep.ResolutionError != "" || dep.Latest == "") {
-		return "unresolved (could not verify latest version)"
+		return SkipUnresolved, "unresolved (could not verify latest version)"
 	}
 
 	// Autonomous remediation advances to the COMPATIBLE target (UpdateTarget), not the
@@ -150,19 +155,19 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// (A vuln-indirect is exempt: UpdateTarget derives from an empty Latest.)
 	if !vulnIndirect && dep.UpdateTarget() == dep.Current {
 		if dep.MajorAvailable() {
-			return "major upgrade held — review (" + dep.Latest + " out of range)"
+			return SkipMajorHeld, "major upgrade held — review (" + dep.Latest + " out of range)"
 		}
-		return "up to date"
+		return SkipUpToDate, "up to date"
 	}
 
 	// Ecosystem filter
 	if len(ecosystemFilter) > 0 && !ecosystemFilter[dep.Ecosystem] {
-		return "ecosystem filtered out"
+		return SkipEcosystemFiltered, "ecosystem filtered out"
 	}
 
 	// Ecosystem not auto-updatable
 	if updatable, known := autoUpdatableEcosystems[dep.Ecosystem]; known && !updatable {
-		return "ecosystem not auto-updatable"
+		return SkipNotAutoUpdatable, "ecosystem not auto-updatable"
 	}
 
 	// FRESHNESS AXIS — the only thing the policy string decides: `all` pursues freshness on
@@ -170,7 +175,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// above, and a non-vuln dep has nothing to fix). Vulnerable deps never reach here as a
 	// skip — they were kept as candidates by the floor above.
 	if cfg.Policy == "security" && len(dep.Vulnerabilities) == 0 {
-		return "no CVE (security-only policy)"
+		return SkipSecurityOnly, "no CVE (security-only policy)"
 	}
 
 	// UPDATE-TYPE CEILING (max_update) — caps how far a NON-vulnerable dep may
@@ -189,48 +194,48 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 			if label == "" {
 				label = "minor"
 			}
-			return "exceeds max_update ceiling (" + label + ")"
+			return SkipCeilingExceeded, "exceeds max_update ceiling (" + label + ")"
 		}
 	}
 
 	// File not tracked by git
 	if trackedFiles != nil && !trackedFiles[dep.File] {
-		return "file not tracked by git"
+		return SkipFileUntracked, "file not tracked by git"
 	}
 
 	// Docker-image specific skips
 	if dep.Ecosystem == supplychain.EcosystemDockerImage {
-		if reason := dockerImageSkipReason(dep); reason != "" {
-			return reason
+		if cat, reason := dockerImageSkipReason(dep); cat != SkipNone {
+			return cat, reason
 		}
 	}
 
-	return ""
+	return SkipNone, ""
 }
 
-func dockerImageSkipReason(dep supplychain.Dependency) string {
+func dockerImageSkipReason(dep supplychain.Dependency) (SkipCategory, string) {
 	name := dep.Name
 
 	// Digest-pinned images
 	if strings.Contains(name, "@sha256:") {
-		return "digest-pinned image"
+		return SkipDockerConstraint, "digest-pinned image"
 	}
 
 	// ARG-based dynamic base images
 	if strings.ContainsAny(name, "$") {
-		return "ARG-based dynamic base image"
+		return SkipDockerConstraint, "ARG-based dynamic base image"
 	}
 
 	// Determine tag: split on last : after the last /
 	tag := extractTag(name)
 	if tag == "" {
-		return "untagged image"
+		return SkipDockerConstraint, "untagged image"
 	}
 	if tag == "latest" {
-		return "latest tag"
+		return SkipDockerConstraint, "latest tag"
 	}
 
-	return ""
+	return SkipNone, ""
 }
 
 // extractTag extracts the tag portion from a Docker image reference.

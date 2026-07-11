@@ -70,7 +70,7 @@ func applyDockerfileUpdates(deps []supplychain.Dependency, repoRoot string) ([]A
 		if dep.Binding != "" {
 			found, err := findBindingLine(absPath, dep.Binding)
 			if err != nil {
-				skipped = append(skipped, SkippedDep{Dep: dep, Reason: "version not resolvable from source"})
+				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: "version not resolvable from source"})
 				continue
 			}
 			lineNum = found
@@ -79,17 +79,17 @@ func applyDockerfileUpdates(deps []supplychain.Dependency, repoRoot string) ([]A
 		// Read the specific line to compute hash and build replacement
 		origLine, err := readLineAt(absPath, lineNum)
 		if err != nil {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: fmt.Sprintf("cannot read line %d: %v", lineNum, err)})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: fmt.Sprintf("cannot read line %d: %v", lineNum, err)})
 			continue
 		}
 
 		newLine, skip := buildReplacement(dep, origLine)
 		if skip != "" {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: skip})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: skip})
 			continue
 		}
 		if newLine == origLine {
-			skipped = append(skipped, SkippedDep{Dep: dep, Reason: "no change after replacement"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipNoChange, Reason: "no change after replacement"})
 			continue
 		}
 

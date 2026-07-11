@@ -132,3 +132,34 @@ func TestCeilingRetarget(t *testing.T) {
 		}
 	})
 }
+
+// TestSkipReasonCategories verifies the decision site emits the intrinsic typed
+// category alongside the (unchanged) human reason.
+func TestSkipReasonCategories(t *testing.T) {
+	gomod := func(cur, latest string) supplychain.Dependency {
+		return supplychain.Dependency{Name: "example.com/x", Ecosystem: supplychain.EcosystemGoMod, File: "go.mod", Current: cur, Latest: latest}
+	}
+	cases := []struct {
+		name    string
+		dep     supplychain.Dependency
+		cfg     UpdateConfig
+		wantCat SkipCategory
+		wantMsg string
+	}{
+		{"indirect", func() supplychain.Dependency { d := gomod("1.2.3", "1.3.0"); d.Indirect = true; return d }(), UpdateConfig{}, SkipIndirect, "indirect dependency"},
+		{"up to date", gomod("1.2.3", "1.2.3"), UpdateConfig{}, SkipUpToDate, "up to date"},
+		{"ceiling", gomod("1.2.3", "1.3.0"), UpdateConfig{MaxUpdate: "patch"}, SkipCeilingExceeded, "exceeds max_update ceiling (patch)"},
+		{"security-only", gomod("1.2.3", "1.3.0"), UpdateConfig{Policy: "security"}, SkipSecurityOnly, "no CVE (security-only policy)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cat, msg := skipReason(tc.dep, tc.cfg, nil, nil)
+			if cat != tc.wantCat {
+				t.Errorf("category = %q, want %q", cat, tc.wantCat)
+			}
+			if msg != tc.wantMsg {
+				t.Errorf("reason = %q, want %q (must stay verbatim)", msg, tc.wantMsg)
+			}
+		})
+	}
+}

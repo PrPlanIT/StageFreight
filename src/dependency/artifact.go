@@ -48,6 +48,7 @@ type resolveDepJSON struct {
 	Vulnerabilities []vulnJSON `json:"vulnerabilities"`
 	UpdateType      string     `json:"updateType"`
 	Decision        string     `json:"decision"`
+	Category        string     `json:"category,omitempty"` // typed skip classification (empty for applied)
 	Reason          string     `json:"reason"`
 }
 
@@ -157,6 +158,7 @@ func writeResolveJSON(path string, result *UpdateResult) error {
 			Vulnerabilities: vulnsToJSON(dep.Vulnerabilities),
 			UpdateType:      ut,
 			Decision:        "skip",
+			Category:        string(s.Category),
 			Reason:          s.Reason,
 		})
 	}
