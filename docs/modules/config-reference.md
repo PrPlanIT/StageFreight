@@ -14,13 +14,11 @@
 - [`matchers`](#config-matchers)
 - [`builds`](#config-builds)
 - [`targets`](#config-targets)
-- [`badges`](#config-badges)
-- [`narrator`](#config-narrator)
 - [`lint`](#config-lint)
 - [`security`](#config-security)
 - [`commit`](#config-commit)
 - [`dependency`](#config-dependency)
-- [`docs`](#config-docs)
+- [`narrate`](#config-narrate)
 - [`test`](#config-test)
 - [`manifest`](#config-manifest)
 - [`release`](#config-release)
@@ -263,6 +261,8 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 | `env` | `env` | map[string]string | No | — | map[string]string value |
 | `compress` | `compress` | bool | No | — | bool value |
 | `toolchain_image` | `crucible.toolchain_image` | string | No | — | string value |
+| `type` | `outputs.type` | string | Yes | — | string value |
+| `source` | `outputs.source` | string | Yes | — | string value |
 
 **`kind` allowed values:** `docker`
 
@@ -339,7 +339,7 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `project` | `project` | string | No | — | string value |
 | `dir` | `dir` | string | No | — | string value |
 | `exclude` | `exclude` | []string | No | — | []string value |
-| `domain` | `domain` | string | No | — | string value |
+| `domain` | `domain` | []string | No | — | []string value |
 | `base_path` | `base_path` | string | No | — | string value |
 | `mode` | `versioning.mode` | string | No | — | string value |
 
@@ -364,90 +364,6 @@ targets:
     tags: ["{version}", "latest"]
     when: { git_tags: [stable], events: [tag] }
     credentials: DOCKER
-```
-
----
-
-<a id="config-badges" name="config-badges"></a>
-### badges
-
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `id` | `items.id` | string | Yes | — | string value |
-| `text` | `items.text` | string | Yes | — | string value |
-| `value` | `items.value` | string | Yes | — | string value |
-| `color` | `items.color` | string | Yes | — | string value |
-| `output` | `items.output` | string | Yes | — | string value |
-| `link` | `items.link` | string | No | — | string value |
-| `font` | `items.font` | string | No | — | string value |
-| `font_size` | `items.font_size` | int | No | — | int value |
-
----
-
-<a id="config-narrator" name="config-narrator"></a>
-### narrator
-
-Content composition for file targets. Composes badges, shields, text, includes, and components into managed `<!-- sf:markers -->` sections in any file.
-
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `file` | `file` | string | Yes | — | Path to the target file. |
-| `link_base` | `link_base` | string | No | — | Base URL for relative link rewriting. `raw_base` is auto-derived from this. |
-| `id` | `items.id` | string | Yes | — | Item identifier, unique within file. |
-| `kind` | `items.kind` | string | Yes | — | Item type. Determines which fields are valid. |
-| `between` | `items.placement.between` | array | No | — | Two-element array: `[start_marker, end_marker]`. Content is placed between these markers. |
-| `after` | `items.placement.after` | string | No | — | string value |
-| `before` | `items.placement.before` | string | No | — | string value |
-| `heading` | `items.placement.heading` | string | No | — | string value |
-| `mode` | `items.placement.mode` | string | No | replace | How content is placed relative to markers. |
-| `inline` | `items.placement.inline` | bool | No | false | Render items side-by-side (space-joined) when true. Default: block (newline-joined). |
-| `text` | `items.text` | string | No | — | Badge label (left side text). `kind: badge` only. |
-| `value` | `items.value` | string | No | — | Badge value (right side text, supports templates). `kind: badge` only. |
-| `color` | `items.color` | string | No | — | Badge color as hex or `auto` (status-driven). `kind: badge` only. |
-| `font` | `items.font` | string | No | — | string value |
-| `font_size` | `items.font_size` | int | No | — | int value |
-| `output` | `items.output` | string | No | — | SVG output path for badge generation. `kind: badge` only. |
-| `link` | `items.link` | string | No | — | Clickable URL. `kind: badge` and `kind: shield`. |
-| `shield` | `items.shield` | string | No | — | Shields.io path (appended to `https://img.shields.io/`). `kind: shield` only. |
-| `content` | `items.content` | string | No | — | Raw text/markdown content. Supports template variables. `kind: text` only. |
-| `spec` | `items.spec` | string | No | — | Component spec file path. `kind: component` only. |
-| `path` | `items.path` | string | No | — | File path to include verbatim. `kind: include` only. |
-| `build` | `items.build` | string | No | — | string value |
-| `source` | `items.source` | string | No | — | string value |
-| `section` | `items.section` | string | No | — | string value |
-| `renderer` | `items.renderer` | string | No | — | string value |
-| `columns` | `items.columns` | []string | No | — | []string value |
-| `output_file` | `items.output_file` | string | No | — | string value |
-| `wrap` | `items.wrap` | string | No | — | string value |
-| `summary` | `items.summary` | string | No | — | string value |
-| `type` | `items.type` | string | No | — | string value |
-| `params` | `items.params` | map[string]string | No | — | map[string]string value |
-| `label` | `items.label` | string | No | — | string value |
-| `style` | `items.style` | string | No | — | string value |
-| `logo` | `items.logo` | string | No | — | string value |
-| `catalog` | `items.catalog` | string | No | — | string value |
-| `ref` | `items.ref` | string | No | — | string value |
-
-**`items.kind` allowed values:** `badge`, `shield`, `text`, `component`, `break`, `include`
-
-**`items.placement.mode` allowed values:** `replace`, `append`, `prepend`, `above`, `below`
-
-**Example:**
-
-```yaml
-narrator:
-  - file: "README.md"
-    link_base: "https://github.com/myorg/myrepo/blob/main"
-    items:
-      - id: badge.release
-        kind: badge
-        placement:
-          between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
-          mode: replace
-          inline: true
-        text: release
-        output: ".stagefreight/badges/release.svg"
 ```
 
 ---
@@ -609,25 +525,64 @@ commit:
 
 ---
 
-<a id="config-docs" name="config-docs"></a>
-### docs
+<a id="config-narrate" name="config-narrate"></a>
+### narrate
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | — | bool value |
-| `badges` | `generators.badges` | bool | Yes | — | bool value |
-| `reference_docs` | `generators.reference_docs` | bool | Yes | — | bool value |
-| `narrator` | `generators.narrator` | bool | Yes | — | bool value |
-| `docker_readme` | `generators.docker_readme` | bool | Yes | — | bool value |
-| `enabled` | `commit.enabled` | bool | Yes | — | bool value |
-| `type` | `commit.type` | string | Yes | — | string value |
-| `message` | `commit.message` | string | Yes | — | string value |
-| `add` | `commit.add` | []string | Yes | — | []string value |
-| `push` | `commit.push` | bool | Yes | — | bool value |
-| `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
+| `id` | `badges.id` | string | Yes | — | string value |
+| `text` | `badges.text` | string | Yes | — | string value |
+| `value` | `badges.value` | string | Yes | — | string value |
+| `color` | `badges.color` | string | Yes | — | string value |
+| `output` | `badges.output` | string | Yes | — | string value |
+| `link` | `badges.link` | string | No | — | string value |
+| `font` | `badges.font` | string | No | — | string value |
+| `font_size` | `badges.font_size` | int | No | — | int value |
+| `file` | `patches.file` | string | Yes | — | string value |
+| `link_base` | `patches.link_base` | string | No | — | string value |
+| `id` | `patches.items.id` | string | Yes | — | string value |
+| `kind` | `patches.items.kind` | string | Yes | — | string value |
+| `between` | `patches.items.placement.between` | array | No | — | array value |
+| `after` | `patches.items.placement.after` | string | No | — | string value |
+| `before` | `patches.items.placement.before` | string | No | — | string value |
+| `heading` | `patches.items.placement.heading` | string | No | — | string value |
+| `mode` | `patches.items.placement.mode` | string | No | — | string value |
+| `inline` | `patches.items.placement.inline` | bool | No | — | bool value |
+| `text` | `patches.items.text` | string | No | — | string value |
+| `value` | `patches.items.value` | string | No | — | string value |
+| `color` | `patches.items.color` | string | No | — | string value |
+| `font` | `patches.items.font` | string | No | — | string value |
+| `font_size` | `patches.items.font_size` | int | No | — | int value |
+| `output` | `patches.items.output` | string | No | — | string value |
+| `link` | `patches.items.link` | string | No | — | string value |
+| `shield` | `patches.items.shield` | string | No | — | string value |
+| `content` | `patches.items.content` | string | No | — | string value |
+| `spec` | `patches.items.spec` | string | No | — | string value |
+| `path` | `patches.items.path` | string | No | — | string value |
+| `build` | `patches.items.build` | string | No | — | string value |
+| `source` | `patches.items.source` | string | No | — | string value |
+| `section` | `patches.items.section` | string | No | — | string value |
+| `renderer` | `patches.items.renderer` | string | No | — | string value |
+| `columns` | `patches.items.columns` | []string | No | — | []string value |
+| `output_file` | `patches.items.output_file` | string | No | — | string value |
+| `wrap` | `patches.items.wrap` | string | No | — | string value |
+| `summary` | `patches.items.summary` | string | No | — | string value |
+| `type` | `patches.items.type` | string | No | — | string value |
+| `params` | `patches.items.params` | map[string]string | No | — | map[string]string value |
+| `label` | `patches.items.label` | string | No | — | string value |
+| `style` | `patches.items.style` | string | No | — | string value |
+| `logo` | `patches.items.logo` | string | No | — | string value |
+| `catalog` | `patches.items.catalog` | string | No | — | string value |
+| `ref` | `patches.items.ref` | string | No | — | string value |
+| `type` | `commit.type` | string | No | — | string value |
+| `message` | `commit.message` | string | No | — | string value |
+| `add` | `commit.add` | []string | No | — | []string value |
+| `push` | `commit.push` | bool | No | — | bool value |
+| `skip_ci` | `commit.skip_ci` | bool | No | — | bool value |
 | `allow` | `commit.run_from.allow` | []string | No | — | []string value |
 | `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
+| `build` | `commit.builds.build` | string | Yes | — | string value |
+| `destination` | `commit.builds.destination` | string | Yes | — | string value |
 
 ---
 

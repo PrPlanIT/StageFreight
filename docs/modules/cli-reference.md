@@ -30,7 +30,7 @@
 - [`stagefreight docker readme`](#cli-stagefreight-docker-readme) — Sync README to container registries
 - [`stagefreight docs`](#cli-stagefreight-docs) — Documentation generation commands
 - [`stagefreight docs generate`](#cli-stagefreight-docs-generate) — Generate reference documentation from code
-- [`stagefreight docs run`](#cli-stagefreight-docs-run) — Run all enabled documentation generators
+- [`stagefreight docs run`](#cli-stagefreight-docs-run) — Run the narrate producers locally (badges + patches)
 - [`stagefreight du`](#cli-stagefreight-du) — Storage-attribution diagnostic — what is eating disk today
 - [`stagefreight gitops`](#cli-stagefreight-gitops) — GitOps intelligence — inspect, impact, reconcile
 - [`stagefreight gitops impact`](#cli-stagefreight-gitops-impact) — Compute which kustomizations are affected by recent changes
@@ -347,7 +347,6 @@ Exit codes: 0=success, 1=phase error, 2=config error, 3=context error
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--tag` | string | — | release tag (overrides SF_CI_TAG for release subsystem) |
-| `-h, --help` | bool | — | help for run |
 
 **Inherited flags:**
 
@@ -915,7 +914,7 @@ Generate reference documentation from code and config structs.
 **Subcommands:**
 
 - [`generate`](#cli-stagefreight-docs-generate) — Generate reference documentation from code
-- [`run`](#cli-stagefreight-docs-run) — Run all enabled documentation generators
+- [`run`](#cli-stagefreight-docs-run) — Run the narrate producers locally (badges + patches)
 
 **See also:** [`stagefreight`](#cli-stagefreight) · [`stagefreight docs generate`](#cli-stagefreight-docs-generate) · [`stagefreight docs run`](#cli-stagefreight-docs-run)
 
@@ -940,6 +939,7 @@ Generated files:
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--output-dir` | string | `docs/modules` | output directory for generated fragments |
+| `-h, --help` | bool | — | help for generate |
 
 **Inherited flags:**
 
@@ -957,12 +957,9 @@ Generated files:
 
 **Usage:** `stagefreight docs run run`
 
-Composed command that runs all enabled generators from docs config:
-badges, reference docs, narrator, and docker readme.
-
-Reads docs.generators in .stagefreight.yml to determine which generators
-to run. This is the same logic used by 'stagefreight ci run docs'
-(without auto-commit — use ci run docs for that).
+Runs the presence-enabled narrate producers from config — render badges and
+apply marked-region patches to files — without committing. Same producer logic as
+'stagefreight ci run narrate' (which also lands build trees + auto-commits).
 
 **Inherited flags:**
 
