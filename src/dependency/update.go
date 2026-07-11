@@ -220,9 +220,9 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	// 5. Eligibility — candidates by ecosystem; ecosystems named ONLY when present.
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
-	gomodDeps, dockerDeps, toolchainDeps, cargoDeps := groupByEcosystem(candidates)
+	gomodDeps, dockerDeps, toolchainDeps, cargoDeps, pipDeps := groupByEcosystem(candidates)
 	eligible := eligibleDetail(len(candidates), map[string]int{
-		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps),
+		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps), "pip": len(pipDeps),
 	})
 	// "latest available" ≠ "autonomous-safe target": surface constraint-expanding
 	// majors that are held for review rather than auto-applied.
@@ -295,6 +295,19 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
+	if len(pipDeps) > 0 {
+		t0 = time.Now()
+		applied, pipSkipped, touchedFiles, err := applyPipUpdates(pipDeps, repoRoot)
+		if err != nil {
+			steps = append(steps, depStep{label: "pip", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			return result, fmt.Errorf("applying pip updates: %w", err)
+		}
+		steps = append(steps, ecosystemStep("pip", applied, pipSkipped, nil, time.Since(t0)))
+		result.Applied = append(result.Applied, applied...)
+		result.Skipped = append(result.Skipped, pipSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+	}
+
 	// 5a. Normalize, deduplicate, and sort FilesChanged
 	result.FilesChanged = deduplicateAndSort(result.FilesChanged)
 
@@ -356,7 +369,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	return result, nil
 }
 
-func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo []supplychain.Dependency) {
+func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, pip []supplychain.Dependency) {
 	for _, dep := range deps {
 		switch dep.Ecosystem {
 		case supplychain.EcosystemGoMod:
@@ -367,6 +380,8 @@ func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo [
 			tc = append(tc, dep)
 		case supplychain.EcosystemCargo:
 			cargo = append(cargo, dep)
+		case supplychain.EcosystemPip:
+			pip = append(pip, dep)
 		}
 	}
 	return

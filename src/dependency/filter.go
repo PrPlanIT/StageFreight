@@ -27,7 +27,7 @@ var autoUpdatableEcosystems = map[string]bool{
 	supplychain.EcosystemNpm:           false,
 	supplychain.EcosystemAlpineAPK:     false,
 	supplychain.EcosystemDebianAPT:     false,
-	supplychain.EcosystemPip:           false,
+	supplychain.EcosystemPip:           true, // requirements.txt exact pins (apply_pip.go); Pipfile/poetry skipped there
 }
 
 // FilterUpdateCandidates separates deps into actionable candidates and skipped.
