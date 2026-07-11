@@ -18,7 +18,16 @@
 //	State   — host/deployment persistent state (signing/KMS). Machine-scoped, not per-repo.
 package paths
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// CacheRootEnv overrides the Cache bucket's backing root. Set it when neither the
+// default mount nor the XDG cache is right for the host — e.g. a hosted CI runner points
+// it at a forge-cacheable in-workspace path so actions/cache or GitLab cache: can persist it.
+const CacheRootEnv = "SF_CACHE_ROOT"
 
 const (
 	// Root is the StageFreight-owned in-tree namespace — the Durable bucket, and the
@@ -84,15 +93,62 @@ func State(sub ...string) string {
 // forwards and the directory whose self-ignoring .gitignore is planted.
 func ScratchRelDir() string { return filepath.Join(Root, ScratchName) }
 
-// ResolveCacheRoot picks the Cache bucket's backing: an explicit path (a flag) wins;
-// otherwise the default mount. A hosted runner passes the path its forge cache restores
-// to; a bare invocation gets the default. Kept trivial on purpose — the resolution
-// policy lives with the caller that knows the runner, not in the leaf.
+// ResolveCacheRoot picks the Cache bucket's backing root, in priority order:
+//
+//  1. explicit — a --cache flag value (honored verbatim, any environment)
+//  2. the SF_CACHE_ROOT env (honored verbatim)
+//  3. DefaultCacheRoot (/stagefreight) if writable — the dind mount convention (the host
+//     path is bind-mounted here, so in-container it is always /stagefreight)
+//  4. the XDG user cache (~/.cache/stagefreight) if writable — NATIVE execution, shared
+//     across every repo instead of a per-repo in-tree fallback
+//
+// Returns "" when none is usable, so a caller falls back per its own policy (toolchains
+// to a workspace dir, build caches to Go's ephemeral $HOME). Only the mount and XDG tiers
+// touch the filesystem; an explicit path or env is trusted as-is (the operator asked for
+// it). The probed dir is created — the mount is supplied empty and the XDG cache is the
+// native home we want to establish.
 func ResolveCacheRoot(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	return DefaultCacheRoot
+	if v := strings.TrimSpace(os.Getenv(CacheRootEnv)); v != "" {
+		return v
+	}
+	if writableDir(DefaultCacheRoot) {
+		return DefaultCacheRoot
+	}
+	if xdg := xdgCacheDir(); xdg != "" && writableDir(xdg) {
+		return xdg
+	}
+	return ""
+}
+
+// xdgCacheDir is the native user cache root: $XDG_CACHE_HOME/stagefreight, else
+// ~/.cache/stagefreight. Empty when neither resolves (no HOME).
+func xdgCacheDir() string {
+	if x := strings.TrimSpace(os.Getenv("XDG_CACHE_HOME")); x != "" {
+		return filepath.Join(x, "stagefreight")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".cache", "stagefreight")
+	}
+	return ""
+}
+
+// writableDir creates dir (with parents) if absent and reports whether it can be written
+// — so probing an empty mount or a fresh XDG cache establishes it.
+func writableDir(dir string) bool {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	probe := filepath.Join(dir, ".sf-probe")
+	f, err := os.Create(probe)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(probe)
+	return true
 }
 
 func under(rootDir string, parts []string) string {

@@ -56,11 +56,22 @@ func TestCache(t *testing.T) {
 	if got := Cache("/opt/runner/sf", "gomodcache"); got != "/opt/runner/sf/gomodcache" {
 		t.Errorf("Cache explicit = %q", got)
 	}
-	if ResolveCacheRoot("") != DefaultCacheRoot {
-		t.Errorf("ResolveCacheRoot(\"\") = %q, want %q", ResolveCacheRoot(""), DefaultCacheRoot)
+}
+
+func TestResolveCacheRoot(t *testing.T) {
+	// An explicit path (a --cache flag) wins over everything, unprobed.
+	if got := ResolveCacheRoot("/explicit"); got != "/explicit" {
+		t.Errorf("explicit = %q, want /explicit", got)
 	}
-	if ResolveCacheRoot("/x") != "/x" {
-		t.Error("ResolveCacheRoot must honor an explicit path")
+	// SF_CACHE_ROOT beats the mount and XDG tiers (also unprobed).
+	t.Setenv(CacheRootEnv, "/env/cache")
+	if got := ResolveCacheRoot(""); got != "/env/cache" {
+		t.Errorf("env = %q, want /env/cache", got)
+	}
+	// The XDG tier honors XDG_CACHE_HOME.
+	t.Setenv("XDG_CACHE_HOME", "/tmp/xc")
+	if got := xdgCacheDir(); got != "/tmp/xc/stagefreight" {
+		t.Errorf("xdgCacheDir = %q, want /tmp/xc/stagefreight", got)
 	}
 }
 

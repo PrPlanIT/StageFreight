@@ -3,48 +3,60 @@ package toolchain
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
-const (
-	cacheSubdir    = ".stagefreight/toolchains"
-	persistentRoot = "/stagefreight/toolchains"
-)
+// cacheSubdir is the workspace-local (repo-relative) fallback for toolchain installs,
+// used only when no persistent cache root resolves. A git checkout wipes it every job,
+// so it is genuinely a last resort. The persistent root is resolved via
+// paths.ResolveCacheRoot (dind mount → native XDG → none).
+const cacheSubdir = ".stagefreight/toolchains"
 
-// PersistentCacheRoot returns the persistent cache root path constant.
-func PersistentCacheRoot() string { return persistentRoot }
+// PersistentCacheRoot returns the resolved out-of-tree toolchains cache root — the dind
+// mount (/stagefreight/toolchains) or the native XDG cache — for display and du. Falls
+// back to the nominal default when no persistent backing is resolved.
+func PersistentCacheRoot() string {
+	if r := paths.ResolveCacheRoot(""); r != "" {
+		return paths.Cache(r, "toolchains")
+	}
+	return paths.Cache(paths.DefaultCacheRoot, "toolchains")
+}
 
-// ReadRoots returns cache roots to search for existing toolchain installs,
-// in priority order. Persistent mount is checked first (operator-preseeded
-// or previously written), then workspace-local.
+// ReadRoots returns cache roots to search for existing toolchain installs, in priority
+// order: the resolved persistent root first (mount or XDG), then the workspace-local
+// fallback.
 func ReadRoots(rootDir string) []string {
 	var roots []string
-	if info, err := os.Stat(persistentRoot); err == nil && info.IsDir() {
-		roots = append(roots, persistentRoot)
+	if r := paths.ResolveCacheRoot(""); r != "" {
+		roots = append(roots, paths.Cache(r, "toolchains"))
 	}
 	roots = append(roots, filepath.Join(rootDir, cacheSubdir))
 	return roots
 }
 
-// InstallRoot returns the directory where new toolchain installs are written.
-// Prefers persistent mount if writable, otherwise workspace-local.
-//
-// The persistent mount (/stagefreight) is supplied to every CI job container
-// empty, so its toolchains/ subdir does not pre-exist — we create it on first
-// use. Without that, the resolver fell back to the workspace-local cache, which
-// the git checkout wipes every job, forcing a fresh Go SDK download each run.
+// InstallRoot returns the directory where new toolchain installs are written — the
+// resolved persistent root when writable, else the workspace-local fallback. The
+// persistent mount is supplied empty, so its toolchains/ subdir is created on first use.
+// Without a persistent root the fallback is used, which the git checkout wipes every job,
+// forcing a fresh download each run — hence the resolver prefers the mount/XDG.
 func InstallRoot(rootDir string) string {
-	if ensureWritableDir(persistentRoot) {
-		return persistentRoot
+	if r := paths.ResolveCacheRoot(""); r != "" {
+		if tc := paths.Cache(r, "toolchains"); ensureWritableDir(tc) {
+			return tc
+		}
 	}
 	return filepath.Join(rootDir, cacheSubdir)
 }
 
-// CacheRoot is the persistent build-cache mount root (/stagefreight/cache), a sibling
-// of the toolchains root. Path only — side-effect-free, for display. The Dockerfile
-// reserves this mount for cross-run reuse; the container filesystem and the git
-// workspace are both ephemeral.
+// CacheRoot is the persistent build-cache root (<resolved>/cache), a sibling of the
+// toolchains root — or "" when no persistent backing is available (the build then falls
+// back to Go's ephemeral $HOME caches). For display; resolving may create the root dir.
 func CacheRoot() string {
-	return filepath.Join(persistentRoot, "..", "cache")
+	if r := paths.ResolveCacheRoot(""); r != "" {
+		return paths.Cache(r, "cache")
+	}
+	return ""
 }
 
 // ensureCacheRoot returns the cache root once writable, creating it and dropping the

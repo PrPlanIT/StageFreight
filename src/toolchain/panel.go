@@ -18,7 +18,7 @@ func RenderPanel(w io.Writer, results []Result, cacheRoot string, elapsed fmt.St
 	}
 	if cacheRoot != "" {
 		label := "workspace"
-		if cacheRoot == persistentRoot {
+		if cacheRoot == PersistentCacheRoot() {
 			label = "persistent"
 		}
 		fmt.Fprintf(w, "    │ cache        %s (%s)\n", cacheRoot, label)
