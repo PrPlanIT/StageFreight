@@ -219,6 +219,82 @@ func extractTarGz(archivePath, destDir string) error {
 	return nil
 }
 
+// extractTarGzTree extracts a full directory-tree distribution (e.g. node, whose
+// binary needs sibling files: lib/node_modules/npm, and whose bin/npm is a SYMLINK)
+// into destDir, stripping the first `strip` leading path components (node's tarball
+// has a single top-level node-vX-linux-ARCH/ dir → strip 1 → bin/node lands directly
+// under destDir). Unlike the single-binary extractor, this keeps the whole tree and
+// preserves symlinks. Path-traversal- and symlink-escape-guarded.
+func extractTarGzTree(archivePath, destDir string, strip int) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("gzip: %w", err)
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar: %w", err)
+		}
+		parts := strings.Split(hdr.Name, "/")
+		if len(parts) <= strip {
+			continue // the stripped prefix itself
+		}
+		rel := strings.Join(parts[strip:], "/")
+		if rel == "" {
+			continue
+		}
+		target := filepath.Join(destDir, rel)
+		if !strings.HasPrefix(filepath.Clean(target), cleanDest) {
+			return fmt.Errorf("path traversal in archive: %s", hdr.Name)
+		}
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			outf, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outf, tr); err != nil { //nolint:gosec // size bounded by verified archive
+				outf.Close()
+				return err
+			}
+			outf.Close()
+		case tar.TypeSymlink:
+			// Guard against symlink escape: the resolved link target must stay in-tree.
+			resolved := filepath.Clean(filepath.Join(filepath.Dir(target), hdr.Linkname))
+			if !strings.HasPrefix(resolved, cleanDest) {
+				return fmt.Errorf("symlink escape in archive: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			_ = os.Remove(target)
+			if err := os.Symlink(hdr.Linkname, target); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // extractGoArchive extracts the Go distribution tarball into destDir.
 // The Go tarball has a top-level `go/` directory. We extract the full
 // distribution (bin, pkg, src — all needed for go run/build).

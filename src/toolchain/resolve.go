@@ -75,6 +75,15 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 		return r, err
 	}
 
+	// node is a DISTRIBUTION (tree, with bundled npm), like go/rust — its own resolver.
+	if tool == "node" {
+		r, err := resolveNode(rootDir, version)
+		if err == nil && r.Trust == "" {
+			r.Trust = TrustChecksum
+		}
+		return r, err
+	}
+
 	def, ok := LookupTool(tool)
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported toolchain %q", tool)
