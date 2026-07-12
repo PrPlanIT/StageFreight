@@ -238,11 +238,11 @@ targets:
     when: { branches: [main], events: [push] }
 
   # ── Documentation site → Cloudflare Pages ────────────────────────
-  # Deploy the built docs-site tree to stagefreight.prplanit.com. Two triggers sharing one
-  # Cloudflare project + domain (a single `when` can't cover both: branches is checked even
-  # on tag events, where the branch is empty): every push to main — so the docs track the
-  # default branch like the .com static sites — and every stable version tag. Cloudflare
-  # auto-wires DNS. Credentials: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID.
+  # Deploy the built docs-site tree to stagefreight.prplanit.com on every push to main
+  # (same trigger as the .com static sites). A stable tag is always on a main commit that
+  # already deployed on its push, so a separate tag trigger would just redeploy the same
+  # thing — one target covers it. Cloudflare auto-wires DNS. Credentials:
+  # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID.
   - id: docs
     kind: pages
     provider: cloudflare
@@ -250,14 +250,6 @@ targets:
     build: docs-site
     domain: stagefreight.prplanit.com
     when: { branches: [main], events: [push] }
-
-  - id: docs-stable
-    kind: pages
-    provider: cloudflare
-    project: stagefreight-docs
-    build: docs-site
-    domain: stagefreight.prplanit.com
-    when: { git_tags: [stable], events: [tag] }
 
 build_cache:
   mode: hybrid
