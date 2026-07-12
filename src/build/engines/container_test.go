@@ -64,6 +64,10 @@ func TestInferNodeBuild_ElectronWindows(t *testing.T) {
 	if inf.Output != "ui/desktop/release/*.exe" {
 		t.Errorf("output = %q, want ui/desktop/release/*.exe", inf.Output)
 	}
+	// pnpm's persistent store rides the SF cache root as node/pnpm-store.
+	if inf.CacheEnv != "PNPM_STORE_DIR" || len(inf.CacheSubdir) != 2 || inf.CacheSubdir[1] != "pnpm-store" {
+		t.Errorf("pnpm cache spec = %v / %q, want [node pnpm-store] + PNPM_STORE_DIR", inf.CacheSubdir, inf.CacheEnv)
+	}
 }
 
 // The reasonable default (no electron): a plain npm web build gets the node image,
@@ -90,6 +94,9 @@ func TestInferNodeBuild_PlainWeb(t *testing.T) {
 	if inf.Output != "dist" {
 		t.Errorf("output = %q, want the dist tree", inf.Output)
 	}
+	if inf.CacheEnv != "npm_config_cache" || len(inf.CacheSubdir) != 2 || inf.CacheSubdir[1] != "npm-cache" {
+		t.Errorf("npm cache spec = %v / %q, want [node npm-cache] + npm_config_cache", inf.CacheSubdir, inf.CacheEnv)
+	}
 }
 
 // Workspace detection isn't pnpm-only: a yarn (berry) workspace gets yarn install
@@ -115,6 +122,9 @@ func TestInferNodeBuild_YarnWorkspace(t *testing.T) {
 	}
 	if inf.Output != "dist" {
 		t.Errorf("output = %q, want the dist tree", inf.Output)
+	}
+	if inf.CacheEnv != "YARN_CACHE_FOLDER" || len(inf.CacheSubdir) != 2 || inf.CacheSubdir[1] != "yarn-cache" {
+		t.Errorf("yarn cache spec = %v / %q, want [node yarn-cache] + YARN_CACHE_FOLDER", inf.CacheSubdir, inf.CacheEnv)
 	}
 }
 

@@ -12,6 +12,11 @@ type ContainerMeta struct {
 	// ForwardEnv names host env vars (e.g. CI secrets) to pass into the build
 	// container by value — used for signing secrets like an Android keystore.
 	ForwardEnv []string `json:"forward_env,omitempty"`
+	// CacheSubdir locates the persistent package-manager store under the SF cache root
+	// (e.g. ["node","pnpm-store"]); CacheEnv is the env var pointing the tool at the
+	// in-container mount of it. Empty disables caching (cold build).
+	CacheSubdir []string `json:"cache_subdir,omitempty"`
+	CacheEnv    string   `json:"cache_env,omitempty"`
 }
 
 // StepMetaKind returns the kind identifier for containerized build steps.

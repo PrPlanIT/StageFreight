@@ -86,6 +86,15 @@ func cacheDir(elem ...string) string {
 	return dir
 }
 
+// ContainerCacheDir returns a persistent cache dir for a containerized builder — a
+// sibling of the Go/Rust caches under the same mount (e.g. node/pnpm-store) — created,
+// or "" when no persistent mount is available (local dev), in which case the containerized
+// build runs cold. The container engine bridges the returned host path into the build
+// container (bind-mount when the daemon shares our filesystem, else docker cp).
+func ContainerCacheDir(elem ...string) string {
+	return cacheDir(elem...)
+}
+
 // GoCacheDirs returns the persistent GOMODCACHE (go/downloads) and GOCACHE (go/build),
 // so a build reuses downloaded modules and compiled packages across CI jobs instead of
 // paying the full cold-cache cost every run. ("", "") on local dev (no mount) leaves
@@ -115,6 +124,9 @@ Deleting any subdirectory is safe — it only forces a one-time cold rebuild.
   go/build            Go compiled-package cache (GOCACHE)
   rust/downloads      Rust crate sources + registry index (CARGO_HOME)
   rust/build/<proj>   Rust compiled artifacts (CARGO_TARGET_DIR), per project
+  node/pnpm-store     pnpm content-addressed store (PNPM_STORE_DIR)
+  node/npm-cache      npm cache (npm_config_cache)
+  node/yarn-cache     yarn cache (YARN_CACHE_FOLDER)
   substrate/apk       Native build packages (cc, cmake, perl, git, ...)
 
 NOT here: dependency-update results live in the repo at .stagefreight/deps

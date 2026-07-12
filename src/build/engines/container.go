@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // The containerized-build engine runs a build COMMAND inside a declared container
@@ -100,12 +101,14 @@ func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]bu
 			Target:  tgt,
 			Outputs: []build.ArtifactRef{{Path: output, Type: "binary"}},
 			Meta: ContainerMeta{
-				Image:      image,
-				Command:    command,
-				WorkDir:    cfg.From,
-				Env:        cfg.Env,
-				Artifact:   output,
-				ForwardEnv: inf.ForwardEnv,
+				Image:       image,
+				Command:     command,
+				WorkDir:     cfg.From,
+				Env:         cfg.Env,
+				Artifact:    output,
+				ForwardEnv:  inf.ForwardEnv,
+				CacheSubdir: inf.CacheSubdir,
+				CacheEnv:    inf.CacheEnv,
 			},
 		})
 	}
@@ -117,6 +120,20 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// cacheBindMountable reports whether the build cache can be bind-mounted into the
+// container instead of copied — true when the daemon shares our filesystem (a local
+// unix socket), so a `-v` mount resolves to the same path we wrote. Under DinD the
+// daemon is a separate host, so the default is the docker-cp bridge; an operator who
+// has mounted the SF cache into the DinD service at the same path can force the
+// zero-copy mount with SF_CONTAINER_CACHE_BIND=1.
+func cacheBindMountable() bool {
+	if os.Getenv("SF_CONTAINER_CACHE_BIND") == "1" {
+		return true
+	}
+	h := strings.TrimSpace(os.Getenv("DOCKER_HOST"))
+	return h == "" || strings.HasPrefix(h, "unix://")
 }
 
 func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) (*build.UniversalStepResult, error) {
@@ -141,9 +158,32 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 		workdir = path.Join(containerRoot, meta.WorkDir)
 	}
 
+	// Persistent package-manager cache (best-effort). Reuse a content-addressed store
+	// across CI runs instead of re-downloading every dependency. It lives under the SF
+	// cache root beside the Go/Rust caches (e.g. /stagefreight/cache/node/pnpm-store) and
+	// is bridged into the build container: bind-mounted when the daemon shares our
+	// filesystem (zero-copy), else docker-cp'd in and back out under DinD. ANY failure
+	// degrades to a cold build — never fatal. No-op when no persistent cache mount exists
+	// (ContainerCacheDir returns ""), e.g. local dev.
+	var cacheHostDir, cacheContainerDir string
+	bindCache := false
+	if len(meta.CacheSubdir) > 0 && meta.CacheEnv != "" {
+		if d := toolchain.ContainerCacheDir(meta.CacheSubdir...); d != "" {
+			cacheHostDir = d
+			cacheContainerDir = "/" + meta.CacheSubdir[len(meta.CacheSubdir)-1]
+			bindCache = cacheBindMountable()
+		}
+	}
+
 	// create (not run) so the container survives for the artifact cp-out; forward env
 	// the same way — declared Env, plus named host vars (CI secrets) when actually set.
 	createArgs := []string{"create", "-w", workdir}
+	if cacheContainerDir != "" {
+		createArgs = append(createArgs, "-e", meta.CacheEnv+"="+cacheContainerDir)
+		if bindCache {
+			createArgs = append(createArgs, "-v", cacheHostDir+":"+cacheContainerDir)
+		}
+	}
 	for k, v := range meta.Env {
 		createArgs = append(createArgs, "-e", k+"="+v)
 	}
@@ -168,9 +208,23 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 		return nil, fmt.Errorf("container engine: staging workspace into container: %w\n%s", cerr, string(out))
 	}
 
+	// Seed the dependency cache into the container (DinD/cp path only — a bind-mount is
+	// already live). Best-effort: `docker cp <dir> :/` lands it at /<basename> =
+	// cacheContainerDir; a miss just yields a cold install the cp-out below still persists.
+	if cacheHostDir != "" && !bindCache {
+		_ = exec.CommandContext(ctx, "docker", "cp", cacheHostDir, containerID+":/").Run()
+	}
+
 	// Run the build command.
 	if out, rerr := exec.CommandContext(ctx, "docker", "start", "-a", containerID).CombinedOutput(); rerr != nil {
 		return nil, fmt.Errorf("container build failed (%s): %w\n%s", meta.Image, rerr, string(out))
+	}
+
+	// Persist the (possibly grown) dependency cache back to the host store — DinD/cp path
+	// only; a bind-mount already wrote through. Best-effort and content-addressed, so a
+	// partial copy only costs a future re-download, never correctness.
+	if cacheHostDir != "" && !bindCache {
+		_ = exec.CommandContext(ctx, "docker", "cp", containerID+":"+cacheContainerDir, filepath.Dir(cacheHostDir)).Run()
 	}
 
 	// Copy the produced artifact back onto the host at its in-repo path, so the rest

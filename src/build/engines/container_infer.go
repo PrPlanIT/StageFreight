@@ -44,6 +44,14 @@ type inferredBuild struct {
 	Command    string
 	Output     string
 	ForwardEnv []string // host env vars (CI secrets) to pass into the container
+	// CacheSubdir locates the builder's package-manager store under the SF cache root
+	// (e.g. ["node","pnpm-store"]) — content-addressed, safe to reuse across runs — and
+	// CacheEnv is the env var pointing the tool at the in-container mount of it (e.g.
+	// PNPM_STORE_DIR). Empty when the builder has no cacheable store. The engine bridges
+	// the host cache dir into the build container (bind-mount or docker cp); a miss just
+	// yields a cold build.
+	CacheSubdir []string
+	CacheEnv    string
 }
 
 // inferNodeBuild derives the default image/command/output for a node project at
@@ -112,10 +120,29 @@ func inferNodeBuild(rootDir, from, targetOS string) inferredBuild {
 		output = filepath.Join(from, "dist")
 	}
 
+	cacheSubdir, cacheEnv := nodeCacheSpec(pm)
 	return inferredBuild{
-		Image:   image,
-		Command: strings.Join(steps, " && "),
-		Output:  filepath.ToSlash(output),
+		Image:       image,
+		Command:     strings.Join(steps, " && "),
+		Output:      filepath.ToSlash(output),
+		CacheSubdir: cacheSubdir,
+		CacheEnv:    cacheEnv,
+	}
+}
+
+// nodeCacheSpec maps a node package manager to its persisted, content-addressed store:
+// the SF-cache-root subdir it lives in and the env var that points the tool at the
+// in-container mount. All three managers key their store by content hash, so reuse
+// across runs is safe. pnpm's store is a true CAS; npm/yarn caches are the closest
+// equivalent each ships.
+func nodeCacheSpec(pm string) (subdir []string, env string) {
+	switch pm {
+	case "yarn":
+		return []string{"node", "yarn-cache"}, "YARN_CACHE_FOLDER"
+	case "npm":
+		return []string{"node", "npm-cache"}, "npm_config_cache"
+	default: // pnpm
+		return []string{"node", "pnpm-store"}, "PNPM_STORE_DIR"
 	}
 }
 
