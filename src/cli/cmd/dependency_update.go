@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,9 +11,9 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/dependency"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
@@ -56,8 +57,8 @@ func init() {
 	dependencyUpdateCmd.Flags().BoolVar(&depNoVuln, "no-vulncheck", false, "skip govulncheck after update")
 	dependencyUpdateCmd.Flags().StringSliceVar(&depEcosystems, "ecosystem", nil, "filter to specific ecosystem(s)")
 	dependencyUpdateCmd.Flags().StringVar(&depOutputDir, "output", paths.Ephemeral("", "deps"), "output directory for artifacts")
-	dependencyUpdateCmd.Flags().StringVar(&depPolicy, "policy", "all", "update policy: all, security")
-	dependencyUpdateCmd.Flags().StringVar(&depMaxUpdate, "max-update", "", "update-type ceiling: major, minor, patch (default from config, else minor)")
+	cliflag.EnumVar(dependencyUpdateCmd.Flags(), &depPolicy, "policy", []string{"all", "security"}, "all", "update policy")
+	cliflag.EnumVar(dependencyUpdateCmd.Flags(), &depMaxUpdate, "max-update", []string{"major", "minor", "patch"}, "", "update-type ceiling (default from config, else minor)")
 
 	dependencyCmd.AddCommand(dependencyUpdateCmd)
 }

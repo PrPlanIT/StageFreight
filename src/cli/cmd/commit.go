@@ -58,7 +58,7 @@ Examples:
 }
 
 func init() {
-	commitCmd.Flags().StringVarP(&commitType, "type", "t", "", "commit type (e.g. feat, fix, docs, chore)")
+	commitCmd.Flags().StringVarP(&commitType, "type", "t", "", "conventional commit type (e.g. feat, fix, docs, chore); custom types resolve against glossary.types in config")
 	commitCmd.Flags().StringVarP(&commitScope, "scope", "s", "", "commit scope")
 	commitCmd.Flags().StringVarP(&commitMessage, "message", "m", "", "commit summary message")
 	commitCmd.Flags().StringVar(&commitBody, "body", "", "commit body (appended after blank line)")

@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/manifest"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -28,7 +29,7 @@ Use --format to control output: json, table, human (default: human).`,
 
 func init() {
 	manifestInspectCmd.Flags().StringVar(&miSection, "section", "", "dot-path into manifest (e.g., inventories.pip)")
-	manifestInspectCmd.Flags().StringVar(&miFormat, "format", "human", "output format: json, table, human")
+	cliflag.EnumVar(manifestInspectCmd.Flags(), &miFormat, "format", []string{"json", "table", "human"}, "human", "output format")
 	manifestInspectCmd.Flags().StringVar(&miBuildID, "build-id", "", "resolve manifest for a specific build ID")
 
 	manifestCmd.AddCommand(manifestInspectCmd)

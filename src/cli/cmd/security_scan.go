@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"io"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/security"
+	"github.com/spf13/cobra"
 )
 
 // SecurityScanRequest is the explicit input contract for RunSecurityScan.
@@ -24,25 +25,25 @@ type SecurityScanRequest struct {
 	Ctx            context.Context
 	RootDir        string
 	Config         *config.Config
-	Image          string  // explicit image ref; empty = auto-resolve from manifest
-	OutputDir      string  // empty = from Config.Security.OutputDir
+	Image          string // explicit image ref; empty = auto-resolve from manifest
+	OutputDir      string // empty = from Config.Security.OutputDir
 	SBOM           bool
 	FailOnCritical bool
 	Skip           bool
-	Detail         string  // none|counts|detailed|full; empty = from config
+	Detail         string // none|counts|detailed|full; empty = from config
 	Strict         bool
 	Verbose        bool
 	Writer         io.Writer
 }
 
 var (
-	secScanImage      string
-	secScanOutputDir  string
-	secScanSBOM       bool
-	secScanFailCrit   bool
-	secScanSkip       bool
-	secScanDetail     string
-	secScanStrict     bool
+	secScanImage     string
+	secScanOutputDir string
+	secScanSBOM      bool
+	secScanFailCrit  bool
+	secScanSkip      bool
+	secScanDetail    string
+	secScanStrict    bool
 )
 
 var securityScanCmd = &cobra.Command{
@@ -64,7 +65,7 @@ func init() {
 	securityScanCmd.Flags().BoolVar(&secScanSBOM, "sbom", true, "generate SBOM artifacts")
 	securityScanCmd.Flags().BoolVar(&secScanFailCrit, "fail-on-critical", false, "exit non-zero if critical vulnerabilities found")
 	securityScanCmd.Flags().BoolVar(&secScanSkip, "skip", false, "skip scan (for pipeline control)")
-	securityScanCmd.Flags().StringVar(&secScanDetail, "security-detail", "", "override detail level for summary: none, counts, detailed, full")
+	cliflag.EnumVar(securityScanCmd.Flags(), &secScanDetail, "security-detail", []string{"none", "counts", "detailed", "full"}, "", "override detail level for summary")
 	securityScanCmd.Flags().BoolVar(&secScanStrict, "strict", false,
 		"fail if scan is partial, target lacks digest identity, or artifact verification fails")
 
@@ -336,16 +337,16 @@ func RunSecurityScan(req SecurityScanRequest) error {
 
 	// Merge request fields with config defaults
 	scanCfg := security.ScanConfig{
-		Enabled:        !req.Skip,
-		TrivyEnabled:   req.Config.Security.Scanners.TrivyEnabled(),
-		GrypeEnabled:   req.Config.Security.Scanners.GrypeEnabled(),
-		SBOMEnabled:    req.SBOM,
-		FailOnCritical: req.FailOnCritical || req.Config.Security.FailOnCritical,
-		ImageRef:       imageRef,
-		OCILayoutDir:   ociLayoutDir,
-		OutputDir:      req.OutputDir,
-		RootDir:              req.RootDir,
-		ToolchainDesired:     req.Config.Toolchains.Desired,
+		Enabled:          !req.Skip,
+		TrivyEnabled:     req.Config.Security.Scanners.TrivyEnabled(),
+		GrypeEnabled:     req.Config.Security.Scanners.GrypeEnabled(),
+		SBOMEnabled:      req.SBOM,
+		FailOnCritical:   req.FailOnCritical || req.Config.Security.FailOnCritical,
+		ImageRef:         imageRef,
+		OCILayoutDir:     ociLayoutDir,
+		OutputDir:        req.OutputDir,
+		RootDir:          req.RootDir,
+		ToolchainDesired: req.Config.Toolchains.Desired,
 		TrivyCacheMax:    req.Config.Security.Cache.Trivy.MaxSize,
 		TrivyCacheMaxAge: req.Config.Security.Cache.Trivy.MaxAge,
 		GrypeCacheMax:    req.Config.Security.Cache.Grype.MaxSize,

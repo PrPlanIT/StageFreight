@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/build/docker"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -34,7 +35,7 @@ func init() {
 	dockerBuildCmd.Flags().StringVar(&dbTarget, "target", "", "override Dockerfile target stage")
 	dockerBuildCmd.Flags().StringVar(&dbBuildID, "build", "", "build a specific entry by ID (default: all)")
 	dockerBuildCmd.Flags().BoolVar(&dbDryRun, "dry-run", false, "show the plan without executing")
-	dockerBuildCmd.Flags().StringVar(&dbBuildMode, "build-mode", "", "build execution strategy: crucible (self-proving self-build)")
+	cliflag.EnumVar(dockerBuildCmd.Flags(), &dbBuildMode, "build-mode", []string{"crucible"}, "", "build execution strategy (self-proving self-build)")
 
 	dockerCmd.AddCommand(dockerBuildCmd)
 }

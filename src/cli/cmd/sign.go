@@ -18,7 +18,6 @@ import (
 
 var (
 	signProfileID  string
-	signConfigFile string
 	signSkipImages bool
 )
 
@@ -50,10 +49,7 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 		if signProfileID == "" {
 			return fmt.Errorf("--profile is required (the trust profile to sign under)")
 		}
-		cfg, err := config.Load(signConfigFile)
-		if err != nil {
-			return fmt.Errorf("loading config: %w", err)
-		}
+		// cfg is loaded by the root PersistentPreRunE from the global --config flag.
 		profile, err := config.ResolveSigningProfileByID(cfg.Signing, signProfileID)
 		if err != nil {
 			return err
@@ -283,8 +279,7 @@ func imageTargets(results *artifact.ResultsManifest) []imageTarget {
 }
 
 func init() {
-	signCmd.Flags().StringVar(&signProfileID, "profile", "", "signing_profile id to sign under (required)")
-	signCmd.Flags().StringVar(&signConfigFile, "config", ".stagefreight.yml", "config file")
+	signCmd.Flags().StringVar(&signProfileID, "profile", "", "a signing_profiles[].id from config to sign under (required)")
 	signCmd.Flags().BoolVar(&signSkipImages, "skip-images", false, "sign only release blobs, not published image digests")
 	rootCmd.AddCommand(signCmd)
 }

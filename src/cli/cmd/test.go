@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"os"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -25,7 +26,7 @@ Suites are auto-synthesized from your builds when none are declared in .stagefre
 }
 
 func init() {
-	testCmd.Flags().StringVar(&testGate, "gate", "", "run only suites with this gate (perform|advisory)")
+	cliflag.EnumVar(testCmd.Flags(), &testGate, "gate", []string{"perform", "advisory"}, "", "run only suites with this gate")
 	rootCmd.AddCommand(testCmd)
 }
 
@@ -86,4 +87,3 @@ func filterSuites(suites []test.ResolvedSuite, ids []string, gate string) []test
 	}
 	return out
 }
-

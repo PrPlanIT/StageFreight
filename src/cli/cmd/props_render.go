@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/props"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -24,7 +24,7 @@ Example:
 }
 
 func init() {
-	propsRenderCmd.Flags().StringVar(&propsRenderType, "type", "", "prop type ID (required)")
+	propsRenderCmd.Flags().StringVar(&propsRenderType, "type", "", "a prop type id — run `stagefreight props list` to see them (required)")
 	propsRenderCmd.Flags().StringArrayVar(&propsRenderParams, "param", nil, "param in key=value format (repeatable)")
 	_ = propsRenderCmd.MarkFlagRequired("type")
 	propsCmd.AddCommand(propsRenderCmd)

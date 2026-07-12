@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/badge"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -40,7 +41,7 @@ func init() {
 	badgeGenerateCmd.Flags().StringVar(&bgLabel, "label", "", "ad-hoc badge label (left side)")
 	badgeGenerateCmd.Flags().StringVar(&bgValue, "value", "", "ad-hoc badge value (right side)")
 	badgeGenerateCmd.Flags().StringVar(&bgColor, "color", "#4c1", "ad-hoc badge color (hex)")
-	badgeGenerateCmd.Flags().StringVar(&bgStatus, "status", "", "status-driven color: passed, warning, critical")
+	cliflag.EnumVar(badgeGenerateCmd.Flags(), &bgStatus, "status", []string{"passed", "warning", "critical"}, "", "status-driven color")
 	badgeGenerateCmd.Flags().StringVar(&bgOutput, "output", ".stagefreight/badges/custom.svg", "output file path")
 
 	badgeCmd.AddCommand(badgeGenerateCmd)
