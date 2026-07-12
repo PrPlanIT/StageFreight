@@ -108,6 +108,8 @@ Forges declares git hosts. Each entry is a host identity (provider, URL, credent
 | `url` | `url` | string | Yes | — | base URL (e.g., "https://gitlab.prplanit.com") |
 | `credentials` | `credentials` | string | No | — | env var prefix for token resolution |
 
+**`provider` allowed values:** `gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`
+
 ---
 
 <a id="config-repos" name="config-repos"></a>
@@ -143,6 +145,8 @@ Registries declares OCI registry hosts. Referenced by targets.
 | `credentials` | `credentials` | string | No | — | env var prefix for token resolution |
 | `default_path` | `default_path` | string | No | — | default image path (e.g., "{var:org}/{var:repo}") |
 
+**`provider` allowed values:** `acr`, `docker`, `dockerhub`, `ecr`, `forgejo`, `gar`, `generic`, `ghcr`, `gitea`, `github`, `gitlab`, `harbor`, `jfrog`, `local`, `nexus`, `quay`
+
 ---
 
 <a id="config-signing_profiles" name="config-signing_profiles"></a>
@@ -165,6 +169,8 @@ Named trust profiles for signing release artifacts and images. A profile declare
 | `attestation` | `attestation` | bool | No | — | Attestation also emits a provenance attestation alongside the signature. |
 | `enforce` | `enforce` | bool | No | — | Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed outcome, let the build proceed). An orchestration policy, NOT a trust requirement — it never enters the SignPlan; Publish reads it to decide block-vs-proceed (foundational invariant 4). |
 | `allow_fallback` | `allow_fallback` | bool | No | — | AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the auto-provisioned Tier-0 identity. Default false: an explicit trust expectation that is unmet fails LOUDLY, never silently downgrades. |
+
+**`requires` allowed values:** `hardware`, `key`, `kms`, `oidc`
 
 > `requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.
 > `physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.
@@ -294,11 +300,15 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 | `type` | `outputs.type` | string | Yes | — | string value |
 | `source` | `outputs.source` | string | Yes | — | string value |
 
-**`kind` allowed values:** `docker`
+**`kind` allowed values:** `binary`, `command`, `docker`
 
 **`build_mode` allowed values:** `(standard)`, `crucible`
 
 > Crucible mode performs a self-proving rebuild to verify build reproducibility.
+
+**`builder` allowed values:** `android`, `c`, `dotnet`, `elixir`, `go`, `jvm`, `node`, `python`, `rust`
+
+**`outputs.type` allowed values:** `binary`, `file`, `tree`
 
 > Build IDs must be unique across all builds.
 > Targets reference builds by name via the `build:` field.
@@ -373,11 +383,13 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `base_path` | `base_path` | string | No | — | BasePath is the URL path the site is served under (kind: pages). Inferred per provider (Cloudflare "/", GitHub project "/<repo>/") and fed into the build. |
 | `mode` | `versioning.mode` | string | No | — | Mode: "replace" (each release overwrites; the only mode implemented in P1) or "keep" (every released version stays browsable — reserved for phase 2, rejected in P1 rather than silently ignored). |
 
-**`kind` allowed values:** `registry`, `docker-readme`, `gitlab-component`, `release`
+**`kind` allowed values:** `binary-archive`, `docker-readme`, `generic-package`, `gitlab-component`, `pages`, `registry`, `release`
 
-**`when.events` allowed values:** `push`, `tag`, `release`, `schedule`, `manual`, `pull_request`, `merge_request`
+**`when.events` allowed values:** `manual`, `merge_request`, `pull_request`, `push`, `release`, `schedule`, `tag`
 
 **`provider` allowed values:** `docker`, `ghcr`, `gitlab`, `jfrog`, `harbor`, `quay`, `gitea`, `forgejo`, `ecr`, `gar`, `acr`, `nexus`, `generic`, `github`
+
+**`format` allowed values:** `auto`, `binary`, `tar.gz`, `zip`
 
 > Target IDs must be unique across all targets.
 > The `when` block controls routing: all non-empty fields must match (AND logic).
@@ -658,6 +670,8 @@ Manifest holds configuration for the manifest subsystem.
 | `enabled` | `enabled` | bool | Yes | — | Enabled controls whether manifest generation is active (default: false). |
 | `mode` | `mode` | string | No | — | Mode controls where the manifest is stored. ephemeral: temp location, use during run, discard after. workspace: generate to .stagefreight/manifests/, don't auto-commit. commit: generate and include in docs commit. publish: generate and export as release asset / CI artifact. |
 | `output_dir` | `output_dir` | string | No | — | OutputDir is the output directory for manifest files. Default: .stagefreight/manifests |
+
+**`mode` allowed values:** `commit`, `ephemeral`, `publish`, `workspace`
 
 ---
 

@@ -62,16 +62,16 @@ func renderConfigSection(s configSection) string {
 		b.WriteString("\n")
 	}
 
-	// Per-field allowed values and notes.
+	// Per-field allowed values (sourced or curated) and notes.
 	for _, f := range s.Fields {
-		fo := getFieldOverride(s.Key + "." + f.YAMLKey)
-		if len(fo.AllowedValues) > 0 {
-			quoted := make([]string, len(fo.AllowedValues))
-			for i, v := range fo.AllowedValues {
+		if len(f.AllowedValues) > 0 {
+			quoted := make([]string, len(f.AllowedValues))
+			for i, v := range f.AllowedValues {
 				quoted[i] = "`" + v + "`"
 			}
 			b.WriteString(fmt.Sprintf("**`%s` allowed values:** %s\n\n", f.YAMLKey, strings.Join(quoted, ", ")))
 		}
+		fo := getFieldOverride(s.Key + "." + f.YAMLKey)
 		if len(fo.Notes) > 0 {
 			for _, n := range fo.Notes {
 				b.WriteString(fmt.Sprintf("> %s\n", n))
@@ -232,13 +232,21 @@ func reflectField(field reflect.StructField, prefix, declType string) fieldRow {
 	// e.g., "targets.when.git_tags" → "when.git_tags", "builds.id" → "id"
 	relKey := docPath[strings.Index(docPath, ".")+1:]
 
+	// Allowed values: the authoritative config source wins (it can't drift); a curated
+	// override is only the fallback for fields with no code-level enum source.
+	allowed := enumValuesFor(docPath)
+	if len(allowed) == 0 {
+		allowed = fo.AllowedValues
+	}
+
 	return fieldRow{
-		Name:        yamlKey,
-		YAMLKey:     relKey,
-		Type:        typeName,
-		Required:    required,
-		Default:     fo.Default,
-		Description: desc,
+		Name:          yamlKey,
+		YAMLKey:       relKey,
+		Type:          typeName,
+		Required:      required,
+		Default:       fo.Default,
+		Description:   desc,
+		AllowedValues: allowed,
 	}
 }
 

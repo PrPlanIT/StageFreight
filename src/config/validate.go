@@ -159,7 +159,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 		if b.Kind == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind is required", bpath))
-		} else if b.Kind != "docker" && b.Kind != "binary" && b.Kind != "command" {
+		} else if !validBuildKinds[b.Kind] {
 			errs = append(errs, fmt.Sprintf("%s: unknown build kind %q (supported: docker, binary, command)", bpath, b.Kind))
 		}
 
@@ -172,9 +172,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				errs = append(errs, fmt.Sprintf("%s: kind command requires at least one output ({type, source})", bpath))
 			}
 			for i, o := range b.Outputs {
-				switch o.Type {
-				case "tree", "file", "binary":
-				default:
+				if !validOutputTypes[o.Type] {
 					errs = append(errs, fmt.Sprintf("%s: outputs[%d].type %q is invalid (supported: tree, file, binary)", bpath, i, o.Type))
 				}
 				if strings.TrimSpace(o.Source) == "" {
@@ -207,10 +205,10 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		// DependsOn reference validation (deferred until all IDs collected)
 		// Binary-specific validation
 		if b.Kind == "binary" {
-			switch b.Builder {
-			case "":
+			switch {
+			case b.Builder == "":
 				errs = append(errs, fmt.Sprintf("%s: kind binary requires builder (supported: go, rust, node, elixir, dotnet, c, python, jvm, android)", bpath))
-			case "go", "rust", "node", "elixir", "dotnet", "c", "python", "jvm", "android":
+			case validBuilders[b.Builder]:
 				// Symmetric: builder owns the build, config supplies `from`. The
 				// containerized builders infer image/command/output from convention
 				// (override optional; c with a raw Makefile needs output: since the

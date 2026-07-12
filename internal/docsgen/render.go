@@ -95,10 +95,11 @@ type flagRow struct {
 }
 
 type fieldRow struct {
-	Name        string
-	YAMLKey     string
-	Type        string
-	Required    bool
-	Default     string
-	Description string
+	Name          string
+	YAMLKey       string
+	Type          string
+	Required      bool
+	Default       string
+	Description   string
+	AllowedValues []string // enum values, sourced from config or a curated override
 }
