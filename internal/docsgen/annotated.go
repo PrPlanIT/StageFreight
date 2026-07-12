@@ -25,10 +25,12 @@ type kindSpec struct {
 	fields []string // top-level yaml keys shown for this kind, in display order
 }
 
-// kindBlocks are the union sections. Field lists are curated from each struct's
-// "── kind: X ──" grouping and the per-kind validation rules.
-var kindBlocks = map[string]kindBlock{
-	"targets": {
+// unionByType maps a discriminated-union struct's Go type name to its per-kind field
+// lists, so the union renders as one annotated YAML block per kind — whether it appears at
+// the top level (targets, builds) or nested inside another section (narrate items). Field
+// lists are curated from each struct's "── kind: X ──" grouping and the validation rules.
+var unionByType = map[string]kindBlock{
+	"TargetConfig": {
 		typ: reflect.TypeOf(config.TargetConfig{}),
 		kinds: []kindSpec{
 			{"registry", []string{"id", "kind", "registry", "build", "tags", "signing_profile", "native_scan", "retention", "when"}},
@@ -40,7 +42,7 @@ var kindBlocks = map[string]kindBlock{
 			{"pages", []string{"id", "kind", "provider", "build", "dir", "domain", "project", "base_path", "exclude", "when"}},
 		},
 	},
-	"builds": {
+	"BuildConfig": {
 		typ: reflect.TypeOf(config.BuildConfig{}),
 		kinds: []kindSpec{
 			{"docker", []string{"id", "kind", "dockerfile", "context", "target", "platforms", "build_args"}},
@@ -48,6 +50,59 @@ var kindBlocks = map[string]kindBlock{
 			{"command", []string{"id", "kind", "image", "command", "env", "stage", "outputs"}},
 		},
 	},
+	"NarratorItem": {
+		typ: reflect.TypeOf(config.NarratorItem{}),
+		kinds: []kindSpec{
+			{"badge", []string{"id", "kind", "text", "value", "color", "font", "font_size", "output", "link", "placement"}},
+			{"shield", []string{"id", "kind", "shield", "link", "placement"}},
+			{"text", []string{"id", "kind", "content", "placement"}},
+			{"component", []string{"id", "kind", "spec", "placement"}},
+			{"include", []string{"id", "kind", "path", "placement"}},
+			{"build-contents", []string{"id", "kind", "build", "source", "section", "renderer", "placement"}},
+			{"break", []string{"id", "kind", "placement"}},
+		},
+	},
+}
+
+func unionFor(t reflect.Type) (kindBlock, bool) {
+	kb, ok := unionByType[t.Name()]
+	return kb, ok
+}
+
+type nestedUnion struct {
+	label string
+	kb    kindBlock
+}
+
+// collectNestedUnions finds every discriminated-union field reachable from t at any depth
+// (e.g. narrate → patches → items), returning each one's dotted label and union spec so the
+// renderer can break it out into per-kind blocks.
+func collectNestedUnions(t reflect.Type, prefix string, seen map[reflect.Type]bool) []nestedUnion {
+	if seen[t] {
+		return nil
+	}
+	seen[t] = true
+	var out []nestedUnion
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.Tag.Get("yaml") == ",inline" {
+			if et := unwrapType(f.Type); isFirstPartyConfig(et) {
+				out = append(out, collectNestedUnions(et, prefix, seen)...)
+			}
+			continue
+		}
+		yk := yamlKeyFromTag(f.Tag.Get("yaml"))
+		if yk == "" || yk == "-" {
+			continue
+		}
+		et := unwrapType(f.Type)
+		if kb, ok := unionFor(et); ok {
+			out = append(out, nestedUnion{label: strings.TrimSpace(prefix + yk), kb: kb})
+		} else if isFirstPartyConfig(et) {
+			out = append(out, collectNestedUnions(et, prefix+yk+" ", seen)...)
+		}
+	}
+	return out
 }
 
 // kindFieldEnums are allowed-value sets that depend on the kind (the flat enumSources map
@@ -56,23 +111,35 @@ var kindFieldEnums = map[string][]string{
 	"pages.provider": {"cloudflare", "github"},
 }
 
-// renderKindBlocks emits the per-kind annotated YAML for a union section.
-func renderKindBlocks(sectionKey string, kb kindBlock) string {
+// renderUnionBlocks emits one annotated YAML block per kind. topLevel wraps each block in
+// the section's list (`targets:\n  - ...`); nested renders a bare list item (`- ...`) under
+// a "<section> <field> · kind: X" heading, since it's an entry in a parent list.
+func renderUnionBlocks(kb kindBlock, topLevel bool, wrapperKey, label string) string {
 	byKey := fieldsByYAMLKey(kb.typ)
+	fieldIndent := "  "
+	if topLevel {
+		fieldIndent = "    "
+	}
 	var b strings.Builder
 	for _, ks := range kb.kinds {
 		var lines []string
 		for _, key := range ks.fields {
 			if f, ok := byKey[key]; ok {
-				lines = append(lines, yamlFieldLines(f, kb.typ.Name(), "    ", sectionKey, ks.name)...)
+				lines = append(lines, yamlFieldLines(f, kb.typ.Name(), fieldIndent, wrapperKey, ks.name)...)
 			}
 		}
 		if len(lines) == 0 {
 			continue
 		}
-		lines[0] = "  - " + strings.TrimLeft(lines[0], " ") // first field becomes the list item
-		b.WriteString("#### `kind: " + ks.name + "`\n\n")
-		b.WriteString("```yaml\n" + sectionKey + ":\n" + strings.Join(lines, "\n") + "\n```\n\n")
+		if topLevel {
+			lines[0] = "  - " + strings.TrimLeft(lines[0], " ")
+			b.WriteString("#### `kind: " + ks.name + "`\n\n")
+			b.WriteString("```yaml\n" + wrapperKey + ":\n" + strings.Join(lines, "\n") + "\n```\n\n")
+		} else {
+			lines[0] = "- " + strings.TrimLeft(lines[0], " ")
+			b.WriteString("#### " + label + " · `kind: " + ks.name + "`\n\n")
+			b.WriteString("```yaml\n" + strings.Join(lines, "\n") + "\n```\n\n")
+		}
 	}
 	return b.String()
 }
@@ -125,6 +192,14 @@ func yamlFieldLines(field reflect.StructField, declType, indent, docPrefix, kind
 	comment := yamlComment(declType, field, enum)
 
 	elem := unwrapType(field.Type)
+
+	// A discriminated-union field isn't flattened — its shape depends on kind, so point to
+	// the per-kind blocks rendered separately.
+	if _, ok := unionFor(elem); ok {
+		line := indent + yamlKey + ": []   # discriminated union by kind — see per-kind blocks below"
+		return []string{line}
+	}
+
 	if isFirstPartyConfig(elem) {
 		list := unwrapPtr(field.Type).Kind() == reflect.Slice
 		childIndent := indent + "  "

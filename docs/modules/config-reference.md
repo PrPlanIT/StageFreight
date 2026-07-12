@@ -298,6 +298,9 @@ builds:
         worktree: {}
 ```
 
+> Build IDs must be unique across all builds.
+> Targets reference builds by name via the `build:` field.
+
 ---
 
 <!-- --8<-- [end:builds] -->
@@ -446,6 +449,9 @@ targets:
       events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
       forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
+
+> Target IDs must be unique across all targets.
+> The `when` block controls routing: all non-empty fields must match (AND logic).
 
 ---
 
@@ -605,42 +611,7 @@ narrate:
   patches:   # Patches are generic marked-region replacements in files (was `narrator:`): each entry names a file…
     - file: <string>   # File is the path to the target file (required). · required
       link_base: <string>   # LinkBase is the base URL for relative link rewriting.
-      items:   # Items are the composable content items for this file. · required
-        - id: <string>   # ID is the item identifier (unique within file). · required
-          kind: <string>   # Kind is the item type: badge, shield, text, component, break, include. · required
-          placement:   # Placement declares where this item goes in the target file. · required
-            between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-            after: <string>   # After is a regex/literal line match (reserved for future use).
-            before: <string>   # Before is a regex/literal line match (reserved for future use).
-            heading: <string>   # Heading is a markdown heading match (reserved for future use).
-            mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-            inline: false   # Inline renders items side-by-side when true (default: false).
-          text: <string>   # Text is the badge label (left side text).
-          value: <string>   # Value is the badge value (right side text, supports templates).
-          color: <string>   # Color is the badge color (hex or "auto").
-          font: <string>   # Font is the badge font name override.
-          font_size: <int>   # FontSize is the badge font size override.
-          output: <string>   # Output is the SVG output path for badge generation.
-          link: <string>   # Link is the clickable URL (kind: badge, shield).
-          shield: <string>   # Shield is the shields.io path (kind: shield).
-          content: <string>   # Content is raw text/markdown content (kind: text).
-          spec: <string>   # Spec is the component spec file path (kind: component).
-          path: <string>   # Path is the file path to include verbatim (kind: include).
-          build: <string>   # Build is the id of the build whose manifest this item renders (kind: build-contents). Ownership is…
-          source: <string>   # Source is an optional path to a manifest JSON file (kind: build-contents). If omitted, uses the…
-          section: <string>   # Section is the dot-path into the manifest (kind: build-contents). e.g., "inventories.pip"…
-          renderer: <string>   # Renderer is the rendering format (kind: build-contents). Supported: "table", "list", "kv".
-          columns: [<string>]   # Columns selects which columns to render (kind: build-contents, renderer: table).
-          output_file: <string>   # OutputFile is an optional standalone file output path (kind: build-contents). When set, the…
-          wrap: <string>   # Wrap wraps the rendered output in a container element (kind: build-contents). Supported: "details"…
-          summary: <string>   # Summary is the summary text when wrap=details (required when wrap is set).
-          type: <string>   # Type is the props resolver type ID (kind: props).
-          params: {}   # Params are provider-semantic inputs for the props resolver.
-          label: <string>   # Label overrides the auto-derived alt text for props.
-          style: <string>   # Style is a presentation override for shields.io badge style.
-          logo: <string>   # Logo is a presentation override for shields.io logo name.
-          catalog: <string>   # CatalogPath is the path to a catalog metadata file (kind: k8s-inventory). Optional — provides…
-          ref: <string>   # Ref is the badge ID to reference (kind: badge_ref). Must match an ID defined in the top-level…
+      items: []   # discriminated union by kind — see per-kind blocks below
   commit:   # Commit is the auto-commit action for generated output (was `docs.commit`).
     type: <string>   # conventional type; default: engine's
     message: <string>
@@ -650,6 +621,120 @@ narrate:
     run_from:   # gate mutation to declared origin
       allow: [<string>]   # permitted origins: "primary"
       mismatch: <string>   # "read-only" (default), "exit", "ignore"
+```
+
+#### patches items · `kind: badge`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: badge   # Kind is the item type: badge, shield, text, component, break, include. · required
+  text: <string>   # Text is the badge label (left side text).
+  value: <string>   # Value is the badge value (right side text, supports templates).
+  color: <string>   # Color is the badge color (hex or "auto").
+  font: <string>   # Font is the badge font name override.
+  font_size: <int>   # FontSize is the badge font size override.
+  output: <string>   # Output is the SVG output path for badge generation.
+  link: <string>   # Link is the clickable URL (kind: badge, shield).
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
+```
+
+#### patches items · `kind: shield`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: shield   # Kind is the item type: badge, shield, text, component, break, include. · required
+  shield: <string>   # Shield is the shields.io path (kind: shield).
+  link: <string>   # Link is the clickable URL (kind: badge, shield).
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
+```
+
+#### patches items · `kind: text`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: text   # Kind is the item type: badge, shield, text, component, break, include. · required
+  content: <string>   # Content is raw text/markdown content (kind: text).
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
+```
+
+#### patches items · `kind: component`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: component   # Kind is the item type: badge, shield, text, component, break, include. · required
+  spec: <string>   # Spec is the component spec file path (kind: component).
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
+```
+
+#### patches items · `kind: include`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: include   # Kind is the item type: badge, shield, text, component, break, include. · required
+  path: <string>   # Path is the file path to include verbatim (kind: include).
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
+```
+
+#### patches items · `kind: build-contents`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: build-contents   # Kind is the item type: badge, shield, text, component, break, include. · required
+  build: <string>   # Build is the id of the build whose manifest this item renders (kind: build-contents). Ownership is…
+  source: <string>   # Source is an optional path to a manifest JSON file (kind: build-contents). If omitted, uses the…
+  section: <string>   # Section is the dot-path into the manifest (kind: build-contents). e.g., "inventories.pip"…
+  renderer: <string>   # Renderer is the rendering format (kind: build-contents). Supported: "table", "list", "kv".
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
+```
+
+#### patches items · `kind: break`
+
+```yaml
+- id: <string>   # ID is the item identifier (unique within file). · required
+  kind: break   # Kind is the item type: badge, shield, text, component, break, include. · required
+  placement:   # Placement declares where this item goes in the target file. · required
+    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+    after: <string>   # After is a regex/literal line match (reserved for future use).
+    before: <string>   # Before is a regex/literal line match (reserved for future use).
+    heading: <string>   # Heading is a markdown heading match (reserved for future use).
+    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+    inline: false   # Inline renders items side-by-side when true (default: false).
 ```
 
 ---

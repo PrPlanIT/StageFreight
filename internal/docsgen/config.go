@@ -61,18 +61,19 @@ func renderConfigSection(s configSection) string {
 		b.WriteString(c + "\n\n")
 	}
 
-	// Union sections (targets, builds) render as per-kind annotated YAML blocks instead
-	// of one flattened table that mixes every kind's fields together.
-	if kb, ok := kindBlocks[s.Key]; ok {
-		b.WriteString(renderKindBlocks(s.Key, kb))
-		b.WriteString("---\n\n")
-		return b.String()
-	}
-
-	// Any other first-party struct section renders as a single nested annotated YAML
-	// block — subkeys appear as real nesting, not confusing "parent.child" table rows.
+	// A first-party struct section. If the section is itself a discriminated union
+	// (targets, builds), render one annotated YAML block per kind. Otherwise render the
+	// nested block, then per-kind blocks for any discriminated-union field it contains
+	// (e.g. narrate items) — so kind-conditional shapes are broken out, not flattened.
 	if s.ElemType != nil {
-		b.WriteString(renderSectionYAML(s.Key, s.ElemType, s.IsList))
+		if u, ok := unionFor(s.ElemType); ok {
+			b.WriteString(renderUnionBlocks(u, true, s.Key, ""))
+		} else {
+			b.WriteString(renderSectionYAML(s.Key, s.ElemType, s.IsList))
+			for _, nu := range collectNestedUnions(s.ElemType, "", map[reflect.Type]bool{}) {
+				b.WriteString(renderUnionBlocks(nu.kb, false, s.Key, nu.label))
+			}
+		}
 		if so, ok := sectionOverrides[s.Key]; ok {
 			for _, n := range so.Notes {
 				b.WriteString(fmt.Sprintf("> %s\n", n))
