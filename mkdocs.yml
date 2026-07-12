@@ -1,0 +1,134 @@
+# StageFreight documentation site — built with MkDocs Material.
+#
+# Local live preview (no toolchain, no pipeline):
+#   docker run --rm -it -p 8000:8000 -v "$PWD":/docs \
+#     docker.io/squidfunk/mkdocs-material:9 serve -a 0.0.0.0:8000
+#
+# The production site is built + deployed by StageFreight itself (see .stagefreight.yml
+# `docs-site` build + `docs` pages target) to https://stagefreight.prplanit.com on tag.
+
+site_name: StageFreight
+site_url: https://stagefreight.prplanit.com
+site_description: >-
+  A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems
+  from one manifest.
+repo_name: PrPlanIT/StageFreight
+repo_url: https://github.com/PrPlanIT/StageFreight   # public origin — Material populates stars/forks/release from GitHub's API
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; PrPlanIT
+
+docs_dir: docs
+
+# Internal / non-public docs never ship to the site (kept in-repo for maintainers).
+exclude_docs: |
+  RoadMap.md
+  To-Do.md
+  KnownIssues.md
+  ImageSizeAudit.md
+  plans/
+  screenshots/
+
+theme:
+  name: material
+  logo: assets/logo-192.png
+  favicon: assets/logo-192.png
+  # Brand greens are set as custom CSS variables in stylesheets/extra.css
+  # (sampled from the logo); palette entries carry only scheme + toggle.
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - docs
+      check_paths: false
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/extra.css
+
+# ── Navigation ──────────────────────────────────────────────────────────
+# Curated explicitly: only public pages ship. Internal files (RoadMap.md,
+# To-Do.md, docs/plans/) are deliberately omitted from nav.
+#
+# Top-level tabs mirror the intended reader journey: land → try the happy path →
+# stand up a runner → learn every knob (all via .stagefreight.yml) → features →
+# how it works → screenshots.
+nav:
+  - Home: README.md
+  - Quick Start: quickstart/index.md
+  - Set-up:
+      - Overview: setup/index.md
+      - Build Runner: setup/gitlab-runner.md
+      - GitOps Runner: setup/kubernetes.md
+  - Configuration:
+      - It's all .stagefreight.yml: configuration/index.md
+      - Identity & Connectivity: configuration/identity.md
+      - Builds & Tests: configuration/builds.md
+      - Targets: configuration/targets.md
+      - Narrate: configuration/narrate.md
+      - Lint: configuration/lint.md
+      - Policy: configuration/policy.md
+      - Lifecycle Modes: configuration/lifecycle.md
+      - Signing: configuration/signing.md
+      - Full Schema Reference: reference/Config.md
+  - CLI Reference: reference/CLI.md
+  - Features: FeatureMatrix.md
+  - How It Works: howitworks/index.md
+  - Screenshots: screenshots.md

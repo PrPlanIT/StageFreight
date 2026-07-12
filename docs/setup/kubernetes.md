@@ -1,0 +1,85 @@
+# GitOps Runner
+
+Our runner for **GitOps / Kubernetes** pipelines (`lifecycle.mode: gitops`) — it's where we
+run Flux manifest validation and reconciliation. It's a simpler stack than the
+[Build Runner](gitlab-runner.md): **DinD** + the **GitLab runner** with the docker executor,
+and no BuildKit (GitOps repos don't build images).
+
+```yaml
+services:
+  dind:
+    image: docker:dind # Latest stable version
+    privileged: true
+    restart: always
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+    volumes:
+      - dind-storage:/var/lib/docker
+      - /opt/docker/gitlab-runner/certs:/certs
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  register-runner:
+    image: gitlab/gitlab-runner:latest # Always use latest stable
+    restart: 'no'
+    depends_on:
+      dind:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /etc/gitlab-runner/config.toml ]; then
+          echo "Config does not exist, registering runner..."
+          gitlab-runner register \
+            --non-interactive \
+            --locked=false \
+            --name=${RUNNER_NAME:-"GitLab Runner"} \
+            --executor=docker \
+            --docker-dns "10.0.0.1,10.0.0.2,1.1.1.1,8.8.8.8" \
+            --docker-host=tcp://dind:2376 \
+            --docker-image=alpine:latest \
+            --docker-privileged \
+            --docker-volumes "/cache" \
+            --docker-volumes "/certs/client" \
+            --tag-list=${RUNNER_TAGS:-"docker,alpine"} \
+            --run-untagged=${RUN_UNTAGGED:-true}
+        else
+          echo "Runner config already exists, skipping registration"
+        fi
+    environment:
+      - CI_SERVER_URL=${CI_SERVER_URL}
+      - REGISTRATION_TOKEN=${REGISTRATION_TOKEN}
+      - DOCKER_TLS_VERIFY=1
+      - DOCKER_CERT_PATH=/certs/client
+    volumes:
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+      - /opt/docker/gitlab-runner/certs:/certs:ro
+
+  runner:
+    image: gitlab/gitlab-runner:latest # Latest stable version
+    restart: always
+    depends_on:
+      dind:
+        condition: service_healthy
+    environment:
+      - DOCKER_HOST=tcp://dind:2376
+      - DOCKER_TLS_VERIFY=1
+      - DOCKER_CERT_PATH=/certs/client
+    volumes:
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+      - /opt/docker/gitlab-runner/certs:/certs:ro
+
+volumes:
+  dind-storage:
+```
+
+!!! note "Cluster authentication"
+    In GitOps mode StageFreight validates and reconciles against a Kubernetes cluster, so the
+    runner needs credentials to reach it — in our setup, a CA used for OIDC-style auth. That
+    cluster-auth material is configured per-cluster and layered on top of this runner; it's
+    not part of the compose stack above.

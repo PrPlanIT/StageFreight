@@ -642,7 +642,7 @@ collapsing them would weaken the trust model:
 - **`state_dir`** (`{type: volume|host_path, name|path}`) — the durable home (O.5).
 
 So **StageFreight core never silently creates a trust root.** "Always-on for the world" is delivered at
-the **runner/distribution config layer** — the freightyard runner ships a *visible, editable* default
+the **runner/distribution config layer** — the build runner ships a *visible, editable* default
 `signing: {enabled: true, auto_provision: true, state_dir: {volume}}` — mirroring the
 framework-vs-project-policy separation. Under that consent, the first build auto-provisions the Tier-0
 identity (continuity-fatal on drift/partial/orphan — O.5), reuses it forever, and signs every build; the

@@ -1,0 +1,49 @@
+/* StageFreight brand theme — greens sampled from src/assets/logo.png.
+   Deep forest green (#286034) for chrome, bright leaf green (#7cc24e) for accents. */
+
+:root {
+  --sf-green-deep:  #286034;  /* logo outline / shading */
+  --sf-green:       #2e7d34;  /* primary chrome */
+  --sf-green-light: #7cc24e;  /* logo body (bright leaf) */
+  --sf-green-lm:    #4f9d55;  /* mid */
+  --sf-cream:       #e0eda6;  /* logo tusk highlight */
+}
+
+/* ── Light scheme ─────────────────────────────────────────────────── */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        var(--sf-green);
+  --md-primary-fg-color--light: var(--sf-green-lm);
+  --md-primary-fg-color--dark:  var(--sf-green-deep);
+  --md-accent-fg-color:         #3f9142;   /* legible link-hover on white */
+
+  --md-typeset-a-color:         var(--sf-green);
+}
+
+/* ── Dark (slate) scheme ──────────────────────────────────────────── */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        var(--sf-green-deep);
+  --md-primary-fg-color--light: var(--sf-green-lm);
+  --md-primary-fg-color--dark:  #12331a;
+  --md-accent-fg-color:         var(--sf-green-light);
+
+  --md-typeset-a-color:         #8ecb58;   /* brighter green for links on dark */
+}
+
+/* Code annotation dots + admonition/link flourishes inherit the accent, so the
+   goreleaser-style numbered callouts pick up the brand green automatically. */
+
+/* Home hero / section headings get a subtle brand underline. */
+.md-typeset h1,
+.md-typeset h2 {
+  color: var(--md-default-fg-color);
+}
+.md-typeset h2 {
+  border-bottom: .05rem solid color-mix(in srgb, var(--sf-green) 35%, transparent);
+  padding-bottom: .2rem;
+}
+
+/* Header logo: give the transparent PNG a touch of breathing room. */
+.md-header__button.md-logo img {
+  height: 1.9rem;
+  width: auto;
+}
