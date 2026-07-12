@@ -270,56 +270,49 @@ Matchers defines reusable named patterns for branches (and future dimensions). P
 
 Named build artifacts. Each build has a unique ID referenced by targets. Currently supports `kind: docker`.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | Unique identifier for this build, referenced by targets. |
-| `kind` | `kind` | string | Yes | — | Build type. Determines which fields are valid. |
-| `select_tags` | `select_tags` | []string | No | — | Tags for CLI filtering via `--select`. |
-| `required` | `required` | bool | No | — | Required means build failure is a hard pipeline fail. Default: true. |
-| `build_mode` | `build_mode` | string | No | (standard) | Build execution strategy. |
-| `depends_on` | `depends_on` | string | No | — | DependsOn references another build ID that must complete before this one. Enables build ordering: binary builds before docker builds that consume them. |
-| `dockerfile` | `dockerfile` | string | No | auto-detected | Path to the Dockerfile. |
-| `context` | `context` | string | No | "." | Docker build context path. |
-| `target` | `target` | string | No | — | Multi-stage build `--target` stage name. |
-| `platforms` | `platforms` | []string | No | current OS/arch | Target platforms for multi-arch builds. |
-| `build_args` | `build_args` | map[string]string | No | — | Key-value pairs passed as `--build-arg`. Supports template variables. |
-| `paths` | `cache.watch.paths` | []string | Yes | — | Glob patterns for files to watch for changes. |
-| `invalidates` | `cache.watch.invalidates` | []string | Yes | — | Build stage names invalidated when watched files change. |
-| `auto_detect` | `cache.auto_detect` | bool | Yes | true | Auto-detect cache-relevant files from Dockerfile COPY/ADD instructions. |
-| `from` | `stage.from` | string | Yes | — | string value |
-| `as` | `stage.as` | string | Yes | — | string value |
-| `builder` | `builder` | string | No | — | Builder is the toolchain that interprets the build. Supported: "go". Future: "rust", "zig", "cargo". |
-| `command` | `command` | string | No | — | Command is the builder subcommand (binary: e.g. "build") or the full command (kind: command). Accepts a scalar string or an argv sequence. Default: "build". |
-| `from` | `from` | string | No | — | From is the source/input root or entry point. e.g., "./src/cli" (Go package), "./src/main.rs" (Rust). |
-| `output` | `output` | string | No | — | Output is the artifact name. Windows platforms auto-append ".exe". Default: basename of From. |
-| `image` | `image` | string | No | — | Image is the container image a containerized build (builder: node, elixir) runs inside (with the repo mounted). Command runs in it; Output is the produced artifact (file or directory tree). Defaults per builder; override for the odd case (e.g. electronuserland/builder:wine, or an elixir+node image for Phoenix). |
-| `args` | `args` | []string | No | — | Args are ordered raw arguments passed directly to the selected builder. For Go: raw args to "go build". For Rust: raw args to "cargo build". Supports template variables: {version}, {sha}, {sha:N}, {date}. |
-| `env` | `env` | map[string]string | No | — | Env are build environment variables. e.g., {"CGO_ENABLED": "0"} |
-| `compress` | `compress` | bool | No | — | Compress enables UPX compression on the output binary. Default: false. |
-| `toolchain_image` | `crucible.toolchain_image` | string | No | — | ToolchainImage is the pinned container image for pass-2 verification. e.g., "docker.io/library/golang:1.24-alpine" |
-| `type` | `outputs.type` | string | Yes | — | string value |
-| `source` | `outputs.source` | string | Yes | — | string value |
-
-**`kind` allowed values:** `binary`, `command`, `docker`
-
-**`build_mode` allowed values:** `(standard)`, `crucible`
-
-> Crucible mode performs a self-proving rebuild to verify build reproducibility.
-
-**`builder` allowed values:** `android`, `c`, `dotnet`, `elixir`, `go`, `jvm`, `node`, `python`, `rust`
-
-**`outputs.type` allowed values:** `binary`, `file`, `tree`
-
-> Build IDs must be unique across all builds.
-> Targets reference builds by name via the `build:` field.
-
-**Example:**
+#### `kind: docker`
 
 ```yaml
 builds:
-  - id: myapp
-    kind: docker
-    platforms: [linux/amd64, linux/arm64]
+  - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
+    kind: docker   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
+    dockerfile: <string>   # Dockerfile is the path to the Dockerfile. Default: auto-detect.
+    context: <string>   # Context is the Docker build context path. Default: "." (repo root).
+    target: <string>   # Target is the --target stage name for multi-stage builds.
+    platforms: [<string>]   # Platforms lists the target platforms. Default: [linux/{current_arch}].
+    build_args: {}   # BuildArgs are key-value pairs passed as --build-arg. Supports templates.
+```
+
+#### `kind: binary`
+
+```yaml
+builds:
+  - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
+    kind: binary   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
+    builder: <string>   # Builder is the toolchain that interprets the build. Supported: "go". Future: "rust", "zig", "cargo". · one of: android, c, dotnet, elixir, go, jvm, node, python, rust
+    from: <string>   # From is the source/input root or entry point. e.g., "./src/cli" (Go package), "./src/main.rs"…
+    output: <string>   # Output is the artifact name. Windows platforms auto-append ".exe". Default: basename of From.
+    args: [<string>]   # Args are ordered raw arguments passed directly to the selected builder. For Go: raw args to "go…
+    env: {}   # Env are build environment variables. e.g., {"CGO_ENABLED": "0"}
+    platforms: [<string>]   # Platforms lists the target platforms. Default: [linux/{current_arch}].
+```
+
+#### `kind: command`
+
+```yaml
+builds:
+  - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
+    kind: command   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
+    image: <string>   # Image is the container image a containerized build (builder: node, elixir) runs inside (with the…
+    command: <string>   # Command is the builder subcommand (binary: e.g. "build") or the full command (kind: command).…
+    env: {}   # Env are build environment variables. e.g., {"CGO_ENABLED": "0"}
+    stage:   # Stage recycles a binary build's output into this docker build's context before buildx, so a…
+      from: <string>   # required
+      as: <string>   # required
+    outputs:   # Outputs declares what the command produced and each output's artifact class.
+      type: <string>   # one of: binary, file, tree · required
+      source: <string>   # required
+      worktree: {}
 ```
 
 ---
@@ -329,83 +322,144 @@ builds:
 
 Distribution targets and side-effects. Each target has a `kind` that determines its behavior: push images, sync READMEs, publish components, or create releases.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | Unique identifier for this target (logging, status, enable/disable). |
-| `kind` | `kind` | string | Yes | — | Target type. Determines which fields are valid. |
-| `build` | `build` | string | No | — | References a `builds[].id`. Required for `kind: registry`. |
-| `branches` | `when.branches` | []string | No | — | Branch filters. Each entry is a policy name or inline regex. |
-| `git_tags` | `when.git_tags` | []string | No | — | Git tag filters. Each entry is a policy name or inline regex. |
-| `events` | `when.events` | []string | No | — | CI event type filters. |
-| `forges` | `when.forges` | []string | No | — | Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea, forgejo). Empty = every forge. Use it when a registry is reachable/credentialed on some forges but not others — e.g. a private mirror that only resolves from the self-hosted GitLab runner, or a ghcr push that only makes sense on GitHub Actions. |
-| `allow` | `run_from.allow` | []string | No | — | permitted origins: "primary" |
-| `mismatch` | `run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
-| `select_tags` | `select_tags` | []string | No | — | SelectTags enables CLI filtering via --select. |
-| `registry` | `registry` | string | No | — | Registry references a registries[].id for registry/docker-readme targets. When set, URL/Provider/Path/Credentials are resolved from the registry entry. Path can still be overridden on the target (overrides registry default_path). |
-| `signing_profile` | `signing_profile` | string | No | — | SigningProfile references a signing_profiles[].id — the trust profile this target signs under. Empty = the synthesized `legacy` profile (key-signing, inert unless a key resolves). Reference-by-id, same pattern as Registry. |
-| `url` | `url` | string | No | — | Registry or forge hostname. |
-| `provider` | `provider` | string | No | — | Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets. |
-| `path` | `path` | string | No | — | Image path within the registry. |
-| `credentials` | `credentials` | string | No | — | Env var prefix for authentication. Resolution: try `{PREFIX}_TOKEN` first, else `{PREFIX}_USER` + `{PREFIX}_PASS`. |
-| `description` | `description` | string | No | — | Description is a short description override (kind: registry, docker-readme). |
-| `keep_last` | `retention.keep_last` | int | Yes | — | Keep the N most recent tags/releases. |
-| `keep_daily` | `retention.keep_daily` | int | Yes | — | Keep one per day for the last N days. |
-| `keep_weekly` | `retention.keep_weekly` | int | Yes | — | Keep one per week for the last N weeks. |
-| `keep_monthly` | `retention.keep_monthly` | int | Yes | — | Keep one per month for the last N months. |
-| `keep_yearly` | `retention.keep_yearly` | int | Yes | — | Keep one per year for the last N years. |
-| `protect` | `retention.protect` | []string | Yes | — | Tag patterns that are never deleted. |
-| `tags` | `tags` | []string | No | — | Tag templates resolved against version info. `kind: registry` only. |
-| `native_scan` | `native_scan` | bool | No | — | NativeScan enables post-push vulnerability scanning via the registry's own built-in scanner. Distinct from StageFreight's own scan pipeline (Trivy/Grype run by StageFreight itself). Currently supported: Harbor (triggers Harbor's built-in Trivy after each push). No-op for Docker Hub, GHCR, Quay, JFrog, and other providers. Best-effort — scan failures warn but do not fail the build. Push success does not imply scan success; results appear in the registry UI only. |
-| `file` | `file` | string | No | — | Path to the README file. `kind: docker-readme` only. |
-| `link_base` | `link_base` | string | No | — | Base URL for relative link rewriting. `kind: docker-readme` only. |
-| `spec_files` | `spec_files` | []string | No | — | Component spec file paths. `kind: gitlab-component` only. |
-| `catalog` | `catalog` | bool | No | — | Enable GitLab Catalog registration. `kind: gitlab-component` only. |
-| `aliases` | `aliases` | []string | No | — | Rolling git tag aliases. `kind: release` only. |
-| `tag` | `tag` | string | No | — | Tag is the immutable identity pattern for a release channel (kind: release). Distinct from Aliases (rolling): Tag names one immutable release per build, e.g. "dev-{sha:8}". Resolved against version info like Aliases ({version}, {sha:8}, ...). When the triggering event is not itself a ref (a branch push), the release runner mints this tag so the channel release has a stable anchor. Empty = no channel tag. |
-| `prerelease` | `prerelease` | bool | No | — | Prerelease marks the forge release as a pre-release (kind: release). Honored natively by GitHub/Gitea; best-effort on GitLab (no native prerelease flag). |
-| `project_id` | `project_id` | string | No | — | Project identifier (`owner/repo` or numeric ID). `kind: release`, remote targets only. |
-| `mirror` | `mirror` | string | No | — | Mirror references a sources.mirrors[].id for release sync. Forge identity (provider, url, project_id, credentials) is resolved from the mirror. Avoids restating forge connection details in the target. |
-| `sync_release` | `sync_release` | bool | No | — | Sync release notes + tags to a remote forge. `kind: release`, remote targets only. |
-| `sync_assets` | `sync_assets` | bool | No | — | Sync scan artifacts to a remote forge. `kind: release`, remote targets only. |
-| `archives` | `archives` | string | No | — | Archives references a binary-archive target ID (kind: release and generic-package). |
-| `binary_name` | `binary_name` | string | No | — | BinaryName overrides the binary name inside the archive (kind: binary-archive). Auto-detected from referenced build if omitted. |
-| `format` | `format` | string | No | — | Format is the archive format: "tar.gz", "zip", "auto", or "binary" (kind: binary-archive). "auto" picks zip for windows, tar.gz for everything else (default). "binary" is a passthrough: the build's single-file output is carried as the distributable as-is, NOT re-archived — for a build whose output is already packaged (e.g. a kind: command build that emits its own tarball or a raw binary you want uploaded unwrapped), so no double-archiving occurs. |
-| `name` | `name` | string | No | — | Name is the archive filename template (kind: binary-archive). Supports: {id}, {version}, {os}, {arch}. e.g., "{id}-{version}-{os}-{arch}". |
-| `include` | `include` | []string | No | — | Include lists extra files to bundle into the archive (kind: binary-archive). e.g., ["README.md", "LICENSE"] |
-| `checksums` | `checksums` | bool | No | — | Checksums generates a SHA256SUMS file alongside archives (kind: binary-archive). |
-| `repo` | `repo` | string | No | — | Repo references a repos[].id (kind: generic-package). The forge identity (provider, url, project, credentials) is resolved from the repo; the package is published to that forge's generic package registry. |
-| `package` | `package` | string | No | — | Package is the generic package name (kind: generic-package). Defaults to the repo project's basename if empty. |
-| `version` | `version` | string | No | — | Version is the immutable package version pattern (kind: generic-package). Resolved against version info like Aliases ({version}, {sha:8}, ...), e.g. "dev-{sha:8}". Published once, never overwritten. Distinct from a release Tag (a git ref): this names a package *version*, not a git tag. Required — every rolling Alias must have an immutable Version behind it. |
-| `project` | `project` | string | No | — | Project is the Cloudflare Pages project name (provider: cloudflare). Default: the target id. Cloudflare requires lowercase letters, digits, and hyphens, 1–58 chars, no leading/trailing hyphen — validated at load. Ignored by the github provider (which deploys to the gh-pages branch of the repo). |
-| `dir` | `dir` | string | No | — | Dir publishes a repo directory directly instead of a build's output tree (kind: pages). Exactly one of Build or Dir must be set. |
-| `exclude` | `exclude` | []string | No | — | Exclude drops matching paths from the publish workspace before deploy (kind: pages). Globs, applied after extraction. |
-| `domain` | `domain` | []string | No | — | Domain is the custom domain(s) (kind: pages). Accepts a bare scalar or a list: |
-| `base_path` | `base_path` | string | No | — | BasePath is the URL path the site is served under (kind: pages). Inferred per provider (Cloudflare "/", GitHub project "/<repo>/") and fed into the build. |
-| `mode` | `versioning.mode` | string | No | — | Mode: "replace" (each release overwrites; the only mode implemented in P1) or "keep" (every released version stays browsable — reserved for phase 2, rejected in P1 rather than silently ignored). |
-
-**`kind` allowed values:** `binary-archive`, `docker-readme`, `generic-package`, `gitlab-component`, `pages`, `registry`, `release`
-
-**`when.events` allowed values:** `manual`, `merge_request`, `pull_request`, `push`, `release`, `schedule`, `tag`
-
-**`provider` allowed values:** `docker`, `ghcr`, `gitlab`, `jfrog`, `harbor`, `quay`, `gitea`, `forgejo`, `ecr`, `gar`, `acr`, `nexus`, `generic`, `github`
-
-**`format` allowed values:** `auto`, `binary`, `tar.gz`, `zip`
-
-> Target IDs must be unique across all targets.
-> The `when` block controls routing: all non-empty fields must match (AND logic).
-
-**Example:**
+#### `kind: registry`
 
 ```yaml
 targets:
-  - id: dockerhub-stable
-    kind: registry
-    build: myapp
-    url: docker.io
-    path: myorg/myapp
-    tags: ["{version}", "latest"]
-    when: { git_tags: [stable], events: [tag] }
-    credentials: DOCKER
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: registry   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    registry: <string>   # Registry references a registries[].id for registry/docker-readme targets. When set…
+    build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
+    tags: [<string>]   # Tags are tag templates resolved against version info (kind: registry). e.g., ["{version}"…
+    signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
+    native_scan: false   # NativeScan enables post-push vulnerability scanning via the registry's own built-in scanner.…
+    retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
+      keep_last: <int>   # keep the N most recent tags · required
+      keep_daily: <int>   # keep one per day for the last N days · required
+      keep_weekly: <int>   # keep one per week for the last N weeks · required
+      keep_monthly: <int>   # keep one per month for the last N months · required
+      keep_yearly: <int>   # keep one per year for the last N years · required
+      protect: [<string>]   # tag patterns that are never deleted (v2) · required
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+```
+
+#### `kind: docker-readme`
+
+```yaml
+targets:
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: docker-readme   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    registry: <string>   # Registry references a registries[].id for registry/docker-readme targets. When set…
+    file: <string>   # File is the path to the README file (kind: docker-readme).
+    link_base: <string>   # LinkBase is the base URL for relative link rewriting (kind: docker-readme).
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+```
+
+#### `kind: gitlab-component`
+
+```yaml
+targets:
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: gitlab-component   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    spec_files: [<string>]   # SpecFiles lists component spec file paths (kind: gitlab-component).
+    catalog: false   # Catalog enables GitLab Catalog registration (kind: gitlab-component).
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+```
+
+#### `kind: release`
+
+```yaml
+targets:
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: release   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    aliases: [<string>]   # Aliases are rolling git tag aliases (kind: release). e.g., ["{version}", "{major}.{minor}"…
+    tag: <string>   # Tag is the immutable identity pattern for a release channel (kind: release). Distinct from Aliases…
+    archives: <string>   # Archives references a binary-archive target ID (kind: release and generic-package).
+    prerelease: false   # Prerelease marks the forge release as a pre-release (kind: release). Honored natively by…
+    mirror: <string>   # Mirror references a sources.mirrors[].id for release sync. Forge identity (provider, url…
+    sync_release: false   # SyncRelease syncs release notes + tags to a remote forge (kind: release, remote only).
+    sync_assets: false   # SyncAssets syncs scan artifacts to a remote forge (kind: release, remote only).
+    signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
+    retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
+      keep_last: <int>   # keep the N most recent tags · required
+      keep_daily: <int>   # keep one per day for the last N days · required
+      keep_weekly: <int>   # keep one per week for the last N weeks · required
+      keep_monthly: <int>   # keep one per month for the last N months · required
+      keep_yearly: <int>   # keep one per year for the last N years · required
+      protect: [<string>]   # tag patterns that are never deleted (v2) · required
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+```
+
+#### `kind: binary-archive`
+
+```yaml
+targets:
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: binary-archive   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
+    name: <string>   # Name is the archive filename template (kind: binary-archive). Supports: {id}, {version}, {os}…
+    format: <string>   # Format is the archive format: "tar.gz", "zip", "auto", or "binary" (kind: binary-archive). "auto"… · one of: auto, binary, tar.gz, zip
+    binary_name: <string>   # BinaryName overrides the binary name inside the archive (kind: binary-archive). Auto-detected from…
+    include: [<string>]   # Include lists extra files to bundle into the archive (kind: binary-archive). e.g., ["README.md"…
+    checksums: false   # Checksums generates a SHA256SUMS file alongside archives (kind: binary-archive).
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+```
+
+#### `kind: generic-package`
+
+```yaml
+targets:
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: generic-package   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    repo: <string>   # Repo references a repos[].id (kind: generic-package). The forge identity (provider, url, project…
+    package: <string>   # Package is the generic package name (kind: generic-package). Defaults to the repo project's…
+    version: <string>   # Version is the immutable package version pattern (kind: generic-package). Resolved against version…
+    archives: <string>   # Archives references a binary-archive target ID (kind: release and generic-package).
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+```
+
+#### `kind: pages`
+
+```yaml
+targets:
+  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+    kind: pages   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    provider: <string>   # Provider is the vendor type for auth and API behavior. Registry: docker, ghcr, gitlab, jfrog… · one of: cloudflare, github
+    build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
+    dir: <string>   # Dir publishes a repo directory directly instead of a build's output tree (kind: pages). Exactly one…
+    domain: [<string>]   # Domain is the custom domain(s) (kind: pages). Accepts a bare scalar or a list:
+    project: <string>   # Project is the Cloudflare Pages project name (provider: cloudflare). Default: the target id.…
+    base_path: <string>   # BasePath is the URL path the site is served under (kind: pages). Inferred per provider (Cloudflare…
+    exclude: [<string>]   # Exclude drops matching paths from the publish workspace before deploy (kind: pages). Globs, applied…
+    when:   # When specifies routing conditions for this target.
+      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
+      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
 ---

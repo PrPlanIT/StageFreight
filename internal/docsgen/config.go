@@ -56,6 +56,14 @@ func renderConfigSection(s configSection) string {
 		b.WriteString(c + "\n\n")
 	}
 
+	// Union sections (targets, builds) render as per-kind annotated YAML blocks instead
+	// of one flattened table that mixes every kind's fields together.
+	if kb, ok := kindBlocks[s.Key]; ok {
+		b.WriteString(renderKindBlocks(s.Key, kb))
+		b.WriteString("---\n\n")
+		return b.String()
+	}
+
 	// Field table.
 	if len(s.Fields) > 0 {
 		b.WriteString(fieldTable(s.Fields))
