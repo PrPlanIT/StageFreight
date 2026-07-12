@@ -41,9 +41,11 @@ func GenerateConfigReference() string {
 
 // configSection represents a top-level config key and its fields.
 type configSection struct {
-	Key     string
-	GoField string // the config.Config Go field name, for the section-summary comment fallback
-	Fields  []fieldRow
+	Key      string
+	GoField  string       // the config.Config Go field name, for the section-summary comment fallback
+	Fields   []fieldRow   // flattened rows (used for scalar/map sections)
+	ElemType reflect.Type // the first-party struct type of the section, if any → rendered as annotated YAML
+	IsList   bool         // whether the section is a list of that struct
 }
 
 func renderConfigSection(s configSection) string {
@@ -63,6 +65,22 @@ func renderConfigSection(s configSection) string {
 	// of one flattened table that mixes every kind's fields together.
 	if kb, ok := kindBlocks[s.Key]; ok {
 		b.WriteString(renderKindBlocks(s.Key, kb))
+		b.WriteString("---\n\n")
+		return b.String()
+	}
+
+	// Any other first-party struct section renders as a single nested annotated YAML
+	// block — subkeys appear as real nesting, not confusing "parent.child" table rows.
+	if s.ElemType != nil {
+		b.WriteString(renderSectionYAML(s.Key, s.ElemType, s.IsList))
+		if so, ok := sectionOverrides[s.Key]; ok {
+			for _, n := range so.Notes {
+				b.WriteString(fmt.Sprintf("> %s\n", n))
+			}
+			if len(so.Notes) > 0 {
+				b.WriteString("\n")
+			}
+		}
 		b.WriteString("---\n\n")
 		return b.String()
 	}
@@ -141,8 +159,10 @@ func discoverSections() []configSection {
 		if elemType.Kind() == reflect.Ptr {
 			elemType = elemType.Elem()
 		}
+		isList := false
 		switch elemType.Kind() {
 		case reflect.Slice:
+			isList = true
 			elemType = elemType.Elem()
 			if elemType.Kind() == reflect.Ptr {
 				elemType = elemType.Elem()
@@ -155,6 +175,12 @@ func discoverSections() []configSection {
 		}
 
 		if elemType.Kind() == reflect.Struct {
+			// First-party structs render as a nested annotated YAML block (which shows
+			// subkeys as real nesting instead of confusing dotted keys in a flat table).
+			if isFirstPartyConfig(elemType) {
+				section.ElemType = elemType
+				section.IsList = isList
+			}
 			section.Fields = walkStruct(elemType, yamlKey)
 		} else {
 			section.Fields = []fieldRow{reflectField(field, yamlKey, "Config")}

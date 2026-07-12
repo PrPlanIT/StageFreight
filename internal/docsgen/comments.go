@@ -77,7 +77,9 @@ func firstParagraph(cg *ast.CommentGroup) string {
 	if i := strings.Index(text, "\n\n"); i >= 0 {
 		text = text[:i]
 	}
-	return strings.ReplaceAll(strings.Join(strings.Fields(text), " "), "|", "\\|")
+	// Return raw text (single-spaced). Pipe-escaping for markdown tables is applied at
+	// render time — YAML-comment output must keep pipes literal.
+	return strings.Join(strings.Fields(text), " ")
 }
 
 // configSourceDir locates the config package source relative to the working directory,

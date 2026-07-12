@@ -77,11 +77,41 @@ func renderKindBlocks(sectionKey string, kb kindBlock) string {
 	return b.String()
 }
 
-// yamlFieldLines emits the annotated YAML line(s) for one struct field. Nested first-party
-// structs recurse into a nested block; everything else is a single `key: <placeholder>`
-// line with a trailing comment.
+// renderSectionYAML emits a single nested annotated YAML block for a first-party struct
+// section (a list of the struct if isList, else a plain nested mapping).
+func renderSectionYAML(sectionKey string, t reflect.Type, isList bool) string {
+	indent := "  "
+	if isList {
+		indent = "    " // list-item continuation
+	}
+	var lines []string
+	for i := 0; i < t.NumField(); i++ {
+		lines = append(lines, yamlFieldLines(t.Field(i), t.Name(), indent, sectionKey, "")...)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if isList {
+		lines[0] = "  - " + strings.TrimLeft(lines[0], " ")
+	}
+	return "```yaml\n" + sectionKey + ":\n" + strings.Join(lines, "\n") + "\n```\n\n"
+}
+
+// yamlFieldLines emits the annotated YAML line(s) for one struct field. Inline-embedded
+// structs are flattened in place; nested first-party structs recurse into a nested block;
+// everything else is a single `key: <placeholder>` line with a trailing comment.
 func yamlFieldLines(field reflect.StructField, declType, indent, docPrefix, kind string) []string {
-	yamlKey := yamlKeyFromTag(field.Tag.Get("yaml"))
+	tag := field.Tag.Get("yaml")
+	if tag == ",inline" {
+		var lines []string
+		if et := unwrapPtr(field.Type); et.Kind() == reflect.Struct {
+			for i := 0; i < et.NumField(); i++ {
+				lines = append(lines, yamlFieldLines(et.Field(i), et.Name(), indent, docPrefix, kind)...)
+			}
+		}
+		return lines
+	}
+	yamlKey := yamlKeyFromTag(tag)
 	if yamlKey == "" || yamlKey == "-" {
 		return nil
 	}
@@ -96,9 +126,14 @@ func yamlFieldLines(field reflect.StructField, declType, indent, docPrefix, kind
 
 	elem := unwrapType(field.Type)
 	if isFirstPartyConfig(elem) {
+		list := unwrapPtr(field.Type).Kind() == reflect.Slice
+		childIndent := indent + "  "
+		if list {
+			childIndent = indent + "    " // room for the "- " list marker
+		}
 		var children []string
 		for i := 0; i < elem.NumField(); i++ {
-			children = append(children, yamlFieldLines(elem.Field(i), elem.Name(), indent+"  ", docPath, "")...)
+			children = append(children, yamlFieldLines(elem.Field(i), elem.Name(), childIndent, docPath, "")...)
 		}
 		head := indent + yamlKey + ":"
 		if len(children) == 0 {
@@ -106,6 +141,9 @@ func yamlFieldLines(field reflect.StructField, declType, indent, docPrefix, kind
 		}
 		if comment != "" {
 			head += "   # " + comment
+		}
+		if list && len(children) > 0 {
+			children[0] = indent + "  - " + strings.TrimLeft(children[0], " ")
 		}
 		return append([]string{head}, children...)
 	}

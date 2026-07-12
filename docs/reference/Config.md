@@ -108,14 +108,13 @@ Defaults is inert YAML anchor storage. StageFreight ignores this section entirel
 
 Forges declares git hosts. Each entry is a host identity (provider, URL, credentials).
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | unique identifier (e.g., "prplanit-gitlab") |
-| `provider` | `provider` | string | Yes | — | gitlab, github, gitea |
-| `url` | `url` | string | Yes | — | base URL (e.g., "https://gitlab.prplanit.com") |
-| `credentials` | `credentials` | string | No | — | env var prefix for token resolution |
-
-**`provider` allowed values:** `gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`
+```yaml
+forges:
+  - id: <string>   # unique identifier (e.g., "prplanit-gitlab") · required
+    provider: <string>   # gitlab, github, gitea · one of: gitlab, github, gitea, forgejo, azuredevops · required
+    url: <string>   # base URL (e.g., "https://gitlab.prplanit.com") · required
+    credentials: <string>   # env var prefix for token resolution
+```
 
 ---
 
@@ -126,18 +125,21 @@ Forges declares git hosts. Each entry is a host identity (provider, URL, credent
 
 Repos declares projects on forges. References forges by id. Has role (primary/mirror).
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | unique identifier |
-| `forge` | `forge` | string | Yes | — | references forges[].id |
-| `project` | `project` | string | Yes | — | project path on the forge (e.g., "{var:gitlab_group}/{var:repo}") |
-| `roles` | `roles` | []string | No | — | ["primary"] \| ["mirror"] \| ["mirror", "publish-origin"] \| [] |
-| `default` | `branches.default` | string | No | — | Default is the default branch name (e.g., "main"). Required for primary. |
-| `worktree` | `worktree` | string | No | — | local working tree path (primary only) |
-| `ref` | `ref` | string | No | — | pinned ref for non-primary repos (governance, presets) |
-| `git` | `sync.git` | bool | No | — | Git enables authoritative mirror replication via git push --mirror. All refs, branches, tags, deletions, force updates. This is the foundation — artifact sync runs only after mirror succeeds. |
-| `releases` | `sync.releases` | bool | No | — | Releases enables forge-native release projection (notes, assets, links). Runs after git mirror succeeds. Tag is the identity key. |
-| `docs` | `sync.docs` | bool | No | — | Docs enables README/doc file projection via forge commit API. Mutually exclusive with Git (docs arrive through git mirror). Only valid when Git is false. |
+```yaml
+repos:
+  - id: <string>   # unique identifier · required
+    forge: <string>   # references forges[].id · required
+    project: <string>   # project path on the forge (e.g., "{var:gitlab_group}/{var:repo}") · required
+    roles: [<string>]   # ["primary"] | ["mirror"] | ["mirror", "publish-origin"] | []
+    branches:   # branch identity (default, protected, etc.)
+      default: <string>   # Default is the default branch name (e.g., "main"). Required for primary.
+    worktree: <string>   # local working tree path (primary only)
+    ref: <string>   # pinned ref for non-primary repos (governance, presets)
+    sync:   # mirror sync domains
+      git: false   # Git enables authoritative mirror replication via git push --mirror. All refs, branches, tags…
+      releases: false   # Releases enables forge-native release projection (notes, assets, links). Runs after git mirror…
+      docs: false   # Docs enables README/doc file projection via forge commit API. Mutually exclusive with Git (docs…
+```
 
 ---
 
@@ -148,15 +150,14 @@ Repos declares projects on forges. References forges by id. Has role (primary/mi
 
 Registries declares OCI registry hosts. Referenced by targets.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | unique identifier (e.g., "dockerhub") |
-| `provider` | `provider` | string | Yes | — | docker, harbor, ghcr, quay, gitea, generic |
-| `url` | `url` | string | Yes | — | registry URL (e.g., "docker.io") |
-| `credentials` | `credentials` | string | No | — | env var prefix for token resolution |
-| `default_path` | `default_path` | string | No | — | default image path (e.g., "{var:org}/{var:repo}") |
-
-**`provider` allowed values:** `acr`, `docker`, `dockerhub`, `ecr`, `forgejo`, `gar`, `generic`, `ghcr`, `gitea`, `github`, `gitlab`, `harbor`, `jfrog`, `local`, `nexus`, `quay`
+```yaml
+registries:
+  - id: <string>   # unique identifier (e.g., "dockerhub") · required
+    provider: <string>   # docker, harbor, ghcr, quay, gitea, generic · one of: acr, docker, dockerhub, ecr, forgejo, gar, generic, ghcr, gitea, github, gitlab, harbor, jfrog, local, nexus, quay · required
+    url: <string>   # registry URL (e.g., "docker.io") · required
+    credentials: <string>   # env var prefix for token resolution
+    default_path: <string>   # default image path (e.g., "{var:org}/{var:repo}")
+```
 
 ---
 
@@ -167,23 +168,26 @@ Registries declares OCI registry hosts. Referenced by targets.
 
 Named trust profiles for signing release artifacts and images. A profile declares a trust CLASS (`requires`: `key` | `oidc` | `kms` | `hardware`) and assurance requirements — never a device, vendor, or cosign flag. Targets reference a profile by id via `signing_profile: <id>` (same pattern as `registry:`). With no profile, the implicit `legacy` default signs images when `COSIGN_KEY` resolves; checksum blobs (SHA256SUMS) sign only under an explicit profile.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | string value |
-| `requires` | `requires` | []string | Yes | — | trust class(es); v1 enforces exactly one |
-| `ref` | `key.ref` | string | Yes | — | string value |
-| `issuer` | `oidc.issuer` | string | No | — | string value |
-| `identity` | `oidc.identity` | string | No | — | string value |
-| `ref` | `kms.ref` | string | Yes | — | string value |
-| `ref` | `pkcs11.ref` | string | Yes | — | string value |
-| `physical_presence` | `physical_presence` | string | No | — | Assurance properties (hardware-class ONLY; enforced in validation). The value is the keyword "required" (absent = not required). The renderer later selects a transport that satisfies them — they are never device names here. |
-| `non_exportable` | `non_exportable` | string | No | — | string value |
-| `transparency_log` | `transparency_log` | bool | No | — | TransparencyLog overrides the per-class default (on for oidc, off otherwise). |
-| `attestation` | `attestation` | bool | No | — | Attestation also emits a provenance attestation alongside the signature. |
-| `enforce` | `enforce` | bool | No | — | Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed outcome, let the build proceed). An orchestration policy, NOT a trust requirement — it never enters the SignPlan; Publish reads it to decide block-vs-proceed (foundational invariant 4). |
-| `allow_fallback` | `allow_fallback` | bool | No | — | AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the auto-provisioned Tier-0 identity. Default false: an explicit trust expectation that is unmet fails LOUDLY, never silently downgrades. |
-
-**`requires` allowed values:** `hardware`, `key`, `kms`, `oidc`
+```yaml
+signing_profiles:
+  - id: <string>   # required
+    requires: [<string>]   # trust class(es); v1 enforces exactly one · one of: hardware, key, kms, oidc · required
+    key:   # Class reference blocks — at most one, matching the declared class.
+      ref: <string>   # required
+    oidc:
+      issuer: <string>
+      identity: <string>
+    kms:
+      ref: <string>   # required
+    pkcs11:   # hardware transport selector (optional; absent = FIDO2 --sk)
+      ref: <string>   # required
+    physical_presence: <string>   # Assurance properties (hardware-class ONLY; enforced in validation). The value is the keyword…
+    non_exportable: <string>
+    transparency_log: false   # TransparencyLog overrides the per-class default (on for oidc, off otherwise).
+    attestation: false   # Attestation also emits a provenance attestation alongside the signature.
+    enforce: false   # Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed…
+    allow_fallback: false   # AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the…
+```
 
 > `requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.
 > `physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.
@@ -192,24 +196,6 @@ Named trust profiles for signing release artifacts and images. A profile declare
 > OIDC/keyless trust domain is deployment wiring too: `SF_SIGSTORE_{DOMAIN,FULCIO,REKOR,ISSUER,TRUSTED_ROOT,IDENTITY_TOKEN}`. Setting FULCIO/REKOR/TRUSTED_ROOT points cosign at a self-hosted Sigstore (public Fulcio won't trust a self-hosted issuer); ISSUER falls back to the profile's `oidc.issuer`; IDENTITY_TOKEN (value or path) supplies the OIDC token for unattended/non-CI signing (ambient providers used when unset). Standing up Fulcio/Rekor is operator infrastructure, not StageFreight.
 > `enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).
 > Aliases normalized at load: `keyless` → `oidc`, `yubikey` → `hardware`.
-
-**Example:**
-
-```yaml
-signing_profiles:
-  - id: release-key
-    requires: key
-    key: { ref: "env:COSIGN_KEY" }      # path or env:VAR
-  - id: maintainer
-    requires: hardware                  # non-exportable key in a signing device
-    pkcs11: { ref: release }            # PIV/HSM transport, bound via SF_PKCS11_RELEASE (absent → FIDO2 --sk)
-    physical_presence: required
-    non_exportable: required
-  - id: org-kms
-    requires: kms
-    kms: { ref: release-signing-key }   # logical ref, bound to a URI at render time
-    non_exportable: required            # a KMS/Vault-transit key never leaves the service
-```
 
 ---
 
@@ -220,32 +206,21 @@ signing_profiles:
 
 Operational signing configuration (distinct from `signing_profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — "signing is encouraged" and "the system minted an identity for me" are not the same thing.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `enabled` | `enabled` | bool | No | — | nil/true = signing allowed; false = all signing off |
-| `auto_provision` | `auto_provision` | bool | No | — | explicit consent to create/manage a Tier-0 identity |
-| `type` | `state_dir.type` | string | No | — | "volume" \| "host_path" |
-| `name` | `state_dir.name` | string | No | — | volume name (type: volume) |
-| `path` | `state_dir.path` | string | No | — | absolute path (type: host_path) |
+```yaml
+signing:
+  enabled: false   # nil/true = signing allowed; false = all signing off
+  auto_provision: false   # explicit consent to create/manage a Tier-0 identity
+  state_dir:   # where persistent signing material lives
+    type: <string>   # "volume" | "host_path"
+    name: <string>   # volume name (type: volume)
+    path: <string>   # absolute path (type: host_path)
+```
 
 > `enabled: false` disables ALL signing regardless of profiles/keys.
 > `auto_provision: true` requires a `state_dir` — with no durable storage an ephemeral key would break trust continuity every run.
 > With `auto_provision: false` (default), StageFreight never creates key material — it signs only with an explicit COSIGN_KEY/profile. Opinionated always-on belongs in a runner/distribution config, not core.
 > The Tier-0 identity is created once and NEVER silently regenerated: drift, partial state, or an orphan key is fatal.
 > The state_dir must live outside the repository (a key there could be committed, baked into an image, or published).
-
-**Example:**
-
-```yaml
-signing:
-  enabled: true            # global kill switch (default true)
-  auto_provision: false    # explicit consent to create/manage a Tier-0 key (default false)
-  state_dir:
-    type: volume           # volume | host_path
-    name: stagefreight-signing
-    # type: host_path
-    # path: /srv/stagefreight/signing
-```
 
 ---
 
@@ -256,17 +231,21 @@ signing:
 
 Versioning controls how version identity is derived from git state.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `id` | `tag_sources.id` | string | Yes | — | ID is the unique identifier (e.g. "stable", "prerelease"). Referenced by branch_builds[].base_from and target.when.git_tags. |
-| `pattern` | `tag_sources.pattern` | string | Yes | — | Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" |
-| `id` | `branch_builds.id` | string | Yes | — | ID is the unique identifier. "default" is the catch-all entry and must appear last in the BranchBuilds slice. |
-| `match` | `branch_builds.match` | string | No | — | Match references a declared branch matcher name. Required for named branch_builds entries. The "default" entry rejects Match — it catches any branch that did not match a named entry. |
-| `base_from` | `branch_builds.base_from` | []string | Yes | — | BaseFrom is the ordered fallback chain of tag_sources ids. The runtime walks this list in order; for each source id, it scans tags for a match and returns the first hit. Fallback advances only when a source yields zero matches. |
-| `format` | `branch_builds.format` | string | Yes | — | Format is the version template for non-release commits. Supported placeholders: {base}, {sha}, {branch} e.g., "{base}-dev+{sha}" |
-| `mode` | `no_lineage.mode` | string | No | — | Mode controls the response to missing lineage. "error" (default): fail fast with explanation and suggested fix "explicit": use the provided version template |
-| `version` | `no_lineage.version` | string | No | — | Version is the template used when mode is "explicit". Must contain {sha} or {time} — hardcoded versions are rejected. e.g., "0.1.0-bootstrap+{sha}" |
+```yaml
+versioning:
+  preset: <string>
+  tag_sources:   # TagSources defines named places where version bases can come from. e.g., {id: "stable", pattern… · required
+    - id: <string>   # ID is the unique identifier (e.g. "stable", "prerelease"). Referenced by branch_builds[].base_from… · required
+      pattern: <string>   # Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" · required
+  branch_builds:   # BranchBuilds defines version format for non-tag commits per branch. Evaluated in declaration order…
+    - id: <string>   # ID is the unique identifier. "default" is the catch-all entry and must appear last in the… · required
+      match: <string>   # Match references a declared branch matcher name. Required for named branch_builds entries. The…
+      base_from: [<string>]   # BaseFrom is the ordered fallback chain of tag_sources ids. The runtime walks this list in order… · required
+      format: <string>   # Format is the version template for non-release commits. Supported placeholders: {base}, {sha}… · required
+  no_lineage:   # NoLineage defines behavior when no tag lineage exists (no matching tags).
+    mode: <string>   # Mode controls the response to missing lineage. "error" (default): fail fast with explanation and…
+    version: <string>   # Version is the template used when mode is "explicit". Must contain {sha} or {time} — hardcoded…
+```
 
 ---
 
@@ -277,10 +256,11 @@ Versioning controls how version identity is derived from git state.
 
 Matchers defines reusable named patterns for branches (and future dimensions). Pattern definitions only — no behavior. Referenced by branch_builds[].match and target.when.branches.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `branches` | `branches` | map[string]string | Yes | — | Branches maps matcher names to regex patterns for branch matching. e.g., "main": "^main$" |
+```yaml
+matchers:
+  preset: <string>
+  branches: {}   # Branches maps matcher names to regex patterns for branch matching. e.g., "main": "^main$" · required
+```
 
 ---
 
@@ -331,9 +311,9 @@ builds:
       from: <string>   # required
       as: <string>   # required
     outputs:   # Outputs declares what the command produced and each output's artifact class.
-      type: <string>   # one of: binary, file, tree · required
-      source: <string>   # required
-      worktree: {}
+      - type: <string>   # one of: binary, file, tree · required
+        source: <string>   # required
+        worktree: {}
 ```
 
 ---
@@ -494,36 +474,24 @@ targets:
 
 Linting configuration. Controls scan mode, module toggles, and per-module options. 9 modules: tabs, secrets, conflicts, filesize, linecount, unicode, yaml, lineendings, freshness.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `level` | `level` | string | Yes | changed | Scan mode. `changed` scans only modified files; `full` scans everything. |
-| `cache_dir` | `cache_dir` | string | Yes | $XDG_CACHE_HOME/stagefreight/<repo-hash>/lint | Override cache directory. |
-| `target_branch` | `target_branch` | string | Yes | — | Target branch for diff-based scanning. |
-| `exclude` | `exclude` | []string | Yes | — | Glob patterns to exclude from lint scanning. |
-| `modules` | `modules` | map[string]object | Yes | — | Per-module configuration. Keys: tabs, secrets, conflicts, filesize, linecount, unicode, yaml, lineendings, freshness. |
-| `generated` | `provenance.generated` | []string | No | — | []string value |
-| `vendored` | `provenance.vendored` | []string | No | — | []string value |
-| `trailing_whitespace` | `remediation.trailing_whitespace` | bool | No | — | default ON under --fix-safe |
-| `final_newline` | `remediation.final_newline` | bool | No | — | default ON under --fix-safe |
-| `max_age` | `cache.max_age` | string | No | — | evict entries not hit in this duration (e.g. "7d") |
-| `max_size` | `cache.max_size` | string | No | — | evict oldest entries when cache exceeds this (e.g. "100MB") |
-| `fail_on` | `fail_on` | string | No | — | FailOn is the DIAGNOSTIC-IMPORTANCE threshold at or above which a lint finding blocks the build: "critical" \| "warning" \| "info" \| "off". This is lint's OWN ordered vocabulary (info < warning < critical) — deliberately NOT the vulnerability severity scale; a lint warning and a CVSS High are incomparable. Empty defaults to "critical" (today's behavior: only critical findings block). Note this is a SECOND control axis on top of each module's own severity: raising fail_on reclassifies lower-importance findings from other lint modules as blocking too. |
-
-**`level` allowed values:** `changed`, `full`
-
-**Example:**
-
 ```yaml
 lint:
-  level: changed
-  modules:
-    secrets:
-      enabled: true
-    freshness:
-      enabled: true
-      options:
-        cache_ttl: 300
+  preset: <string>
+  level: <string>   # one of: changed, full · required
+  cache_dir: <string>   # required
+  target_branch: <string>   # required
+  exclude: [<string>]   # required
+  modules: {}   # required
+  provenance:
+    generated: [<string>]
+    vendored: [<string>]
+  remediation:
+    trailing_whitespace: false   # default ON under --fix-safe
+    final_newline: false   # default ON under --fix-safe
+  cache:
+    max_age: <string>   # evict entries not hit in this duration (e.g. "7d")
+    max_size: <string>   # evict oldest entries when cache exceeds this (e.g. "100MB")
+  fail_on: <string>   # FailOn is the DIAGNOSTIC-IMPORTANCE threshold at or above which a lint finding blocks the build…
 ```
 
 ---
@@ -535,43 +503,33 @@ lint:
 
 Security scanning configuration. Controls vulnerability scanning (Trivy, Grype), SBOM generation (Syft), and how security info appears in release notes.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | true | Run vulnerability scanning. |
-| `required` | `required` | bool | No | — | failure is hard pipeline fail (default: false) |
-| `trivy` | `scanners.trivy` | bool | No | true | Run Trivy image scan. |
-| `grype` | `scanners.grype` | bool | No | true | Run Grype image scan. |
-| `sbom` | `sbom` | bool | Yes | true | Generate SBOM artifacts via Syft. |
-| `fail_on_critical` | `fail_on_critical` | bool | Yes | false | Fail the pipeline if critical vulnerabilities are found. |
-| `output` | `output` | string | Yes | .stagefreight/security | Directory for scan artifacts (JSON, SARIF, SBOM, summary). |
-| `fail_on` | `fail_on` | string | No | — | FailOn is the severity threshold at or above which the scan fails the build: "critical" \| "high" \| "medium" \| "low" \| "off". Empty falls back to the deprecated fail_on_critical (true → "critical"), then to "off" — so the default stays informational (no gate), exactly as today. |
-| `unreachable_vulns` | `unreachable_vulns` | string | No | — | UnreachableVulns is the policy for vulnerabilities a reachability analyzer proved are never called: "pass" (default — excused from the gate) or "fail" (gated on severity regardless of reachability). Only vulns with a proven-unreachable verdict are affected; everything else is "unknown" and gates normally. |
-| `release_detail` | `release_detail` | string | Yes | counts | Default detail level for security info in release notes. |
-| `tag` | `release_detail_rules.tag` | string | No | — | Git tag pattern to match. Prefix with `!` to negate. |
-| `branch` | `release_detail_rules.branch` | string | No | — | Branch pattern to match. Prefix with `!` to negate. |
-| `detail` | `release_detail_rules.detail` | string | Yes | — | Detail level when this rule matches. |
-| `max_size` | `cache.trivy.max_size` | string | No | — | e.g. "500MB" — full-clear when exceeded |
-| `max_age` | `cache.trivy.max_age` | string | No | — | e.g. "7d" — full-clear when oldest file exceeds age |
-| `max_size` | `cache.grype.max_size` | string | No | — | e.g. "500MB" — full-clear when exceeded |
-| `max_age` | `cache.grype.max_age` | string | No | — | e.g. "7d" — full-clear when oldest file exceeds age |
-| `overwhelm_message` | `overwhelm_message` | []string | Yes | ["…maybe start here:"] | Message lines shown when >1000 vulnerabilities are found. |
-| `overwhelm_link` | `overwhelm_link` | string | Yes | — | URL appended after overwhelm message. Empty string disables. |
-
-**`release_detail` allowed values:** `none`, `counts`, `detailed`, `full`
-
-**`release_detail_rules.detail` allowed values:** `none`, `counts`, `detailed`, `full`
-
-**Example:**
-
 ```yaml
 security:
-  enabled: true
-  scanners:
-    trivy: true
-    grype: true
-  sbom: true
-  release_detail: counts
+  preset: <string>
+  enabled: false   # run vulnerability scanning (default: true) · required
+  required: false   # failure is hard pipeline fail (default: false)
+  scanners:   # per-scanner toggles · required
+    trivy: false   # run Trivy image scan (default: true)
+    grype: false   # run Grype image scan (default: true)
+  sbom: false   # generate SBOM artifacts (default: true) · required
+  fail_on_critical: false   # DEPRECATED: use fail_on. Alias — true → fail_on: critical. · required
+  output: <string>   # directory for scan artifacts (default: .stagefreight/security) · required
+  fail_on: <string>   # FailOn is the severity threshold at or above which the scan fails the build: "critical" | "high" |…
+  unreachable_vulns: <string>   # UnreachableVulns is the policy for vulnerabilities a reachability analyzer proved are never called…
+  release_detail: <string>   # ReleaseDetail is the default detail level for security info in release notes. Values: "none"… · required
+  release_detail_rules:   # ReleaseDetailRules are conditional overrides evaluated top-down (first match wins). Uses the… · required
+    - tag: <string>   # Tag is a pattern matched against the git tag (CI_COMMIT_TAG). Only evaluated when a tag is present.…
+      branch: <string>   # Branch is a pattern matched against the git branch (CI_COMMIT_BRANCH). Prefix with ! to negate.
+      detail: <string>   # Detail is the detail level to use when this rule matches. Values: "none", "counts", "detailed"… · required
+  cache:   # Cache controls persistent vulnerability DB caching per scanner. Each tool's max_size triggers…
+    trivy:
+      max_size: <string>   # e.g. "500MB" — full-clear when exceeded
+      max_age: <string>   # e.g. "7d" — full-clear when oldest file exceeds age
+    grype:
+      max_size: <string>   # e.g. "500MB" — full-clear when exceeded
+      max_age: <string>   # e.g. "7d" — full-clear when oldest file exceeds age
+  overwhelm_message: [<string>]   # OverwhelmMessage is the message lines shown when >1000 vulns are found. Defaults to ["…maybe… · required
+  overwhelm_link: <string>   # OverwhelmLink is an optional URL appended after OverwhelmMessage. Defaults to a Psychology Today… · required
 ```
 
 ---
@@ -583,37 +541,20 @@ security:
 
 Commit subsystem configuration. Controls conventional commit formatting, type registry, and default behavior for `stagefreight commit`.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `default_type` | `default_type` | string | No | chore | Default commit type when --type is omitted. |
-| `default_scope` | `default_scope` | string | No | — | Default commit scope when --scope is omitted. |
-| `skip_ci` | `skip_ci` | bool | No | false | Append `[skip ci]` to commit subjects by default. |
-| `push` | `push` | bool | No | false | Push after committing by default. |
-| `conventional` | `conventional` | bool | Yes | true | Use conventional commit format (`type(scope): summary`). |
-| `backend` | `backend` | string | No | git | Commit execution backend. |
-| `key` | `types.key` | string | Yes | — | Type identifier used in `--type` flag. Must match `^[a-z][a-z0-9_-]*$`. |
-| `label` | `types.label` | string | Yes | — | Human-readable label for documentation and error messages. |
-| `alias_for` | `types.alias_for` | string | No | — | Resolve this type to another type key. No alias chains allowed. |
-| `force_bang` | `types.force_bang` | bool | No | false | Force breaking change indicator (`!`) when this type is used. |
-
-**`backend` allowed values:** `git`, `dry-run`
-
-**Example:**
-
 ```yaml
 commit:
-  default_type: docs
-  conventional: true
-  backend: git
+  preset: <string>
+  default_type: <string>
+  default_scope: <string>
   skip_ci: false
   push: false
+  conventional: false   # required
+  backend: <string>
   types:
-    - key: feat
-      label: Feature
-    - key: breaking
-      label: Breaking
-      force_bang: true
+    - key: <string>   # required
+      label: <string>   # required
+      alias_for: <string>
+      force_bang: false
 ```
 
 ---
@@ -625,32 +566,39 @@ commit:
 
 Dependency holds configuration for the dependency update subsystem.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | — | bool value |
-| `output` | `output` | string | Yes | — | string value |
-| `go_modules` | `scope.go_modules` | bool | Yes | — | bool value |
-| `dockerfile_env` | `scope.dockerfile_env` | bool | Yes | — | umbrella for docker-image + github-release |
-| `enabled` | `commit.enabled` | bool | Yes | — | bool value |
-| `type` | `commit.type` | string | Yes | — | string value |
-| `message` | `commit.message` | string | Yes | — | string value |
-| `push` | `commit.push` | bool | Yes | — | bool value |
-| `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
-| `promotion` | `commit.promotion` | string | Yes | — | "direct" or "mr" |
-| `branch_prefix` | `commit.mr.branch_prefix` | string | Yes | — | default: "stagefreight/deps" |
-| `target_branch` | `commit.mr.target_branch` | string | Yes | — | default: "" (CI default branch) |
-| `allow` | `commit.run_from.allow` | []string | No | — | permitted origins: "primary" |
-| `mismatch` | `commit.run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
-| `handoff` | `ci.handoff` | string | Yes | — | default: continue |
-| `id` | `ignore.id` | string | Yes | — | e.g. "GHSA-xxxx-yyyy-zzzz", "GO-2026-1234" |
-| `reason` | `ignore.reason` | string | No | — | why this risk is carried |
-| `until` | `ignore.until` | string | No | — | YYYY-MM-DD; past this date the ignore lapses |
-| `remediate` | `remediate` | bool | No | — | Remediate controls whether the update pass PATCHES eligible dependencies (true, default — fix-forward) or only evaluates them without changing anything (false). It is the module's remediation stage, orthogonal to fail_on (the policy stage). |
-| `fail_on` | `fail_on` | string | No | — | FailOn is the vulnerability-severity threshold at or above which a RESIDUAL vulnerability — one still present after the remediation stage (a held major, no fix available, or ignored) — fails the build: "critical" \| "high" \| "medium" \| "low" \| "off". Vulnerability severity vocabulary (the shared severity scale), NOT lint's importance tiers. Empty defaults to "off": deps stays fix-forward and never hard-fails, exactly as today. |
-| `policy` | `policy` | string | No | — | Policy is the freshness SCOPE — which non-vulnerable dependencies to pursue: "all" (default — every dep to its latest eligible) or "security" (only vulnerable deps; leave everything else where it is). A known vulnerability is a floor, remediated under EVERY policy — Policy only governs freshness of NON-vulnerable deps. Empty defaults to "all" (today's audition behavior). |
-| `max_update` | `max_update` | string | No | — | MaxUpdate is the update-type CEILING — how far a dependency may move: "major" (allow the ecosystem's own maximum), "minor" (n.x.n — lock the major, allow minor+patch), or "patch" (n.n.x — lock major and minor, allow patch only). Empty defaults to "major" — a NO-OP that imposes no ceiling beyond each ecosystem's native compatibility model (cargo/docker still hold out-of-range majors via their `^`/tag-line semantics; gomod/github-release/toolchain retain their prior auto-apply). Setting "minor"/"patch" is an explicit opt-in to hold majors (and minors). A security fix is applied even if it exceeds the ceiling (remediation floor). |
-| `min_release_age` | `min_release_age` | string | No | — | MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is not recommended (freshness) nor applied (deps) — dodging the window in which a compromised or yanked release is briefly live. Accepts durations like "3d", "72h". Owned here as a supply-chain policy; the freshness lint module reads the SAME value so its recommendations match what deps will apply. Empty falls back to lint.modules.freshness.options.min_release_age (its historical home) for back-compat, then to disabled. |
+```yaml
+dependency:
+  preset: <string>
+  enabled: false   # required
+  output: <string>   # required
+  scope:   # required
+    go_modules: false   # required
+    dockerfile_env: false   # umbrella for docker-image + github-release · required
+  commit:   # required
+    enabled: false   # required
+    type: <string>   # required
+    message: <string>   # required
+    push: false   # required
+    skip_ci: false   # required
+    promotion: <string>   # "direct" or "mr" · required
+    mr:   # required
+      branch_prefix: <string>   # default: "stagefreight/deps" · required
+      target_branch: <string>   # default: "" (CI default branch) · required
+    run_from:   # gate mutation to declared origin
+      allow: [<string>]   # permitted origins: "primary"
+      mismatch: <string>   # "read-only" (default), "exit", "ignore"
+  ci:   # required
+    handoff: <string>   # default: continue · required
+  ignore:
+    - id: <string>   # e.g. "GHSA-xxxx-yyyy-zzzz", "GO-2026-1234" · required
+      reason: <string>   # why this risk is carried
+      until: <string>   # YYYY-MM-DD; past this date the ignore lapses
+  remediate: false   # Remediate controls whether the update pass PATCHES eligible dependencies (true, default —…
+  fail_on: <string>   # FailOn is the vulnerability-severity threshold at or above which a RESIDUAL vulnerability — one…
+  policy: <string>   # Policy is the freshness SCOPE — which non-vulnerable dependencies to pursue: "all" (default —…
+  max_update: <string>   # MaxUpdate is the update-type CEILING — how far a dependency may move: "major" (allow the…
+  min_release_age: <string>   # MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is not recommended…
+```
 
 ---
 
@@ -661,59 +609,66 @@ Dependency holds configuration for the dependency update subsystem.
 
 Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled; dissolves the old docs:/badges:/narrator: surface. Reference docs are a kind: command build committed via narrate.commit.builds, not a subsystem here.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `badges.id` | string | Yes | — | stable user-defined ID for narrator reference |
-| `text` | `badges.text` | string | Yes | — | left side label |
-| `value` | `badges.value` | string | Yes | — | right side value (templates: {env:*}, {sha}, {base}, etc.) |
-| `color` | `badges.color` | string | Yes | — | hex color or "auto" |
-| `output` | `badges.output` | string | Yes | — | SVG output path (required) |
-| `link` | `badges.link` | string | No | — | clickable URL |
-| `font` | `badges.font` | string | No | — | font name override |
-| `font_size` | `badges.font_size` | int | No | — | font size override |
-| `file` | `patches.file` | string | Yes | — | File is the path to the target file (required). |
-| `link_base` | `patches.link_base` | string | No | — | LinkBase is the base URL for relative link rewriting. |
-| `id` | `patches.items.id` | string | Yes | — | ID is the item identifier (unique within file). |
-| `kind` | `patches.items.kind` | string | Yes | — | Kind is the item type: badge, shield, text, component, break, include. |
-| `between` | `patches.items.placement.between` | array | No | — | Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these markers. |
-| `after` | `patches.items.placement.after` | string | No | — | After is a regex/literal line match (reserved for future use). |
-| `before` | `patches.items.placement.before` | string | No | — | Before is a regex/literal line match (reserved for future use). |
-| `heading` | `patches.items.placement.heading` | string | No | — | Heading is a markdown heading match (reserved for future use). |
-| `mode` | `patches.items.placement.mode` | string | No | — | Mode controls how content is placed: replace (default), append, prepend, above, below. |
-| `inline` | `patches.items.placement.inline` | bool | No | — | Inline renders items side-by-side when true (default: false). |
-| `text` | `patches.items.text` | string | No | — | Text is the badge label (left side text). |
-| `value` | `patches.items.value` | string | No | — | Value is the badge value (right side text, supports templates). |
-| `color` | `patches.items.color` | string | No | — | Color is the badge color (hex or "auto"). |
-| `font` | `patches.items.font` | string | No | — | Font is the badge font name override. |
-| `font_size` | `patches.items.font_size` | int | No | — | FontSize is the badge font size override. |
-| `output` | `patches.items.output` | string | No | — | Output is the SVG output path for badge generation. |
-| `link` | `patches.items.link` | string | No | — | Link is the clickable URL (kind: badge, shield). |
-| `shield` | `patches.items.shield` | string | No | — | Shield is the shields.io path (kind: shield). |
-| `content` | `patches.items.content` | string | No | — | Content is raw text/markdown content (kind: text). |
-| `spec` | `patches.items.spec` | string | No | — | Spec is the component spec file path (kind: component). |
-| `path` | `patches.items.path` | string | No | — | Path is the file path to include verbatim (kind: include). |
-| `build` | `patches.items.build` | string | No | — | Build is the id of the build whose manifest this item renders (kind: build-contents). Ownership is declared, never inferred from build list position: when more than one build is configured this is required, so reordering or adding builds can never silently change which build's inventory a doc section renders. Optional only for single-build configs (backward compatibility), where the sole build is unambiguous. Ignored when Source is set (an explicit manifest path is even more specific). |
-| `source` | `patches.items.source` | string | No | — | Source is an optional path to a manifest JSON file (kind: build-contents). If omitted, uses the current scope manifest. |
-| `section` | `patches.items.section` | string | No | — | Section is the dot-path into the manifest (kind: build-contents). e.g., "inventories.pip", "build.args", "security.sbom" |
-| `renderer` | `patches.items.renderer` | string | No | — | Renderer is the rendering format (kind: build-contents). Supported: "table", "list", "kv". |
-| `columns` | `patches.items.columns` | []string | No | — | Columns selects which columns to render (kind: build-contents, renderer: table). |
-| `output_file` | `patches.items.output_file` | string | No | — | OutputFile is an optional standalone file output path (kind: build-contents). When set, the rendered content is written as a standalone file. Can be used alongside placement (section embedding) or alone. |
-| `wrap` | `patches.items.wrap` | string | No | — | Wrap wraps the rendered output in a container element (kind: build-contents). Supported: "details" (wraps in <details>/<summary>). |
-| `summary` | `patches.items.summary` | string | No | — | Summary is the summary text when wrap=details (required when wrap is set). |
-| `type` | `patches.items.type` | string | No | — | Type is the props resolver type ID (kind: props). |
-| `params` | `patches.items.params` | map[string]string | No | — | Params are provider-semantic inputs for the props resolver. |
-| `label` | `patches.items.label` | string | No | — | Label overrides the auto-derived alt text for props. |
-| `style` | `patches.items.style` | string | No | — | Style is a presentation override for shields.io badge style. |
-| `logo` | `patches.items.logo` | string | No | — | Logo is a presentation override for shields.io logo name. |
-| `catalog` | `patches.items.catalog` | string | No | — | CatalogPath is the path to a catalog metadata file (kind: k8s-inventory). Optional — provides descriptions, friendly names, graveyard, tier overrides. |
-| `ref` | `patches.items.ref` | string | No | — | Ref is the badge ID to reference (kind: badge_ref). Must match an ID defined in the top-level badges: config. Narrator does NOT own badge generation — only composition. |
-| `type` | `commit.type` | string | No | — | conventional type; default: engine's |
-| `message` | `commit.message` | string | No | — | string value |
-| `add` | `commit.add` | []string | No | — | []string value |
-| `push` | `commit.push` | bool | No | — | bool value |
-| `skip_ci` | `commit.skip_ci` | bool | No | — | bool value |
-| `allow` | `commit.run_from.allow` | []string | No | — | permitted origins: "primary" |
-| `mismatch` | `commit.run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
+```yaml
+narrate:
+  badges:   # Badges are SVG badge definitions rendered from build metadata (was top-level `badges.items`).…
+    - id: <string>   # stable user-defined ID for narrator reference · required
+      text: <string>   # left side label · required
+      value: <string>   # right side value (templates: {env:*}, {sha}, {base}, etc.) · required
+      color: <string>   # hex color or "auto" · required
+      output: <string>   # SVG output path (required) · required
+      link: <string>   # clickable URL
+      font: <string>   # font name override
+      font_size: <int>   # font size override
+  patches:   # Patches are generic marked-region replacements in files (was `narrator:`): each entry names a file…
+    - file: <string>   # File is the path to the target file (required). · required
+      link_base: <string>   # LinkBase is the base URL for relative link rewriting.
+      items:   # Items are the composable content items for this file. · required
+        - id: <string>   # ID is the item identifier (unique within file). · required
+          kind: <string>   # Kind is the item type: badge, shield, text, component, break, include. · required
+          placement:   # Placement declares where this item goes in the target file. · required
+            between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
+            after: <string>   # After is a regex/literal line match (reserved for future use).
+            before: <string>   # Before is a regex/literal line match (reserved for future use).
+            heading: <string>   # Heading is a markdown heading match (reserved for future use).
+            mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
+            inline: false   # Inline renders items side-by-side when true (default: false).
+          text: <string>   # Text is the badge label (left side text).
+          value: <string>   # Value is the badge value (right side text, supports templates).
+          color: <string>   # Color is the badge color (hex or "auto").
+          font: <string>   # Font is the badge font name override.
+          font_size: <int>   # FontSize is the badge font size override.
+          output: <string>   # Output is the SVG output path for badge generation.
+          link: <string>   # Link is the clickable URL (kind: badge, shield).
+          shield: <string>   # Shield is the shields.io path (kind: shield).
+          content: <string>   # Content is raw text/markdown content (kind: text).
+          spec: <string>   # Spec is the component spec file path (kind: component).
+          path: <string>   # Path is the file path to include verbatim (kind: include).
+          build: <string>   # Build is the id of the build whose manifest this item renders (kind: build-contents). Ownership is…
+          source: <string>   # Source is an optional path to a manifest JSON file (kind: build-contents). If omitted, uses the…
+          section: <string>   # Section is the dot-path into the manifest (kind: build-contents). e.g., "inventories.pip"…
+          renderer: <string>   # Renderer is the rendering format (kind: build-contents). Supported: "table", "list", "kv".
+          columns: [<string>]   # Columns selects which columns to render (kind: build-contents, renderer: table).
+          output_file: <string>   # OutputFile is an optional standalone file output path (kind: build-contents). When set, the…
+          wrap: <string>   # Wrap wraps the rendered output in a container element (kind: build-contents). Supported: "details"…
+          summary: <string>   # Summary is the summary text when wrap=details (required when wrap is set).
+          type: <string>   # Type is the props resolver type ID (kind: props).
+          params: {}   # Params are provider-semantic inputs for the props resolver.
+          label: <string>   # Label overrides the auto-derived alt text for props.
+          style: <string>   # Style is a presentation override for shields.io badge style.
+          logo: <string>   # Logo is a presentation override for shields.io logo name.
+          catalog: <string>   # CatalogPath is the path to a catalog metadata file (kind: k8s-inventory). Optional — provides…
+          ref: <string>   # Ref is the badge ID to reference (kind: badge_ref). Must match an ID defined in the top-level…
+  commit:   # Commit is the auto-commit action for generated output (was `docs.commit`).
+    type: <string>   # conventional type; default: engine's
+    message: <string>
+    add: [<string>]
+    push: false
+    skip_ci: false
+    run_from:   # gate mutation to declared origin
+      allow: [<string>]   # permitted origins: "primary"
+      mismatch: <string>   # "read-only" (default), "exit", "ignore"
+```
 
 ---
 
@@ -722,29 +677,31 @@ Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled
 <a id="config-test" name="config-test"></a>
 ### test
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | — | bool value |
-| `auto` | `auto` | bool | No | — | nil ⇒ true |
-| `id` | `suites.id` | string | Yes | — | string value |
-| `tool` | `suites.tool` | string | Yes | — | string value |
-| `gate` | `suites.gate` | string | No | — | default: perform |
-| `from` | `suites.from` | string | No | — | module/crate dir when not at repo root (e.g. dd-ui's api/) |
-| `args` | `suites.args` | []string | No | — | raw passthrough escape hatch |
-| `command` | `suites.command` | string | No | — | string value |
-| `packages` | `suites.packages` | []string | No | — | ── Go (native `go test` flag projections) ────────────────────────────── |
-| `tags` | `suites.tags` | []string | No | — | -tags a,b |
-| `run` | `suites.run` | string | No | — | -run <regex> |
-| `timeout` | `suites.timeout` | string | No | — | -timeout <d> |
-| `race` | `suites.race` | bool | No | — | -race |
-| `coverage` | `suites.coverage` | bool | No | — | -coverprofile |
-| `coverage_min` | `suites.coverage_min` | float64 | No | — | gate: fail the suite if statement coverage < this % |
-| `workspace` | `suites.workspace` | bool | No | — | ── Rust (native `cargo test` flag projections) ───────────────────────── |
-| `features` | `suites.features` | []string | No | — | --features a,b |
-| `tests` | `suites.tests` | []string | No | — | --test <name> |
-| `release` | `suites.release` | bool | No | — | --release |
-| `nextest` | `suites.nextest` | bool | No | — | cargo nextest run |
+```yaml
+test:
+  preset: <string>
+  enabled: false   # required
+  auto: false   # nil ⇒ true
+  suites:
+    - id: <string>   # required
+      tool: <string>   # required
+      gate: <string>   # default: perform
+      from: <string>   # module/crate dir when not at repo root (e.g. dd-ui's api/)
+      args: [<string>]   # raw passthrough escape hatch
+      command: <string>
+      packages: [<string>]   # ── Go (native `go test` flag projections)…
+      tags: [<string>]   # -tags a,b
+      run: <string>   # -run <regex>
+      timeout: <string>   # -timeout <d>
+      race: false   # -race
+      coverage: false   # -coverprofile
+      coverage_min: <value>   # gate: fail the suite if statement coverage < this %
+      workspace: false   # ── Rust (native `cargo test` flag projections)…
+      features: [<string>]   # --features a,b
+      tests: [<string>]   # --test <name>
+      release: false   # --release
+      nextest: false   # cargo nextest run
+```
 
 ---
 
@@ -755,14 +712,13 @@ Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled
 
 Manifest holds configuration for the manifest subsystem.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | — | Enabled controls whether manifest generation is active (default: false). |
-| `mode` | `mode` | string | No | — | Mode controls where the manifest is stored. ephemeral: temp location, use during run, discard after. workspace: generate to .stagefreight/manifests/, don't auto-commit. commit: generate and include in docs commit. publish: generate and export as release asset / CI artifact. |
-| `output_dir` | `output_dir` | string | No | — | OutputDir is the output directory for manifest files. Default: .stagefreight/manifests |
-
-**`mode` allowed values:** `commit`, `ephemeral`, `publish`, `workspace`
+```yaml
+manifest:
+  preset: <string>
+  enabled: false   # Enabled controls whether manifest generation is active (default: false). · required
+  mode: <string>   # Mode controls where the manifest is stored. ephemeral: temp location, use during run, discard… · one of: commit, ephemeral, publish, workspace
+  output_dir: <string>   # OutputDir is the output directory for manifest files. Default: .stagefreight/manifests
+```
 
 ---
 
@@ -773,16 +729,18 @@ Manifest holds configuration for the manifest subsystem.
 
 Release holds configuration for the release subsystem.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | — | bool value |
-| `required` | `required` | bool | No | — | failure is hard pipeline fail (default: false) |
-| `security_summary` | `security_summary` | string | Yes | — | string value |
-| `registry_links` | `registry_links` | bool | Yes | — | bool value |
-| `catalog_links` | `catalog_links` | bool | Yes | — | bool value |
-| `allow` | `run_from.allow` | []string | No | — | permitted origins: "primary" |
-| `mismatch` | `run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
+```yaml
+release:
+  preset: <string>
+  enabled: false   # required
+  required: false   # failure is hard pipeline fail (default: false)
+  security_summary: <string>   # required
+  registry_links: false   # required
+  catalog_links: false   # required
+  run_from:   # gate mutation to declared origin
+    allow: [<string>]   # permitted origins: "primary"
+    mismatch: <string>   # "read-only" (default), "exit", "ignore"
+```
 
 ---
 
@@ -793,15 +751,23 @@ Release holds configuration for the release subsystem.
 
 CI holds all pipeline-related configuration consumed by ci render.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `image` | `image` | string | Yes | — | Image is the container image for all pipeline jobs. Required — render refuses to emit without it. |
-| `labels` | `routing.default.labels` | []string | No | — | []string value |
-| `labels` | `routing.audition.labels` | []string | No | — | []string value |
-| `labels` | `routing.perform.labels` | []string | No | — | []string value |
-| `labels` | `routing.review.labels` | []string | No | — | []string value |
-| `labels` | `routing.publish.labels` | []string | No | — | []string value |
-| `labels` | `routing.narrate.labels` | []string | No | — | []string value |
+```yaml
+ci:
+  image: <string>   # Image is the container image for all pipeline jobs. Required — render refuses to emit without it. · required
+  routing:   # Routing declares per-phase runner placement requirements. The renderer lowers labels to…
+    default:
+      labels: [<string>]
+    audition:
+      labels: [<string>]
+    perform:
+      labels: [<string>]
+    review:
+      labels: [<string>]
+    publish:
+      labels: [<string>]
+    narrate:
+      labels: [<string>]
+```
 
 ---
 
@@ -812,27 +778,14 @@ CI holds all pipeline-related configuration consumed by ci render.
 
 Selects the repository lifecycle mode — the phase graph the pipeline runs. The single most architecturally significant config choice: it determines whether the repo builds container images, validates GitOps manifests, or reconciles governance. When omitted, the lifecycle defaults to `image`.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | Path to an external lifecycle config fragment to inherit. Resolved and deep-merged before parse; local sibling keys override the preset. Part of the general `preset:` fragment-include mechanism. |
-| `mode` | `mode` | string | Yes | image | Selects the lifecycle — which phase graph the pipeline runs. Empty defaults to `image`. |
-
-**`mode` allowed values:** `image`, `docker`, `gitops`, `governance`
-
-> `image` (default): the full build → review → publish image pipeline. The only mode where review and publish do work; the others mark them not_applicable.
-> `docker`: read-only Docker plan/reconcile (dry-run). Requires the Reconcile capability.
-> `gitops`: validate + reconcile Flux manifests — audition validates, perform reconciles. Requires Reconcile + ImpactAnalysis (and ClusterAuth when `gitops.cluster` is set).
-> `governance`: governance control-repo reconcile — distributes config/doctrine to member repos.
+```yaml
+lifecycle:
+  preset: <string>   # Preset references an external lifecycle fragment to inherit (the generic preset: fragment-include…
+  mode: <string>   # Mode selects the phase graph. Empty defaults to image. image — build → review → publish image… · required
+```
 
 > Phase applicability is mode-derived: the `review` and `publish` phases do work only in `image` mode; `gitops`, `governance`, and `docker` mark them not_applicable.
 > Capability requirements differ per mode (e.g. `gitops` requires Reconcile + ImpactAnalysis, plus ClusterAuth when `gitops.cluster` is set); the lifecycle backend is checked against them at plan time.
-
-**Example:**
-
-```yaml
-lifecycle:
-  mode: image
-```
 
 ---
 
@@ -843,14 +796,18 @@ lifecycle:
 
 Governance defines configuration for the governance lifecycle mode. Only valid in the control repo (lifecycle.mode: governance).
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `id` | `clusters.id` | string | Yes | — | string value |
-| `repos` | `clusters.targets.repos` | []string | No | — | []string value |
-| `id` | `clusters.targets.groups.id` | string | No | — | string value |
-| `repos` | `clusters.targets.groups.repos` | []string | Yes | — | []string value |
-| `credentials` | `clusters.targets.credentials` | string | No | — | env var prefix for forge auth |
-| `stagefreight` | `clusters.stagefreight` | map[string]any | Yes | — | map[string]any value |
+```yaml
+governance:
+  clusters:   # required
+    - id: <string>   # required
+      targets:   # required
+        repos: [<string>]
+        groups:
+          - id: <string>
+            repos: [<string>]   # required
+        credentials: <string>   # env var prefix for forge auth
+      stagefreight: {}   # required
+```
 
 ---
 
@@ -861,19 +818,24 @@ Governance defines configuration for the governance lifecycle mode. Only valid i
 
 GitOps defines configuration for the gitops lifecycle mode.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `backend` | `backend` | string | Yes | — | Backend selects the GitOps reconciliation backend (e.g. "flux", "argo"). |
-| `name` | `cluster.name` | string | Yes | — | string value |
-| `server` | `cluster.server` | string | Yes | — | string value |
-| `level` | `cluster.exposure.rules.level` | string | Yes | — | internet \| intranet \| cluster |
-| `endpoints` | `cluster.exposure.rules.endpoints` | []string | Yes | — | ip:port (highest precedence) |
-| `gateways` | `cluster.exposure.rules.gateways` | []string | Yes | — | []string value |
-| `cidrs` | `cluster.exposure.rules.cidrs` | []string | Yes | — | []string value |
-| `ports` | `cluster.exposure.rules.ports` | []int | Yes | — | AND with CIDRs (empty = any port) |
-| `service_types` | `cluster.exposure.rules.service_types` | []string | Yes | — | ClusterIP \| NodePort \| LoadBalancer |
-| `audience` | `oidc.audience` | string | Yes | — | string value |
+```yaml
+gitops:
+  preset: <string>
+  backend: <string>   # Backend selects the GitOps reconciliation backend (e.g. "flux", "argo"). · required
+  cluster:   # Cluster defines the target Kubernetes cluster. · required
+    name: <string>   # required
+    server: <string>   # required
+    exposure:   # required
+      rules:   # required
+        - level: <string>   # internet | intranet | cluster · required
+          endpoints: [<string>]   # ip:port (highest precedence) · required
+          gateways: [<string>]   # required
+          cidrs: [<string>]   # required
+          ports: [...]   # AND with CIDRs (empty = any port) · required
+          service_types: [<string>]   # ClusterIP | NodePort | LoadBalancer · required
+  oidc:   # OIDC defines authentication configuration for the cluster. · required
+    audience: <string>   # required
+```
 
 ---
 
@@ -884,19 +846,25 @@ GitOps defines configuration for the gitops lifecycle mode.
 
 Docker defines configuration for the docker lifecycle mode.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `backend` | `backend` | string | Yes | — | Backend selects the Docker execution engine (e.g. "compose"). |
-| `source` | `targets.source` | string | Yes | — | Source is the inventory adapter (e.g. "ansible"). |
-| `inventory` | `targets.inventory` | string | Yes | — | Inventory is the path to the inventory file (relative to repo root). |
-| `groups` | `targets.selector.groups` | []string | Yes | — | []string value |
-| `path` | `iac.path` | string | Yes | — | Path is the IaC directory relative to repo root (default: "docker-compose"). |
-| `provider` | `secrets.provider` | string | Yes | — | Provider selects the secrets backend (e.g. "sops", "vault", "infisical"). |
-| `tier2_action` | `drift.tier2_action` | string | Yes | — | report \| reconcile (default: report) |
-| `orphan_action` | `drift.orphan_action` | string | Yes | — | report \| down \| prune (default: report) |
-| `orphan_threshold` | `drift.orphan_threshold` | int | Yes | — | block if more than N orphans (default: 5) |
-| `prune_requires_confirmation` | `drift.prune_requires_confirmation` | bool | Yes | — | require --force for prune (default: true) |
+```yaml
+docker:
+  preset: <string>
+  backend: <string>   # Backend selects the Docker execution engine (e.g. "compose"). · required
+  targets:   # Targets defines how reconciliation targets are resolved. · required
+    source: <string>   # Source is the inventory adapter (e.g. "ansible"). · required
+    inventory: <string>   # Inventory is the path to the inventory file (relative to repo root). · required
+    selector:   # Selector declares which hosts from inventory are eligible. · required
+      groups: [<string>]   # required
+  iac:   # IaC defines the Infrastructure as Code directory layout. · required
+    path: <string>   # Path is the IaC directory relative to repo root (default: "docker-compose"). · required
+  secrets:   # Secrets defines the secrets decryption provider. · required
+    provider: <string>   # Provider selects the secrets backend (e.g. "sops", "vault", "infisical"). · required
+  drift:   # Drift defines drift detection and reconciliation policy. · required
+    tier2_action: <string>   # report | reconcile (default: report) · required
+    orphan_action: <string>   # report | down | prune (default: report) · required
+    orphan_threshold: <int>   # block if more than N orphans (default: 5) · required
+    prune_requires_confirmation: false   # require --force for prune (default: true) · required
+```
 
 ---
 
@@ -907,33 +875,51 @@ Docker defines configuration for the docker lifecycle mode.
 
 BuildCache defines the build cache subsystem (local, shared, hybrid).
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `mode` | `mode` | string | No | — | Mode selects which cache planes are active. "": inactive — no cache flags emitted, no cleanup runs. off: explicitly disabled. local: bounded local buildkit cache only. shared: registry-backed external cache only. hybrid: both local and external. |
-| `backend` | `builder.backend` | string | No | — | Backend pins the build backend. Default: "" (auto-detect). "buildkitd" → prefer persistent buildkitd, fail if unavailable. "dind" → use DinD only, ignore buildkitd even if available. "" → auto-detect: prefer buildkitd if available, fall back to DinD. |
-| `name` | `builder.name` | string | No | — | Name is the buildx builder name. Default: "sf-builder". |
-| `driver` | `builder.driver` | string | No | — | Driver is the buildx driver. Default: "docker-container". |
-| `context` | `builder.context` | string | No | — | Context is the Docker context name for the builder endpoint. Default: "sf-context". |
-| `path` | `local.path` | string | No | — | override local cache root (default: /stagefreight/cache/buildkit) |
-| `max_age` | `local.retention.max_age` | string | No | — | e.g. "7d" |
-| `max_size` | `local.retention.max_size` | string | No | — | e.g. "15GB" |
-| `target` | `external.target` | string | No | — | Target references a targets[].id with kind: registry. |
-| `path` | `external.path` | string | No | — | Path is appended to the target URL: <target-url>/<path>/<repo>/<branch>. |
-| `fallback` | `external.fallback` | string | No | — | Fallback is the read-only fallback branch ref (e.g. "default", "main"). Never written to unless current ref equals fallback. |
-| `mode` | `external.mode` | string | No | — | Mode is the BuildKit cache mode (e.g. "max", "min"). Default: "max". |
-| `max_refs` | `external.retention.max_refs` | int | No | — | max branch cache refs per repo |
-| `stale_age` | `external.retention.stale_age` | string | No | — | prune refs for dead/merged branches |
-| `enabled` | `cleanup.enabled` | bool | No | — | Enabled controls whether cleanup runs. Independent of cache mode. |
-| `enforcement` | `cleanup.enforcement` | string | No | — | Enforcement controls what happens when cleanup cannot execute. best_effort: continue + structured warning. required: fail build immediately. |
-| `refs` | `cleanup.protect.images.refs` | []string | No | — | glob patterns |
-| `named` | `cleanup.protect.volumes.named` | bool | No | — | protect all named volumes |
-| `older_than` | `cleanup.prune.images.dangling.older_than` | string | No | — | e.g. "72h" |
-| `older_than` | `cleanup.prune.images.unreferenced.older_than` | string | No | — | e.g. "72h" |
-| `older_than` | `cleanup.prune.build_cache.older_than` | string | No | — | e.g. "72h" |
-| `keep_storage` | `cleanup.prune.build_cache.keep_storage` | string | No | — | e.g. "20GB" |
-| `older_than` | `cleanup.prune.containers.exited.older_than` | string | No | — | e.g. "72h" |
-| `unused` | `cleanup.prune.networks.unused` | bool | No | — | bool value |
+```yaml
+build_cache:
+  preset: <string>
+  mode: <string>   # Mode selects which cache planes are active. "": inactive — no cache flags emitted, no cleanup…
+  builder:   # Builder configures the buildx builder lifecycle. The engine owns creation, bootstrap, and narration…
+    backend: <string>   # Backend pins the build backend. Default: "" (auto-detect). "buildkitd" → prefer persistent…
+    name: <string>   # Name is the buildx builder name. Default: "sf-builder".
+    driver: <string>   # Driver is the buildx driver. Default: "docker-container".
+    context: <string>   # Context is the Docker context name for the builder endpoint. Default: "sf-context".
+  local:   # Local configures the bounded local buildkit cache.
+    path: <string>   # override local cache root (default: /stagefreight/cache/buildkit)
+    retention:
+      max_age: <string>   # e.g. "7d"
+      max_size: <string>   # e.g. "15GB"
+  external:   # External configures registry-backed shared cache.
+    target: <string>   # Target references a targets[].id with kind: registry.
+    path: <string>   # Path is appended to the target URL: <target-url>/<path>/<repo>/<branch>.
+    fallback: <string>   # Fallback is the read-only fallback branch ref (e.g. "default", "main"). Never written to unless…
+    mode: <string>   # Mode is the BuildKit cache mode (e.g. "max", "min"). Default: "max".
+    retention:   # Retention defines when stale external cache refs are pruned.
+      max_refs: <int>   # max branch cache refs per repo
+      stale_age: <string>   # prune refs for dead/merged branches
+  cleanup:   # Cleanup is governance-owned host-hygiene policy — see HostCleanupConfig.
+    enabled: false   # Enabled controls whether cleanup runs. Independent of cache mode.
+    enforcement: <string>   # Enforcement controls what happens when cleanup cannot execute. best_effort: continue + structured…
+    protect:   # Protect defines what is never pruned.
+      images:
+        refs: [<string>]   # glob patterns
+      volumes:
+        named: false   # protect all named volumes
+    prune:   # Prune defines what is eligible for removal.
+      images:
+        dangling:
+          older_than: <string>   # e.g. "72h"
+        unreferenced:
+          older_than: <string>   # e.g. "72h"
+      build_cache:
+        older_than: <string>   # e.g. "72h"
+        keep_storage: <string>   # e.g. "20GB"
+      containers:
+        exited:
+          older_than: <string>   # e.g. "72h"
+      networks:
+        unused: false
+```
 
 ---
 
@@ -944,24 +930,33 @@ BuildCache defines the build cache subsystem (local, shared, hybrid).
 
 Glossary defines the repo's shared change-language model. Consumed by commit authoring, tag planning, and release rendering.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `types` | `types` | map[string]object | Yes | — | map[string]object value |
-| `aliases` | `breaking.aliases` | []string | No | — | e.g., [b, break, bc] |
-| `bang_suffix` | `breaking.bang_suffix` | bool | Yes | — | feat! syntax |
-| `footer_keys` | `breaking.footer_keys` | []string | Yes | — | e.g., ["BREAKING CHANGE"] |
-| `force_highlight` | `breaking.force_highlight` | bool | Yes | — | bool value |
-| `priority_boost` | `breaking.priority_boost` | int | Yes | — | int value |
-| `strip_phrases` | `filters.summary.strip_phrases` | []string | No | — | []string value |
-| `strip_regex` | `filters.summary.strip_regex` | []string | No | — | []string value |
-| `strip_keys` | `filters.trailers.strip_keys` | []string | No | — | []string value |
-| `normalize_whitespace` | `filters.normalize_whitespace` | bool | Yes | — | bool value |
-| `from` | `rewrites.phrases.from` | string | Yes | — | string value |
-| `to` | `rewrites.phrases.to` | string | Yes | — | string value |
-| `pattern` | `rewrites.regex.pattern` | string | Yes | — | string value |
-| `replace` | `rewrites.regex.replace` | string | Yes | — | string value |
-| `empty_strategy` | `render.empty_strategy` | string | Yes | — | prompt \| fail \| allow_empty |
+```yaml
+glossary:
+  preset: <string>
+  types: {}   # required
+  breaking:   # required
+    aliases: [<string>]   # e.g., [b, break, bc]
+    bang_suffix: false   # feat! syntax · required
+    footer_keys: [<string>]   # e.g., ["BREAKING CHANGE"] · required
+    force_highlight: false   # required
+    priority_boost: <int>   # required
+  filters:   # required
+    summary:   # required
+      strip_phrases: [<string>]
+      strip_regex: [<string>]
+    trailers:   # required
+      strip_keys: [<string>]
+    normalize_whitespace: false   # required
+  rewrites:   # required
+    phrases:
+      - from: <string>   # required
+        to: <string>   # required
+    regex:
+      - pattern: <string>   # required
+        replace: <string>   # required
+  render:   # required
+    empty_strategy: <string>   # prompt | fail | allow_empty · required
+```
 
 ---
 
@@ -972,20 +967,24 @@ Glossary defines the repo's shared change-language model. Consumed by commit aut
 
 Presentation defines surface-specific rendering policies.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `preserve_raw_subject` | `commit.preserve_raw_subject` | bool | Yes | — | bool value |
-| `enforce_conventional` | `commit.enforce_conventional` | bool | Yes | — | bool value |
-| `max_entries` | `tag.max_entries` | int | Yes | — | int value |
-| `group_by_type` | `tag.group_by_type` | bool | Yes | — | bool value |
-| `style` | `tag.style` | string | Yes | — | concise \| explanatory \| technical |
-| `include_release_visible_only` | `tag.include_release_visible_only` | bool | Yes | — | bool value |
-| `collapse_similar` | `tag.collapse_similar` | bool | Yes | — | bool value |
-| `max_entries` | `release.max_entries` | int | Yes | — | int value |
-| `group_by_type` | `release.group_by_type` | bool | Yes | — | bool value |
-| `style` | `release.style` | string | Yes | — | concise \| explanatory \| technical |
-| `include_release_visible_only` | `release.include_release_visible_only` | bool | Yes | — | bool value |
+```yaml
+presentation:
+  preset: <string>
+  commit:   # required
+    preserve_raw_subject: false   # required
+    enforce_conventional: false   # required
+  tag:   # required
+    max_entries: <int>   # required
+    group_by_type: false   # required
+    style: <string>   # concise | explanatory | technical · required
+    include_release_visible_only: false   # required
+    collapse_similar: false   # required
+  release:   # required
+    max_entries: <int>   # required
+    group_by_type: false   # required
+    style: <string>   # concise | explanatory | technical · required
+    include_release_visible_only: false   # required
+```
 
 ---
 
@@ -996,15 +995,18 @@ Presentation defines surface-specific rendering policies.
 
 Tag holds workflow defaults for the tag planner.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `preset` | `preset` | string | No | — | string value |
-| `target` | `defaults.target` | string | Yes | — | default ref to tag (default: HEAD) |
-| `preview` | `defaults.preview` | bool | Yes | — | show preview before creating |
-| `require_approval` | `defaults.require_approval` | bool | Yes | — | require interactive approval |
-| `push` | `defaults.push` | bool | Yes | — | push after creation |
-| `mode` | `message.mode` | string | Yes | — | auto \| prompt_if_missing \| require_manual |
-| `empty_strategy` | `message.empty_strategy` | string | Yes | — | prompt \| fail \| allow_empty |
+```yaml
+tag:
+  preset: <string>
+  defaults:   # required
+    target: <string>   # default ref to tag (default: HEAD) · required
+    preview: false   # show preview before creating · required
+    require_approval: false   # require interactive approval · required
+    push: false   # push after creation · required
+  message:   # required
+    mode: <string>   # auto | prompt_if_missing | require_manual · required
+    empty_strategy: <string>   # prompt | fail | allow_empty · required
+```
 
 ---
 
@@ -1015,9 +1017,10 @@ Tag holds workflow defaults for the tag planner.
 
 Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `desired` | `desired` | map[string]object | No | — | Desired declares intended tool constraints. Authoritative — not a hint. If a desired constraint fails to resolve, the system fails. No fallback. |
+```yaml
+toolchains:
+  desired: {}   # Desired declares intended tool constraints. Authoritative — not a hint. If a desired constraint…
+```
 
 ---
 

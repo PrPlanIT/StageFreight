@@ -81,7 +81,7 @@ func fieldTable(rows []fieldRow) string {
 			def = "—"
 		}
 		b.WriteString(fmt.Sprintf("| `%s` | `%s` | %s | %s | %s | %s |\n",
-			r.Name, r.YAMLKey, r.Type, req, def, r.Description))
+			r.Name, r.YAMLKey, r.Type, req, def, strings.ReplaceAll(r.Description, "|", "\\|")))
 	}
 	return b.String()
 }
