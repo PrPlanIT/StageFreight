@@ -61,7 +61,7 @@ func (m *Resolver) checkNpm(ctx context.Context, file lint.FileInfo) ([]supplych
 			Current:   ver,
 			Ecosystem: supplychain.EcosystemNpm,
 			File:      file.Path,
-			Line:      findLineForJSON(lines, name),
+			Line:      findLineForJSON(lines, "dependencies", name),
 		})
 	}
 
@@ -75,7 +75,7 @@ func (m *Resolver) checkNpm(ctx context.Context, file lint.FileInfo) ([]supplych
 			Current:   ver,
 			Ecosystem: supplychain.EcosystemNpm,
 			File:      file.Path,
-			Line:      findLineForJSON(lines, name),
+			Line:      findLineForJSON(lines, "devDependencies", name),
 		})
 	}
 
@@ -249,12 +249,33 @@ func agedLatestNpm(doc npmFullDoc, cutoff time.Time) string {
 	return best
 }
 
-// findLineForJSON finds the approximate line number for a JSON key.
-func findLineForJSON(lines []string, key string) int {
+// findLineForJSON finds the line of dependency `key` within the given top-level
+// section ("dependencies" / "devDependencies") of package.json. Scoping to the
+// section AND requiring the match to be a JSON key (followed by ':') avoids
+// mis-anchoring to an earlier VALUE equal to the name — e.g. a `"dev": "vite"`
+// script line sitting above the real `"vite":` devDependency entry, which would
+// otherwise misreport the finding's line and defeat the operator-preserving
+// auto-bump (it reads the manifest at this line). Returns 0 if not found.
+func findLineForJSON(lines []string, section, key string) int {
+	sectionHeader := `"` + section + `":`
 	target := `"` + key + `"`
+	inSection := false
+	depth := 0
 	for i, line := range lines {
-		if strings.Contains(line, target) {
+		if !inSection {
+			if strings.Contains(line, sectionHeader) {
+				inSection = true
+				depth = strings.Count(line, "{") - strings.Count(line, "}")
+			}
+			continue
+		}
+		if idx := strings.Index(line, target); idx >= 0 &&
+			strings.HasPrefix(strings.TrimSpace(line[idx+len(target):]), ":") {
 			return i + 1
+		}
+		depth += strings.Count(line, "{") - strings.Count(line, "}")
+		if depth <= 0 {
+			break // reached the end of the section object
 		}
 	}
 	return 0
