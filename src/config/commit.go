@@ -1,5 +1,47 @@
 package config
 
+// Commit origins — the StageFreight path that authored a commit, and the git-native
+// provenance trailer each carries. Both are our own trailers (they read like Signed-off-by,
+// fire no forge CI-skip matcher, and are not forge-recognized so they trigger no avatar
+// attribution). The verb is the whole signal — no parenthetical — and it lines up with the
+// CI decision:
+//
+//	narrate → Generated-By: StageFreight   generation (docs/badges from code); no build
+//	                                        impact → the CI rules SKIP its branch push.
+//	deps    → Updated-By: StageFreight      an update to existing dependencies; changes what
+//	                                        the image ships → it still BUILDS (rebuild + republish).
+//
+// A manual `stagefreight commit` or a human commit carries no trailer — SF-authorship is
+// already inferable from the commit author, and it builds by default. `Co-authored-by` is
+// deliberately NOT used: it's a forge-recognized attribution trailer, reserved for the day
+// StageFreight authors real code, not an automated docs/deps pass.
+const (
+	OriginNarrate = "narrate"
+	OriginDeps    = "deps"
+)
+
+const (
+	// GeneratedByTrailer marks a narrate commit (generated docs/badges); the CI rules key
+	// on it to skip the branch pipeline, since regenerating would only re-emit it (the loop).
+	GeneratedByTrailer = "Generated-By: StageFreight"
+	// UpdatedByTrailer marks a deps commit (updated dependencies); provenance only — the CI
+	// does NOT skip on it, because the image must rebuild to ship the update.
+	UpdatedByTrailer = "Updated-By: StageFreight"
+)
+
+// OriginTrailer returns the provenance trailer for a StageFreight commit origin, or "" for
+// a manual/human commit (no trailer). The commit layer writes it; the CI-render layer keys
+// its skip rule on GeneratedByTrailer.
+func OriginTrailer(origin string) string {
+	switch origin {
+	case OriginNarrate:
+		return GeneratedByTrailer
+	case OriginDeps:
+		return UpdatedByTrailer
+	}
+	return ""
+}
+
 // CommitConfig holds configuration for the commit subsystem.
 type CommitConfig struct {
 	Preset       string       `yaml:"preset,omitempty"`

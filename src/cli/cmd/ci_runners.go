@@ -440,7 +440,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 			Scope:   "deps",
 			Message: appCfg.Dependency.Commit.Message,
 			Paths:   result.FilesChanged,
-			SkipCI:  boolPtr(appCfg.Dependency.Commit.SkipCI),
+			Origin:  config.OriginDeps,
 			Push:    boolPtr(appCfg.Dependency.Commit.Push),
 		}
 		if botBranch != "" {
@@ -827,9 +827,8 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
 				Type:    appCfg.Narrate.Commit.Type,
 				Message: appCfg.Narrate.Commit.Message,
-				Body:    "Narrator: StageFreight\nCue: narrate",
 				Paths:   appCfg.Narrate.Commit.Add,
-				SkipCI:  boolPtr(appCfg.Narrate.Commit.SkipCI),
+				Origin:  config.OriginNarrate,
 				Push:    boolPtr(appCfg.Narrate.Commit.Push),
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: narrate auto-commit failed: %v\n", err)

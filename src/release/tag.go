@@ -2,6 +2,7 @@ package release
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
@@ -15,15 +16,19 @@ import (
 
 // TagPlan is the fully resolved release tag plan.
 type TagPlan struct {
-	PreviousTag  string
-	TargetRef    string
-	TargetSHA    string
-	NextTag      string
-	Message      string
-	CommitCount  int
-	FilesChanged int
-	Insertions   int
-	Deletions    int
+	PreviousTag string
+	TargetRef   string
+	TargetSHA   string
+	// SkippedTipSHA is the original tip commit when it was a [skip ci] commit and the
+	// tag was walked back to a releasable ancestor (TargetSHA). Empty when the tip was
+	// already releasable. Surfaced so the CLI can narrate the substitution.
+	SkippedTipSHA string
+	NextTag       string
+	Message       string
+	CommitCount   int
+	FilesChanged  int
+	Insertions    int
+	Deletions     int
 }
 
 // BuildTagPlanOptions configures tag plan resolution.
@@ -53,13 +58,25 @@ func BuildTagPlan(repoDir string, opts BuildTagPlanOptions) (*TagPlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving target ref %q: %w", targetRef, err)
 	}
-	plan.TargetSHA = sha
+	// A release tag must never land on a [skip ci] commit (e.g. an auto-docs tip): the
+	// tag pipeline would be suppressed and nothing would build or publish. Walk back to
+	// the nearest releasable ancestor and tag — and range from — that instead.
+	effectiveSHA, skippedTip, err := resolveReleasableCommit(repoDir, sha)
+	if err != nil {
+		return nil, err
+	}
+	plan.TargetSHA = effectiveSHA
+	plan.SkippedTipSHA = skippedTip
+	// Everything downstream (previous-tag search, range stats, changelog) hangs off the
+	// releasable commit, so the skipped docs tip is excluded from the notes too. When no
+	// skip occurred this resolves to the same commit as targetRef — no behavior change.
+	rangeRef := effectiveSHA
 
 	// 2. Find previous release tag
 	if opts.FromRef != "" {
 		plan.PreviousTag = opts.FromRef
 	} else {
-		prev, err := PreviousReleaseTag(repoDir, targetRef, opts.TagPatterns)
+		prev, err := PreviousReleaseTag(repoDir, rangeRef, opts.TagPatterns)
 		if err != nil {
 			// No previous tag is OK for first release
 			plan.PreviousTag = ""
@@ -104,8 +121,8 @@ func BuildTagPlan(repoDir string, opts BuildTagPlanOptions) (*TagPlan, error) {
 
 	// 5. Generate commit range stats
 	if plan.PreviousTag != "" {
-		plan.CommitCount = countCommits(repoDir, plan.PreviousTag, targetRef)
-		stats := diffStats(repoDir, plan.PreviousTag, targetRef)
+		plan.CommitCount = countCommits(repoDir, plan.PreviousTag, rangeRef)
+		stats := diffStats(repoDir, plan.PreviousTag, rangeRef)
 		plan.FilesChanged = stats.files
 		plan.Insertions = stats.insertions
 		plan.Deletions = stats.deletions
@@ -115,7 +132,7 @@ func BuildTagPlan(repoDir string, opts BuildTagPlanOptions) (*TagPlan, error) {
 	if opts.MessageOverride != "" {
 		plan.Message = opts.MessageOverride
 	} else {
-		commits, _ := ParseCommits(repoDir, plan.PreviousTag, targetRef)
+		commits, _ := ParseCommits(repoDir, plan.PreviousTag, rangeRef)
 		processed := ProcessCommits(commits, opts.Glossary)
 		plan.Message = FormatHighlights(processed, opts.Presentation.MaxEntries)
 	}
@@ -130,6 +147,64 @@ func ResolveGitRef(repoDir, ref string) (string, error) {
 		return "", fmt.Errorf("opening repo: %w", err)
 	}
 	return gitstate.ResolveRef(repo, ref)
+}
+
+// ciSkipTokens are commit-message markers that suppress a CI pipeline on the major forges
+// (GitLab, GitHub Actions). A release tag on a commit carrying one is skipped — the tag
+// pipeline never runs, so nothing builds or publishes. This is why main's auto-docs tip
+// (which appends [skip ci]) must never be the tag target.
+var ciSkipTokens = []string{"[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "[actions skip]", "skip-ci", "ci-skip"}
+
+// MessageSkipsCI reports whether a commit message contains a CI-skip marker.
+func MessageSkipsCI(msg string) bool {
+	low := strings.ToLower(msg)
+	for _, t := range ciSkipTokens {
+		if strings.Contains(low, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveReleasableCommit walks first-parents from sha to the nearest commit whose message
+// does NOT skip CI. Returns that commit and — when the tip itself skipped CI — the original
+// tip SHA (else ""). Bounded so a pathological all-skip range cannot loop; on any read
+// failure or an exhausted bound it falls back to the tip (better a tag that might not build
+// than a release command that errors out on the operator).
+// tipIsReleasable reports whether a commit may anchor a release tag. It excludes two
+// kinds of tip that produce no buildable release: a legacy/manual [skip ci] commit, and a
+// narrate commit (Generated-By: StageFreight) that only regenerates docs/badges. A deps
+// commit (Updated-By: StageFreight) DOES rebuild the image, so it stays releasable — the
+// exclusion is deliberately narrow to Generated-By, not any StageFreight-authored commit.
+func tipIsReleasable(msg string) bool {
+	return !MessageSkipsCI(msg) && !strings.Contains(msg, config.GeneratedByTrailer)
+}
+
+func resolveReleasableCommit(repoDir, sha string) (effective, skippedTip string, err error) {
+	repo, err := gitstate.OpenRepo(repoDir)
+	if err != nil {
+		return "", "", fmt.Errorf("opening repo: %w", err)
+	}
+	const maxWalk = 50
+	tip := sha
+	h := plumbing.NewHash(sha)
+	for i := 0; i < maxWalk; i++ {
+		c, cerr := repo.CommitObject(h)
+		if cerr != nil {
+			return tip, "", nil // unreadable history → tag the tip, do not fail the release
+		}
+		if tipIsReleasable(c.Message) {
+			if h.String() == tip {
+				return tip, "", nil // tip is already releasable
+			}
+			return h.String(), tip, nil
+		}
+		if len(c.ParentHashes) == 0 {
+			break
+		}
+		h = c.ParentHashes[0] // follow first-parent (mainline)
+	}
+	return tip, "", nil // no releasable ancestor within bound → tag the tip
 }
 
 // CreateAnnotatedTag creates an annotated git tag on a specific commit.

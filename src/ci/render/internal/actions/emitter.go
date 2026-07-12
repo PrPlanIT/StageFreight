@@ -149,10 +149,21 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		fmt.Fprintf(buf, "    needs: [%s]\n", strings.Join(needs, ", "))
 	}
 
-	// run regardless of upstream outcome (GitLab when: always). In Actions a job
-	// with needs is skipped if any need failed unless it opts in with always().
+	// Loop-prevention gate (Actions' equivalent of GitLab workflow:rules — Actions has no
+	// workflow-level condition, so it lands on every job). A narrate commit carries a
+	// `Generated-By: StageFreight` trailer; each job declines to run for it on a branch
+	// push, while tag pushes always run (a release must build) and a deps commit
+	// (`Updated-By`, no skip trailer) falls through and rebuilds. head_commit is only
+	// populated on push, so PRs / workflow_dispatch are unaffected (contains(null,…)=false).
+	// WhenAlways jobs (GitLab when: always) AND the gate in, so they still skip a generated
+	// commit rather than firing via always() when the build jobs were themselves skipped.
+	// Double-quote the scalar: the trailer literal carries a colon (`Generated-By:
+	// StageFreight`), which an unquoted YAML value would misparse as a nested mapping.
+	const genGate = "github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight')"
 	if j.Policy.WhenAlways {
-		buf.WriteString("    if: ${{ always() }}\n")
+		fmt.Fprintf(buf, "    if: \"${{ always() && (%s) }}\"\n", genGate)
+	} else {
+		fmt.Fprintf(buf, "    if: \"${{ %s }}\"\n", genGate)
 	}
 
 	// allow failure (this job's own failure does not fail the run)
