@@ -15,6 +15,10 @@ func GenerateConfigReference() string {
 	var b strings.Builder
 	b.WriteString(generatedHeader)
 
+	// Load field doc comments from source so descriptions come from the authoritative
+	// Go comments rather than "<type> value" stubs (reflection can't read comments).
+	configFieldComments = loadConfigFieldComments(configSourceDir())
+
 	sections := discoverSections()
 
 	// Table of contents.
@@ -34,8 +38,9 @@ func GenerateConfigReference() string {
 
 // configSection represents a top-level config key and its fields.
 type configSection struct {
-	Key    string
-	Fields []fieldRow
+	Key     string
+	GoField string // the config.Config Go field name, for the section-summary comment fallback
+	Fields  []fieldRow
 }
 
 func renderConfigSection(s configSection) string {
@@ -44,9 +49,11 @@ func renderConfigSection(s configSection) string {
 	b.WriteString(anchorTag("config", s.Key) + "\n")
 	b.WriteString(fmt.Sprintf("### %s\n\n", s.Key))
 
-	// Section summary from overrides.
+	// Section summary: curated override, else the config field's own doc comment.
 	if so, ok := sectionOverrides[s.Key]; ok && so.Summary != "" {
 		b.WriteString(so.Summary + "\n\n")
+	} else if c := configFieldComments["Config."+s.GoField]; c != "" {
+		b.WriteString(c + "\n\n")
 	}
 
 	// Field table.
@@ -116,7 +123,7 @@ func discoverSections() []configSection {
 			continue
 		}
 
-		section := configSection{Key: yamlKey}
+		section := configSection{Key: yamlKey, GoField: field.Name}
 
 		// Unwrap pointer, then slice/map to find element type.
 		elemType := field.Type
@@ -131,7 +138,7 @@ func discoverSections() []configSection {
 			}
 		case reflect.Map:
 			// map fields are a single entry
-			section.Fields = []fieldRow{reflectField(field, yamlKey)}
+			section.Fields = []fieldRow{reflectField(field, yamlKey, "Config")}
 			sections = append(sections, section)
 			continue
 		}
@@ -139,7 +146,7 @@ func discoverSections() []configSection {
 		if elemType.Kind() == reflect.Struct {
 			section.Fields = walkStruct(elemType, yamlKey)
 		} else {
-			section.Fields = []fieldRow{reflectField(field, yamlKey)}
+			section.Fields = []fieldRow{reflectField(field, yamlKey, "Config")}
 		}
 
 		sections = append(sections, section)
@@ -189,7 +196,7 @@ func walkStruct(t reflect.Type, prefix string) []fieldRow {
 			nestedPrefix := prefix + "." + yamlKey
 			rows = append(rows, walkStruct(elemType, nestedPrefix)...)
 		} else {
-			rows = append(rows, reflectField(field, prefix))
+			rows = append(rows, reflectField(field, prefix, t.Name()))
 		}
 	}
 
@@ -198,7 +205,7 @@ func walkStruct(t reflect.Type, prefix string) []fieldRow {
 
 // reflectField builds a fieldRow from a reflected struct field, enriched by overrides.
 // prefix is the full docs-path prefix (e.g., "builds" or "targets.when").
-func reflectField(field reflect.StructField, prefix string) fieldRow {
+func reflectField(field reflect.StructField, prefix, declType string) fieldRow {
 	yamlKey := yamlKeyFromTag(field.Tag.Get("yaml"))
 	docPath := prefix + "." + yamlKey
 	fo := getFieldOverride(docPath)
@@ -212,8 +219,11 @@ func reflectField(field reflect.StructField, prefix string) fieldRow {
 		required = *fo.Required
 	}
 
-	// Description: override > doc comment > type fallback.
+	// Description: curated override > source doc comment > type fallback.
 	desc := fo.Description
+	if desc == "" {
+		desc = configFieldComments[declType+"."+field.Name]
+	}
 	if desc == "" {
 		desc = typeDescription(field.Type)
 	}

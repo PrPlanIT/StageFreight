@@ -20,20 +20,45 @@ func anchorTag(prefix, name string) string {
 	return fmt.Sprintf(`<a id="%s" name="%s"></a>`, a, a)
 }
 
-// flagTable renders a markdown table for command flags.
+// flagTable renders a markdown table for command flags. An "Options" column appears
+// only when at least one flag is an enum, so plain-flag tables stay at four columns.
 func flagTable(rows []flagRow) string {
 	if len(rows) == 0 {
 		return ""
 	}
+	hasOptions := false
+	for _, r := range rows {
+		if len(r.Options) > 0 {
+			hasOptions = true
+			break
+		}
+	}
 	var b strings.Builder
-	b.WriteString("| Name | Type | Default | Description |\n")
-	b.WriteString("|------|------|---------|-------------|\n")
+	if hasOptions {
+		b.WriteString("| Name | Type | Default | Options | Description |\n")
+		b.WriteString("|------|------|---------|---------|-------------|\n")
+	} else {
+		b.WriteString("| Name | Type | Default | Description |\n")
+		b.WriteString("|------|------|---------|-------------|\n")
+	}
 	for _, r := range rows {
 		def := r.Default
 		if def == "" {
 			def = "—"
 		}
-		b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", r.Name, r.Type, def, r.Description))
+		if hasOptions {
+			opts := "—"
+			if len(r.Options) > 0 {
+				quoted := make([]string, len(r.Options))
+				for i, o := range r.Options {
+					quoted[i] = "`" + o + "`"
+				}
+				opts = strings.Join(quoted, " · ")
+			}
+			b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s | %s |\n", r.Name, r.Type, def, opts, r.Description))
+		} else {
+			b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", r.Name, r.Type, def, r.Description))
+		}
 	}
 	return b.String()
 }
@@ -66,6 +91,7 @@ type flagRow struct {
 	Type        string
 	Default     string
 	Description string
+	Options     []string // allowed values for enum flags; empty otherwise
 }
 
 type fieldRow struct {

@@ -42,7 +42,7 @@ Schema version number. Must be `1` — the first stable schema.
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `version` | `version` | int | Yes | — | int value |
+| `version` | `version` | int | Yes | — | Version must be 1. The pre-version config was an unversioned alpha that never earned a schema number — this is the first stable schema. |
 
 **Example:**
 
@@ -59,7 +59,7 @@ User-defined template variable dictionary. Referenced as `{var:name}` anywhere t
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `vars` | `vars` | map[string]string | No | — | map[string]string value |
+| `vars` | `vars` | map[string]string | No | — | Vars is a user-defined template variable dictionary. Referenced as {var:name} anywhere templates are resolved. |
 
 **Example:**
 
@@ -74,48 +74,56 @@ vars:
 <a id="config-defaults" name="config-defaults"></a>
 ### defaults
 
+Defaults is inert YAML anchor storage. StageFreight ignores this section entirely — it exists for users to define &anchors.
+
 ---
 
 <a id="config-forges" name="config-forges"></a>
 ### forges
 
+Forges declares git hosts. Each entry is a host identity (provider, URL, credentials).
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | string value |
-| `provider` | `provider` | string | Yes | — | string value |
-| `url` | `url` | string | Yes | — | string value |
-| `credentials` | `credentials` | string | No | — | string value |
+| `id` | `id` | string | Yes | — | unique identifier (e.g., "prplanit-gitlab") |
+| `provider` | `provider` | string | Yes | — | gitlab, github, gitea |
+| `url` | `url` | string | Yes | — | base URL (e.g., "https://gitlab.prplanit.com") |
+| `credentials` | `credentials` | string | No | — | env var prefix for token resolution |
 
 ---
 
 <a id="config-repos" name="config-repos"></a>
 ### repos
 
+Repos declares projects on forges. References forges by id. Has role (primary/mirror).
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | string value |
-| `forge` | `forge` | string | Yes | — | string value |
-| `project` | `project` | string | Yes | — | string value |
-| `roles` | `roles` | []string | No | — | []string value |
-| `default` | `branches.default` | string | No | — | string value |
-| `worktree` | `worktree` | string | No | — | string value |
-| `ref` | `ref` | string | No | — | string value |
-| `git` | `sync.git` | bool | No | — | bool value |
-| `releases` | `sync.releases` | bool | No | — | bool value |
-| `docs` | `sync.docs` | bool | No | — | bool value |
+| `id` | `id` | string | Yes | — | unique identifier |
+| `forge` | `forge` | string | Yes | — | references forges[].id |
+| `project` | `project` | string | Yes | — | project path on the forge (e.g., "{var:gitlab_group}/{var:repo}") |
+| `roles` | `roles` | []string | No | — | ["primary"] \| ["mirror"] \| ["mirror", "publish-origin"] \| [] |
+| `default` | `branches.default` | string | No | — | Default is the default branch name (e.g., "main"). Required for primary. |
+| `worktree` | `worktree` | string | No | — | local working tree path (primary only) |
+| `ref` | `ref` | string | No | — | pinned ref for non-primary repos (governance, presets) |
+| `git` | `sync.git` | bool | No | — | Git enables authoritative mirror replication via git push --mirror. All refs, branches, tags, deletions, force updates. This is the foundation — artifact sync runs only after mirror succeeds. |
+| `releases` | `sync.releases` | bool | No | — | Releases enables forge-native release projection (notes, assets, links). Runs after git mirror succeeds. Tag is the identity key. |
+| `docs` | `sync.docs` | bool | No | — | Docs enables README/doc file projection via forge commit API. Mutually exclusive with Git (docs arrive through git mirror). Only valid when Git is false. |
 
 ---
 
 <a id="config-registries" name="config-registries"></a>
 ### registries
 
+Registries declares OCI registry hosts. Referenced by targets.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `id` | `id` | string | Yes | — | string value |
-| `provider` | `provider` | string | Yes | — | string value |
-| `url` | `url` | string | Yes | — | string value |
-| `credentials` | `credentials` | string | No | — | string value |
-| `default_path` | `default_path` | string | No | — | string value |
+| `id` | `id` | string | Yes | — | unique identifier (e.g., "dockerhub") |
+| `provider` | `provider` | string | Yes | — | docker, harbor, ghcr, quay, gitea, generic |
+| `url` | `url` | string | Yes | — | registry URL (e.g., "docker.io") |
+| `credentials` | `credentials` | string | No | — | env var prefix for token resolution |
+| `default_path` | `default_path` | string | No | — | default image path (e.g., "{var:org}/{var:repo}") |
 
 ---
 
@@ -127,18 +135,18 @@ Named trust profiles for signing release artifacts and images. A profile declare
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `id` | `id` | string | Yes | — | string value |
-| `requires` | `requires` | []string | Yes | — | []string value |
+| `requires` | `requires` | []string | Yes | — | trust class(es); v1 enforces exactly one |
 | `ref` | `key.ref` | string | Yes | — | string value |
 | `issuer` | `oidc.issuer` | string | No | — | string value |
 | `identity` | `oidc.identity` | string | No | — | string value |
 | `ref` | `kms.ref` | string | Yes | — | string value |
 | `ref` | `pkcs11.ref` | string | Yes | — | string value |
-| `physical_presence` | `physical_presence` | string | No | — | string value |
+| `physical_presence` | `physical_presence` | string | No | — | Assurance properties (hardware-class ONLY; enforced in validation). The value is the keyword "required" (absent = not required). The renderer later selects a transport that satisfies them — they are never device names here. |
 | `non_exportable` | `non_exportable` | string | No | — | string value |
-| `transparency_log` | `transparency_log` | bool | No | — | bool value |
-| `attestation` | `attestation` | bool | No | — | bool value |
-| `enforce` | `enforce` | bool | No | — | bool value |
-| `allow_fallback` | `allow_fallback` | bool | No | — | bool value |
+| `transparency_log` | `transparency_log` | bool | No | — | TransparencyLog overrides the per-class default (on for oidc, off otherwise). |
+| `attestation` | `attestation` | bool | No | — | Attestation also emits a provenance attestation alongside the signature. |
+| `enforce` | `enforce` | bool | No | — | Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed outcome, let the build proceed). An orchestration policy, NOT a trust requirement — it never enters the SignPlan; Publish reads it to decide block-vs-proceed (foundational invariant 4). |
+| `allow_fallback` | `allow_fallback` | bool | No | — | AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the auto-provisioned Tier-0 identity. Default false: an explicit trust expectation that is unmet fails LOUDLY, never silently downgrades. |
 
 > `requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.
 > `physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.
@@ -175,11 +183,11 @@ Operational signing configuration (distinct from `signing_profiles`). Governs wh
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `enabled` | `enabled` | bool | No | — | bool value |
-| `auto_provision` | `auto_provision` | bool | No | — | bool value |
-| `type` | `state_dir.type` | string | No | — | string value |
-| `name` | `state_dir.name` | string | No | — | string value |
-| `path` | `state_dir.path` | string | No | — | string value |
+| `enabled` | `enabled` | bool | No | — | nil/true = signing allowed; false = all signing off |
+| `auto_provision` | `auto_provision` | bool | No | — | explicit consent to create/manage a Tier-0 identity |
+| `type` | `state_dir.type` | string | No | — | "volume" \| "host_path" |
+| `name` | `state_dir.name` | string | No | — | volume name (type: volume) |
+| `path` | `state_dir.path` | string | No | — | absolute path (type: host_path) |
 
 > `enabled: false` disables ALL signing regardless of profiles/keys.
 > `auto_provision: true` requires a `state_dir` — with no durable storage an ephemeral key would break trust continuity every run.
@@ -205,27 +213,31 @@ signing:
 <a id="config-versioning" name="config-versioning"></a>
 ### versioning
 
+Versioning controls how version identity is derived from git state.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `id` | `tag_sources.id` | string | Yes | — | string value |
-| `pattern` | `tag_sources.pattern` | string | Yes | — | string value |
-| `id` | `branch_builds.id` | string | Yes | — | string value |
-| `match` | `branch_builds.match` | string | No | — | string value |
-| `base_from` | `branch_builds.base_from` | []string | Yes | — | []string value |
-| `format` | `branch_builds.format` | string | Yes | — | string value |
-| `mode` | `no_lineage.mode` | string | No | — | string value |
-| `version` | `no_lineage.version` | string | No | — | string value |
+| `id` | `tag_sources.id` | string | Yes | — | ID is the unique identifier (e.g. "stable", "prerelease"). Referenced by branch_builds[].base_from and target.when.git_tags. |
+| `pattern` | `tag_sources.pattern` | string | Yes | — | Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" |
+| `id` | `branch_builds.id` | string | Yes | — | ID is the unique identifier. "default" is the catch-all entry and must appear last in the BranchBuilds slice. |
+| `match` | `branch_builds.match` | string | No | — | Match references a declared branch matcher name. Required for named branch_builds entries. The "default" entry rejects Match — it catches any branch that did not match a named entry. |
+| `base_from` | `branch_builds.base_from` | []string | Yes | — | BaseFrom is the ordered fallback chain of tag_sources ids. The runtime walks this list in order; for each source id, it scans tags for a match and returns the first hit. Fallback advances only when a source yields zero matches. |
+| `format` | `branch_builds.format` | string | Yes | — | Format is the version template for non-release commits. Supported placeholders: {base}, {sha}, {branch} e.g., "{base}-dev+{sha}" |
+| `mode` | `no_lineage.mode` | string | No | — | Mode controls the response to missing lineage. "error" (default): fail fast with explanation and suggested fix "explicit": use the provided version template |
+| `version` | `no_lineage.version` | string | No | — | Version is the template used when mode is "explicit". Must contain {sha} or {time} — hardcoded versions are rejected. e.g., "0.1.0-bootstrap+{sha}" |
 
 ---
 
 <a id="config-matchers" name="config-matchers"></a>
 ### matchers
 
+Matchers defines reusable named patterns for branches (and future dimensions). Pattern definitions only — no behavior. Referenced by branch_builds[].match and target.when.branches.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `branches` | `branches` | map[string]string | Yes | — | map[string]string value |
+| `branches` | `branches` | map[string]string | Yes | — | Branches maps matcher names to regex patterns for branch matching. e.g., "main": "^main$" |
 
 ---
 
@@ -239,9 +251,9 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 | `id` | `id` | string | Yes | — | Unique identifier for this build, referenced by targets. |
 | `kind` | `kind` | string | Yes | — | Build type. Determines which fields are valid. |
 | `select_tags` | `select_tags` | []string | No | — | Tags for CLI filtering via `--select`. |
-| `required` | `required` | bool | No | — | bool value |
+| `required` | `required` | bool | No | — | Required means build failure is a hard pipeline fail. Default: true. |
 | `build_mode` | `build_mode` | string | No | (standard) | Build execution strategy. |
-| `depends_on` | `depends_on` | string | No | — | string value |
+| `depends_on` | `depends_on` | string | No | — | DependsOn references another build ID that must complete before this one. Enables build ordering: binary builds before docker builds that consume them. |
 | `dockerfile` | `dockerfile` | string | No | auto-detected | Path to the Dockerfile. |
 | `context` | `context` | string | No | "." | Docker build context path. |
 | `target` | `target` | string | No | — | Multi-stage build `--target` stage name. |
@@ -252,15 +264,15 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 | `auto_detect` | `cache.auto_detect` | bool | Yes | true | Auto-detect cache-relevant files from Dockerfile COPY/ADD instructions. |
 | `from` | `stage.from` | string | Yes | — | string value |
 | `as` | `stage.as` | string | Yes | — | string value |
-| `builder` | `builder` | string | No | — | string value |
-| `command` | `command` | string | No | — | string value |
-| `from` | `from` | string | No | — | string value |
-| `output` | `output` | string | No | — | string value |
-| `image` | `image` | string | No | — | string value |
-| `args` | `args` | []string | No | — | []string value |
-| `env` | `env` | map[string]string | No | — | map[string]string value |
-| `compress` | `compress` | bool | No | — | bool value |
-| `toolchain_image` | `crucible.toolchain_image` | string | No | — | string value |
+| `builder` | `builder` | string | No | — | Builder is the toolchain that interprets the build. Supported: "go". Future: "rust", "zig", "cargo". |
+| `command` | `command` | string | No | — | Command is the builder subcommand (binary: e.g. "build") or the full command (kind: command). Accepts a scalar string or an argv sequence. Default: "build". |
+| `from` | `from` | string | No | — | From is the source/input root or entry point. e.g., "./src/cli" (Go package), "./src/main.rs" (Rust). |
+| `output` | `output` | string | No | — | Output is the artifact name. Windows platforms auto-append ".exe". Default: basename of From. |
+| `image` | `image` | string | No | — | Image is the container image a containerized build (builder: node, elixir) runs inside (with the repo mounted). Command runs in it; Output is the produced artifact (file or directory tree). Defaults per builder; override for the odd case (e.g. electronuserland/builder:wine, or an elixir+node image for Phoenix). |
+| `args` | `args` | []string | No | — | Args are ordered raw arguments passed directly to the selected builder. For Go: raw args to "go build". For Rust: raw args to "cargo build". Supports template variables: {version}, {sha}, {sha:N}, {date}. |
+| `env` | `env` | map[string]string | No | — | Env are build environment variables. e.g., {"CGO_ENABLED": "0"} |
+| `compress` | `compress` | bool | No | — | Compress enables UPX compression on the output binary. Default: false. |
+| `toolchain_image` | `crucible.toolchain_image` | string | No | — | ToolchainImage is the pinned container image for pass-2 verification. e.g., "docker.io/library/golang:1.24-alpine" |
 | `type` | `outputs.type` | string | Yes | — | string value |
 | `source` | `outputs.source` | string | Yes | — | string value |
 
@@ -297,17 +309,17 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `branches` | `when.branches` | []string | No | — | Branch filters. Each entry is a policy name or inline regex. |
 | `git_tags` | `when.git_tags` | []string | No | — | Git tag filters. Each entry is a policy name or inline regex. |
 | `events` | `when.events` | []string | No | — | CI event type filters. |
-| `forges` | `when.forges` | []string | No | — | []string value |
-| `allow` | `run_from.allow` | []string | No | — | []string value |
-| `mismatch` | `run_from.mismatch` | string | No | — | string value |
-| `select_tags` | `select_tags` | []string | No | — | []string value |
-| `registry` | `registry` | string | No | — | string value |
-| `signing_profile` | `signing_profile` | string | No | — | string value |
+| `forges` | `when.forges` | []string | No | — | Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea, forgejo). Empty = every forge. Use it when a registry is reachable/credentialed on some forges but not others — e.g. a private mirror that only resolves from the self-hosted GitLab runner, or a ghcr push that only makes sense on GitHub Actions. |
+| `allow` | `run_from.allow` | []string | No | — | permitted origins: "primary" |
+| `mismatch` | `run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
+| `select_tags` | `select_tags` | []string | No | — | SelectTags enables CLI filtering via --select. |
+| `registry` | `registry` | string | No | — | Registry references a registries[].id for registry/docker-readme targets. When set, URL/Provider/Path/Credentials are resolved from the registry entry. Path can still be overridden on the target (overrides registry default_path). |
+| `signing_profile` | `signing_profile` | string | No | — | SigningProfile references a signing_profiles[].id — the trust profile this target signs under. Empty = the synthesized `legacy` profile (key-signing, inert unless a key resolves). Reference-by-id, same pattern as Registry. |
 | `url` | `url` | string | No | — | Registry or forge hostname. |
 | `provider` | `provider` | string | No | — | Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets. |
 | `path` | `path` | string | No | — | Image path within the registry. |
 | `credentials` | `credentials` | string | No | — | Env var prefix for authentication. Resolution: try `{PREFIX}_TOKEN` first, else `{PREFIX}_USER` + `{PREFIX}_PASS`. |
-| `description` | `description` | string | No | — | string value |
+| `description` | `description` | string | No | — | Description is a short description override (kind: registry, docker-readme). |
 | `keep_last` | `retention.keep_last` | int | Yes | — | Keep the N most recent tags/releases. |
 | `keep_daily` | `retention.keep_daily` | int | Yes | — | Keep one per day for the last N days. |
 | `keep_weekly` | `retention.keep_weekly` | int | Yes | — | Keep one per week for the last N weeks. |
@@ -315,33 +327,33 @@ Distribution targets and side-effects. Each target has a `kind` that determines 
 | `keep_yearly` | `retention.keep_yearly` | int | Yes | — | Keep one per year for the last N years. |
 | `protect` | `retention.protect` | []string | Yes | — | Tag patterns that are never deleted. |
 | `tags` | `tags` | []string | No | — | Tag templates resolved against version info. `kind: registry` only. |
-| `native_scan` | `native_scan` | bool | No | — | bool value |
+| `native_scan` | `native_scan` | bool | No | — | NativeScan enables post-push vulnerability scanning via the registry's own built-in scanner. Distinct from StageFreight's own scan pipeline (Trivy/Grype run by StageFreight itself). Currently supported: Harbor (triggers Harbor's built-in Trivy after each push). No-op for Docker Hub, GHCR, Quay, JFrog, and other providers. Best-effort — scan failures warn but do not fail the build. Push success does not imply scan success; results appear in the registry UI only. |
 | `file` | `file` | string | No | — | Path to the README file. `kind: docker-readme` only. |
 | `link_base` | `link_base` | string | No | — | Base URL for relative link rewriting. `kind: docker-readme` only. |
 | `spec_files` | `spec_files` | []string | No | — | Component spec file paths. `kind: gitlab-component` only. |
 | `catalog` | `catalog` | bool | No | — | Enable GitLab Catalog registration. `kind: gitlab-component` only. |
 | `aliases` | `aliases` | []string | No | — | Rolling git tag aliases. `kind: release` only. |
-| `tag` | `tag` | string | No | — | string value |
-| `prerelease` | `prerelease` | bool | No | — | bool value |
+| `tag` | `tag` | string | No | — | Tag is the immutable identity pattern for a release channel (kind: release). Distinct from Aliases (rolling): Tag names one immutable release per build, e.g. "dev-{sha:8}". Resolved against version info like Aliases ({version}, {sha:8}, ...). When the triggering event is not itself a ref (a branch push), the release runner mints this tag so the channel release has a stable anchor. Empty = no channel tag. |
+| `prerelease` | `prerelease` | bool | No | — | Prerelease marks the forge release as a pre-release (kind: release). Honored natively by GitHub/Gitea; best-effort on GitLab (no native prerelease flag). |
 | `project_id` | `project_id` | string | No | — | Project identifier (`owner/repo` or numeric ID). `kind: release`, remote targets only. |
-| `mirror` | `mirror` | string | No | — | string value |
+| `mirror` | `mirror` | string | No | — | Mirror references a sources.mirrors[].id for release sync. Forge identity (provider, url, project_id, credentials) is resolved from the mirror. Avoids restating forge connection details in the target. |
 | `sync_release` | `sync_release` | bool | No | — | Sync release notes + tags to a remote forge. `kind: release`, remote targets only. |
 | `sync_assets` | `sync_assets` | bool | No | — | Sync scan artifacts to a remote forge. `kind: release`, remote targets only. |
-| `archives` | `archives` | string | No | — | string value |
-| `binary_name` | `binary_name` | string | No | — | string value |
-| `format` | `format` | string | No | — | string value |
-| `name` | `name` | string | No | — | string value |
-| `include` | `include` | []string | No | — | []string value |
-| `checksums` | `checksums` | bool | No | — | bool value |
-| `repo` | `repo` | string | No | — | string value |
-| `package` | `package` | string | No | — | string value |
-| `version` | `version` | string | No | — | string value |
-| `project` | `project` | string | No | — | string value |
-| `dir` | `dir` | string | No | — | string value |
-| `exclude` | `exclude` | []string | No | — | []string value |
-| `domain` | `domain` | []string | No | — | []string value |
-| `base_path` | `base_path` | string | No | — | string value |
-| `mode` | `versioning.mode` | string | No | — | string value |
+| `archives` | `archives` | string | No | — | Archives references a binary-archive target ID (kind: release and generic-package). |
+| `binary_name` | `binary_name` | string | No | — | BinaryName overrides the binary name inside the archive (kind: binary-archive). Auto-detected from referenced build if omitted. |
+| `format` | `format` | string | No | — | Format is the archive format: "tar.gz", "zip", "auto", or "binary" (kind: binary-archive). "auto" picks zip for windows, tar.gz for everything else (default). "binary" is a passthrough: the build's single-file output is carried as the distributable as-is, NOT re-archived — for a build whose output is already packaged (e.g. a kind: command build that emits its own tarball or a raw binary you want uploaded unwrapped), so no double-archiving occurs. |
+| `name` | `name` | string | No | — | Name is the archive filename template (kind: binary-archive). Supports: {id}, {version}, {os}, {arch}. e.g., "{id}-{version}-{os}-{arch}". |
+| `include` | `include` | []string | No | — | Include lists extra files to bundle into the archive (kind: binary-archive). e.g., ["README.md", "LICENSE"] |
+| `checksums` | `checksums` | bool | No | — | Checksums generates a SHA256SUMS file alongside archives (kind: binary-archive). |
+| `repo` | `repo` | string | No | — | Repo references a repos[].id (kind: generic-package). The forge identity (provider, url, project, credentials) is resolved from the repo; the package is published to that forge's generic package registry. |
+| `package` | `package` | string | No | — | Package is the generic package name (kind: generic-package). Defaults to the repo project's basename if empty. |
+| `version` | `version` | string | No | — | Version is the immutable package version pattern (kind: generic-package). Resolved against version info like Aliases ({version}, {sha:8}, ...), e.g. "dev-{sha:8}". Published once, never overwritten. Distinct from a release Tag (a git ref): this names a package *version*, not a git tag. Required — every rolling Alias must have an immutable Version behind it. |
+| `project` | `project` | string | No | — | Project is the Cloudflare Pages project name (provider: cloudflare). Default: the target id. Cloudflare requires lowercase letters, digits, and hyphens, 1–58 chars, no leading/trailing hyphen — validated at load. Ignored by the github provider (which deploys to the gh-pages branch of the repo). |
+| `dir` | `dir` | string | No | — | Dir publishes a repo directory directly instead of a build's output tree (kind: pages). Exactly one of Build or Dir must be set. |
+| `exclude` | `exclude` | []string | No | — | Exclude drops matching paths from the publish workspace before deploy (kind: pages). Globs, applied after extraction. |
+| `domain` | `domain` | []string | No | — | Domain is the custom domain(s) (kind: pages). Accepts a bare scalar or a list: |
+| `base_path` | `base_path` | string | No | — | BasePath is the URL path the site is served under (kind: pages). Inferred per provider (Cloudflare "/", GitHub project "/<repo>/") and fed into the build. |
+| `mode` | `versioning.mode` | string | No | — | Mode: "replace" (each release overwrites; the only mode implemented in P1) or "keep" (every released version stays browsable — reserved for phase 2, rejected in P1 rather than silently ignored). |
 
 **`kind` allowed values:** `registry`, `docker-readme`, `gitlab-component`, `release`
 
@@ -383,11 +395,11 @@ Linting configuration. Controls scan mode, module toggles, and per-module option
 | `modules` | `modules` | map[string]object | Yes | — | Per-module configuration. Keys: tabs, secrets, conflicts, filesize, linecount, unicode, yaml, lineendings, freshness. |
 | `generated` | `provenance.generated` | []string | No | — | []string value |
 | `vendored` | `provenance.vendored` | []string | No | — | []string value |
-| `trailing_whitespace` | `remediation.trailing_whitespace` | bool | No | — | bool value |
-| `final_newline` | `remediation.final_newline` | bool | No | — | bool value |
-| `max_age` | `cache.max_age` | string | No | — | string value |
-| `max_size` | `cache.max_size` | string | No | — | string value |
-| `fail_on` | `fail_on` | string | No | — | string value |
+| `trailing_whitespace` | `remediation.trailing_whitespace` | bool | No | — | default ON under --fix-safe |
+| `final_newline` | `remediation.final_newline` | bool | No | — | default ON under --fix-safe |
+| `max_age` | `cache.max_age` | string | No | — | evict entries not hit in this duration (e.g. "7d") |
+| `max_size` | `cache.max_size` | string | No | — | evict oldest entries when cache exceeds this (e.g. "100MB") |
+| `fail_on` | `fail_on` | string | No | — | FailOn is the DIAGNOSTIC-IMPORTANCE threshold at or above which a lint finding blocks the build: "critical" \| "warning" \| "info" \| "off". This is lint's OWN ordered vocabulary (info < warning < critical) — deliberately NOT the vulnerability severity scale; a lint warning and a CVSS High are incomparable. Empty defaults to "critical" (today's behavior: only critical findings block). Note this is a SECOND control axis on top of each module's own severity: raising fail_on reclassifies lower-importance findings from other lint modules as blocking too. |
 
 **`level` allowed values:** `changed`, `full`
 
@@ -416,22 +428,22 @@ Security scanning configuration. Controls vulnerability scanning (Trivy, Grype),
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | true | Run vulnerability scanning. |
-| `required` | `required` | bool | No | — | bool value |
+| `required` | `required` | bool | No | — | failure is hard pipeline fail (default: false) |
 | `trivy` | `scanners.trivy` | bool | No | true | Run Trivy image scan. |
 | `grype` | `scanners.grype` | bool | No | true | Run Grype image scan. |
 | `sbom` | `sbom` | bool | Yes | true | Generate SBOM artifacts via Syft. |
 | `fail_on_critical` | `fail_on_critical` | bool | Yes | false | Fail the pipeline if critical vulnerabilities are found. |
 | `output` | `output` | string | Yes | .stagefreight/security | Directory for scan artifacts (JSON, SARIF, SBOM, summary). |
-| `fail_on` | `fail_on` | string | No | — | string value |
-| `unreachable_vulns` | `unreachable_vulns` | string | No | — | string value |
+| `fail_on` | `fail_on` | string | No | — | FailOn is the severity threshold at or above which the scan fails the build: "critical" \| "high" \| "medium" \| "low" \| "off". Empty falls back to the deprecated fail_on_critical (true → "critical"), then to "off" — so the default stays informational (no gate), exactly as today. |
+| `unreachable_vulns` | `unreachable_vulns` | string | No | — | UnreachableVulns is the policy for vulnerabilities a reachability analyzer proved are never called: "pass" (default — excused from the gate) or "fail" (gated on severity regardless of reachability). Only vulns with a proven-unreachable verdict are affected; everything else is "unknown" and gates normally. |
 | `release_detail` | `release_detail` | string | Yes | counts | Default detail level for security info in release notes. |
 | `tag` | `release_detail_rules.tag` | string | No | — | Git tag pattern to match. Prefix with `!` to negate. |
 | `branch` | `release_detail_rules.branch` | string | No | — | Branch pattern to match. Prefix with `!` to negate. |
 | `detail` | `release_detail_rules.detail` | string | Yes | — | Detail level when this rule matches. |
-| `max_size` | `cache.trivy.max_size` | string | No | — | string value |
-| `max_age` | `cache.trivy.max_age` | string | No | — | string value |
-| `max_size` | `cache.grype.max_size` | string | No | — | string value |
-| `max_age` | `cache.grype.max_age` | string | No | — | string value |
+| `max_size` | `cache.trivy.max_size` | string | No | — | e.g. "500MB" — full-clear when exceeded |
+| `max_age` | `cache.trivy.max_age` | string | No | — | e.g. "7d" — full-clear when oldest file exceeds age |
+| `max_size` | `cache.grype.max_size` | string | No | — | e.g. "500MB" — full-clear when exceeded |
+| `max_age` | `cache.grype.max_age` | string | No | — | e.g. "7d" — full-clear when oldest file exceeds age |
 | `overwhelm_message` | `overwhelm_message` | []string | Yes | ["…maybe start here:"] | Message lines shown when >1000 vulnerabilities are found. |
 | `overwhelm_link` | `overwhelm_link` | string | Yes | — | URL appended after overwhelm message. Empty string disables. |
 
@@ -496,91 +508,95 @@ commit:
 <a id="config-dependency" name="config-dependency"></a>
 ### dependency
 
+Dependency holds configuration for the dependency update subsystem.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
 | `output` | `output` | string | Yes | — | string value |
 | `go_modules` | `scope.go_modules` | bool | Yes | — | bool value |
-| `dockerfile_env` | `scope.dockerfile_env` | bool | Yes | — | bool value |
+| `dockerfile_env` | `scope.dockerfile_env` | bool | Yes | — | umbrella for docker-image + github-release |
 | `enabled` | `commit.enabled` | bool | Yes | — | bool value |
 | `type` | `commit.type` | string | Yes | — | string value |
 | `message` | `commit.message` | string | Yes | — | string value |
 | `push` | `commit.push` | bool | Yes | — | bool value |
 | `skip_ci` | `commit.skip_ci` | bool | Yes | — | bool value |
-| `promotion` | `commit.promotion` | string | Yes | — | string value |
-| `branch_prefix` | `commit.mr.branch_prefix` | string | Yes | — | string value |
-| `target_branch` | `commit.mr.target_branch` | string | Yes | — | string value |
-| `allow` | `commit.run_from.allow` | []string | No | — | []string value |
-| `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
-| `handoff` | `ci.handoff` | string | Yes | — | string value |
-| `id` | `ignore.id` | string | Yes | — | string value |
-| `reason` | `ignore.reason` | string | No | — | string value |
-| `until` | `ignore.until` | string | No | — | string value |
-| `remediate` | `remediate` | bool | No | — | bool value |
-| `fail_on` | `fail_on` | string | No | — | string value |
-| `policy` | `policy` | string | No | — | string value |
-| `max_update` | `max_update` | string | No | — | string value |
-| `min_release_age` | `min_release_age` | string | No | — | string value |
+| `promotion` | `commit.promotion` | string | Yes | — | "direct" or "mr" |
+| `branch_prefix` | `commit.mr.branch_prefix` | string | Yes | — | default: "stagefreight/deps" |
+| `target_branch` | `commit.mr.target_branch` | string | Yes | — | default: "" (CI default branch) |
+| `allow` | `commit.run_from.allow` | []string | No | — | permitted origins: "primary" |
+| `mismatch` | `commit.run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
+| `handoff` | `ci.handoff` | string | Yes | — | default: continue |
+| `id` | `ignore.id` | string | Yes | — | e.g. "GHSA-xxxx-yyyy-zzzz", "GO-2026-1234" |
+| `reason` | `ignore.reason` | string | No | — | why this risk is carried |
+| `until` | `ignore.until` | string | No | — | YYYY-MM-DD; past this date the ignore lapses |
+| `remediate` | `remediate` | bool | No | — | Remediate controls whether the update pass PATCHES eligible dependencies (true, default — fix-forward) or only evaluates them without changing anything (false). It is the module's remediation stage, orthogonal to fail_on (the policy stage). |
+| `fail_on` | `fail_on` | string | No | — | FailOn is the vulnerability-severity threshold at or above which a RESIDUAL vulnerability — one still present after the remediation stage (a held major, no fix available, or ignored) — fails the build: "critical" \| "high" \| "medium" \| "low" \| "off". Vulnerability severity vocabulary (the shared severity scale), NOT lint's importance tiers. Empty defaults to "off": deps stays fix-forward and never hard-fails, exactly as today. |
+| `policy` | `policy` | string | No | — | Policy is the freshness SCOPE — which non-vulnerable dependencies to pursue: "all" (default — every dep to its latest eligible) or "security" (only vulnerable deps; leave everything else where it is). A known vulnerability is a floor, remediated under EVERY policy — Policy only governs freshness of NON-vulnerable deps. Empty defaults to "all" (today's audition behavior). |
+| `max_update` | `max_update` | string | No | — | MaxUpdate is the update-type CEILING — how far a dependency may move: "major" (allow the ecosystem's own maximum), "minor" (n.x.n — lock the major, allow minor+patch), or "patch" (n.n.x — lock major and minor, allow patch only). Empty defaults to "major" — a NO-OP that imposes no ceiling beyond each ecosystem's native compatibility model (cargo/docker still hold out-of-range majors via their `^`/tag-line semantics; gomod/github-release/toolchain retain their prior auto-apply). Setting "minor"/"patch" is an explicit opt-in to hold majors (and minors). A security fix is applied even if it exceeds the ceiling (remediation floor). |
+| `min_release_age` | `min_release_age` | string | No | — | MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is not recommended (freshness) nor applied (deps) — dodging the window in which a compromised or yanked release is briefly live. Accepts durations like "3d", "72h". Owned here as a supply-chain policy; the freshness lint module reads the SAME value so its recommendations match what deps will apply. Empty falls back to lint.modules.freshness.options.min_release_age (its historical home) for back-compat, then to disabled. |
 
 ---
 
 <a id="config-narrate" name="config-narrate"></a>
 ### narrate
 
+Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled; dissolves the old docs:/badges:/narrator: surface. Reference docs are a kind: command build committed via narrate.commit.builds, not a subsystem here.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `id` | `badges.id` | string | Yes | — | string value |
-| `text` | `badges.text` | string | Yes | — | string value |
-| `value` | `badges.value` | string | Yes | — | string value |
-| `color` | `badges.color` | string | Yes | — | string value |
-| `output` | `badges.output` | string | Yes | — | string value |
-| `link` | `badges.link` | string | No | — | string value |
-| `font` | `badges.font` | string | No | — | string value |
-| `font_size` | `badges.font_size` | int | No | — | int value |
-| `file` | `patches.file` | string | Yes | — | string value |
-| `link_base` | `patches.link_base` | string | No | — | string value |
-| `id` | `patches.items.id` | string | Yes | — | string value |
-| `kind` | `patches.items.kind` | string | Yes | — | string value |
-| `between` | `patches.items.placement.between` | array | No | — | array value |
-| `after` | `patches.items.placement.after` | string | No | — | string value |
-| `before` | `patches.items.placement.before` | string | No | — | string value |
-| `heading` | `patches.items.placement.heading` | string | No | — | string value |
-| `mode` | `patches.items.placement.mode` | string | No | — | string value |
-| `inline` | `patches.items.placement.inline` | bool | No | — | bool value |
-| `text` | `patches.items.text` | string | No | — | string value |
-| `value` | `patches.items.value` | string | No | — | string value |
-| `color` | `patches.items.color` | string | No | — | string value |
-| `font` | `patches.items.font` | string | No | — | string value |
-| `font_size` | `patches.items.font_size` | int | No | — | int value |
-| `output` | `patches.items.output` | string | No | — | string value |
-| `link` | `patches.items.link` | string | No | — | string value |
-| `shield` | `patches.items.shield` | string | No | — | string value |
-| `content` | `patches.items.content` | string | No | — | string value |
-| `spec` | `patches.items.spec` | string | No | — | string value |
-| `path` | `patches.items.path` | string | No | — | string value |
-| `build` | `patches.items.build` | string | No | — | string value |
-| `source` | `patches.items.source` | string | No | — | string value |
-| `section` | `patches.items.section` | string | No | — | string value |
-| `renderer` | `patches.items.renderer` | string | No | — | string value |
-| `columns` | `patches.items.columns` | []string | No | — | []string value |
-| `output_file` | `patches.items.output_file` | string | No | — | string value |
-| `wrap` | `patches.items.wrap` | string | No | — | string value |
-| `summary` | `patches.items.summary` | string | No | — | string value |
-| `type` | `patches.items.type` | string | No | — | string value |
-| `params` | `patches.items.params` | map[string]string | No | — | map[string]string value |
-| `label` | `patches.items.label` | string | No | — | string value |
-| `style` | `patches.items.style` | string | No | — | string value |
-| `logo` | `patches.items.logo` | string | No | — | string value |
-| `catalog` | `patches.items.catalog` | string | No | — | string value |
-| `ref` | `patches.items.ref` | string | No | — | string value |
-| `type` | `commit.type` | string | No | — | string value |
+| `id` | `badges.id` | string | Yes | — | stable user-defined ID for narrator reference |
+| `text` | `badges.text` | string | Yes | — | left side label |
+| `value` | `badges.value` | string | Yes | — | right side value (templates: {env:*}, {sha}, {base}, etc.) |
+| `color` | `badges.color` | string | Yes | — | hex color or "auto" |
+| `output` | `badges.output` | string | Yes | — | SVG output path (required) |
+| `link` | `badges.link` | string | No | — | clickable URL |
+| `font` | `badges.font` | string | No | — | font name override |
+| `font_size` | `badges.font_size` | int | No | — | font size override |
+| `file` | `patches.file` | string | Yes | — | File is the path to the target file (required). |
+| `link_base` | `patches.link_base` | string | No | — | LinkBase is the base URL for relative link rewriting. |
+| `id` | `patches.items.id` | string | Yes | — | ID is the item identifier (unique within file). |
+| `kind` | `patches.items.kind` | string | Yes | — | Kind is the item type: badge, shield, text, component, break, include. |
+| `between` | `patches.items.placement.between` | array | No | — | Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these markers. |
+| `after` | `patches.items.placement.after` | string | No | — | After is a regex/literal line match (reserved for future use). |
+| `before` | `patches.items.placement.before` | string | No | — | Before is a regex/literal line match (reserved for future use). |
+| `heading` | `patches.items.placement.heading` | string | No | — | Heading is a markdown heading match (reserved for future use). |
+| `mode` | `patches.items.placement.mode` | string | No | — | Mode controls how content is placed: replace (default), append, prepend, above, below. |
+| `inline` | `patches.items.placement.inline` | bool | No | — | Inline renders items side-by-side when true (default: false). |
+| `text` | `patches.items.text` | string | No | — | Text is the badge label (left side text). |
+| `value` | `patches.items.value` | string | No | — | Value is the badge value (right side text, supports templates). |
+| `color` | `patches.items.color` | string | No | — | Color is the badge color (hex or "auto"). |
+| `font` | `patches.items.font` | string | No | — | Font is the badge font name override. |
+| `font_size` | `patches.items.font_size` | int | No | — | FontSize is the badge font size override. |
+| `output` | `patches.items.output` | string | No | — | Output is the SVG output path for badge generation. |
+| `link` | `patches.items.link` | string | No | — | Link is the clickable URL (kind: badge, shield). |
+| `shield` | `patches.items.shield` | string | No | — | Shield is the shields.io path (kind: shield). |
+| `content` | `patches.items.content` | string | No | — | Content is raw text/markdown content (kind: text). |
+| `spec` | `patches.items.spec` | string | No | — | Spec is the component spec file path (kind: component). |
+| `path` | `patches.items.path` | string | No | — | Path is the file path to include verbatim (kind: include). |
+| `build` | `patches.items.build` | string | No | — | Build is the id of the build whose manifest this item renders (kind: build-contents). Ownership is declared, never inferred from build list position: when more than one build is configured this is required, so reordering or adding builds can never silently change which build's inventory a doc section renders. Optional only for single-build configs (backward compatibility), where the sole build is unambiguous. Ignored when Source is set (an explicit manifest path is even more specific). |
+| `source` | `patches.items.source` | string | No | — | Source is an optional path to a manifest JSON file (kind: build-contents). If omitted, uses the current scope manifest. |
+| `section` | `patches.items.section` | string | No | — | Section is the dot-path into the manifest (kind: build-contents). e.g., "inventories.pip", "build.args", "security.sbom" |
+| `renderer` | `patches.items.renderer` | string | No | — | Renderer is the rendering format (kind: build-contents). Supported: "table", "list", "kv". |
+| `columns` | `patches.items.columns` | []string | No | — | Columns selects which columns to render (kind: build-contents, renderer: table). |
+| `output_file` | `patches.items.output_file` | string | No | — | OutputFile is an optional standalone file output path (kind: build-contents). When set, the rendered content is written as a standalone file. Can be used alongside placement (section embedding) or alone. |
+| `wrap` | `patches.items.wrap` | string | No | — | Wrap wraps the rendered output in a container element (kind: build-contents). Supported: "details" (wraps in <details>/<summary>). |
+| `summary` | `patches.items.summary` | string | No | — | Summary is the summary text when wrap=details (required when wrap is set). |
+| `type` | `patches.items.type` | string | No | — | Type is the props resolver type ID (kind: props). |
+| `params` | `patches.items.params` | map[string]string | No | — | Params are provider-semantic inputs for the props resolver. |
+| `label` | `patches.items.label` | string | No | — | Label overrides the auto-derived alt text for props. |
+| `style` | `patches.items.style` | string | No | — | Style is a presentation override for shields.io badge style. |
+| `logo` | `patches.items.logo` | string | No | — | Logo is a presentation override for shields.io logo name. |
+| `catalog` | `patches.items.catalog` | string | No | — | CatalogPath is the path to a catalog metadata file (kind: k8s-inventory). Optional — provides descriptions, friendly names, graveyard, tier overrides. |
+| `ref` | `patches.items.ref` | string | No | — | Ref is the badge ID to reference (kind: badge_ref). Must match an ID defined in the top-level badges: config. Narrator does NOT own badge generation — only composition. |
+| `type` | `commit.type` | string | No | — | conventional type; default: engine's |
 | `message` | `commit.message` | string | No | — | string value |
 | `add` | `commit.add` | []string | No | — | []string value |
 | `push` | `commit.push` | bool | No | — | bool value |
 | `skip_ci` | `commit.skip_ci` | bool | No | — | bool value |
-| `allow` | `commit.run_from.allow` | []string | No | — | []string value |
-| `mismatch` | `commit.run_from.mismatch` | string | No | — | string value |
+| `allow` | `commit.run_from.allow` | []string | No | — | permitted origins: "primary" |
+| `mismatch` | `commit.run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
 
 ---
 
@@ -591,62 +607,68 @@ commit:
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
-| `auto` | `auto` | bool | No | — | bool value |
+| `auto` | `auto` | bool | No | — | nil ⇒ true |
 | `id` | `suites.id` | string | Yes | — | string value |
 | `tool` | `suites.tool` | string | Yes | — | string value |
-| `gate` | `suites.gate` | string | No | — | string value |
-| `from` | `suites.from` | string | No | — | string value |
-| `args` | `suites.args` | []string | No | — | []string value |
+| `gate` | `suites.gate` | string | No | — | default: perform |
+| `from` | `suites.from` | string | No | — | module/crate dir when not at repo root (e.g. dd-ui's api/) |
+| `args` | `suites.args` | []string | No | — | raw passthrough escape hatch |
 | `command` | `suites.command` | string | No | — | string value |
-| `packages` | `suites.packages` | []string | No | — | []string value |
-| `tags` | `suites.tags` | []string | No | — | []string value |
-| `run` | `suites.run` | string | No | — | string value |
-| `timeout` | `suites.timeout` | string | No | — | string value |
-| `race` | `suites.race` | bool | No | — | bool value |
-| `coverage` | `suites.coverage` | bool | No | — | bool value |
-| `coverage_min` | `suites.coverage_min` | float64 | No | — | float64 value |
-| `workspace` | `suites.workspace` | bool | No | — | bool value |
-| `features` | `suites.features` | []string | No | — | []string value |
-| `tests` | `suites.tests` | []string | No | — | []string value |
-| `release` | `suites.release` | bool | No | — | bool value |
-| `nextest` | `suites.nextest` | bool | No | — | bool value |
+| `packages` | `suites.packages` | []string | No | — | ── Go (native `go test` flag projections) ────────────────────────────── |
+| `tags` | `suites.tags` | []string | No | — | -tags a,b |
+| `run` | `suites.run` | string | No | — | -run <regex> |
+| `timeout` | `suites.timeout` | string | No | — | -timeout <d> |
+| `race` | `suites.race` | bool | No | — | -race |
+| `coverage` | `suites.coverage` | bool | No | — | -coverprofile |
+| `coverage_min` | `suites.coverage_min` | float64 | No | — | gate: fail the suite if statement coverage < this % |
+| `workspace` | `suites.workspace` | bool | No | — | ── Rust (native `cargo test` flag projections) ───────────────────────── |
+| `features` | `suites.features` | []string | No | — | --features a,b |
+| `tests` | `suites.tests` | []string | No | — | --test <name> |
+| `release` | `suites.release` | bool | No | — | --release |
+| `nextest` | `suites.nextest` | bool | No | — | cargo nextest run |
 
 ---
 
 <a id="config-manifest" name="config-manifest"></a>
 ### manifest
 
+Manifest holds configuration for the manifest subsystem.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `enabled` | `enabled` | bool | Yes | — | bool value |
-| `mode` | `mode` | string | No | — | string value |
-| `output_dir` | `output_dir` | string | No | — | string value |
+| `enabled` | `enabled` | bool | Yes | — | Enabled controls whether manifest generation is active (default: false). |
+| `mode` | `mode` | string | No | — | Mode controls where the manifest is stored. ephemeral: temp location, use during run, discard after. workspace: generate to .stagefreight/manifests/, don't auto-commit. commit: generate and include in docs commit. publish: generate and export as release asset / CI artifact. |
+| `output_dir` | `output_dir` | string | No | — | OutputDir is the output directory for manifest files. Default: .stagefreight/manifests |
 
 ---
 
 <a id="config-release" name="config-release"></a>
 ### release
 
+Release holds configuration for the release subsystem.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
 | `enabled` | `enabled` | bool | Yes | — | bool value |
-| `required` | `required` | bool | No | — | bool value |
+| `required` | `required` | bool | No | — | failure is hard pipeline fail (default: false) |
 | `security_summary` | `security_summary` | string | Yes | — | string value |
 | `registry_links` | `registry_links` | bool | Yes | — | bool value |
 | `catalog_links` | `catalog_links` | bool | Yes | — | bool value |
-| `allow` | `run_from.allow` | []string | No | — | []string value |
-| `mismatch` | `run_from.mismatch` | string | No | — | string value |
+| `allow` | `run_from.allow` | []string | No | — | permitted origins: "primary" |
+| `mismatch` | `run_from.mismatch` | string | No | — | "read-only" (default), "exit", "ignore" |
 
 ---
 
 <a id="config-ci" name="config-ci"></a>
 ### ci
 
+CI holds all pipeline-related configuration consumed by ci render.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `image` | `image` | string | Yes | — | string value |
+| `image` | `image` | string | Yes | — | Image is the container image for all pipeline jobs. Required — render refuses to emit without it. |
 | `labels` | `routing.default.labels` | []string | No | — | []string value |
 | `labels` | `routing.audition.labels` | []string | No | — | []string value |
 | `labels` | `routing.perform.labels` | []string | No | — | []string value |
@@ -688,13 +710,15 @@ lifecycle:
 <a id="config-governance" name="config-governance"></a>
 ### governance
 
+Governance defines configuration for the governance lifecycle mode. Only valid in the control repo (lifecycle.mode: governance).
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `id` | `clusters.id` | string | Yes | — | string value |
 | `repos` | `clusters.targets.repos` | []string | No | — | []string value |
 | `id` | `clusters.targets.groups.id` | string | No | — | string value |
 | `repos` | `clusters.targets.groups.repos` | []string | Yes | — | []string value |
-| `credentials` | `clusters.targets.credentials` | string | No | — | string value |
+| `credentials` | `clusters.targets.credentials` | string | No | — | env var prefix for forge auth |
 | `stagefreight` | `clusters.stagefreight` | map[string]any | Yes | — | map[string]any value |
 
 ---
@@ -702,18 +726,20 @@ lifecycle:
 <a id="config-gitops" name="config-gitops"></a>
 ### gitops
 
+GitOps defines configuration for the gitops lifecycle mode.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `backend` | `backend` | string | Yes | — | string value |
+| `backend` | `backend` | string | Yes | — | Backend selects the GitOps reconciliation backend (e.g. "flux", "argo"). |
 | `name` | `cluster.name` | string | Yes | — | string value |
 | `server` | `cluster.server` | string | Yes | — | string value |
-| `level` | `cluster.exposure.rules.level` | string | Yes | — | string value |
-| `endpoints` | `cluster.exposure.rules.endpoints` | []string | Yes | — | []string value |
+| `level` | `cluster.exposure.rules.level` | string | Yes | — | internet \| intranet \| cluster |
+| `endpoints` | `cluster.exposure.rules.endpoints` | []string | Yes | — | ip:port (highest precedence) |
 | `gateways` | `cluster.exposure.rules.gateways` | []string | Yes | — | []string value |
 | `cidrs` | `cluster.exposure.rules.cidrs` | []string | Yes | — | []string value |
-| `ports` | `cluster.exposure.rules.ports` | []int | Yes | — | []int value |
-| `service_types` | `cluster.exposure.rules.service_types` | []string | Yes | — | []string value |
+| `ports` | `cluster.exposure.rules.ports` | []int | Yes | — | AND with CIDRs (empty = any port) |
+| `service_types` | `cluster.exposure.rules.service_types` | []string | Yes | — | ClusterIP \| NodePort \| LoadBalancer |
 | `audience` | `oidc.audience` | string | Yes | — | string value |
 
 ---
@@ -721,51 +747,55 @@ lifecycle:
 <a id="config-docker" name="config-docker"></a>
 ### docker
 
+Docker defines configuration for the docker lifecycle mode.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `backend` | `backend` | string | Yes | — | string value |
-| `source` | `targets.source` | string | Yes | — | string value |
-| `inventory` | `targets.inventory` | string | Yes | — | string value |
+| `backend` | `backend` | string | Yes | — | Backend selects the Docker execution engine (e.g. "compose"). |
+| `source` | `targets.source` | string | Yes | — | Source is the inventory adapter (e.g. "ansible"). |
+| `inventory` | `targets.inventory` | string | Yes | — | Inventory is the path to the inventory file (relative to repo root). |
 | `groups` | `targets.selector.groups` | []string | Yes | — | []string value |
-| `path` | `iac.path` | string | Yes | — | string value |
-| `provider` | `secrets.provider` | string | Yes | — | string value |
-| `tier2_action` | `drift.tier2_action` | string | Yes | — | string value |
-| `orphan_action` | `drift.orphan_action` | string | Yes | — | string value |
-| `orphan_threshold` | `drift.orphan_threshold` | int | Yes | — | int value |
-| `prune_requires_confirmation` | `drift.prune_requires_confirmation` | bool | Yes | — | bool value |
+| `path` | `iac.path` | string | Yes | — | Path is the IaC directory relative to repo root (default: "docker-compose"). |
+| `provider` | `secrets.provider` | string | Yes | — | Provider selects the secrets backend (e.g. "sops", "vault", "infisical"). |
+| `tier2_action` | `drift.tier2_action` | string | Yes | — | report \| reconcile (default: report) |
+| `orphan_action` | `drift.orphan_action` | string | Yes | — | report \| down \| prune (default: report) |
+| `orphan_threshold` | `drift.orphan_threshold` | int | Yes | — | block if more than N orphans (default: 5) |
+| `prune_requires_confirmation` | `drift.prune_requires_confirmation` | bool | Yes | — | require --force for prune (default: true) |
 
 ---
 
 <a id="config-build_cache" name="config-build_cache"></a>
 ### build_cache
 
+BuildCache defines the build cache subsystem (local, shared, hybrid).
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `mode` | `mode` | string | No | — | string value |
-| `backend` | `builder.backend` | string | No | — | string value |
-| `name` | `builder.name` | string | No | — | string value |
-| `driver` | `builder.driver` | string | No | — | string value |
-| `context` | `builder.context` | string | No | — | string value |
-| `path` | `local.path` | string | No | — | string value |
-| `max_age` | `local.retention.max_age` | string | No | — | string value |
-| `max_size` | `local.retention.max_size` | string | No | — | string value |
-| `target` | `external.target` | string | No | — | string value |
-| `path` | `external.path` | string | No | — | string value |
-| `fallback` | `external.fallback` | string | No | — | string value |
-| `mode` | `external.mode` | string | No | — | string value |
-| `max_refs` | `external.retention.max_refs` | int | No | — | int value |
-| `stale_age` | `external.retention.stale_age` | string | No | — | string value |
-| `enabled` | `cleanup.enabled` | bool | No | — | bool value |
-| `enforcement` | `cleanup.enforcement` | string | No | — | string value |
-| `refs` | `cleanup.protect.images.refs` | []string | No | — | []string value |
-| `named` | `cleanup.protect.volumes.named` | bool | No | — | bool value |
-| `older_than` | `cleanup.prune.images.dangling.older_than` | string | No | — | string value |
-| `older_than` | `cleanup.prune.images.unreferenced.older_than` | string | No | — | string value |
-| `older_than` | `cleanup.prune.build_cache.older_than` | string | No | — | string value |
-| `keep_storage` | `cleanup.prune.build_cache.keep_storage` | string | No | — | string value |
-| `older_than` | `cleanup.prune.containers.exited.older_than` | string | No | — | string value |
+| `mode` | `mode` | string | No | — | Mode selects which cache planes are active. "": inactive — no cache flags emitted, no cleanup runs. off: explicitly disabled. local: bounded local buildkit cache only. shared: registry-backed external cache only. hybrid: both local and external. |
+| `backend` | `builder.backend` | string | No | — | Backend pins the build backend. Default: "" (auto-detect). "buildkitd" → prefer persistent buildkitd, fail if unavailable. "dind" → use DinD only, ignore buildkitd even if available. "" → auto-detect: prefer buildkitd if available, fall back to DinD. |
+| `name` | `builder.name` | string | No | — | Name is the buildx builder name. Default: "sf-builder". |
+| `driver` | `builder.driver` | string | No | — | Driver is the buildx driver. Default: "docker-container". |
+| `context` | `builder.context` | string | No | — | Context is the Docker context name for the builder endpoint. Default: "sf-context". |
+| `path` | `local.path` | string | No | — | override local cache root (default: /stagefreight/cache/buildkit) |
+| `max_age` | `local.retention.max_age` | string | No | — | e.g. "7d" |
+| `max_size` | `local.retention.max_size` | string | No | — | e.g. "15GB" |
+| `target` | `external.target` | string | No | — | Target references a targets[].id with kind: registry. |
+| `path` | `external.path` | string | No | — | Path is appended to the target URL: <target-url>/<path>/<repo>/<branch>. |
+| `fallback` | `external.fallback` | string | No | — | Fallback is the read-only fallback branch ref (e.g. "default", "main"). Never written to unless current ref equals fallback. |
+| `mode` | `external.mode` | string | No | — | Mode is the BuildKit cache mode (e.g. "max", "min"). Default: "max". |
+| `max_refs` | `external.retention.max_refs` | int | No | — | max branch cache refs per repo |
+| `stale_age` | `external.retention.stale_age` | string | No | — | prune refs for dead/merged branches |
+| `enabled` | `cleanup.enabled` | bool | No | — | Enabled controls whether cleanup runs. Independent of cache mode. |
+| `enforcement` | `cleanup.enforcement` | string | No | — | Enforcement controls what happens when cleanup cannot execute. best_effort: continue + structured warning. required: fail build immediately. |
+| `refs` | `cleanup.protect.images.refs` | []string | No | — | glob patterns |
+| `named` | `cleanup.protect.volumes.named` | bool | No | — | protect all named volumes |
+| `older_than` | `cleanup.prune.images.dangling.older_than` | string | No | — | e.g. "72h" |
+| `older_than` | `cleanup.prune.images.unreferenced.older_than` | string | No | — | e.g. "72h" |
+| `older_than` | `cleanup.prune.build_cache.older_than` | string | No | — | e.g. "72h" |
+| `keep_storage` | `cleanup.prune.build_cache.keep_storage` | string | No | — | e.g. "20GB" |
+| `older_than` | `cleanup.prune.containers.exited.older_than` | string | No | — | e.g. "72h" |
 | `unused` | `cleanup.prune.networks.unused` | bool | No | — | bool value |
 
 ---
@@ -773,13 +803,15 @@ lifecycle:
 <a id="config-glossary" name="config-glossary"></a>
 ### glossary
 
+Glossary defines the repo's shared change-language model. Consumed by commit authoring, tag planning, and release rendering.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
 | `types` | `types` | map[string]object | Yes | — | map[string]object value |
-| `aliases` | `breaking.aliases` | []string | No | — | []string value |
-| `bang_suffix` | `breaking.bang_suffix` | bool | Yes | — | bool value |
-| `footer_keys` | `breaking.footer_keys` | []string | Yes | — | []string value |
+| `aliases` | `breaking.aliases` | []string | No | — | e.g., [b, break, bc] |
+| `bang_suffix` | `breaking.bang_suffix` | bool | Yes | — | feat! syntax |
+| `footer_keys` | `breaking.footer_keys` | []string | Yes | — | e.g., ["BREAKING CHANGE"] |
 | `force_highlight` | `breaking.force_highlight` | bool | Yes | — | bool value |
 | `priority_boost` | `breaking.priority_boost` | int | Yes | — | int value |
 | `strip_phrases` | `filters.summary.strip_phrases` | []string | No | — | []string value |
@@ -790,12 +822,14 @@ lifecycle:
 | `to` | `rewrites.phrases.to` | string | Yes | — | string value |
 | `pattern` | `rewrites.regex.pattern` | string | Yes | — | string value |
 | `replace` | `rewrites.regex.replace` | string | Yes | — | string value |
-| `empty_strategy` | `render.empty_strategy` | string | Yes | — | string value |
+| `empty_strategy` | `render.empty_strategy` | string | Yes | — | prompt \| fail \| allow_empty |
 
 ---
 
 <a id="config-presentation" name="config-presentation"></a>
 ### presentation
+
+Presentation defines surface-specific rendering policies.
 
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
@@ -804,12 +838,12 @@ lifecycle:
 | `enforce_conventional` | `commit.enforce_conventional` | bool | Yes | — | bool value |
 | `max_entries` | `tag.max_entries` | int | Yes | — | int value |
 | `group_by_type` | `tag.group_by_type` | bool | Yes | — | bool value |
-| `style` | `tag.style` | string | Yes | — | string value |
+| `style` | `tag.style` | string | Yes | — | concise \| explanatory \| technical |
 | `include_release_visible_only` | `tag.include_release_visible_only` | bool | Yes | — | bool value |
 | `collapse_similar` | `tag.collapse_similar` | bool | Yes | — | bool value |
 | `max_entries` | `release.max_entries` | int | Yes | — | int value |
 | `group_by_type` | `release.group_by_type` | bool | Yes | — | bool value |
-| `style` | `release.style` | string | Yes | — | string value |
+| `style` | `release.style` | string | Yes | — | concise \| explanatory \| technical |
 | `include_release_visible_only` | `release.include_release_visible_only` | bool | Yes | — | bool value |
 
 ---
@@ -817,24 +851,28 @@ lifecycle:
 <a id="config-tag" name="config-tag"></a>
 ### tag
 
+Tag holds workflow defaults for the tag planner.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
 | `preset` | `preset` | string | No | — | string value |
-| `target` | `defaults.target` | string | Yes | — | string value |
-| `preview` | `defaults.preview` | bool | Yes | — | bool value |
-| `require_approval` | `defaults.require_approval` | bool | Yes | — | bool value |
-| `push` | `defaults.push` | bool | Yes | — | bool value |
-| `mode` | `message.mode` | string | Yes | — | string value |
-| `empty_strategy` | `message.empty_strategy` | string | Yes | — | string value |
+| `target` | `defaults.target` | string | Yes | — | default ref to tag (default: HEAD) |
+| `preview` | `defaults.preview` | bool | Yes | — | show preview before creating |
+| `require_approval` | `defaults.require_approval` | bool | Yes | — | require interactive approval |
+| `push` | `defaults.push` | bool | Yes | — | push after creation |
+| `mode` | `message.mode` | string | Yes | — | auto \| prompt_if_missing \| require_manual |
+| `empty_strategy` | `message.empty_strategy` | string | Yes | — | prompt \| fail \| allow_empty |
 
 ---
 
 <a id="config-toolchains" name="config-toolchains"></a>
 ### toolchains
 
+Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings.
+
 | Name | YAML Key | Type | Required | Default | Description |
 |------|----------|------|----------|---------|-------------|
-| `desired` | `desired` | map[string]object | No | — | map[string]object value |
+| `desired` | `desired` | map[string]object | No | — | Desired declares intended tool constraints. Authoritative — not a hint. If a desired constraint fails to resolve, the system fails. No fallback. |
 
 ---
 
