@@ -68,6 +68,18 @@ builds:
       - "-s -w -X github.com/PrPlanIT/StageFreight/src/version.Version={version} -X github.com/PrPlanIT/StageFreight/src/version.Commit={sha} -X github.com/PrPlanIT/StageFreight/src/version.BuildDate={date}"
     platforms: [linux/amd64, linux/arm64]
 
+  # Documentation site: build the MkDocs Material site from docs/ into a `site/` tree
+  # that the `docs` pages target deploys. The mkdocs-material image ships an
+  # ENTRYPOINT ["mkdocs"], which collides with the engine's `sh -c` invocation, so we
+  # pip-install into a plain python image instead. Uses the committed, generated
+  # reference under docs/reference + docs/modules (kept fresh by the `reference` build).
+  - id: docs-site
+    kind: command
+    image: docker.io/library/python:3.12-slim
+    command: "pip install --quiet --root-user-action=ignore mkdocs-material && mkdocs build --strict --site-dir {output}"
+    outputs:
+      - { type: tree, source: site }
+
 forges:
   - id: gitlab
     provider: gitlab
@@ -224,6 +236,17 @@ targets:
       keep_last: 6
       protect: ["latest-dev"]
     when: { branches: [main], events: [push] }
+
+  # ── Documentation site → Cloudflare Pages ────────────────────────
+  # Deploy the built docs-site tree to stagefreight.prplanit.com on version tags only
+  # (not dev pushes). Cloudflare auto-wires DNS for the domain. Credentials come from
+  # CI env: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID.
+  - id: docs
+    kind: pages
+    provider: cloudflare
+    build: docs-site
+    domain: stagefreight.prplanit.com
+    when: { git_tags: ["re:v.*"], events: [tag] }
 
 build_cache:
   mode: hybrid

@@ -20,13 +20,13 @@ copyright: Copyright &copy; PrPlanIT
 docs_dir: docs
 
 # Internal / non-public docs never ship to the site (kept in-repo for maintainers).
+# NOTE: docs/screenshots/ holds the PNGs the Screenshots page embeds — do NOT exclude it.
 exclude_docs: |
   RoadMap.md
   To-Do.md
   KnownIssues.md
   ImageSizeAudit.md
   plans/
-  screenshots/
 
 theme:
   name: material
