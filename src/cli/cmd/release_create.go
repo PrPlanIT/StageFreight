@@ -834,6 +834,35 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	}
 	var retOutcomes []retOutcome
 	retStart := time.Now()
+
+	// Forges whose releases these channels retain: the primary, plus every mirror with
+	// sync.releases. Dev/rolling releases are projected to those mirrors, so their
+	// retention must run there too — otherwise a release pruned on the primary orphans
+	// into a draft on the mirror (GitHub turns a release whose tag was deleted into a
+	// draft). Same policy, same patterns, same store; only the forge differs.
+	type retForge struct {
+		label string
+		f     forge.Forge
+	}
+	retForges := []retForge{{label: "primary", f: forgeClient}}
+	// Extend mirror retention only when actually syncing and not in a read-only preview —
+	// a dry/preview run must never delete releases on a public mirror.
+	if !req.SkipSync && !req.ReadOnly {
+		if mirrors, mErr := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars); mErr == nil {
+			for _, m := range mirrors {
+				if !m.Sync.Releases {
+					continue
+				}
+				mc, cErr := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
+				if cErr != nil {
+					retOutcomes = append(retOutcomes, retOutcome{id: "mirror:" + m.ID, err: cErr})
+					continue
+				}
+				retForges = append(retForges, retForge{label: "mirror:" + m.ID, f: mc})
+			}
+		}
+	}
+
 	for _, t := range pipeline.CollectTargetsByKind(req.Config, "release") {
 		if t.IsRemoteRelease() || t.Retention == nil || !t.Retention.Active() {
 			continue
@@ -850,9 +879,18 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		pol := *t.Retention
 		// Rolling aliases are never pruned.
 		pol.Protect = append(append([]string{}, pol.Protect...), retention.TemplatesToPatterns(t.Aliases)...)
-		store := &forgeStore{forge: forgeClient, pruneTags: t.Tag != ""}
-		res, err := retention.Apply(ctx, store, patterns, pol)
-		retOutcomes = append(retOutcomes, retOutcome{id: t.ID, res: res, err: err})
+		// Apply the channel's retention identically on the primary and each mirror,
+		// scoped to this channel's own tag/alias patterns (never touches releases
+		// outside them, so no surprising deletions).
+		for _, rf := range retForges {
+			store := &forgeStore{forge: rf.f, pruneTags: t.Tag != ""}
+			res, err := retention.Apply(ctx, store, patterns, pol)
+			id := t.ID
+			if rf.label != "primary" {
+				id = t.ID + " (" + rf.label + ")"
+			}
+			retOutcomes = append(retOutcomes, retOutcome{id: id, res: res, err: err})
+		}
 	}
 	if len(retOutcomes) > 0 {
 		output.SectionStart(w, "sf_retention", "Retention")
