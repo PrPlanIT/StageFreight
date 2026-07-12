@@ -140,8 +140,12 @@ type TargetConfig struct {
 	// Auto-detected from referenced build if omitted.
 	BinaryName string `yaml:"binary_name,omitempty"`
 
-	// Format is the archive format: "tar.gz", "zip", or "auto" (kind: binary-archive).
-	// "auto" picks zip for windows, tar.gz for everything else. Default: "auto".
+	// Format is the archive format: "tar.gz", "zip", "auto", or "binary" (kind:
+	// binary-archive). "auto" picks zip for windows, tar.gz for everything else (default).
+	// "binary" is a passthrough: the build's single-file output is carried as the
+	// distributable as-is, NOT re-archived — for a build whose output is already packaged
+	// (e.g. a kind: command build that emits its own tarball or a raw binary you want
+	// uploaded unwrapped), so no double-archiving occurs.
 	Format string `yaml:"format,omitempty"`
 
 	// Name is the archive filename template (kind: binary-archive).
@@ -269,6 +273,7 @@ var validArchiveFormats = map[string]bool{
 	"auto":   true,
 	"tar.gz": true,
 	"zip":    true,
+	"binary": true, // passthrough: carry the build's file output as-is, no re-archiving
 }
 
 // validEvents enumerates all recognized event types.

@@ -302,7 +302,7 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 				Kind:    "archive",
 				Name:    archiveArtifactName,
 				Version: b.version.Version,
-				Archive: &artifact.ArchiveDescriptor{Format: archResult.Format, Path: archResult.Path},
+				Archive: &artifact.ArchiveDescriptor{Format: archResult.Format, Path: archResult.Path, Set: t.ID},
 			})
 			sourceBinaryID := artifact.NewArtifactID("binary", uniqueBinaryArtifactName(pb.Name, pb.OS, pb.Arch))
 			rc.RB.Record(archiveArtifactID, artifact.Outcome{

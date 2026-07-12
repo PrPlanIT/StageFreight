@@ -28,6 +28,10 @@ type ResolvedArchiveAsset struct {
 	SHA256     string
 	Size       int64
 	Sources    []ArtifactID
+	// Set is the binary-archive target id that produced this archive (empty for an internal
+	// transport). AssetsForArchiveSet scopes a distribution target to the archives it names
+	// via `archives: <id>`.
+	Set string
 }
 
 // SuccessfulArchiveAssets filters built archive views to those that built
@@ -48,7 +52,28 @@ func SuccessfulArchiveAssets(views []ArchiveExecutionView) []ResolvedArchiveAsse
 			SHA256:     av.SHA256,
 			Size:       av.Size,
 			Sources:    av.Sources,
+			Set:        av.Set,
 		})
+	}
+	return out
+}
+
+// AssetsForArchiveSet scopes resolved archive assets to those produced by the named
+// binary-archive target — the `archives: <id>` selector on a `release`/`generic-package`
+// target. This is the projection authority: a distribution target distributes exactly the
+// archive set it names, nothing else. An EMPTY setID selects NOTHING (a distribution target
+// that names no archive set distributes no archive bytes — deterministic, never "all"). An
+// internal transport carries no Set, so it is unselectable by construction; a build output
+// reaches a forge only through a binary-archive target a distribution target names.
+func AssetsForArchiveSet(assets []ResolvedArchiveAsset, setID string) []ResolvedArchiveAsset {
+	if setID == "" {
+		return nil
+	}
+	out := make([]ResolvedArchiveAsset, 0, len(assets))
+	for _, a := range assets {
+		if a.Set == setID {
+			out = append(out, a)
+		}
 	}
 	return out
 }

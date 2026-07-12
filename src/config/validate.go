@@ -750,7 +750,7 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 			errs = append(errs, fmt.Sprintf("%s: kind binary-archive requires build reference", path))
 		}
 		if !validArchiveFormats[t.Format] {
-			errs = append(errs, fmt.Sprintf("%s: unknown archive format %q (supported: auto, tar.gz, zip)", path, t.Format))
+			errs = append(errs, fmt.Sprintf("%s: unknown archive format %q (supported: auto, tar.gz, zip, binary)", path, t.Format))
 		}
 		// Disallow registry-only fields
 		if t.URL != "" {

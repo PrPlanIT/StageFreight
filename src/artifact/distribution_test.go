@@ -27,6 +27,36 @@ func TestSuccessfulArchiveAssets_FiltersAndPreservesOrder(t *testing.T) {
 	}
 }
 
+func TestAssetsForArchiveSet_ScopesToProjection(t *testing.T) {
+	assets := []ResolvedArchiveAsset{
+		{ArtifactID: "archive:rel-amd64", Set: "stagefreight-binaries", Path: "dist/amd64.tar.gz"},
+		{ArtifactID: "archive:rel-arm64", Set: "stagefreight-binaries", Path: "dist/arm64.tar.gz"},
+		{ArtifactID: "archive:devchan", Set: "stagefreight-binaries-dev", Path: "dist/dev.tar.gz"},
+		{ArtifactID: "archive:transport", Set: "", Path: "dist/reference-narrate.tar.gz"}, // internal carrier
+	}
+
+	// A distribution target selects exactly its named set — the two release archives, never
+	// the dev-channel archive and never the transport.
+	got := AssetsForArchiveSet(assets, "stagefreight-binaries")
+	if len(got) != 2 || got[0].ArtifactID != "archive:rel-amd64" || got[1].ArtifactID != "archive:rel-arm64" {
+		t.Fatalf("set scoping wrong: %+v", got)
+	}
+
+	// The transport (empty Set) is unselectable by construction — no set id resolves to it.
+	if n := len(AssetsForArchiveSet(assets, "stagefreight-binaries-dev")); n != 1 {
+		t.Fatalf("dev set: got %d, want 1", n)
+	}
+
+	// Empty selector distributes NOTHING — never "all archives".
+	if n := len(AssetsForArchiveSet(assets, "")); n != 0 {
+		t.Fatalf("empty selector: got %d, want 0 (a target that names no set distributes nothing)", n)
+	}
+	// A selector that names no produced set yields nothing (not the transport, not all).
+	if n := len(AssetsForArchiveSet(assets, "nonexistent")); n != 0 {
+		t.Fatalf("unknown selector: got %d, want 0", n)
+	}
+}
+
 func TestSuccessfulBlobSignatureAssets_FiltersSuccessOnly(t *testing.T) {
 	results := &ResultsManifest{
 		IntentChecksum: "abc",

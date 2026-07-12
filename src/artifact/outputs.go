@@ -153,6 +153,13 @@ type BinaryDescriptor struct {
 type ArchiveDescriptor struct {
 	Format string `json:"format"`
 	Path   string `json:"path"`
+	// Set is the id of the binary-archive target that produced this archive — the archive's
+	// production provenance, mirroring BinaryDescriptor.BuildID. Distribution selectors match
+	// on it: a `release`/`generic-package` target with `archives: <id>` distributes exactly
+	// the archives whose Set == <id>. An internal phase carrier (narrate/pages transport) has
+	// NO Set, so it is unselectable by any distribution target — a build output reaches a forge
+	// only by being produced by a binary-archive target that a distribution target names.
+	Set string `json:"set,omitempty"`
 }
 
 // Target is one destination an artifact must be distributed to. Exactly one

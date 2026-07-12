@@ -370,30 +370,28 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			}
 		}
 
-		// Archive + binary download rows. The cross-domain join is by
-		// ArtifactID exact equality: archives reference source binary
-		// ArtifactIDs in Sources; uncovered binaries are those whose
-		// ArtifactID is not in any archive's Sources set.
+		// Archive download rows, scoped to the archive set the active release target
+		// projects. `release` distributes EXACTLY the archives its `archives:` selector
+		// names (AssetsForArchiveSet), never "all archives that built" — the projection
+		// authority. A build output reaches the forge only as an archive produced by a
+		// binary-archive target this release names; internal transports (no Set) are
+		// excluded by construction. There is deliberately NO uncovered-binary fallback:
+		// attaching a raw binary would project a build straight to the forge, bypassing
+		// the target mechanism. Empty `archives:` → no archive bytes attached.
 		//
-		// Assets are collected as (row, path, ArtifactID, kind) tuples so
-		// the cross-kind canonicalization sort below works directly on
-		// the typed identity — no ArtifactName→ArtifactID reverse lookup.
-		// Carrying identity alongside the row from construction is the
-		// invariant: identity is propagated unchanged, never re-derived.
+		// Identity join is by ArtifactID exact equality: archives reference source binary
+		// ArtifactIDs in Sources (for the display platform), never a name reverse-lookup.
 		binaryByID := make(map[artifact.ArtifactID]artifact.BinaryExecutionView, len(binaryViews))
 		for _, bv := range binaryViews {
 			binaryByID[bv.ArtifactID] = bv
 		}
-		coveredIDs := make(map[artifact.ArtifactID]struct{})
 		var assets []releaseAsset
 
-		// Successful archives via the shared distribution helper (same source of
-		// truth used by kind: generic-package). coveredIDs and the row's display
-		// platform stay release-local; the helper only supplies the typed asset list.
-		for _, a := range artifact.SuccessfulArchiveAssets(archiveViews) {
-			for _, sourceID := range a.Sources {
-				coveredIDs[sourceID] = struct{}{}
-			}
+		archiveSet := ""
+		if at := activeReleaseTarget(req.Config); at != nil {
+			archiveSet = at.Archives
+		}
+		for _, a := range artifact.AssetsForArchiveSet(artifact.SuccessfulArchiveAssets(archiveViews), archiveSet) {
 			assets = append(assets, releaseAsset{
 				Kind:       "archive",
 				ArtifactID: a.ArtifactID,
@@ -403,25 +401,6 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 					Platform: archivePlatform(a.Sources, binaryByID),
 					Size:     a.Size,
 					SHA256:   a.SHA256,
-				},
-			})
-		}
-		for _, bv := range binaryViews {
-			if bv.BuildStatus != artifact.OutcomeSuccess {
-				continue
-			}
-			if _, covered := coveredIDs[bv.ArtifactID]; covered {
-				continue
-			}
-			assets = append(assets, releaseAsset{
-				Kind:       "binary",
-				ArtifactID: bv.ArtifactID,
-				AssetPath:  bv.Path,
-				Row: release.BinaryRow{
-					Name:     bv.ArtifactName,
-					Platform: bv.OS + "/" + bv.Arch,
-					Size:     bv.Size,
-					SHA256:   bv.SHA256,
 				},
 			})
 		}

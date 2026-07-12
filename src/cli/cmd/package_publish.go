@@ -103,7 +103,15 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 		}
 		aliases := gitver.ResolveTags(t.Aliases, vi)
 
-		res, perr := publishPackageTarget(ctx, fc, t.ID, packageName, immutable[0], aliases, assets)
+		// Projection authority: publish exactly the archive set this target names via
+		// `archives:` — never every archive that built. An internal transport (no Set) is
+		// unselectable; a target whose set produced nothing on this event is a no-op.
+		targetAssets := artifact.AssetsForArchiveSet(assets, t.Archives)
+		if len(targetAssets) == 0 {
+			continue
+		}
+
+		res, perr := publishPackageTarget(ctx, fc, t.ID, packageName, immutable[0], aliases, targetAssets)
 		if perr != nil {
 			return fmt.Errorf("package subsystem: target %s: %w", t.ID, perr)
 		}

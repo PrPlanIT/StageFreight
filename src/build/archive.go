@@ -94,6 +94,44 @@ func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 
 	// Resolve archive name
 	name := resolveArchiveName(opts.NameTemplate, opts.BuildID, opts.Target, opts.Version)
+
+	// format: binary — passthrough. The build output is already the distributable; carry it
+	// into DistDir as-is with NO re-archiving (a kind: command build that emits its own
+	// tarball, or a raw binary uploaded unwrapped). The name template is the full output
+	// name — no forced extension is appended, so nothing double-archives. Requires a
+	// single-file source; a directory has no passthrough form.
+	if format == "binary" {
+		fi, statErr := os.Stat(opts.BinaryPath)
+		if statErr != nil {
+			return nil, fmt.Errorf("format: binary source %q: %w", opts.BinaryPath, statErr)
+		}
+		if fi.IsDir() {
+			return nil, fmt.Errorf("format: binary requires a single-file build output, but %q is a directory", opts.BinaryPath)
+		}
+		if err := os.MkdirAll(opts.OutputDir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating output dir: %w", err)
+		}
+		outPath := filepath.Join(opts.OutputDir, name)
+		if err := copyFile(opts.BinaryPath, outPath, fi.Mode()); err != nil {
+			return nil, fmt.Errorf("format: binary passthrough: %w", err)
+		}
+		info, statErr := os.Stat(outPath)
+		if statErr != nil {
+			return nil, statErr
+		}
+		hash, hashErr := fileSHA256(outPath)
+		if hashErr != nil {
+			return nil, hashErr
+		}
+		return &ArchiveResult{
+			Path:     outPath,
+			Format:   "binary",
+			Size:     info.Size(),
+			SHA256:   hash,
+			Contents: []string{filepath.Base(outPath)},
+		}, nil
+	}
+
 	ext := "." + format
 	archivePath := filepath.Join(opts.OutputDir, name+ext)
 
@@ -170,6 +208,25 @@ func CreateArchive(opts ArchiveOpts) (*ArchiveResult, error) {
 		SHA256:   hash,
 		Contents: contents,
 	}, nil
+}
+
+// copyFile copies src to dst preserving the source's permission bits. Used by the
+// format: binary passthrough to carry a build's single-file output into DistDir intact.
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // WriteChecksums creates a SHA256SUMS file from a set of archive results.

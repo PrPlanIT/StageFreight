@@ -296,6 +296,9 @@ type ArchiveExecutionView struct {
 	// Descriptor (intent)
 	Format string
 	Path   string
+	// Set is the binary-archive target id that produced this archive (empty for an internal
+	// transport). Distribution consumers scope to their `archives:` selector by matching it.
+	Set string
 
 	// Build observation (outcome)
 	BuildStatus OutcomeStatus
@@ -324,6 +327,7 @@ func BuildArchiveExecutionViews(outputs *OutputsManifest, results *ResultsManife
 		version string
 		format  string
 		path    string
+		set     string
 	}
 	intents := make(map[ArtifactID]archiveIntent, len(outputs.Artifacts))
 	for _, a := range outputs.Artifacts {
@@ -335,6 +339,7 @@ func BuildArchiveExecutionViews(outputs *OutputsManifest, results *ResultsManife
 			version: a.Version,
 			format:  a.Archive.Format,
 			path:    a.Archive.Path,
+			set:     a.Archive.Set,
 		}
 	}
 
@@ -357,6 +362,7 @@ func BuildArchiveExecutionViews(outputs *OutputsManifest, results *ResultsManife
 				Version:        ai.version,
 				Format:         ai.format,
 				Path:           ai.path,
+				Set:            ai.set,
 				BuildStatus:    o.Archive.Status,
 				SHA256:         o.Archive.SHA256,
 				Size:           o.Archive.Size,
