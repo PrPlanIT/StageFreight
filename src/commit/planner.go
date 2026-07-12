@@ -16,7 +16,8 @@ type PlannerOptions struct {
 	Message  string   // positional or --message
 	Body     string
 	Breaking bool
-	SkipCI   *bool    // nil = use config default
+	SkipCI   *bool    // nil = use config default (manual --skip-ci → [skip ci] token)
+	Origin   string   // config.OriginNarrate / OriginDeps for automated commits; "" otherwise
 	Push     *bool    // nil = use config default
 	Paths    []string // from --add flags
 	All      bool
@@ -142,6 +143,7 @@ func BuildPlan(opts PlannerOptions, cfg config.CommitConfig, registry *TypeRegis
 		Body:      opts.Body,
 		Breaking:  breaking,
 		SkipCI:    skipCI,
+		Origin:    opts.Origin,
 		Paths:     normalizedPaths,
 		StageMode: stageMode,
 		Push: PushOptions{

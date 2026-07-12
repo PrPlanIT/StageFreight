@@ -45,11 +45,23 @@ func Emit(p model.Pipeline) ([]byte, error) {
 	}
 
 	// ── workflow ────────────────────────────────────────────────────────────
+	// Loop-prevention lives here, not in a [skip ci] subject token. A narrate commit
+	// carries a `Generated-By: StageFreight` trailer; this rule declines to START a new
+	// branch pipeline for it — regenerating those assets would only re-emit the same
+	// commit (the loop). Tag pipelines always run (a release must build) and a deps
+	// commit (`Updated-By: StageFreight`, no skip trailer) falls through to the default
+	// rule and rebuilds. This is a signal StageFreight owns and renders, scoped to branch
+	// pushes — unlike the forge's context-blind [skip ci], which also suppresses tags.
+	buf.WriteString("\nworkflow:\n")
 	if p.Defaults.CancelSuperseded {
-		buf.WriteString("\nworkflow:\n")
 		buf.WriteString("  auto_cancel:\n")
 		buf.WriteString("    on_new_commit: interruptible\n")
 	}
+	buf.WriteString("  rules:\n")
+	buf.WriteString("    - if: $CI_COMMIT_TAG\n")
+	buf.WriteString("    - if: '$CI_COMMIT_MESSAGE =~ /Generated-By: StageFreight/'\n")
+	buf.WriteString("      when: never\n")
+	buf.WriteString("    - when: always\n")
 
 	// ── shared context anchor ──────────────────────────────────────────────
 	if p.Defaults.CIContext {

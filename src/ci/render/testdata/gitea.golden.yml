@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
+    if: "${{ github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight') }}"
     continue-on-error: true
     permissions:
       contents: write
@@ -72,6 +73,7 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [audition]
+    if: "${{ github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight') }}"
     permissions:
       contents: read
       id-token: write
@@ -124,6 +126,7 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [perform]
+    if: "${{ github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight') }}"
     continue-on-error: true
     steps:
       - name: stagefreight-context
@@ -169,6 +172,7 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [perform, review]
+    if: "${{ github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight') }}"
     continue-on-error: true
     permissions:
       contents: write
@@ -217,7 +221,7 @@ jobs:
     container:
       image: registry.example.com/acme/stagefreight:latest-dev
     needs: [perform, publish]
-    if: ${{ always() }}
+    if: "${{ always() && (github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight')) }}"
     continue-on-error: true
     permissions:
       contents: write

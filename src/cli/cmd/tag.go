@@ -227,6 +227,9 @@ func runTag(cmd *cobra.Command, args []string) error {
 
 	sec.Row("%-16s%s", "target ref", plan.TargetRef)
 	sec.Row("%-16s%s", "target sha", shortSHA(plan.TargetSHA))
+	if plan.SkippedTipSHA != "" {
+		sec.Row("%-16s%s is [skip ci] — tagged its releasable parent instead", "skipped tip", shortSHA(plan.SkippedTipSHA))
+	}
 	if plan.PreviousTag != "" {
 		sec.Row("%-16s%s", "previous", plan.PreviousTag)
 	}
