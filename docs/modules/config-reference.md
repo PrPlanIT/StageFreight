@@ -35,6 +35,7 @@
 
 ---
 
+<!-- --8<-- [start:version] -->
 <a id="config-version" name="config-version"></a>
 ### version
 
@@ -52,6 +53,8 @@ version: 1
 
 ---
 
+<!-- --8<-- [end:version] -->
+<!-- --8<-- [start:vars] -->
 <a id="config-vars" name="config-vars"></a>
 ### vars
 
@@ -71,6 +74,8 @@ vars:
 
 ---
 
+<!-- --8<-- [end:vars] -->
+<!-- --8<-- [start:defaults] -->
 <a id="config-defaults" name="config-defaults"></a>
 ### defaults
 
@@ -78,6 +83,8 @@ Defaults is inert YAML anchor storage. StageFreight ignores this section entirel
 
 ---
 
+<!-- --8<-- [end:defaults] -->
+<!-- --8<-- [start:forges] -->
 <a id="config-forges" name="config-forges"></a>
 ### forges
 
@@ -94,6 +101,8 @@ Forges declares git hosts. Each entry is a host identity (provider, URL, credent
 
 ---
 
+<!-- --8<-- [end:forges] -->
+<!-- --8<-- [start:repos] -->
 <a id="config-repos" name="config-repos"></a>
 ### repos
 
@@ -114,6 +123,8 @@ Repos declares projects on forges. References forges by id. Has role (primary/mi
 
 ---
 
+<!-- --8<-- [end:repos] -->
+<!-- --8<-- [start:registries] -->
 <a id="config-registries" name="config-registries"></a>
 ### registries
 
@@ -131,6 +142,8 @@ Registries declares OCI registry hosts. Referenced by targets.
 
 ---
 
+<!-- --8<-- [end:registries] -->
+<!-- --8<-- [start:signing_profiles] -->
 <a id="config-signing_profiles" name="config-signing_profiles"></a>
 ### signing_profiles
 
@@ -182,6 +195,8 @@ signing_profiles:
 
 ---
 
+<!-- --8<-- [end:signing_profiles] -->
+<!-- --8<-- [start:signing] -->
 <a id="config-signing" name="config-signing"></a>
 ### signing
 
@@ -216,6 +231,8 @@ signing:
 
 ---
 
+<!-- --8<-- [end:signing] -->
+<!-- --8<-- [start:versioning] -->
 <a id="config-versioning" name="config-versioning"></a>
 ### versioning
 
@@ -235,6 +252,8 @@ Versioning controls how version identity is derived from git state.
 
 ---
 
+<!-- --8<-- [end:versioning] -->
+<!-- --8<-- [start:matchers] -->
 <a id="config-matchers" name="config-matchers"></a>
 ### matchers
 
@@ -247,6 +266,8 @@ Matchers defines reusable named patterns for branches (and future dimensions). P
 
 ---
 
+<!-- --8<-- [end:matchers] -->
+<!-- --8<-- [start:builds] -->
 <a id="config-builds" name="config-builds"></a>
 ### builds
 
@@ -299,6 +320,8 @@ builds:
 
 ---
 
+<!-- --8<-- [end:builds] -->
+<!-- --8<-- [start:targets] -->
 <a id="config-targets" name="config-targets"></a>
 ### targets
 
@@ -446,6 +469,8 @@ targets:
 
 ---
 
+<!-- --8<-- [end:targets] -->
+<!-- --8<-- [start:lint] -->
 <a id="config-lint" name="config-lint"></a>
 ### lint
 
@@ -485,6 +510,8 @@ lint:
 
 ---
 
+<!-- --8<-- [end:lint] -->
+<!-- --8<-- [start:security] -->
 <a id="config-security" name="config-security"></a>
 ### security
 
@@ -531,6 +558,8 @@ security:
 
 ---
 
+<!-- --8<-- [end:security] -->
+<!-- --8<-- [start:commit] -->
 <a id="config-commit" name="config-commit"></a>
 ### commit
 
@@ -571,6 +600,8 @@ commit:
 
 ---
 
+<!-- --8<-- [end:commit] -->
+<!-- --8<-- [start:dependency] -->
 <a id="config-dependency" name="config-dependency"></a>
 ### dependency
 
@@ -605,6 +636,8 @@ Dependency holds configuration for the dependency update subsystem.
 
 ---
 
+<!-- --8<-- [end:dependency] -->
+<!-- --8<-- [start:narrate] -->
 <a id="config-narrate" name="config-narrate"></a>
 ### narrate
 
@@ -666,6 +699,8 @@ Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled
 
 ---
 
+<!-- --8<-- [end:narrate] -->
+<!-- --8<-- [start:test] -->
 <a id="config-test" name="config-test"></a>
 ### test
 
@@ -695,6 +730,8 @@ Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled
 
 ---
 
+<!-- --8<-- [end:test] -->
+<!-- --8<-- [start:manifest] -->
 <a id="config-manifest" name="config-manifest"></a>
 ### manifest
 
@@ -711,6 +748,8 @@ Manifest holds configuration for the manifest subsystem.
 
 ---
 
+<!-- --8<-- [end:manifest] -->
+<!-- --8<-- [start:release] -->
 <a id="config-release" name="config-release"></a>
 ### release
 
@@ -729,6 +768,8 @@ Release holds configuration for the release subsystem.
 
 ---
 
+<!-- --8<-- [end:release] -->
+<!-- --8<-- [start:ci] -->
 <a id="config-ci" name="config-ci"></a>
 ### ci
 
@@ -746,6 +787,8 @@ CI holds all pipeline-related configuration consumed by ci render.
 
 ---
 
+<!-- --8<-- [end:ci] -->
+<!-- --8<-- [start:lifecycle] -->
 <a id="config-lifecycle" name="config-lifecycle"></a>
 ### lifecycle
 
@@ -775,6 +818,8 @@ lifecycle:
 
 ---
 
+<!-- --8<-- [end:lifecycle] -->
+<!-- --8<-- [start:governance] -->
 <a id="config-governance" name="config-governance"></a>
 ### governance
 
@@ -791,6 +836,8 @@ Governance defines configuration for the governance lifecycle mode. Only valid i
 
 ---
 
+<!-- --8<-- [end:governance] -->
+<!-- --8<-- [start:gitops] -->
 <a id="config-gitops" name="config-gitops"></a>
 ### gitops
 
@@ -812,6 +859,8 @@ GitOps defines configuration for the gitops lifecycle mode.
 
 ---
 
+<!-- --8<-- [end:gitops] -->
+<!-- --8<-- [start:docker] -->
 <a id="config-docker" name="config-docker"></a>
 ### docker
 
@@ -833,6 +882,8 @@ Docker defines configuration for the docker lifecycle mode.
 
 ---
 
+<!-- --8<-- [end:docker] -->
+<!-- --8<-- [start:build_cache] -->
 <a id="config-build_cache" name="config-build_cache"></a>
 ### build_cache
 
@@ -868,6 +919,8 @@ BuildCache defines the build cache subsystem (local, shared, hybrid).
 
 ---
 
+<!-- --8<-- [end:build_cache] -->
+<!-- --8<-- [start:glossary] -->
 <a id="config-glossary" name="config-glossary"></a>
 ### glossary
 
@@ -894,6 +947,8 @@ Glossary defines the repo's shared change-language model. Consumed by commit aut
 
 ---
 
+<!-- --8<-- [end:glossary] -->
+<!-- --8<-- [start:presentation] -->
 <a id="config-presentation" name="config-presentation"></a>
 ### presentation
 
@@ -916,6 +971,8 @@ Presentation defines surface-specific rendering policies.
 
 ---
 
+<!-- --8<-- [end:presentation] -->
+<!-- --8<-- [start:tag] -->
 <a id="config-tag" name="config-tag"></a>
 ### tag
 
@@ -933,6 +990,8 @@ Tag holds workflow defaults for the tag planner.
 
 ---
 
+<!-- --8<-- [end:tag] -->
+<!-- --8<-- [start:toolchains] -->
 <a id="config-toolchains" name="config-toolchains"></a>
 ### toolchains
 
@@ -944,3 +1003,4 @@ Toolchains defines operator control over external tool resolution. Version pins,
 
 ---
 
+<!-- --8<-- [end:toolchains] -->

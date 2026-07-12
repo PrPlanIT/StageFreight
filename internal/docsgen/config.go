@@ -28,9 +28,12 @@ func GenerateConfigReference() string {
 	}
 	b.WriteString("\n---\n\n")
 
-	// Per-section documentation.
+	// Per-section documentation. Each section is wrapped in pymdownx.snippets section
+	// markers so the Configuration guide pages can --8<-- include individual sections.
 	for _, s := range sections {
+		b.WriteString(fmt.Sprintf("<!-- --8<-- [start:%s] -->\n", s.Key))
 		b.WriteString(renderConfigSection(s))
+		b.WriteString(fmt.Sprintf("<!-- --8<-- [end:%s] -->\n", s.Key))
 	}
 
 	return b.String()
