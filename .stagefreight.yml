@@ -284,9 +284,7 @@ targets:
     project: stagefreight-docs
     build: docs-site
     domain: stagefreight.prplanit.com
-    # TEMPORARY: deploy on the next main push to ship the site rebuild once.
-    # Revert to `when: { git_tags: [stable], events: [tag] }` after it deploys.
-    when: { branches: [main], events: [push] }
+    when: { git_tags: [stable], events: [tag] }
 
 build_cache:
   mode: hybrid
