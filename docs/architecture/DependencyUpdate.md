@@ -117,4 +117,4 @@ Go workspaces (`go.work`) are supported. When a `go.work` file is detected at th
 
 ## Configuration
 
-Dependency update behavior is controlled by the `lint.modules.freshness` block in `.stagefreight.yml`. See [Linter Configuration](Linter.md) for the full freshness module schema including ecosystems, severity thresholds, ignore patterns, and package rules.
+Dependency update behavior is controlled by the `lint.modules.freshness` block in `.stagefreight.yml`. See [Lint](../config/lint.md) for the freshness module, including ecosystems, severity thresholds, ignore patterns, and package rules.

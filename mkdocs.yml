@@ -20,21 +20,11 @@ copyright: Copyright &copy; PrPlanIT
 docs_dir: docs
 
 # Never shipped to the site (kept in-repo for maintainers/contributors):
-#   architecture/plans/  → design RFCs + internal planning (RoadMap, To-Do, audits)
-# Temporarily excluded until Pass 2 merges/places them (feature docs → bucket pages;
-# CI/DependencyUpdate/Package-Distribution/Props get proper homes):
+#   architecture/plans/            → design RFCs + internal planning (RoadMap, To-Do, audits)
+#   config/aspirational/README.md  → index for the aspirational example configs (repo browsing)
 exclude_docs: |
   architecture/plans/
-  config/Docker.md
-  config/Release.md
-  config/Narrator.md
-  config/Props.md
-  config/Linter.md
-  config/Security.md
   config/aspirational/README.md
-  architecture/CI.md
-  architecture/DependencyUpdate.md
-  architecture/Package-Distribution.md
 
 theme:
   name: material
@@ -115,9 +105,11 @@ nav:
   - Quick Start: quickstart.md
   - Configuration:
       - Overview: config/index.md
+      - Concepts: config/concepts.md
       - Identity & Connectivity: config/identity.md
       - Builds & Tests: config/builds.md
       - Targets: config/targets.md
+      - Package Distribution: config/package-distribution.md
       - Narrate: config/narrate.md
       - Lint: config/lint.md
       - Policy: config/policy.md
@@ -127,6 +119,7 @@ nav:
   - Integrations:
       - Overview: integrations/index.md
       - Set-up: integrations/setup.md
+      - CI Setup: integrations/ci.md
       - GitLab: integrations/gitlab/README.md
       - GitLab Components: integrations/gitlab/GitLab-Components.md
       - Build Runner: integrations/gitlab/runner/docker/gitlab-runner-builds.md
@@ -137,6 +130,7 @@ nav:
   - How It Works:
       - Overview: architecture/index.md
       - Pipeline Flow: architecture/pipeline-flow.md
+      - Dependency Update: architecture/DependencyUpdate.md
       - Invariants: architecture/invariants.md
       - Boundaries: architecture/boundaries.md
       - CI Render: architecture/ci-render.md
