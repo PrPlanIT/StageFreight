@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 
@@ -21,6 +22,10 @@ func (m *yamlModule) Name() string         { return "yaml" }
 func (m *yamlModule) DefaultEnabled() bool { return true }
 func (m *yamlModule) AutoDetect() []string { return []string{"*.yml", "*.yaml"} }
 
+// goTemplateSpan matches a single Go-template action on one line, e.g.
+// `{{ .Values.x }}` or `{{- include "chart.name" . | nindent 4 -}}`.
+var goTemplateSpan = regexp.MustCompile(`\{\{.*?\}\}`)
+
 func (m *yamlModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Finding, error) {
 	ext := fileExt(file.Path)
 	if ext != ".yml" && ext != ".yaml" {
@@ -36,10 +41,25 @@ func (m *yamlModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Find
 		return nil, nil
 	}
 
+	// Go-template files (Helm chart templates, and any other {{ }}-templated
+	// manifest) are not literal YAML — a raw parse always fails on the template
+	// actions. Neutralize the actions first so we validate the YAML *skeleton*
+	// (structure + duplicate keys) without reporting template syntax as a defect.
+	// Rendering a template correctly needs values we don't have (that is
+	// `helm lint`'s job); when even the neutralized skeleton will not parse, the
+	// file is too template-dynamic to validate statically, so we stay silent
+	// rather than emit a false-positive parse error.
+	templated := bytes.Contains(data, []byte("{{"))
+	parseData := data
+	if templated {
+		parseData = neutralizeGoTemplate(data)
+	}
+
 	var findings []lint.Finding
 
-	// Parse YAML — checks syntax
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	// Parse YAML — checks syntax. Templated files never emit a parse-error
+	// finding: their template dynamics are not a real defect.
+	decoder := yaml.NewDecoder(bytes.NewReader(parseData))
 	for {
 		var doc any
 		err := decoder.Decode(&doc)
@@ -47,22 +67,52 @@ func (m *yamlModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Find
 			if err.Error() == "EOF" {
 				break
 			}
-			findings = append(findings, lint.Finding{
-				File:     file.Path,
-				Line:     1,
-				Module:   m.Name(),
-				Severity: lint.SeverityCritical,
-				Message:  fmt.Sprintf("YAML parse error: %v", err),
-			})
+			if !templated {
+				findings = append(findings, lint.Finding{
+					File:     file.Path,
+					Line:     1,
+					Module:   m.Name(),
+					Severity: lint.SeverityCritical,
+					Message:  fmt.Sprintf("YAML parse error: %v", err),
+				})
+			}
 			break
 		}
 	}
 
-	// Check for duplicate keys
-	dupFindings := m.checkDuplicateKeys(file, data)
-	findings = append(findings, dupFindings...)
+	// Duplicate-key detection runs on the (possibly neutralized) content via a
+	// structural yaml.Node decode, which tolerates duplicate keys and template
+	// placeholders. So genuine static duplicates are still reported even when the
+	// strict decode above bailed — on a duplicate, or on a template too dynamic
+	// to neutralize into parseable YAML (there it simply finds nothing).
+	findings = append(findings, m.checkDuplicateKeys(file, parseData)...)
 
 	return findings, nil
+}
+
+// neutralizeGoTemplate rewrites Go-template actions so the result parses as YAML
+// for structural checks. A line that is *only* a template action — control flow
+// (`{{- if }}` / `{{ end }}` / `{{ range }}`) or a whole-line render — is blanked
+// (line numbers preserved), while inline value actions (`key: {{ .x }}`) become a
+// unique scalar placeholder. Used only for parsing; the file on disk is untouched.
+func neutralizeGoTemplate(data []byte) []byte {
+	lines := bytes.Split(data, []byte("\n"))
+	var counter int
+	for i, line := range lines {
+		if !bytes.Contains(line, []byte("{{")) {
+			continue
+		}
+		if len(bytes.TrimSpace(goTemplateSpan.ReplaceAll(line, nil))) == 0 {
+			// Whole line is a template action — drop its content, keep the line.
+			lines[i] = nil
+			continue
+		}
+		lines[i] = goTemplateSpan.ReplaceAllFunc(line, func([]byte) []byte {
+			counter++
+			return []byte(fmt.Sprintf("sfTmpl%d", counter))
+		})
+	}
+	return bytes.Join(lines, []byte("\n"))
 }
 
 func (m *yamlModule) checkDuplicateKeys(file lint.FileInfo, data []byte) []lint.Finding {
