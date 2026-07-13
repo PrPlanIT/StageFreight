@@ -7,8 +7,8 @@ that gate them. Builds are referenced by targets via `build:`.
 The `builds:` blocks below are **generated per kind** (`docker`, `binary`, `command`) —
 exactly the fields each accepts.
 
---8<-- "docs/modules/config-reference.md:builds"
+--8<-- "docs/assets/modules/config-reference.md:builds"
 
---8<-- "docs/modules/config-reference.md:build_cache"
+--8<-- "docs/assets/modules/config-reference.md:build_cache"
 
---8<-- "docs/modules/config-reference.md:test"
+--8<-- "docs/assets/modules/config-reference.md:test"

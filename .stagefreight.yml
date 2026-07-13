@@ -41,7 +41,7 @@ builds:
   # shipped — never the previous release's schema — with no recompile. No image is pinned:
   # kind: command defaults to ci.image, which is just the sandbox — we execute the staged
   # static binary, not whatever the image ships. `worktree: true` lands the tree at the
-  # output's source path (docs/modules) at the start of Narrate, where the narrator include
+  # output's source path (docs/assets/modules) at the start of Narrate, where the narrator include
   # items assemble it into docs/reference; `{output}` names the path once. This is the
   # general shape any project uses: build your tool, stage it, run it.
   - id: reference
@@ -51,7 +51,7 @@ builds:
       as: stagefreight
     command: [./stagefreight, docs, generate, --output-dir, "{output}"]
     outputs:
-      - { type: tree, source: docs/modules, worktree: true }
+      - { type: tree, source: docs/assets/modules, worktree: true }
 
   - id: stagefreight-bin
     kind: binary
@@ -72,7 +72,7 @@ builds:
   # that the `docs` pages target deploys. The mkdocs-material image ships an
   # ENTRYPOINT ["mkdocs"], which collides with the engine's `sh -c` invocation, so we
   # pip-install into a plain python image instead. Uses the committed, generated
-  # reference under docs/reference + docs/modules (kept fresh by the `reference` build).
+  # reference under docs/reference + docs/assets/modules (kept fresh by the `reference` build).
   - id: docs-site
     kind: command
     image: docker.io/library/python:3.12-slim
@@ -591,7 +591,7 @@ narrate:
       items:
         - id: cli-reference
           kind: include
-          path: docs/modules/cli-reference.md
+          path: docs/assets/modules/cli-reference.md
           placement:
             between: ["<!-- sf:cli-reference:start -->", "<!-- sf:cli-reference:end -->"]
             mode: replace
@@ -600,7 +600,7 @@ narrate:
       items:
         - id: config-reference
           kind: include
-          path: docs/modules/config-reference.md
+          path: docs/assets/modules/config-reference.md
           placement:
             between: ["<!-- sf:config-reference:start -->", "<!-- sf:config-reference:end -->"]
             mode: replace
@@ -609,7 +609,7 @@ narrate:
     message: "refresh generated docs and badges"
     add:
       - "README.md"
-      - "docs/modules"
+      - "docs/assets/modules"
       - "docs/reference"
       - ".stagefreight/badges"
     push: true

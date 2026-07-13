@@ -16,10 +16,10 @@ Audition enforces freshness — stale CI files fail the pipeline.
 
 Self-hosted GitLab Runner deployments live under [`docker/`](docker/):
 
-- [`docker/runner-docker-compose.example.yml`](docker/runner-docker-compose.example.yml)
+- [`runner/docker/docker-compose-gitlab_runner-minimal.yml`](runner/docker/docker-compose-gitlab_runner-minimal.yml)
   — minimal reference: GitLab Runner with persistent DinD and StageFreight cache.
-- [`docker/runner-compose.yml`](docker/runner-compose.yml) — runner + DinD.
-- [`docker/runner-compose.buildkitd.yml`](docker/runner-compose.buildkitd.yml)
+- [`runner/docker/docker-compose-gitlab_runner-minimal.yml`](runner/docker/docker-compose-gitlab_runner-minimal.yml) — runner + DinD.
+- [`runner/docker/docker-compose-gitlab_runner-buildkitd.yml`](runner/docker/docker-compose-gitlab_runner-buildkitd.yml)
   — runner + persistent buildkitd (mTLS) + DinD, for fast builds. The Azure
   equivalent is [`../azuredevops/k8s/`](../azuredevops/k8s/).
 

@@ -163,7 +163,7 @@ there is something to enforce against:
   (The pure `deriveAuditionContract`/`performGate` are unit-tested — this is close to
   promotable to a hard invariant once the perform→audition edge has an enforcement test.)
   The broader stewardship vision this grew from is recorded, superseded, in
-  [`audition-transformation.md`](audition-transformation.md).
+  `audition-transformation` (design note, in-repo under `architecture/plans/`).
 
 - **Mutation safety — the second of two distribution concerns.** A distribution
   capability answers two independent questions, with one home for each: (1) *should

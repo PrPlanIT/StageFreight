@@ -2,12 +2,12 @@
 
 The fastest way to learn StageFreight is to read a **real `.stagefreight.yml` that's actually
 running.** Below are live configs across different project archetypes — open the one closest
-to yours, copy the shape, then reach for [Configuration](../configuration/index.md) when you
+to yours, copy the shape, then reach for [Configuration](config/index.md) when you
 want a knob it doesn't show.
 
 !!! tip "This is the happy path"
     These configs are deliberately representative, not exhaustive. If you want a capability
-    you don't see here, check [Configuration](../configuration/index.md) to see whether the
+    you don't see here, check [Configuration](config/index.md) to see whether the
     knob exists yet and what it accepts.
 
 ## Pick the scenario closest to yours
@@ -24,5 +24,5 @@ want a knob it doesn't show.
 !!! note "More scenarios coming"
     A **GitLab CI/CD component** publisher (`kind: gitlab-component` — pushes reusable
     pipeline components to the GitLab component catalog) will be added once a public example
-    repo opens up. Until then, [Configuration › Targets](../configuration/targets.md)
+    repo opens up. Until then, [Configuration › Targets](config/targets.md)
     documents it.

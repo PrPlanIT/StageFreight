@@ -9,7 +9,7 @@ it owns, the values they accept, and an **annotated YAML block** generated direc
 code — so the options shown here can never drift from what the binary actually parses.
 
 !!! tip "Happy path vs. every knob"
-    New here? Start with **[Quick Start](../quickstart/index.md)** — real, running configs you
+    New here? Start with **[Quick Start](../quickstart.md)** — real, running configs you
     can copy. Come to Configuration when you need a specific knob and want to know whether it
     exists yet and what it accepts.
 

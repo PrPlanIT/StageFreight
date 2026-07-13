@@ -11,4 +11,4 @@ conditions must match — AND logic).
 The blocks below are **generated from the config source** — for each kind, exactly the
 fields it accepts, with each field's meaning, allowed values, and whether it's required.
 
---8<-- "docs/modules/config-reference.md:targets"
+--8<-- "docs/assets/modules/config-reference.md:targets"

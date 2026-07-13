@@ -31,4 +31,4 @@ pulls."** Both compose through the narrator, so they coexist happily in one READ
 
 ## Reference
 
---8<-- "docs/modules/config-reference.md:narrate"
+--8<-- "docs/assets/modules/config-reference.md:narrate"

@@ -37,7 +37,7 @@ integration folders carry the checklists.
 **GitLab standout:** StageFreight can publish a GitLab **CI Catalog component**
 and link it from the release. (Driving StageFreight *via* a component is
 deprecated — render is the path — but the publish/discoverability capability
-stays. See [`../docs/GitLab-Components.md`](../docs/GitLab-Components.md).)
+stays. See [`gitlab/GitLab-Components.md`](gitlab/GitLab-Components.md).)
 
 ## Registries
 

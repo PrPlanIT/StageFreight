@@ -1,7 +1,7 @@
 # How It Works
 
 A high-level tour of what StageFreight actually does when a pipeline runs, and the ideas
-behind it. Read this to build a mental model; drop into [Configuration](../configuration/index.md)
+behind it. Read this to build a mental model; drop into [Configuration](../config/index.md)
 when you want to *drive* a specific piece.
 
 ## The pipeline, phase by phase
@@ -21,13 +21,11 @@ the phases whose behavior is documented, rather than assert an exact graph.
 
 ## Deep dives
 
-The architecture notes below explain the load-bearing mechanisms:
+The notes below explain the load-bearing mechanisms:
 
-- [Pipeline flow](../architecture/pipeline-flow.md) · [Boundaries](../architecture/boundaries.md) · [Invariants](../architecture/invariants.md)
-- [Perform build contributors](../architecture/perform-build-contributors.md) · [Multi-arch strategy](../architecture/multi-arch-strategy.md) · [Transport rollout](../architecture/transport-rollout.md)
-- [Release channels](../architecture/release-channels.md) · [Signing trust model](../architecture/signing-trust-model.md)
-- [GitOps validation authority](../architecture/gitops-validation-authority-model.md) · [Persistence & identity](../architecture/persistence-identity.md)
-
-!!! note "Work in progress"
-    This tab will grow into a curated set of high-level breakdowns; the links above are the
-    existing engineering deep-dives.
+- [Pipeline flow](pipeline-flow.md) — the authoritative phase graph and how phases gate.
+- [Invariants](invariants.md) · [Boundaries](boundaries.md) — the hard rules and package structure.
+- [Perform build contributors](perform-build-contributors.md) — how artifacts are produced.
+- [Content-store lifecycle](content-store-lifecycle.md) · [Persistence & identity](persistence-identity.md) — carrying artifact bytes across phases.
+- [CI render](ci-render.md) — how a forge-neutral pipeline becomes native CI YAML.
+- [Runtime spec](runtime-spec.md) — the phase model and capability binding.

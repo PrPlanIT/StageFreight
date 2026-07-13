@@ -2,7 +2,7 @@
 
 Our runner for **GitOps / Kubernetes** pipelines (`lifecycle.mode: gitops`) — it's where we
 run Flux manifest validation and reconciliation. It's a simpler stack than the
-[Build Runner](gitlab-runner.md): **DinD** + the **GitLab runner** with the docker executor,
+[Build Runner](gitlab-runner-builds.md): **DinD** + the **GitLab runner** with the docker executor,
 and no BuildKit (GitOps repos don't build images).
 
 ```yaml

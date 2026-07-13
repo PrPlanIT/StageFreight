@@ -7,12 +7,12 @@ Each mode has its own config section.
 
 !!! example "Real examples"
     `dungeon` runs `mode: gitops`; `MaintenancePolicy` runs `mode: governance` — see
-    [Quick Start](../quickstart/index.md).
+    [Quick Start](../quickstart.md).
 
---8<-- "docs/modules/config-reference.md:lifecycle"
+--8<-- "docs/assets/modules/config-reference.md:lifecycle"
 
---8<-- "docs/modules/config-reference.md:gitops"
+--8<-- "docs/assets/modules/config-reference.md:gitops"
 
---8<-- "docs/modules/config-reference.md:governance"
+--8<-- "docs/assets/modules/config-reference.md:governance"
 
---8<-- "docs/modules/config-reference.md:docker"
+--8<-- "docs/assets/modules/config-reference.md:docker"
