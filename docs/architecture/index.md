@@ -1,4 +1,4 @@
-# How It Works
+# Design
 
 A high-level tour of what StageFreight actually does when a pipeline runs, and the ideas
 behind it. Read this to build a mental model; drop into [Configuration](../config/index.md)
@@ -6,18 +6,21 @@ when you want to *drive* a specific piece.
 
 ## The pipeline, phase by phase
 
-A run moves through a sequence of phases; the exact graph depends on `lifecycle.mode`. The
-load-bearing phases in image mode are:
+A run moves through five load-bearing phases. The exact graph depends on `lifecycle.mode`,
+but the canonical lifecycle is:
 
-- **Lint** — content, freshness, secret, and hygiene gates.
+**audition → perform → review → publish → narrate**
+
+- **Audition** — the pre-flight gate that runs before anything is built: lint (content,
+  freshness, secret, and hygiene checks), and in GitOps mode the Kustomize/manifest
+  validation.
 - **Perform** — produce artifacts in containers: images, binaries, `kind: command` outputs (docs).
-- **Review** — inspect/approve produced artifacts before anything is published.
-- **Narrate** — compose repo-facing content (badges, includes) and commit it.
+- **Review** — inspect and approve produced artifacts before anything is published.
 - **Publish** — push images, cut releases, deploy pages, run retention.
+- **Narrate** — compose repo-facing content (badges, includes) and commit it.
 
-There are further phases (e.g. `audition`) and mode-specific graphs. The authoritative phase
-sequence lives in [Pipeline flow](../architecture/pipeline-flow.md); the list above covers
-the phases whose behavior is documented rather than asserting an exact graph.
+The authoritative phase sequence and how each phase gates the next live in
+[Pipeline flow](pipeline-flow.md).
 
 ## Deep dives
 

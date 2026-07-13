@@ -1,6 +1,6 @@
-# Documentation Map
+# Directory
 
-Everything on this site, one level deep — use it as the table of contents. New here? The
+Everything here, one level deep — the table of contents for the whole site. New here? The
 fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/index.md)**.
 
 ## Start here
@@ -12,7 +12,7 @@ fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/
   the cross-cutting ideas in **[Concepts](config/concepts.md)**.
 - **[Integrations](integrations/index.md)** — render your CI pipeline, stand up a runner,
   forge/registry support.
-- **[How It Works](architecture/index.md)** — the phase model and the architecture behind it.
+- **[Design](architecture/index.md)** — the phase model and the architecture behind it.
 
 ## Reference
 
@@ -27,5 +27,6 @@ fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/
 
 ## About
 
-- **[Philosophy](philosophy.md)** — what StageFreight is for, and the stance behind it.
+- **[About StageFreight](about.md)** — what it is, at a glance.
+- **[Philosophy](philosophy.md)** — the stance behind it.
 - **[Known Issues](known-issues.md)** · **[Licensing](licensing.md)**

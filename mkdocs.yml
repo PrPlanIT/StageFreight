@@ -102,8 +102,19 @@ extra_css:
 # ── Navigation ──────────────────────────────────────────────────────────
 nav:
   - Home: README.md
-  - Documentation Map: overview.md
+  - Directory: overview.md
+  - Features: features.md
+  - Integrations:
+      - Overview: integrations/index.md
+      - Set-up: integrations/setup.md
+      - CI Setup: integrations/ci.md
+      - GitLab: integrations/gitlab/README.md
+      - GitLab Components: integrations/gitlab/GitLab-Components.md
+      - Build Runner: integrations/gitlab/runner/docker/gitlab-runner-builds.md
+      - GitOps Runner: integrations/gitlab/runner/docker/gitlab-runner-gitops-k8s.md
+      - Azure DevOps: integrations/azuredevops/README.md
   - Quick Start: quickstart.md
+  - Screenshots: screenshots.md
   - Configuration:
       - Overview: config/index.md
       - Concepts: config/concepts.md
@@ -117,18 +128,8 @@ nav:
       - Lifecycle Modes: config/lifecycle.md
       - Signing: config/signing.md
       - Full Schema Reference: reference/Config.md
-  - Integrations:
-      - Overview: integrations/index.md
-      - Set-up: integrations/setup.md
-      - CI Setup: integrations/ci.md
-      - GitLab: integrations/gitlab/README.md
-      - GitLab Components: integrations/gitlab/GitLab-Components.md
-      - Build Runner: integrations/gitlab/runner/docker/gitlab-runner-builds.md
-      - GitOps Runner: integrations/gitlab/runner/docker/gitlab-runner-gitops-k8s.md
-      - Azure DevOps: integrations/azuredevops/README.md
   - CLI Reference: reference/CLI.md
-  - Features: features.md
-  - How It Works:
+  - Design:
       - Overview: architecture/index.md
       - Pipeline Flow: architecture/pipeline-flow.md
       - Dependency Update: architecture/DependencyUpdate.md
@@ -137,8 +138,8 @@ nav:
       - CI Render: architecture/ci-render.md
       - Content Store Lifecycle: architecture/content-store-lifecycle.md
       - Perform Build Contributors: architecture/perform-build-contributors.md
-  - Screenshots: screenshots.md
   - About:
+      - Overview: about.md
       - Philosophy: philosophy.md
       - Known Issues: known-issues.md
       - Licensing: licensing.md

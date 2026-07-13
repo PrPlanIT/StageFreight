@@ -17,7 +17,7 @@ A **declarative lifecycle runtime**. One `.stagefreight.yml` drives
 one Go binary in place of fragile shell-script pipelines. It builds and ships itself.
 
 [Quick Start](quickstart.md){ .md-button .md-button--primary }
-[Documentation Map](overview.md){ .md-button }
+[Directory](overview.md){ .md-button }
 [View on GitHub](https://github.com/PrPlanIT/StageFreight){ .md-button }
 
 </div>
