@@ -129,9 +129,10 @@ These rules are intended for future automated checking.
 - **Smells (should trigger review pushback):** release authoring, pipeline triggering,
   configuration mutation, provenance generation, signing, notification fanout
 
-## Enforcement (planned)
+## Enforcement
 
-Static checks should fail CI if:
-- `cfg.` appears outside Cobra wrappers in `src/cli/cmd`
-- `src/registry` imports `src/build`
-- `src/artifact` imports any internal package
+Today these boundaries are enforced by **convention and code review**, not a mechanical
+gate — the rules above are the review checklist. A future static check could fail CI on the
+clear-cut violations (`cfg.` outside the Cobra wrappers in `src/cli/cmd`, `src/registry`
+importing `src/build`, `src/artifact` importing an internal package), but that check isn't
+wired yet — treat this page as the authority in the meantime.

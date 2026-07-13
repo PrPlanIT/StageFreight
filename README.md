@@ -38,9 +38,9 @@ A declarative lifecycle runtime that governs Git as the source of truth, enforci
 | ------------------- | --------------------------------------------------------------- |
 | CLI Reference       | [Full Command Reference](docs/reference/CLI.md)                |
 | Config Reference    | [Full Config Schema](docs/reference/Config.md)                 |
-| Manifest Examples   | [24 Example Configs](docs/config/README.md) · [Quick Examples](docs/examples/) |
-| Roadmap             | [Full Vision](docs/RoadMap.md)                                  |
-| GitLab Components | [Publishing GitLab Components](docs/GitLab-Components.md) |
+| Manifest Examples   | [Aspirational Example Configs](docs/config/aspirational/) · [Quick Examples](docs/config/examples/) |
+| Roadmap             | [Full Vision](docs/architecture/plans/RoadMap.md)              |
+| GitLab Components | [Publishing GitLab Components](docs/integrations/gitlab/GitLab-Components.md) |
 
 ---
 
@@ -150,4 +150,4 @@ Any resemblance to working software is entirely intentional but not guaranteed. 
 
 ## License
 
-Distributed under the [AGPL-3.0-only](LICENSE) License. See [LICENSING.md](docs/LICENSING.md) for commercial licensing.
+Distributed under the [AGPL-3.0-only](LICENSE) License. See [licensing](docs/licensing.md) for commercial licensing.

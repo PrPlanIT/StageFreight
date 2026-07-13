@@ -2,7 +2,7 @@
 
 StageFreight is configured through **one file at the repo root: `.stagefreight.yml`.** There
 is no other config surface — no per-command flags to memorize, no scattered dotfiles. Every
-capability on this site maps to keys in that one file.
+capability documented here maps to keys in that one file.
 
 This section is the **complete key reference**, grouped by concern. Each page lists the keys
 it owns, the values they accept, and an **annotated YAML block** generated directly from the

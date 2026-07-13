@@ -16,8 +16,8 @@ load-bearing phases in image mode are:
 - **Publish** — push images, cut releases, deploy pages, run retention.
 
 There are further phases (e.g. `audition`) and mode-specific graphs. The authoritative phase
-sequence lives in [Pipeline flow](../architecture/pipeline-flow.md) — I've kept this list to
-the phases whose behavior is documented, rather than assert an exact graph.
+sequence lives in [Pipeline flow](../architecture/pipeline-flow.md); the list above covers
+the phases whose behavior is documented rather than asserting an exact graph.
 
 ## Deep dives
 
@@ -26,6 +26,5 @@ The notes below explain the load-bearing mechanisms:
 - [Pipeline flow](pipeline-flow.md) — the authoritative phase graph and how phases gate.
 - [Invariants](invariants.md) · [Boundaries](boundaries.md) — the hard rules and package structure.
 - [Perform build contributors](perform-build-contributors.md) — how artifacts are produced.
-- [Content-store lifecycle](content-store-lifecycle.md) · [Persistence & identity](persistence-identity.md) — carrying artifact bytes across phases.
+- [Content-store lifecycle](content-store-lifecycle.md) — carrying artifact bytes across phases.
 - [CI render](ci-render.md) — how a forge-neutral pipeline becomes native CI YAML.
-- [Runtime spec](runtime-spec.md) — the phase model and capability binding.

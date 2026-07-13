@@ -102,6 +102,7 @@ extra_css:
 # ── Navigation ──────────────────────────────────────────────────────────
 nav:
   - Home: README.md
+  - Documentation Map: overview.md
   - Quick Start: quickstart.md
   - Configuration:
       - Overview: config/index.md
@@ -136,9 +137,8 @@ nav:
       - CI Render: architecture/ci-render.md
       - Content Store Lifecycle: architecture/content-store-lifecycle.md
       - Perform Build Contributors: architecture/perform-build-contributors.md
-      - Persistence & Identity: architecture/persistence-identity.md
-      - Runtime Spec: architecture/runtime-spec.md
   - Screenshots: screenshots.md
   - About:
+      - Philosophy: philosophy.md
       - Known Issues: known-issues.md
       - Licensing: licensing.md

@@ -1,30 +1,88 @@
+---
+hide:
+  - navigation
+  - toc
+---
+
+<div class="sf-hero" markdown>
+
+![StageFreight](assets/logo.png){ .sf-hero-logo }
+
 # StageFreight
 
-A **declarative lifecycle runtime** — GitOps, Kubernetes, Docker, and CI ecosystems driven
-from **one file** in your repo: [`.stagefreight.yml`](config/index.md).
+<p class="sf-tagline"><em>The world's a stage, give it a pipeline.</em></p>
 
-StageFreight owns the build → sign → release → publish → retain lifecycle so projects don't
-need ad-hoc CI scripts. It dogfoods itself: everything here (this docs site included) is built
-and shipped by StageFreight.
+A **declarative lifecycle runtime**. One `.stagefreight.yml` drives
+**build → sign → release → publish → retain** across GitOps, Kubernetes, Docker, and CI —
+one Go binary in place of fragile shell-script pipelines. It builds and ships itself.
 
-## Start here
+[Quick Start](quickstart.md){ .md-button .md-button--primary }
+[Documentation Map](overview.md){ .md-button }
+[View on GitHub](https://github.com/PrPlanIT/StageFreight){ .md-button }
 
-- **[Quick Start](quickstart.md)** — real, running `.stagefreight.yml` configs across
-  archetypes; copy the one closest to yours.
-- **[Configuration](config/index.md)** — the complete `.stagefreight.yml` reference, grouped
-  by concern (identity, builds, targets, narrate, lint, policy, lifecycle, signing).
-- **[Integrations](integrations/index.md)** — stand up a runner (build + GitOps), CI setup,
-  forge/registry support.
-- **[How It Works](architecture/index.md)** — the phase model and the architecture behind it.
+</div>
 
-## Reference
+<div class="grid cards sf-features" markdown>
 
-- [CLI Reference](reference/CLI.md) — every command, flag, and subcommand (generated).
-- [Full Schema Reference](reference/Config.md) — the exhaustive `.stagefreight.yml` schema
-  (generated).
+-   **Detect → Plan → Build**
 
-## More
+    ---
 
-- [Features](features.md) — what StageFreight does vs. hand-rolled CI.
-- [Screenshots](screenshots.md) — the pipeline output in practice.
-- [Known Issues](known-issues.md) · [Licensing](licensing.md)
+    Finds Dockerfiles, resolves tags from git, builds multi-platform images via `docker
+    buildx` — single command, no glue.
+
+    [Builds & Tests →](config/builds.md)
+
+-   **Multi-Registry Push**
+
+    ---
+
+    Docker Hub, GHCR, GitLab, Quay, Harbor, JFrog, Gitea — with branch/tag routing and
+    digest-preserving promotion.
+
+    [Targets →](config/targets.md)
+
+-   **Cross-Forge Releases**
+
+    ---
+
+    Cut releases on GitLab, GitHub, or Gitea with generated notes, badges, and mirror sync
+    across forges.
+
+    [Targets → Release →](config/targets.md#release-cut-forge-releases)
+
+-   **Security Scanning**
+
+    ---
+
+    Trivy + Grype vulnerability scans and a Syft SBOM, with detail levels tuned per branch
+    or tag.
+
+    [Policy → Security →](config/policy.md#security-scanning)
+
+-   **Retention Policies**
+
+    ---
+
+    Restic-style additive retention (`keep_last` / daily / weekly / monthly / yearly) across
+    every registry provider.
+
+    [Concepts → Retention →](config/concepts.md#retention-policies)
+
+-   **Self-Building**
+
+    ---
+
+    StageFreight builds StageFreight — the image, the docs, and this very site are produced
+    by its own pipeline.
+
+    [Screenshots →](screenshots.md)
+
+</div>
+
+<div class="sf-hero-foot" markdown>
+
+**One file. Every stage. This is theatre.** →
+[Browse the full documentation](overview.md)
+
+</div>
