@@ -27,6 +27,5 @@ fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/
 
 ## About
 
-- **[About StageFreight](about.md)** — what it is, at a glance.
-- **[Philosophy](philosophy.md)** — the stance behind it.
+- **[Philosophy](philosophy.md)** — what StageFreight is for, and the stance behind it.
 - **[Known Issues](known-issues.md)** · **[Licensing](licensing.md)**

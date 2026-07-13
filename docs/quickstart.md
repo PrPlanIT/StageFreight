@@ -21,6 +21,29 @@ want a knob it doesn't show.
 | **Static site → Cloudflare Pages** | Docs site built + deployed on release | `kind: command` (mkdocs build), `kind: pages` (Cloudflare) | [StageFreight](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) |
 | **Dogfood: everything at once** | StageFreight building itself | every target kind, `kind: command` docs build, `kind: pages`, self-hosted release channels | [StageFreight](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) |
 
+## From config to a running pipeline
+
+A `.stagefreight.yml` describes *what* to do. Two more steps turn it into a live pipeline:
+
+1. **Render your CI file.** StageFreight owns the pipeline document — you don't hand-write or
+   copy it, you render it from your config and commit the result:
+
+    ```bash
+    stagefreight ci render github --write     # or: gitlab · gitea · forgejo
+    git add .github/workflows/stagefreight.yml
+    stagefreight commit -t ci -m "render pipeline"
+    ```
+
+    Each forge has its own output path and token — see [CI Setup](integrations/ci.md).
+
+2. **Have a runner.** **GitHub Actions runs on GitHub-hosted runners natively** — nothing to
+   stand up. GitLab and other self-hosted setups need a runner with Docker + BuildKit;
+   [Integrations](integrations/index.md) carries the runner deployments.
+
+Then **push** (or **tag**) and the pipeline runs **audition → perform → review → publish →
+narrate**. Forge tokens and registry credentials resolve from CI variables at run time — see
+[Concepts → Credentials](config/concepts.md#credential-resolution).
+
 !!! note "More scenarios coming"
     A **GitLab CI/CD component** publisher (`kind: gitlab-component` — pushes reusable
     pipeline components to the GitLab component catalog) will be added once a public example

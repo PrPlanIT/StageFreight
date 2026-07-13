@@ -1,0 +1,50 @@
+{#-
+  Full-page landing template. Used only by docs/README.md (template: home.html).
+  Replaces the navigation tab bar with a full-bleed hero; the page's own markdown
+  (feature grid + closing line) renders below. The content block is overridden to
+  suppress Material's auto-injected page-title H1 ("Home") above the cards.
+-#}
+{% extends "main.html" %}
+
+{% block tabs %}
+<section class="sf-splash md-typeset">
+  <div class="sf-splash__inner">
+    <img src="{{ 'assets/logo.png' | url }}" alt="StageFreight" class="sf-splash__logo">
+    <h1 class="sf-splash__title">StageFreight</h1>
+    <p class="sf-splash__tagline">The world's a stage, give it a pipeline.</p>
+    <p class="sf-splash__lead">
+      A declarative lifecycle runtime. One <code>.stagefreight.yml</code> drives
+      <strong>build → sign → release → publish → retain</strong> across GitOps, Kubernetes,
+      Docker, and CI — one Go binary in place of fragile shell-script pipelines. It builds
+      and ships itself.
+    </p>
+    <div class="sf-splash__cta">
+      <a href="{{ 'quickstart/' | url }}" class="md-button md-button--primary">Quick Start</a>
+      <a href="{{ 'overview/' | url }}" class="md-button">Documentation</a>
+      <a href="{{ config.repo_url }}" class="md-button">View on GitHub</a>
+    </div>
+    <div class="sf-splash__badges">
+      <a href="https://hub.docker.com/r/prplanit/stagefreight/tags" target="_blank" rel="noopener">
+        <img loading="lazy" alt="Latest release version"
+          src="https://img.shields.io/docker/v/prplanit/stagefreight?sort=semver&style=flat-square&logo=docker&logoColor=white&label=version&color=1d63ed">
+      </a>
+      <a href="https://hub.docker.com/r/prplanit/stagefreight" target="_blank" rel="noopener">
+        <img loading="lazy" alt="Docker Hub pulls"
+          src="https://img.shields.io/docker/pulls/prplanit/stagefreight?style=flat-square&logo=docker&logoColor=white&label=pulls&color=1d63ed">
+      </a>
+      <a href="https://github.com/PrPlanIT/StageFreight/pkgs/container/stagefreight" target="_blank" rel="noopener">
+        <img loading="lazy" alt="GitHub Container Registry"
+          src="https://img.shields.io/badge/ghcr.io-container-24292e?style=flat-square&logo=github&logoColor=white">
+      </a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+<div class="md-content" data-md-component="content">
+  <article class="md-content__inner md-typeset">
+    {{ page.content }}
+  </article>
+</div>
+{% endblock %}

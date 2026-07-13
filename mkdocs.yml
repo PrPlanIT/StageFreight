@@ -28,6 +28,7 @@ exclude_docs: |
 
 theme:
   name: material
+  custom_dir: overrides
   logo: assets/logo-192.png
   favicon: assets/logo-192.png
   palette:
@@ -139,7 +140,6 @@ nav:
       - Content Store Lifecycle: architecture/content-store-lifecycle.md
       - Perform Build Contributors: architecture/perform-build-contributors.md
   - About:
-      - Overview: about.md
       - Philosophy: philosophy.md
       - Known Issues: known-issues.md
       - Licensing: licensing.md

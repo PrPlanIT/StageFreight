@@ -1,26 +1,10 @@
 ---
+title: StageFreight
+template: home.html
 hide:
   - navigation
   - toc
 ---
-
-<div class="sf-hero" markdown>
-
-![StageFreight](assets/logo.png){ .sf-hero-logo }
-
-# StageFreight
-
-<p class="sf-tagline"><em>The world's a stage, give it a pipeline.</em></p>
-
-A **declarative lifecycle runtime**. One `.stagefreight.yml` drives
-**build → sign → release → publish → retain** across GitOps, Kubernetes, Docker, and CI —
-one Go binary in place of fragile shell-script pipelines. It builds and ships itself.
-
-[Quick Start](quickstart.md){ .md-button .md-button--primary }
-[Directory](overview.md){ .md-button }
-[View on GitHub](https://github.com/PrPlanIT/StageFreight){ .md-button }
-
-</div>
 
 <div class="grid cards sf-features" markdown>
 
@@ -82,7 +66,7 @@ one Go binary in place of fragile shell-script pipelines. It builds and ships it
 
 <div class="sf-hero-foot" markdown>
 
-**One file. Every stage. This is theatre.** →
+**There's a setting for every stage — this is theatre.** →
 [Browse the full documentation](overview.md)
 
 </div>

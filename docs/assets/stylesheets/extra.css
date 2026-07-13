@@ -48,33 +48,59 @@
   width: auto;
 }
 
-/* ── Landing hero ─────────────────────────────────────────────────────
-   Applies only to the home lander (Home hides nav + toc). */
-.sf-hero {
+/* ── Landing splash (full-bleed hero) ─────────────────────────────────
+   Rendered by overrides/home.html in place of the nav tab bar. Full width,
+   brand-green gradient; the page markdown (feature grid) sits below it. */
+.sf-splash {
+  background: linear-gradient(155deg,
+    var(--sf-green-deep) 0%, var(--sf-green) 55%, var(--sf-green-lm) 100%);
+  color: #fff;
+  padding: 3.6rem 1rem 3.2rem;
   text-align: center;
-  max-width: 46rem;
-  margin: 1.5rem auto 2.5rem;
 }
-.sf-hero .sf-hero-logo {
-  width: 160px;
-  height: auto;
-  margin: 0 auto .5rem;
+.sf-splash__inner { max-width: 44rem; margin: 0 auto; }
+.sf-splash__logo {
+  width: 148px; height: auto;
+  filter: drop-shadow(0 .15rem .5rem rgba(0,0,0,.25));
 }
-.md-typeset .sf-hero h1 {
-  font-weight: 800;
-  font-size: 2.6rem;
-  margin: .2rem 0 .4rem;
+.md-typeset .sf-splash__title {
+  color: #fff; font-weight: 800; font-size: 2.8rem;
+  line-height: 1.1; margin: .45rem 0 .15rem; border: 0;
 }
-.md-typeset .sf-hero .sf-tagline {
-  font-size: 1.1rem;
-  color: var(--sf-green-lm);
-  margin: 0 0 1rem;
+.sf-splash__tagline {
+  font-size: 1.16rem; font-style: italic; opacity: .95; margin: 0 0 1rem;
 }
-.md-typeset .sf-hero p { font-size: .82rem; }
-/* Center the button row and give the buttons some air. */
-.sf-hero .md-button {
-  margin: .4rem .3rem 0;
+.sf-splash__lead {
+  font-size: .9rem; line-height: 1.6; opacity: .92;
+  max-width: 38rem; margin: 0 auto 1.5rem;
 }
+.sf-splash__lead code {
+  background: rgba(255,255,255,.16); color: #fff;
+}
+.sf-splash__cta .md-button {
+  margin: .35rem .3rem 0; color: #fff; border-color: rgba(255,255,255,.65);
+}
+.sf-splash__cta .md-button:hover {
+  background: rgba(255,255,255,.16); border-color: #fff;
+}
+.sf-splash__cta .md-button--primary {
+  background: #fff; color: var(--sf-green-deep); border-color: #fff;
+}
+.sf-splash__cta .md-button--primary:hover {
+  background: color-mix(in srgb, #fff 88%, var(--sf-green-light));
+  color: var(--sf-green-deep);
+}
+/* Live registry badges under the splash CTAs (Docker pulls, image size, GHCR). */
+.sf-splash__badges {
+  display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
+  gap: .5rem; margin-top: 1.5rem;
+}
+.sf-splash__badges a { display: inline-flex; line-height: 0; }
+.sf-splash__badges img { height: 1.35rem; width: auto; }
+
+/* Feature grid sits directly under the splash — widen it and add breathing room. */
+.md-typeset .sf-features { margin-top: 2rem; }
+.md-main__inner:has(.sf-features) { margin-top: 0; }
 
 /* Feature grid: brand-tinted card borders, hover lift. */
 .md-typeset .sf-features.grid.cards > ul > li,
