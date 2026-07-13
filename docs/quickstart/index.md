@@ -18,10 +18,10 @@ want a knob it doesn't show.
 | **CLI / binary distribution** | Go binary + image + downloadable archives | `kind: binary`, `kind: binary-archive`, `kind: release` with checksums | [HASteward](https://github.com/PrPlanIT/HASteward/blob/main/.stagefreight.yml) · [Dragonfly](https://github.com/HomeLabHD/dragonfly/blob/main/.stagefreight.yml) · [Jetpack](https://github.com/HomeLabHD/jetpack/blob/main/.stagefreight.yml) |
 | **GitOps repo** | Flux manifest validation, no image build | `lifecycle: { mode: gitops }`, cluster auth | [Dungeon](https://github.com/SoFMeRight/Dungeon/blob/main/.stagefreight.yml) |
 | **Governance / control repo** | Policy reconciliation across repos | `lifecycle: { mode: governance }` | [MaintenancePolicy](https://github.com/PrPlanIT/MaintenancePolicy/blob/main/.stagefreight.yml) |
-| **Dogfood: everything at once** | StageFreight building itself | every target kind, `kind: command` docs build, self-hosted release channels | [StageFreight](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) |
+| **Static site → Cloudflare Pages** | Docs site built + deployed on release | `kind: command` (mkdocs build), `kind: pages` (Cloudflare) | [StageFreight](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) |
+| **Dogfood: everything at once** | StageFreight building itself | every target kind, `kind: command` docs build, `kind: pages`, self-hosted release channels | [StageFreight](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) |
 
 !!! note "More scenarios coming"
-    A couple of archetypes aren't public yet and will be added as those repos open up:
-    **static site → Cloudflare Pages** (`kind: pages`) and **Ansible collection**
-    (`kind: gitlab-component`). Until then, [Configuration › Targets](../configuration/targets.md)
-    documents both.
+    One archetype isn't public yet and will be added as its repo opens up: an **Ansible
+    collection** (`kind: gitlab-component`). Until then,
+    [Configuration › Targets](../configuration/targets.md) documents it.
