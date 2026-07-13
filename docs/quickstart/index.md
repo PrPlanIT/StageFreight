@@ -22,6 +22,7 @@ want a knob it doesn't show.
 | **Dogfood: everything at once** | StageFreight building itself | every target kind, `kind: command` docs build, `kind: pages`, self-hosted release channels | [StageFreight](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) |
 
 !!! note "More scenarios coming"
-    One archetype isn't public yet and will be added as its repo opens up: an **Ansible
-    collection** (`kind: gitlab-component`). Until then,
-    [Configuration › Targets](../configuration/targets.md) documents it.
+    A **GitLab CI/CD component** publisher (`kind: gitlab-component` — pushes reusable
+    pipeline components to the GitLab component catalog) will be added once a public example
+    repo opens up. Until then, [Configuration › Targets](../configuration/targets.md)
+    documents it.
