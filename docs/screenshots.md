@@ -1,9 +1,10 @@
 # Screenshots
 
 StageFreight dogfoods itself — everything on this site is built and shipped by StageFreight.
-The captures below are **real pipelines**: StageFreight building StageFreight, the same run
-rendered natively in both GitLab CI and GitHub Actions, plus a GitOps run. This is what the
-structured, phase-by-phase output actually looks like.
+The captures below are **real pipelines**: StageFreight building itself on **GitLab CI**, and
+StageFreight building a **downstream project on GitHub Actions** — the same tool and the same
+phases, rendered natively per forge — plus a GitOps run. This is what the structured,
+phase-by-phase output actually looks like.
 
 ## The canonical pipeline
 
@@ -14,9 +15,10 @@ narrate** — the same graph regardless of forge:
 
 ## Build pipeline, phase by phase
 
-The same StageFreight build, shown in GitLab and GitHub. Each phase renders identical
-structured panels — only the CI chrome differs. The numbered captures are consecutive
-segments of one (tall) job log.
+The five canonical phases, side by side: **GitLab** shows StageFreight building itself,
+**GitHub** shows it building a downstream project. Each phase renders the same structured
+panels regardless of forge or project — only the CI chrome and the repo differ. The numbered
+captures are consecutive segments of one (tall) job log.
 
 ### 1. Audition — lint, freshness, secret, and hygiene gates
 

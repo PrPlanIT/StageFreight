@@ -1,76 +1,80 @@
 # CI Integration
 
-StageFreight ships provider skeletons that translate CI context into a normalized contract. All behavior is configured in `.stagefreight.yml` — the skeleton only handles environment mapping and job structure.
+StageFreight **owns your pipeline document**. You don't hand-write CI YAML or copy a
+per-forge skeleton — you *render* the pipeline from `.stagefreight.yml` and commit the
+result. The generated file only translates forge-native context into `SF_CI_*` variables and
+calls `stagefreight ci run <phase>`; all behavior lives in your config.
 
-## GitLab CI
+## Render the pipeline
 
-### Skeleton
-
-Copy `integrations/gitlab/.gitlab-ci.yml` into your project root. The skeleton defines five stages:
-
-| Stage | Job | Runs on | Purpose |
-|-------|-----|---------|---------|
-| deps | `dependency-update` | default branch | Dependency resolution, advisory enrichment, auto-commit |
-| build | `build-image` | default branch, tags | Container build, push, digest capture |
-| security | `security-scan` | default branch, tags | Trivy + Grype vulnerability scan, SBOM, advisory bridge |
-| docs | `generate-docs` | default branch, tags | Badge generation, narrator, reference docs |
-| release | `create-release` | tags only | Forge release creation with notes, assets, registry links |
-
-### Required CI/CD Variables
-
-Set these in **Settings > CI/CD > Variables**:
-
-| Variable | Scope | Required by | Notes |
-|----------|-------|-------------|-------|
-| `GITLAB_TOKEN` | Project or group access token | release, docs (push), deps (push) | Must have **`api`**, `read_repository`, `write_repository` scopes. Without `api`, release creation fails with 403 `insufficient_scope`. |
-| `DOCKER_USER` | Registry username | build (push) | Or use `DOCKER_TOKEN` if your registry supports token-only auth. |
-| `DOCKER_PASS` | Registry password/token | build (push) | Maps to `credentials: DOCKER` in `.stagefreight.yml`. |
-
-**Token type guidance:**
-
-- **Project access token** (recommended): Scoped to the project, rotatable, shows as a bot user in commit history. Create at **Settings > Access Tokens** with role **Maintainer** and scopes **`api`**, `read_repository`, `write_repository`.
-- **Group access token**: Same scopes, shared across projects in a group.
-- **`CI_JOB_TOKEN`** (automatic): GitLab provides this in every job. It can read project artifacts (used by the advisory bridge) and push to the project's container registry, but it **cannot create releases** — it lacks `api` scope. StageFreight uses `CI_JOB_TOKEN` as a fallback when `GITLAB_TOKEN` is not set.
-
-### Token Resolution Order
-
-StageFreight's GitLab forge client resolves tokens in this order:
-
-1. `GITLAB_TOKEN` env var → uses `PRIVATE-TOKEN` header (full API access)
-2. `CI_JOB_TOKEN` env var → uses `JOB-TOKEN` header (limited scope, no release creation)
-
-If `GITLAB_TOKEN` is set, it is always preferred. Set it as a **masked, protected** CI/CD variable.
-
-### Registry Credentials
-
-Registry auth uses the `credentials` field in `.stagefreight.yml`:
-
-```yaml
-targets:
-  - id: dockerhub
-    kind: registry
-    url: docker.io
-    path: yourorg/yourapp
-    credentials: DOCKER    # → DOCKER_TOKEN or DOCKER_USER + DOCKER_PASS
+```bash
+stagefreight ci render <forge> --write
 ```
 
-Resolution: `{PREFIX}_TOKEN` is tried first, then `{PREFIX}_USER` + `{PREFIX}_PASS`.
+| Forge | `ci render` writes | Status |
+|-------|--------------------|--------|
+| `gitlab` | `.gitlab-ci.yml` | Live-validated — StageFreight builds itself here |
+| `github` | `.github/workflows/stagefreight.yml` | Live-validated on GitHub-hosted runners |
+| `gitea` | `.gitea/workflows/stagefreight.yml` | Render supported (shared Actions backend) |
+| `forgejo` | `.forgejo/workflows/stagefreight.yml` | Render supported (shared Actions backend) |
+| `azuredevops` | `azure-pipelines.yml` | Experimental |
 
-Set the corresponding variables in CI/CD settings. For Docker Hub, this is typically `DOCKER_USER` + `DOCKER_PASS` (where `DOCKER_PASS` is a Docker Hub access token, not your password).
+- Default (no flag) prints to **stdout**; `--write` writes the file; `--check` verifies the
+  committed file matches what would be rendered and exits `1` if it's stale — run it in CI so
+  a config change can't silently drift from the pipeline.
+- The rendered file is a **committed generated artifact** marked `DO NOT EDIT`. Regenerate it
+  whenever `.stagefreight.yml` changes; never hand-edit it.
 
-### Cross-Pipeline Advisory Bridge
+```bash
+stagefreight ci render github --write   # writes .github/workflows/stagefreight.yml
+git add .github/workflows/stagefreight.yml
+stagefreight commit -t ci -m "render github pipeline"
+```
 
-The `dependency-update` job fetches security advisories from the **previous pipeline's** `security-scan` job artifacts via the GitLab API. This requires:
+## What the generated pipeline does
 
-- The `security-scan` job declares `artifacts: paths: [.stagefreight/security/]` (already in the skeleton)
-- The token used by `dependency-update` can read project artifacts (`CI_JOB_TOKEN` is sufficient for this)
+One **universal skeleton** serves every repo mode — StageFreight resolves the modality from
+`lifecycle.mode`. Its jobs are the canonical lifecycle:
 
-If no prior security artifacts exist (first pipeline, or security was disabled), deps runs normally without advisory enrichment.
+**audition → perform → review → publish → narrate**
 
-## GitHub Actions
+— the same graph you see in [Screenshots](../screenshots.md). Each job:
 
-GitHub skeleton: planned but not yet shipped. The normalized `SF_CI_*` environment variable contract is the same — only the job structure differs.
+1. Exports forge-native context into `SF_CI_*` environment variables.
+2. Runs `stagefreight ci checkout` — materializes the workspace via go-git (no `git` binary
+   required in the image).
+3. Runs `stagefreight ci run <phase>` — the phase behavior comes entirely from your config.
 
-## Gitea / Forgejo
+### Loop prevention
 
-Gitea skeleton: planned but not yet shipped. Works with both Woodpecker CI and Gitea Actions.
+StageFreight's own generated commits (badges, docs, dependency bumps) carry a
+`Generated-By: StageFreight` trailer, and the rendered pipeline skips CI on those commits
+(`when: never` on GitLab, an `if:` guard on GitHub) so an automated commit never triggers
+another pipeline. Tags always run regardless of the trailer.
+
+## Credentials
+
+Registry auth uses the `credentials:` env-var prefix — see
+[Concepts → Credentials](../config/concepts.md#credential-resolution). The **forge** token is
+supplied per platform:
+
+- **GitLab** — `GITLAB_TOKEN` with `api`, `read_repository`, `write_repository` scopes
+  (create a **project or group access token**). Without it, StageFreight falls back to the
+  job's built-in `CI_JOB_TOKEN`, which can push to the registry and read artifacts but
+  **cannot create releases** (no `api` scope). Set `GITLAB_TOKEN` as a masked, protected
+  variable.
+- **GitHub** — the built-in `GITHUB_TOKEN` is used by default; set `GH_TOKEN` to a PAT to
+  override when you need broader scope (e.g. pushing to another repo). The workflow requests
+  `contents: write` on the jobs that commit back.
+
+## Forge status & runners
+
+The [Integrations overview](index.md#forges) carries the full capability and live-validation
+matrix. On runners:
+
+- **GitLab** — self-hosted runner deployments (Compose: runner + buildkitd + DinD) are
+  documented under [`gitlab/`](gitlab/README.md).
+- **GitHub** — validated on **GitHub-hosted** runners. A self-hosted GitHub Actions runner
+  guide is not written yet.
+- **Azure DevOps** — a Kubernetes agent example lives under
+  [`azuredevops/`](azuredevops/README.md).

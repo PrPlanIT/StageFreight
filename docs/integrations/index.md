@@ -18,16 +18,17 @@ complete the code is (every render is implemented and golden-tested).
 | Forge | render | releases | PRs / MRs | catalog component | badges + README | live validated |
 |-------------|:---:|:---:|:---:|:---:|:---:|:---:|
 | GitLab | ✓ | ✓ | ✓ | ✓ publish + release link | ✓ | ✓ |
-| GitHub | ✓ | ✓ | ✓ | — | ✓ | ✗ |
+| GitHub | ✓ | ✓ | ✓ | — | ✓ | ✓ (hosted) |
 | Gitea | ✓ | ✓ | ✓ | — | ✓ | ✗ |
 | Forgejo | ✓ | ✓ | ✓ | — | ✓ | ✗ |
 | Azure DevOps | ✓ | —¹ | ✓ | — | ✓ | ✗² |
 
-GitLab is the only forge StageFreight has run end-to-end — it builds itself there.
-GitHub/Gitea/Forgejo share one golden-tested Actions render backend, so validating
-one largely validates the three; what's unproven is the live runtime (OIDC,
-runner, DinD), not the code. A `✗` graduates to `✓` with a real run — the
-integration folders carry the checklists.
+StageFreight builds itself on GitLab end-to-end, and the full pipeline has also
+run on **GitHub-hosted** runners (building a real downstream project). GitHub,
+Gitea, and Forgejo share one golden-tested Actions render backend, so GitHub's
+live run largely exercises all three; what's still unproven for Gitea/Forgejo is
+the live runtime (OIDC, runner, DinD), not the code. A `✗` graduates to `✓` with a
+real run — the integration folders carry the checklists.
 
 ¹ Azure DevOps has no native git-release object; release surfaces return
 `ErrNotSupported` by design (use tags).
@@ -76,3 +77,5 @@ without a manual copy-paste.
 - GitLab: [`gitlab/docker/`](gitlab/docker/) — Compose (runner + buildkitd + DinD).
 - Azure DevOps: [`azuredevops/k8s/`](azuredevops/k8s/) — Kubernetes (agent +
   buildkitd + DinD), same trust split.
+- GitHub: validated on **GitHub-hosted** runners; a self-hosted GitHub Actions
+  runner deployment guide is not written yet.
