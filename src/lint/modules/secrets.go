@@ -55,20 +55,25 @@ func (m *secretsModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 		if lockfile && isLockfileIntegrityLine(h.Line) {
 			continue
 		}
-		// CLASSIFICATION, not enforcement: a generic-api-key hit whose extracted value IS a
-		// code numeric literal (a CPUID vendor tag, a magic number) is objectively not a
-		// credential, so it is dropped entirely — never flagged-and-then-down-gated. Everything
-		// that IS flagged blocks (secure-by-default); confidence below is descriptive review
-		// priority, not a gate exemption.
+		// A generic-api-key hit whose extracted value IS a code numeric literal (a CPUID vendor
+		// tag, a magic number) is objectively not a credential, so it is dropped entirely.
 		if h.RuleID == "generic-api-key" && isCodeConstant(h.Secret) {
 			continue
 		}
+		// Severity is gated on confidence. A structurally-identified credential — a specific
+		// provider rule or a real private-key block — is Confirmed → Critical and blocks the
+		// gate. A generic-api-key entropy match is Probable/Heuristic → Warning: surfaced for
+		// review but NOT fatal, because that catch-all rule is the high-false-positive class
+		// (test fixtures, doc examples). A genuine key that only matches heuristically is still
+		// shown; suppress a reviewed false positive with `lint.exclude` rather than lowering the
+		// bar globally — so "someone put a real key in a test" still surfaces for a human.
+		conf := secretConfidence(h.RuleID, h.Entropy)
 		findings = append(findings, lint.Finding{
 			File:       file.Path,
 			Line:       h.StartLine + 1, // gitleaks is 0-indexed
 			Module:     m.Name(),
-			Severity:   lint.SeverityCritical, // a leaked credential is critical impact IF real
-			Confidence: secretConfidence(h.RuleID, h.Entropy),
+			Severity:   severityForConfidence(conf),
+			Confidence: conf,
 			Message:    h.Description + " (" + h.RuleID + ")",
 		})
 	}
@@ -95,17 +100,17 @@ func isCodeConstant(secret string) bool {
 }
 
 // genericKeyCredentialEntropy is the entropy above which a generic-api-key match is treated
-// as a credential-grade (Probable) hit rather than a weak (Heuristic) one. This labels review
-// PRIORITY — it does NOT change gating: every secret blocks regardless (secure-by-default).
+// as a credential-grade (Probable) hit rather than a weak (Heuristic) one. Both map to a
+// Warning (generic-api-key is the false-positive-prone class); the split is review priority.
 const genericKeyCredentialEntropy = 4.5
 
-// secretConfidence reports how strongly the evidence supports a credential — DESCRIPTIVE only.
-// Severity is always critical (the impact if real is critical) and every secret blocks; this
-// just sets review priority. A SPECIFIC provider rule (aws, github, stripe, …) structurally
-// identifies a credential → Confirmed. The catch-all generic-api-key is an entropy heuristic:
-// a credential-grade hit is Probable, a weaker one Heuristic — both still block (review-
-// required); a Heuristic secret is the operator's cue to confirm or add an explicit suppression,
-// never a silent pass.
+// secretConfidence reports how strongly the evidence supports a credential. A SPECIFIC provider
+// rule (aws, github, stripe, …) or a real private-key block structurally identifies a credential
+// → Confirmed, which the caller maps to Critical (blocking). The catch-all generic-api-key is an
+// entropy heuristic: a credential-grade hit is Probable, a weaker one Heuristic — both map to a
+// Warning (surfaced for review, not fatal), since generic matches are the false-positive-prone
+// class. A real key that only matches heuristically is still shown; confirm it, or suppress a
+// reviewed false positive with lint.exclude.
 func secretConfidence(ruleID string, entropy float32) lint.Confidence {
 	if ruleID != "generic-api-key" {
 		return lint.ConfidenceConfirmed
@@ -114,6 +119,19 @@ func secretConfidence(ruleID string, entropy float32) lint.Confidence {
 		return lint.ConfidenceHeuristic
 	}
 	return lint.ConfidenceProbable
+}
+
+// severityForConfidence maps credential confidence to gate severity. A Confirmed credential is
+// Critical — it blocks the gate (Finding.Blocks) and is Fatal for mutation safety. A Probable
+// or Heuristic hit is a Warning: surfaced for review but non-blocking, so the false-positive-
+// prone generic-api-key class can't fail a pipeline on a test fixture. A reviewed false positive
+// is suppressed per-project with lint.exclude; a real key that only matches heuristically still
+// shows up for a human to catch.
+func severityForConfidence(c lint.Confidence) lint.Severity {
+	if c == lint.ConfidenceConfirmed {
+		return lint.SeverityCritical
+	}
+	return lint.SeverityWarning
 }
 
 // isLockfileIntegrityLine reports whether a line is a lockfile's structural integrity /

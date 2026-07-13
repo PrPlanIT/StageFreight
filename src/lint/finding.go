@@ -46,7 +46,7 @@ type Confidence int
 const (
 	ConfidenceConfirmed Confidence = iota // structurally identified / authoritative
 	ConfidenceProbable                    // strong evidence, not structural
-	ConfidenceHeuristic                   // weak/ambiguous evidence — review-required, still blocks
+	ConfidenceHeuristic                   // weak/ambiguous evidence — review-required
 )
 
 func (c Confidence) String() string {

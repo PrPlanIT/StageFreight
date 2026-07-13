@@ -26,7 +26,7 @@ func TestSecrets_CodeConstantNotFlagged(t *testing.T) {
 	}
 }
 
-// Confidence is descriptive (review priority) — every secret blocks regardless of this.
+// Confidence sets review priority AND gates severity (see severity test below).
 func TestSecretConfidence_Calibration(t *testing.T) {
 	if secretConfidence("generic-api-key", 3.52) != lint.ConfidenceHeuristic {
 		t.Error("low-entropy generic-api-key → heuristic (review priority)")
@@ -36,5 +36,19 @@ func TestSecretConfidence_Calibration(t *testing.T) {
 	}
 	if secretConfidence("aws-access-token", 3.0) != lint.ConfidenceConfirmed {
 		t.Error("specific provider rule → confirmed")
+	}
+}
+
+// Confirmed credentials block (Critical/fatal); Probable and Heuristic hits — the
+// generic-api-key false-positive-prone class — are Warnings: surfaced but non-blocking.
+func TestSecrets_SeverityGatedOnConfidence(t *testing.T) {
+	if got := severityForConfidence(lint.ConfidenceConfirmed); got != lint.SeverityCritical || !(lint.Finding{Severity: got}).Blocks() {
+		t.Errorf("confirmed → critical/blocking, got %v", got)
+	}
+	for _, c := range []lint.Confidence{lint.ConfidenceProbable, lint.ConfidenceHeuristic} {
+		got := severityForConfidence(c)
+		if got != lint.SeverityWarning || (lint.Finding{Severity: got}).Blocks() {
+			t.Errorf("%v → warning/non-blocking, got %v", c, got)
+		}
 	}
 }
