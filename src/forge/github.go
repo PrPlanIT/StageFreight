@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -412,15 +413,45 @@ func (g *GitHubForge) ListReleases(ctx context.Context) ([]ReleaseInfo, error) {
 }
 
 func (g *GitHubForge) DeleteRelease(ctx context.Context, tagName string) error {
-	// GitHub requires the release ID, not tag name, for deletion.
-	// Find the release ID from the tag.
+	// GitHub needs the numeric release ID, not the tag name. GET /releases/tags/{tag}
+	// resolves it for PUBLISHED releases only. A release whose tag was deleted (e.g. a
+	// mirror whose tags were pruned) becomes a DRAFT with no tag ref, so that endpoint
+	// 404s — which is why draft releases used to survive retention and pile up. On 404,
+	// fall back to the list endpoint (which DOES include drafts, still carrying their
+	// original tag_name) and delete every release that still bears this tag.
 	var rel struct {
 		ID int `json:"id"`
 	}
-	if err := g.doJSON(ctx, "GET", g.apiURL("/releases/tags/"+tagName), nil, &rel); err != nil {
+	err := g.doJSON(ctx, "GET", g.apiURL("/releases/tags/"+tagName), nil, &rel)
+	if err == nil {
+		return g.doJSON(ctx, "DELETE", g.apiURL(fmt.Sprintf("/releases/%d", rel.ID)), nil, nil)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("finding release for tag %s: %w", tagName, err)
 	}
-	return g.doJSON(ctx, "DELETE", g.apiURL(fmt.Sprintf("/releases/%d", rel.ID)), nil, nil)
+
+	// 404: the release is a draft (or already gone). Resolve the ID from the full list,
+	// which includes drafts, and delete each release still bearing this tag name.
+	infos, lerr := g.ListReleases(ctx)
+	if lerr != nil {
+		return fmt.Errorf("finding draft release for tag %s: %w", tagName, lerr)
+	}
+	deleted := 0
+	for _, r := range infos {
+		if r.TagName != tagName {
+			continue
+		}
+		if derr := g.doJSON(ctx, "DELETE", g.apiURL("/releases/"+r.ID), nil, nil); derr != nil {
+			return fmt.Errorf("deleting release %s (tag %s): %w", r.ID, tagName, derr)
+		}
+		deleted++
+	}
+	if deleted == 0 {
+		// Genuinely absent — preserve the original not-found error for idempotent callers.
+		return fmt.Errorf("finding release for tag %s: %w", tagName, err)
+	}
+	return nil
 }
 
 func (g *GitHubForge) CreateTag(ctx context.Context, tagName, ref string) error {
