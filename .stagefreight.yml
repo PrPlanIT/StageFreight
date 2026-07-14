@@ -237,6 +237,7 @@ targets:
   # ── Primary release (rolling git tag aliases + binaries) ─────────
   - id: primary-release
     kind: release
+    type: latest
     archives: stagefreight-binaries
     aliases: ["v{version}", "latest"]
     when: { git_tags: [stable], events: [tag] }
@@ -244,6 +245,7 @@ targets:
   # ── GitHub release (mirror) with binaries ────────────────────────
   - id: github-release
     kind: release
+    type: latest
     mirror: github-mirror
     sync_release: true
     archives: stagefreight-binaries
@@ -267,7 +269,7 @@ targets:
     archives: stagefreight-binaries-dev
     tag: "dev-{sha:8}"
     aliases: ["latest-dev"]
-    prerelease: true
+    type: prerelease
     retention:
       keep_last: 6
       protect: ["latest-dev"]
