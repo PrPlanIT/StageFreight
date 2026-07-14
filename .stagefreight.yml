@@ -283,7 +283,7 @@ targets:
   - id: docs
     kind: pages
     provider: cloudflare
-    project: stagefreight-docs
+    project: stagefreight
     build: docs-site
     domain: stagefreight.prplanit.com
     when: { git_tags: [stable], events: [tag] }
