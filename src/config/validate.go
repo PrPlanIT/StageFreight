@@ -701,6 +701,12 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		}
 
 	case "release":
+		// Release type must be one of the known semantic values (empty = unspecified/auto).
+		switch strings.ToLower(strings.TrimSpace(t.Type)) {
+		case "", "latest", "prerelease", "unspecified":
+		default:
+			errs = append(errs, fmt.Sprintf("%s: unknown release type %q (want: latest, prerelease, or unspecified)", path, t.Type))
+		}
 		// Mirror-referenced release: forge identity comes from repos.
 		if t.Mirror != "" {
 			// Note: mirror field references repos[].id, validated in identity graph check

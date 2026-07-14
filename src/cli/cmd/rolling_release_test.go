@@ -47,7 +47,7 @@ func TestRefreshRollingRelease(t *testing.T) {
 	fc := &forge.GitLabForge{BaseURL: srv.URL, Token: "t", ProjectID: "g/p"}
 
 	run := func() {
-		if err := refreshRollingRelease(context.Background(), fc, "latest-dev", "deadbeef", "latest-dev", "notes", true, []string{asset}); err != nil {
+		if err := refreshRollingRelease(context.Background(), fc, "latest-dev", "deadbeef", "latest-dev", "notes", forge.ReleaseTypePrerelease, []string{asset}); err != nil {
 			t.Fatalf("refresh: %v", err)
 		}
 	}

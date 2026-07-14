@@ -125,7 +125,7 @@ func (g *GiteaForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*R
 		"name":       opts.Name,
 		"body":       opts.Description,
 		"draft":      opts.Draft,
-		"prerelease": opts.Prerelease,
+		"prerelease": opts.Type == ReleaseTypePrerelease,
 	}
 	if opts.Ref != "" {
 		payload["target_commitish"] = opts.Ref

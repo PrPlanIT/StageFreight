@@ -2,11 +2,57 @@ package forge
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// TestGitHubCreateRelease_LowersReleaseType pins the intent→native mapping: Latest sends
+// make_latest="true", Prerelease sends prerelease=true and no make_latest, and Auto sends
+// neither make_latest (preserving GitHub's default) nor prerelease=true.
+func TestGitHubCreateRelease_LowersReleaseType(t *testing.T) {
+	cases := []struct {
+		name           string
+		typ            ReleaseType
+		wantPrerelease bool
+		wantMakeLatest string // "" means the field must be ABSENT
+	}{
+		{"latest", ReleaseTypeLatest, false, "true"},
+		{"prerelease", ReleaseTypePrerelease, true, ""},
+		{"auto", ReleaseTypeAuto, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/releases") {
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					_, _ = w.Write([]byte(`{"id":1,"html_url":"http://x"}`))
+					return
+				}
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}))
+			defer srv.Close()
+
+			g := &GitHubForge{BaseURL: srv.URL, Token: "t", Owner: "o", Repo: "r"}
+			if _, err := g.CreateRelease(context.Background(), ReleaseOptions{TagName: "v1", Type: tc.typ}); err != nil {
+				t.Fatalf("CreateRelease: %v", err)
+			}
+			if got, _ := body["prerelease"].(bool); got != tc.wantPrerelease {
+				t.Errorf("prerelease = %v, want %v", body["prerelease"], tc.wantPrerelease)
+			}
+			ml, present := body["make_latest"]
+			if tc.wantMakeLatest == "" && present {
+				t.Errorf("make_latest = %v present, want absent", ml)
+			}
+			if tc.wantMakeLatest != "" && ml != tc.wantMakeLatest {
+				t.Errorf("make_latest = %v, want %q", ml, tc.wantMakeLatest)
+			}
+		})
+	}
+}
 
 // TestGitHubDeleteRelease_ReapsDraft locks the retention fix: a release whose tag was
 // pruned (e.g. on a mirror) becomes a GitHub DRAFT, and GET /releases/tags/{tag} 404s

@@ -152,6 +152,35 @@ func (f *BasicFactory) ForRepo(ctx context.Context, repo string) (Forge, error) 
 	return NewFromAccessory(f.ProviderName, f.BaseURL, repo, f.CredPrefix)
 }
 
+// ReleaseType is the forge-agnostic INTENT of a release. Each forge backend lowers it
+// to whatever its native API expresses (GitHub: prerelease + make_latest; Gitea:
+// prerelease; GitLab: a plain release). Keeping intent — not GitHub's make_latest flag —
+// in the internal model is the "one semantic IR, many backend realizers" pattern.
+type ReleaseType int
+
+const (
+	// ReleaseTypeAuto preserves each forge's default behavior: on GitHub it does NOT
+	// send make_latest (legacy — GitHub decides), prerelease=false. It is the value for
+	// an omitted / "unspecified" config, so existing configs behave identically. A
+	// version-inferred prerelease is resolved to ReleaseTypePrerelease upstream, so Auto
+	// only ever means "a stable release that does not force Latest."
+	ReleaseTypeAuto ReleaseType = iota
+	// ReleaseTypeLatest marks the stable, "Latest" release (GitHub: make_latest=true).
+	ReleaseTypeLatest
+	// ReleaseTypePrerelease marks a pre-release (never Latest on GitHub/Gitea).
+	ReleaseTypePrerelease
+)
+
+// ReleaseTypeFromPrerelease maps a legacy prerelease boolean to the semantic type.
+// Used by mirror/sync paths that replicate existing releases and only have the
+// prerelease signal (they can't know Latest intent), so false → Auto (not Latest).
+func ReleaseTypeFromPrerelease(prerelease bool) ReleaseType {
+	if prerelease {
+		return ReleaseTypePrerelease
+	}
+	return ReleaseTypeAuto
+}
+
 // ReleaseOptions configures a new release.
 type ReleaseOptions struct {
 	TagName     string
@@ -159,7 +188,7 @@ type ReleaseOptions struct {
 	Name        string
 	Description string // markdown body (release notes)
 	Draft       bool
-	Prerelease  bool
+	Type        ReleaseType // semantic intent; each forge lowers it to native flags
 }
 
 // Release is a created release on a forge.

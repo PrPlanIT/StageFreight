@@ -144,7 +144,7 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 				Draft:       r.Draft,
 				// Recover prerelease across the mirror: the primary forge (GitLab) has
 				// no native prerelease field, so r.Prerelease is always false.
-				Prerelease: r.Prerelease || resolveMirrorPrerelease(cfg, r.TagName, description),
+				Type: forge.ReleaseTypeFromPrerelease(r.Prerelease || resolveMirrorPrerelease(cfg, r.TagName, description)),
 			})
 			if createErr != nil {
 				sec.Row("  %s %s — %v", output.StatusIcon("failed", color), r.TagName, createErr)

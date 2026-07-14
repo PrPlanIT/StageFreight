@@ -1305,7 +1305,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 					Draft:       r.Draft,
 					// Recover prerelease across the mirror: the primary forge (GitLab)
 					// has no native prerelease field, so r.Prerelease is always false.
-					Prerelease: r.Prerelease || resolveMirrorPrerelease(appCfg, r.TagName, r.Description),
+					Type: forge.ReleaseTypeFromPrerelease(r.Prerelease || resolveMirrorPrerelease(appCfg, r.TagName, r.Description)),
 				})
 				if createErr != nil {
 					fmt.Fprintf(os.Stderr, "  sync: %s: release %s error: %v\n", m.ID, r.TagName, createErr)

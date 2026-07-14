@@ -124,11 +124,22 @@ func (g *GitHubForge) doJSON(ctx context.Context, method, url string, body inter
 
 func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*Release, error) {
 	payload := map[string]interface{}{
-		"tag_name":   opts.TagName,
-		"name":       opts.Name,
-		"body":       opts.Description,
-		"draft":      opts.Draft,
-		"prerelease": opts.Prerelease,
+		"tag_name": opts.TagName,
+		"name":     opts.Name,
+		"body":     opts.Description,
+		"draft":    opts.Draft,
+	}
+	// Lower the semantic release type to GitHub's two native fields. make_latest is a
+	// string enum ("true"/"false"/"legacy"); we only send it to force or forbid Latest.
+	// Auto leaves it unset so GitHub applies its own default (legacy behavior preserved).
+	switch opts.Type {
+	case ReleaseTypePrerelease:
+		payload["prerelease"] = true
+	case ReleaseTypeLatest:
+		payload["prerelease"] = false
+		payload["make_latest"] = "true"
+	default: // ReleaseTypeAuto
+		payload["prerelease"] = false
 	}
 	if opts.Ref != "" {
 		payload["target_commitish"] = opts.Ref

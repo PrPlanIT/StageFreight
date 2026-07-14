@@ -100,6 +100,7 @@ type NotesInput struct {
 	Version      string                      // version string (auto-detected if empty)
 	SHA          string                      // short commit hash (auto-detected if empty)
 	IsPrerelease bool                        // true if version has prerelease suffix
+	ReleaseType  string                      // resolved semantic type label (latest/prerelease/stable); overrides IsPrerelease for the "Release type:" line
 	Images       []ImageRow                  // resolved registry image rows for availability table
 	Downloads    []BinaryRow                 // binary/archive artifacts for downloads table
 	Verify       *trustdisclosure.Disclosure // signing/verification disclosure (nil = nothing signed)
@@ -624,7 +625,11 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 
 	// Metadata line
 	var meta []string
-	meta = append(meta, fmt.Sprintf("**Release type:** %s", releaseType(input.IsPrerelease)))
+	rtLabel := input.ReleaseType
+	if rtLabel == "" {
+		rtLabel = releaseType(input.IsPrerelease)
+	}
+	meta = append(meta, fmt.Sprintf("**Release type:** %s", rtLabel))
 	if input.SHA != "" {
 		meta = append(meta, fmt.Sprintf("**Commit:** `%s`", input.SHA))
 	}

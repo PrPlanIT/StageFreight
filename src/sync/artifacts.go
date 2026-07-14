@@ -57,7 +57,7 @@ func SyncRelease(ctx context.Context, accessory config.ResolvedRepo, data Releas
 			Name:        data.Name,
 			Description: data.Description,
 			Draft:       data.Draft,
-			Prerelease:  data.Prerelease,
+			Type:        forge.ReleaseTypeFromPrerelease(data.Prerelease),
 		})
 		if err != nil {
 			result.Status = SyncFailed

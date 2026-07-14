@@ -459,6 +459,11 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		return fmt.Errorf("results manifest: %w", resultsErr)
 	}
 
+	// Resolve the semantic release type once — from the active target's `type:` config
+	// (with version/flag inference for the unspecified case) — and reuse it for the notes
+	// label and every CreateRelease below, so the primary and its mirrors agree.
+	relType := resolveReleaseType(activeReleaseTarget(req.Config), versionInfo.IsPrerelease, req.Prerelease)
+
 	// Generate or load release notes
 	var notes string
 	if req.NotesFile != "" {
@@ -511,6 +516,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			Version:      versionInfo.Version,
 			SHA:          sha,
 			IsPrerelease: isPrerelease,
+			ReleaseType:  releaseTypeLabel(relType),
 			Images:       imageRows,
 			Downloads:    downloadRows,
 			Verify:       verify,
@@ -566,7 +572,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		Name:        name,
 		Description: notes,
 		Draft:       req.Draft,
-		Prerelease:  req.Prerelease,
+		Type:        relType,
 	})
 	if createErr != nil {
 		return fmt.Errorf("creating release: %w", createErr)
@@ -686,7 +692,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				// /-/releases/latest-dev/downloads/... Stable targets (no Tag) keep
 				// rolling-tag-only behavior, unchanged.
 				if primaryRelease.Tag != "" {
-					if err := refreshRollingRelease(ctx, forgeClient, rt, req.Ref, rt, notes, primaryRelease.Prerelease, allAssets); err != nil {
+					if err := refreshRollingRelease(ctx, forgeClient, rt, req.Ref, rt, notes, relType, allAssets); err != nil {
 						report.Tags = append(report.Tags, actionResult{Name: rt + " (release)", Err: err})
 						fmt.Fprintf(os.Stderr, "warning: rolling release %s: %v\n", rt, err)
 					}
@@ -762,7 +768,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			if req.ReadOnly {
 				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] %s: would project release %s", t.ID, tag), OK: true})
 			} else {
-				syncResults = append(syncResults, projectRelease(ctx, t, req, tag, name, notes, allAssets)...)
+				syncResults = append(syncResults, projectRelease(ctx, t, req, tag, name, notes, allAssets, relType)...)
 			}
 		}
 
@@ -776,7 +782,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			if req.ReadOnly {
 				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] mirror:%s: would project canonical release %s", m.ID, tag), OK: true})
 			} else {
-				syncResults = append(syncResults, projectToMirror(ctx, *m, tag, name, notes, req.Ref, req.Draft, req.Prerelease)...)
+				syncResults = append(syncResults, projectToMirror(ctx, *m, tag, name, notes, req.Ref, req.Draft, relType)...)
 			}
 		}
 
@@ -1204,19 +1210,52 @@ func newForgeClient(provider forge.Provider, remoteURL string) (forge.Forge, err
 	}
 }
 
+// resolveReleaseType maps a release target's `type:` config (with legacy fallbacks) to
+// the semantic forge.ReleaseType. Explicit latest/prerelease win; "unspecified" or an
+// omitted type falls back to inference — a version prerelease suffix, --prerelease, or
+// the deprecated `prerelease:` bool mark it a prerelease; otherwise Auto (a stable
+// release that does not force Latest, which preserves legacy behavior).
+func resolveReleaseType(t *config.TargetConfig, versionPrerelease, reqPrerelease bool) forge.ReleaseType {
+	if t != nil {
+		switch strings.ToLower(strings.TrimSpace(t.Type)) {
+		case "latest":
+			return forge.ReleaseTypeLatest
+		case "prerelease":
+			return forge.ReleaseTypePrerelease
+		}
+	}
+	if versionPrerelease || reqPrerelease || (t != nil && t.Prerelease) {
+		return forge.ReleaseTypePrerelease
+	}
+	return forge.ReleaseTypeAuto
+}
+
+// releaseTypeLabel renders a forge.ReleaseType for the release-notes "Release type:" line.
+// "prerelease" is kept verbatim — release_prerelease.go greps the notes body for it.
+func releaseTypeLabel(rt forge.ReleaseType) string {
+	switch rt {
+	case forge.ReleaseTypePrerelease:
+		return "prerelease"
+	case forge.ReleaseTypeLatest:
+		return "latest"
+	default:
+		return "stable"
+	}
+}
+
 // refreshRollingRelease (re)creates a release at a rolling alias (e.g. latest-dev)
 // and re-attaches its assets, so the alias is a pullable release that always
 // points at the newest build. The Forge has no UpdateRelease, so this is
 // delete-then-create; DeleteRelease tolerates a missing release (first run).
 // Asset upload failures warn but do not abort the refresh.
-func refreshRollingRelease(ctx context.Context, fc forge.Forge, alias, ref, name, notes string, prerelease bool, assets []string) error {
+func refreshRollingRelease(ctx context.Context, fc forge.Forge, alias, ref, name, notes string, relType forge.ReleaseType, assets []string) error {
 	_ = fc.DeleteRelease(ctx, alias) // ignore not-found — this is a refresh
 	rel, err := fc.CreateRelease(ctx, forge.ReleaseOptions{
 		TagName:     alias,
 		Ref:         ref,
 		Name:        name,
 		Description: notes,
-		Prerelease:  prerelease,
+		Type:        relType,
 	})
 	if err != nil {
 		return err
@@ -1237,7 +1276,7 @@ func refreshRollingRelease(ctx context.Context, fc forge.Forge, alias, ref, name
 // projectToMirror projects a canonical release to a mirror destination.
 // Mirrors are first-class sources, not synthetic targets. Forge identity
 // comes directly from the mirror config.
-func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, notes, ref string, draft, prerelease bool) []actionResult {
+func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, notes, ref string, draft bool, relType forge.ReleaseType) []actionResult {
 	var results []actionResult
 	label := "mirror:" + m.ID
 
@@ -1254,7 +1293,7 @@ func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, note
 		Name:        name,
 		Description: notes,
 		Draft:       draft,
-		Prerelease:  prerelease,
+		Type:        relType,
 	})
 	if err != nil {
 		results = append(results, actionResult{Name: label, Err: err})
@@ -1267,7 +1306,7 @@ func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, note
 
 // projectRelease projects a canonical release to a single destination via target config.
 // Used by explicit target overrides only.
-func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreateRequest, tag, name, notes string, allAssets []string) []actionResult {
+func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreateRequest, tag, name, notes string, allAssets []string, relType forge.ReleaseType) []actionResult {
 	var results []actionResult
 
 	syncClient, err := newSyncForgeClientFromTarget(t, req.Config)
@@ -1284,7 +1323,7 @@ func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreat
 			Name:        name,
 			Description: notes,
 			Draft:       req.Draft,
-			Prerelease:  req.Prerelease,
+			Type:        relType,
 		})
 		if err != nil {
 			results = append(results, actionResult{Name: t.ID, Err: err})

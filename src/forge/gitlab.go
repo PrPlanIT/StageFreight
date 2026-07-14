@@ -108,10 +108,11 @@ func (g *GitLabForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*
 	if opts.Ref != "" {
 		payload["ref"] = opts.Ref
 	}
-	// NOTE: GitLab Releases have no native draft/prerelease flag (unlike
-	// GitHub/Gitea), so opts.Draft/opts.Prerelease are intentionally not sent —
-	// adding unknown fields would 400. Channel pre-release semantics are honored
-	// on forges that support them; on GitLab the release is created normally.
+	// NOTE: GitLab Releases have no native draft/prerelease/latest flag (unlike
+	// GitHub/Gitea), so opts.Draft and opts.Type are intentionally not lowered here —
+	// adding unknown fields would 400, and GitLab's "latest" is always date/semver-
+	// computed. Every ReleaseType collapses to a plain release; the intent is honored
+	// on forges that can express it.
 
 	var resp struct {
 		TagName string `json:"tag_name"`

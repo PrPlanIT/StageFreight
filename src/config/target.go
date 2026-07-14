@@ -113,8 +113,20 @@ type TargetConfig struct {
 	// mints this tag so the channel release has a stable anchor. Empty = no channel tag.
 	Tag string `yaml:"tag,omitempty"`
 
-	// Prerelease marks the forge release as a pre-release (kind: release).
-	// Honored natively by GitHub/Gitea; best-effort on GitLab (no native prerelease flag).
+	// Type is the semantic release classification (kind: release):
+	//
+	//	type: latest        — the stable, "Latest" release (GitHub: make_latest=true)
+	//	type: prerelease    — a pre-release (never Latest)
+	//	type: unspecified   — explicit default/auto (declarative GitOps; same as omitting)
+	//
+	// Omitting the field is identical to "unspecified": the type is inferred from the
+	// version (a semver prerelease suffix ⇒ prerelease) and the legacy `prerelease` flag.
+	// Each forge lowers the intent to what it can express (GitHub: prerelease+make_latest;
+	// Gitea: prerelease; GitLab: a plain release; Azure: n/a).
+	Type string `yaml:"type,omitempty"`
+
+	// Prerelease marks the forge release as a pre-release (kind: release). DEPRECATED:
+	// prefer `type: prerelease`. Still honored when `type` is unset/unspecified.
 	Prerelease bool `yaml:"prerelease,omitempty"`
 
 	// ProjectID is the "owner/repo" or numeric ID for remote forge targets (kind: release).
