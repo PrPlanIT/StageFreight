@@ -286,7 +286,7 @@ targets:
     project: stagefreight
     build: docs-site
     domain: stagefreight.prplanit.com
-    when: { branches: [main], events: [push] }
+    when: { git_tags: [stable], events: [tag] }
 
   # ── Documentation site → GitHub Pages (dogfood, alongside Cloudflare) ──
   # Force-pushes the same docs-site tree to the gh-pages branch of the GitHub mirror,
@@ -299,7 +299,7 @@ targets:
     project_id: "{var:github_org}/{var:github_repo}"
     credentials: GITHUB
     build: docs-site
-    when: { branches: [main], events: [push] }
+    when: { git_tags: [stable], events: [tag] }
 
 build_cache:
   mode: hybrid
