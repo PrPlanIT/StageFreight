@@ -10,6 +10,7 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
@@ -102,18 +103,58 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 	}); err != nil {
 		return DeployResult{}, fmt.Errorf("github pages: remote: %w", err)
 	}
+	// Resolve HEAD to a CONCRETE branch ref. go-git does not resolve a symbolic "HEAD"
+	// refspec SOURCE on push — it matches nothing, pushes nothing, and returns
+	// NoErrAlreadyUpToDate, which was swallowed as success and surfaced a false
+	// "deployed" with no gh-pages branch ever created. Push the branch HEAD points at.
+	head, err := r.Head()
+	if err != nil {
+		return DeployResult{}, fmt.Errorf("github pages: resolve HEAD: %w", err)
+	}
+	auth := &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	if err := r.PushContext(ctx, &git.PushOptions{
 		RemoteName: "origin",
-		RefSpecs:   []gitconfig.RefSpec{"+HEAD:refs/heads/gh-pages"},
-		Auth:       &githttp.BasicAuth{Username: "x-access-token", Password: token},
+		RefSpecs:   []gitconfig.RefSpec{gitconfig.RefSpec(fmt.Sprintf("+%s:refs/heads/gh-pages", head.Name()))},
+		Auth:       auth,
 		Force:      true,
 	}); err != nil && err != git.NoErrAlreadyUpToDate {
 		return DeployResult{}, fmt.Errorf("github pages: push: %w", err)
 	}
+
+	// A reported deploy must be REAL: go-git can no-op a push and still return without a
+	// hard error, so confirm the remote gh-pages now points at the commit we built.
+	// Never report success for a branch that wasn't actually created/updated.
+	if err := verifyGHPagesRef(ctx, r, auth, head.Hash()); err != nil {
+		return DeployResult{}, err
+	}
+
 	// GitHub's custom-domain model is the CNAME file written into the tree during
 	// Prepare (not an API attach), so there's no separate DomainOutcome to report; the
 	// returned URL already reflects the custom domain when set.
 	return DeployResult{URL: url}, nil
+}
+
+// verifyGHPagesRef confirms the remote gh-pages branch now points at want, so a deploy is
+// only reported successful when the push genuinely landed — a "deployed" message must
+// never outrun the actual remote state.
+func verifyGHPagesRef(ctx context.Context, r *git.Repository, auth *githttp.BasicAuth, want plumbing.Hash) error {
+	remote, err := r.Remote("origin")
+	if err != nil {
+		return fmt.Errorf("github pages: verify: %w", err)
+	}
+	refs, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	if err != nil {
+		return fmt.Errorf("github pages: verify (list remote refs): %w", err)
+	}
+	for _, ref := range refs {
+		if ref.Name() == plumbing.ReferenceName("refs/heads/gh-pages") {
+			if ref.Hash() == want {
+				return nil
+			}
+			return fmt.Errorf("github pages: push did not land — remote gh-pages is %s, expected %s", ref.Hash().String()[:8], want.String()[:8])
+		}
+	}
+	return fmt.Errorf("github pages: push returned no error but gh-pages does not exist on the remote — nothing was deployed (likely an unresolved refspec or a rejected push)")
 }
 
 func githubPagesURL(repo, domain string) string {
