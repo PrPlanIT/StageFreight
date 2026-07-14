@@ -1,8 +1,12 @@
 package pages
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,7 +135,81 @@ func (g *githubProvider) Deploy(ctx context.Context, ws string, opts DeployOpts)
 	// GitHub's custom-domain model is the CNAME file written into the tree during
 	// Prepare (not an API attach), so there's no separate DomainOutcome to report; the
 	// returned URL already reflects the custom domain when set.
-	return DeployResult{URL: url}, nil
+	res := DeployResult{URL: url}
+
+	// Enable GitHub Pages from gh-pages via the API — the symmetric counterpart to
+	// Cloudflare's ensureProject, so the deploy is self-contained instead of relying on
+	// GitHub's legacy auto-enable (which only fires on older repos; new repos push a
+	// branch that never serves). Best-effort: a token without Pages/administration scope
+	// (or any API hiccup) is reported as a note, never fatal — the push already landed.
+	if note, err := ensurePagesEnabled(ctx, repo, token); err != nil {
+		res.Notes = append(res.Notes, fmt.Sprintf("Pages not enabled (%v) — enable manually: Settings → Pages → Source: Deploy from a branch → gh-pages", err))
+	} else {
+		res.Notes = append(res.Notes, "Pages "+note)
+	}
+	return res, nil
+}
+
+// ensurePagesEnabled turns on GitHub Pages for the repo, served from the gh-pages branch,
+// returning a short note on the outcome. POST creates the site (201 Created); an existing
+// site returns 409 Conflict, so a PUT re-points the source at gh-pages (idempotent).
+func ensurePagesEnabled(ctx context.Context, repo, token string) (string, error) {
+	body := map[string]any{"source": map[string]string{"branch": "gh-pages", "path": "/"}}
+	status, detail, err := githubPagesAPI(ctx, http.MethodPost, repo, token, body)
+	if err != nil {
+		return "", err
+	}
+	switch status {
+	case http.StatusCreated:
+		return "enabled (source: gh-pages)", nil
+	case http.StatusConflict:
+		st, d, err := githubPagesAPI(ctx, http.MethodPut, repo, token, body)
+		if err != nil {
+			return "", err
+		}
+		if st == http.StatusNoContent || st == http.StatusOK {
+			return "already enabled (source: gh-pages confirmed)", nil
+		}
+		return "", fmt.Errorf("set source: HTTP %d%s", st, d)
+	case http.StatusForbidden, http.StatusNotFound:
+		return "", fmt.Errorf("HTTP %d — token likely lacks Pages/administration write", status)
+	default:
+		return "", fmt.Errorf("HTTP %d%s", status, detail)
+	}
+}
+
+// githubPagesAPI calls the repo Pages endpoint and returns the status code, a short body
+// snippet on an error status (for context), and any transport error.
+func githubPagesAPI(ctx context.Context, method, repo, token string, body any) (int, string, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return 0, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, method,
+		fmt.Sprintf("https://api.github.com/repos/%s/pages", repo), bytes.NewReader(b))
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	detail := ""
+	if resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		if s := strings.TrimSpace(string(snippet)); s != "" {
+			detail = ": " + s
+		}
+	} else {
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}
+	return resp.StatusCode, detail, nil
 }
 
 // verifyGHPagesRef confirms the remote gh-pages branch now points at want, so a deploy is

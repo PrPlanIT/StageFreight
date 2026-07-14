@@ -34,6 +34,7 @@ type Provider interface {
 type DeployResult struct {
 	URL     string          // deployment URL (e.g. https://abc.project.pages.dev)
 	Domains []DomainOutcome // one per requested custom domain; empty when none requested
+	Notes   []string        // non-fatal provider notes (e.g. "Pages enabled from gh-pages")
 }
 
 // DNSProvider classifies where a domain's AUTHORITATIVE nameservers live (an NS lookup,

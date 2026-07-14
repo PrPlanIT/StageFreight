@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
@@ -94,6 +95,13 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		sec.Row("%s  DEPLOYED  %s", output.StatusIcon("success", color), res.URL)
 		for i := range res.Domains {
 			renderDomainOutcome(sec, color, project, &res.Domains[i])
+		}
+		for _, n := range res.Notes {
+			icon := "success"
+			if strings.Contains(n, "not enabled") {
+				icon = "warning"
+			}
+			sec.Row("%s  %s", output.StatusIcon(icon, color), n)
 		}
 		sec.Close()
 		output.SectionEnd(w, "sf_pages")
