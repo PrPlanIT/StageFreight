@@ -13,7 +13,7 @@ import (
 // work box. The LOW-LEVEL provision.Render (arbitrary entries → box) is StageBox's
 // implementation detail; calling it directly hand-assembles provisioning presentation
 // and bypasses the convention, so it is fenced to a shrinking allowlist (see
-// docs/architecture/terminal-output-layering.md).
+// docs/design/plans/terminal-output-layering.md).
 //
 // A NEW direct Render caller outside the allowlist fails the build: use StageBox
 // instead, or emit provision.Entry data. The list can only shrink, never grow —
@@ -66,7 +66,7 @@ func TestRenderBoundary_LowLevelRenderStaysBehindStageBox(t *testing.T) {
 	if len(offenders) > 0 {
 		t.Fatalf("provision.Render is presentation and may only be called from cli/cmd "+
 			"(plus the grandfathered allowlist).\nNew offender(s) — move rendering to cli/cmd and "+
-			"return provision.Entry as data instead:\n  %s\nSee docs/architecture/terminal-output-layering.md.",
+			"return provision.Entry as data instead:\n  %s\nSee docs/design/plans/terminal-output-layering.md.",
 			strings.Join(offenders, "\n  "))
 	}
 }

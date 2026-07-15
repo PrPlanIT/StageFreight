@@ -17,7 +17,7 @@
 // Recovery from any of these is a deliberate operator act (restore the material, or
 // reset the state dir on purpose), never an automatic side effect. Tier-0 optimizes
 // persistence + frictionless adoption, not maximum assurance — harden by climbing
-// the custody ladder. See docs/architecture/signing-trust-model.md (O.3).
+// the custody ladder. See docs/design/plans/signing-trust-model.md (O.3).
 package provision
 
 import (

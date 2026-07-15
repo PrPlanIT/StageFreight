@@ -30,7 +30,7 @@ capability is added to the shared model, not bolted onto a single caller.
 
 When something doesn't fit, the answer is to build the abstraction properly, not to add a
 workaround or gate off the feature. This is enforced structurally: a set of
-[hard invariants](architecture/invariants.md) exist in code before they are written down, and
+[hard invariants](design/invariants.md) exist in code before they are written down, and
 the pipeline is designed so a routing or safety fix lands in one place and holds everywhere.
 
 ## It proves itself in the open

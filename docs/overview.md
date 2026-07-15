@@ -12,7 +12,7 @@ fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/
   the cross-cutting ideas in **[Concepts](config/concepts.md)**.
 - **[Integrations](integrations/index.md)** — render your CI pipeline, stand up a runner,
   forge/registry support.
-- **[Design](architecture/index.md)** — the phase model and the architecture behind it.
+- **[Design](design/index.md)** — the phase model and the architecture behind it.
 
 ## Reference
 

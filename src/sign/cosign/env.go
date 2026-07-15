@@ -3,7 +3,7 @@
 // declared capability Env, emitting a concrete cosign invocation. It imports sign
 // (the pure model); sign never imports it. No interface, no registry: a future
 // native signer is just another renderer of SignPlan, added when it exists.
-// See docs/architecture/signing-trust-model.md (1e).
+// See docs/design/plans/signing-trust-model.md (1e).
 package cosign
 
 import (

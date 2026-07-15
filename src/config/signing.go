@@ -15,7 +15,7 @@ import (
 //
 // Targets reference a profile by id (signing_profile: <id>) — the same
 // reference-by-id pattern as registry: <id>. See
-// docs/architecture/signing-trust-model.md.
+// docs/design/plans/signing-trust-model.md.
 
 // SigningProfile is a named, generic trust profile.
 type SigningProfile struct {

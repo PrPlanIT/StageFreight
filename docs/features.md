@@ -43,6 +43,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 |---|---|---|---|---|---|
 | Multi-platform container build | ✅ | ➕ buildx action | 🔧 buildx by hand | ➕ buildx / depot | Med |
 | Go binary build (multi-OS/arch) | ✅ | ➕ setup-go + matrix | 🔧 matrix by hand | ➕ goreleaser | Med |
+| Rust (cargo) binary build (multi-OS/arch) | ✅ | ➕ setup-rust + matrix | 🔧 matrix by hand | ➕ cargo-dist | Med |
 | **Reproducible build self-proof** (crucible) | ✅ | 🔧 | 🔧 | — (niche: rebuilderd) | **High** |
 | Build cache (local + registry-backed) | ✅ | ➕ cache action | ➕ cache: | ➕ buildx cache | Med |
 | Build ordering / dependency graph | ✅ | ➕ needs: | ✅ needs: | — | Low |
@@ -130,6 +131,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Binary archives (tar.gz/zip) + **SHA256SUMS** | ✅ | 🔧 | 🔧 | ✅ goreleaser | Med |
 | Rolling git-tag aliases (`v1`, `v1.2`) | ✅ | 🔧 | 🔧 | ➕ | Med |
 | **Cross-forge** release sync (GitLab→GitHub mirror) | ✅ | 🔧 | 🔧 | — | High |
+| Prerelease / **Latest** classification, per-forge (`type:` → GitHub `make_latest`) | ✅ | ➕ (release flags) | 🔧 | ➕ goreleaser | Med |
 | Security summary embedded in release notes | ✅ | 🔧 | 🔧 | — | Med |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
@@ -168,15 +170,15 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | SBOM (SPDX + CycloneDX) | ✅ | ➕ sbom-action | ➕ | ✅ syft | Med |
 | Scan the **exact built bytes** (OCI layout, no registry round-trip) | ✅ | 🔧 | 🔧 | 🔧 | High |
 | Cross-pipeline advisory bridge | ✅ | 🔧 | 🔧 | — | High |
-| Image / artifact **signing** | 🚧 | ➕ cosign-installer | ➕ | ✅ cosign | Med |
+| Image / artifact **signing** (key · keyless/OIDC · KMS · hardware) | 🚧 | ➕ cosign-installer | ➕ | ✅ cosign | Med |
 | Provenance / OCI labels | ✅ | ➕ provenance attest | ➕ | ✅ cosign attest | Med |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
 - **Backends:** Trivy, Grype, Syft, osv-scanner, govulncheck, cosign — all **governed/verified downloads** (§11). Scans can read the content-store **OCI layout directly** (`trivy --input` / `grype oci-dir:`), so you scan the bytes you built and review, not a re-pulled copy.
-- **Signing is the honest gap:** today it's hardcoded `cosign sign --key … --tlog-upload=false`; method selection (keyless/OIDC-Fulcio/Rekor, KMS, hardware/YubiKey) and signed `SHA256SUMS` bundles are **designed but gated** (`docs/architecture/signing-trust-model.md`). If signing flexibility is your priority *today*, standalone cosign in your CI is ahead.
+- **Signing is implemented but not yet verified (🚧 experimental).** The mechanism is selected from a declared **signing profile** via a cosign class solver (`src/sign/cosign/render.go`): `key`, **keyless/OIDC** (Fulcio/Rekor, `SF_SIGSTORE_*` deployment env), **KMS** (logical key ref), and **hardware** (PKCS#11/YubiKey, FIDO2 `--sk`) with hardware-class assurance (physical-presence, non-exportable) enforced at validation; Tier-0 auto-provision anchors an ephemeral keyless identity when no key/profile resolves. So it is far past "hardcoded `--key`" — the code path exists for every class — **but it has not been exercised/verified end-to-end**, so treat it as experimental until proven. Signed `SHA256SUMS` bundles remain on the roadmap. See `docs/design/plans/signing-trust-model.md`.
 - **Tutorials:** [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) · [anchore/sbom-action](https://github.com/anchore/sbom-action) · [sigstore/cosign](https://docs.sigstore.dev/cosign/signing/signing_with_containers/) · [SLSA provenance](https://slsa.dev/)
-- **Since:** scan/SBOM/advisory ≤ v0.6.0; signing **gated** (not shipped).
+- **Since:** scan/SBOM/advisory ≤ v0.6.0; signing profile/class-solver (keyless/KMS/hardware) **coded** in the v0.6→v0.7 line but **unverified** *(TODO: pin commit; verify end-to-end)*.
 </details>
 
 ---
@@ -284,6 +286,26 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 
 ---
 
+## 13. Static-Site / Pages Deployment
+
+| Capability | StageFreight | GitHub Actions | GitLab CI | Specialized tool | DIY effort |
+|---|---|---|---|---|---|
+| Deploy to **Cloudflare Pages** (native Direct Upload — no wrangler/npm) | ✅ | ➕ wrangler action | 🔧 | ➕ wrangler | Med |
+| Deploy to **GitHub Pages** (gh-pages force-push + CNAME) | ✅ | ✅ pages action | 🔧 | ➕ | Low |
+| **Multiple custom domains** per project (Cloudflare) | ✅ | 🔧 | 🔧 | 🔧 | Med |
+| DNS-aware attach guidance (authoritative-NS classification) | ✅ | — | — | — | High |
+| Same content → **container image AND Pages** from one config | ✅ | 🔧 | 🔧 | — | Med |
+
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** Cloudflare Pages **Direct Upload API** — a faithful port of wrangler's protocol (no wrangler, no npm, no Docker): SF makes the CF API calls itself. GitHub Pages via go-git force-push to `gh-pages` (+ `.nojekyll`/`CNAME`, no git binary). The Cloudflare path idempotently ensures the project, attaches **each** listed custom domain, and classifies the domain's authoritative nameservers to tailor DNS guidance — the attach is **non-fatal**, reported as data so a domain hiccup never fails a deploy.
+- **Otherwise:** wire a `wrangler` action (Node toolchain + API token) or the GitHub Pages action per repo; multi-domain attach and DNS-provider-aware messaging you'd script by hand.
+- **Tutorials:** [Cloudflare Pages Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/) · [actions/deploy-pages](https://github.com/actions/deploy-pages)
+- **Since:** Cloudflare/GitHub pages providers ≤ v0.6.x; multi-domain (`domain:` list) + non-fatal DomainOutcome + the `8000018` idempotent-attach fix landed in the v0.7 line *(TODO: pin commit)*.
+</details>
+
+---
+
 ## Appendix A — Backends StageFreight speaks for you
 
 Every row below is a system you'd otherwise authenticate to and call by hand.
@@ -294,8 +316,9 @@ Every row below is a system you'd otherwise authenticate to and call by hand.
 | **Git forges** | GitHub/GHES, GitLab, Gitea, Forgejo, Azure DevOps 🚧 | releases, asset upload, multi-file commits, tags, MRs/PRs, pipeline cancel, artifact download |
 | **Toolchains** | Go SDK, Trivy, Syft, Grype, osv-scanner, cosign, flux2, kubectl | resolve → checksum-verify → cache → invoke by absolute path |
 | **Build** | Docker buildx / BuildKit, buildkitd, DinD, CAS content store | multi-arch build, OCI export, cache, crucible 2-pass, byte transport |
-| **Security** | cosign 🚧, Trivy, Grype, Syft, osv-scanner, govulncheck | sign(gated)/attest, scan, SBOM, advisory bridge, provenance |
+| **Security** | cosign 🚧, Trivy, Grype, Syft, osv-scanner, govulncheck | sign (key/keyless/KMS/hardware — coded, unverified)/attest, scan, SBOM, advisory bridge, provenance |
 | **Infra** | Kubernetes, Flux / [Argo 🚧], Docker Compose, Ansible inventory | gitops reconcile/impact, compose drift, exposure classification |
+| **Static hosting** | Cloudflare Pages, GitHub Pages | Direct-Upload deploy, multi-domain attach, authoritative-NS classification, CNAME |
 
 ---
 
@@ -303,9 +326,9 @@ Every row below is a system you'd otherwise authenticate to and call by hand.
 
 Things this matrix marks 🚧 or that deserve a caveat, stated plainly:
 
-- **Signing is gated.** Today it's `cosign sign --key … --tlog-upload=false` only. Keyless/OIDC/KMS/hardware and signed `SHA256SUMS` bundles are designed but not shipped. For signing flexibility now, standalone cosign is ahead.
+- **Signing is coded but unverified (experimental).** Mechanism selection — key, keyless/OIDC (Fulcio/Rekor), KMS, and hardware (PKCS#11/YubiKey/FIDO2) — exists via signing profiles + a cosign class solver, with hardware-class assurance enforced. It is well past "hardcoded `--key`," but has **not been exercised/verified end-to-end** — don't rely on it in production until proven. Signed `SHA256SUMS` bundles remain on the roadmap.
 - **Azure DevOps is experimental** and honestly returns `ErrNotSupported` for releases (no native git-release object).
-- **OIDC** is a reserved seam, not implemented.
+- **OIDC** is wired for keyless signing (Sigstore identity) and gitops; it is not a dead seam. Its main consumer (signing) is itself unverified (above), so exercise the OIDC path when validating signing.
 - **Multi-arch crucible** is deferred (arm64 ships via binaries; the image is single-arch by design for now).
 - **Dependency updates** are Go + Dockerfile focused; Renovate covers more ecosystems.
 - **Pre-1.0:** the config schema isn't frozen — expect breaking changes across versions, and regenerate the CI skeleton after upgrades.
@@ -317,7 +340,7 @@ Where the matrix shows StageFreight's real, hard-to-replicate value: **crucible 
 
 ## Maintaining this doc
 
-- **Coverage** (rows) is complete as of v0.6.1. When a feature lands, add its row.
+- **Coverage** (rows) is complete as of v0.7 — this pass added §13 Pages, the semantic release-type / `make_latest` row, and Rust builds, and corrected the signing detail (all mechanisms are coded, but it stays 🚧 **unverified** — the old "hardcoded `--key`" note was stale). When a feature lands, add its row.
 - **Provenance** (the "Since" lines) is being filled in. To pin a feature's introducing commit:
   `git log --oneline --reverse -- <path/to/feature> | head -1`, or map to the release tag it first shipped in (`git tag --contains <commit>`).
 - Keep the comparison columns **fair** — the alternatives are capable; the story is *declarative + integrated*, not *only-SF-can*.

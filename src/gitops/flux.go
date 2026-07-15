@@ -104,7 +104,7 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	// live. It is deliberately NOT abstracted yet: skip-invalid is the only real
 	// consumer today, and extracting an interface before a second policy is real
 	// would be premature. Extract when permissive/strict become concrete needs.
-	// See docs/architecture/gitops-fluxcd-validation.md.
+	// See docs/design/plans/gitops-fluxcd-validation.md.
 	//
 	// Skip-invalid, FAIL-CLOSED: accelerate a kustomization ONLY when audition
 	// recorded an explicit non-fail verdict for it. The verdict comes from the

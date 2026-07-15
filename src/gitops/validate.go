@@ -22,7 +22,7 @@ import (
 // INPUT — a path is rendered once and its result attributed to every
 // Kustomization that consumes it. Graph-integrity checks (cycles, dangling
 // dependsOn) attribute back to the implicated Kustomizations too. See
-// docs/architecture/gitops-fluxcd-validation.md.
+// docs/design/plans/gitops-fluxcd-validation.md.
 //
 // Activation is content-based: a repo with no Flux Kustomizations yields an empty
 // verdict map. Validation is fully hermetic (kustomize + kubeconform, no cluster).
@@ -55,7 +55,7 @@ func (s Status) String() string {
 // this might be wrong" (heuristic). Sources: "graph" (dependsOn integrity),
 // "render" (kustomize build / raw-manifest stream), "core-schema" (built-in
 // Kubernetes schemas — authoritative), "crd-catalog" (datreeio CRD catalog —
-// advisory; see docs/architecture/gitops-fluxcd-validation.md).
+// advisory; see docs/design/plans/gitops-fluxcd-validation.md).
 type Finding struct {
 	Severity Status
 	Source   string

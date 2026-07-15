@@ -3,7 +3,7 @@
 // that insulates the rest of the system from cosign. It imports config (which
 // owns the policy structs + validation) and NEVER imports cosign: the cosign
 // renderer (src/sign/cosign) is an edge that satisfies these requirements, not a
-// participant in the model. See docs/architecture/signing-trust-model.md.
+// participant in the model. See docs/design/plans/signing-trust-model.md.
 package sign
 
 import (

@@ -39,7 +39,7 @@ A declarative lifecycle runtime that governs Git as the source of truth, enforci
 | CLI Reference       | [Full Command Reference](docs/reference/CLI.md)                |
 | Config Reference    | [Full Config Schema](docs/reference/Config.md)                 |
 | Manifest Examples   | [Aspirational Example Configs](docs/config/aspirational/) · [Quick Examples](docs/config/examples/) |
-| Roadmap             | [Full Vision](docs/architecture/plans/RoadMap.md)              |
+| Roadmap             | [Full Vision](docs/design/plans/RoadMap.md)              |
 | GitLab Components | [Publishing GitLab Components](docs/integrations/gitlab/GitLab-Components.md) |
 
 ---

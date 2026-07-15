@@ -20,10 +20,10 @@ copyright: Copyright &copy; PrPlanIT
 docs_dir: docs
 
 # Never shipped to the site (kept in-repo for maintainers/contributors):
-#   architecture/plans/            → design RFCs + internal planning (RoadMap, To-Do, audits)
+#   design/plans/            → design RFCs + internal planning (RoadMap, To-Do, audits)
 #   config/aspirational/README.md  → index for the aspirational example configs (repo browsing)
 exclude_docs: |
-  architecture/plans/
+  design/plans/
   config/aspirational/README.md
 
 theme:
@@ -131,14 +131,14 @@ nav:
       - Full Schema Reference: reference/Config.md
   - CLI Reference: reference/CLI.md
   - Design:
-      - Overview: architecture/index.md
-      - Pipeline Flow: architecture/pipeline-flow.md
-      - Dependency Update: architecture/DependencyUpdate.md
-      - Invariants: architecture/invariants.md
-      - Boundaries: architecture/boundaries.md
-      - CI Render: architecture/ci-render.md
-      - Content Store Lifecycle: architecture/content-store-lifecycle.md
-      - Perform Build Contributors: architecture/perform-build-contributors.md
+      - Overview: design/index.md
+      - Pipeline Flow: design/pipeline-flow.md
+      - Dependency Update: design/DependencyUpdate.md
+      - Invariants: design/invariants.md
+      - Boundaries: design/boundaries.md
+      - CI Render: design/ci-render.md
+      - Content Store Lifecycle: design/content-store-lifecycle.md
+      - Perform Build Contributors: design/perform-build-contributors.md
   - About:
       - Philosophy: philosophy.md
       - Known Issues: known-issues.md
