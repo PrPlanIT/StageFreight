@@ -131,6 +131,29 @@ If you are about to violate one of these, stop. Discuss it first.
 
 ---
 
+## 8. Reconciliation derives; it never deliberates
+
+> A reconciler makes the repository consistent with intent it already encodes. It may
+> only mutate state functionally dependent on an authoritative source, and it never
+> selects among valid futures.
+
+**What this means:**
+- Two mutation classes are distinct: *intentful updates* (choose among valid futures — governed by `max_update`, holds, review) and *reconciliation* (derive the single representation the repo already requires — no policy, no discretion)
+- Authority is one-directional: `go.mod`'s `go` directive is authoritative for the golang builder image; builder → `go.mod` is not a reconciler (that is soft normalization of valid config)
+- Reconciliation is not bounded by `max_update` — nothing is being decided
+- The target is a *canonical satisfying representation*: the floor's own minor line, newest stable patch, operator variant and tag granularity preserved
+- Derivable-or-fail: when no canonical representation exists (variant absent on the floor's minor), emit a configuration error — never drift variant, overshoot the minor, or change granularity
+
+**Why:**
+- `go mod tidy` can raise `go.mod`'s floor in the same run the builder is pinned below it; treating the result as an "update" (bounded by `max_update`, held for review) ships a repo that cannot build
+- A repository inconsistency is not an upgrade decision — modeling it as one invents intent the repo did not encode
+
+**Enforcement:**
+- `src/reconcile/` is a policy-free package (no `max_update`, no candidate/hold types); the go-toolchain reconciler is a pure function over observations
+- `src/reconcile/gotoolchain_test.go` asserts minimal-satisfying + variant/granularity preservation + fail-closed on unrepresentable variants; `src/dependency/reconcile_test.go` asserts the derived edit lands and unsatisfiable floors surface config errors
+
+---
+
 ## Adding a new invariant
 
 Before adding a new invariant here:

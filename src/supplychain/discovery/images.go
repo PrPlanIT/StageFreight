@@ -129,6 +129,15 @@ func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supp
 	if current.PreRank > 0 {
 		dep.Advisory = suggestStableUpgrade(current, tags)
 	}
+
+	// Retain the published tag list for golang builder images so repository
+	// reconciliation can derive the canonical tag that satisfies a module's
+	// go.mod `go` directive floor (see src/reconcile). The tags were already
+	// fetched above — this only stops discarding them. Inert for the intentful
+	// update path, which selects from Latest/LatestEligible, not this list.
+	if repo == "golang" {
+		dep.AvailableVersions = tags
+	}
 	return dep
 }
 

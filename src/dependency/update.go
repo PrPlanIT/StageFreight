@@ -14,8 +14,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
+	"github.com/PrPlanIT/StageFreight/src/reconcile"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/workspace"
 )
@@ -141,6 +142,13 @@ type UpdateResult struct {
 	ArtifactErr       error    // non-nil if artifact generation failed (non-fatal)
 	TouchedModuleDirs []string // repoRoot-relative Go module dirs that were updated
 	FilesChanged      []string // files modified by updates (go.mod, go.sum, Dockerfiles)
+
+	// ReconcileErrors are inconsistencies repository reconciliation detected but
+	// could not canonically resolve (e.g. a go.mod `go` floor the golang builder
+	// cannot satisfy from any published tag). They are collected, not thrown mid-
+	// pass; Update returns a non-nil error when any are present so the run exits
+	// non-zero after all derivable work is done.
+	ReconcileErrors []reconcile.ConfigError
 }
 
 // AppliedUpdate records a single dependency that was successfully updated.
@@ -237,9 +245,10 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		eligible += fmt.Sprintf(" · %d major held (review)", majorsHeld)
 	}
 	steps = append(steps, depStep{label: "eligible", detail: eligible})
-	if len(candidates) == 0 {
-		return result, nil
-	}
+	// No early return on zero candidates: repository reconciliation (step 5c) and
+	// the go-directive sync (step 5b) must run regardless of update activity — a
+	// repo can be internally inconsistent with nothing to update. The per-ecosystem
+	// apply blocks below each guard on their own slice, so they no-op cleanly.
 
 	// 6. Per-ecosystem activity — a row emerges ONLY for an ecosystem that had a
 	// candidate, reporting what actually happened (updated / skipped). No zero rows.
@@ -346,6 +355,25 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.Toolchains = collectToolchainDepsFromResolved(syncResolved, result.Applied)
 	}
 
+	// 5c. Repository reconciliation — make the repo internally consistent with
+	// constraints it already encodes (the go.mod `go` floor the golang builder must
+	// satisfy). Runs AFTER applies so it sees the final, post-tidy go directive; not
+	// gated by candidate count or max_update. Derived edits ride result.FilesChanged
+	// into the same commit; unreconcilable inconsistencies fail the run below.
+	t0 = time.Now()
+	errsBefore := len(result.ReconcileErrors)
+	appliedBefore := len(result.Applied)
+	reconcileRepository(repoRoot, deps, result, cfg.DryRun)
+	reconciledN := len(result.Applied) - appliedBefore
+	reconcileErrN := len(result.ReconcileErrors) - errsBefore
+	if reconciledN > 0 || reconcileErrN > 0 {
+		status := "ok"
+		if reconcileErrN > 0 {
+			status = "fail"
+		}
+		steps = append(steps, depStep{label: "reconcile", status: status, detail: fmt.Sprintf("%d applied · %d config-error", reconciledN, reconcileErrN), dur: time.Since(t0)})
+	}
+
 	// 6. Verify — only run on Go module dirs that were actually updated
 	if cfg.Verify && len(result.TouchedModuleDirs) > 0 {
 		absDirs := make([]string, 0, len(result.TouchedModuleDirs))
@@ -380,7 +408,29 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	result.Artifacts = artifacts
 	result.ArtifactErr = artErr
 
+	// Fail the run on any unreconcilable inconsistency — but only now, after every
+	// derivable reconciliation has been applied and every error collected.
+	if len(result.ReconcileErrors) > 0 {
+		return result, reconcileConfigErrorf(result.ReconcileErrors)
+	}
+
 	return result, nil
+}
+
+// reconcileConfigErrorf renders collected reconciliation config errors into a
+// single actionable error. The repository is internally inconsistent and a human
+// must resolve it; StageFreight never guesses a satisfying representation.
+func reconcileConfigErrorf(errs []reconcile.ConfigError) error {
+	if len(errs) == 1 {
+		e := errs[0]
+		return fmt.Errorf("configuration error (%s): %s:%d: %s", e.Reconciler, e.File, e.Line, e.Message)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d configuration errors:", len(errs))
+	for _, e := range errs {
+		fmt.Fprintf(&b, "\n  - (%s) %s:%d: %s", e.Reconciler, e.File, e.Line, e.Message)
+	}
+	return fmt.Errorf("%s", b.String())
 }
 
 func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, pip, npm []supplychain.Dependency) {
