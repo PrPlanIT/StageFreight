@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -194,9 +196,27 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 	}
 	createArgs = append(createArgs, meta.Image, "sh", "-c", meta.Command)
 
+	// A cold pull of a large builder image (electron/wine images are ~3–4 GiB) on a
+	// disk-tight runner is the usual cause of a create failure. If the image isn't
+	// already cached AND free disk is low, warn BEFORE the create so the eventual
+	// failure isn't a surprise — the runner preflight green-lights on free disk alone
+	// without knowing the image's size.
+	cached := imageCached(ctx, meta.Image)
+	if !cached {
+		if free := freeDiskGiB(rootDir); free >= 0 && free < 5 {
+			fmt.Fprintf(os.Stderr, "  warning: build image %s is not cached and only %.1f GiB is free on the runner — a large image pull may exhaust disk; pre-cache the image or pin this step to a larger runner\n", meta.Image, free)
+		}
+	}
+
 	idOut, err := exec.CommandContext(ctx, "docker", createArgs...).Output()
 	if err != nil {
-		return nil, fmt.Errorf("container engine: docker create (%s): %w", meta.Image, err)
+		// Surface the docker stderr (Cmd.Output captures it into ExitError.Stderr), so a
+		// bare "exit status 1" carries the real reason (e.g. "no space left on device").
+		hint := ""
+		if !cached {
+			hint = fmt.Sprintf("\nhint: %s was not cached, so this is a pull failure — commonly the runner is out of disk (free space / pre-cache the image / use a larger runner), or a registry auth/network problem", meta.Image)
+		}
+		return nil, fmt.Errorf("container engine: docker create (%s): %w%s%s", meta.Image, err, stderrTail(err), hint)
 	}
 	containerID := strings.TrimSpace(string(idOut))
 	defer exec.Command("docker", "rm", "-f", containerID).Run()
@@ -342,4 +362,34 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// stderrTail returns the captured stderr of a failed exec, newline-prefixed, or "".
+// Cmd.Output() populates ExitError.Stderr when Cmd.Stderr is nil, so this recovers the
+// real diagnostic (e.g. "no space left on device") that would otherwise be lost behind
+// a bare "exit status 1".
+func stderrTail(err error) string {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if s := strings.TrimSpace(string(ee.Stderr)); s != "" {
+			return "\n" + s
+		}
+	}
+	return ""
+}
+
+// imageCached reports whether the image already exists on the target daemon, so no
+// pull happens on create (a cold pull is the risky, disk-hungry path).
+func imageCached(ctx context.Context, image string) bool {
+	return exec.CommandContext(ctx, "docker", "image", "inspect", image).Run() == nil
+}
+
+// freeDiskGiB returns the free space (GiB) on dir's filesystem, or -1 if unknown. Uses
+// the same syscall.Statfs the runner preflight uses.
+func freeDiskGiB(dir string) float64 {
+	var st syscall.Statfs_t
+	if syscall.Statfs(dir, &st) != nil {
+		return -1
+	}
+	return float64(st.Bavail) * float64(st.Bsize) / (1 << 30)
 }
