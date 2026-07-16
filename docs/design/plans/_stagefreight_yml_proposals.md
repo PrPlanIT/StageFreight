@@ -246,8 +246,16 @@ parse — Q1 — since their order is load-bearing.)
 
 ```yaml
 version: 1
-image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev     # CI runtime image (root; per-build image: overrides)
-# description + license are auto-detected — license ← LICENSE file (`{project.license}`), description ← publish-origin repo. Declare at root only to override.
+lifecycle: image                         # root mode selector: image | gitops | governance | docker (experimental)
+# This config is the IMAGE mode. Structure = SHARED clusters (present in every mode) + ONE mode-specific pipeline:
+#   shared:        ci · vars · git · forges/repos/registries/signing · commit/tagging/release/glossary · narrate · lint/test/security/dependency · toolchains · manifest · defaults
+#   mode-specific: image → builds + publish + sync    ·    gitops → gitops:    ·    governance → governance:    ·    docker → docker: (experimental)
+#   (a gitops config, e.g. SoFMeRight/dungeon, drops builds/publish/sync and carries gitops: instead — same shared clusters)
+# description + license auto-detected — license ← LICENSE file ({project.license}), description ← publish-origin repo. Declare at root only to override.
+
+ci:                                      # runner block — image + routing (cohesive; image un-hoisted from root)
+  image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev   # per-build image: overrides
+  # routing: {}                          # optional: per-phase runner placement → GitLab tags / GitHub runs-on
 
 vars:
   org: prplanit
@@ -295,6 +303,11 @@ builds:
     outputs:
       - { type: tree, source: site }
 
+manifest:                                # build-evidence data bus (builds → narrate); default-off, on when consumed — presence = enabled
+  mode: commit                           # ephemeral | workspace | commit | publish
+  output_dir: .stagefreight/manifests
+# defaults: {}                           # reserved, engine-ignored slot for user &yaml-anchors (rename candidate: anchors:)
+
 # Can have variants of a forge for diff creds. It serves as unique forge accounts? Perhaps inferring github would be nice. Not having to declare. Same with registries.
 forges:
   gitlab: { provider: gitlab, url: "https://gitlab.prplanit.com", credentials: GITLAB }
@@ -317,6 +330,14 @@ registries:
   harbor:    { provider: harbor, url: cr.pcfae.com, credentials: HARBOR, default_path: "{var:org}/{var:repo}" }
   ghcr:      { provider: ghcr,   url: ghcr.io,      credentials: GHCR,   default_path: "{var:org}/{var:repo}" }
 
+signing:                                 # signing subsystem — operational switch + trust profiles (was signing + signing_profiles, merged)
+  enabled: true                          # explicit on purpose — never presence-enable minting a trust identity
+  auto_provision: false
+  state_dir: { type: volume, name: sf-signing }
+  profiles:                              # keyed by id; a publish target references one via signing_profile: <id>
+    release:  { requires: keyless,  transparency_log: true }
+    hardware: { requires: hardware, physical_presence: true, non_exportable: true }
+
 sync:                                    # replication — what each identity keeps mirrored (scannable, keyed by id)
   github-mirror: { git: true, releases: true }   # repo → content mirror from primary
 
@@ -338,7 +359,7 @@ publish:                                 # was `targets:` — distribute artifac
     tags: ["test-{branch}-{sha:8}", "latest-test-{branch}"]
     when: { branches: ["!main"], events: [push] }
     retention: { keep_last: 6, protect: ["latest-test-{branch}"] }
-  registry-meta:                                     # push project metadata to registries that support it; description defaults from publish-origin
+  registry-meta:                                     # push project metadata; description (short, from publish-origin) + readme (long)
     kind: metadata
     registry: [dockerhub, harbor]                    # fans; ghcr omitted (no description API)
     description: true                                # SHORT — from publish-origin; engine truncates + WARNS per provider cap (Docker Hub ~100 is tightest). Hand-fit with a string, or split targets for a genuinely different one.
@@ -382,12 +403,13 @@ publish:                                 # was `targets:` — distribute artifac
     build: docs-site
     when: { git_tags: [stable], events: [tag] }
 
-narrate:
+narrate:                                 # renders props into files, then commits (terminal phase). NOTE: ideal render→consumer ordering (docs-site/readme/pages read narrate's files; the build-status badge needs the FINAL outcome; a private CI can't be a live badge) is a RUNTIME data-availability problem — early build-time wave vs late status wave — TBD in the engine, NOT a schema-shape concern.
   # ── props: ONE uniform shape → { type: <what>, …fields }. `type:` is the single discriminator ──
   #    — it names the producer/renderer; the remaining fields are that producer's inputs. No provider:/topic:.
   #    RENDERERS you compose (supply the verbs):  badge = SF renders locally · shields = shields.io renders
   #    NAMED producers (self-contained; repo/module resolve from repos:):  goreportcard · go · github-issues-open · github-* · star-history (block)
-  #    STRUCTURAL:  contents = build-manifest section · include = docs fragment
+  #    STRUCTURAL (block content):  contents = build-manifest section · include = docs fragment · text = literal text ·
+  #                 component = docs component (CLI/env ref) · k8s-inventory = live cluster inventory (gitops mode)
   #  BADGE areas, one verb each: logo/label/message (icon/left/right) · logoColor/labelColor/color · link · font/font_size (local only)
   #  label: defaults to the prop's KEY when omitted (build → "build"). State it to differ (github → "GitHub"), to
   #    reuse a display label across uniquely-keyed props (release-updated & dev-updated both "updated"), or when the
@@ -473,7 +495,7 @@ narrate:
       mode: replace
       items: [config-reference]
 
-  commit:
+  commit:                                # narrate's OWN terminal persist (like dependency.commit) — gated all-green, runs AFTER the render's consumers
     type: docs
     message: "refresh generated docs and badges"
     add: ["README.md", "docs/assets/modules", "docs/reference", ".stagefreight/badges"]
@@ -486,10 +508,27 @@ build_cache:
   local:
     retention: { max_age: "7d", max_size: "8GB" }               # cap builder cache below the 15GB default
 
-commit:                                                          # global commit defaults
+# ── change-narrative cluster: author what a release SAYS (commit/tagging/release), rendered per surface ──
+commit:                                                          # commit authoring + render (was commit + presentation.commit)
   default_type: docs
   conventional: true
   backend: git
+  render: { preserve_raw_subject: true }
+
+tagging:                                                         # tag-CREATION policy (was `tag:`; renamed to disambiguate from registry & git-tag patterns)
+  target: HEAD
+  preview: true
+  require_approval: true
+  push: true
+  message: { mode: prompt_if_missing, empty_strategy: prompt }
+  render: { max_entries: 20, group_by_type: true, style: concise }
+
+glossary:                                                        # change-language vocabulary (commit types, aliases, breaking detection) — shared by commit/tagging/release
+  types:
+    feat:  { release_visible: true }
+    fix:   { release_visible: true }
+    chore: { aliases: [build, ci], release_visible: false }
+  breaking: { bang_suffix: true, footer_keys: ["BREAKING CHANGE"] }
 
 test:
   enabled: true
@@ -524,10 +563,11 @@ security:
   sbom: true
   release_detail: full
 
-release:
+release:                              # release assembly + render (change-narrative release surface); the publish `kind: release` target ships it
   enabled: true
-  security_summary: true              # attach it; location = security.output (was a duplicated path)
+  security_summary: true              # attach it; location = security.output
   registry_links: true
+  render: { max_entries: 50, group_by_type: true, style: explanatory }
 
 toolchains:                            # name → desired version (`desired:`/`version:` wrappers dropped; use a map form per-tool for sha/url)
   trivy: "0.69.3"
