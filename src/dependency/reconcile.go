@@ -29,7 +29,22 @@ func reconcileRepository(repoRoot string, deps []supplychain.Dependency, result 
 	}
 	res := reconcile.ReconcileGoToolchain(obs)
 
-	if !dryRun && len(res.Mutations) > 0 {
+	if dryRun {
+		// Evaluate mode never mutates — but an inconsistent repository is still
+		// invalid, so surface every DETECTED reconciliation as a run-failing finding.
+		// This makes evaluate mode fail LOUD, early, and clearly (naming the derived
+		// fix) instead of passing silently and letting the build crash later at a
+		// cryptic toolchain error. The apply pass is where it actually gets fixed.
+		for _, m := range res.Mutations {
+			res.ConfigErrors = append(res.ConfigErrors, reconcile.ConfigError{
+				Reconciler: m.Reconciler,
+				File:       m.File,
+				Line:       m.Line,
+				Message: fmt.Sprintf("%s not satisfied — builder %s must be %s; run an apply pass (dependency update without --dry-run) to reconcile",
+					m.Authority, m.From, m.To),
+			})
+		}
+	} else if len(res.Mutations) > 0 {
 		applied, touched, unapplied := applyReconcileMutations(repoRoot, res.Mutations)
 		result.Applied = append(result.Applied, applied...)
 		result.FilesChanged = deduplicateAndSort(append(result.FilesChanged, touched...))

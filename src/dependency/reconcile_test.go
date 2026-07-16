@@ -64,11 +64,11 @@ func TestReconcileRepository_EchoipScenario(t *testing.T) {
 	}
 }
 
-// TestReconcileRepository_DryRunDetectsButDoesNotWrite: a dry-run pass reports the
-// same inconsistency as a would-reconcile but must not mutate the working tree.
-// (Here the builder can be satisfied, so it is a mutation, not a config error — in
-// dry-run we simply do not apply it and leave the file untouched.)
-func TestReconcileRepository_DryRunDoesNotWrite(t *testing.T) {
+// TestReconcileRepository_DryRunFailsLoudButDoesNotWrite: evaluate mode must NOT
+// mutate the working tree, but it must SURFACE the detected inconsistency as a
+// run-failing finding (naming the derived fix) rather than passing silently and
+// letting the build crash later at a cryptic toolchain error.
+func TestReconcileRepository_DryRunFailsLoudButDoesNotWrite(t *testing.T) {
 	root := writeRepo(t, "1.25.0", "FROM golang:1.24.13 AS build\n")
 	result := &UpdateResult{}
 
@@ -80,6 +80,12 @@ func TestReconcileRepository_DryRunDoesNotWrite(t *testing.T) {
 	}
 	if len(result.Applied) != 0 {
 		t.Fatalf("dry-run must not record applied changes, got %d", len(result.Applied))
+	}
+	if len(result.ReconcileErrors) != 1 {
+		t.Fatalf("dry-run must surface the detected reconciliation as a finding, got %d", len(result.ReconcileErrors))
+	}
+	if msg := result.ReconcileErrors[0].Message; !strings.Contains(msg, "golang:1.25.7") {
+		t.Fatalf("dry-run finding should name the derived fix, got %q", msg)
 	}
 }
 
