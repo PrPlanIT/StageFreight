@@ -275,9 +275,13 @@ func buildPushRefSpecs(local, remote map[string]bool) []gitconfig.RefSpec {
 		specs = append(specs, gitconfig.RefSpec("+"+name+":"+name))
 	}
 
-	// Prune: delete refs that exist on remote but not locally (sorted)
+	// Prune: delete refs that exist on remote but not locally (sorted) — EXCEPT the GitHub
+	// Pages branch. gh-pages is created ON the mirror by the github-pages deploy target
+	// (not the source repo), so it is legitimately remote-only; pruning it wipes the
+	// published docs site and leaves Pages with no branch to serve. A pruning mirror and a
+	// branch-based pages target on the same repo would otherwise delete each other's work.
 	for _, name := range sortedKeys(remote) {
-		if !local[name] {
+		if !local[name] && name != "refs/heads/gh-pages" {
 			specs = append(specs, gitconfig.RefSpec(":"+name))
 		}
 	}

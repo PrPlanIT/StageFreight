@@ -205,6 +205,29 @@ func TestMirrorPush_NoMutationOfWorktree(t *testing.T) {
 	}
 }
 
+// TestBuildPushRefSpecs_PreservesGHPages guards the fix for the mirror-vs-pages conflict:
+// the gh-pages branch (created remote-only by the github-pages deploy) must NOT be pruned,
+// while a genuinely stale remote-only branch still is.
+func TestBuildPushRefSpecs_PreservesGHPages(t *testing.T) {
+	local := map[string]bool{"refs/heads/main": true, "refs/tags/v1": true}
+	remote := map[string]bool{
+		"refs/heads/main":     true,
+		"refs/heads/gh-pages": true, // remote-only — created by the github-pages deploy
+		"refs/heads/stale":    true, // remote-only — genuinely stale, should be pruned
+	}
+	var specs []string
+	for _, r := range buildPushRefSpecs(local, remote) {
+		specs = append(specs, r.String())
+	}
+	joined := strings.Join(specs, " ")
+	if strings.Contains(joined, ":refs/heads/gh-pages") {
+		t.Fatalf("gh-pages must NOT be pruned — pruning it wipes the docs site; specs=%v", specs)
+	}
+	if !strings.Contains(joined, ":refs/heads/stale") {
+		t.Fatalf("a genuinely stale remote-only branch should still be pruned; specs=%v", specs)
+	}
+}
+
 func TestClassifyGoGitFailure(t *testing.T) {
 	tests := []struct {
 		msg  string
