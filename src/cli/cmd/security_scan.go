@@ -112,9 +112,31 @@ func resolveCASTarget(rootDir string, w io.Writer) (security.ScanTarget, string,
 			Source:          security.TargetSource("content_store"),
 			SelectionReason: "content-store layout carried from perform (re-hash verified)",
 			Stability:       security.StabilityDigest,
+			// Carry the commit perform recorded for this artifact. The re-hash above
+			// proves the bytes match the recorded digest (integrity) — it does NOT
+			// prove perform built them for the commit now under review. The caller
+			// enforces that provenance so a stale/foreign carried artifact fails
+			// closed instead of being scanned on faith.
+			ExpectedCommit: outputs.Commit,
 		}, layoutDir, true
 	}
 	return security.ScanTarget{}, "", false
+}
+
+// casCommitMismatch reports whether a content-store scan target belongs to a
+// different commit than the pipeline under review, returning a human-readable
+// reason. It enforces nothing when there is nothing to enforce: not in CI
+// (ciSHA empty), or the carried artifact records no commit (targetCommit empty),
+// or the two agree. Only a genuine disagreement — the fingerprint of a stale or
+// forwarded-from-another-run artifact — is a mismatch.
+func casCommitMismatch(targetCommit, ciSHA string) (string, bool) {
+	if ciSHA == "" || targetCommit == "" || targetCommit == ciSHA {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"refusing to scan content-store artifact built for commit %s — this pipeline is %s; "+
+			"perform rebuild or artifact forwarding is broken (stale/foreign artifact)",
+		shortSHA(targetCommit), shortSHA(ciSHA)), true
 }
 
 // resolveTarget determines the scan target with full provenance tracking.
@@ -333,6 +355,19 @@ func RunSecurityScan(req SecurityScanRequest) error {
 			return err
 		}
 	}
+
+	// Provenance gate (fail-closed) for the content-store review path. The carried
+	// layout's re-hash proved integrity, not that perform built it for THIS commit.
+	// In CI, a mismatch means a stale/foreign artifact forwarded (or a cache-reused
+	// build recorded under the wrong commit) — scanning it yields results for the
+	// wrong bytes, i.e. a phantom pass OR a masked real finding. Refuse it loudly
+	// rather than scan on faith; the real fault (rebuild / artifact forwarding) is
+	// then visible instead of silently degraded.
+	if ociLayoutDir != "" {
+		if msg, mismatch := casCommitMismatch(target.ExpectedCommit, os.Getenv("SF_CI_SHA")); mismatch {
+			return fmt.Errorf("security: %s", msg)
+		}
+	}
 	imageRef := target.Ref
 
 	// Merge request fields with config defaults
@@ -391,6 +426,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 			ObservedDigest:   target.ObservedDigest,
 			ExpectedTags:     target.ExpectedTags,
 			ExpectedCommit:   target.ExpectedCommit,
+			CurrentCommit:    os.Getenv("SF_CI_SHA"),
 			SigningAttempted: target.SigningAttempted,
 		})
 	}

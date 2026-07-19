@@ -28,6 +28,11 @@ const (
 
 // VerificationResult captures the outcome of multi-layer artifact verification.
 type VerificationResult struct {
+	// Layer 0 — Commit provenance (artifact built for the commit under review)
+	ExpectedCommit string `json:"expected_commit,omitempty"`
+	CurrentCommit  string `json:"current_commit,omitempty"`
+	CommitMatch    *bool  `json:"commit_match,omitempty"`
+
 	// Layer 1 — Registry identity
 	ResolvedDigest string `json:"resolved_digest"`
 	ExpectedDigest string `json:"expected_digest,omitempty"`
@@ -65,7 +70,8 @@ type VerifyOpts struct {
 	ObservedDigest    string // primary observation (buildx)
 	ObservedDigestAlt string // alternate observation (registry API)
 	ExpectedTags      []string
-	ExpectedCommit    string
+	ExpectedCommit    string // commit the artifact was built for (from outputs.json)
+	CurrentCommit     string // commit under review (pipeline SF_CI_SHA); enables Layer 0
 	SigningAttempted  bool
 	Attestation       *artifact.AttestationOutcome
 	CosignKeyPath     string
@@ -82,9 +88,17 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 		SigningAttempted: opts.SigningAttempted,
 	}
 
+	// Layer 0 — Commit provenance: the artifact must have been built for the commit
+	// under review. ExpectedCommit is what perform recorded (outputs.json);
+	// CurrentCommit is the pipeline SHA. A mismatch means the bytes are stale or
+	// foreign, so no other layer's result can be trusted — a scan of the wrong
+	// artifact must never read as a pass. Checked before the digest guard so it
+	// still fires when no digest observation is available.
+	verifyCommitProvenance(r, opts)
+
 	if opts.ExpectedDigest == "" {
-		r.Confidence = ConfidenceDegraded
 		r.Failures = append(r.Failures, "no expected digest available")
+		r.Confidence = computeConfidence(r) // Degraded by default; None if Layer 0 flagged a mismatch
 		return r
 	}
 
@@ -119,6 +133,25 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 
 	r.Confidence = computeConfidence(r)
 	return r
+}
+
+// verifyCommitProvenance (Layer 0) checks the artifact was built for the commit
+// under review. It records nothing when either commit is absent (nothing to
+// compare — e.g. a local scan with no CI context); a present-but-different pair
+// is a hard failure that computeConfidence collapses to None.
+func verifyCommitProvenance(r *VerificationResult, opts VerifyOpts) {
+	r.ExpectedCommit = opts.ExpectedCommit
+	r.CurrentCommit = opts.CurrentCommit
+	if opts.ExpectedCommit == "" || opts.CurrentCommit == "" {
+		return
+	}
+	match := opts.ExpectedCommit == opts.CurrentCommit
+	r.CommitMatch = &match
+	if !match {
+		r.Failures = append(r.Failures, fmt.Sprintf(
+			"commit provenance mismatch: artifact built for %s, pipeline is %s",
+			truncCommit(opts.ExpectedCommit), truncCommit(opts.CurrentCommit)))
+	}
 }
 
 // verifyCosignSignature runs cosign verify against a digest reference.
@@ -222,6 +255,9 @@ func verifyShadowWrite(r *VerificationResult, opts VerifyOpts) {
 // computeConfidence determines the overall confidence from verification results.
 func computeConfidence(r *VerificationResult) VerifyConfidence {
 	// Hard failures → none
+	if r.CommitMatch != nil && !*r.CommitMatch {
+		return ConfidenceNone
+	}
 	if r.DigestMatch != nil && !*r.DigestMatch {
 		return ConfidenceNone
 	}
@@ -292,6 +328,13 @@ func truncDigest(d string) string {
 		return d[:19] + "..."
 	}
 	return d
+}
+
+func truncCommit(c string) string {
+	if len(c) > 12 {
+		return c[:12]
+	}
+	return c
 }
 
 func contains(slice []string, item string) bool {
