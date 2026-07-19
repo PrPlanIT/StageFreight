@@ -42,8 +42,10 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Capability | StageFreight | GitHub Actions | GitLab CI | Specialized tool | DIY effort |
 |---|---|---|---|---|---|
 | Multi-platform container build | ✅ | ➕ buildx action | 🔧 buildx by hand | ➕ buildx / depot | Med |
-| Go binary build (multi-OS/arch) | ✅ | ➕ setup-go + matrix | 🔧 matrix by hand | ➕ goreleaser | Med |
-| Rust (cargo) binary build (multi-OS/arch) | ✅ | ➕ setup-rust + matrix | 🔧 matrix by hand | ➕ cargo-dist | Med |
+| Go binary build (**full multi-OS/arch** cross-compile) | ✅ | ➕ setup-go + matrix | 🔧 matrix by hand | ➕ goreleaser | Med |
+| Rust (cargo) binary build — **host-only** (no cross-compile / no crucible) | ✅ | ➕ setup-rust + matrix | 🔧 matrix by hand | ➕ cargo-dist | Med |
+| **7 more languages** (containerized): Node/Electron · .NET (per-RID) · JVM (Java/Kotlin/Scala) · Python (wheel/PyInstaller) · C/C++ (CMake/Meson/Make) · Elixir · Android (signed APK) | ✅ | ➕ per-language setup + matrix | 🔧 per-language | ➕ per-language toolchain | Med |
+| **`kind: command`** build type (escape hatch — any image/command, capture declared outputs) | ✅ | ✅ run: | ✅ script: | — | Low |
 | **Reproducible build self-proof** (crucible) | ✅ | 🔧 | 🔧 | — (niche: rebuilderd) | **High** |
 | Build cache (local + registry-backed) | ✅ | ➕ cache action | ➕ cache: | ➕ buildx cache | Med |
 | Build ordering / dependency graph | ✅ | ➕ needs: | ✅ needs: | — | Low |
@@ -52,7 +54,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
-- **Backends:** Docker **buildx/BuildKit** (`docker buildx build`, OCI-layout export, digest capture), Go SDK (governed download — see §11), buildkitd or DinD host.
+- **Backends:** Docker **buildx/BuildKit** (`docker buildx build`, OCI-layout export, digest capture), native **Go** + **Rust (cargo)** toolchains, and **7 containerized language builders** — Node/Electron, .NET (per-RID self-contained), JVM (Java/Kotlin/Scala/Groovy/Clojure → jar via Maven/Gradle), Python (wheel/sdist or PyInstaller), C/C++ (CMake/Meson/Make), Elixir (mix release), Android (signed APK) — plus a `kind: command` **escape-hatch builder** (any image/command, declared `outputs[]`). Governed Go SDK download — see §11. buildkitd or DinD host. **Cross-compile:** free-form GOOS/GOARCH for Go; per-RID/image for container builders where the toolchain supports it; **Rust is host-only**.
 - **Crucible** = two passes: pass-1 gestation (`--output type=oci`, never pushed), pass-2 re-runs the candidate natively and **diffs the bytes** to prove the image is reproducible. Almost no CI platform does this for you — by hand you'd build twice, extract artifacts, and compare digests across a coherent backend.
 - **Otherwise:** hand-write `docker buildx` invocations, parse `--metadata-file`/digest output, manage `--cache-from`/`--cache-to`, and (for binaries) a build matrix per OS/arch with ldflags version injection.
 - **Tutorials:** [docker/build-push-action](https://github.com/docker/build-push-action) · [buildx cache](https://docs.docker.com/build/cache/backends/) · [goreleaser builds](https://goreleaser.com/customization/builds/) · [reproducible-builds.org](https://reproducible-builds.org/)

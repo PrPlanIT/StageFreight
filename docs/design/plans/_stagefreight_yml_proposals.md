@@ -5,6 +5,30 @@ Working doc to iterate the config surface (starting with `narrate`) toward somet
 committed to the schema yet — it's a design scratchpad. The live `.stagefreight.yml` is
 the reference for "what must still be expressible."
 
+> ### ⚙️ Presets — ALREADY BUILT (reminder, don't redesign the mechanism)
+> Every top-level key is preset-able; this is implemented, not aspirational. Anchor to the code, not to guesses.
+> - **Shape (per-section, not whole-file):** `preset: <path>` on any section (a `preset` key inside the section map; local siblings override) · `presets: [<path>…]` for **ordered compose**, allowed only on keyed-collection sections (`targets`/`builds`/`badges.items`/`versioning.tag_sources`/`versioning.branch_builds`/`narrator`). A preset file declares **exactly one** top-level key, matching the section it imports into. `preset:`+`presets:` on one section = error. (`src/config/preset.go:35-42,449-503`)
+> - **Call-back (resolution):** `PresetLoader.Load(path)` — resolves from **local FS relative to the config** (satellites read the on-disk cache) **or remote git-clone of the policy repo by PINNED ref** (SSH/HTTPS; branch refs need `allow_floating`). Cycle + path-traversal guards. No HTTP-URL / forge-REST preset fetch. (`src/config/preset.go:12-14,50-247` · `src/governance/loader.go:22-154`)
+> - **Cache:** on-disk **git-committed** `.stagefreight/preset-cache/` in each satellite — governance distribution writes 1:1 copies; **runtime resolves from the committed cache** (reproducible, no live fetch at build time). `preset_source:` block carries forge coords + `cache_policy: authoritative`; refresh = governance re-run (per-file drift). `vars` presets are pre-resolved to concrete values, not cached as refs. (`src/governance/distributor.go:29-105,188-237` · `src/paths/paths.go:10`)
+> - **Merge:** `DeepMerge` — maps deep-merge recursively; **scalars & lists replaced** wholesale by override (override wins); `presets:` list = append/compose + **dedup by id**. Per-value provenance is recorded (`MergeEntry`: set/override/replace/merge/append) → this IS the resolved-view provenance we wanted. (`src/config/preset.go:518-543,22-31`)
+> - ⚠️ **NEEDS-CODE / verify:** the main runtime load `LoadWithWarnings` (`src/config/config.go:128-165`) does **not** call `ResolvePresets`; the documented `loadResolved` "resolve-before-decode" invariant (`docs/design/invariants.md:19-40`) has **no implementing symbol**. Resolution today runs only in `config resolve`, the provenance reporter, and governance distribution. Confirm presets actually resolve on the build/run path before treating preset-bearing sections as runnable.
+
+> ### 💳 Creds — insight (a cred is a placeable *reference*, never a value)
+> A credential is **how you auth to a targetable featureset** — orthogonal to *what* you target (identity layer models featuresets, not vendors; the shared token is a `secrets:` atom two featuresets happen to point at). So a cred is a `credentials: <secret-name>` **reference**, placeable at **any scope** — global default → per-featureset (`forges`/`registries`) → per-target/per-repo — **nearest-wins**. The **value** always resolves through `secrets:` (env/sops/vault); never inline in config.
+> - **Why any-level:** one mechanism serves both org shapes — org-token shops set it once high; per-project-token shops (token sprawl) drop the ref at the target/repo level, where their token boundaries already are. Same nearest-wins override as [[presets]], applied to one attribute — no new machinery.
+> - **Ref, not value:** placement is flexible; the secret stays in the secrets layer. No plaintext tokens scattered across the config.
+> - **Provenance is mandatory:** the resolved/`plan` view must report *which scope* each cred resolved from — the token-sprawl orgs this serves care most about "which token touches which target" (blast radius, rotation).
+> - **Bonus — token-topology map:** cred-ref + provenance = "show me every credential and every featureset/target it authorizes" falls out for free (a query over the resolved config; ties to the audit-log/event-substrate work). Answers the *management* pain, not just expression.
+> - **Signing stays explicit:** safety-critical creds (signing keys) are stated, not silently inherited from a broad default — consistent with presence-to-disable-must-be-explicit.
+
+> ### 🎭 narrate — RESOLVED (reconciler) + PROPOSED (split commit out; narrate = the run's story)
+> **Resolution (ordering solved).** narrate is a **reconciler**, not a phase-at-time-T. Declare the input→render→target graph at load; **re-render a target whenever one of its inputs changes**, where inputs = **workspace files ∪ pipeline-state tokens** (`{env:BUILD_STATUS}`, `{docker.pulls}` are *state*, not files — watching state-as-input is what fixes the status badge). Transitive: a generated include (docsgen → `cli-reference.md` → README-include → docs-site) cascades downstream, make-style. Idempotent → converges to a fixpoint; acyclic (a cycle is a config error); **cheap** (watch only the graph's files + declared state-tokens; re-render only the affected subgraph). A build/action's **declared file-outputs** are the edges that pull non-narrate actions into the graph — and double as the preview-tree + audit line. Ordering dissolves into dependency; no manual order needed. (Tracked: #39.)
+> **Proposed reframe (under discussion).** Today's `narrate: { props, files, commit }` conflates **three** responsibilities: *scribe* (props+files — render content into workspace files via markers/regex; **keep as-is, it's the good part**), *flush* (the git commit — actually **generic**, not narrate-specific), and *report* (the run's story — barely present today). Split them:
+> - **flush → a terminal workspace-write** (after publish, "update primary-origin"): the definitive, trustworthy commit of *all* workspace mutations back to git, with full success-knowledge up to the write; may emit **classified** commits (docs `skip_ci` vs source). Its manifest lists which props embedded into which docs (from the declared-mutations record).
+> - **narrate → the run's report**: summary / notifications / alerts / HUD — **SF-templated or LLM-generated** (ollama / anthropic / openai) — "YAY we shipped" or "oh-shit, here's what broke" at a glance. Configurable. The **human layer over the event substrate** (#38); absorbs announcements (#35). narrate finally *means* narrate.
+> - **Why the flush is evicted (the load-bearing reason, not hygiene):** a reporter must not own any mutation that can *fail* — **a reporter that can fail can't be trusted to report failure.** The commit is the one fallible thing in narrate (rejected push, dirty tree, auth); leave it in and a bad push kills the reporter exactly when there's a failure to report. So narrate is made **mutation-free** — it mutates *nothing the run depends on* (no workspace, no repo, no run-state), only *outbound, fail-soft* effects (notifications/logs; a Slack outage never fails the run) — which makes it an **unkillable `finally`** that always runs. Everything fallible (scribe's writes, the flush) runs *before* it; narrate is pure *read → outbound report*. (Same property is why an LLM summary is safe here: post-commit, outbound, fail-soft.)
+> - Status badge = *scribe* (reflects outcome up to the flush); run notification = *narrate* (reflects the total, incl. the flush) — resolves the badge chicken-egg cleanly (a badge can't know the success of the commit it's inside).
+
 ## Goal / constraints
 
 1. **Lossless.** Everything the current schema can do must survive: explicit markers,
@@ -161,6 +185,12 @@ Net: 7 lines → 2–3 per badge; the shared `font`/`color` stated once.
 
 ## Proposal C — one item grammar for every kind (resolves Q3 + Q4)
 
+> **⚠️ SUPERSEDED.** Field-inference (`kind:` derived from which payload field is present)
+> was rejected: an explicit discriminator ages better and stays extensible (`type: badge`
+> today → `type: markdown|html|svg|graph` tomorrow without the field-set going ugly). **The
+> final config uses an explicit `type:` on every prop.** This proposal is kept only as the
+> historical reasoning; do not implement the inference.
+
 Every kind already carries a field that **uniquely names it** — so `kind:` is redundant,
 infer it from the payload field. With placement hoisted to the region (Prop A) and id=key,
 each item collapses to one line.
@@ -265,14 +295,14 @@ vars:
   github_repo: StageFreight
 
 git:                                     # interpret the ref → named patterns + the versions they imply (was matchers + versioning)
-  branches:
-    main: "^main$"                        # was top-level matchers.branches
-  tags:                                   # was versioning.tag_sources — named tag patterns
+  branches:                              # order-free named lookups (matchers) → MAP
+    main: "^main$"
+  tags:                                  # MAP, order-free — patterns are MUTUALLY EXCLUSIVE (a tag matches at most one); overlap = config error, not a first-match tiebreak. NEEDS-CODE: engine today does declaration-order first-match.
     stable:     { pattern: "^v?\\d+\\.\\d+\\.\\d+$" }
     prerelease: { pattern: "^v?\\d+\\.\\d+\\.\\d+-.+" }
   versioning:                             # derivation rules that consume the patterns above
-    branch_builds:
-      default: { base_from: [stable], format: "{base}-dev+{sha}" }   # `format` produces {version} off-tag — rename to version: if you like
+    branch_builds:                       # MAP, order-free — `default` is the NAMED catch-all (named rules match by branch; `default` is the fallback), NOT a positional last. NEEDS-CODE: engine today requires default-last.
+      default: { base_from: [stable], format: "{base}-dev+{sha}" }   # `format` produces {version} off-tag
     no_lineage: { mode: error }
 
 builds:
@@ -404,47 +434,47 @@ publish:                                 # was `targets:` — distribute artifac
     when: { git_tags: [stable], events: [tag] }
 
 narrate:                                 # renders props into files, then commits (terminal phase). NOTE: ideal render→consumer ordering (docs-site/readme/pages read narrate's files; the build-status badge needs the FINAL outcome; a private CI can't be a live badge) is a RUNTIME data-availability problem — early build-time wave vs late status wave — TBD in the engine, NOT a schema-shape concern.
-  # ── props: ONE uniform shape → { type: <what>, …fields }. `type:` is the single discriminator ──
-  #    — it names the producer/renderer; the remaining fields are that producer's inputs. No provider:/topic:.
-  #    RENDERERS you compose (supply the verbs):  badge = SF renders locally · shields = shields.io renders
-  #    NAMED producers (self-contained; repo/module resolve from repos:):  goreportcard · go · github-issues-open · github-* · star-history (block)
-  #    STRUCTURAL (block content):  contents = build-manifest section · include = docs fragment · text = literal text ·
-  #                 component = docs component (CLI/env ref) · k8s-inventory = live cluster inventory (gitops mode)
-  #  BADGE areas, one verb each: logo/label/message (icon/left/right) · logoColor/labelColor/color · link · font/font_size (local only)
+  # ── props: TWO orthogonal axes — SOURCE (the data, `type:`) × RENDER (the form, `render:`). Placement stays in files:. ──
+  #    SOURCE = `type:` names the producer; OMIT it for inline (you compose the verbs below). No provider:/topic:/host.
+  #      inline · goreportcard · go-reference · github-last-commit · github-issues-open · github-* · contents · include · text · component · k8s-inventory · star-history
+  #    RENDER = `render:` names the form: badge (DEFAULT) · shield · image · table · list · kv · versions · raw   (later: markdown · html · json)
+  #      inline → badge|shield (you pick) · data producers (github count/date) default a form, accept others ·
+  #      fixed-form producers (goreportcard → image) FORBID render: — an ignored knob is a lie → validation error.
+  #    STRUCTURAL sources keep their own coordinates: contents = build: + section: · include = path: · component = ref: · k8s-inventory = live cluster (gitops)
+  #  BADGE areas (inline), one verb each: logo/label/message (icon/left/right) · logoColor/labelColor/color · link · font/font_size (local render only)
   #  label: defaults to the prop's KEY when omitted (build → "build"). State it to differ (github → "GitHub"), to
   #    reuse a display label across uniquely-keyed props (release-updated & dev-updated both "updated"), or when the
   #    text would break YAML / force a duplicate key. Both forms are accepted; examples below always encode explicit.
   props:
-    # ── badges · rendered locally (SF resolves {vars}, draws the SVG) ──────────────────────────
-    build:            { type: badge,    label: build,      message: "{env:BUILD_STATUS}",           color: auto,      font: monofur,                 link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines" }
-    license:          { type: badge,    label: license,    message: "{project.license}",            color: "#310937", font: monofur,                 link: LICENSE }
-    release:          { type: badge,    label: release,    message: "v{base}",                      color: "#74ecbe", font: dejavu-sans, font_size: 11, link: "https://github.com/{var:github_org}/{var:github_repo}/releases" }
-    updated:          { type: badge,    label: updated,    message: "{env:BUILD_DATE}",             color: "#236144", font: dejavu-sans, font_size: 11 }
-    pulls:            { type: badge,    label: pulls,      message: "{docker.pulls}",               color: "#1d63ed",                                link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
-    release-latest:   { type: badge,    label: latest,     message: "v{base}",                      color: "#74ecbe",                                link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest" }
-    release-updated:  { type: badge,    label: updated,    message: "{docker.tag.v{base}.updated}", color: "#236144" }
-    release-size:     { type: badge,    label: size,       message: "{docker.tag.v{base}.size}",    color: "#555",                                   link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}" }
-    dev-latest:       { type: badge,    label: latest-dev, message: "dev-{sha:8}",                  color: "#3b82f6",                                link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev" }
-    dev-updated:      { type: badge,    label: updated,    message: "{docker.tag.latest-dev.updated}", color: "#236144" }
-    dev-size:         { type: badge,    label: size,       message: "{docker.tag.latest-dev.size}", color: "#555",                                   link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev" }
-    # ── badges · type: shields → rendered by shields.io from the same verbs (no %2F / path juggling) ──
-    donate:           { type: shields,  message: donate,  color: "#FF5E5B", logo: ko-fi,          logoColor: white, link: "https://ko-fi.com/T6T41IT163" }
-    sponsor:          { type: shields,  message: sponsor, color: "#EA4AAA", logo: githubsponsors, logoColor: white, link: "https://github.com/sponsors/{var:github_org}" }
-    github:           { type: shields,  label: GitHub, message: source, color: "#181717", logo: github,                  link: "https://github.com/{var:github_org}/{var:github_repo}" }
-    gitlab:           { type: shields,  label: GitLab, message: source, color: "#FC6D26", logo: gitlab,                  link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}" }
-    docker:           { type: shields,  label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, logoColor: white, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
-    # ── badges · named producers — self-contained; repo/module resolve from repos: (override: repo: <id>) ──
-    go-report:        { type: goreportcard }
-    go-reference:     { type: go.dev,  topic:  go-reference  }
-    last-commit:      { type: shields,  topic: github-last-commit }
-    issues-open:      { type: shields,  topic: github-issues-open }
-    prs-open:         { type: shields,  topic: github-prs-open }
-    contributors:     { type: shields,  topic: github-contributors }
-  # block widget — a named producer with a bigger footprint (none used yet):
-  # star-history:     { type: star-history }
-    # ── contents · a build-manifest section, build referenced by id · view: badges|table|list|kv|versions ──
-    contents-base:    { type: contents, topic: inventories.versions, build: stagefreight, view: badges }
-    contents-apk:     { type: contents, topic: inventories.apk, build: stagefreight,      view: badges }
+    # ── inline source → render: badge (the DEFAULT — SF resolves {vars}, draws the SVG locally) ──
+    build:            { label: build,      message: "{env:BUILD_STATUS}",           color: auto,      font: monofur,                 link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines" }
+    license:          { label: license,    message: "{project.license}",            color: "#310937", font: monofur,                 link: LICENSE }
+    release:          { label: release,    message: "v{base}",                      color: "#74ecbe", font: dejavu-sans, font_size: 11, link: "https://github.com/{var:github_org}/{var:github_repo}/releases" }
+    updated:          { label: updated,    message: "{env:BUILD_DATE}",             color: "#236144", font: dejavu-sans, font_size: 11 }
+    pulls:            { label: pulls,      message: "{docker.pulls}",               color: "#1d63ed",                                link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
+    release-latest:   { label: latest,     message: "v{base}",                      color: "#74ecbe",                                link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest" }
+    release-updated:  { label: updated,    message: "{docker.tag.v{base}.updated}", color: "#236144" }
+    release-size:     { label: size,       message: "{docker.tag.v{base}.size}",    color: "#555",                                   link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}" }
+    dev-latest:       { label: latest-dev, message: "dev-{sha:8}",                  color: "#3b82f6",                                link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev" }
+    dev-updated:      { label: updated,    message: "{docker.tag.latest-dev.updated}", color: "#236144" }
+    dev-size:         { label: size,       message: "{docker.tag.latest-dev.size}", color: "#555",                                   link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev" }
+    # ── inline source → render: shield (shields.io draws it from the same composed verbs; no %2F juggling) ──
+    donate:           { render: shield, message: donate,  color: "#FF5E5B", logo: ko-fi,          logoColor: white, link: "https://ko-fi.com/T6T41IT163" }
+    sponsor:          { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logoColor: white, link: "https://github.com/sponsors/{var:github_org}" }
+    github:           { render: shield, label: GitHub, message: source, color: "#181717", logo: github,                  link: "https://github.com/{var:github_org}/{var:github_repo}" }
+    gitlab:           { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab,                  link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}" }
+    docker:           { render: shield, label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, logoColor: white, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
+    # ── named producers · type: = the SOURCE — self-contained; repo/module resolve from repos: (override repo: <id>) ──
+    go-report:        { type: goreportcard }                    # render: image (fixed — setting render: is an error)
+    go-reference:     { type: go-reference }                    # render: image (fixed)
+    last-commit:      { type: github-last-commit }              # render: shield (default; a count/date — render: badge|table also valid)
+    issues-open:      { type: github-issues-open }
+    prs-open:         { type: github-prs-open }
+    contributors:     { type: github-contributors }
+  # star-history:     { type: star-history }                    # block widget · render: image — none used yet
+    # ── contents · a build-manifest section (build by id) · render: badges|table|list|kv|versions ──
+    contents-base:    { type: contents, build: stagefreight, section: inventories.versions, render: badges }
+    contents-apk:     { type: contents, build: stagefreight, section: inventories.apk,      render: table }
     # ── include · inject a docs fragment ───────────────────────────────────────────────────────
     cli-reference:    { type: include,  path: docs/assets/modules/cli-reference.md }
     config-reference: { type: include,  path: docs/assets/modules/config-reference.md }
