@@ -55,17 +55,18 @@ func copyFile(t *testing.T, src, dst string) {
 	}
 }
 
-// TestSubsystemShards_UnionAcrossArtifactClobber reproduces the publish-authz
-// bug and proves the shard fix.
+// TestSubsystemShards_UnionAcrossArtifactClobber reproduces the publish-authz bug
+// and proves the fragment model.
 //
-// perform records {build} and forwards all of .stagefreight/. review clones
-// perform's state and records {build, security}, forwarding only its small set
-// (security/, subsystems/, pipeline.json). publish (needs: [perform, review])
-// downloads BOTH — and both carry pipeline.json at the SAME path, so its content
-// is decided by download order. Before shards, "perform last" left publish with
-// perform's {build}-only pipeline.json and the authz gate saw "security did not
-// run". The per-subsystem shards make ReadState UNION build+security regardless
-// of order.
+// perform records {build} and forwards all of .stagefreight/ (its content store +
+// the base pipeline.json). review clones perform's state, records {build,
+// security}, and forwards ONLY its fragment set (security/, subsystems/) — it does
+// NOT re-forward pipeline.json. publish (needs: [perform, review]) downloads both.
+// The security outcome crosses SOLELY as subsystems/security.json, which never
+// collides with perform's build.json, so ReadState unions build+security no matter
+// the download order. (Before this, review re-forwarded pipeline.json; publish
+// downloaded two copies at one path and the last write won — "perform last"
+// dropped review's security and the gate saw "security did not run".)
 func TestSubsystemShards_UnionAcrossArtifactClobber(t *testing.T) {
 	perform := t.TempDir()
 	if err := UpdateState(perform, func(s *State) {
@@ -82,11 +83,10 @@ func TestSubsystemShards_UnionAcrossArtifactClobber(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// perform forwards its whole .stagefreight/ (content store + base pipeline.json);
+	// review forwards only its fragment (subsystems/) — never pipeline.json.
 	forwardPerform := func(dst string) { copyInto(t, perform, dst, paths.Root) }
-	forwardReview := func(dst string) {
-		copyInto(t, review, dst, SubsystemsDir)
-		copyInto(t, review, dst, StatePath)
-	}
+	forwardReview := func(dst string) { copyInto(t, review, dst, SubsystemsDir) }
 
 	orders := []struct {
 		name string

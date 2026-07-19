@@ -15,14 +15,20 @@ import (
 // StatePath is the workspace-relative path where pipeline state is persisted.
 const StatePath = paths.Root + "/pipeline.json"
 
-// SubsystemsDir holds one shard per subsystem outcome (e.g. subsystems/build.json,
-// subsystems/security.json). pipeline.json is a SINGLE path that every phase job
-// uploads as an artifact, so when a downstream job (publish) downloads several
-// upstream artifacts the last-written pipeline.json overwrites the earlier ones —
-// silently dropping the subsystems only another job recorded. That order-dependent
-// clobber is what made publish's authorization gate see "security did not run".
-// Per-name shards never collide across jobs (perform → build.json, review →
-// security.json), so ReadState can UNION them back regardless of download order.
+// SubsystemsDir holds one fragment per subsystem outcome (subsystems/build.json,
+// subsystems/security.json, …). These fragments — NOT pipeline.json — are the
+// single carrier of subsystem state ACROSS jobs.
+//
+// Why: CI jobs are isolated workspaces whose outputs are recombined by an artifact
+// system with no merge — only file union, where same-path files clobber. A single
+// shared pipeline.json therefore cannot accumulate across jobs: when a downstream
+// job (publish) downloads two upstreams that each wrote pipeline.json, the
+// last-written copy overwrites the other, silently dropping the subsystems only one
+// job recorded. That order-dependent clobber is what made publish's authorization
+// gate see "security did not run". Per-name fragments never collide across jobs
+// (perform→build.json, review→security.json), so ReadState UNIONs them regardless
+// of download order. pipeline.json remains each job's LOCAL merged view (the read
+// model); it is not forwarded as a contested cross-job ledger.
 const SubsystemsDir = paths.Root + "/subsystems"
 
 // State is the per-run ledger for the current pipeline workspace.

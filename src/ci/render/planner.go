@@ -68,22 +68,21 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:    []string{"perform"},
 				Commands: []string{"stagefreight ci run review"},
 				Artifacts: model.ArtifactSpec{
-					// Forward review's recorded security outcome to publish, whose
-					// authorization gate reads it. pipeline.json alone is NOT enough:
-					// publish (needs: [perform, review]) downloads BOTH jobs'
-					// pipeline.json at the same path, so the last-written one wins —
-					// perform's {build}-only copy can overwrite review's {build,
-					// security}, and the gate then sees "security did not run". The
-					// per-subsystem shards under subsystems/ are the order-independent
-					// fix: review's security.json never collides with perform's
-					// build.json, and ReadState unions them. pipeline.json is kept for
-					// the rest of the ledger; security/ holds the scan reports. (review
-					// still does NOT re-forward the whole .stagefreight/ — that would
-					// drag perform's content store along with it.)
+					// Cross-job subsystem state travels as per-name fragments under
+					// subsystems/ — the SINGLE carrier. review forwards only its own
+					// fragment (subsystems/security.json) plus the scan reports under
+					// security/; readers UNION the fragments (ReadState). review does
+					// NOT forward pipeline.json: that is the local merged view, and
+					// re-forwarding it was the old special case that made two jobs'
+					// pipeline.json collide at publish (last-write-wins dropped review's
+					// security outcome → "security did not run"). Fragments never
+					// collide across jobs (perform→build.json, review→security.json), so
+					// the union is order-independent. (review still does NOT re-forward
+					// the whole .stagefreight/ — that would drag perform's content store
+					// along with it.)
 					Paths: []string{
 						paths.Ephemeral("", "security") + "/",
 						paths.Ephemeral("", "subsystems") + "/",
-						paths.Ephemeral("", "pipeline.json"),
 					},
 					ExpireIn: "1 week",
 				},
