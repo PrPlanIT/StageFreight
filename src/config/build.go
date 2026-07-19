@@ -171,7 +171,8 @@ type BuildConfig struct {
 	// config branches — one stable object model for all binary builders.
 
 	// Builder is the toolchain that interprets the build.
-	// Supported: "go". Future: "rust", "zig", "cargo".
+	// Supported: "go", "rust", "node", "elixir", "dotnet", "c", "python", "jvm", "android"
+	// (authoritative list: validBuilders in enums.go). Future: "zig". Empty defaults to "go".
 	Builder string `yaml:"builder,omitempty"`
 
 	// Command is the builder subcommand (binary: e.g. "build") or the full command
