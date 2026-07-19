@@ -272,7 +272,7 @@ builds:
 builds:
   - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
     kind: binary   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
-    builder: <string>   # Builder is the toolchain that interprets the build. Supported: "go". Future: "rust", "zig", "cargo". · one of: android, c, dotnet, elixir, go, jvm, node, python, rust
+    builder: <string>   # Builder is the toolchain that interprets the build. Supported: "go", "rust", "node", "elixir"… · one of: android, c, dotnet, elixir, go, jvm, node, python, rust
     from: <string>   # From is the source/input root or entry point. e.g., "./src/cli" (Go package), "./src/main.rs"…
     output: <string>   # Output is the artifact name. Windows platforms auto-append ".exe". Default: basename of From.
     args: [<string>]   # Args are ordered raw arguments passed directly to the selected builder. For Go: raw args to "go…
