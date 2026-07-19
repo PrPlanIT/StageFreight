@@ -68,13 +68,23 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:    []string{"perform"},
 				Commands: []string{"stagefreight ci run review"},
 				Artifacts: model.ArtifactSpec{
-					// pipeline.json carries review's recorded security outcome
-					// forward to publish, whose authorization gate reads it. Without
-					// it, publish sees only perform's stale state and the gate is
-					// blind. security/ holds the scan reports themselves. (review
-					// deliberately does NOT re-forward the whole .stagefreight/ —
-					// that would drag perform's content store along with it.)
-					Paths:    []string{paths.Ephemeral("", "security") + "/", paths.Ephemeral("", "pipeline.json")},
+					// Forward review's recorded security outcome to publish, whose
+					// authorization gate reads it. pipeline.json alone is NOT enough:
+					// publish (needs: [perform, review]) downloads BOTH jobs'
+					// pipeline.json at the same path, so the last-written one wins —
+					// perform's {build}-only copy can overwrite review's {build,
+					// security}, and the gate then sees "security did not run". The
+					// per-subsystem shards under subsystems/ are the order-independent
+					// fix: review's security.json never collides with perform's
+					// build.json, and ReadState unions them. pipeline.json is kept for
+					// the rest of the ledger; security/ holds the scan reports. (review
+					// still does NOT re-forward the whole .stagefreight/ — that would
+					// drag perform's content store along with it.)
+					Paths: []string{
+						paths.Ephemeral("", "security") + "/",
+						paths.Ephemeral("", "subsystems") + "/",
+						paths.Ephemeral("", "pipeline.json"),
+					},
 					ExpireIn: "1 week",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true},

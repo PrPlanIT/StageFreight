@@ -15,6 +15,16 @@ import (
 // StatePath is the workspace-relative path where pipeline state is persisted.
 const StatePath = paths.Root + "/pipeline.json"
 
+// SubsystemsDir holds one shard per subsystem outcome (e.g. subsystems/build.json,
+// subsystems/security.json). pipeline.json is a SINGLE path that every phase job
+// uploads as an artifact, so when a downstream job (publish) downloads several
+// upstream artifacts the last-written pipeline.json overwrites the earlier ones —
+// silently dropping the subsystems only another job recorded. That order-dependent
+// clobber is what made publish's authorization gate see "security did not run".
+// Per-name shards never collide across jobs (perform → build.json, review →
+// security.json), so ReadState can UNION them back regardless of download order.
+const SubsystemsDir = paths.Root + "/subsystems"
+
 // State is the per-run ledger for the current pipeline workspace.
 // Each subsystem records what it did; downstream stages read the ledger
 // instead of probing files.
@@ -189,7 +199,76 @@ func ReadState(rootDir string) (*State, error) {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return nil, fmt.Errorf("parsing pipeline state: %w", err)
 	}
+	overlaySubsystemShards(rootDir, &st)
 	return &st, nil
+}
+
+// overlaySubsystemShards folds every subsystems/<name>.json shard into st,
+// upserting by name. This is what turns cross-job artifact forwarding from a
+// clobber into a union: even when this workspace's pipeline.json is the subset
+// copy that won an artifact-download race, the shards restore each subsystem the
+// other jobs recorded. Best-effort — a missing dir or an unreadable/!parse shard
+// is skipped, never fatal, so a corrupt shard can only lose its own subsystem
+// (which then reads as "did not run" — fail closed), never break state reads.
+func overlaySubsystemShards(rootDir string, st *State) {
+	dir := filepath.Join(rootDir, SubsystemsDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var s SubsystemState
+		if err := json.Unmarshal(data, &s); err != nil || s.Name == "" {
+			continue
+		}
+		st.RecordSubsystem(s)
+	}
+}
+
+// writeSubsystemShards persists each subsystem as its own file so cross-job
+// artifact forwarding unions rather than clobbers (see SubsystemsDir).
+func writeSubsystemShards(rootDir string, subs []SubsystemState) error {
+	if len(subs) == 0 {
+		return nil
+	}
+	dir := filepath.Join(rootDir, SubsystemsDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating subsystems dir: %w", err)
+	}
+	for _, s := range subs {
+		data, err := json.MarshalIndent(s, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling subsystem %q: %w", s.Name, err)
+		}
+		data = append(data, '\n')
+		if err := atomicfile.WriteFile(filepath.Join(dir, shardFileName(s.Name)), data, 0o644); err != nil {
+			return fmt.Errorf("writing subsystem shard %q: %w", s.Name, err)
+		}
+	}
+	return nil
+}
+
+// shardFileName maps a subsystem name to a safe shard filename. Subsystem names
+// are simple identifiers ("build", "security", ...); any path-unsafe rune is
+// replaced so a name can never escape SubsystemsDir.
+func shardFileName(name string) string {
+	safe := make([]rune, 0, len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			safe = append(safe, r)
+		default:
+			safe = append(safe, '_')
+		}
+	}
+	return string(safe) + ".json"
 }
 
 // WriteState writes pipeline state atomically (tmp + fsync + rename).
@@ -203,7 +282,12 @@ func WriteState(rootDir string, st *State) error {
 	}
 	data = append(data, '\n')
 
-	return atomicfile.WriteFile(filepath.Join(rootDir, StatePath), data, 0o644)
+	if err := atomicfile.WriteFile(filepath.Join(rootDir, StatePath), data, 0o644); err != nil {
+		return err
+	}
+	// Mirror each subsystem to its own shard so downstream jobs union rather than
+	// clobber subsystem outcomes across forwarded artifacts (see SubsystemsDir).
+	return writeSubsystemShards(rootDir, st.Subsystems)
 }
 
 // RecordSubsystem upserts a subsystem entry by name.
