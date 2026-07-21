@@ -3,6 +3,7 @@ package build
 import (
 	"crypto/sha256"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -86,6 +87,15 @@ func NormalizeBuildPlan(plan *BuildPlan) string {
 		fmt.Fprintf(h, "step:%s\n", step.Name)
 		fmt.Fprintf(h, "dockerfile:%s\n", filepath.Clean(step.Dockerfile))
 		fmt.Fprintf(h, "context:%s\n", filepath.Clean(step.Context))
+		// Content of the build inputs, not just their paths. Without this the
+		// fingerprint is source-blind: two commits with different code but the same
+		// build shape hash identically, so a stale build can be reused / pass
+		// crucible / mislabel provenance and ship undetected. Empty when the plan
+		// was assembled without the context on disk — degrade to path-only rather
+		// than fabricate a match.
+		if step.ContextDigest != "" {
+			fmt.Fprintf(h, "contextDigest:%s\n", step.ContextDigest)
+		}
 		if step.Target != "" {
 			fmt.Fprintf(h, "target:%s\n", step.Target)
 		}
@@ -106,6 +116,55 @@ func NormalizeBuildPlan(plan *BuildPlan) string {
 		sort.Strings(argKeys)
 		for _, k := range argKeys {
 			fmt.Fprintf(h, "arg:%s=%s\n", k, step.BuildArgs[k])
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// HashBuildContext returns a content hash of the inputs that actually determine
+// the built bytes: the Dockerfile plus every file in the build context. Any
+// source-byte change yields a different hash — the property NormalizeBuildPlan's
+// path-only identity was missing. Best-effort and deterministic: files are hashed
+// in sorted order; an unreadable path contributes a stable "unreadable" marker
+// (so identity degrades to "unknown content" rather than silently colliding);
+// noise dirs that never affect the image (.git, .stagefreight, node_modules,
+// vendored git) are skipped so the hash reflects source, not build detritus.
+func HashBuildContext(dockerfile, contextDir string) string {
+	h := sha256.New()
+
+	// Reuse the package's streaming single-file hasher (fileSHA256) rather than
+	// re-implementing file hashing.
+	if dh, err := fileSHA256(dockerfile); err == nil {
+		fmt.Fprintf(h, "dockerfile:%s\n", dh)
+	} else {
+		fmt.Fprintf(h, "dockerfile:unreadable:%s\n", filepath.Base(dockerfile))
+	}
+
+	var rels []string
+	_ = filepath.WalkDir(contextDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if p != contextDir {
+				switch d.Name() {
+				case ".git", ".stagefreight", "node_modules":
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if rel, rerr := filepath.Rel(contextDir, p); rerr == nil {
+			rels = append(rels, rel)
+		}
+		return nil
+	})
+	sort.Strings(rels)
+	for _, rel := range rels {
+		if fh, err := fileSHA256(filepath.Join(contextDir, rel)); err == nil {
+			fmt.Fprintf(h, "f:%s:%s\n", rel, fh)
+		} else {
+			fmt.Fprintf(h, "f:%s:unreadable\n", rel)
 		}
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))

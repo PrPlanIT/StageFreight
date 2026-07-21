@@ -21,6 +21,7 @@ type BuildStep struct {
 	Name           string
 	Dockerfile     string
 	Context        string
+	ContextDigest  string // content hash of the Dockerfile + build context (see HashBuildContext); folds source content into the build identity so a code change is not invisible to NormalizeBuildPlan
 	Target         string
 	Platforms      []string
 	BuildArgs      map[string]string

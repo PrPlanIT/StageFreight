@@ -229,6 +229,9 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 		Name:           b.ID,
 		Dockerfile:     dockerfile,
 		Context:        buildContext,
+		// Fold the source content into the step identity so NormalizeBuildPlan can
+		// tell a code change from an identical build shape (the stale-binary bug).
+		ContextDigest:  build.HashBuildContext(dockerfile, buildContext),
 		Target:         b.Target,
 		Platforms:      platforms,
 		BuildArgs:      buildArgs,
