@@ -20,9 +20,18 @@ import (
 // signs only with an explicit key/profile. Opinionated "always-on" defaults belong
 // in a runner/distribution config (visible, editable, removable), never in core.
 type SigningConfig struct {
-	Enabled       *bool    `yaml:"enabled,omitempty"`        // nil/true = signing allowed; false = all signing off
-	AutoProvision bool     `yaml:"auto_provision,omitempty"` // explicit consent to create/manage a Tier-0 identity
-	StateDir      StateDir `yaml:"state_dir,omitempty"`      // where persistent signing material lives
+	Enabled       *bool                  `yaml:"enabled,omitempty"`        // nil/true = signing allowed; false = all signing off
+	AutoProvision bool                   `yaml:"auto_provision,omitempty"` // explicit consent to create/manage a Tier-0 identity
+	StateDir      StateDir               `yaml:"state_dir,omitempty"`      // where persistent signing material lives
+	Profiles      OrderedSigningProfiles `yaml:"profiles,omitempty"`       // id→profile map (was the top-level signing_profiles: list)
+}
+
+// normalizeSigning folds signing.profiles (the merged, map form) into the internal
+// Signing list every consumer reads. Runs before validation.
+func (c *Config) normalizeSigning() {
+	if len(c.SigningSetup.Profiles) > 0 {
+		c.Signing = []SigningProfile(c.SigningSetup.Profiles)
+	}
 }
 
 // StateDir locates the durable, operator-chosen home for persistent signing

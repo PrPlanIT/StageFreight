@@ -47,7 +47,8 @@ type Config struct {
 	// Signing declares named trust profiles (generic primitives). Referenced
 	// per-target by signing_profile: <id>. "Releases require hardware" is project
 	// policy (the target's selection), never encoded in the framework.
-	Signing      []SigningProfile `yaml:"signing_profiles,omitempty"`
+	// Populated from signing.profiles (not decoded directly).
+	Signing      []SigningProfile `yaml:"-"`
 	SigningSetup SigningConfig    `yaml:"signing,omitempty"`
 
 	// Git is the git: cluster — named branch/tag patterns + versioning rules.
@@ -124,7 +125,7 @@ type Config struct {
 	Presentation PresentationConfig `yaml:"presentation"`
 
 	// Tag holds workflow defaults for the tag planner.
-	Tag TagConfig `yaml:"tag"`
+	Tag TagConfig `yaml:"tagging"`
 
 	// Toolchains defines operator control over external tool resolution.
 	// Version pins, future retention policy, future trust settings.
@@ -226,9 +227,10 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		return nil, nil, entries, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
-	// Fold the git: cluster into the internal Matchers/Versioning reps before
-	// validation reads them.
+	// Fold the reshaped sections (git: cluster, signing.profiles) into the internal
+	// reps before validation reads them.
 	cfg.normalizeGit()
+	cfg.normalizeSigning()
 
 	warnings, verr := Validate(cfg)
 	if verr != nil {

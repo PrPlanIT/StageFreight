@@ -93,3 +93,16 @@ func (o *OrderedBuilds) UnmarshalYAML(n *yaml.Node) error {
 	*o = v
 	return nil
 }
+
+// OrderedSigningProfiles is signing.profiles — an id→profile map (key becomes
+// SigningProfile.ID).
+type OrderedSigningProfiles []SigningProfile
+
+func (o *OrderedSigningProfiles) UnmarshalYAML(n *yaml.Node) error {
+	v, err := decodeIDMap(n, func(p *SigningProfile, id string) { p.ID = id })
+	if err != nil {
+		return fmt.Errorf("signing.profiles: %w", err)
+	}
+	*o = v
+	return nil
+}
