@@ -104,10 +104,9 @@ repos:
     forge: github
     project: "{var:github_org}/{var:github_repo}"
     roles: [mirror, publish-origin]
-    sync:                        # facet × scope (see 📦); faithful git mirror, add-only releases
-      branches: exact            # all heads + prune (= former git:true behavior)
-      tags: exact                # all tags + prune
-      releases: all              # project all releases, add-only
+    sync:                        # facet × scope (see 📦); faithful git mirror (releases NOT synced —
+      branches: exact            # they're authored on github via the github-release publish target;
+      tags: exact                # a repo gets releases via sync XOR a kind:release target, never both)
 
 registries:
   - id: dockerhub
@@ -204,16 +203,16 @@ publish:                                 # distribute artifacts to their destina
   primary-release:
     kind: release
     type: latest
+    repos: [primary]                 # canonical release on the primary forge (gitlab)
     archives: stagefreight-binaries
     aliases: ["v{version}", "latest"]
     when: { git_tags: [stable], events: [tag] }
 
-  # ── GitHub release (mirror) with binaries ────────────────────────
+  # ── GitHub release (authored on the mirror) with binaries ────────
   github-release:
     kind: release
     type: latest
-    mirror: github-mirror
-    sync_release: true
+    repos: [github-mirror]           # authored directly on github (was mirror: + sync_release:)
     archives: stagefreight-binaries
     when: { git_tags: [stable], events: [tag] }
 
@@ -232,6 +231,7 @@ publish:                                 # distribute artifacts to their destina
   #    projection deferred until mirror-side retention lands.)
   dev-release:
     kind: release
+    repos: [primary]                 # canonical dev release on the primary forge (gitlab)
     archives: stagefreight-binaries-dev
     tag: "dev-{sha:8}"
     aliases: ["latest-dev"]

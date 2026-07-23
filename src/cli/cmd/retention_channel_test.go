@@ -51,10 +51,11 @@ func TestActiveReleaseTarget(t *testing.T) {
 	cfg := &config.Config{
 		Matchers:   config.MatchersConfig{Branches: map[string]string{"main": `^main$`}},
 		Versioning: config.VersioningConfig{TagSources: []config.TagSourceConfig{{ID: "stable", Pattern: `^v\d+\.\d+\.\d+$`}}},
+		Repos:      []config.RepoConfig{{ID: "primary", Roles: []string{"primary"}}},
 		Targets: []config.TargetConfig{
-			{ID: "stable", Kind: "release", Aliases: []string{"latest"},
+			{ID: "stable", Kind: "release", Repos: config.StringOrList{"primary"}, Aliases: []string{"latest"},
 				When: config.TargetCondition{GitTags: []string{"stable"}, Events: []string{"tag"}}},
-			{ID: "dev", Kind: "release", Tag: "dev-{sha:8}", Aliases: []string{"latest-dev"},
+			{ID: "dev", Kind: "release", Repos: config.StringOrList{"primary"}, Tag: "dev-{sha:8}", Aliases: []string{"latest-dev"},
 				When: config.TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}},
 		},
 	}

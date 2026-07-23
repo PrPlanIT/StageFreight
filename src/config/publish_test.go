@@ -122,6 +122,44 @@ func TestPublishFanFiresOnLoad(t *testing.T) {
 	}
 }
 
+// TestReleaseSyncXOR: a repo that is a kind:release destination must NOT also sync
+// releases — this is the config-time XOR that retires the double-projection 422.
+func TestReleaseSyncXOR(t *testing.T) {
+	repos := []RepoConfig{
+		{ID: "primary", Roles: []string{"primary"}},
+		{ID: "gh", Roles: []string{"mirror"}, Sync: SyncConfig{Releases: &FacetSpec{Scope: "all"}}},
+	}
+	targets := []TargetConfig{{ID: "rel", Kind: "release", Repos: StringOrList{"gh"}}}
+	if errs := ValidateTargetRepoRefs(targets, repos); !syncErrContains(errs, "release destination AND syncs releases") {
+		t.Fatalf("expected release/sync XOR error, got %v", errs)
+	}
+}
+
+// TestReleaseDestinationCanSyncNonReleaseFacets: the XOR is releases-specific — a
+// release destination may still sync branches/tags (SF's github-mirror case).
+func TestReleaseDestinationCanSyncNonReleaseFacets(t *testing.T) {
+	repos := []RepoConfig{
+		{ID: "primary", Roles: []string{"primary"}},
+		{ID: "gh", Roles: []string{"mirror"}, Sync: SyncConfig{
+			Branches: &FacetSpec{Scope: "all", Prune: true},
+			Tags:     &FacetSpec{Scope: "all", Prune: true},
+		}},
+	}
+	targets := []TargetConfig{{ID: "rel", Kind: "release", Repos: StringOrList{"gh"}}}
+	if errs := ValidateTargetRepoRefs(targets, repos); syncErrContains(errs, "syncs releases") {
+		t.Fatalf("branches/tags sync must not trip the releases XOR: %v", errs)
+	}
+}
+
+// TestReleaseRepoMustExist: a release destination must resolve to a declared repo.
+func TestReleaseRepoMustExist(t *testing.T) {
+	repos := []RepoConfig{{ID: "primary", Roles: []string{"primary"}}}
+	targets := []TargetConfig{{ID: "rel", Kind: "release", Repos: StringOrList{"nope"}}}
+	if errs := ValidateTargetRepoRefs(targets, repos); !syncErrContains(errs, "not found in repos") {
+		t.Fatalf("expected repo-not-found error, got %v", errs)
+	}
+}
+
 // TestPublishHardBreaksTargets: the retired targets: key no longer parses — a
 // config using it fails at decode (KnownFields), the hard break.
 func TestPublishHardBreaksTargets(t *testing.T) {

@@ -743,21 +743,18 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		var syncResults []actionResult
 		syncStart := time.Now()
 
-		// Collect mirrors that have explicit target overrides.
-		overriddenMirrors := make(map[string]bool)
-		for _, t := range remoteReleases {
-			if t.Mirror != "" {
-				overriddenMirrors[t.Mirror] = true
-			}
-		}
-
 		// CRITICAL:
 		// tag_sources as map is ONLY for when.git_tags lookup on target conditions.
 		// DO NOT reuse this for version selection — that would reintroduce
 		// global filtering and break the search-path invariant.
 		remoteTagPatternMap := tagPatternLookupForConditionsOnly(req.Config.Versioning.TagSources)
 
-		// Path 1: Explicit target overrides.
+		// Path 1: authored release projections. Each release target's repos: names
+		// its destinations; the primary repo is the canonical release (created above),
+		// every OTHER named repo gets an authored copy (release + assets). A repo
+		// reaches releases via a target's repos: XOR its sync.releases facet (a
+		// config-time XOR, ValidateTargetRepoRefs), so Path 1 and Path 2 are disjoint
+		// by construction — no runtime de-dup.
 		for _, t := range remoteReleases {
 			if !targetWhenMatches(t, currentTag, remoteTagPatternMap, req.Config.Matchers.Branches) {
 				if req.Verbose {
@@ -765,18 +762,31 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				}
 				continue
 			}
-			if req.ReadOnly {
-				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] %s: would project release %s", t.ID, tag), OK: true})
-			} else {
-				syncResults = append(syncResults, projectRelease(ctx, t, req, tag, name, notes, allAssets, relType)...)
+			for _, repoID := range releaseProjectionRepos(t, req.Config) {
+				repo := config.FindRepoByID(req.Config.Repos, repoID)
+				if repo == nil {
+					syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("%s→%s", t.ID, repoID), Err: fmt.Errorf("repo %q not found in repos", repoID)})
+					continue
+				}
+				resolved, rErr := config.ResolveRepo(*repo, req.Config.Forges, req.Config.Vars)
+				if rErr != nil {
+					syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("%s→%s", t.ID, repoID), Err: rErr})
+					continue
+				}
+				if req.ReadOnly {
+					syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] %s→%s: would author release %s", t.ID, repoID, tag), OK: true})
+					continue
+				}
+				syncResults = append(syncResults, projectAuthoredRelease(ctx, *resolved, repoID, tag, name, notes, req.Ref, req.Draft, relType, allAssets)...)
 			}
 		}
 
-		// Path 2: Mirror-driven default projection.
-		// Mirrors with sync.releases that don't have an explicit override.
+		// Path 2: sync-driven mirrors (repos.<id>.sync.releases). Disjoint from Path 1
+		// by the XOR — a repo can't be both a release destination and a release-syncing
+		// mirror.
 		resolvedMirrors, _ := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars)
 		for _, m := range resolvedMirrors {
-			if !m.Sync.SyncsReleases() || overriddenMirrors[m.ID] {
+			if !m.Sync.SyncsReleases() {
 				continue
 			}
 			if req.ReadOnly {
@@ -849,7 +859,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	}
 
 	for _, t := range pipeline.CollectTargetsByKind(req.Config, "release") {
-		if t.IsRemoteRelease() || t.Retention == nil || !t.Retention.Active() {
+		if !releaseTargetsPrimary(t, req.Config) || t.Retention == nil || !t.Retention.Active() {
 			continue
 		}
 		if !config.TargetMatchesEnv(t, req.Config) {
@@ -986,25 +996,55 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 	return imageRows
 }
 
-// findPrimaryReleaseTarget returns the first release target with no remote forge fields (primary mode).
+// releaseTargetsPrimary reports whether a release target's repos: names the primary
+// repo — the canonical release, authored via the git-remote path.
+func releaseTargetsPrimary(t config.TargetConfig, cfg *config.Config) bool {
+	p := config.FindRepoWithRole(cfg.Repos, "primary")
+	if p == nil {
+		return false
+	}
+	for _, id := range t.Repos {
+		if id == p.ID {
+			return true
+		}
+	}
+	return false
+}
+
+// releaseProjectionRepos returns the repo ids a release target names that are NOT
+// the primary — the authored-copy destinations (Path 1 of projection).
+func releaseProjectionRepos(t config.TargetConfig, cfg *config.Config) []string {
+	p := config.FindRepoWithRole(cfg.Repos, "primary")
+	var out []string
+	for _, id := range t.Repos {
+		if p != nil && id == p.ID {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// findPrimaryReleaseTarget returns the first release target whose repos: names the
+// primary repo (the canonical-release channel).
 func findPrimaryReleaseTarget(cfg *config.Config) *config.TargetConfig {
-	for _, t := range cfg.Targets {
-		if t.Kind == "release" && !t.IsRemoteRelease() {
-			return &t
+	for i := range cfg.Targets {
+		if cfg.Targets[i].Kind == "release" && releaseTargetsPrimary(cfg.Targets[i], cfg) {
+			return &cfg.Targets[i]
 		}
 	}
 	return nil
 }
 
-// activeReleaseTarget returns the first non-remote release target whose when:
+// activeReleaseTarget returns the primary-targeting release target whose when:
 // matches the current CI event — the channel being released on THIS build (dev on
-// a push, stable on a tag). Falls back to the first non-remote release target if
-// none matches (e.g. a manual run), preserving legacy single-target behavior.
+// a push, stable on a tag). Falls back to the first primary-targeting release
+// target if none matches (e.g. a manual run).
 func activeReleaseTarget(cfg *config.Config) *config.TargetConfig {
 	var first *config.TargetConfig
 	for i := range cfg.Targets {
 		t := cfg.Targets[i]
-		if t.Kind != "release" || t.IsRemoteRelease() {
+		if t.Kind != "release" || !releaseTargetsPrimary(t, cfg) {
 			continue
 		}
 		if first == nil {
@@ -1017,11 +1057,12 @@ func activeReleaseTarget(cfg *config.Config) *config.TargetConfig {
 	return first
 }
 
-// findRemoteReleaseTargets returns all release targets with remote forge fields set.
+// findRemoteReleaseTargets returns release targets that name at least one
+// non-primary destination repo — the authored-projection set (Path 1).
 func findRemoteReleaseTargets(cfg *config.Config) []config.TargetConfig {
 	var targets []config.TargetConfig
 	for _, t := range cfg.Targets {
-		if t.Kind == "release" && t.IsRemoteRelease() {
+		if t.Kind == "release" && len(releaseProjectionRepos(t, cfg)) > 0 {
 			targets = append(targets, t)
 		}
 	}
@@ -1304,69 +1345,44 @@ func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, note
 	return results
 }
 
-// projectRelease projects a canonical release to a single destination via target config.
-// Used by explicit target overrides only.
-func projectRelease(ctx context.Context, t config.TargetConfig, req ReleaseCreateRequest, tag, name, notes string, allAssets []string, relType forge.ReleaseType) []actionResult {
+// projectAuthoredRelease authors a full release (notes + assets) on a non-primary
+// destination repo named in a kind: release target's repos:. Distinct from
+// projectToMirror (sync-driven, notes only): a repos: destination is AUTHORED, so
+// it carries the release's assets. Forge identity comes from the resolved repo.
+func projectAuthoredRelease(ctx context.Context, r config.ResolvedRepo, repoID, tag, name, notes, ref string, draft bool, relType forge.ReleaseType, assets []string) []actionResult {
 	var results []actionResult
 
-	syncClient, err := newSyncForgeClientFromTarget(t, req.Config)
+	client, err := forge.NewFromAccessory(r.Provider, r.BaseURL, r.Project, r.Credentials)
 	if err != nil {
-		results = append(results, actionResult{Name: t.ID, Err: err})
-		fmt.Fprintf(os.Stderr, "warning: projection to %s: %v\n", t.ID, err)
-		return results
+		fmt.Fprintf(os.Stderr, "warning: release projection to %s: %v\n", repoID, err)
+		return append(results, actionResult{Name: repoID, Err: err})
 	}
 
-	if t.SyncRelease {
-		syncRel, err := syncClient.CreateRelease(ctx, forge.ReleaseOptions{
-			TagName:     tag,
-			Ref:         req.Ref,
-			Name:        name,
-			Description: notes,
-			Draft:       req.Draft,
-			Type:        relType,
-		})
-		if err != nil {
-			results = append(results, actionResult{Name: t.ID, Err: err})
-			fmt.Fprintf(os.Stderr, "warning: release projection to %s: %v\n", t.ID, err)
-			return results
-		}
-		results = append(results, actionResult{Name: fmt.Sprintf("%s: %s", t.ID, syncRel.URL), OK: true})
+	rel, err := client.CreateRelease(ctx, forge.ReleaseOptions{
+		TagName:     tag,
+		Ref:         ref,
+		Name:        name,
+		Description: notes,
+		Draft:       draft,
+		Type:        relType,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: release projection to %s: %v\n", repoID, err)
+		return append(results, actionResult{Name: repoID, Err: err})
+	}
 
-		if t.SyncAssets {
-			for _, assetPath := range allAssets {
-				assetName := filepath.Base(assetPath)
-				if provision.IsPrivateKeyPath(assetPath) {
-					fmt.Fprintf(os.Stderr, "refusing to project signing key material to %s: %s\n", t.ID, assetName)
-					continue
-				}
-				if err := syncClient.UploadAsset(ctx, syncRel.ID, forge.Asset{
-					Name:     assetName,
-					FilePath: assetPath,
-				}); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: asset projection %s to %s: %v\n", assetName, t.ID, err)
-				}
-			}
+	for _, assetPath := range assets {
+		assetName := filepath.Base(assetPath)
+		if provision.IsPrivateKeyPath(assetPath) {
+			fmt.Fprintf(os.Stderr, "refusing to project signing key material to %s: %s\n", repoID, assetName)
+			continue
+		}
+		if err := client.UploadAsset(ctx, rel.ID, forge.Asset{Name: assetName, FilePath: assetPath}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: asset projection %s to %s: %v\n", assetName, repoID, err)
 		}
 	}
 
-	return results
-}
-
-func newSyncForgeClientFromTarget(t config.TargetConfig, cfg *config.Config) (forge.Forge, error) {
-	// Resolve mirror reference — forge identity comes from the repo graph.
-	if t.Mirror != "" {
-		repo := config.FindRepoByID(cfg.Repos, t.Mirror)
-		if repo == nil {
-			return nil, fmt.Errorf("release target %s: mirror %q not found in repos", t.ID, t.Mirror)
-		}
-		resolved, err := config.ResolveRepo(*repo, cfg.Forges, cfg.Vars)
-		if err != nil {
-			return nil, fmt.Errorf("release target %s: resolving mirror %q: %w", t.ID, t.Mirror, err)
-		}
-		return forge.NewFromAccessory(resolved.Provider, resolved.BaseURL, resolved.Project, resolved.Credentials)
-	}
-
-	return nil, fmt.Errorf("release target %s: mirror: is required for remote release targets", t.ID)
+	return append(results, actionResult{Name: fmt.Sprintf("%s: %s", repoID, rel.URL), OK: true})
 }
 
 // buildVerification is the EDGE wrapper around the pure trustdisclosure.Build: it does

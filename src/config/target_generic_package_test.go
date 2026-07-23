@@ -82,7 +82,6 @@ func TestValidateTarget_GenericPackage(t *testing.T) {
 	check("missing repo", func(tc *TargetConfig) { tc.Repo = "" }, "requires repo")
 	check("missing archives", func(tc *TargetConfig) { tc.Archives = "" }, "requires archives")
 	check("tag not allowed (use version)", func(tc *TargetConfig) { tc.Tag = "v{version}" }, "tag is not valid")
-	check("mirror rejected", func(tc *TargetConfig) { tc.Mirror = "m" }, "mirror is not valid")
 	check("inline forge fields rejected", func(tc *TargetConfig) { tc.Provider = "gitlab" }, "not valid for kind generic-package")
 }
 

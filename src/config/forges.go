@@ -243,6 +243,22 @@ func ValidateTargetRepoRefs(targets []TargetConfig, repos []RepoConfig) []string
 				errs = append(errs, fmt.Sprintf("targets[%s]: repo %q not found in repos", t.ID, t.Repo))
 			}
 		}
+		// kind: release — each destination repo must exist, and must NOT also sync
+		// releases. The XOR: a release reaches a repo via a kind:release target's
+		// repos: OR that repo's sync.releases facet, never both. Both = the old
+		// double-projection (the github-release 422) — now a load-time error.
+		if t.Kind == "release" {
+			for _, id := range t.Repos {
+				r := FindRepoByID(repos, id)
+				if r == nil {
+					errs = append(errs, fmt.Sprintf("targets[%s]: repo %q not found in repos", t.ID, id))
+					continue
+				}
+				if r.Sync.SyncsReleases() {
+					errs = append(errs, fmt.Sprintf("targets[%s]: repo %q is a release destination AND syncs releases (repos.%s.sync.releases) — a release reaches a repo via a kind:release target OR sync, never both", t.ID, id, id))
+				}
+			}
+		}
 	}
 	return errs
 }

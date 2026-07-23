@@ -674,9 +674,6 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		if len(t.Aliases) > 0 {
 			errs = append(errs, fmt.Sprintf("%s: aliases is not valid for kind registry (use tags)", path))
 		}
-		if t.SyncRelease || t.SyncAssets {
-			errs = append(errs, fmt.Sprintf("%s: sync_release/sync_assets are not valid for kind registry", path))
-		}
 
 	case "docker-readme":
 		if len(t.Registry) == 0 {
@@ -706,42 +703,13 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		default:
 			errs = append(errs, fmt.Sprintf("%s: unknown release type %q (want: latest, prerelease, or unspecified)", path, t.Type))
 		}
-		// Mirror-referenced release: forge identity comes from repos.
-		if t.Mirror != "" {
-			// Note: mirror field references repos[].id, validated in identity graph check
-			// Mirror-referenced targets must not restate forge fields.
-			if t.Provider != "" || t.URL != "" || t.ProjectID != "" || t.Credentials != "" {
-				errs = append(errs, fmt.Sprintf("%s: mirror-referenced release must not set provider/url/project_id/credentials (resolved from mirror)", path))
-			}
-		} else {
-			// Primary vs remote mode validation (explicit forge fields).
-			remoteFields := 0
-			if t.Provider != "" {
-				remoteFields++
-			}
-			if t.URL != "" {
-				remoteFields++
-			}
-			if t.ProjectID != "" {
-				remoteFields++
-			}
-			if t.Credentials != "" {
-				remoteFields++
-			}
-
-			if remoteFields > 0 && remoteFields < 4 {
-				errs = append(errs, fmt.Sprintf("%s: remote release requires all of provider, url, project_id, credentials (got %d of 4)", path, remoteFields))
-			}
-
-			isPrimary := remoteFields == 0
-			if isPrimary {
-				if t.SyncRelease {
-					errs = append(errs, fmt.Sprintf("%s: sync_release is only valid for remote release targets", path))
-				}
-				if t.SyncAssets {
-					errs = append(errs, fmt.Sprintf("%s: sync_assets is only valid for remote release targets", path))
-				}
-			}
+		// Destinations come from repos: (repos[].id). Forge identity resolves from
+		// each repo — a release target never restates forge connection fields.
+		if len(t.Repos) == 0 {
+			errs = append(errs, fmt.Sprintf("%s: kind release requires repos: (one or more destination repo ids)", path))
+		}
+		if t.Provider != "" || t.URL != "" || t.ProjectID != "" || t.Credentials != "" {
+			errs = append(errs, fmt.Sprintf("%s: kind release resolves forge identity from repos: — do not set provider/url/project_id/credentials", path))
 		}
 
 		if t.Build != "" {
@@ -783,9 +751,6 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		// Reject fields that belong to other kinds or restate forge identity.
 		if t.Build != "" {
 			errs = append(errs, fmt.Sprintf("%s: build is not valid for kind generic-package", path))
-		}
-		if t.Mirror != "" {
-			errs = append(errs, fmt.Sprintf("%s: mirror is not valid for kind generic-package (forge identity comes from repo)", path))
 		}
 		if t.Provider != "" || t.URL != "" || t.ProjectID != "" || t.Credentials != "" {
 			errs = append(errs, fmt.Sprintf("%s: provider/url/project_id/credentials are not valid for kind generic-package (resolved from repo)", path))

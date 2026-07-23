@@ -135,16 +135,12 @@ type TargetConfig struct {
 	// ProjectID is the "owner/repo" or numeric ID for remote forge targets (kind: release).
 	ProjectID string `yaml:"project_id,omitempty"`
 
-	// Mirror references a sources.mirrors[].id for release sync.
-	// Forge identity (provider, url, project_id, credentials) is resolved from the mirror.
-	// Avoids restating forge connection details in the target.
-	Mirror string `yaml:"mirror,omitempty"`
-
-	// SyncRelease syncs release notes + tags to a remote forge (kind: release, remote only).
-	SyncRelease bool `yaml:"sync_release,omitempty"`
-
-	// SyncAssets syncs scan artifacts to a remote forge (kind: release, remote only).
-	SyncAssets bool `yaml:"sync_assets,omitempty"`
+	// Repos names the destination repos[].id for a kind: release target. The repo
+	// with role primary is the canonical release (authored via the git remote); every
+	// other named repo gets an authored copy (release + assets). Forge identity for
+	// each is resolved from its repos[] entry. A repo reaches releases via a target's
+	// repos: XOR its sync.releases facet — never both (config-time XOR).
+	Repos StringOrList `yaml:"repos,omitempty"`
 
 	// ── kind: binary-archive ──────────────────────────────────────────────
 
@@ -236,15 +232,6 @@ type PagesVersioning struct {
 	// "keep" (every released version stays browsable — reserved for phase 2, rejected
 	// in P1 rather than silently ignored).
 	Mode string `yaml:"mode,omitempty"`
-}
-
-// IsRemoteRelease returns true if this release target references a remote forge,
-// either via explicit forge fields or via a mirror reference.
-func (t TargetConfig) IsRemoteRelease() bool {
-	if t.Mirror != "" {
-		return true
-	}
-	return t.Provider != "" && t.URL != "" && t.ProjectID != "" && t.Credentials != ""
 }
 
 // TargetCondition defines routing conditions for a target.
