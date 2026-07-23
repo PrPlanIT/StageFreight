@@ -1271,9 +1271,14 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			}
 		}
 
-		// 2. Release reconciliation (if enabled).
-		// Reads from primary, projects missing releases to mirror. Idempotent.
+		// 2. Release reconciliation (if enabled), honoring the releases facet
+		// scope: all/exact project every release (drafts excluded unless drafts:true,
+		// match glob applies), current projects only the run's tag. exact additionally
+		// PRUNES mirror releases absent from the desired set (opt-in, destructive).
 		if m.Sync.SyncsReleases() && len(primaryReleases) > 0 {
+			spec := m.Sync.Releases
+			desired := stagefreightsync.ScopedReleases(primaryReleases, spec, refCtx.Tag)
+
 			mirrorClient, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, err)
@@ -1290,7 +1295,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			}
 
 			created := 0
-			for _, r := range primaryReleases {
+			for _, r := range desired {
 				if mirrorTags[r.TagName] {
 					continue
 				}
@@ -1318,9 +1323,32 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 					created++
 				}
 			}
-			if created > 0 {
+
+			// Prune (exact only): delete mirror releases not in the desired set.
+			pruned := 0
+			if spec.Prune {
+				for _, tag := range stagefreightsync.ReleasesToPrune(mirrorReleases, desired) {
+					if readOnly {
+						fmt.Printf("  sync: %s: [read-only] would prune release %s\n", m.ID, tag)
+						pruned++
+						continue
+					}
+					if delErr := mirrorClient.DeleteRelease(ctx, tag); delErr != nil {
+						fmt.Fprintf(os.Stderr, "  sync: %s: release prune %s error: %v\n", m.ID, tag, delErr)
+					} else {
+						pruned++
+					}
+				}
+			}
+
+			switch {
+			case created > 0 && pruned > 0:
+				fmt.Printf("  sync: %s: release ✓ (%d projected, %d pruned)\n", m.ID, created, pruned)
+			case created > 0:
 				fmt.Printf("  sync: %s: release ✓ (%d projected)\n", m.ID, created)
-			} else {
+			case pruned > 0:
+				fmt.Printf("  sync: %s: release ✓ (%d pruned)\n", m.ID, pruned)
+			default:
 				fmt.Printf("  sync: %s: release ✓ (in sync)\n", m.ID)
 			}
 		}

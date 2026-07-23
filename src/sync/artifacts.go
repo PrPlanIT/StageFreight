@@ -3,12 +3,58 @@ package sync
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
+	"sort"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
+
+// ScopedReleases filters primary releases to those a releases facet should
+// project. scope:current keeps only the current tag's release; drafts are
+// excluded unless spec.Drafts; a match glob restricts by tag name. all/exact
+// keep everything (minus filtered). Returns nil for a nil facet.
+func ScopedReleases(primary []forge.ReleaseInfo, spec *config.FacetSpec, currentTag string) []forge.ReleaseInfo {
+	if spec == nil {
+		return nil
+	}
+	var out []forge.ReleaseInfo
+	for _, r := range primary {
+		if r.Draft && !spec.Drafts {
+			continue
+		}
+		if spec.Match != "" {
+			if ok, _ := path.Match(spec.Match, r.TagName); !ok {
+				continue
+			}
+		}
+		if spec.IsCurrent() && (currentTag == "" || r.TagName != currentTag) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// ReleasesToPrune returns mirror release tags to delete for an exact (prune)
+// releases sync: those present on the mirror but absent from the desired set.
+// Sorted for deterministic output.
+func ReleasesToPrune(mirror, desired []forge.ReleaseInfo) []string {
+	want := make(map[string]bool, len(desired))
+	for _, r := range desired {
+		want[r.TagName] = true
+	}
+	var del []string
+	for _, r := range mirror {
+		if !want[r.TagName] {
+			del = append(del, r.TagName)
+		}
+	}
+	sort.Strings(del)
+	return del
+}
 
 // ReleaseData holds all data needed to project a release to an accessory.
 type ReleaseData struct {

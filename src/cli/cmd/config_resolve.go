@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -92,6 +93,8 @@ func renderResolution(report config.ConfigReport, entries []config.MergeEntry, v
 	}
 	sec.Close()
 
+	renderSyncTopology(w, report.SyncTopology, color)
+
 	// Per-value provenance is a verbose debugging aid — path, operation, source,
 	// and whether a later layer overrode it.
 	if verbose && len(entries) > 0 {
@@ -109,6 +112,37 @@ func renderResolution(report config.ConfigReport, entries []config.MergeEntry, v
 		}
 		vsec.Close()
 	}
+}
+
+// renderSyncTopology prints the replication topology (primary → each mirror,
+// per-facet scope) as its own card below the resolution card. This is the
+// scannability the per-repo sync placement trades away — recovered in the
+// resolved view, exactly as the design intends.
+func renderSyncTopology(w io.Writer, topo *config.SyncTopology, color bool) {
+	if topo == nil || len(topo.Mirrors) == 0 {
+		return
+	}
+	sec := output.NewSection(w, "Replication topology", 0, color)
+	sec.Row("%-16s%s", "source", topo.PrimaryID+" (primary)")
+	sec.Separator()
+	for _, m := range topo.Mirrors {
+		var facets []string
+		if m.Branches != "" {
+			facets = append(facets, "branches:"+m.Branches)
+		}
+		if m.Tags != "" {
+			facets = append(facets, "tags:"+m.Tags)
+		}
+		if m.Releases != "" {
+			facets = append(facets, "releases:"+m.Releases)
+		}
+		line := fmt.Sprintf("→ %-14s %s", m.MirrorID, strings.Join(facets, "  "))
+		if m.Legacy {
+			line += "  [legacy git/releases bools — migrate to facet×scope]"
+		}
+		sec.Row("%s", line)
+	}
+	sec.Close()
 }
 
 func init() {

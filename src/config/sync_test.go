@@ -92,8 +92,8 @@ func TestSyncLegacyBoolForm(t *testing.T) {
 	if s.Tags == nil || !s.Tags.Prune {
 		t.Fatalf("git:true → tags exact, got %+v", s.Tags)
 	}
-	if s.Releases == nil || s.Releases.Scope != scopeAll || s.Releases.Prune {
-		t.Fatalf("releases:true → releases all (add-only), got %+v", s.Releases)
+	if s.Releases == nil || s.Releases.Scope != scopeAll || s.Releases.Prune || !s.Releases.Drafts {
+		t.Fatalf("releases:true → releases all (add-only, drafts preserved), got %+v", s.Releases)
 	}
 }
 
@@ -134,6 +134,50 @@ func TestSyncValidationRequiresMirrorRole(t *testing.T) {
 	errs := ValidateIdentityGraph(forges, repos, nil)
 	if !syncErrContains(errs, "sync is only valid on a mirror") {
 		t.Fatalf("expected mirror-role error, got %v", errs)
+	}
+}
+
+// TestFacetSummary: a facet renders back to its canonical scope word + options.
+func TestFacetSummary(t *testing.T) {
+	cases := []struct {
+		spec *FacetSpec
+		want string
+	}{
+		{nil, ""},
+		{&FacetSpec{Scope: "current"}, "current"},
+		{&FacetSpec{Scope: "all"}, "all"},
+		{&FacetSpec{Scope: "all", Prune: true}, "exact"},
+		{&FacetSpec{Scope: "all", Drafts: true, Assets: "link"}, "all (drafts,assets:link)"},
+	}
+	for _, c := range cases {
+		if got := c.spec.Summary(); got != c.want {
+			t.Errorf("Summary(%+v) = %q, want %q", c.spec, got, c.want)
+		}
+	}
+}
+
+// TestBuildSyncTopology: only mirrors with an active sync appear; the primary is
+// the source; facets render as canonical scope words.
+func TestBuildSyncTopology(t *testing.T) {
+	cfg := &Config{Repos: []RepoConfig{
+		{ID: "primary", Roles: []string{"primary"}},
+		{ID: "gh", Forge: "github", Roles: []string{"mirror"}, Sync: SyncConfig{
+			Branches: &FacetSpec{Scope: "all", Prune: true},
+			Tags:     &FacetSpec{Scope: "all", Prune: true},
+			Releases: &FacetSpec{Scope: "all"},
+		}},
+		{ID: "idle", Forge: "gitea", Roles: []string{"mirror"}}, // no sync → excluded
+	}}
+	topo := BuildSyncTopology(cfg)
+	if topo.PrimaryID != "primary" {
+		t.Fatalf("primary = %q", topo.PrimaryID)
+	}
+	if len(topo.Mirrors) != 1 {
+		t.Fatalf("expected 1 active mirror, got %d (%+v)", len(topo.Mirrors), topo.Mirrors)
+	}
+	m := topo.Mirrors[0]
+	if m.MirrorID != "gh" || m.Branches != "exact" || m.Tags != "exact" || m.Releases != "all" {
+		t.Fatalf("mirror row = %+v", m)
 	}
 }
 

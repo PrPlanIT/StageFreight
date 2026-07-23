@@ -38,6 +38,7 @@ type ConfigReport struct {
 	Presets      []string       `json:"presets,omitempty"`
 	Overrides    int            `json:"overrides,omitempty"`
 	Sections     []SectionState `json:"sections,omitempty"`
+	SyncTopology *SyncTopology  `json:"sync_topology,omitempty"`
 	VarsApplied  int            `json:"vars_applied,omitempty"`
 	Warnings     []string       `json:"warnings,omitempty"`
 	Status       string         `json:"status"`       // "ok" | "partial" | "error"
@@ -126,6 +127,9 @@ func LoadWithReport(path string) (*Config, ConfigReport, []MergeEntry, error) {
 	}
 
 	report.VarsApplied = len(cfg.Vars)
+	if topo := BuildSyncTopology(cfg); len(topo.Mirrors) > 0 {
+		report.SyncTopology = &topo
+	}
 	return cfg, report, entries, nil
 }
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -59,6 +60,81 @@ type SyncConfig struct {
 	// bool form and translated on load. Surfaced as a deprecation in the resolved
 	// view; never serialized.
 	legacy bool `yaml:"-"`
+}
+
+// Summary renders a facet back to its canonical scope word plus any options, for
+// the resolved/topology view. Empty for a nil (unsynced) facet.
+func (f *FacetSpec) Summary() string {
+	if f == nil {
+		return ""
+	}
+	var base string
+	switch {
+	case f.Scope == scopeCurrent:
+		base = "current"
+	case f.Scope == scopeAll && f.Prune:
+		base = "exact"
+	default:
+		base = "all"
+	}
+	var flags []string
+	if f.Drafts {
+		flags = append(flags, "drafts")
+	}
+	if f.Assets != "" {
+		flags = append(flags, "assets:"+f.Assets)
+	}
+	if f.Match != "" {
+		flags = append(flags, "match:"+f.Match)
+	}
+	if len(f.Only) > 0 {
+		flags = append(flags, "only:"+strings.Join(f.Only, ","))
+	}
+	if len(flags) > 0 {
+		return base + " (" + strings.Join(flags, ",") + ")"
+	}
+	return base
+}
+
+// MirrorSync is one row of the replication topology: a mirror and the per-facet
+// scope it replicates from the primary.
+type MirrorSync struct {
+	MirrorID string `json:"mirror_id"`
+	Forge    string `json:"forge"`
+	Legacy   bool   `json:"legacy,omitempty"`
+	Branches string `json:"branches,omitempty"`
+	Tags     string `json:"tags,omitempty"`
+	Releases string `json:"releases,omitempty"`
+}
+
+// SyncTopology is the replication topology: the primary source and each mirror's
+// per-facet sync summary. It recovers the one-glance scannability that per-repo
+// sync placement trades away (the resolved-view precedent).
+type SyncTopology struct {
+	PrimaryID string       `json:"primary_id"`
+	Mirrors   []MirrorSync `json:"mirrors,omitempty"`
+}
+
+// BuildSyncTopology derives the replication topology from the resolved config.
+func BuildSyncTopology(cfg *Config) SyncTopology {
+	var topo SyncTopology
+	if p := FindRepoWithRole(cfg.Repos, "primary"); p != nil {
+		topo.PrimaryID = p.ID
+	}
+	for _, r := range cfg.Repos {
+		if !r.HasRole("mirror") || !r.Sync.Active() {
+			continue
+		}
+		topo.Mirrors = append(topo.Mirrors, MirrorSync{
+			MirrorID: r.ID,
+			Forge:    r.Forge,
+			Legacy:   r.Sync.IsLegacyForm(),
+			Branches: r.Sync.Branches.Summary(),
+			Tags:     r.Sync.Tags.Summary(),
+			Releases: r.Sync.Releases.Summary(),
+		})
+	}
+	return topo
 }
 
 // IsCurrent reports scope: current — replicate only the ref the current run
@@ -208,8 +284,11 @@ func (s *SyncConfig) decodeMapping(node *yaml.Node) error {
 			if val.Kind == yaml.ScalarNode && val.Tag == "!!bool" {
 				s.legacy = true
 				if val.Value == "true" {
-					// Legacy release projection was add-only (no prune).
-					s.Releases = &FacetSpec{Scope: scopeAll}
+					// Legacy release projection was add-only AND projected drafts
+					// (it created with Draft: r.Draft, unfiltered). Preserve both:
+					// all + drafts. (New explicit forms keep the design default of
+					// drafts-off — a preset never auto-includes drafts.)
+					s.Releases = &FacetSpec{Scope: scopeAll, Drafts: true}
 				}
 				continue
 			}
