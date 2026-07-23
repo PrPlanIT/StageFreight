@@ -46,21 +46,12 @@ func expandMultiRegistryTargets(targets OrderedTargets) OrderedTargets {
 }
 
 // UnmarshalYAML decodes the id→target map in document order, stamping each
-// target's ID from its key.
+// target's ID from its key (strict-decoded — see decodeIDMap).
 func (o *OrderedTargets) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("publish: must be a map of id → target")
+	v, err := decodeIDMap(node, func(t *TargetConfig, id string) { t.ID = id })
+	if err != nil {
+		return fmt.Errorf("publish: %w", err)
 	}
-	out := make([]TargetConfig, 0, len(node.Content)/2)
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		key := node.Content[i].Value
-		var tc TargetConfig
-		if err := node.Content[i+1].Decode(&tc); err != nil {
-			return fmt.Errorf("publish.%s: %w", key, err)
-		}
-		tc.ID = key
-		out = append(out, tc)
-	}
-	*o = out
+	*o = v
 	return nil
 }

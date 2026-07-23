@@ -30,7 +30,7 @@ versioning:
     mode: error
 
 builds:
-  - id: stagefreight
+  stagefreight:
     kind: docker
     build_mode: crucible
     platforms: [linux/amd64]
@@ -44,7 +44,7 @@ builds:
   # output's source path (docs/assets/modules) at the start of Narrate, where the narrator include
   # items assemble it into docs/reference; `{output}` names the path once. This is the
   # general shape any project uses: build your tool, stage it, run it.
-  - id: reference
+  reference:
     kind: command
     stage:
       from: stagefreight-bin
@@ -53,7 +53,7 @@ builds:
     outputs:
       - { type: tree, source: docs/assets/modules, worktree: true }
 
-  - id: stagefreight-bin
+  stagefreight-bin:
     kind: binary
     builder: go
     from: ./src/cli
@@ -73,7 +73,7 @@ builds:
   # ENTRYPOINT ["mkdocs"], which collides with the engine's `sh -c` invocation, so we
   # pip-install into a plain python image instead. Uses the committed, generated
   # reference under docs/reference + docs/assets/modules (kept fresh by the `reference` build).
-  - id: docs-site
+  docs-site:
     kind: command
     image: docker.io/library/python:3.12-slim
     command: "pip install --quiet --root-user-action=ignore mkdocs-material && mkdocs build --strict --site-dir {output}"
@@ -81,18 +81,18 @@ builds:
       - { type: tree, source: site }
 
 forges:
-  - id: gitlab
+  gitlab:
     provider: gitlab
     url: "https://gitlab.prplanit.com"
     credentials: GITLAB
 
-  - id: github
+  github:
     provider: github
     url: "https://github.com"
     credentials: GITHUB
 
 repos:
-  - id: primary
+  primary:
     forge: gitlab
     project: "{var:gitlab_group}/{var:repo}"
     roles: [primary]
@@ -100,7 +100,7 @@ repos:
       default: main
     worktree: "."
 
-  - id: github-mirror
+  github-mirror:
     forge: github
     project: "{var:github_org}/{var:github_repo}"
     roles: [mirror, publish-origin]
@@ -109,13 +109,13 @@ repos:
       tags: exact                # a repo gets releases via sync XOR a kind:release target, never both)
 
 registries:
-  - id: dockerhub
+  dockerhub:
     provider: docker
     url: docker.io
     credentials: DOCKER
     default_path: "{var:org}/{var:repo}"
 
-  - id: harbor
+  harbor:
     provider: harbor
     url: cr.pcfae.com
     credentials: HARBOR
@@ -124,7 +124,7 @@ registries:
   # GitHub Container Registry. Path must be lowercase; {var:org}/{var:repo}
   # (prplanit/stagefreight) resolves under the PrPlanIT GitHub org.
   # Auth: GHCR_USER + GHCR_TOKEN (a PAT with write:packages) in CI.
-  - id: ghcr
+  ghcr:
     provider: ghcr
     url: ghcr.io
     credentials: GHCR

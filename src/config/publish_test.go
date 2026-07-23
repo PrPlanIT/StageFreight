@@ -92,10 +92,10 @@ func TestPublishFanFiresOnLoad(t *testing.T) {
 		"  tag_sources:\n" +
 		"    - { id: stable, pattern: \"^v.*\" }\n" +
 		"registries:\n" +
-		"  - { id: dockerhub, provider: docker, url: docker.io, default_path: o/r }\n" +
-		"  - { id: ghcr, provider: ghcr, url: ghcr.io, default_path: o/r }\n" +
+		"  dockerhub: { provider: docker, url: docker.io, default_path: o/r }\n" +
+		"  ghcr: { provider: ghcr, url: ghcr.io, default_path: o/r }\n" +
 		"builds:\n" +
-		"  - { id: img, kind: docker }\n" +
+		"  img: { kind: docker }\n" +
 		"publish:\n" +
 		"  stable:\n" +
 		"    kind: registry\n" +

@@ -35,14 +35,14 @@ type Config struct {
 	// resolution is built.
 	PresetSource *PresetSource `yaml:"preset_source,omitempty"`
 
-	// Forges declares git hosts. Each entry is a host identity (provider, URL, credentials).
-	Forges []ForgeConfig `yaml:"forges,omitempty"`
+	// Forges declares git hosts as an id→forge map (provider, URL, credentials).
+	Forges OrderedForges `yaml:"forges,omitempty"`
 
-	// Repos declares projects on forges. References forges by id. Has role (primary/mirror).
-	Repos []RepoConfig `yaml:"repos,omitempty"`
+	// Repos declares projects as an id→repo map. References forges by id. Has role.
+	Repos OrderedRepos `yaml:"repos,omitempty"`
 
-	// Registries declares OCI registry hosts. Referenced by targets.
-	Registries []RegistryConfig `yaml:"registries,omitempty"`
+	// Registries declares OCI registry hosts as an id→registry map.
+	Registries OrderedRegistries `yaml:"registries,omitempty"`
 
 	// Signing declares named trust profiles (generic primitives). Referenced
 	// per-target by signing_profile: <id>. "Releases require hardware" is project
@@ -58,8 +58,8 @@ type Config struct {
 	// branch_builds[].match and target.when.branches.
 	Matchers MatchersConfig `yaml:"matchers"`
 
-	// Builds defines named build artifacts.
-	Builds []BuildConfig `yaml:"builds"`
+	// Builds defines named build artifacts as an id→build map.
+	Builds OrderedBuilds `yaml:"builds"`
 
 	// Targets defines distribution targets and side-effects. Declared under the
 	// publish: key as an id→target map (execution order preserved). The retired
