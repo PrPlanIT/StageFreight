@@ -104,9 +104,10 @@ repos:
     forge: github
     project: "{var:github_org}/{var:github_repo}"
     roles: [mirror, publish-origin]
-    sync:
-      git: true
-      releases: true
+    sync:                        # facet × scope (see 📦); faithful git mirror, add-only releases
+      branches: exact            # all heads + prune (= former git:true behavior)
+      tags: exact                # all tags + prune
+      releases: all              # project all releases, add-only
 
 registries:
   - id: dockerhub

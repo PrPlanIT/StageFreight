@@ -205,9 +205,18 @@ func TestMirrorPush_NoMutationOfWorktree(t *testing.T) {
 	}
 }
 
-// TestBuildPushRefSpecs_PreservesGHPages guards the fix for the mirror-vs-pages conflict:
-// the gh-pages branch (created remote-only by the github-pages deploy) must NOT be pruned,
-// while a genuinely stale remote-only branch still is.
+// pushSpecJoin runs buildPushRefSpecs and joins the refspecs for substring assertions.
+func pushSpecJoin(local, remote map[string]bool, branches, tags *config.FacetSpec, ref RefContext) string {
+	var out []string
+	for _, r := range buildPushRefSpecs(local, remote, branches, tags, ref) {
+		out = append(out, r.String())
+	}
+	return strings.Join(out, " ")
+}
+
+// TestBuildPushRefSpecs_PreservesGHPages guards the mirror-vs-pages fix under an
+// exact (prune) mirror: gh-pages (created remote-only by the github-pages deploy)
+// must NOT be pruned, while a genuinely stale remote-only branch still is.
 func TestBuildPushRefSpecs_PreservesGHPages(t *testing.T) {
 	local := map[string]bool{"refs/heads/main": true, "refs/tags/v1": true}
 	remote := map[string]bool{
@@ -215,16 +224,70 @@ func TestBuildPushRefSpecs_PreservesGHPages(t *testing.T) {
 		"refs/heads/gh-pages": true, // remote-only — created by the github-pages deploy
 		"refs/heads/stale":    true, // remote-only — genuinely stale, should be pruned
 	}
-	var specs []string
-	for _, r := range buildPushRefSpecs(local, remote) {
-		specs = append(specs, r.String())
-	}
-	joined := strings.Join(specs, " ")
+	exact := &config.FacetSpec{Scope: "all", Prune: true}
+	joined := pushSpecJoin(local, remote, exact, exact, RefContext{})
 	if strings.Contains(joined, ":refs/heads/gh-pages") {
-		t.Fatalf("gh-pages must NOT be pruned — pruning it wipes the docs site; specs=%v", specs)
+		t.Fatalf("gh-pages must NOT be pruned — pruning it wipes the docs site; specs=%v", joined)
 	}
 	if !strings.Contains(joined, ":refs/heads/stale") {
-		t.Fatalf("a genuinely stale remote-only branch should still be pruned; specs=%v", specs)
+		t.Fatalf("a genuinely stale remote-only branch should still be pruned; specs=%v", joined)
+	}
+}
+
+// TestBuildPushRefSpecs_AllIsAddOnly: scope:all pushes everything but prunes
+// nothing (the semantic that changed from today's unconditional prune).
+func TestBuildPushRefSpecs_AllIsAddOnly(t *testing.T) {
+	local := map[string]bool{"refs/heads/main": true}
+	remote := map[string]bool{"refs/heads/main": true, "refs/heads/stale": true}
+	all := &config.FacetSpec{Scope: "all"}
+	joined := pushSpecJoin(local, remote, all, all, RefContext{})
+	if strings.Contains(joined, ":refs/heads/stale") {
+		t.Fatalf("scope:all must not prune; specs=%v", joined)
+	}
+	if !strings.Contains(joined, "+refs/heads/main:refs/heads/main") {
+		t.Fatalf("main should be force-pushed; specs=%v", joined)
+	}
+}
+
+// TestBuildPushRefSpecs_NilFacetUntouched: a nil facet leaves that ref class
+// entirely alone — not pushed, not pruned.
+func TestBuildPushRefSpecs_NilFacetUntouched(t *testing.T) {
+	local := map[string]bool{"refs/heads/main": true, "refs/tags/v1": true}
+	remote := map[string]bool{"refs/tags/old": true}
+	exact := &config.FacetSpec{Scope: "all", Prune: true}
+	joined := pushSpecJoin(local, remote, exact, nil, RefContext{}) // tags facet nil
+	if strings.Contains(joined, "refs/tags/") {
+		t.Fatalf("nil tags facet must emit no tag refspecs; specs=%v", joined)
+	}
+	if !strings.Contains(joined, "+refs/heads/main:refs/heads/main") {
+		t.Fatalf("branches facet should still push main; specs=%v", joined)
+	}
+}
+
+// TestBuildPushRefSpecs_CurrentOnlyThatRef: scope:current replicates only the ref
+// the run addresses, never others, never prune.
+func TestBuildPushRefSpecs_CurrentOnlyThatRef(t *testing.T) {
+	local := map[string]bool{"refs/heads/main": true, "refs/heads/feature": true}
+	current := &config.FacetSpec{Scope: "current"}
+	joined := pushSpecJoin(local, map[string]bool{}, current, nil, RefContext{Branch: "feature"})
+	if !strings.Contains(joined, "+refs/heads/feature:refs/heads/feature") {
+		t.Fatalf("current branch should push; specs=%v", joined)
+	}
+	if strings.Contains(joined, "refs/heads/main") {
+		t.Fatalf("non-current branch must not push under scope:current; specs=%v", joined)
+	}
+}
+
+// TestBuildPushRefSpecs_MatchFilter: a match glob restricts both push and prune.
+func TestBuildPushRefSpecs_MatchFilter(t *testing.T) {
+	local := map[string]bool{"refs/heads/main": true, "refs/heads/release-1": true, "refs/heads/release-2": true}
+	spec := &config.FacetSpec{Scope: "all", Match: "release-*"}
+	joined := pushSpecJoin(local, map[string]bool{}, spec, nil, RefContext{})
+	if strings.Contains(joined, "refs/heads/main:") {
+		t.Fatalf("main should be filtered out by match; specs=%v", joined)
+	}
+	if !strings.Contains(joined, "refs/heads/release-1") || !strings.Contains(joined, "refs/heads/release-2") {
+		t.Fatalf("release-* branches should match; specs=%v", joined)
 	}
 }
 
@@ -374,7 +437,9 @@ func mirrorPushDirect(t *testing.T, worktreeDir, remoteDir string) *MirrorResult
 	if err != nil {
 		t.Fatalf("list remote refs: %v", err)
 	}
-	refSpecs := buildPushRefSpecs(localRefs, remoteRefs)
+	// Faithful mirror (former unconditional behavior): all heads + all tags, prune.
+	exact := &config.FacetSpec{Scope: "all", Prune: true}
+	refSpecs := buildPushRefSpecs(localRefs, remoteRefs, exact, exact, RefContext{})
 
 	if len(refSpecs) == 0 {
 		return &MirrorResult{AccessoryID: "test-remote", Status: SyncSuccess}

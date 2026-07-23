@@ -52,10 +52,10 @@ func (r RepoConfig) HasRole(role string) bool {
 
 // RegistryConfig declares an OCI registry host. Declared once, referenced by targets.
 type RegistryConfig struct {
-	ID          string `yaml:"id"`                    // unique identifier (e.g., "dockerhub")
-	Provider    string `yaml:"provider"`              // docker, harbor, ghcr, quay, gitea, generic
-	URL         string `yaml:"url"`                   // registry URL (e.g., "docker.io")
-	Credentials string `yaml:"credentials,omitempty"` // env var prefix for token resolution
+	ID          string `yaml:"id"`                     // unique identifier (e.g., "dockerhub")
+	Provider    string `yaml:"provider"`               // docker, harbor, ghcr, quay, gitea, generic
+	URL         string `yaml:"url"`                    // registry URL (e.g., "docker.io")
+	Credentials string `yaml:"credentials,omitempty"`  // env var prefix for token resolution
 	DefaultPath string `yaml:"default_path,omitempty"` // default image path (e.g., "{var:org}/{var:repo}")
 }
 
@@ -142,6 +142,14 @@ func ValidateIdentityGraph(forges []ForgeConfig, repos []RepoConfig, registries 
 		if r.HasRole("mirror") && r.Worktree != "" {
 			errs = append(errs, fmt.Sprintf("repos[%s]: mirrors cannot have worktree", r.ID))
 		}
+
+		// Sync (replication) constraints. The sync block's presence IS the mirror
+		// relationship — one-directional (primary → this repo), so it is only
+		// meaningful on a mirror.
+		if r.Sync.Active() && !r.HasRole("mirror") {
+			errs = append(errs, fmt.Sprintf("repos[%s]: sync is only valid on a mirror repo (replication is one-directional: primary → mirror)", r.ID))
+		}
+		errs = append(errs, validateSyncFacets(r.ID, r.Sync)...)
 	}
 
 	if len(repos) > 0 && primaryCount == 0 {

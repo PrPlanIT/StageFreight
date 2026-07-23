@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -20,7 +20,7 @@ var releaseSyncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Project releases from primary forge to mirrors",
 	Long: `Reads releases from the primary forge and projects missing ones
-to mirrors that declare sync.releases: true.
+to mirrors whose sync block includes a releases facet (facet × scope).
 
 Use --dry-run to preview what would be created without making changes.
 Without --dry-run, missing releases are created on each mirror.`,
@@ -83,7 +83,7 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 
 	resolvedMirrors, _ := config.ResolveAllMirrors(cfg.Repos, cfg.Forges, cfg.Vars)
 	for _, m := range resolvedMirrors {
-		if !m.Sync.Releases {
+		if !m.Sync.SyncsReleases() {
 			continue
 		}
 
@@ -175,4 +175,3 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 	}
 	return nil
 }
-

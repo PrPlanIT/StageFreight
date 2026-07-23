@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ func buildRemoteURL(repo config.ResolvedRepo) string {
 //   - Never mutates the user's working repo (temp bare clone only)
 //   - Credentials passed via go-git BasicAuth, never in URLs
 //   - No git binary required
-func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo) (*MirrorResult, error) {
+func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo, refCtx RefContext) (*MirrorResult, error) {
 	start := time.Now()
 	result := &MirrorResult{
 		AccessoryID: mirror.ID,
@@ -160,7 +161,7 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 		return result, nil
 	}
 
-	refSpecs := buildPushRefSpecs(localRefs, remoteRefs)
+	refSpecs := buildPushRefSpecs(localRefs, remoteRefs, mirror.Sync.Branches, mirror.Sync.Tags, refCtx)
 
 	if len(refSpecs) == 0 {
 		result.Status = SyncSuccess
@@ -263,30 +264,92 @@ func listRemoteRefs(ctx context.Context, repo *git.Repository, auth transport.Au
 	return refs, nil
 }
 
-// buildPushRefSpecs builds force-push refspecs for all local refs and
-// delete refspecs for remote refs not present locally (prune).
-// This is equivalent to: git push --prune --force --all + --tags
-// Refs are sorted for deterministic ordering in logs and debugging.
-func buildPushRefSpecs(local, remote map[string]bool) []gitconfig.RefSpec {
-	var specs []gitconfig.RefSpec
+// RefContext is the ref the current run addresses — used by scope: current to
+// pick the single branch/tag to replicate. Empty fields mean "no current ref of
+// that kind" (Tag is empty on a branch build, Branch empty on a tag build).
+type RefContext struct {
+	Branch string // short branch name, "" if none
+	Tag    string // short tag name, "" if not a tag run
+}
 
-	// Force-push all local heads + tags (sorted)
+// buildPushRefSpecs builds push/prune refspecs honoring each facet's scope. The
+// branches and tags FacetSpecs each drive their own ref class independently; a
+// nil facet means that ref class is not touched at all (not pushed, not pruned).
+//
+//	scope: current → only refCtx's ref of that class, never prune
+//	scope: all     → all local refs of that class, add-only
+//	prune (exact)  → also delete remote refs of that class absent from the push set
+//
+// gh-pages is never pruned — it is a deploy branch created on the mirror, not the
+// source, so a pruning mirror must not wipe the published Pages site.
+func buildPushRefSpecs(local, remote map[string]bool, branches, tags *config.FacetSpec, refCtx RefContext) []gitconfig.RefSpec {
+	var specs []gitconfig.RefSpec
+	specs = append(specs, facetRefSpecs("refs/heads/", local, remote, branches, refCtx.Branch)...)
+	specs = append(specs, facetRefSpecs("refs/tags/", local, remote, tags, refCtx.Tag)...)
+	return specs
+}
+
+// facetRefSpecs builds the push+prune refspecs for one ref class (heads or tags)
+// under a single facet spec. currentRef is the short name (no prefix) of the ref
+// this run addresses, "" if none.
+func facetRefSpecs(prefix string, local, remote map[string]bool, spec *config.FacetSpec, currentRef string) []gitconfig.RefSpec {
+	if spec == nil {
+		return nil // facet not synced — leave this ref class untouched
+	}
+
+	// Select which local refs to push.
+	pushSet := make(map[string]bool)
 	for _, name := range sortedKeys(local) {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		short := strings.TrimPrefix(name, prefix)
+		if !facetMatches(spec, short) {
+			continue
+		}
+		if spec.IsCurrent() {
+			if currentRef != "" && short == currentRef {
+				pushSet[name] = true
+			}
+			continue
+		}
+		pushSet[name] = true // scope: all
+	}
+
+	var specs []gitconfig.RefSpec
+	for _, name := range sortedKeys(pushSet) {
 		specs = append(specs, gitconfig.RefSpec("+"+name+":"+name))
 	}
 
-	// Prune: delete refs that exist on remote but not locally (sorted) — EXCEPT the GitHub
-	// Pages branch. gh-pages is created ON the mirror by the github-pages deploy target
-	// (not the source repo), so it is legitimately remote-only; pruning it wipes the
-	// published docs site and leaves Pages with no branch to serve. A pruning mirror and a
-	// branch-based pages target on the same repo would otherwise delete each other's work.
-	for _, name := range sortedKeys(remote) {
-		if !local[name] && name != "refs/heads/gh-pages" {
+	// Prune only under exact (spec.Prune): delete remote refs of this class that
+	// are not in the push set. Never prune gh-pages, and only prune within the
+	// match filter (a scoped prune must not reach outside its own selection).
+	if spec.Prune {
+		for _, name := range sortedKeys(remote) {
+			if !strings.HasPrefix(name, prefix) || pushSet[name] {
+				continue
+			}
+			if name == "refs/heads/gh-pages" {
+				continue
+			}
+			if !facetMatches(spec, strings.TrimPrefix(name, prefix)) {
+				continue
+			}
 			specs = append(specs, gitconfig.RefSpec(":"+name))
 		}
 	}
 
 	return specs
+}
+
+// facetMatches reports whether a ref's short name passes the facet's match glob
+// (empty match = everything).
+func facetMatches(spec *config.FacetSpec, short string) bool {
+	if spec.Match == "" {
+		return true
+	}
+	ok, err := path.Match(spec.Match, short)
+	return err == nil && ok
 }
 
 func sortedKeys(m map[string]bool) []string {

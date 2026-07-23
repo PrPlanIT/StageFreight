@@ -6,25 +6,6 @@ import (
 	"strings"
 )
 
-// SyncConfig declares which sync domains a mirror repo receives.
-// Git mirror is the foundation; artifact projection is subordinate and
-// gated on mirror success for the same accessory.
-type SyncConfig struct {
-	// Git enables authoritative mirror replication via git push --mirror.
-	// All refs, branches, tags, deletions, force updates. This is the
-	// foundation — artifact sync runs only after mirror succeeds.
-	Git bool `yaml:"git,omitempty"`
-
-	// Releases enables forge-native release projection (notes, assets, links).
-	// Runs after git mirror succeeds. Tag is the identity key.
-	Releases bool `yaml:"releases,omitempty"`
-
-	// Docs enables README/doc file projection via forge commit API.
-	// Mutually exclusive with Git (docs arrive through git mirror).
-	// Only valid when Git is false.
-	Docs bool `yaml:"docs,omitempty"`
-}
-
 // resolvePublishOriginRepo finds the repo that serves as publish origin.
 // Lookup order: repo with publish-origin role → primary (fallback).
 // Validation guarantees at most one publish-origin exists.
@@ -70,7 +51,6 @@ func ResolveLinkBase(cfg *Config) (string, error) {
 	}
 	return ForgeLinkBase(resolved.Provider, resolved.BaseURL, resolved.Project, branch)
 }
-
 
 // ForgeRawBase constructs a raw content base URL from forge mirror fields.
 // Handles GitLab subgroup paths (group/subgroup/project) correctly.

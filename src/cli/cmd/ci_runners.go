@@ -1215,11 +1215,16 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 
 	worktree := config.PrimaryWorktree(appCfg)
 
+	// The ref this run addresses — drives scope: current (replicate only the
+	// branch/tag being pushed). Provider-neutral, with a local-git fallback.
+	ciCtx := ci.ResolveContext()
+	refCtx := stagefreightsync.RefContext{Branch: ciCtx.Branch, Tag: ciCtx.Tag}
+
 	// Check if any mirror wants release sync — resolve primary releases once.
 	var primaryReleases []forge.ReleaseInfo
 	hasReleaseSyncMirror := false
 	for _, m := range mirrors {
-		if m.Sync.Releases {
+		if m.Sync.SyncsReleases() {
 			hasReleaseSyncMirror = true
 			break
 		}
@@ -1247,10 +1252,10 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	for _, m := range mirrors {
 
 		// 1. Git mirror (if enabled)
-		if m.Sync.Git && readOnly {
+		if m.Sync.SyncsGit() && readOnly {
 			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
-		} else if m.Sync.Git {
-			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m)
+		} else if m.Sync.SyncsGit() {
+			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
 				hasDegraded = true
@@ -1268,7 +1273,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 
 		// 2. Release reconciliation (if enabled).
 		// Reads from primary, projects missing releases to mirror. Idempotent.
-		if m.Sync.Releases && len(primaryReleases) > 0 {
+		if m.Sync.SyncsReleases() && len(primaryReleases) > 0 {
 			mirrorClient, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, err)

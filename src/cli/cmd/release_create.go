@@ -776,7 +776,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		// Mirrors with sync.releases that don't have an explicit override.
 		resolvedMirrors, _ := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars)
 		for _, m := range resolvedMirrors {
-			if !m.Sync.Releases || overriddenMirrors[m.ID] {
+			if !m.Sync.SyncsReleases() || overriddenMirrors[m.ID] {
 				continue
 			}
 			if req.ReadOnly {
@@ -835,7 +835,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	if !req.SkipSync && !req.ReadOnly {
 		if mirrors, mErr := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars); mErr == nil {
 			for _, m := range mirrors {
-				if !m.Sync.Releases {
+				if !m.Sync.SyncsReleases() {
 					continue
 				}
 				mc, cErr := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
