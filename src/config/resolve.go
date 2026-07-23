@@ -68,13 +68,16 @@ func ResolveRepo(repo RepoConfig, forges []ForgeConfig, vars map[string]string) 
 // ResolveRegistryForTarget resolves a target's registry identity from the
 // registry graph. Path comes from target override or registry default_path.
 func ResolveRegistryForTarget(target TargetConfig, registries []RegistryConfig, vars map[string]string) (*ResolvedRegistry, error) {
-	if target.Registry == "" {
+	if len(target.Registry) == 0 {
 		return nil, fmt.Errorf("target %s: registry: is required", target.ID)
 	}
 
-	reg := FindRegistryByID(registries, target.Registry)
+	// Targets reach here single-registry — a registry: list is fanned into one
+	// target per id at load (expandMultiRegistryTargets), so [0] is the id.
+	regID := target.Registry[0]
+	reg := FindRegistryByID(registries, regID)
 	if reg == nil {
-		return nil, fmt.Errorf("target %s: registry %q not found", target.ID, target.Registry)
+		return nil, fmt.Errorf("target %s: registry %q not found", target.ID, regID)
 	}
 
 	path := reg.DefaultPath

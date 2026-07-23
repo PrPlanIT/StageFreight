@@ -198,9 +198,11 @@ func ValidateTargetRegistryRefs(targets []TargetConfig, registries []RegistryCon
 	}
 
 	for _, t := range targets {
-		if t.Registry != "" {
-			if !registryIDs[t.Registry] {
-				errs = append(errs, fmt.Sprintf("targets[%s]: registry %q not found in registries", t.ID, t.Registry))
+		if len(t.Registry) > 0 {
+			for _, rid := range t.Registry {
+				if !registryIDs[rid] {
+					errs = append(errs, fmt.Sprintf("targets[%s]: registry %q not found in registries", t.ID, rid))
+				}
 			}
 			// Registry reference and inline fields must not coexist (except path override).
 			if t.URL != "" {
@@ -216,12 +218,12 @@ func ValidateTargetRegistryRefs(targets []TargetConfig, registries []RegistryCon
 		}
 
 		// Registry targets must have identity from somewhere.
-		if (t.Kind == "registry" || t.Kind == "docker-readme") && t.Registry == "" && t.URL == "" {
+		if (t.Kind == "registry" || t.Kind == "docker-readme") && len(t.Registry) == 0 && t.URL == "" {
 			errs = append(errs, fmt.Sprintf("targets[%s]: kind %s requires registry: or url:", t.ID, t.Kind))
 		}
 
 		// Inline-mode registry targets (no registry: ref) must be a complete identity.
-		if (t.Kind == "registry" || t.Kind == "docker-readme") && t.Registry == "" && t.URL != "" {
+		if (t.Kind == "registry" || t.Kind == "docker-readme") && len(t.Registry) == 0 && t.URL != "" {
 			if t.Kind == "registry" && t.Path == "" {
 				errs = append(errs, fmt.Sprintf("targets[%s]: inline registry target requires path:", t.ID))
 			}

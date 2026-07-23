@@ -34,10 +34,13 @@ type TargetConfig struct {
 	// SelectTags enables CLI filtering via --select.
 	SelectTags []string `yaml:"select_tags,omitempty"`
 
-	// Registry references a registries[].id for registry/docker-readme targets.
-	// When set, URL/Provider/Path/Credentials are resolved from the registry entry.
-	// Path can still be overridden on the target (overrides registry default_path).
-	Registry string `yaml:"registry,omitempty"`
+	// Registry references registries[].id for registry/docker-readme targets. Accepts
+	// a single id (registry: harbor) or a list (registry: [dockerhub, ghcr, harbor]) —
+	// a list fans the target across registries: expandMultiRegistryTargets splits it
+	// into one single-registry target per id at load, so resolution/execution always
+	// sees exactly one registry. When set, URL/Provider/Path/Credentials resolve from
+	// the registry entry. Path can still be overridden on the target.
+	Registry StringOrList `yaml:"registry,omitempty"`
 
 	// SigningProfile references a signing_profiles[].id — the trust profile this
 	// target signs under. Empty = the synthesized `legacy` profile (key-signing,

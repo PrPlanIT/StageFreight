@@ -225,6 +225,10 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		return nil, warnings, entries, fmt.Errorf("validating %s: %w", path, verr)
 	}
 
+	// Fan registry: [a, b, c] into one single-registry target per id — after
+	// validation (which sees the authored list), before normalization.
+	cfg.Targets = expandMultiRegistryTargets(cfg.Targets)
+
 	// Normalize: resolve all {var:...} templates throughout the entire config graph.
 	// All consumers get fully-resolved values — no late binding.
 	if err := Normalize(cfg); err != nil {

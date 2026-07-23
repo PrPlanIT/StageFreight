@@ -12,6 +12,39 @@ import (
 // retired list form (targets:) upgrades through the config migrator, never here.
 type OrderedTargets []TargetConfig
 
+// expandMultiRegistryTargets fans a target declaring registry: [a, b, c] into N
+// single-registry targets (id "<id>-<registry>"), so resolution and execution
+// process exactly one registry per target and nothing downstream changes. A
+// single- or no-registry target passes through unchanged (id preserved). Runs
+// after validation (which sees the authored list) and before normalization.
+func expandMultiRegistryTargets(targets OrderedTargets) OrderedTargets {
+	// Fast path: nothing to fan.
+	fan := false
+	for _, t := range targets {
+		if len(t.Registry) > 1 {
+			fan = true
+			break
+		}
+	}
+	if !fan {
+		return targets
+	}
+	out := make(OrderedTargets, 0, len(targets))
+	for _, t := range targets {
+		if len(t.Registry) <= 1 {
+			out = append(out, t)
+			continue
+		}
+		for _, rid := range t.Registry {
+			clone := t // shallow copy — only Registry/ID are reassigned; shared slices/pointers stay read-only
+			clone.Registry = StringOrList{rid}
+			clone.ID = t.ID + "-" + rid
+			out = append(out, clone)
+		}
+	}
+	return out
+}
+
 // UnmarshalYAML decodes the id→target map in document order, stamping each
 // target's ID from its key.
 func (o *OrderedTargets) UnmarshalYAML(node *yaml.Node) error {

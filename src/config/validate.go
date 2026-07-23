@@ -646,7 +646,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	return warnings, nil
 }
 
-
 // cfPagesProjectRe matches Cloudflare Pages' project-name rule: lowercase letters,
 // digits, and hyphens; 1–58 chars; no leading or trailing hyphen. A single char is
 // allowed (the optional middle+tail group covers names of length 2+).
@@ -663,7 +662,7 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		}
 		// URL and path validation only for inline targets (no registry: ref).
 		// When registry: is set, identity comes from registries[].
-		if t.Registry == "" {
+		if len(t.Registry) == 0 {
 			if t.URL == "" {
 				errs = append(errs, fmt.Sprintf("%s: kind registry requires registry: or url:", path))
 			}
@@ -680,7 +679,7 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 		}
 
 	case "docker-readme":
-		if t.Registry == "" {
+		if len(t.Registry) == 0 {
 			if t.URL == "" {
 				errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires registry: or url:", path))
 			}
@@ -847,7 +846,7 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 			}
 		}
 		// Reject fields that belong to other kinds.
-		if t.URL != "" || t.Path != "" || t.Registry != "" || t.Repo != "" {
+		if t.URL != "" || t.Path != "" || len(t.Registry) > 0 || t.Repo != "" {
 			errs = append(errs, fmt.Sprintf("%s: url/path/registry/repo are not valid for kind pages", path))
 		}
 		if len(t.Tags) > 0 || len(t.Aliases) > 0 {

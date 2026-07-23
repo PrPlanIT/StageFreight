@@ -19,11 +19,11 @@ func TestPlanRegistryRetention_RemoteWithRetentionOnly(t *testing.T) {
 			{ID: "localreg", Provider: "local", URL: "local", DefaultPath: "org/app"},
 		},
 		Targets: []config.TargetConfig{
-			{ID: "dh-dev", Kind: "registry", Registry: "dockerhub",
+			{ID: "dh-dev", Kind: "registry", Registry: config.StringOrList{"dockerhub"},
 				Tags: []string{"dev-{sha:8}", "latest-dev"}, Retention: &config.RetentionPolicy{KeepLast: 6, Protect: []string{"latest-dev"}}},
-			{ID: "local-dev", Kind: "registry", Registry: "localreg",
+			{ID: "local-dev", Kind: "registry", Registry: config.StringOrList{"localreg"},
 				Tags: []string{"dev-{sha:8}"}, Retention: &config.RetentionPolicy{KeepLast: 3}},
-			{ID: "dh-norit", Kind: "registry", Registry: "dockerhub", Tags: []string{"x"}}, // no retention
+			{ID: "dh-norit", Kind: "registry", Registry: config.StringOrList{"dockerhub"}, Tags: []string{"x"}}, // no retention
 		},
 	}
 	vi := &gitver.VersionInfo{Version: "1.0.0-dev+abc12345", Base: "1.0.0", SHA: "abc12345"}
