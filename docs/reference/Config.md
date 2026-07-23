@@ -22,6 +22,7 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`version`](#config-version)
 - [`vars`](#config-vars)
 - [`defaults`](#config-defaults)
+- [`preset_source`](#config-preset_source)
 - [`forges`](#config-forges)
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
@@ -101,6 +102,24 @@ Defaults is inert YAML anchor storage. StageFreight ignores this section entirel
 ---
 
 <!-- --8<-- [end:defaults] -->
+<!-- --8<-- [start:preset_source] -->
+<a id="config-preset_source" name="config-preset_source"></a>
+### preset_source
+
+PresetSource is governance-distribution metadata: where a satellite's presets were frozen from (forge coords + pinned ref + cache policy). Written by `governance reconcile`; IGNORED at runtime today — the committed .stagefreight/preset-cache is authoritative — but declared so a governed config decodes under KnownFields(true). Consumed only if/when runtime pinned-external resolution is built.
+
+```yaml
+preset_source:
+  provider: <string>
+  repo_url: <string>
+  project_id: <string>
+  ref: <string>
+  cache_policy: <string>
+```
+
+---
+
+<!-- --8<-- [end:preset_source] -->
 <!-- --8<-- [start:forges] -->
 <a id="config-forges" name="config-forges"></a>
 ### forges
