@@ -52,6 +52,7 @@ type sectionDef struct {
 }
 
 var allKnownSections = []sectionDef{
+	{name: "git", kind: "execution"},
 	{name: "builds", kind: "execution"},
 	{name: "versioning", kind: "execution"},
 	{name: "lint", kind: "execution"},

@@ -50,13 +50,19 @@ type Config struct {
 	Signing      []SigningProfile `yaml:"signing_profiles,omitempty"`
 	SigningSetup SigningConfig    `yaml:"signing,omitempty"`
 
-	// Versioning controls how version identity is derived from git state.
-	Versioning VersioningConfig `yaml:"versioning"`
+	// Git is the git: cluster — named branch/tag patterns + versioning rules.
+	// Folded into Matchers/Versioning by normalizeGit at load.
+	Git GitConfig `yaml:"git,omitempty"`
 
+	// Versioning controls how version identity is derived from git state.
+	// Populated from git.tags + git.versioning (not decoded directly).
+	Versioning VersioningConfig `yaml:"-"`
+
+	// Populated from git.branches (not decoded directly).
 	// Matchers defines reusable named patterns for branches (and future
 	// dimensions). Pattern definitions only — no behavior. Referenced by
 	// branch_builds[].match and target.when.branches.
-	Matchers MatchersConfig `yaml:"matchers"`
+	Matchers MatchersConfig `yaml:"-"`
 
 	// Builds defines named build artifacts as an id→build map.
 	Builds OrderedBuilds `yaml:"builds"`
@@ -219,6 +225,10 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	if err := dec.Decode(cfg); err != nil {
 		return nil, nil, entries, fmt.Errorf("parsing %s: %w", path, err)
 	}
+
+	// Fold the git: cluster into the internal Matchers/Versioning reps before
+	// validation reads them.
+	cfg.normalizeGit()
 
 	warnings, verr := Validate(cfg)
 	if verr != nil {

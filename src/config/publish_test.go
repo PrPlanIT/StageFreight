@@ -88,9 +88,9 @@ func TestPublishFanFiresOnLoad(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, ".stagefreight.yml")
 	cfg := "version: 1\n" +
-		"versioning:\n" +
-		"  tag_sources:\n" +
-		"    - { id: stable, pattern: \"^v.*\" }\n" +
+		"git:\n" +
+		"  tags:\n" +
+		"    stable: { pattern: \"^v.*\" }\n" +
 		"registries:\n" +
 		"  dockerhub: { provider: docker, url: docker.io, default_path: o/r }\n" +
 		"  ghcr: { provider: ghcr, url: ghcr.io, default_path: o/r }\n" +

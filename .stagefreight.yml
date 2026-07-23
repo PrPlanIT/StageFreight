@@ -5,10 +5,6 @@ ci:
   # docker.io/prplanit/stagefreight:latest-dev (where the narrate image lands).
   image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
 
-matchers:
-  branches:
-    main: "^main$"
-
 vars:
   org: prplanit
   github_org: PrPlanIT
@@ -16,18 +12,16 @@ vars:
   repo: stagefreight
   github_repo: StageFreight
 
-versioning:
-  tag_sources:
-    - id: stable
-      pattern: "^v?\\d+\\.\\d+\\.\\d+$"
-    - id: prerelease
-      pattern: "^v?\\d+\\.\\d+\\.\\d+-.+"
-  branch_builds:
-    - id: default
-      base_from: [stable]
-      format: "{base}-dev+{sha}"
-  no_lineage:
-    mode: error
+git:                                     # interpret the ref → named branch/tag patterns + the versions they imply (was matchers + versioning)
+  branches:
+    main: "^main$"
+  tags:                                  # id → {pattern} (was versioning.tag_sources)
+    stable:     { pattern: "^v?\\d+\\.\\d+\\.\\d+$" }
+    prerelease: { pattern: "^v?\\d+\\.\\d+\\.\\d+-.+" }
+  versioning:                            # derivation rules that consume the patterns above
+    branch_builds:
+      default: { base_from: [stable], format: "{base}-dev+{sha}" }
+    no_lineage: { mode: error }
 
 builds:
   stagefreight:
