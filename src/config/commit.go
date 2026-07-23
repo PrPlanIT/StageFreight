@@ -44,14 +44,18 @@ func OriginTrailer(origin string) string {
 
 // CommitConfig holds configuration for the commit subsystem.
 type CommitConfig struct {
-	Preset       string       `yaml:"preset,omitempty"`
-	DefaultType  string       `yaml:"default_type,omitempty"`
-	DefaultScope string       `yaml:"default_scope,omitempty"`
-	SkipCI       bool         `yaml:"skip_ci,omitempty"`
-	Push         bool         `yaml:"push,omitempty"`
-	Conventional bool         `yaml:"conventional"`
-	Backend      string       `yaml:"backend,omitempty"`
-	Types        []CommitType `yaml:"types,omitempty"`
+	Preset       string `yaml:"preset,omitempty"`
+	DefaultType  string `yaml:"default_type,omitempty"`
+	DefaultScope string `yaml:"default_scope,omitempty"`
+	SkipCI       bool   `yaml:"skip_ci,omitempty"`
+	Push         bool   `yaml:"push,omitempty"`
+	Conventional bool   `yaml:"conventional"`
+
+	// Render controls commit rendering (was presentation.commit). Pointer: nil
+	// preserves the default; set overrides. Folded into Presentation.Commit.
+	Render  *CommitPresentation `yaml:"render,omitempty"`
+	Backend string              `yaml:"backend,omitempty"`
+	Types   []CommitType        `yaml:"types,omitempty"`
 }
 
 // CommitType defines a recognized commit type for conventional commits.

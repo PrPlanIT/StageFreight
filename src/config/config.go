@@ -121,8 +121,9 @@ type Config struct {
 	// Consumed by commit authoring, tag planning, and release rendering.
 	Glossary GlossaryConfig `yaml:"glossary"`
 
-	// Presentation defines surface-specific rendering policies.
-	Presentation PresentationConfig `yaml:"presentation"`
+	// Presentation defines surface-specific rendering policies. Populated from
+	// commit.render / tagging.render / release.render (not decoded directly).
+	Presentation PresentationConfig `yaml:"-"`
 
 	// Tag holds workflow defaults for the tag planner.
 	Tag TagConfig `yaml:"tagging"`
@@ -231,6 +232,7 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	// reps before validation reads them.
 	cfg.normalizeGit()
 	cfg.normalizeSigning()
+	cfg.normalizePresentation()
 
 	warnings, verr := Validate(cfg)
 	if verr != nil {

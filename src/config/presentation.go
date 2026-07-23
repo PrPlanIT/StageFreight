@@ -2,6 +2,21 @@ package config
 
 // PresentationConfig defines surface-specific rendering policies.
 // Same semantic meaning, different editorial treatment per output.
+// normalizePresentation folds the per-block render: fields (commit.render,
+// tagging.render, release.render) into the internal Presentation rep every
+// consumer reads. Pointer-guarded so an unset render preserves the default.
+func (c *Config) normalizePresentation() {
+	if c.Commit.Render != nil {
+		c.Presentation.Commit = *c.Commit.Render
+	}
+	if c.Tag.Render != nil {
+		c.Presentation.Tag = *c.Tag.Render
+	}
+	if c.Release.Render != nil {
+		c.Presentation.Release = *c.Release.Render
+	}
+}
+
 type PresentationConfig struct {
 	Preset  string              `yaml:"preset,omitempty"`
 	Commit  CommitPresentation  `yaml:"commit"`
@@ -18,19 +33,19 @@ type CommitPresentation struct {
 
 // TagPresentation controls tag annotation rendering.
 type TagPresentation struct {
-	MaxEntries             int    `yaml:"max_entries"`
-	GroupByType            bool   `yaml:"group_by_type"`
-	Style                  string `yaml:"style"` // concise | explanatory | technical
-	IncludeReleaseVisibleOnly bool `yaml:"include_release_visible_only"`
-	CollapseSimilar        bool   `yaml:"collapse_similar"`
+	MaxEntries                int    `yaml:"max_entries"`
+	GroupByType               bool   `yaml:"group_by_type"`
+	Style                     string `yaml:"style"` // concise | explanatory | technical
+	IncludeReleaseVisibleOnly bool   `yaml:"include_release_visible_only"`
+	CollapseSimilar           bool   `yaml:"collapse_similar"`
 }
 
 // ReleasePresentation controls release notes rendering.
 type ReleasePresentation struct {
-	MaxEntries             int    `yaml:"max_entries"`
-	GroupByType            bool   `yaml:"group_by_type"`
-	Style                  string `yaml:"style"` // concise | explanatory | technical
-	IncludeReleaseVisibleOnly bool `yaml:"include_release_visible_only"`
+	MaxEntries                int    `yaml:"max_entries"`
+	GroupByType               bool   `yaml:"group_by_type"`
+	Style                     string `yaml:"style"` // concise | explanatory | technical
+	IncludeReleaseVisibleOnly bool   `yaml:"include_release_visible_only"`
 }
 
 // DefaultPresentationConfig returns sensible defaults.

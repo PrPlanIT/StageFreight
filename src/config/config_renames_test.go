@@ -26,6 +26,30 @@ func TestTaggingRename(t *testing.T) {
 	}
 }
 
+// TestPresentationDissolve: presentation.commit → commit.render (pointer-guarded so
+// defaults survive), and the retired presentation: key no longer parses.
+func TestPresentationDissolve(t *testing.T) {
+	cfg, _, err := LoadWithWarnings(writeCfg(t,
+		"version: 1\ncommit:\n  render:\n    preserve_raw_subject: false\n"))
+	if err != nil {
+		t.Fatalf("commit.render should load: %v", err)
+	}
+	if cfg.Presentation.Commit.PreserveRawSubject {
+		t.Fatalf("commit.render not folded into Presentation: %+v", cfg.Presentation.Commit)
+	}
+	// Default preserved when render is absent (pointer nil).
+	def, _, err := LoadWithWarnings(writeCfg(t, "version: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !def.Presentation.Commit.PreserveRawSubject {
+		t.Fatal("default presentation lost when render absent")
+	}
+	if _, _, err := LoadWithWarnings(writeCfg(t, "version: 1\npresentation: {}\n")); err == nil {
+		t.Fatal("retired presentation: key should fail (hard break)")
+	}
+}
+
 // TestSigningProfilesMerge: signing_profiles: (list) → signing.profiles: (map),
 // folded into the internal Signing list; the old key no longer parses.
 func TestSigningProfilesMerge(t *testing.T) {
