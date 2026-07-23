@@ -13,9 +13,9 @@ import (
 // declared, and the push-vs-tag signal comes from env tag presence, not a tag
 // string, so Commit 7's synthesized dev tag won't flip a push to a tag).
 func TestTargetWhenMatches_Events(t *testing.T) {
-	pushTarget := config.TargetConfig{When: config.TargetCondition{Events: []string{"push"}}}
-	tagTarget := config.TargetConfig{When: config.TargetCondition{Events: []string{"tag"}}}
-	noEvents := config.TargetConfig{When: config.TargetCondition{}}
+	pushTarget := config.TargetConfig{When: config.WhenConditions{{Events: []string{"push"}}}}
+	tagTarget := config.TargetConfig{When: config.WhenConditions{{Events: []string{"tag"}}}}
+	noEvents := config.TargetConfig{When: config.WhenConditions{{}}}
 
 	t.Run("push build (no tag env)", func(t *testing.T) {
 		t.Setenv("SF_CI_TAG", "")

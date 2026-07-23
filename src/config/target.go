@@ -23,8 +23,9 @@ type TargetConfig struct {
 	// Build references a BuildConfig.ID. Required for kind: registry.
 	Build string `yaml:"build,omitempty"`
 
-	// When specifies routing conditions for this target.
-	When TargetCondition `yaml:"when,omitempty"`
+	// When specifies routing conditions for this target: a single condition-set,
+	// or a list of them (OR — the target fires if ANY matches). See WhenConditions.
+	When WhenConditions `yaml:"when,omitempty"`
 
 	// RunFrom gates mutation to declared execution origins.
 	// e.g. ["primary"] — only mutate when running from sources.primary.

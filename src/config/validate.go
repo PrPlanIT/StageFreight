@@ -562,9 +562,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			}
 		}
 		for _, t := range cfg.Targets {
-			for _, b := range t.When.Branches {
-				if !strings.HasPrefix(b, "re:") && isIdentifier(b) {
-					referenced[b] = true
+			for _, c := range t.When {
+				for _, b := range c.Branches {
+					if !strings.HasPrefix(b, "re:") && isIdentifier(b) {
+						referenced[b] = true
+					}
 				}
 			}
 		}
@@ -823,7 +825,7 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 }
 
 // validateWhen checks the when block for valid pattern references and events.
-func validateWhen(w TargetCondition, path string, versioning VersioningConfig, matchers MatchersConfig) []string {
+func validateWhen(conditions WhenConditions, path string, versioning VersioningConfig, matchers MatchersConfig) []string {
 	var errs []string
 
 	// Build tag source id set for when.git_tags reference validation.
@@ -831,37 +833,40 @@ func validateWhen(w TargetCondition, path string, versioning VersioningConfig, m
 	for _, ts := range versioning.TagSources {
 		tagSourceIDs[ts.ID] = true
 	}
-	for _, entry := range w.GitTags {
-		if strings.HasPrefix(entry, "re:") {
-			continue // inline regex, skip pattern lookup
-		}
-		if !isIdentifier(entry) {
-			continue // not a pattern name, will be treated as regex by match logic
-		}
-		if !tagSourceIDs[entry] {
-			errs = append(errs, fmt.Sprintf("%s.when.git_tags: unknown tag source %q (not in versioning.tag_sources)", path, entry))
-		}
-	}
 
-	for _, entry := range w.Branches {
-		if strings.HasPrefix(entry, "re:") {
-			continue
-		}
-		if !isIdentifier(entry) {
-			continue
-		}
-		if _, ok := matchers.Branches[entry]; !ok {
-			errs = append(errs, fmt.Sprintf("%s.when.branches: unknown matcher %q (not in matchers.branches)", path, entry))
-		}
-	}
-
-	for _, event := range w.Events {
-		if !validEvents[event] {
-			events := make([]string, 0, len(validEvents))
-			for e := range validEvents {
-				events = append(events, e)
+	for _, w := range conditions {
+		for _, entry := range w.GitTags {
+			if strings.HasPrefix(entry, "re:") {
+				continue // inline regex, skip pattern lookup
 			}
-			errs = append(errs, fmt.Sprintf("%s.when.events: unknown event %q (supported: %s)", path, event, strings.Join(events, ", ")))
+			if !isIdentifier(entry) {
+				continue // not a pattern name, will be treated as regex by match logic
+			}
+			if !tagSourceIDs[entry] {
+				errs = append(errs, fmt.Sprintf("%s.when.git_tags: unknown tag source %q (not in versioning.tag_sources)", path, entry))
+			}
+		}
+
+		for _, entry := range w.Branches {
+			if strings.HasPrefix(entry, "re:") {
+				continue
+			}
+			if !isIdentifier(entry) {
+				continue
+			}
+			if _, ok := matchers.Branches[entry]; !ok {
+				errs = append(errs, fmt.Sprintf("%s.when.branches: unknown matcher %q (not in matchers.branches)", path, entry))
+			}
+		}
+
+		for _, event := range w.Events {
+			if !validEvents[event] {
+				events := make([]string, 0, len(validEvents))
+				for e := range validEvents {
+					events = append(events, e)
+				}
+				errs = append(errs, fmt.Sprintf("%s.when.events: unknown event %q (supported: %s)", path, event, strings.Join(events, ", ")))
+			}
 		}
 	}
 

@@ -6,15 +6,15 @@ func TestTargetMatches(t *testing.T) {
 	tagPol := map[string]string{"stable": `^v\d+\.\d+\.\d+$`}
 	brPol := map[string]string{"main": `^main$`}
 
-	dev := TargetConfig{When: TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}}
-	stable := TargetConfig{When: TargetCondition{GitTags: []string{"stable"}, Events: []string{"tag"}}}
+	dev := TargetConfig{When: WhenConditions{{Branches: []string{"main"}, Events: []string{"push"}}}}
+	stable := TargetConfig{When: WhenConditions{{GitTags: []string{"stable"}, Events: []string{"tag"}}}}
 	always := TargetConfig{}
 
 	cases := []struct {
-		name                string
-		tgt                 TargetConfig
-		event, branch, tag  string
-		want                bool
+		name               string
+		tgt                TargetConfig
+		event, branch, tag string
+		want               bool
 	}{
 		{"dev on main push", dev, "push", "main", "", true},
 		{"dev on tag (wrong event)", dev, "tag", "", "v1.2.3", false},
@@ -36,8 +36,8 @@ func TestTargetMatches(t *testing.T) {
 }
 
 func TestTargetForges(t *testing.T) {
-	gitlabOnly := TargetConfig{When: TargetCondition{Forges: []string{"gitlab"}}}
-	multi := TargetConfig{When: TargetCondition{Forges: []string{"github", "gitea"}}}
+	gitlabOnly := TargetConfig{When: WhenConditions{{Forges: []string{"gitlab"}}}}
+	multi := TargetConfig{When: WhenConditions{{Forges: []string{"github", "gitea"}}}}
 	unrestricted := TargetConfig{} // no forges → eligible on every forge
 
 	cases := []struct {
@@ -60,7 +60,7 @@ func TestTargetForges(t *testing.T) {
 			// Forge targets carry no event/branch/tag constraints, so those pass; the
 			// forge dimension is the only gate under test.
 			if got := TargetMatches(c.tgt, "push", "main", "", c.forge, nil, nil); got != c.want {
-				t.Errorf("forge %q against forges:%v = %v, want %v", c.forge, c.tgt.When.Forges, got, c.want)
+				t.Errorf("forge %q against %v = %v, want %v", c.forge, c.tgt.When, got, c.want)
 			}
 		})
 	}

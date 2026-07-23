@@ -46,7 +46,7 @@ func TestResolvePatternsVocabulary(t *testing.T) {
 func TestTargetEligibilityReasons(t *testing.T) {
 	tagPol := map[string]string{"stable": `^v\d+\.\d+\.\d+$`}
 	brPol := map[string]string{"main": `^main$`}
-	dev := TargetConfig{When: TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}}
+	dev := TargetConfig{When: WhenConditions{{Branches: []string{"main"}, Events: []string{"push"}}}}
 
 	// Eligible: a real push on main carries no reason.
 	if r := TargetEligibility(dev, "push", "main", "", "", tagPol, brPol); !r.Eligible || r.Reason != "" {

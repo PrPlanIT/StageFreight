@@ -54,9 +54,9 @@ func TestActiveReleaseTarget(t *testing.T) {
 		Repos:      []config.RepoConfig{{ID: "primary", Roles: []string{"primary"}}},
 		Targets: []config.TargetConfig{
 			{ID: "stable", Kind: "release", Repos: config.StringOrList{"primary"}, Aliases: []string{"latest"},
-				When: config.TargetCondition{GitTags: []string{"stable"}, Events: []string{"tag"}}},
+				When: config.WhenConditions{{GitTags: []string{"stable"}, Events: []string{"tag"}}}},
 			{ID: "dev", Kind: "release", Repos: config.StringOrList{"primary"}, Tag: "dev-{sha:8}", Aliases: []string{"latest-dev"},
-				When: config.TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}},
+				When: config.WhenConditions{{Branches: []string{"main"}, Events: []string{"push"}}}},
 		},
 	}
 	t.Run("push selects dev", func(t *testing.T) {

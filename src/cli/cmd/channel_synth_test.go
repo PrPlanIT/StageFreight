@@ -11,7 +11,7 @@ func devChannelCfg() *config.Config {
 		Matchers: config.MatchersConfig{Branches: map[string]string{"main": `^main$`}},
 		Targets: []config.TargetConfig{
 			{ID: "dwiz-dev", Kind: "release", Tag: "dev-{sha:8}", Aliases: []string{"latest-dev"},
-				When: config.TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}},
+				When: config.WhenConditions{{Branches: []string{"main"}, Events: []string{"push"}}}},
 		},
 	}
 }
@@ -64,7 +64,7 @@ func TestReleaseTagMatchesAnyTarget_EventsOnly(t *testing.T) {
 	cfg := &config.Config{
 		Targets: []config.TargetConfig{
 			{ID: "dev", Kind: "release", Tag: "dev-{sha:8}",
-				When: config.TargetCondition{Events: []string{"push"}}},
+				When: config.WhenConditions{{Events: []string{"push"}}}},
 		},
 	}
 	if !releaseTagMatchesAnyTarget(cfg, "dev-abc12345") {

@@ -25,9 +25,9 @@ func TestPlanDockerBuildEventGating(t *testing.T) {
 			Builds:     []config.BuildConfig{{ID: "img", Kind: "docker", Dockerfile: "Dockerfile"}},
 			Targets: []config.TargetConfig{
 				{ID: "dev", Kind: "registry", Build: "img", Registry: config.StringOrList{"dh"},
-					Tags: []string{"latest-dev"}, When: config.TargetCondition{Branches: []string{"main"}, Events: []string{"push"}}},
+					Tags: []string{"latest-dev"}, When: config.WhenConditions{{Branches: []string{"main"}, Events: []string{"push"}}}},
 				{ID: "stable", Kind: "registry", Build: "img", Registry: config.StringOrList{"dh"},
-					Tags: []string{"latest"}, When: config.TargetCondition{GitTags: []string{"stable"}, Events: []string{"tag"}}},
+					Tags: []string{"latest"}, When: config.WhenConditions{{GitTags: []string{"stable"}, Events: []string{"tag"}}}},
 			},
 		}
 	}

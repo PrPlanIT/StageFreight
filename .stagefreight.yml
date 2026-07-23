@@ -191,13 +191,18 @@ publish:                                 # distribute artifacts to their destina
     description: "A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest"
 
   # ── Binary archives: linux amd64/arm64 + SHA256SUMS ──────────────
+  # ONE archive recipe, fired on EITHER trigger (when: is an OR-list of condition
+  # sets) — {version} differentiates stable (1.2.3) from dev (1.2.3-dev+sha). Feeds
+  # both primary-release (stable tag) and dev-release (main push).
   stagefreight-binaries:
     kind: binary-archive
     build: stagefreight-bin
     name: "stagefreight-{version}-{os}-{arch}"
     format: auto
     checksums: true
-    when: { git_tags: [stable], events: [tag] }
+    when:
+      - { git_tags: [stable], events: [tag] }   # feeds primary-release
+      - { branches: [main], events: [push] }    # feeds dev-release
 
   # ── Primary release (rolling git tag aliases + binaries) ─────────
   primary-release:
@@ -216,15 +221,6 @@ publish:                                 # distribute artifacts to their destina
     archives: stagefreight-binaries
     when: { git_tags: [stable], events: [tag] }
 
-  # ── Dev binary archive: on every commit to main ──────────────────
-  stagefreight-binaries-dev:
-    kind: binary-archive
-    build: stagefreight-bin
-    name: "stagefreight-{version}-{os}-{arch}"
-    format: auto
-    checksums: true
-    when: { branches: [main], events: [push] }
-
   # ── Dev binary release channel (GitLab): rolling latest-dev +
   #    retained immutable dev-{sha8}, pruned like the docker dev images.
   #    Dogfoods the binary release-channel feature. (GitHub mirror dev
@@ -232,7 +228,7 @@ publish:                                 # distribute artifacts to their destina
   dev-release:
     kind: release
     repos: [primary]                 # canonical dev release on the primary forge (gitlab)
-    archives: stagefreight-binaries-dev
+    archives: stagefreight-binaries  # the same one recipe as primary-release (OR-list when:)
     tag: "dev-{sha:8}"
     aliases: ["latest-dev"]
     type: prerelease

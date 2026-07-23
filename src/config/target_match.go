@@ -70,21 +70,41 @@ type MatchResult struct {
 // matchers.branches); inline "re:" and "!" negation are handled by
 // ResolvePatterns. Empty conditions never restrict.
 func TargetEligibility(t TargetConfig, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
-	if !EventMatches(t.When.Events, event) {
-		return MatchResult{Reason: fmt.Sprintf("run source %q not in events:%v", event, t.When.Events)}
+	// No condition-sets → unconditional (eligible everywhere).
+	if len(t.When) == 0 {
+		return MatchResult{Eligible: true}
 	}
-	if len(t.When.GitTags) > 0 && tag != "" {
-		if !MatchPatternsWithPolicy(t.When.GitTags, tag, tagPolicies) {
-			return MatchResult{Reason: fmt.Sprintf("tag %q not in git_tags:%v", tag, t.When.GitTags)}
+	// A single condition-set preserves its precise rejection reason.
+	if len(t.When) == 1 {
+		return conditionEligibility(t.When[0], event, branch, tag, forge, tagPolicies, branchPolicies)
+	}
+	// OR over condition-sets: eligible if ANY matches.
+	for _, c := range t.When {
+		if r := conditionEligibility(c, event, branch, tag, forge, tagPolicies, branchPolicies); r.Eligible {
+			return r
 		}
 	}
-	if len(t.When.Branches) > 0 {
-		if !MatchPatternsWithPolicy(t.When.Branches, branch, branchPolicies) {
-			return MatchResult{Reason: fmt.Sprintf("branch %q not in branches:%v", branch, t.When.Branches)}
+	return MatchResult{Reason: fmt.Sprintf("no when: condition matched (event=%q tag=%q branch=%q forge=%q)", event, tag, branch, forge)}
+}
+
+// conditionEligibility interprets ONE condition-set (events, then git_tags, then
+// branches, then forges).
+func conditionEligibility(c TargetCondition, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
+	if !EventMatches(c.Events, event) {
+		return MatchResult{Reason: fmt.Sprintf("run source %q not in events:%v", event, c.Events)}
+	}
+	if len(c.GitTags) > 0 && tag != "" {
+		if !MatchPatternsWithPolicy(c.GitTags, tag, tagPolicies) {
+			return MatchResult{Reason: fmt.Sprintf("tag %q not in git_tags:%v", tag, c.GitTags)}
 		}
 	}
-	if len(t.When.Forges) > 0 && !forgeMatches(t.When.Forges, forge) {
-		return MatchResult{Reason: fmt.Sprintf("forge %q not in forges:%v", forge, t.When.Forges)}
+	if len(c.Branches) > 0 {
+		if !MatchPatternsWithPolicy(c.Branches, branch, branchPolicies) {
+			return MatchResult{Reason: fmt.Sprintf("branch %q not in branches:%v", branch, c.Branches)}
+		}
+	}
+	if len(c.Forges) > 0 && !forgeMatches(c.Forges, forge) {
+		return MatchResult{Reason: fmt.Sprintf("forge %q not in forges:%v", forge, c.Forges)}
 	}
 	return MatchResult{Eligible: true}
 }
@@ -124,5 +144,10 @@ func TargetMatchesEnv(t TargetConfig, cfg *Config) bool {
 // an emptiness probe is still an interpretation of target constraints, and per
 // the eligibility-routing invariant there is exactly one interpreter (this package).
 func TargetIsUnconditional(t TargetConfig) bool {
-	return len(t.When.Events) == 0 && len(t.When.Branches) == 0 && len(t.When.GitTags) == 0 && len(t.When.Forges) == 0
+	for _, c := range t.When {
+		if len(c.Events) > 0 || len(c.Branches) > 0 || len(c.GitTags) > 0 || len(c.Forges) > 0 {
+			return false
+		}
+	}
+	return true
 }
