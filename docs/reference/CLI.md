@@ -32,7 +32,7 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
         - [`docs`](#cli-stagefreight-component-docs) — Generate input documentation from component spec files
     - [`config`](#cli-stagefreight-config) — Inspect and manage StageFreight configuration
         - [`render`](#cli-stagefreight-config-render) — Show the effective config after preset resolution
-        - [`resolve`](#cli-stagefreight-config-resolve) — Show the config resolution chain with provenance
+        - [`resolve`](#cli-stagefreight-config-resolve) — Show how the effective config resolved, with provenance
     - [`dependency`](#cli-stagefreight-dependency) — Dependency management commands
         - [`update`](#cli-stagefreight-dependency-update) — Update outdated dependencies
     - [`docker`](#cli-stagefreight-docker) — Docker lifecycle — build, drift, reconcile
@@ -445,7 +445,7 @@ Commands for inspecting resolved config, rendering effective config, and managin
 **Subcommands:**
 
 - [`render`](#cli-stagefreight-config-render) — Show the effective config after preset resolution
-- [`resolve`](#cli-stagefreight-config-resolve) — Show the config resolution chain with provenance
+- [`resolve`](#cli-stagefreight-config-resolve) — Show how the effective config resolved, with provenance
 
 ---
 
@@ -478,15 +478,20 @@ _Plus the [global flags](#cli-global-flags)._
 
 **Usage:** `stagefreight config resolve`
 
-Shows how the effective config was resolved:
-- Preset sources and what they contributed
-- Source provenance for each value
+Shows the resolved view of .stagefreight.yml — the config as the engine sees it:
+- Which presets contributed, and how many local values overrode them
+- Per-section provenance (manifest vs preset)
+- With --verbose, per-value provenance (path, operation, source, overrides)
+
+Resolution goes through the same loadResolved path builds use, so what this
+prints is what runs — not a separate reporter-only view.
 
 **Flags:**
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `-v, --verbose` | bool | — | Show full resolution trace |
+| `-o, --output` | string | — | Output format: json |
+| `-v, --verbose` | bool | — | Show per-value provenance |
 
 _Plus the [global flags](#cli-global-flags)._
 
