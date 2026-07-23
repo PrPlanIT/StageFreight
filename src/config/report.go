@@ -60,6 +60,7 @@ var allKnownSections = []sectionDef{
 	{name: "dependency", kind: "execution"},
 	{name: "docs", kind: "execution"},
 	{name: "release", kind: "execution"},
+	{name: "publish", kind: "execution"},
 	{name: "gitops", kind: "capability"},
 	{name: "governance", kind: "capability"},
 	{name: "glossary", kind: "capability"},

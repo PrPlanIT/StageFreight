@@ -61,8 +61,10 @@ type Config struct {
 	// Builds defines named build artifacts.
 	Builds []BuildConfig `yaml:"builds"`
 
-	// Targets defines distribution targets and side-effects.
-	Targets []TargetConfig `yaml:"targets"`
+	// Targets defines distribution targets and side-effects. Declared under the
+	// publish: key as an id→target map (execution order preserved). The retired
+	// list form (targets:) no longer parses — upgrade via the config migrator.
+	Targets OrderedTargets `yaml:"publish,omitempty"`
 
 	// Lint holds lint-specific configuration (unchanged from v1).
 	Lint LintConfig `yaml:"lint"`

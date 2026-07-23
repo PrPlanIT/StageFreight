@@ -131,9 +131,9 @@ registries:
     credentials: GHCR
     default_path: "{var:org}/{var:repo}"
 
-targets:
+publish:                                 # distribute artifacts to their destinations (was targets:); id→target map
   # ── Docker Hub: stable releases ─────────────────────────────────
-  - id: dockerhub-stable
+  dockerhub-stable:
     kind: registry
     registry: dockerhub
     build: stagefreight
@@ -141,7 +141,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── Docker Hub: pre-releases (alpha/beta/rc) ────────────────────
-  - id: dockerhub-prerelease
+  dockerhub-prerelease:
     kind: registry
     registry: dockerhub
     build: stagefreight
@@ -149,7 +149,7 @@ targets:
     when: { git_tags: [prerelease], events: [tag] }
 
   # ── Docker Hub: dev builds on every commit ───────────────────────
-  - id: dockerhub-dev
+  dockerhub-dev:
     kind: registry
     registry: dockerhub
     build: stagefreight
@@ -160,7 +160,7 @@ targets:
       protect: ["latest-dev"]
 
   # ── GHCR: stable releases ────────────────────────────────────────
-  - id: ghcr-stable
+  ghcr-stable:
     kind: registry
     registry: ghcr
     build: stagefreight
@@ -168,7 +168,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── GHCR: pre-releases (alpha/beta/rc) ───────────────────────────
-  - id: ghcr-prerelease
+  ghcr-prerelease:
     kind: registry
     registry: ghcr
     build: stagefreight
@@ -176,7 +176,7 @@ targets:
     when: { git_tags: [prerelease], events: [tag] }
 
   # ── GHCR: dev builds on every commit ─────────────────────────────
-  - id: ghcr-dev
+  ghcr-dev:
     kind: registry
     registry: ghcr
     build: stagefreight
@@ -187,7 +187,7 @@ targets:
       protect: ["latest-dev"]
 
   # ── Harbor: dev builds on every commit ──────────────────────────
-  - id: harbor-dev
+  harbor-dev:
     kind: registry
     registry: harbor
     build: stagefreight
@@ -200,7 +200,7 @@ targets:
   # govern itself end-to-end before merge. The test-* / latest-test-* tag
   # namespace IS the throwaway channel — images carry no release/prerelease flag
   # (that is a forge-release concept, not an image one).
-  - id: harbor-test
+  harbor-test:
     kind: registry
     registry: harbor
     build: stagefreight
@@ -211,7 +211,7 @@ targets:
       protect: ["latest-test-{branch}"]
 
   # ── Harbor: stable releases ─────────────────────────────────
-  - id: harbor-stable
+  harbor-stable:
     kind: registry
     registry: harbor
     build: stagefreight
@@ -219,7 +219,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── Docker Hub: README sync ──────────────────────────────────────
-  - id: dockerhub-readme
+  dockerhub-readme:
     kind: docker-readme
     registry: dockerhub
     when: { branches: [main], events: [push, tag] }
@@ -227,7 +227,7 @@ targets:
     description: "A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest"
 
   # ── Binary archives: linux amd64/arm64 + SHA256SUMS ──────────────
-  - id: stagefreight-binaries
+  stagefreight-binaries:
     kind: binary-archive
     build: stagefreight-bin
     name: "stagefreight-{version}-{os}-{arch}"
@@ -236,7 +236,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── Primary release (rolling git tag aliases + binaries) ─────────
-  - id: primary-release
+  primary-release:
     kind: release
     type: latest
     archives: stagefreight-binaries
@@ -244,7 +244,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── GitHub release (mirror) with binaries ────────────────────────
-  - id: github-release
+  github-release:
     kind: release
     type: latest
     mirror: github-mirror
@@ -253,7 +253,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── Dev binary archive: on every commit to main ──────────────────
-  - id: stagefreight-binaries-dev
+  stagefreight-binaries-dev:
     kind: binary-archive
     build: stagefreight-bin
     name: "stagefreight-{version}-{os}-{arch}"
@@ -265,7 +265,7 @@ targets:
   #    retained immutable dev-{sha8}, pruned like the docker dev images.
   #    Dogfoods the binary release-channel feature. (GitHub mirror dev
   #    projection deferred until mirror-side retention lands.)
-  - id: dev-release
+  dev-release:
     kind: release
     archives: stagefreight-binaries-dev
     tag: "dev-{sha:8}"
@@ -281,7 +281,7 @@ targets:
   # the mkdocs build that generates the site + the Cloudflare deploy run once per release
   # instead of on every main commit — no per-push churn or deploy-budget burn. Cloudflare
   # auto-wires DNS. Credentials: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID.
-  - id: docs
+  docs:
     kind: pages
     provider: cloudflare
     project: stagefreight
@@ -294,7 +294,7 @@ targets:
   # served at https://prplanit.github.io/StageFreight/. No custom domain — Cloudflare
   # owns stagefreight.prplanit.com. Requires GITHUB_TOKEN (contents:write) AND GitHub
   # Pages enabled on the repo with source = gh-pages branch.
-  - id: docs-github
+  docs-github:
     kind: pages
     provider: github
     project_id: "{var:github_org}/{var:github_repo}"
