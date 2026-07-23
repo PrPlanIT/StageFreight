@@ -28,9 +28,9 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitops"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
-	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -2132,7 +2132,7 @@ func governanceSourceConfigured(appCfg *config.Config, ciCtx *ci.CIContext) bool
 // the Config panel exclusively from those emissions, and enforces the contract.
 // Logs a warning if any emission was not rendered (hard fail in a future pass).
 func runConfigPhase(rootDir string) error {
-	_, report, _ := config.LoadWithReport(rootDir + "/.stagefreight.yml")
+	_, report, _, _ := config.LoadWithReport(rootDir + "/.stagefreight.yml")
 
 	col := trace.NewCollector()
 

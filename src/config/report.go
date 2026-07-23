@@ -82,8 +82,10 @@ func (l localPresetLoader) Load(path string) ([]byte, error) {
 }
 
 // LoadWithReport loads config and returns a ConfigReport with real provenance.
-// Calls LoadWithWarnings for config resolution, then ResolvePresets for section provenance.
-func LoadWithReport(path string) (*Config, ConfigReport, error) {
+// It also returns the raw per-value merge entries so callers that want per-value
+// provenance (e.g. `config resolve --verbose`) render from the SAME resolution —
+// no second resolve. Entries are nil for an absent/preset-free config.
+func LoadWithReport(path string) (*Config, ConfigReport, []MergeEntry, error) {
 	if path == "" {
 		path = defaultConfigFile
 	}
@@ -103,7 +105,7 @@ func LoadWithReport(path string) (*Config, ConfigReport, error) {
 		report.Status = "error"
 		report.Completeness = "partial"
 		report.Error = err.Error()
-		return nil, report, err
+		return nil, report, nil, err
 	}
 
 	for _, w := range warnings {
@@ -124,7 +126,7 @@ func LoadWithReport(path string) (*Config, ConfigReport, error) {
 	}
 
 	report.VarsApplied = len(cfg.Vars)
-	return cfg, report, nil
+	return cfg, report, entries, nil
 }
 
 func buildSectionsFromEntries(entries []MergeEntry, configPath string) ([]SectionState, []string, int) {

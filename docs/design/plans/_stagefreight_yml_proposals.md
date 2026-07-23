@@ -5,13 +5,24 @@ Working doc to iterate the config surface (starting with `narrate`) toward somet
 committed to the schema yet — it's a design scratchpad. The live `.stagefreight.yml` is
 the reference for "what must still be expressible."
 
+> ### 🧱 iterate in this order — SUBSTRATE first, then sections
+> The section *shapes* are stable enough to finalize one at a time — but a few things below **aren't sections**, they're the substrate every section leans on. Pin these first, or you'll re-derive them piecemeal in each section that touches them:
+> 1. **Preset resolution on the run/build path** — ✅ **FIXED** (`44bdc3b`): built `loadResolved` as the single construction path — it now resolves `preset:`/`presets:` before decode (reusing `ResolvePresets` + the reporter's `localPresetLoader`, so runtime resolves IDENTICALLY to the report — split-brain closed). `LoadWithReport` reuses `loadResolved`'s provenance entries; its resolve-and-discard is removed (one resolve site). Added a `preset_source` field so governed configs decode under `KnownFields(true)`; preset-free configs decode original bytes (no round-trip). Tests: resolve-on-run-path · local-override · preset_source · preset-free-unchanged. (Resolution is LOCAL committed cache; external is governance-distribution only — verified. Runtime pinned-external fallback = design-doc only, not built; a preset *catalogue* source + `config resolve --write` is the parked follow-up.)
+> 2. **The resolved / `plan` view** — creds *and* sync (📦) both defer their "see-the-whole-topology" story to it. The shared inspection surface multiple resolutions were sold on.
+> 3. **The declared-mutations / `manifest` bus** — `scribe.commit`, `dependency.commit`, and version bumps all rely on subsystems declaring what they touched (so a commit knows what to add, no fragile list). One record, many consumers.
+> 4. **Shared `required:` / failure policy** — spans `publish` + `sync`; explicitly NOT a per-section knob (default soft for a mirror, hard when it's a release destination).
+> 5. **Ordering-as-dependency (the reconciler)** — narrate, sync, and scribe all assume it (#39). The engine contract, not a config shape.
+>
+> **Not ready — park:** `narrate:` report (`SURFACE TBD`) · `publish: kind: package` (OPEN — the third distribution kind).
+> **Sequence:** substrate (1–5) → the self-contained sections in any order (git/versioning · builds · forges/repos/registries · signing · publish[registry/release/pages/metadata] · scribe · commit/tagging/glossary · test/dependency/lint/security · toolchains · build_cache) → the two open ones last.
+
 > ### ⚙️ Presets — ALREADY BUILT (reminder, don't redesign the mechanism)
 > Every top-level key is preset-able; this is implemented, not aspirational. Anchor to the code, not to guesses.
 > - **Shape (per-section, not whole-file):** `preset: <path>` on any section (a `preset` key inside the section map; local siblings override) · `presets: [<path>…]` for **ordered compose**, allowed only on keyed-collection sections (`targets`/`builds`/`badges.items`/`versioning.tag_sources`/`versioning.branch_builds`/`narrator`). A preset file declares **exactly one** top-level key, matching the section it imports into. `preset:`+`presets:` on one section = error. (`src/config/preset.go:35-42,449-503`)
 > - **Call-back (resolution):** `PresetLoader.Load(path)` — resolves from **local FS relative to the config** (satellites read the on-disk cache) **or remote git-clone of the policy repo by PINNED ref** (SSH/HTTPS; branch refs need `allow_floating`). Cycle + path-traversal guards. No HTTP-URL / forge-REST preset fetch. (`src/config/preset.go:12-14,50-247` · `src/governance/loader.go:22-154`)
 > - **Cache:** on-disk **git-committed** `.stagefreight/preset-cache/` in each satellite — governance distribution writes 1:1 copies; **runtime resolves from the committed cache** (reproducible, no live fetch at build time). `preset_source:` block carries forge coords + `cache_policy: authoritative`; refresh = governance re-run (per-file drift). `vars` presets are pre-resolved to concrete values, not cached as refs. (`src/governance/distributor.go:29-105,188-237` · `src/paths/paths.go:10`)
 > - **Merge:** `DeepMerge` — maps deep-merge recursively; **scalars & lists replaced** wholesale by override (override wins); `presets:` list = append/compose + **dedup by id**. Per-value provenance is recorded (`MergeEntry`: set/override/replace/merge/append) → this IS the resolved-view provenance we wanted. (`src/config/preset.go:518-543,22-31`)
-> - ⚠️ **NEEDS-CODE / verify:** the main runtime load `LoadWithWarnings` (`src/config/config.go:128-165`) does **not** call `ResolvePresets`; the documented `loadResolved` "resolve-before-decode" invariant (`docs/design/invariants.md:19-40`) has **no implementing symbol**. Resolution today runs only in `config resolve`, the provenance reporter, and governance distribution. Confirm presets actually resolve on the build/run path before treating preset-bearing sections as runnable.
+> - ✅ **FIXED (`44bdc3b`) — the run path now resolves presets.** Built the `loadResolved` chokepoint the invariant always promised: `LoadWithWarnings` → `loadResolved` does Unmarshal → `ResolvePresets` (same `localPresetLoader` the reporter uses) → decode the resolved map. `LoadWithReport` now consumes `loadResolved`'s provenance entries — the resolve-and-discard is gone, one resolve site. Added a `preset_source` field (governed configs decode under `KnownFields(true)`); preset-free configs decode original bytes verbatim. Runtime resolves IDENTICALLY to `config resolve` now — split-brain closed. (Still open, separately: restore `invariants.md §1`'s enforcement test `invariants_test.go`, which asserts no raw Config decode outside the chokepoint — the behavioral tests guard the fix; the structural ratchet is a nice-to-have.)
 
 > ### 💳 Creds — insight (a cred is a placeable *reference*, never a value)
 > A credential is **how you auth to a targetable featureset** — orthogonal to *what* you target (identity layer models featuresets, not vendors; the shared token is a `secrets:` atom two featuresets happen to point at). So a cred is a `credentials: <secret-name>` **reference**, placeable at **any scope** — global default → per-featureset (`forges`/`registries`) → per-target/per-repo — **nearest-wins**. The **value** always resolves through `secrets:` (env/sops/vault); never inline in config.
@@ -21,13 +32,32 @@ the reference for "what must still be expressible."
 > - **Bonus — token-topology map:** cred-ref + provenance = "show me every credential and every featureset/target it authorizes" falls out for free (a query over the resolved config; ties to the audit-log/event-substrate work). Answers the *management* pain, not just expression.
 > - **Signing stays explicit:** safety-critical creds (signing keys) are stated, not silently inherited from a broad default — consistent with presence-to-disable-must-be-explicit.
 
-> ### 🎭 narrate — RESOLVED (reconciler) + PROPOSED (split commit out; narrate = the run's story)
+> ### 🎭 narrate — RESOLVED (reconciler; split: scribe owns content/files/commit · narrate = the report) + OPEN (report surface)
 > **Resolution (ordering solved).** narrate is a **reconciler**, not a phase-at-time-T. Declare the input→render→target graph at load; **re-render a target whenever one of its inputs changes**, where inputs = **workspace files ∪ pipeline-state tokens** (`{env:BUILD_STATUS}`, `{docker.pulls}` are *state*, not files — watching state-as-input is what fixes the status badge). Transitive: a generated include (docsgen → `cli-reference.md` → README-include → docs-site) cascades downstream, make-style. Idempotent → converges to a fixpoint; acyclic (a cycle is a config error); **cheap** (watch only the graph's files + declared state-tokens; re-render only the affected subgraph). A build/action's **declared file-outputs** are the edges that pull non-narrate actions into the graph — and double as the preview-tree + audit line. Ordering dissolves into dependency; no manual order needed. (Tracked: #39.)
-> **Proposed reframe (under discussion).** Today's `narrate: { props, files, commit }` conflates **three** responsibilities: *scribe* (props+files — render content into workspace files via markers/regex; **keep as-is, it's the good part**), *flush* (the git commit — actually **generic**, not narrate-specific), and *report* (the run's story — barely present today). Split them:
-> - **flush → a terminal workspace-write** (after publish, "update primary-origin"): the definitive, trustworthy commit of *all* workspace mutations back to git, with full success-knowledge up to the write; may emit **classified** commits (docs `skip_ci` vs source). Its manifest lists which props embedded into which docs (from the declared-mutations record).
-> - **narrate → the run's report**: summary / notifications / alerts / HUD — **SF-templated or LLM-generated** (ollama / anthropic / openai) — "YAY we shipped" or "oh-shit, here's what broke" at a glance. Configurable. The **human layer over the event substrate** (#38); absorbs announcements (#35). narrate finally *means* narrate.
-> - **Why the flush is evicted (the load-bearing reason, not hygiene):** a reporter must not own any mutation that can *fail* — **a reporter that can fail can't be trusted to report failure.** The commit is the one fallible thing in narrate (rejected push, dirty tree, auth); leave it in and a bad push kills the reporter exactly when there's a failure to report. So narrate is made **mutation-free** — it mutates *nothing the run depends on* (no workspace, no repo, no run-state), only *outbound, fail-soft* effects (notifications/logs; a Slack outage never fails the run) — which makes it an **unkillable `finally`** that always runs. Everything fallible (scribe's writes, the flush) runs *before* it; narrate is pure *read → outbound report*. (Same property is why an LLM summary is safe here: post-commit, outbound, fail-soft.)
-> - Status badge = *scribe* (reflects outcome up to the flush); run notification = *narrate* (reflects the total, incl. the flush) — resolves the badge chicken-egg cleanly (a badge can't know the success of the commit it's inside).
+> **Resolved reframe (was: "split commit out").** Today's `narrate: { props, files, commit }` splits into **two** — and the split **killed the "flush" block**: the commit doesn't need its own home, it **belongs to the subsystem that made the change**, exactly like `dependency.commit`.
+> - **`scribe: { content, files, commit }`** — generate content into workspace files (markers/regex) **and commit it**. This *is* today's narrate, renamed (its dominant job is *writing generated content*, not narrating), with **`props → content`** (the pool is heterogeneous — things that *render*, like badges/contents, **and** things that *include*, like doc fragments — so neither "props" nor "stencils" fit; `content` covers both). It is the fallible one (writes + commits) — which is *why* it can't be narrate.
+> - **`narrate: { …report… }`** — the run's **report**: summary / notifications / alerts / HUD, **SF-templated or LLM** (ollama / anthropic / openai) — "YAY we shipped" / "here's what broke." The **human layer over the event substrate** (#38); absorbs announcements (#35). Mutation-free · outbound · fail-soft → the **unkillable `finally`** that always runs. narrate finally *means* narrate. (⚠️ the report's own **surface is OPEN** — the next design pass.)
+> - **Why the split (load-bearing):** a reporter must not own a mutation that can *fail* — **a reporter that can fail can't report failure.** The commit (rejected push, dirty tree, auth) is the fallible thing → it lives in **scribe**; narrate mutates *nothing the run depends on* (no workspace/repo/run-state), only *outbound fail-soft* effects (a Slack outage never fails the run). Everything fallible runs *before* narrate. (Same property makes an LLM summary safe here: post-commit, outbound, fail-soft.)
+> - **No `flush`/`writeback`/`persist` block.** The commit belongs to scribe (like `dependency.commit`, borrowing the shared top-level `commit:` vocab); a single atomic end-of-run *push* is a runtime batching concern, not a schema block. (The Baseline / Proposal A–C sections below predate the rename — they show `narrate.props`; resolved = `scribe.content`. Reasoning unchanged.)
+> - Status badge = *scribe* (outcome up to its commit); run notification = *narrate* (the total) — resolves the badge chicken-egg cleanly (a badge can't know the success of the commit it's inside).
+
+> ### 📦 distribute vs sync — RESOLVED (two verbs; `sync:` moves onto the repo) + OPEN (packages)
+> **The organizing question — "does this artifact *diverge per destination*?"** — sorts every outbound thing into two verbs, and retires the *top-level* `sync:` block (one verb pretending to be two — and the source of the release-projection 422: a `github-release` target's mirror POST racing `sync.releases`, fired *before* the git push put the tag/commit on the mirror). Diverges? → **distribute** (a target). Doesn't (git/release *state*)? → **sync** (a repo reconciler). The word `sync` survives — it moves from a top-level block onto the repo (`repos.<id>.sync`), scoped and one-directional.
+> - **Distribute = `publish:` target.** "Here's what I built/cut THIS run; put it at these destinations." Forward · event-driven (`when:`) · **authors content** · per-destination control. One fan-out shape per kind: `kind` + destination list + `when:`. **Divergence = split into two targets** (never a per-destination override bag) — same as `harbor-test` off `stable`. Registries fan across `registry: […]`; **releases fan across `repos: […]`** — which makes "author on primary" vanish: `repos: [github]` = release ONLY on the public forge (topology solved). `release:` (top block) stays the **narrative** (notes/render); `kind: release` is the **act** — the noun-block/kind-target split, as `commit:` vs `narrate.commit`.
+> - **Sync = `repos.<id>.sync`** — the replication verb; its **presence *is* the mirror relationship** (no `mirror` role, self-describing repo entry). Reconciled · idempotent · backfills · **no `when:`** (`current` self-gates on the event; `all`/`exact` reconcile regardless — a `when:` would break faithfulness). Two axes: **facet × scope.**
+>   - **facet** (*what*): `branches` · `tags` · `releases` (with `assets` a sub-option of releases). Extensible — a future `lfs`/`wiki` is just a new key.
+>   - **scope** (*how much*): `current` (the ref this push/tag/manual run addresses — incremental, never deletes) · `all` (everything published, **add-only**) · `exact` (published, **add + prune** to match).
+>   - **The scope scalars are PRESETS over the facet map** — that's what keeps 80% of configs to one word while staying consistent: `current → {scope: current}` · `all → {scope: all}` · `exact → {scope: all, prune: true}`. Whole-hog: `sync: current|all|exact`. Per-facet: `sync: { branches: current, tags: all, releases: exact }`. **Omit a facet = don't sync it.**
+>   - **Options live in the facet map** (peers, not scope words): `prune` · `drafts` · `only: [<tag-source>]` · `match: <glob>` · `assets: true|false|link` (releases) · later `last`/`since`/`lfs`. `exact`'s preset flips `prune`; **`drafts` is never auto-included** (surfacing unpublished state is always deliberate — a preset must not leak it). So `{scope: all, prune: true, drafts: true}` = literally identical, warts and all; `{scope: all, drafts: true}` = add-only but carry drafts.
+>   - **`releases: <scope>` pulls in those releases' tags** (a release wraps a tag — the dependency); add `tags:` for *all* tags, not just release ones.
+> - **Releases are sync XOR a `publish` target destination** for a given repo — copy it there (`sync`) OR author it there (`kind: release`, `repos:[…]`), never both. Both = the old double-projection, now a **config-time warning**, not a runtime 422.
+> - **Ordering is dependency, not a phase slot.** A release on repo X depends on the tag being on X; the engine sequences git-push-to-X → release-on-X per repo (narrate's "ordering dissolves into dependency"). A release destination whose refs never sync = a load-time config error. This is what *structurally* retires the bug.
+> - **Assets — bytes once → provider-abstracted delivery → sync re-materializes.** A `binary-archive` build makes the bytes once (+ `checksums:`/`sign:` sidecars). The release states WHAT (`archives:`); the **forge provider owns HOW** — github → native assets · gitlab → generic **package-registry + release link** · gitea/forgejo → attachments. `delivery: native` default; `{ link: <url> }` to host externally (per-forge = split). On **sync**, assets **re-materialize through the *target's* native method** (`releases.assets`) — a GitLab-package-registry binary synced to GitHub becomes a GitHub asset **upload**, not a copied link. Capability-degrade, never error (GitHub draft vs GitLab → skip-and-warn).
+> - **Shared / invariant tier (keeps `sync` from sprawling):** failure policy is **not** a sync knob — a `required:`/`allow_failure` **shared** by every distribution/sync op (default soft for a mirror, hard when the repo is also a release destination). Stated invariants, zero config: sync is **one-directional** (`primary → mirror`, never back) · **source = `roles:[primary]`** · **out-of-scope** = repo metadata (a `kind: metadata` target + `publish-origin` source) and issues/PRs/wiki (different tool, excluded).
+> - **Placement = per-repo (`repos.<id>.sync`), decided head-to-head, not by drift.** Per-repo wins the integrity tests (repo entries **self-describe**; refactor is **atomic** — delete the repo, its sync goes too; **no dangling** repo-id refs). It loses only *one-glance topology scannability* to a top-level `sync:` keyed by repo-id — and that is **recovered by the resolved/`plan` view** (a replication-topology table), exactly the **creds precedent** (author cred refs local at any scope; the token-topology map "falls out of the resolved config"). Choosing a top-level block for scannability would contradict that pattern. **The verb-asymmetry (publish top-level, sync per-repo) is *honest*** — distribute fans artifacts, sync is a repo relationship; forcing matching top-level blocks would be symmetry papering over a real structural difference. (Parked alt: a top-level `sync:` keyed by repo-id *only* if replication becomes a **centrally-governed** policy across dozens of repos, where one block is the natural preset/enforcement target.)
+> - **Retired:** the *top-level* `sync:` block (replication half → `repos.<id>.sync`; distribution half → `publish` targets), `sync_release`, `mirror:` on a target, "author on primary". Capability 100% preserved.
+> - **Three tiers keep it reasonable, not sprawling:** *facet grammar* (`branches`/`tags`/`releases` × `current`/`all`/`exact`) always, 1–3 lines · *facet-map graduation* (`prune`/`drafts`/`only`/`match`/`assets`/…) only when reached for · *shared/invariant* (`required`, direction/source/out-of-scope) not on `sync` at all.
+> - **OPEN — package registries are a THIRD distribution kind** (`kind: package` fanning npm/pypi/crates/apt/homebrew/generic), distinct from image-registries and release-assets but **intersecting release-asset delivery at the generic package registry** (GitLab release links route *through* it): "publish the binary as a package" and "attach it to the release" are the same bytes two ways — own pass. (Also open: `delivery`/`link` naming.)
 
 ## Goal / constraints
 
@@ -279,8 +309,8 @@ version: 1
 lifecycle: image                         # root mode selector: image | gitops | governance | docker (experimental)
 # This config is the IMAGE mode. Structure = SHARED clusters (present in every mode) + ONE mode-specific pipeline:
 #   shared:        ci · vars · git · forges/repos/registries/signing · commit/tagging/release/glossary · narrate · lint/test/security/dependency · toolchains · manifest · defaults
-#   mode-specific: image → builds + publish + sync    ·    gitops → gitops:    ·    governance → governance:    ·    docker → docker: (experimental)
-#   (a gitops config, e.g. SoFMeRight/dungeon, drops builds/publish/sync and carries gitops: instead — same shared clusters)
+#   mode-specific: image → builds + publish (sync reconcile folds in — verb 2)   ·   gitops → gitops:   ·   governance → governance:   ·   docker → docker: (experimental)
+#   (a gitops config, e.g. SoFMeRight/dungeon, drops builds/publish and carries gitops: instead — same shared clusters)
 # description + license auto-detected — license ← LICENSE file ({project.license}), description ← publish-origin repo. Declare at root only to override.
 
 ci:                                      # runner block — image + routing (cohesive; image un-hoisted from root)
@@ -353,7 +383,9 @@ repos:
   github-mirror:
     forge: github
     project: "{var:github_org}/{var:github_repo}"
-    roles: [mirror, publish-origin]
+    roles: [publish-origin]                       # canonical public repo (metadata/description source)
+    sync: exact                                   # verb 2 — faithful mirror (= {scope: all, prune: true}); facet×scope, see 📦
+    # sync: { branches: current, tags: all, releases: all }   # ← shaped alt: active branch + all tags/releases
 
 registries:
   dockerhub: { provider: docker, url: docker.io,   credentials: DOCKER, default_path: "{var:org}/{var:repo}" }
@@ -368,8 +400,8 @@ signing:                                 # signing subsystem — operational swi
     release:  { requires: keyless,  transparency_log: true }
     hardware: { requires: hardware, physical_presence: true, non_exportable: true }
 
-sync:                                    # replication — what each identity keeps mirrored (scannable, keyed by id)
-  github-mirror: { git: true, releases: true }   # repo → content mirror from primary
+# top-level sync: block RETIRED (see 📦) → replication moved onto repos.<id>.sync (facet × scope);
+# a release reaches a mirror via that repo's sync OR a publish kind:release target (authored) — XOR, not both.
 
 publish:                                 # was `targets:` — distribute artifacts to their destination
   # ── registry channels: one target per channel, fanned across registries (registry: takes a list) ──
@@ -404,15 +436,18 @@ publish:                                 # was `targets:` — distribute artifac
     when:                                  # fires on EITHER trigger — needs when: to accept a list of condition-sets (OR)
       - { git_tags: [stable], events: [tag] }   # feeds primary-release
       - { branches: [main], events: [push] }    # feeds dev-release
-  primary-release:                         # authored on primary; the github mirror receives it via repos.github-mirror.sync.releases (+ its binaries) — sync is a repo verb, no per-mirror target, no sync_release flag
-    kind: release
+  primary-release:                         # github receives it via repos.github-mirror.sync (faithful, verb 2) — see 📦.
+    kind: release                          #   repos: names DIRECT destinations; add github for a divergent authored release instead of mirroring.
     type: latest
+    repos: [primary]
     archives: stagefreight-binaries
+    delivery: native                       # github→assets · gitlab→package-registry+link · override: { link: <url> } · mirror re-materializes natively
     aliases: ["v{version}", "latest"]
     when: { git_tags: [stable], events: [tag] }
   dev-release:
     kind: release
     type: prerelease
+    repos: [primary]
     archives: stagefreight-binaries               # the same one recipe as primary-release
     tag: "dev-{sha:8}"
     aliases: ["latest-dev"]
@@ -433,8 +468,8 @@ publish:                                 # was `targets:` — distribute artifac
     build: docs-site
     when: { git_tags: [stable], events: [tag] }
 
-narrate:                                 # renders props into files, then commits (terminal phase). NOTE: ideal render→consumer ordering (docs-site/readme/pages read narrate's files; the build-status badge needs the FINAL outcome; a private CI can't be a live badge) is a RUNTIME data-availability problem — early build-time wave vs late status wave — TBD in the engine, NOT a schema-shape concern.
-  # ── props: TWO orthogonal axes — SOURCE (the data, `type:`) × RENDER (the form, `render:`). Placement stays in files:. ──
+scribe:                                  # generate content into files + commit it (was narrate; props→content). NOTE: ideal render→consumer ordering (docs-site/readme/pages read scribe's files; the build-status badge needs the FINAL outcome; a private CI can't be a live badge) is a RUNTIME data-availability problem — early build-time wave vs late status wave — TBD in the engine, NOT a schema-shape concern.
+  # ── content: TWO orthogonal axes — SOURCE (the data, `type:`) × RENDER (the form, `render:`). Placement stays in files:. ──
   #    SOURCE = `type:` names the producer; OMIT it for inline (you compose the verbs below). No provider:/topic:/host.
   #      inline · goreportcard · go-reference · github-last-commit · github-issues-open · github-* · contents · include · text · component · k8s-inventory · star-history
   #    RENDER = `render:` names the form: badge (DEFAULT) · shield · image · table · list · kv · versions · raw   (later: markdown · html · json)
@@ -445,7 +480,7 @@ narrate:                                 # renders props into files, then commit
   #  label: defaults to the prop's KEY when omitted (build → "build"). State it to differ (github → "GitHub"), to
   #    reuse a display label across uniquely-keyed props (release-updated & dev-updated both "updated"), or when the
   #    text would break YAML / force a duplicate key. Both forms are accepted; examples below always encode explicit.
-  props:
+  content:
     # ── inline source → render: badge (the DEFAULT — SF resolves {vars}, draws the SVG locally) ──
     build:            { label: build,      message: "{env:BUILD_STATUS}",           color: auto,      font: monofur,                 link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines" }
     license:          { label: license,    message: "{project.license}",            color: "#310937", font: monofur,                 link: LICENSE }
@@ -525,12 +560,19 @@ narrate:                                 # renders props into files, then commit
       mode: replace
       items: [config-reference]
 
-  commit:                                # narrate's OWN terminal persist (like dependency.commit) — gated all-green, runs AFTER the render's consumers
+  commit:                                # scribe's OWN commit (like dependency.commit) — borrows the top-level commit: vocab; gated all-green
     type: docs
     message: "refresh generated docs and badges"
     add: ["README.md", "docs/assets/modules", "docs/reference", ".stagefreight/badges"]
     push: true
     skip_ci: true
+
+narrate:                                 # the run's REPORT — mutation-free, outbound, fail-soft → the unkillable `finally` (always runs).
+  # ⚠️ SURFACE TBD — the split is resolved (report is NOT scribe/commit), but the report's own shape is the next design pass.
+  summary:                               # SF-templated or LLM (ollama|anthropic|openai) — "we shipped" / "here's what broke"
+    style: concise
+  notify:                                # outbound only — a Slack/ntfy outage never fails the run
+    - { channel: ntfy, topic: "{var:repo}-ci" }
 
 build_cache:
   mode: hybrid
