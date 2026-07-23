@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // SectionState is the resolved state of one config domain section.
@@ -16,7 +14,7 @@ import (
 // no provenance because they do not exist in the runtime model.
 type SectionState struct {
 	Name             string `json:"name"`
-	Kind             string `json:"kind"`              // "execution" | "capability" | "structural"
+	Kind             string `json:"kind"` // "execution" | "capability" | "structural"
 	Active           bool   `json:"active"`
 	SourcePresent    bool   `json:"source_present"`
 	Provenance       string `json:"provenance"`        // "manifest" | "preset" | "none"
@@ -97,7 +95,10 @@ func LoadWithReport(path string) (*Config, ConfigReport, error) {
 		Completeness: "complete",
 	}
 
-	cfg, warnings, err := LoadWithWarnings(path)
+	// loadResolved resolves presets ONCE and returns the provenance entries — the
+	// report reuses them here instead of resolving a second time (the resolve-and-
+	// discard that used to live in this function is gone; there's one resolve site).
+	cfg, warnings, entries, err := loadResolved(path)
 	if err != nil {
 		report.Status = "error"
 		report.Completeness = "partial"
@@ -113,25 +114,12 @@ func LoadWithReport(path string) (*Config, ConfigReport, error) {
 	}
 	report.Warnings = warnings
 
-	data, readErr := os.ReadFile(path)
-	if readErr != nil {
-		// Config file absent — all sections inactive.
-		report.Sections = buildSectionsFromMap(nil)
-		return cfg, report, nil
-	}
-
-	var rawMap map[string]any
-	if yamlErr := yaml.Unmarshal(data, &rawMap); yamlErr == nil {
-		loader := localPresetLoader{baseDir: filepath.Dir(absPath)}
-		_, entries, resolveErr := ResolvePresets(rawMap, loader, "local", absPath, 0, nil)
-		if resolveErr == nil {
-			report.Sections, report.Presets, report.Overrides = buildSectionsFromEntries(entries, absPath)
-		} else {
-			report.Status = "partial"
-			report.Completeness = "partial"
-			report.Sections = buildSectionsFromMap(sourceMapFromKeys(parseToplevelKeys(data)))
-		}
+	if entries != nil {
+		report.Sections, report.Presets, report.Overrides = buildSectionsFromEntries(entries, absPath)
 	} else {
+		// Absent file, or a resolver hiccup on a preset-free config: no provenance
+		// entries — derive sections from the raw top-level keys instead.
+		data, _ := os.ReadFile(path)
 		report.Sections = buildSectionsFromMap(sourceMapFromKeys(parseToplevelKeys(data)))
 	}
 
