@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/release"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -118,7 +118,7 @@ func runTag(cmd *cobra.Command, args []string) error {
 
 	// Collect tag patterns from versioning tag sources
 	var tagPatterns []string
-	for _, ts := range cfg.Versioning.TagSources {
+	for _, ts := range cfg.Git.Tags {
 		tagPatterns = append(tagPatterns, ts.Pattern)
 	}
 
@@ -140,7 +140,7 @@ func runTag(cmd *cobra.Command, args []string) error {
 		MessageOverride: tagMessage,
 		TagPatterns:     tagPatterns,
 		Glossary:        cfg.Glossary,
-		Presentation:    cfg.Presentation.Tag,
+		Presentation:    cfg.Tag.Render,
 	})
 	if err != nil {
 		return err
@@ -297,7 +297,7 @@ type versionSelection struct {
 func interactiveVersionSelect(repoDir string) (*versionSelection, error) {
 	// Find previous tag for context
 	var tagPatterns []string
-	for _, ts := range cfg.Versioning.TagSources {
+	for _, ts := range cfg.Git.Tags {
 		tagPatterns = append(tagPatterns, ts.Pattern)
 	}
 	prev, _ := release.PreviousReleaseTag(repoDir, "HEAD", tagPatterns)

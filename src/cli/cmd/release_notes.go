@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/release"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -49,7 +49,7 @@ func runReleaseNotes(cmd *cobra.Command, args []string) error {
 
 	// Collect release tag patterns from versioning tag sources
 	var tagPatterns []string
-	for _, ts := range cfg.Versioning.TagSources {
+	for _, ts := range cfg.Git.Tags {
 		tagPatterns = append(tagPatterns, ts.Pattern)
 	}
 

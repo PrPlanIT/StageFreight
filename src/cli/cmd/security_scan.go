@@ -458,7 +458,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	unreachablePolicy := req.Config.Security.UnreachablePolicy()
 
 	// Resolve detail level from rules (CLI override > tag/branch rules > default)
-	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail, req.Config.Matchers)
+	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail)
 
 	// Build and write summary
 	_, summaryBody := security.BuildSummary(result, detail)

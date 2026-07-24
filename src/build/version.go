@@ -41,18 +41,18 @@ func versioningOptsFromConfig(cfg *config.Config) (*gitver.VersioningOpts, error
 	}
 
 	opts := &gitver.VersioningOpts{
-		NoLineageMode:    cfg.Versioning.NoLineage.Mode,
-		NoLineageVersion: cfg.Versioning.NoLineage.Version,
+		NoLineageMode:    cfg.Git.Versioning.NoLineage.Mode,
+		NoLineageVersion: cfg.Git.Versioning.NoLineage.Version,
 	}
 
-	for _, ts := range cfg.Versioning.TagSources {
+	for _, ts := range cfg.Git.Tags {
 		opts.TagSources = append(opts.TagSources, gitver.TagSource{
 			ID:      ts.ID,
 			Pattern: ts.Pattern,
 		})
 	}
 
-	for _, bb := range cfg.Versioning.BranchBuilds {
+	for _, bb := range cfg.Git.Versioning.BranchBuilds {
 		rule := gitver.BranchRule{
 			ID:          bb.ID,
 			IsDefault:   bb.ID == "default",
@@ -63,7 +63,7 @@ func versioningOptsFromConfig(cfg *config.Config) (*gitver.VersioningOpts, error
 			// Fail closed: do not silently accept an empty regex if the
 			// matcher reference is unknown. Validation should already have
 			// caught this, but double-enforce here — defense in depth.
-			pattern, ok := cfg.Matchers.Branches[bb.Match]
+			pattern, ok := cfg.Git.Branches[bb.Match]
 			if !ok {
 				return nil, fmt.Errorf(
 					"versioning: branch_build %q references unknown matcher %q",

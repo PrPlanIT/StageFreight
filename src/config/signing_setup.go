@@ -26,14 +26,6 @@ type SigningConfig struct {
 	Profiles      OrderedSigningProfiles `yaml:"profiles,omitempty"`       // id→profile map (was the top-level signing_profiles: list)
 }
 
-// normalizeSigning folds signing.profiles (the merged, map form) into the internal
-// Signing list every consumer reads. Runs before validation.
-func (c *Config) normalizeSigning() {
-	if len(c.SigningSetup.Profiles) > 0 {
-		c.Signing = []SigningProfile(c.SigningSetup.Profiles)
-	}
-}
-
 // StateDir locates the durable, operator-chosen home for persistent signing
 // material — outside the build tree so it is never cleared, committed, or baked.
 type StateDir struct {

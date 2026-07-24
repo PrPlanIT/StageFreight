@@ -23,8 +23,8 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// ── Versioning ───────────────────────────────────────────────────────
 
 	// tag_sources: unique ids, non-empty patterns, valid identifiers.
-	tagSourceIDs := make(map[string]bool, len(cfg.Versioning.TagSources))
-	for i, ts := range cfg.Versioning.TagSources {
+	tagSourceIDs := make(map[string]bool, len(cfg.Git.Tags))
+	for i, ts := range cfg.Git.Tags {
 		tspath := fmt.Sprintf("versioning.tag_sources[%d]", i)
 		if ts.ID == "" {
 			errs = append(errs, fmt.Sprintf("%s: id is required", tspath))
@@ -52,10 +52,10 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// - base_from non-empty, every id exists in tag_sources, no duplicates inside
 	// - format non-empty
 	// - two non-default entries must not share the same match
-	branchBuildIDs := make(map[string]bool, len(cfg.Versioning.BranchBuilds))
+	branchBuildIDs := make(map[string]bool, len(cfg.Git.Versioning.BranchBuilds))
 	matchToRuleID := make(map[string]string) // match → branch_build id (for duplicate detection)
 	hasDefault := false
-	for i, bb := range cfg.Versioning.BranchBuilds {
+	for i, bb := range cfg.Git.Versioning.BranchBuilds {
 		bbpath := fmt.Sprintf("versioning.branch_builds[%d]", i)
 		if bb.ID == "" {
 			errs = append(errs, fmt.Sprintf("%s: id is required", bbpath))
@@ -74,7 +74,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		} else {
 			if bb.Match == "" {
 				errs = append(errs, fmt.Sprintf("%s: match is required for non-default entries", bbpath))
-			} else if _, ok := cfg.Matchers.Branches[bb.Match]; !ok {
+			} else if _, ok := cfg.Git.Branches[bb.Match]; !ok {
 				errs = append(errs, fmt.Sprintf("%s: match %q not found in matchers.branches", bbpath, bb.Match))
 			} else {
 				// duplicate-match detection: two non-default rules must not share the same match
@@ -109,27 +109,27 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// default is a NAMED catch-all (id "default"), order-free — the engine
 	// (selectBranchRule) falls back to it regardless of position, so there is no
 	// default-must-be-last requirement.
-	if len(cfg.Versioning.BranchBuilds) > 0 && !hasDefault {
+	if len(cfg.Git.Versioning.BranchBuilds) > 0 && !hasDefault {
 		errs = append(errs, "versioning.branch_builds: an entry with id 'default' is required (catch-all for unmatched branches)")
 	}
 
-	switch cfg.Versioning.NoLineage.Mode {
+	switch cfg.Git.Versioning.NoLineage.Mode {
 	case "", "error":
 		// valid
 	case "explicit":
-		v := cfg.Versioning.NoLineage.Version
+		v := cfg.Git.Versioning.NoLineage.Version
 		if v == "" {
 			errs = append(errs, "versioning.no_lineage: mode explicit requires version template")
 		} else if !strings.Contains(v, "{sha}") && !strings.Contains(v, "{time}") {
 			errs = append(errs, "versioning.no_lineage: version must contain {sha} or {time} (hardcoded versions are dishonest)")
 		}
 	default:
-		errs = append(errs, fmt.Sprintf("versioning.no_lineage: unknown mode %q (expected error or explicit)", cfg.Versioning.NoLineage.Mode))
+		errs = append(errs, fmt.Sprintf("versioning.no_lineage: unknown mode %q (expected error or explicit)", cfg.Git.Versioning.NoLineage.Mode))
 	}
 
 	// ── Matchers ────────────────────────────────────────────────────────
 
-	for name, pattern := range cfg.Matchers.Branches {
+	for name, pattern := range cfg.Git.Branches {
 		if !isIdentifier(name) {
 			errs = append(errs, fmt.Sprintf("matchers.branches: key %q is not a valid identifier (must match [a-zA-Z][a-zA-Z0-9_.\\-]*)", name))
 		}
@@ -318,11 +318,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 
 		// Kind-specific validation
-		terrs := validateTarget(t, tpath, buildIDs, cfg.Matchers, cfg.Registries)
+		terrs := validateTarget(t, tpath, buildIDs, cfg.Registries)
 		errs = append(errs, terrs...)
 
 		// When block validation
-		werrs := validateWhen(t.When, tpath, cfg.Versioning, cfg.Matchers)
+		werrs := validateWhen(t.When, tpath, cfg.Git.Tags, cfg.Git.Branches)
 		errs = append(errs, werrs...)
 	}
 
@@ -542,8 +542,8 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	}
 
 	// ── Signing trust profiles (policy-level; the single validation layer) ──
-	errs = append(errs, ValidateSigningProfiles(cfg.Signing)...)
-	errs = append(errs, ValidateTargetSigningProfileRefs(cfg.Targets, cfg.Signing)...)
+	errs = append(errs, ValidateSigningProfiles(cfg.SigningSetup.Profiles)...)
+	errs = append(errs, ValidateTargetSigningProfileRefs(cfg.Targets, cfg.SigningSetup.Profiles)...)
 	errs = append(errs, ValidateSigningConfig(cfg.SigningSetup)...)
 
 	// ── Unused matcher warning (high signal, low cost) ──────────────────
@@ -551,9 +551,9 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// Cross-check declared branch matchers against references. If a matcher
 	// is defined but unused, it's almost always a typo or leftover cruft.
 	// Warn, don't block — just diagnostic.
-	if len(cfg.Matchers.Branches) > 0 {
+	if len(cfg.Git.Branches) > 0 {
 		referenced := make(map[string]bool)
-		for _, bb := range cfg.Versioning.BranchBuilds {
+		for _, bb := range cfg.Git.Versioning.BranchBuilds {
 			if bb.Match != "" {
 				referenced[bb.Match] = true
 			}
@@ -567,7 +567,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				}
 			}
 		}
-		for name := range cfg.Matchers.Branches {
+		for name := range cfg.Git.Branches {
 			if !referenced[name] {
 				warnings = append(warnings, fmt.Sprintf(
 					"matcher %q is defined but not referenced by any branch_build or target.when.branches",
@@ -651,7 +651,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 var cfPagesProjectRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$`)
 
 // validateTarget checks kind-specific field constraints on a target.
-func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, matchers MatchersConfig, registries []RegistryConfig) []string {
+func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, registries []RegistryConfig) []string {
 	var errs []string
 
 	switch t.Kind {
@@ -822,12 +822,12 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, match
 }
 
 // validateWhen checks the when block for valid pattern references and events.
-func validateWhen(conditions WhenConditions, path string, versioning VersioningConfig, matchers MatchersConfig) []string {
+func validateWhen(conditions WhenConditions, path string, tagSources []TagSourceConfig, branches map[string]string) []string {
 	var errs []string
 
 	// Build tag source id set for when.git_tags reference validation.
-	tagSourceIDs := make(map[string]bool, len(versioning.TagSources))
-	for _, ts := range versioning.TagSources {
+	tagSourceIDs := make(map[string]bool, len(tagSources))
+	for _, ts := range tagSources {
 		tagSourceIDs[ts.ID] = true
 	}
 
@@ -851,8 +851,8 @@ func validateWhen(conditions WhenConditions, path string, versioning VersioningC
 			if !isIdentifier(entry) {
 				continue
 			}
-			if _, ok := matchers.Branches[entry]; !ok {
-				errs = append(errs, fmt.Sprintf("%s.when.branches: unknown matcher %q (not in matchers.branches)", path, entry))
+			if _, ok := branches[entry]; !ok {
+				errs = append(errs, fmt.Sprintf("%s.when.branches: unknown matcher %q (not in git.branches)", path, entry))
 			}
 		}
 

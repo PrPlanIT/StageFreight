@@ -131,11 +131,11 @@ func TargetMatches(t TargetConfig, event, branch, tag, forge string, tagPolicies
 // TargetMatchesEnv evaluates TargetMatches against the current CI environment,
 // resolving policy maps from cfg. Convenience for contributors that gate on when:.
 func TargetMatchesEnv(t TargetConfig, cfg *Config) bool {
-	tagPolicies := make(map[string]string, len(cfg.Versioning.TagSources))
-	for _, ts := range cfg.Versioning.TagSources {
+	tagPolicies := make(map[string]string, len(cfg.Git.Tags))
+	for _, ts := range cfg.Git.Tags {
 		tagPolicies[ts.ID] = ts.Pattern
 	}
-	return TargetMatches(t, CIEvent(), CIBranch(), CITag(), CIProvider(), tagPolicies, cfg.Matchers.Branches)
+	return TargetMatches(t, CIEvent(), CIBranch(), CITag(), CIProvider(), tagPolicies, cfg.Git.Branches)
 }
 
 // TargetIsUnconditional reports whether a target declares no when: constraints at

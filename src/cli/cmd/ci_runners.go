@@ -76,7 +76,7 @@ func resolveWorkspace(ciCtx *ci.CIContext) string {
 // Binary builds execute before docker builds to satisfy depends_on ordering.
 func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	// Policy gate: skip non-release tags (e.g., rolling "latest" tag)
-	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Versioning) {
+	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Git.Tags) {
 		fmt.Printf("  build: skipping — tag %q does not match any release tag source\n", ciCtx.Tag)
 		return nil
 	}
@@ -635,7 +635,7 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	}
 
 	// Policy gate: skip non-release tags
-	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Versioning) {
+	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Git.Tags) {
 		fmt.Printf("  security: skipping — tag %q does not match any release tag source\n", ciCtx.Tag)
 		recordSecurity("not_applicable", "tag does not match any release tag source")
 		return nil
@@ -750,7 +750,7 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 // ── docs runner ──────────────────────────────────────────────────────────────
 func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	// Policy gate: skip non-release tags
-	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Versioning) {
+	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Git.Tags) {
 		fmt.Printf("  docs: skipping — tag %q does not match any release tag source\n", ciCtx.Tag)
 		return nil
 	}
@@ -1098,7 +1098,7 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 	//
 	// If you find yourself thinking "I can share this map with gitver", stop
 	// and re-read the INVARIANT comment at the top of gitver.DetectVersionWithOpts.
-	tagPatternMap := tagPatternLookupForConditionsOnly(appCfg.Versioning.TagSources)
+	tagPatternMap := tagPatternLookupForConditionsOnly(appCfg.Git.Tags)
 
 	hasConstraints := false
 	for _, t := range releaseTargets {
@@ -1106,7 +1106,7 @@ func releaseTagMatchesAnyTarget(appCfg *config.Config, tag string) bool {
 			continue
 		}
 		hasConstraints = true
-		if targetWhenMatches(t, tag, tagPatternMap, appCfg.Matchers.Branches) {
+		if targetWhenMatches(t, tag, tagPatternMap, appCfg.Git.Branches) {
 			return true
 		}
 	}
@@ -1180,11 +1180,11 @@ func tagPatternLookupForConditionsOnly(sources []config.TagSourceConfig) map[str
 	return m
 }
 
-func tagMatchesReleasePolicy(tag string, versioning config.VersioningConfig) bool {
-	if len(versioning.TagSources) == 0 {
+func tagMatchesReleasePolicy(tag string, tagSources []config.TagSourceConfig) bool {
+	if len(tagSources) == 0 {
 		return true // no tag sources = all tags are eligible
 	}
-	for _, ts := range versioning.TagSources {
+	for _, ts := range tagSources {
 		if config.MatchPatterns([]string{ts.Pattern}, tag) {
 			return true
 		}

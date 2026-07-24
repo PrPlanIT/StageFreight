@@ -44,26 +44,17 @@ type Config struct {
 	// Registries declares OCI registry hosts as an id→registry map.
 	Registries OrderedRegistries `yaml:"registries,omitempty"`
 
-	// Signing declares named trust profiles (generic primitives). Referenced
-	// per-target by signing_profile: <id>. "Releases require hardware" is project
-	// policy (the target's selection), never encoded in the framework.
-	// Populated from signing.profiles (not decoded directly).
-	Signing      []SigningProfile `yaml:"-"`
-	SigningSetup SigningConfig    `yaml:"signing,omitempty"`
+	// SigningSetup is the signing block. Its Profiles field holds the named trust
+	// profiles (generic primitives), referenced per-target by signing_profile: <id>.
+	// "Releases require hardware" is project policy (the target's selection), never
+	// encoded in the framework.
+	SigningSetup SigningConfig `yaml:"signing,omitempty"`
 
-	// Git is the git: cluster — named branch/tag patterns + versioning rules.
-	// Folded into Matchers/Versioning by normalizeGit at load.
+	// Git is the git: cluster and the single source for ref interpretation: named
+	// branch patterns (git.branches), tag patterns (git.tags), and versioning rules
+	// (git.versioning). Consumers read cfg.Git.Branches / cfg.Git.Tags /
+	// cfg.Git.Versioning.{BranchBuilds,NoLineage} directly — no translation layer.
 	Git GitConfig `yaml:"git,omitempty"`
-
-	// Versioning controls how version identity is derived from git state.
-	// Populated from git.tags + git.versioning (not decoded directly).
-	Versioning VersioningConfig `yaml:"-"`
-
-	// Populated from git.branches (not decoded directly).
-	// Matchers defines reusable named patterns for branches (and future
-	// dimensions). Pattern definitions only — no behavior. Referenced by
-	// branch_builds[].match and target.when.branches.
-	Matchers MatchersConfig `yaml:"-"`
 
 	// Builds defines named build artifacts as an id→build map.
 	Builds OrderedBuilds `yaml:"builds"`
@@ -120,10 +111,6 @@ type Config struct {
 	// Glossary defines the repo's shared change-language model.
 	// Consumed by commit authoring, tag planning, and release rendering.
 	Glossary GlossaryConfig `yaml:"glossary"`
-
-	// Presentation defines surface-specific rendering policies. Populated from
-	// commit.render / tagging.render / release.render (not decoded directly).
-	Presentation PresentationConfig `yaml:"-"`
 
 	// Tag holds workflow defaults for the tag planner.
 	Tag TagConfig `yaml:"tagging"`
@@ -228,12 +215,6 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		return nil, nil, entries, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
-	// Fold the reshaped sections (git: cluster, signing.profiles) into the internal
-	// reps before validation reads them.
-	cfg.normalizeGit()
-	cfg.normalizeSigning()
-	cfg.normalizePresentation()
-
 	warnings, verr := Validate(cfg)
 	if verr != nil {
 		return nil, warnings, entries, fmt.Errorf("validating %s: %w", path, verr)
@@ -287,22 +268,19 @@ func mapHasPresetKey(v any) bool {
 
 func defaults() *Config {
 	return &Config{
-		Version:      1,
-		Vars:         map[string]string{},
-		Versioning:   DefaultVersioningConfig(),
-		Matchers:     DefaultMatchersConfig(),
-		Lint:         DefaultLintConfig(),
-		Security:     DefaultSecurityConfig(),
-		Commit:       DefaultCommitConfig(),
-		Dependency:   DefaultDependencyConfig(),
-		Test:         DefaultTestConfig(),
-		Manifest:     DefaultManifestConfig(),
-		Release:      DefaultReleaseConfig(),
-		GitOps:       DefaultGitOpsConfig(),
-		BuildCache:   DefaultBuildCacheConfig(),
-		Docker:       DefaultDockerLifecycleConfig(),
-		Glossary:     DefaultGlossaryConfig(),
-		Presentation: DefaultPresentationConfig(),
-		Tag:          DefaultTagConfig(),
+		Version:    1,
+		Vars:       map[string]string{},
+		Lint:       DefaultLintConfig(),
+		Security:   DefaultSecurityConfig(),
+		Commit:     DefaultCommitConfig(),
+		Dependency: DefaultDependencyConfig(),
+		Test:       DefaultTestConfig(),
+		Manifest:   DefaultManifestConfig(),
+		Release:    DefaultReleaseConfig(),
+		GitOps:     DefaultGitOpsConfig(),
+		BuildCache: DefaultBuildCacheConfig(),
+		Docker:     DefaultDockerLifecycleConfig(),
+		Glossary:   DefaultGlossaryConfig(),
+		Tag:        DefaultTagConfig(),
 	}
 }

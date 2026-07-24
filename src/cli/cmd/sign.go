@@ -50,7 +50,7 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 			return fmt.Errorf("--profile is required (the trust profile to sign under)")
 		}
 		// cfg is loaded by the root PersistentPreRunE from the global --config flag.
-		profile, err := config.ResolveSigningProfileByID(cfg.Signing, signProfileID)
+		profile, err := config.ResolveSigningProfileByID(cfg.SigningSetup.Profiles, signProfileID)
 		if err != nil {
 			return err
 		}

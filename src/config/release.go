@@ -10,10 +10,10 @@ type ReleaseConfig struct {
 	SecuritySummary string `yaml:"security_summary"`
 	RegistryLinks   bool   `yaml:"registry_links"`
 	CatalogLinks    bool   `yaml:"catalog_links"`
-	// Render controls release rendering (was presentation.release). Pointer: nil
-	// preserves the default; set overrides. Folded into Presentation.Release.
-	Render  *ReleasePresentation `yaml:"render,omitempty"`
-	RunFrom RunFromConfig        `yaml:"run_from,omitempty"` // gate mutation to declared origin
+	// Render controls release rendering (default DefaultReleasePresentation; a
+	// partial render: block overlays those defaults).
+	Render  ReleasePresentation `yaml:"render,omitempty"`
+	RunFrom RunFromConfig       `yaml:"run_from,omitempty"` // gate mutation to declared origin
 }
 
 // IsRequired returns whether release failure is a hard pipeline fail. Default: false.
@@ -31,5 +31,6 @@ func DefaultReleaseConfig() ReleaseConfig {
 		SecuritySummary: paths.Ephemeral("", "security"),
 		RegistryLinks:   true,
 		CatalogLinks:    true,
+		Render:          DefaultReleasePresentation(),
 	}
 }

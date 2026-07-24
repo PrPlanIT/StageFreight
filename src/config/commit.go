@@ -51,11 +51,11 @@ type CommitConfig struct {
 	Push         bool   `yaml:"push,omitempty"`
 	Conventional bool   `yaml:"conventional"`
 
-	// Render controls commit rendering (was presentation.commit). Pointer: nil
-	// preserves the default; set overrides. Folded into Presentation.Commit.
-	Render  *CommitPresentation `yaml:"render,omitempty"`
-	Backend string              `yaml:"backend,omitempty"`
-	Types   []CommitType        `yaml:"types,omitempty"`
+	// Render controls commit rendering (default DefaultCommitPresentation; a
+	// partial render: block overlays those defaults).
+	Render  CommitPresentation `yaml:"render,omitempty"`
+	Backend string             `yaml:"backend,omitempty"`
+	Types   []CommitType       `yaml:"types,omitempty"`
 }
 
 // CommitType defines a recognized commit type for conventional commits.
@@ -73,6 +73,7 @@ func DefaultCommitConfig() CommitConfig {
 		Conventional: true,
 		Backend:      "git",
 		Types:        defaultCommitTypes(),
+		Render:       DefaultCommitPresentation(),
 	}
 }
 

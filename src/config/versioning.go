@@ -1,31 +1,8 @@
 package config
 
-// VersioningConfig controls how version identity is derived from git state.
-// This is the single source of truth for version meaning — git provides raw
-// facts (tags, commits, branches), versioning rules decide what they mean.
-//
-// Precedence: tag match > branch_builds > no_lineage
-//
-// A branch defines a path through tag sources; the first reachable match
-// defines the version. That is the entire versioning contract.
-type VersioningConfig struct {
-	Preset string `yaml:"preset,omitempty"`
-
-	// TagSources defines named places where version bases can come from.
-	// e.g., {id: "stable", pattern: "^v?\\d+\\.\\d+\\.\\d+$"}
-	// Globally eligible, no inherent priority. Order is declaration-preserving
-	// but semantically flat — priority lives on branch rules, not here.
-	TagSources []TagSourceConfig `yaml:"tag_sources"`
-
-	// BranchBuilds defines version format for non-tag commits per branch.
-	// Evaluated in declaration order; first matching rule wins. An entry with
-	// id: "default" is required and must be the last entry — it catches any
-	// branch that did not match a named rule.
-	BranchBuilds []BranchBuildConfig `yaml:"branch_builds,omitempty"`
-
-	// NoLineage defines behavior when no tag lineage exists (no matching tags).
-	NoLineage NoLineageConfig `yaml:"no_lineage,omitempty"`
-}
+// The versioning types below (TagSourceConfig, BranchBuildConfig, NoLineageConfig)
+// are the elements of the git: cluster — git.tags (OrderedTagSources) and
+// git.versioning.{branch_builds, no_lineage}. There is no top-level VersioningConfig.
 
 // TagSourceConfig is a named tag pattern used for version lineage candidates.
 type TagSourceConfig struct {
@@ -79,13 +56,4 @@ type NoLineageConfig struct {
 	// Must contain {sha} or {time} — hardcoded versions are rejected.
 	// e.g., "0.1.0-bootstrap+{sha}"
 	Version string `yaml:"version,omitempty"`
-}
-
-// DefaultVersioningConfig returns a versioning config with sensible defaults.
-func DefaultVersioningConfig() VersioningConfig {
-	return VersioningConfig{
-		TagSources:   []TagSourceConfig{},
-		BranchBuilds: []BranchBuildConfig{},
-		NoLineage:    NoLineageConfig{Mode: "error"},
-	}
 }

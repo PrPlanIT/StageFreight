@@ -130,8 +130,8 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 	// tag_sources as map is ONLY for when.git_tags lookup on target conditions.
 	// DO NOT reuse this for version selection — that would reintroduce
 	// global filtering and break the search-path invariant.
-	tagPatternMap := make(map[string]string, len(cfg.Versioning.TagSources))
-	for _, ts := range cfg.Versioning.TagSources {
+	tagPatternMap := make(map[string]string, len(cfg.Git.Tags))
+	for _, ts := range cfg.Git.Tags {
 		tagPatternMap[ts.ID] = ts.Pattern
 	}
 
@@ -143,7 +143,7 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 		// Eligibility via the single canonical matcher (events, then git_tags,
 		// then branches). Docker does not interpret when: itself. A skip carries
 		// the matcher's own reason for narration — never re-derived here.
-		if elig := config.TargetEligibility(t, config.CIEvent(), currentBranch, currentGitTag, config.CIProvider(), tagPatternMap, cfg.Matchers.Branches); !elig.Eligible {
+		if elig := config.TargetEligibility(t, config.CIEvent(), currentBranch, currentGitTag, config.CIProvider(), tagPatternMap, cfg.Git.Branches); !elig.Eligible {
 			skipped = append(skipped, build.TargetSkip{TargetID: t.ID, Reason: elig.Reason})
 			continue
 		}
@@ -185,7 +185,7 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 		// Resolve the trust profile this target signs published images under
 		// (the `legacy` default when unset). Ref validity is already gated at
 		// audition; a set-but-unknown ref here is a hard config error.
-		signProfile, err := config.ResolveSigningProfileForTarget(t, cfg.Signing)
+		signProfile, err := config.ResolveSigningProfileForTarget(t, cfg.SigningSetup.Profiles)
 		if err != nil {
 			return nil, fmt.Errorf("target[%d] %q: %w", i, t.ID, err)
 		}
@@ -226,9 +226,9 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 	buildArgs = autoInjectBuildArgs(buildArgs, det, versionInfo, dockerfile)
 
 	step := &build.BuildStep{
-		Name:           b.ID,
-		Dockerfile:     dockerfile,
-		Context:        buildContext,
+		Name:       b.ID,
+		Dockerfile: dockerfile,
+		Context:    buildContext,
 		// Fold the source content into the step identity so NormalizeBuildPlan can
 		// tell a code change from an identical build shape (the stale-binary bug).
 		ContextDigest:  build.HashBuildContext(dockerfile, buildContext),

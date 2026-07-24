@@ -63,7 +63,7 @@ func TestValidateTarget_GenericPackage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tc := base()
 			mutate(&tc)
-			errs := validateTarget(tc, "targets[pkg]", map[string]bool{}, MatchersConfig{}, nil)
+			errs := validateTarget(tc, "targets[pkg]", map[string]bool{}, nil)
 			joined := strings.Join(errs, "; ")
 			if wantSubstr == "" {
 				if len(errs) != 0 {

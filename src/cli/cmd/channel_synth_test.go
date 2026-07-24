@@ -8,7 +8,7 @@ import (
 
 func devChannelCfg() *config.Config {
 	return &config.Config{
-		Matchers: config.MatchersConfig{Branches: map[string]string{"main": `^main$`}},
+		Git: config.GitConfig{Branches: map[string]string{"main": `^main$`}},
 		Targets: []config.TargetConfig{
 			{ID: "dwiz-dev", Kind: "release", Tag: "dev-{sha:8}", Aliases: []string{"latest-dev"},
 				When: config.WhenConditions{{Branches: []string{"main"}, Events: []string{"push"}}}},

@@ -17,10 +17,10 @@ import (
 func TestPlanDockerBuildEventGating(t *testing.T) {
 	mkConfig := func() *config.Config {
 		return &config.Config{
-			Versioning: config.VersioningConfig{
-				TagSources: []config.TagSourceConfig{{ID: "stable", Pattern: `^v?\d+\.\d+\.\d+$`}},
+			Git: config.GitConfig{
+				Branches: map[string]string{"main": `^main$`},
+				Tags:     config.OrderedTagSources{{ID: "stable", Pattern: `^v?\d+\.\d+\.\d+$`}},
 			},
-			Matchers:   config.MatchersConfig{Branches: map[string]string{"main": `^main$`}},
 			Registries: []config.RegistryConfig{{ID: "dh", Provider: "docker", URL: "docker.io", DefaultPath: "acme/img"}},
 			Builds:     []config.BuildConfig{{ID: "img", Kind: "docker", Dockerfile: "Dockerfile"}},
 			Targets: []config.TargetConfig{

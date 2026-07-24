@@ -49,9 +49,11 @@ func TestForgeStoreDelete_PruneTags(t *testing.T) {
 // channel, a tag selects the stable target — even with both configured.
 func TestActiveReleaseTarget(t *testing.T) {
 	cfg := &config.Config{
-		Matchers:   config.MatchersConfig{Branches: map[string]string{"main": `^main$`}},
-		Versioning: config.VersioningConfig{TagSources: []config.TagSourceConfig{{ID: "stable", Pattern: `^v\d+\.\d+\.\d+$`}}},
-		Repos:      []config.RepoConfig{{ID: "primary", Roles: []string{"primary"}}},
+		Git: config.GitConfig{
+			Branches: map[string]string{"main": `^main$`},
+			Tags:     config.OrderedTagSources{{ID: "stable", Pattern: `^v\d+\.\d+\.\d+$`}},
+		},
+		Repos: []config.RepoConfig{{ID: "primary", Roles: []string{"primary"}}},
 		Targets: []config.TargetConfig{
 			{ID: "stable", Kind: "release", Repos: config.StringOrList{"primary"}, Aliases: []string{"latest"},
 				When: config.WhenConditions{{GitTags: []string{"stable"}, Events: []string{"tag"}}}},

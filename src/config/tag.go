@@ -6,9 +6,9 @@ type TagConfig struct {
 	Defaults TagDefaults `yaml:"defaults"`
 	Message  TagMessage  `yaml:"message"`
 
-	// Render controls tag change-log rendering (was presentation.tag). Pointer:
-	// nil preserves the default; set overrides. Folded into Presentation.Tag.
-	Render *TagPresentation `yaml:"render,omitempty"`
+	// Render controls tag change-log rendering (default DefaultTagPresentation; a
+	// partial render: block overlays those defaults).
+	Render TagPresentation `yaml:"render,omitempty"`
 }
 
 // TagDefaults controls default tag planning behavior.
@@ -38,5 +38,6 @@ func DefaultTagConfig() TagConfig {
 			Mode:          "prompt_if_missing",
 			EmptyStrategy: "prompt",
 		},
+		Render: DefaultTagPresentation(),
 	}
 }

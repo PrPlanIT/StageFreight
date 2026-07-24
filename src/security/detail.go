@@ -11,7 +11,7 @@ import (
 // CLI override (if non-empty) takes precedence over all rules.
 // Matchers is available for future condition resolution but currently rules use
 // direct regex patterns via Condition.
-func ResolveDetailLevel(cfg config.SecurityConfig, cliOverride string, matchers config.MatchersConfig) string {
+func ResolveDetailLevel(cfg config.SecurityConfig, cliOverride string) string {
 	if cliOverride != "" {
 		return cliOverride
 	}

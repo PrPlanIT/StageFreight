@@ -50,16 +50,20 @@ func TestPresentationDissolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit.render should load: %v", err)
 	}
-	if cfg.Presentation.Commit.PreserveRawSubject {
-		t.Fatalf("commit.render not folded into Presentation: %+v", cfg.Presentation.Commit)
+	if cfg.Commit.Render.PreserveRawSubject {
+		t.Fatalf("commit.render override not applied: %+v", cfg.Commit.Render)
 	}
-	// Default preserved when render is absent (pointer nil).
+	// A partial render: block overlays defaults — the untouched field keeps its default.
+	if !cfg.Commit.Render.EnforceConventional {
+		t.Fatalf("partial render should preserve sibling default EnforceConventional: %+v", cfg.Commit.Render)
+	}
+	// Default preserved when render is absent.
 	def, _, err := LoadWithWarnings(writeCfg(t, "version: 1\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !def.Presentation.Commit.PreserveRawSubject {
-		t.Fatal("default presentation lost when render absent")
+	if !def.Commit.Render.PreserveRawSubject {
+		t.Fatal("default commit.render lost when render absent")
 	}
 	if _, _, err := LoadWithWarnings(writeCfg(t, "version: 1\npresentation: {}\n")); err == nil {
 		t.Fatal("retired presentation: key should fail (hard break)")
@@ -77,13 +81,13 @@ func TestSigningProfilesMerge(t *testing.T) {
 	// NormalizeSigning may append a synthetic "legacy" profile, so check for presence
 	// of the declared one rather than exact length.
 	var found bool
-	for _, p := range cfg.Signing {
+	for _, p := range cfg.SigningSetup.Profiles {
 		if p.ID == "release" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("signing.profiles not folded into Signing: %+v", cfg.Signing)
+		t.Fatalf("signing.profiles not decoded: %+v", cfg.SigningSetup.Profiles)
 	}
 	if _, _, err := LoadWithWarnings(writeCfg(t,
 		"version: 1\nsigning_profiles:\n  - { id: release, requires: keyless }\n")); err == nil {

@@ -22,7 +22,7 @@ func TestValidateTarget_Pages(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tc := base()
 			mutate(&tc)
-			errs := validateTarget(tc, "targets[docs]", map[string]bool{"site": true}, MatchersConfig{}, nil)
+			errs := validateTarget(tc, "targets[docs]", map[string]bool{"site": true}, nil)
 			joined := strings.Join(errs, "; ")
 			if wantSubstr == "" {
 				if len(errs) != 0 {

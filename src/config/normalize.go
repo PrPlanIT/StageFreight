@@ -17,7 +17,7 @@ func Normalize(cfg *Config) error {
 	// Signing: alias canonicalization (keyless→oidc, yubikey→hardware) + legacy
 	// profile synthesis are independent of {var:} templating and must run even
 	// when no vars are defined — so they precede the vars short-circuit.
-	cfg.Signing = NormalizeSigning(cfg.Signing)
+	cfg.SigningSetup.Profiles = NormalizeSigning(cfg.SigningSetup.Profiles)
 
 	// The supply-chain cooldown is OWNED by dependency.min_release_age but consumed
 	// by the freshness discovery resolver (which powers both the freshness lint
