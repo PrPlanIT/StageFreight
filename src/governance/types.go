@@ -12,10 +12,10 @@ import (
 // Declared in .stagefreight.yml under governance.source.
 type GovernanceSource struct {
 	RepoURL       string `yaml:"repo_url"`       // policy repo URL
-	Ref           string `yaml:"ref"`             // pinned tag or commit SHA (required)
-	Path          string `yaml:"path"`            // path to governance config within repo
-	AllowFloating bool   `yaml:"allow_floating"`  // if true, branch refs allowed (dev/unsafe)
-	LocalPath     string `yaml:"-"`               // if set, use local checkout instead of cloning
+	Ref           string `yaml:"ref"`            // pinned tag or commit SHA (required)
+	Path          string `yaml:"path"`           // path to governance config within repo
+	AllowFloating bool   `yaml:"allow_floating"` // if true, branch refs allowed (dev/unsafe)
+	LocalPath     string `yaml:"-"`              // if set, use local checkout instead of cloning
 }
 
 // GovernanceConfig is the parsed clusters.yml from the policy repo.
@@ -129,7 +129,7 @@ type DetectionReport struct {
 
 // CapabilityResult records whether a specific capability was detected.
 type CapabilityResult struct {
-	Domain     string   // e.g., "build.docker", "build.binary", "package.helm"
+	Domain     string // e.g., "build.docker", "build.binary", "package.helm"
 	Detected   bool
 	Confidence string   // "high", "medium", "low"
 	Evidence   []string // filesystem signals that supported detection
@@ -156,8 +156,8 @@ type SkippedFeature struct {
 
 // DistributionPlan describes what files to write to a target repo.
 type DistributionPlan struct {
-	Repo        string             // "org/repo"
-	Credentials string             // env var prefix for forge auth (from cluster targets)
+	Repo        string // "org/repo"
+	Credentials string // env var prefix for forge auth (from cluster targets)
 	Files       []DistributedFile
 }
 
@@ -175,7 +175,7 @@ type CommitResult struct {
 	Status  string // "committed", "unchanged", "dry-run", "skipped-identical", "error"
 	SHA     string // commit SHA if committed
 	Message string
-	Drifted bool   // true if managed file was drifted before replacement
+	Drifted bool // true if managed file was drifted before replacement
 	Error   error
 }
 

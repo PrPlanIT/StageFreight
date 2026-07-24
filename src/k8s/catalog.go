@@ -21,8 +21,8 @@ type CatalogApp struct {
 	Match        CatalogMatch `yaml:"match"`
 	FriendlyName string       `yaml:"friendly_name"`
 	Description  string       `yaml:"description"`
-	Tier         string       `yaml:"tier"`     // "app", "platform", "hidden"
-	Ignore       bool         `yaml:"ignore"`   // suppress from output entirely
+	Tier         string       `yaml:"tier"`   // "app", "platform", "hidden"
+	Ignore       bool         `yaml:"ignore"` // suppress from output entirely
 	HomepageURL  string       `yaml:"homepage_url"`
 	DocsURL      string       `yaml:"docs_url"`
 	SourceURL    string       `yaml:"source_url"`

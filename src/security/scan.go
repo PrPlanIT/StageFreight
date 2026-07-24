@@ -24,21 +24,21 @@ import (
 
 // ScanConfig holds security scan configuration.
 type ScanConfig struct {
-	Enabled          bool                            // run vulnerability scan
-	TrivyEnabled     bool                            // run Trivy scanner
-	GrypeEnabled     bool                            // run Grype scanner
-	SBOMEnabled      bool                            // generate SBOM
-	FailOnCritical   bool                            // fail if critical vulns found
-	ImageRef         string                          // image reference or tarball path to scan
-	OCILayoutDir     string                          // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
-	OutputDir        string                          // directory for scan artifacts
-	RootDir          string                          // workspace root for toolchain resolution
+	Enabled          bool                             // run vulnerability scan
+	TrivyEnabled     bool                             // run Trivy scanner
+	GrypeEnabled     bool                             // run Grype scanner
+	SBOMEnabled      bool                             // generate SBOM
+	FailOnCritical   bool                             // fail if critical vulns found
+	ImageRef         string                           // image reference or tarball path to scan
+	OCILayoutDir     string                           // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
+	OutputDir        string                           // directory for scan artifacts
+	RootDir          string                           // workspace root for toolchain resolution
 	ToolchainDesired map[string]config.ToolConstraint // from appCfg.Toolchains.Desired
-	SectionWriter    io.Writer                       // writer for CI section markers (nil = os.Stderr)
-	TrivyCacheMax    string                          // max_size for Trivy DB cache (full-clear when exceeded)
-	TrivyCacheMaxAge string                          // max_age for Trivy DB cache (full-clear when oldest file exceeds)
-	GrypeCacheMax    string                          // max_size for Grype DB cache (full-clear when exceeded)
-	GrypeCacheMaxAge string                          // max_age for Grype DB cache (full-clear when oldest file exceeds)
+	SectionWriter    io.Writer                        // writer for CI section markers (nil = os.Stderr)
+	TrivyCacheMax    string                           // max_size for Trivy DB cache (full-clear when exceeded)
+	TrivyCacheMaxAge string                           // max_age for Trivy DB cache (full-clear when oldest file exceeds)
+	GrypeCacheMax    string                           // max_size for Grype DB cache (full-clear when exceeded)
+	GrypeCacheMaxAge string                           // max_age for Grype DB cache (full-clear when oldest file exceeds)
 }
 
 // Vulnerability is a single parsed vulnerability from the scan.

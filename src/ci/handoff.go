@@ -148,7 +148,7 @@ func IsBranchHeadFresh(ciCtx *CIContext) bool {
 	}
 
 	fresh := headSHA == ciCtx.SHA
-	diag.Debug(diag.Verbose(),"freshness: branch=%s local=%s remote=%s fresh=%t",
+	diag.Debug(diag.Verbose(), "freshness: branch=%s local=%s remote=%s fresh=%t",
 		ciCtx.Branch, shortSHA(ciCtx.SHA), shortSHA(headSHA), fresh)
 	return fresh
 }
@@ -162,12 +162,12 @@ func resolveRemoteHead(branch string) string {
 	}
 	session, err := gitstate.OpenSyncSession(workspace)
 	if err != nil {
-		diag.Debug(diag.Verbose(),"freshness: could not open sync session at %s: %v", workspace, err)
+		diag.Debug(diag.Verbose(), "freshness: could not open sync session at %s: %v", workspace, err)
 		return ""
 	}
 	hash, err := session.RemoteRefHash("origin", branch)
 	if err != nil {
-		diag.Debug(diag.Verbose(),"freshness: remote ref lookup failed for %s: %v", branch, err)
+		diag.Debug(diag.Verbose(), "freshness: remote ref lookup failed for %s: %v", branch, err)
 		return ""
 	}
 	return hash.String()

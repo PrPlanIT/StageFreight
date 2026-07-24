@@ -16,8 +16,8 @@ type fakeReach struct {
 	ids   map[string]bool
 }
 
-func (fakeReach) Name() string             { return "fake" }
-func (fakeReach) Supports(e string) bool   { return e == "go" }
+func (fakeReach) Name() string           { return "fake" }
+func (fakeReach) Supports(e string) bool { return e == "go" }
 func (f fakeReach) Contribute(_ context.Context, _ evidence.Target, vulns []evidence.Vulnerability) (map[evidence.VulnRef]evidence.Evidence, error) {
 	out := map[evidence.VulnRef]evidence.Evidence{}
 	for _, v := range vulns {

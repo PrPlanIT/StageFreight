@@ -6,13 +6,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/spf13/cobra"
 )
 
 var drDryRun bool

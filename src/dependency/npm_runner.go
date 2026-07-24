@@ -58,7 +58,7 @@ func (n *nodeToolRunner) syncLock(ctx context.Context, repoRoot, dir string) (st
 // with scripts disabled:
 //   - pnpm:  corepack pnpm install --lockfile-only --ignore-scripts
 //   - yarn:  corepack yarn install --mode=update-lockfile   (installs nothing; belt-and-
-//            suspenders YARN_ENABLE_SCRIPTS=false)
+//     suspenders YARN_ENABLE_SCRIPTS=false)
 //   - npm:   npm install --package-lock-only --ignore-scripts
 func nodeLockCommand(dir string) (tool string, args, extraEnv []string, lockfile string, ok bool) {
 	switch {

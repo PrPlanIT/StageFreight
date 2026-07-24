@@ -86,6 +86,7 @@ import (
 //	"dev-{n:5}"
 //	"build-{randhex:8}"
 //	"nightly-{hex:4}"
+//
 // ResolveVars expands {var:name} templates from the vars map.
 // Supports recursive resolution (a var value can reference other vars)
 // with cycle detection to prevent infinite loops.
@@ -526,10 +527,10 @@ func resolveCIContext(s string) string {
 		"BITBUCKET_STEP_ID", // Bitbucket
 	))
 	s = strings.ReplaceAll(s, "{ci.url}", firstEnv(
-		"CI_PIPELINE_URL",                // GitLab
-		"GITHUB_SERVER_URL",              // GitHub (needs composition, but best effort)
-		"BUILD_URL",                      // Jenkins
-		"BITBUCKET_PIPELINE_RESULT_URL",  // Bitbucket (non-standard, best effort)
+		"CI_PIPELINE_URL",               // GitLab
+		"GITHUB_SERVER_URL",             // GitHub (needs composition, but best effort)
+		"BUILD_URL",                     // Jenkins
+		"BITBUCKET_PIPELINE_RESULT_URL", // Bitbucket (non-standard, best effort)
 	))
 
 	return s

@@ -16,9 +16,9 @@ import (
 // file. It records how many times Check ran.
 type fakePerFile struct{ calls int32 }
 
-func (f *fakePerFile) Name() string          { return "perfile" }
-func (f *fakePerFile) DefaultEnabled() bool   { return true }
-func (f *fakePerFile) AutoDetect() []string   { return nil }
+func (f *fakePerFile) Name() string         { return "perfile" }
+func (f *fakePerFile) DefaultEnabled() bool { return true }
+func (f *fakePerFile) AutoDetect() []string { return nil }
 func (f *fakePerFile) Check(_ context.Context, file FileInfo) ([]Finding, error) {
 	atomic.AddInt32(&f.calls, 1)
 	return []Finding{{File: file.Path, Module: "perfile", Severity: SeverityInfo, Message: "pf"}}, nil
@@ -31,7 +31,7 @@ type fakeWholeRepo struct {
 	seen        []string
 }
 
-func (f *fakeWholeRepo) Name() string        { return "wholerepo" }
+func (f *fakeWholeRepo) Name() string         { return "wholerepo" }
 func (f *fakeWholeRepo) DefaultEnabled() bool { return true }
 func (f *fakeWholeRepo) AutoDetect() []string { return nil }
 func (f *fakeWholeRepo) Check(_ context.Context, _ FileInfo) ([]Finding, error) {
@@ -132,7 +132,7 @@ func TestWholeRepoCheckGuardErrors(t *testing.T) {
 // gathered from good files when one file fails.
 type fakeWholeRepoPartial struct{}
 
-func (fakeWholeRepoPartial) Name() string        { return "wrpartial" }
+func (fakeWholeRepoPartial) Name() string         { return "wrpartial" }
 func (fakeWholeRepoPartial) DefaultEnabled() bool { return true }
 func (fakeWholeRepoPartial) AutoDetect() []string { return nil }
 func (fakeWholeRepoPartial) Check(_ context.Context, _ FileInfo) ([]Finding, error) {

@@ -74,8 +74,8 @@ func extractMarkers(content, start, end string) (string, error) {
 //
 // Skips: http://, https://, mailto:, data:, #anchor, protocol-relative //.
 var (
-	mdImagePattern  = regexp.MustCompile(`(!\[[^\]]*\]\()([^)]+)(\))`)
-	mdLinkPattern   = regexp.MustCompile(`(\[[^\]]+\]\()([^)]+)(\))`)
+	mdImagePattern    = regexp.MustCompile(`(!\[[^\]]*\]\()([^)]+)(\))`)
+	mdLinkPattern     = regexp.MustCompile(`(\[[^\]]+\]\()([^)]+)(\))`)
 	htmlImgSrcPattern = regexp.MustCompile(`(?i)(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)`)
 	htmlHrefPattern   = regexp.MustCompile(`(?i)(\bhref=["'])([^"']+)(["'])`)
 )

@@ -11,6 +11,7 @@ import (
 //     candidate under EVERY policy;
 //   - freshness is the only policy axis — `all` updates non-vuln deps, `security` does not;
 //   - non-vulnerable indirects float transitively (skipped) in both.
+//
 // The headline regression: a vulnerable INDIRECT under `all` must be remediated, not skipped
 // as "indirect dependency" (the bug that left downstream repos with an unfixable critical).
 func TestFilterUpdateCandidates_PolicyMatrix(t *testing.T) {

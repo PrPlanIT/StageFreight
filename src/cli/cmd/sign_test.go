@@ -53,7 +53,7 @@ func TestImageTargets_DedupsByDigest(t *testing.T) {
 		Outcomes: []artifact.Outcome{
 			{Type: artifact.OutcomeTypePush, Target: reg("v1"), Push: &artifact.PushOutcome{Status: artifact.OutcomeSuccess, Digest: "sha256:abc"}},
 			{Type: artifact.OutcomeTypePush, Target: reg("latest"), Push: &artifact.PushOutcome{Status: artifact.OutcomeSuccess, Digest: "sha256:abc"}}, // same digest
-			{Type: artifact.OutcomeTypePush, Target: reg("bad"), Push: &artifact.PushOutcome{Status: artifact.OutcomeFailed}},                            // failed → skip
+			{Type: artifact.OutcomeTypePush, Target: reg("bad"), Push: &artifact.PushOutcome{Status: artifact.OutcomeFailed}},                           // failed → skip
 		},
 	}}}
 	got := imageTargets(results)

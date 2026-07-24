@@ -43,8 +43,8 @@ type RunnerIdentity struct {
 	PipelineID string `json:"pipeline_id,omitempty"` // CI_PIPELINE_ID / GITHUB_RUN_ID
 	JobID      string `json:"job_id,omitempty"`      // CI_JOB_ID / GITHUB_JOB
 	Workflow   string `json:"workflow,omitempty"`    // GITHUB_WORKFLOW (GitHub only)
-	Controller string `json:"controller,omitempty"` // future: SF daemon controller
-	Satellite  string `json:"satellite,omitempty"`  // future: SF satellite node
+	Controller string `json:"controller,omitempty"`  // future: SF daemon controller
+	Satellite  string `json:"satellite,omitempty"`   // future: SF satellite node
 }
 
 // SubstrateFacts is Layer 1: raw substrate measurements, always collected unconditionally.
@@ -52,26 +52,26 @@ type RunnerIdentity struct {
 // regardless of whether it is a CI runner, local machine, or SF daemon node.
 // No mode parameters. No policy. No severity. Just facts.
 type SubstrateFacts struct {
-	DockerSocket         string  `json:"docker_socket"`       // path if found, "" if absent
+	DockerSocket         string  `json:"docker_socket"` // path if found, "" if absent
 	DockerAvailable      bool    `json:"docker_available"`
 	DindDetected         bool    `json:"dind_detected"`
-	BuildKitAvailable    bool    `json:"buildkit_available"`  // = DockerAvailable (modern Docker ships BuildKit)
+	BuildKitAvailable    bool    `json:"buildkit_available"` // = DockerAvailable (modern Docker ships BuildKit)
 	BuildxAvailable      bool    `json:"buildx_available"`
-	DiskFreeMB           int64   `json:"disk_free_mb"`        // .stagefreight filesystem
+	DiskFreeMB           int64   `json:"disk_free_mb"` // .stagefreight filesystem
 	TmpFreeMB            int64   `json:"tmp_free_mb"`
-	MemAvailableMB       int64   `json:"mem_available_mb"`    // -1 if unsupported (non-Linux)
-	CPULoadAvg1          float64 `json:"cpu_load_avg1"`       // -1 if unsupported
+	MemAvailableMB       int64   `json:"mem_available_mb"` // -1 if unsupported (non-Linux)
+	CPULoadAvg1          float64 `json:"cpu_load_avg1"`    // -1 if unsupported
 	StagefreightWritable bool    `json:"stagefreight_writable"`
 	WorkdirReadable      bool    `json:"workdir_readable"`
-	InodePctFree         int     `json:"inode_pct_free"`      // -1 if unsupported
+	InodePctFree         int     `json:"inode_pct_free"` // -1 if unsupported
 }
 
 // Finding is Layer 2: policy applied to facts.
 type Finding struct {
 	ID       string `json:"id"`
-	Status   string `json:"status"`          // "ok" | "warn" | "fail"
+	Status   string `json:"status"` // "ok" | "warn" | "fail"
 	Detail   string `json:"detail,omitempty"`
-	Severity string `json:"severity"`        // "hard_fail" | "warn" | "info"
+	Severity string `json:"severity"` // "hard_fail" | "warn" | "info"
 }
 
 // HealthGrade is Layer 3: derived from findings.

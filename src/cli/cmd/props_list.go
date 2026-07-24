@@ -5,8 +5,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/props"
+	"github.com/spf13/cobra"
 )
 
 var propsListCategory string

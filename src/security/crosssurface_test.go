@@ -68,7 +68,7 @@ func TestCrossSurface_CollapsesByID(t *testing.T) {
 
 	imageVulns := []Vulnerability{
 		{ID: "CVE-2026-1", Severity: "HIGH", Package: "github.com/docker/docker", Installed: "v28.5.2", Source: "trivy"}, // shared with source
-		{ID: "CVE-2026-2", Severity: "CRITICAL", Package: "stdlib", Installed: "go1.25.8", Source: "grype"},             // image-only
+		{ID: "CVE-2026-2", Severity: "CRITICAL", Package: "stdlib", Installed: "go1.25.8", Source: "grype"},              // image-only
 	}
 
 	cs := CrossSurface(dir, imageVulns)

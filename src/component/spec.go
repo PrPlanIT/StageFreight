@@ -141,10 +141,10 @@ func ParseSpec(path string) (*SpecFile, error) {
 		}
 
 		input := SpecInput{
-			Name:     m[2],
-			Type:     "string", // GitLab default
-			Required: true,
-			Group:    currentGroup,
+			Name:      m[2],
+			Type:      "string", // GitLab default
+			Required:  true,
+			Group:     currentGroup,
 			GroupDesc: currentDesc,
 		}
 

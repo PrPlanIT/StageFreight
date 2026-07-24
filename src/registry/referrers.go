@@ -20,11 +20,11 @@ type ArtifactLinks struct {
 
 // Known artifact types for OCI referrers.
 const (
-	artifactSPDX       = "application/spdx+json"
-	artifactCycloneDX  = "application/vnd.cyclonedx+json"
-	artifactInToto     = "application/vnd.in-toto+json"
-	artifactDSSE       = "application/vnd.dsse.envelope.v1+json"
-	artifactCosign     = "application/vnd.dev.cosign.simplesigning.v1+json"
+	artifactSPDX      = "application/spdx+json"
+	artifactCycloneDX = "application/vnd.cyclonedx+json"
+	artifactInToto    = "application/vnd.in-toto+json"
+	artifactDSSE      = "application/vnd.dsse.envelope.v1+json"
+	artifactCosign    = "application/vnd.dev.cosign.simplesigning.v1+json"
 )
 
 // referrerManifest represents a single referrer entry from the OCI referrers API.

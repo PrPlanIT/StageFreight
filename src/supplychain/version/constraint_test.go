@@ -42,12 +42,12 @@ func TestSelectConstraint(t *testing.T) {
 	cases := []struct {
 		c, want string
 	}{
-		{"1.26.x", "1.26.7"},      // highest patch of the line
-		{"1.27.x", "1.27.0"},      // rc excluded (prerelease)
-		{"1.x.x", "1.27.0"},       // highest minor within major 1, stable
-		{"x.x.x", "2.0.0"},        // highest overall stable
-		{"1.26.7", "1.26.7"},      // exact present
-		{"9.9.x", ""},             // line doesn't exist
+		{"1.26.x", "1.26.7"}, // highest patch of the line
+		{"1.27.x", "1.27.0"}, // rc excluded (prerelease)
+		{"1.x.x", "1.27.0"},  // highest minor within major 1, stable
+		{"x.x.x", "2.0.0"},   // highest overall stable
+		{"1.26.7", "1.26.7"}, // exact present
+		{"9.9.x", ""},        // line doesn't exist
 	}
 	for _, tc := range cases {
 		if got := SelectConstraint(tc.c, avail); got != tc.want {

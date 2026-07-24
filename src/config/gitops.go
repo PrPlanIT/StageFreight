@@ -36,8 +36,8 @@ type ExposureRules struct {
 // ExposureRule classifies endpoints into exposure levels.
 // Match fields are AND within a rule (CIDR AND port if both specified).
 type ExposureRule struct {
-	Level        string   `yaml:"level"`         // internet | intranet | cluster
-	Endpoints    []string `yaml:"endpoints"`     // ip:port (highest precedence)
+	Level        string   `yaml:"level"`     // internet | intranet | cluster
+	Endpoints    []string `yaml:"endpoints"` // ip:port (highest precedence)
 	Gateways     []string `yaml:"gateways"`
 	CIDRs        []string `yaml:"cidrs"`
 	Ports        []int    `yaml:"ports"`         // AND with CIDRs (empty = any port)

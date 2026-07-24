@@ -197,4 +197,3 @@ func BranchFromRefspec(refspec string) string {
 	}
 	return ""
 }
-

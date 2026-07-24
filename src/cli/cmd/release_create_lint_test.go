@@ -18,11 +18,17 @@ import (
 // IMPORTANT LIMITATION: this is pattern matching, not absence-proof. It
 // catches the well-known regression shapes but it CANNOT prove no
 // reconstruction exists. A motivated regression like
-//   `key := strings.Join(parts, "/")`
+//
+//	`key := strings.Join(parts, "/")`
+//
 // or
-//   `type artifactKey struct { name, os, arch string }`
+//
+//	`type artifactKey struct { name, os, arch string }`
+//
 // or
-//   `map[artifactCoord]X`
+//
+//	`map[artifactCoord]X`
+//
 // would slip past. The real protection is the typed `artifact.ArtifactID`
 // at API boundaries (compile-time enforcement) — this test is the cheap
 // extra layer that catches the obvious mistakes at PR time.

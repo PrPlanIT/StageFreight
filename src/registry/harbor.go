@@ -46,10 +46,10 @@ func (h *Harbor) ListTags(ctx context.Context, repo string) ([]TagInfo, error) {
 
 	for {
 		var artifacts []struct {
-			Digest    string    `json:"digest"`
-			PushTime  time.Time `json:"push_time"`
-			PullTime  time.Time `json:"pull_time"`
-			Tags      []struct {
+			Digest   string    `json:"digest"`
+			PushTime time.Time `json:"push_time"`
+			PullTime time.Time `json:"pull_time"`
+			Tags     []struct {
 				Name     string    `json:"name"`
 				PushTime time.Time `json:"push_time"`
 			} `json:"tags"`

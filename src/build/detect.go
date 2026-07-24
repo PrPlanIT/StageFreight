@@ -18,10 +18,10 @@ type Detection struct {
 
 // GitInfo holds git repository metadata.
 type GitInfo struct {
-	Remote  string // origin URL
-	Branch  string // current branch
+	Remote    string // origin URL
+	Branch    string // current branch
 	LatestTag string
-	SHA     string
+	SHA       string
 }
 
 // DockerfileInfo describes a discovered Dockerfile.
@@ -42,24 +42,24 @@ type Stage struct {
 
 // languageIndicators maps lockfile names to detected language.
 var languageIndicators = map[string]string{
-	"go.mod":           "go",
-	"go.sum":           "go",
-	"Cargo.toml":       "rust",
-	"Cargo.lock":       "rust",
-	"package.json":     "node",
+	"go.mod":            "go",
+	"go.sum":            "go",
+	"Cargo.toml":        "rust",
+	"Cargo.lock":        "rust",
+	"package.json":      "node",
 	"package-lock.json": "node",
-	"yarn.lock":        "node",
-	"pnpm-lock.yaml":   "node",
-	"bun.lockb":        "node",
-	"requirements.txt": "python",
-	"Pipfile":          "python",
-	"Pipfile.lock":     "python",
-	"pyproject.toml":   "python",
-	"poetry.lock":      "python",
-	"Gemfile":          "ruby",
-	"Gemfile.lock":     "ruby",
-	"composer.json":    "php",
-	"composer.lock":    "php",
+	"yarn.lock":         "node",
+	"pnpm-lock.yaml":    "node",
+	"bun.lockb":         "node",
+	"requirements.txt":  "python",
+	"Pipfile":           "python",
+	"Pipfile.lock":      "python",
+	"pyproject.toml":    "python",
+	"poetry.lock":       "python",
+	"Gemfile":           "ruby",
+	"Gemfile.lock":      "ruby",
+	"composer.json":     "php",
+	"composer.lock":     "php",
 }
 
 // dockerfileNames are filenames recognized as Dockerfiles.

@@ -25,9 +25,9 @@ type PushOptions struct {
 
 // Plan is a fully resolved, validated commit intent.
 type Plan struct {
-	Type      string
-	Scope     string
-	Summary   string
+	Type     string
+	Scope    string
+	Summary  string
 	Body     string
 	Breaking bool
 	// SkipCI is the manual `stagefreight commit --skip-ci` escape hatch — it appends the

@@ -257,10 +257,10 @@ type MR struct {
 
 // ReleaseInfo describes an existing release on a forge.
 type ReleaseInfo struct {
-	ID          string    // platform-specific ID (numeric for GitHub/Gitea, tag_name for GitLab)
+	ID          string // platform-specific ID (numeric for GitHub/Gitea, tag_name for GitLab)
 	TagName     string
-	Name        string    // release title
-	Description string    // release body (markdown)
+	Name        string // release title
+	Description string // release body (markdown)
 	Draft       bool
 	Prerelease  bool
 	CreatedAt   time.Time

@@ -26,10 +26,10 @@ const (
 // Resolved holds the result of resolving a credential prefix.
 // User and Secret may be empty if the env vars were not set.
 type Resolved struct {
-	User       string
-	Secret     string
-	Kind       SecretKind
-	SecretEnv  string // e.g. "HARBOR_TOKEN" — the env var that provided the secret
+	User      string
+	Secret    string
+	Kind      SecretKind
+	SecretEnv string // e.g. "HARBOR_TOKEN" — the env var that provided the secret
 }
 
 // IsSet returns true if both User and Secret are non-empty.

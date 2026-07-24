@@ -57,10 +57,10 @@ type PropResolver interface {
 // Definition is the registry entry for a prop type.
 type Definition struct {
 	ID          string
-	Format      string       // "badge" (future: "image", "callout", etc.)
-	Category    string       // grouping for list/docs (e.g. "docker", "security")
+	Format      string // "badge" (future: "image", "callout", etc.)
+	Category    string // grouping for list/docs (e.g. "docker", "security")
 	Description string
 	Provider    Provider
-	DefaultAlt  string       // human-readable name — single source of truth
+	DefaultAlt  string // human-readable name — single source of truth
 	Resolver    PropResolver
 }

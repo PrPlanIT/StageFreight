@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // FailureDetailFile is the well-known path (relative to rootDir) where the

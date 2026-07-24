@@ -126,9 +126,9 @@ type InvItem struct {
 
 // Security holds security-related metadata.
 type Security struct {
-	SBOM       SBOMInfo    `json:"sbom"`
-	Signatures []SigInfo   `json:"signatures"`
-	Scans      []ScanInfo  `json:"scans"`
+	SBOM       SBOMInfo   `json:"sbom"`
+	Signatures []SigInfo  `json:"signatures"`
+	Scans      []ScanInfo `json:"scans"`
 }
 
 // SBOMInfo describes SBOM availability.

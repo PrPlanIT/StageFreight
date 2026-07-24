@@ -11,9 +11,9 @@ import (
 // K8sInventoryModule renders a cluster app inventory via live Kubernetes discovery.
 // Orchestration only — all k8s auth, discovery, and rendering logic lives in src/k8s/.
 type K8sInventoryModule struct {
-	CatalogPath   string              // optional path to catalog
-	CommitSHA     string              // optional git SHA for provenance
-	RepoRoot      string              // for source link verification and Flux graph resolution
+	CatalogPath   string               // optional path to catalog
+	CommitSHA     string               // optional git SHA for provenance
+	RepoRoot      string               // for source link verification and Flux graph resolution
 	ClusterConfig config.ClusterConfig // passed to k8s.NewClient for auth + to Discover for exposure rules
 }
 

@@ -282,4 +282,3 @@ func prunePackageTarget(ctx context.Context, fc forge.Forge, packageName, versio
 	store := &packageStore{forge: fc, packageName: packageName}
 	return retention.Apply(ctx, store, patterns, effective)
 }
-

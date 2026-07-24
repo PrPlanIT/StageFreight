@@ -48,13 +48,13 @@ type EnvFile struct {
 
 // DriftResult describes the drift state of a single stack on a host.
 type DriftResult struct {
-	Host        string
-	Stack       string
-	Drifted     bool
-	Tier        int    // 1 = bundle hash, 2 = container config hash
-	Reason      string
-	BundleHash  string // current computed hash
-	StoredHash  string // last known hash
+	Host       string
+	Stack      string
+	Drifted    bool
+	Tier       int // 1 = bundle hash, 2 = container config hash
+	Reason     string
+	BundleHash string // current computed hash
+	StoredHash string // last known hash
 }
 
 // DeployResult describes the outcome of deploying a single stack.
@@ -174,8 +174,8 @@ type ExecResult struct {
 // StackInspection is the canonical runtime state of a compose project.
 // Reduced model — only the signals needed for drift detection.
 type StackInspection struct {
-	Project    string
-	Services   []ServiceRuntimeState
+	Project  string
+	Services []ServiceRuntimeState
 }
 
 // ServiceRuntimeState is the canonical runtime state of a single compose service.
@@ -227,10 +227,10 @@ type DiscoveryTrust struct {
 
 // DriftPolicy configures drift detection behavior.
 type DriftPolicy struct {
-	Tier2Action              string `yaml:"tier2_action"`               // report | reconcile
-	OrphanAction             string `yaml:"orphan_action"`              // report | down | prune
-	OrphanThreshold          int    `yaml:"orphan_threshold"`           // block if more than N orphans
-	PruneRequiresConfirmation bool  `yaml:"prune_requires_confirmation"` // require --force for prune
+	Tier2Action               string `yaml:"tier2_action"`                // report | reconcile
+	OrphanAction              string `yaml:"orphan_action"`               // report | down | prune
+	OrphanThreshold           int    `yaml:"orphan_threshold"`            // block if more than N orphans
+	PruneRequiresConfirmation bool   `yaml:"prune_requires_confirmation"` // require --force for prune
 }
 
 // DefaultDriftPolicy returns safe defaults.
@@ -251,7 +251,7 @@ type HashStamps struct {
 
 // StackStamp records the hash state of a stack after successful deployment.
 type StackStamp struct {
-	BundleHash  string    `yaml:"bundle_hash"`
-	ConfigHash  string    `yaml:"config_hash"` // runtime compose config hash from last apply
-	DeployedAt  time.Time `yaml:"deployed_at"`
+	BundleHash string    `yaml:"bundle_hash"`
+	ConfigHash string    `yaml:"config_hash"` // runtime compose config hash from last apply
+	DeployedAt time.Time `yaml:"deployed_at"`
 }

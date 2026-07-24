@@ -13,7 +13,7 @@ import (
 type PlannerOptions struct {
 	Type     string
 	Scope    string
-	Message  string   // positional or --message
+	Message  string // positional or --message
 	Body     string
 	Breaking bool
 	SkipCI   *bool    // nil = use config default (manual --skip-ci → [skip ci] token)

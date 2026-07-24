@@ -9,10 +9,10 @@ import (
 
 // PlanViewConfig controls what the plan view renders.
 type PlanViewConfig struct {
-	Mode     string // "dry-run" or "apply"
-	Source   string // e.g. "PrPlanIT/MaintenancePolicy"
-	Ref      string // e.g. "dba5d2a" or "v1.0.0"
-	Verbose  bool   // expand preset-cache files individually
+	Mode    string // "dry-run" or "apply"
+	Source  string // e.g. "PrPlanIT/MaintenancePolicy"
+	Ref     string // e.g. "dba5d2a" or "v1.0.0"
+	Verbose bool   // expand preset-cache files individually
 }
 
 // PlanViewData holds everything needed to render a plan view.
@@ -145,9 +145,9 @@ type repoGroup struct {
 }
 
 type repoEntry struct {
-	name    string
-	sha     string // apply only
-	errMsg  string // apply only, failed repos
+	name   string
+	sha    string // apply only
+	errMsg string // apply only, failed repos
 }
 
 // RenderPlanView writes the structured plan view to w.

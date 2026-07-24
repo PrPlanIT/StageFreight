@@ -6,13 +6,13 @@ import "testing"
 func TestLatestSatisfying(t *testing.T) {
 	avail := []string{"1.8.0", "1.8.5", "1.9.0", "2.0.0"}
 	cases := []struct{ constraint, want string }{
-		{"^1.8.0", "1.9.0"},   // caret: highest within major 1
-		{"~1.8.0", "1.8.5"},   // tilde: highest 1.8.x
-		{"=1.8.0", "1.8.0"},   // exact pin honored (was force-careted before)
-		{"1.8.0", "1.9.0"},    // bare → caret convention
-		{"1.8.*", "1.8.5"},    // wildcard patch line
-		{"=9.9.9", ""},        // nothing satisfies
-		{"", ""},              // empty constraint
+		{"^1.8.0", "1.9.0"}, // caret: highest within major 1
+		{"~1.8.0", "1.8.5"}, // tilde: highest 1.8.x
+		{"=1.8.0", "1.8.0"}, // exact pin honored (was force-careted before)
+		{"1.8.0", "1.9.0"},  // bare → caret convention
+		{"1.8.*", "1.8.5"},  // wildcard patch line
+		{"=9.9.9", ""},      // nothing satisfies
+		{"", ""},            // empty constraint
 	}
 	for _, tc := range cases {
 		if got := LatestSatisfying(tc.constraint, avail); got != tc.want {

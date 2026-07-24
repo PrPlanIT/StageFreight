@@ -413,7 +413,7 @@ func TestResultsManifestMixedKindOutcomes(t *testing.T) {
 					ArtifactID: "binary:sf-linux-amd64", ArtifactName: "sf-linux-amd64", Kind: "binary",
 					Outcomes: []Outcome{
 						{
-							Type: OutcomeTypeBinaryBuild,
+							Type:   OutcomeTypeBinaryBuild,
 							Binary: &BinaryOutcome{Status: OutcomeSuccess, SHA256: "sha256:b", Path: "dist/sf-linux-amd64", Size: 100, BuildID: "sf"},
 						},
 					},

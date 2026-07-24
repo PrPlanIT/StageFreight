@@ -22,7 +22,7 @@ func TestForgejoIdentity(t *testing.T) {
 // not folded into Gitea, while the other forges are unaffected.
 func TestDetectProviderForgejo(t *testing.T) {
 	cases := map[string]Provider{
-		"https://codeberg.org/org/repo.git":     Forgejo,
+		"https://codeberg.org/org/repo.git":      Forgejo,
 		"git@code.forgejo.org:org/repo.git":      Forgejo,
 		"https://gitea.example.com/org/repo.git": Gitea,
 		"https://github.com/org/repo.git":        GitHub,

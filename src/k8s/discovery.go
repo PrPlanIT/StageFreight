@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	maxOwnerRefDepth = 10
-	labelInstance    = "app.kubernetes.io/instance"
-	labelName        = "app.kubernetes.io/name"
-	labelVersion     = "app.kubernetes.io/version"
-	labelHelmChart   = "helm.sh/chart"
+	maxOwnerRefDepth  = 10
+	labelInstance     = "app.kubernetes.io/instance"
+	labelName         = "app.kubernetes.io/name"
+	labelVersion      = "app.kubernetes.io/version"
+	labelHelmChart    = "helm.sh/chart"
 	labelTierOverride = "narrator.stagefreight.io/tier"
 )
 
@@ -113,21 +113,21 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 
 // appGroup accumulates resources for a single app identity during discovery.
 type appGroup struct {
-	identity   WorkloadIdentity
-	workloads  []workloadInfo
-	services   []corev1.Service
-	routes     []ExposureRef
-	podLabels  map[string]string // merged pod template labels from first workload
+	identity  WorkloadIdentity
+	workloads []workloadInfo
+	services  []corev1.Service
+	routes    []ExposureRef
+	podLabels map[string]string // merged pod template labels from first workload
 }
 
 type workloadInfo struct {
-	name       string
-	kind       string
-	replicas   int32
-	ready      int32
-	containers []corev1.Container
+	name           string
+	kind           string
+	replicas       int32
+	ready          int32
+	containers     []corev1.Container
 	initContainers []corev1.Container
-	labels     map[string]string
+	labels         map[string]string
 }
 
 // discoverWorkloads lists all Deployments, StatefulSets, DaemonSets and
@@ -201,8 +201,8 @@ func resolveIdentity(ns, name string, labels map[string]string, owners []metav1.
 	// 1. app.kubernetes.io/instance
 	if v, ok := labels[labelInstance]; ok && v != "" {
 		return WorkloadIdentity{
-			Key:    AppKey{Namespace: ns, Identity: v},
-			Source: "label/instance",
+			Key:     AppKey{Namespace: ns, Identity: v},
+			Source:  "label/instance",
 			RootUID: resolveRootUID(ns, owners, ctx, cs),
 		}
 	}
@@ -210,8 +210,8 @@ func resolveIdentity(ns, name string, labels map[string]string, owners []metav1.
 	// 2. app.kubernetes.io/name
 	if v, ok := labels[labelName]; ok && v != "" {
 		return WorkloadIdentity{
-			Key:    AppKey{Namespace: ns, Identity: v},
-			Source: "label/name",
+			Key:     AppKey{Namespace: ns, Identity: v},
+			Source:  "label/name",
 			RootUID: resolveRootUID(ns, owners, ctx, cs),
 		}
 	}
@@ -224,8 +224,8 @@ func resolveIdentity(ns, name string, labels map[string]string, owners []metav1.
 			chartName = v[:idx]
 		}
 		return WorkloadIdentity{
-			Key:    AppKey{Namespace: ns, Identity: chartName},
-			Source: "helm",
+			Key:     AppKey{Namespace: ns, Identity: chartName},
+			Source:  "helm",
 			RootUID: resolveRootUID(ns, owners, ctx, cs),
 		}
 	}
@@ -560,8 +560,8 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 
 	for _, g := range groups {
 		rec := AppRecord{
-			Key:      g.identity.Key,
-			Category: resolver.Resolve(g.identity.Key.Namespace),
+			Key:       g.identity.Key,
+			Category:  resolver.Resolve(g.identity.Key.Namespace),
 			Collision: g.identity.Key.Identity != g.identity.Key.Identity, // always false; collision set in addWorkload
 		}
 
@@ -777,7 +777,6 @@ func dedupeHosts(routes []ExposureRef) []string {
 	sort.Strings(hosts)
 	return hosts
 }
-
 
 // resolveFluxSources walks the repo to discover Flux Kustomizations and matches
 // them to apps by (namespace + identity). Returns sources keyed by AppKey.

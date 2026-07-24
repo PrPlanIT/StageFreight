@@ -121,8 +121,8 @@ func BuildPublicationViews(outputs *OutputsManifest, results *ResultsManifest) [
 	// Index attestation outcomes by (artifact_id, host, path, tag) for
 	// O(1) join during push iteration. Last attestation per key wins.
 	type tgtKey struct {
-		artifactID          ArtifactID
-		host, path, tag     string
+		artifactID      ArtifactID
+		host, path, tag string
 	}
 	attestations := make(map[tgtKey]*AttestationOutcome)
 	for _, r := range results.Results {

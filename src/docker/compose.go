@@ -21,11 +21,11 @@ func init() {
 // ComposeBackend implements runtime.LifecycleBackend for Docker lifecycle
 // orchestration using docker compose as the execution engine.
 type ComposeBackend struct {
-	targets  []HostTarget
-	stacks   []StackInfo
-	drifted  []DriftResult
-	stamps   *HashStamps
-	secrets  SecretsProvider
+	targets []HostTarget
+	stacks  []StackInfo
+	drifted []DriftResult
+	stamps  *HashStamps
+	secrets SecretsProvider
 }
 
 func (c *ComposeBackend) Name() string { return "compose" }
@@ -503,5 +503,3 @@ func copyFile(src, dst string) error {
 	}
 	return os.WriteFile(dst, data, 0600)
 }
-
-

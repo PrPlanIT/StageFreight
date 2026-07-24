@@ -20,7 +20,7 @@ const (
 	SkipUpToDate          SkipCategory = "up_to_date"           // already at the compatible target
 	SkipMajorHeld         SkipCategory = "major_held"           // constraint-expanding major out of range, review-only
 	SkipCeilingExceeded   SkipCategory = "ceiling_exceeded"     // beyond max_update, no in-ceiling re-target
-	SkipSecurityOnly      SkipCategory = "security_only_policy"  // non-vulnerable dep under policy=security
+	SkipSecurityOnly      SkipCategory = "security_only_policy" // non-vulnerable dep under policy=security
 	SkipEcosystemFiltered SkipCategory = "ecosystem_filtered"   // excluded by the ecosystem filter
 	SkipNotAutoUpdatable  SkipCategory = "not_auto_updatable"   // ecosystem cannot be auto-updated
 	SkipIndirect          SkipCategory = "indirect"             // transitively managed, not updated directly

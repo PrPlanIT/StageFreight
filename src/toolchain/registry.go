@@ -120,12 +120,12 @@ var registry = map[string]ToolDef{
 	// through GoInstallSource rather than a DownloadURL. It backs the Go reachability evidence
 	// contributor (call-graph analysis over the built module).
 	"govulncheck": {
-		Name:       "govulncheck",
-		BinaryName: "govulncheck",
-		DefaultVer: "1.5.0",
+		Name:        "govulncheck",
+		BinaryName:  "govulncheck",
+		DefaultVer:  "1.5.0",
 		GitHubOwner: "golang",
 		GitHubRepo:  "vuln",
-		Source:     GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
+		Source:      GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
 	},
 	"cosign": {
 		Name:        "cosign",

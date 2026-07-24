@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/manifest"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -100,4 +100,3 @@ func countInventory(m *manifest.Manifest) int {
 		len(m.Inventories.Go) +
 		len(m.Inventories.Binaries)
 }
-

@@ -30,9 +30,9 @@ const (
 	StateDiverged    StateClass = "DIVERGED"     // S3: ahead>0, behind>0
 
 	// Blocked states — hard stops
-	StateDetachedHEAD  StateClass = "DETACHED_HEAD"   // X1
-	StateDirtyWorktree StateClass = "DIRTY_WORKTREE"  // X2
-	StateNoUpstream    StateClass = "NO_UPSTREAM"     // X3
+	StateDetachedHEAD  StateClass = "DETACHED_HEAD"  // X1
+	StateDirtyWorktree StateClass = "DIRTY_WORKTREE" // X2
+	StateNoUpstream    StateClass = "NO_UPSTREAM"    // X3
 )
 
 // IsValid returns true for S-class states where transitions are permitted.

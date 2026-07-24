@@ -3,8 +3,8 @@ package security
 import (
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/analysis/evidence"
+	"github.com/PrPlanIT/StageFreight/src/vulnerability/severity"
 )
 
 // CountAtOrAbove returns how many of the scan's vulnerabilities are at or above

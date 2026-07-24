@@ -3,14 +3,14 @@ package config
 // BadgeConfig is the user-facing badge definition (narrate.badges[]).
 // Narrate patches reference badges by ID via kind: badge_ref.
 type BadgeConfig struct {
-	ID       string  `yaml:"id"`                  // stable user-defined ID for narrator reference
-	Text     string  `yaml:"text"`                // left side label
-	Value    string  `yaml:"value"`               // right side value (templates: {env:*}, {sha}, {base}, etc.)
-	Color    string  `yaml:"color"`               // hex color or "auto"
-	Output   string  `yaml:"output"`              // SVG output path (required)
-	Link     string  `yaml:"link,omitempty"`       // clickable URL
-	Font     string  `yaml:"font,omitempty"`       // font name override
-	FontSize int     `yaml:"font_size,omitempty"`  // font size override
+	ID       string `yaml:"id"`                  // stable user-defined ID for narrator reference
+	Text     string `yaml:"text"`                // left side label
+	Value    string `yaml:"value"`               // right side value (templates: {env:*}, {sha}, {base}, etc.)
+	Color    string `yaml:"color"`               // hex color or "auto"
+	Output   string `yaml:"output"`              // SVG output path (required)
+	Link     string `yaml:"link,omitempty"`      // clickable URL
+	Font     string `yaml:"font,omitempty"`      // font name override
+	FontSize int    `yaml:"font_size,omitempty"` // font size override
 }
 
 // ToBadgeSpec converts config to the internal badge engine model.

@@ -196,7 +196,7 @@ func TestResultsBuilderDeterministicOrder(t *testing.T) {
 				Kind: "docker", Name: "a",
 				Docker: &artifact.DockerDescriptor{Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"}},
 				Targets: []artifact.Target{{
-					Kind: "registry",
+					Kind:     "registry",
 					Registry: &artifact.RegistryTarget{Host: "docker.io", Path: "org/a", Tags: []string{"v1"}},
 				}},
 			},
@@ -204,7 +204,7 @@ func TestResultsBuilderDeterministicOrder(t *testing.T) {
 				Kind: "docker", Name: "b",
 				Docker: &artifact.DockerDescriptor{Dockerfile: "Dockerfile.b", Context: ".", Platforms: []string{"linux/amd64"}},
 				Targets: []artifact.Target{{
-					Kind: "registry",
+					Kind:     "registry",
 					Registry: &artifact.RegistryTarget{Host: "docker.io", Path: "org/b", Tags: []string{"v1"}},
 				}},
 			},

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/props"
+	"github.com/spf13/cobra"
 )
 
 var propsShowCmd = &cobra.Command{

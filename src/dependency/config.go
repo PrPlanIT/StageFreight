@@ -7,14 +7,14 @@ type UpdateConfig struct {
 	RootDir    string
 	OutputDir  string // default ".stagefreight/deps/" — overwrites existing artifacts
 	DryRun     bool
-	Bundle     bool      // generate .tgz
-	Verify     bool      // run tests after update (default true)
-	Vulncheck  bool      // run govulncheck after update (default true)
-	Ecosystems []string  // filter by ecosystem (empty = all)
-	Policy     string    // freshness SCOPE: "all" (default), "security"
-	MaxUpdate  string    // update-type CEILING: "major" | "minor" (default) | "patch"
+	Bundle     bool         // generate .tgz
+	Verify     bool         // run tests after update (default true)
+	Vulncheck  bool         // run govulncheck after update (default true)
+	Ecosystems []string     // filter by ecosystem (empty = all)
+	Policy     string       // freshness SCOPE: "all" (default), "security"
+	MaxUpdate  string       // update-type CEILING: "major" | "minor" (default) | "patch"
 	Ignore     []VulnIgnore // accepted-risk advisory suppressions (id/reason/until)
-	Writer     io.Writer // section-card output target (default os.Stderr); the deps progress card renders here
+	Writer     io.Writer    // section-card output target (default os.Stderr); the deps progress card renders here
 }
 
 // VulnIgnore is a single accepted-risk advisory suppression. Mirrors config's

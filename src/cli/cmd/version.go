@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/version"
+	"github.com/spf13/cobra"
 )
 
 var versionVerbose bool

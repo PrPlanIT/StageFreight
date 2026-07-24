@@ -38,7 +38,7 @@ func TestCollectMatchingReleaseTags(t *testing.T) {
 
 	t.Run("old line → paginates to it", func(t *testing.T) {
 		pages := [][]string{
-			repeatVer("1.30.0", 100),                   // full page, no match → continue
+			repeatVer("1.30.0", 100),                  // full page, no match → continue
 			append(repeatVer("1.29.0", 99), "1.26.7"), // match on page 2
 		}
 		fetched := 0

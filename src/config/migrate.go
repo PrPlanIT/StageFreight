@@ -10,7 +10,8 @@ import (
 // Returns the migrated YAML bytes ready for writing.
 //
 // Migration chain:
-//   version 1 → current (no-op, already latest)
+//
+//	version 1 → current (no-op, already latest)
 //
 // Future schema changes should add migration steps here (e.g., v1→v2).
 // The old pre-version config was an unversioned alpha that never earned a schema

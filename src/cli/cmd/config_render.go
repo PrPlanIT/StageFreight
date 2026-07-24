@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/governance"
+	"github.com/spf13/cobra"
 
 	"gopkg.in/yaml.v3"
 )

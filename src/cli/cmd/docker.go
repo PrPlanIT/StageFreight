@@ -5,11 +5,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/docker"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
+	"github.com/spf13/cobra"
 )
 
 var dockerCmd = &cobra.Command{

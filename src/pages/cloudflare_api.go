@@ -322,9 +322,11 @@ func (c *cfPagesClient) createDeployment(ctx context.Context, assets []cfAsset) 
 	raw, _ := io.ReadAll(resp.Body)
 
 	var env struct {
-		Success bool              `json:"success"`
-		Errors  []cfAPIError      `json:"errors"`
-		Result  struct{ URL string `json:"url"` } `json:"result"`
+		Success bool         `json:"success"`
+		Errors  []cfAPIError `json:"errors"`
+		Result  struct {
+			URL string `json:"url"`
+		} `json:"result"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return "", fmt.Errorf("cloudflare pages: create deployment: status %d: %s", resp.StatusCode, truncate(raw))

@@ -66,4 +66,3 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 	success = true
 	return nil
 }
-

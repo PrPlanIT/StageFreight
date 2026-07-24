@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/PrPlanIT/StageFreight/internal/docsgen"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/spf13/cobra"
 )
 
 var (

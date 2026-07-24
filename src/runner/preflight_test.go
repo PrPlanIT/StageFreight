@@ -195,7 +195,7 @@ func TestEvaluateHealth_CrucibleTighterThresholds(t *testing.T) {
 	facts := SubstrateFacts{
 		WorkdirReadable:      true,
 		StagefreightWritable: true,
-		DiskFreeMB:           3000,  // above 2048 (normal warn) but below 4096 (crucible warn)
+		DiskFreeMB:           3000, // above 2048 (normal warn) but below 4096 (crucible warn)
 		TmpFreeMB:            5000,
 		MemAvailableMB:       -1,
 		InodePctFree:         -1,

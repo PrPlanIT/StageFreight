@@ -120,10 +120,10 @@ func TestResolveCASTarget_NoHandleFallsBack(t *testing.T) {
 	_, digest := writeValidLayout(t, []byte("bytes"))
 	m := artifact.OutputsManifest{
 		Artifacts: []artifact.Artifact{{
-			Kind:   "docker",
-			Name:   "app",
-			Digest: digest, // digest present, but NO persistence handle
-			Docker: &artifact.DockerDescriptor{Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"}},
+			Kind:    "docker",
+			Name:    "app",
+			Digest:  digest, // digest present, but NO persistence handle
+			Docker:  &artifact.DockerDescriptor{Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"}},
 			Targets: []artifact.Target{{Kind: "registry", Registry: &artifact.RegistryTarget{Host: "docker.io", Path: "org/app", Tags: []string{"v1"}}}},
 		}},
 	}

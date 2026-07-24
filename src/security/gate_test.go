@@ -56,4 +56,3 @@ func TestCountAtOrAbove(t *testing.T) {
 		}
 	}
 }
-

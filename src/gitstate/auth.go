@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	sfxssh "github.com/PrPlanIT/StageFreight/src/ssh"
 )

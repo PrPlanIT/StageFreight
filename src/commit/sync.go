@@ -10,12 +10,12 @@ import (
 type SyncAction string
 
 const (
-	SyncSetUpstream SyncAction = "set-upstream"  // configure tracking branch on first push
-	SyncFetch       SyncAction = "fetch"          // fetch remote before rebase or fast-forward
-	SyncFastForward SyncAction = "fast-forward"   // merge --ff-only to catch up to upstream
-	SyncRebase      SyncAction = "rebase"         // rebase local commits onto upstream
-	SyncPush        SyncAction = "push"           // push to remote
-	SyncNoop        SyncAction = "noop"           // already up to date, nothing to do
+	SyncSetUpstream SyncAction = "set-upstream" // configure tracking branch on first push
+	SyncFetch       SyncAction = "fetch"        // fetch remote before rebase or fast-forward
+	SyncFastForward SyncAction = "fast-forward" // merge --ff-only to catch up to upstream
+	SyncRebase      SyncAction = "rebase"       // rebase local commits onto upstream
+	SyncPush        SyncAction = "push"         // push to remote
+	SyncNoop        SyncAction = "noop"         // already up to date, nothing to do
 )
 
 // SyncResult is the outcome of a push operation.

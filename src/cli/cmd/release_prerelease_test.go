@@ -17,10 +17,10 @@ func TestResolveMirrorPrerelease(t *testing.T) {
 	}
 
 	cases := []struct {
-		name    string
-		tag     string
-		body    string
-		want    bool
+		name string
+		tag  string
+		body string
+		want bool
 	}{
 		{"dev sha tag matches prerelease channel", "dev-046e872", "", true},
 		{"rolling alias matches prerelease channel", "latest-dev", "", true},

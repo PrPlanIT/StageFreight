@@ -20,8 +20,8 @@ type AppKey struct {
 // WorkloadIdentity records how an app's identity was resolved.
 // Frozen at discovery time — never recomputed during augmentation.
 type WorkloadIdentity struct {
-	Key    AppKey
-	Source string // "label/instance", "label/name", "helm", "ownerRef", "name"
+	Key     AppKey
+	Source  string // "label/instance", "label/name", "helm", "ownerRef", "name"
 	RootUID string // UID of the root owner (for collision detection)
 }
 
@@ -45,12 +45,12 @@ type AppRecord struct {
 	Components    []ComponentRef
 	WorkloadKinds []string // deduped: ["Deployment"], ["StatefulSet", "Deployment"] → ["Mixed"]
 	Images        []ImageRef
-	Version       string // resolved via strict precedence
-	Hosts    []string       // deduplicated, sorted hostnames from routes
-	Exposure ExposureResult // classified from exposure rules
-	Replicas      string // "ready/desired" format
+	Version       string         // resolved via strict precedence
+	Hosts         []string       // deduplicated, sorted hostnames from routes
+	Exposure      ExposureResult // classified from exposure rules
+	Replicas      string         // "ready/desired" format
 	Status        Status
-	Collision     bool   // true if identity was disambiguated via #shortUID
+	Collision     bool             // true if identity was disambiguated via #shortUID
 	Sources       []DeclaredSource // authoritative repo paths from Flux graph
 	HomepageURL   string
 	DocsURL       string

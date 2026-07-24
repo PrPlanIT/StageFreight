@@ -10,9 +10,9 @@ const shieldsBase = "https://img.shields.io/"
 // ShieldsResolver is a shared resolver for shields.io badge types.
 // PathTemplate and LinkTemplate use {param_name} placeholders.
 type ShieldsResolver struct {
-	PathTemplate string            // e.g. "docker/pulls/{image}"
-	LinkTemplate string            // e.g. "https://hub.docker.com/r/{image}"
-	DefaultLogo  string            // e.g. "docker"
+	PathTemplate string // e.g. "docker/pulls/{image}"
+	LinkTemplate string // e.g. "https://hub.docker.com/r/{image}"
+	DefaultLogo  string // e.g. "docker"
 	Params       []ParamSpec
 	Example      map[string]string
 }

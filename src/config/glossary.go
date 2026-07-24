@@ -21,11 +21,11 @@ type GlossaryType struct {
 
 // BreakingConfig defines how breaking changes are detected and presented.
 type BreakingConfig struct {
-	Aliases       []string `yaml:"aliases,omitempty"`   // e.g., [b, break, bc]
-	BangSuffix    bool     `yaml:"bang_suffix"`         // feat! syntax
-	FooterKeys    []string `yaml:"footer_keys"`         // e.g., ["BREAKING CHANGE"]
-	ForceHighlight bool    `yaml:"force_highlight"`
-	PriorityBoost int     `yaml:"priority_boost"`
+	Aliases        []string `yaml:"aliases,omitempty"` // e.g., [b, break, bc]
+	BangSuffix     bool     `yaml:"bang_suffix"`       // feat! syntax
+	FooterKeys     []string `yaml:"footer_keys"`       // e.g., ["BREAKING CHANGE"]
+	ForceHighlight bool     `yaml:"force_highlight"`
+	PriorityBoost  int      `yaml:"priority_boost"`
 }
 
 // FilterConfig defines sanitization rules for change summaries.

@@ -17,14 +17,14 @@ func TestIsEphemeral(t *testing.T) {
 		{".stagefreight/deps/report.json", true},
 		{".stagefreight/security/sbom.json", true},
 		{".stagefreight/dist/jetpack.tar.gz", true},
-		{".stagefreight/anything-new.json", true},  // inverted: unknown output → ephemeral by default
-		{".stagefreight/reportsX/y", true},         // not a durable entry → ephemeral (was false under enumerate)
-		{".stagefreight/badges/build.svg", false},  // durable carve-out
+		{".stagefreight/anything-new.json", true},   // inverted: unknown output → ephemeral by default
+		{".stagefreight/reportsX/y", true},          // not a durable entry → ephemeral (was false under enumerate)
+		{".stagefreight/badges/build.svg", false},   // durable carve-out
 		{".stagefreight/preset-cache/x.yml", false}, // durable carve-out
-		{".stagefreight/toolchains.lock", false},   // durable carve-out
-		{".stagefreight/.gitignore", false},        // managed, stays tracked
-		{"src/main.go", false},                     // user source — never
-		{"deps/x", false},                          // outside the namespace
+		{".stagefreight/toolchains.lock", false},    // durable carve-out
+		{".stagefreight/.gitignore", false},         // managed, stays tracked
+		{"src/main.go", false},                      // user source — never
+		{"deps/x", false},                           // outside the namespace
 	}
 	for _, c := range cases {
 		if got := IsEphemeral(c.path); got != c.want {

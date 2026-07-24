@@ -9,7 +9,7 @@ package evidence
 // Collapsing them would silently hide vulnerabilities we simply could not analyze.
 type ReachabilityEvidence struct {
 	State      ReachabilityState
-	Analyzer   string   // e.g. "govulncheck"
+	Analyzer   string // e.g. "govulncheck"
 	Confidence Confidence
 	Facts      []string // human-readable, e.g. "imported golang.org/x/crypto/ssh",
 	//                      "no call path to golang.org/x/crypto/openpgp"

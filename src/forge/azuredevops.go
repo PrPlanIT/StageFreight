@@ -188,9 +188,9 @@ func (a *AzureDevOpsForge) CommitFiles(ctx context.Context, opts CommitFilesOpti
 		ContentType string `json:"contentType"`
 	}
 	type change struct {
-		ChangeType  string   `json:"changeType"`
-		Item        item     `json:"item"`
-		NewContent  *content `json:"newContent,omitempty"`
+		ChangeType string   `json:"changeType"`
+		Item       item     `json:"item"`
+		NewContent *content `json:"newContent,omitempty"`
 	}
 
 	var changes []change

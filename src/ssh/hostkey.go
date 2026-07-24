@@ -53,8 +53,8 @@ func ResolveHostKeyCallback() (gossh.HostKeyCallback, error) {
 	}
 
 	return nil, fmt.Errorf(
-		"SSH known_hosts not found — set SSH_KNOWN_HOSTS_CONTENT (inline) or SSH_KNOWN_HOSTS (path); "+
-			"for local dev: add hosts with ssh-keyscan <host> >> ~/.ssh/known_hosts; "+
+		"SSH known_hosts not found — set SSH_KNOWN_HOSTS_CONTENT (inline) or SSH_KNOWN_HOSTS (path); " +
+			"for local dev: add hosts with ssh-keyscan <host> >> ~/.ssh/known_hosts; " +
 			"for containers: -e SSH_KNOWN_HOSTS_CONTENT=\"$(ssh-keyscan <host>)\"",
 	)
 }

@@ -58,8 +58,8 @@ func TestOutputsManifestAcceptsTargetlessDockerArtifact(t *testing.T) {
 func TestOutputsManifestRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	manifest := OutputsManifest{
-		Commit:   "30d3da2d",
-		Pipeline: &Pipeline{ID: "7847", Provider: "gitlab"},
+		Commit:    "30d3da2d",
+		Pipeline:  &Pipeline{ID: "7847", Provider: "gitlab"},
 		Artifacts: []Artifact{validDockerArtifact()},
 	}
 

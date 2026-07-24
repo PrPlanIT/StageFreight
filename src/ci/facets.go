@@ -7,10 +7,10 @@ import (
 // FacetDef defines a CI facet — a capability that may be active in a repo.
 // Predicates are deterministic: config presence only, no heuristics.
 type FacetDef struct {
-	Name      string                      // "build", "security", "gitops-reconcile", etc.
-	Subsystem string                      // what `ci run <x>` dispatches to
-	NeedsDinD bool                        // requires Docker-in-Docker transport
-	Predicate func(*config.Config) bool   // config-driven activation check
+	Name      string                    // "build", "security", "gitops-reconcile", etc.
+	Subsystem string                    // what `ci run <x>` dispatches to
+	NeedsDinD bool                      // requires Docker-in-Docker transport
+	Predicate func(*config.Config) bool // config-driven activation check
 }
 
 // ActiveFacet is a facet that passed its predicate.
@@ -110,4 +110,3 @@ func HasFacet(facets []ActiveFacet, name string) bool {
 	}
 	return false
 }
-

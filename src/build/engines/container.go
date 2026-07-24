@@ -28,9 +28,9 @@ import (
 // is a small convention (inferBuild) on top. node was first; elixir rides the same
 // rails at a fraction of the cost — which is the whole point.
 const (
-	EngineNode   = "binary-node"
-	EngineElixir = "binary-elixir"
-	EngineDotnet = "binary-dotnet"
+	EngineNode    = "binary-node"
+	EngineElixir  = "binary-elixir"
+	EngineDotnet  = "binary-dotnet"
 	EngineC       = "binary-c"
 	EnginePython  = "binary-python"
 	EngineJVM     = "binary-jvm"

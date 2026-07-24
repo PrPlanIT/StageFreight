@@ -66,7 +66,7 @@ type StackPlan struct {
 // DriftDetail provides structured drift information.
 type DriftDetail struct {
 	Detected bool   `json:"detected"`
-	Kind     string `json:"kind"`   // tier1 | tier2 | none | unknown
+	Kind     string `json:"kind"` // tier1 | tier2 | none | unknown
 	Reason   string `json:"reason"`
 }
 
