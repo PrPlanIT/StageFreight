@@ -16,6 +16,22 @@ func writeCfg(t *testing.T, body string) string {
 	return p
 }
 
+// TestBranchBuildsDefaultOrderFree: default is a named catch-all, valid at ANY
+// position (was: must be last). Here default is declared FIRST.
+func TestBranchBuildsDefaultOrderFree(t *testing.T) {
+	body := "version: 1\n" +
+		"git:\n" +
+		"  branches:\n    main: \"^main$\"\n" +
+		"  tags:\n    stable: { pattern: \"^v.*\" }\n" +
+		"  versioning:\n" +
+		"    branch_builds:\n" +
+		"      default: { base_from: [stable], format: \"{base}-dev\" }\n" +
+		"      release: { match: main, base_from: [stable], format: \"{base}\" }\n"
+	if _, _, err := LoadWithWarnings(writeCfg(t, body)); err != nil {
+		t.Fatalf("default-first branch_builds should validate (order-free): %v", err)
+	}
+}
+
 // TestTaggingRename: tag: → tagging: (hard break — the old key no longer parses).
 func TestTaggingRename(t *testing.T) {
 	if _, _, err := LoadWithWarnings(writeCfg(t, "version: 1\ntagging: {}\n")); err != nil {

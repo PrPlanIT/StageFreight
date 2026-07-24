@@ -40,9 +40,10 @@ type VersioningOpts struct {
 	// priority lives on branch rules, not here.
 	TagSources []TagSource
 
-	// BranchRules is the ordered list of branch-specific rules. First match
-	// wins in declaration order. The "default" id is the catch-all and
-	// must appear last (validation enforces).
+	// BranchRules is the list of branch-specific rules. Named rules match by
+	// branch; the "default" id is the catch-all fallback (IsDefault). Order-free —
+	// selectBranchRule returns default only when no named rule matched, regardless
+	// of default's position.
 	BranchRules []BranchRule
 
 	// NoLineageMode: "error" (default) or "explicit"
@@ -201,8 +202,11 @@ func DetectVersionWithOpts(rootDir string, opts *VersioningOpts) (*VersionInfo, 
 	// in a shallow CI clone, the no_lineage policy applies. Fetching tags
 	// requires auth and is deferred to a future improvement.
 
-	// Defensive warnings (never block a build).
-	emitTagSourceOverlapWarnings(tags, sourceRes)
+	// Tag patterns must be mutually exclusive — an ambiguous tag is a config error,
+	// not a silent first-match tiebreak.
+	if err := checkTagSourceExclusivity(tags, sourceRes); err != nil {
+		return nil, err
+	}
 	emitNonSemverOrderingWarnings(tags, sourceRes)
 
 	// CI fast path: if the CI system provides an exact tag, trust it — but
@@ -449,16 +453,12 @@ func splitLines(s string) []string {
 	return out
 }
 
-// emitTagSourceOverlapWarnings warns when a single tag matches multiple tag
-// sources. Intentional overlap is allowed (it enables base_from fallback
-// chains), but silent overlap causes surprising selection. Runtime sampling
-// against real git tags is the honest answer — regex intersection is
-// undecidable in general.
-//
-// Routes through diag.Warn, not raw os.Stderr — structured diagnostics flow
-// is the only warning channel for core engine code.
-func emitTagSourceOverlapWarnings(tags []string, sourceRes map[string]*regexp.Regexp) {
-	warned := make(map[string]bool)
+// checkTagSourceExclusivity enforces mutually-exclusive tag patterns: a tag must
+// match at most one tag_source. A tag matching 2+ sources is ambiguous — a config
+// error, not a silent first-match tiebreak. Runtime sampling against real git tags
+// is the honest enforcement point — regex intersection is undecidable in general,
+// so a static config-time check can't catch it.
+func checkTagSourceExclusivity(tags []string, sourceRes map[string]*regexp.Regexp) error {
 	for _, tag := range tags {
 		var hits []string
 		for id, re := range sourceRes {
@@ -468,14 +468,10 @@ func emitTagSourceOverlapWarnings(tags []string, sourceRes map[string]*regexp.Re
 		}
 		if len(hits) > 1 {
 			sort.Strings(hits)
-			key := strings.Join(hits, ",")
-			if !warned[key] {
-				warned[key] = true
-				diag.Warn("versioning: tag %q matches multiple tag_sources: %v (intentional overlap is OK; tighten patterns if unintended)",
-					tag, hits)
-			}
+			return fmt.Errorf("versioning: tag %q matches multiple tag_sources %v — tag patterns must be mutually exclusive (a tag matches at most one; tighten the patterns)", tag, hits)
 		}
 	}
+	return nil
 }
 
 // emitNonSemverOrderingWarnings warns when a tag source matches non-semver
@@ -516,4 +512,3 @@ func emitNonSemverOrderingWarnings(tags []string, sourceRes map[string]*regexp.R
 		}
 	}
 }
-

@@ -55,7 +55,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	branchBuildIDs := make(map[string]bool, len(cfg.Versioning.BranchBuilds))
 	matchToRuleID := make(map[string]string) // match → branch_build id (for duplicate detection)
 	hasDefault := false
-	defaultIndex := -1
 	for i, bb := range cfg.Versioning.BranchBuilds {
 		bbpath := fmt.Sprintf("versioning.branch_builds[%d]", i)
 		if bb.ID == "" {
@@ -69,7 +68,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 		if bb.ID == "default" {
 			hasDefault = true
-			defaultIndex = i
 			if bb.Match != "" {
 				errs = append(errs, fmt.Sprintf("%s: default entry must not have match (default catches unmatched branches)", bbpath))
 			}
@@ -108,12 +106,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
-	if len(cfg.Versioning.BranchBuilds) > 0 {
-		if !hasDefault {
-			errs = append(errs, "versioning.branch_builds: an entry with id 'default' is required (catch-all for unmatched branches)")
-		} else if defaultIndex != len(cfg.Versioning.BranchBuilds)-1 {
-			errs = append(errs, fmt.Sprintf("versioning.branch_builds: default entry must be last (found at index %d of %d)", defaultIndex, len(cfg.Versioning.BranchBuilds)))
-		}
+	// default is a NAMED catch-all (id "default"), order-free — the engine
+	// (selectBranchRule) falls back to it regardless of position, so there is no
+	// default-must-be-last requirement.
+	if len(cfg.Versioning.BranchBuilds) > 0 && !hasDefault {
+		errs = append(errs, "versioning.branch_builds: an entry with id 'default' is required (catch-all for unmatched branches)")
 	}
 
 	switch cfg.Versioning.NoLineage.Mode {
