@@ -4,7 +4,7 @@ import "fmt"
 
 func init() {
 	Register(Definition{
-		ID:          "go-report-card",
+		ID:          "goreportcard",
 		Format:      "badge",
 		Category:    "quality",
 		Description: "Go Report Card grade",

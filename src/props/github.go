@@ -137,6 +137,24 @@ func init() {
 	})
 
 	Register(Definition{
+		ID:          "github-prs-open",
+		Format:      "badge",
+		Category:    "github",
+		Description: "Open pull requests count",
+		Provider:    ProviderShields,
+		DefaultAlt:  "Open PRs",
+		Resolver: ShieldsResolver{
+			PathTemplate: "github/issues-pr/{repo}",
+			LinkTemplate: "https://github.com/{repo}/pulls",
+			DefaultLogo:  "",
+			Params: []ParamSpec{
+				{Name: "repo", Required: true, Help: "GitHub owner/name"},
+			},
+			Example: map[string]string{"repo": "prplanit/stagefreight"},
+		},
+	})
+
+	Register(Definition{
 		ID:          "github-last-commit",
 		Format:      "badge",
 		Category:    "github",
