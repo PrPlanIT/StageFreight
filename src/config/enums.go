@@ -33,9 +33,6 @@ func ValidEvents() []string { return sortedEnum(validEvents) }
 // ValidManifestModes returns the recognized manifest.mode values.
 func ValidManifestModes() []string { return sortedEnum(validManifestModes) }
 
-// ValidNarratorItemKinds returns the recognized narrate item kinds.
-func ValidNarratorItemKinds() []string { return sortedEnum(validNarratorItemKinds) }
-
 // ValidPlacementModes returns the recognized placement.mode values.
 func ValidPlacementModes() []string { return sortedEnum(validPlacementModes) }
 

@@ -50,16 +50,15 @@ var unionByType = map[string]kindBlock{
 			{"command", []string{"id", "kind", "image", "command", "env", "stage", "outputs"}},
 		},
 	},
-	"NarratorItem": {
-		typ: reflect.TypeOf(config.NarratorItem{}),
+	"ContentDef": {
+		typ: reflect.TypeOf(config.ContentDef{}),
 		kinds: []kindSpec{
-			{"badge", []string{"id", "kind", "text", "value", "color", "font", "font_size", "output", "link", "placement"}},
-			{"shield", []string{"id", "kind", "shield", "link", "placement"}},
-			{"text", []string{"id", "kind", "content", "placement"}},
-			{"component", []string{"id", "kind", "spec", "placement"}},
-			{"include", []string{"id", "kind", "path", "placement"}},
-			{"build-contents", []string{"id", "kind", "build", "source", "section", "renderer", "placement"}},
-			{"break", []string{"id", "kind", "placement"}},
+			{"badge", []string{"type", "render", "label", "message", "color", "font", "font_size", "output", "link", "logo", "logo_color", "label_color"}},
+			{"shield", []string{"type", "render", "shield", "link"}},
+			{"text", []string{"type", "content"}},
+			{"component", []string{"type", "spec"}},
+			{"include", []string{"type", "path"}},
+			{"contents", []string{"type", "build", "source", "section", "renderer", "columns", "output_file", "wrap", "summary", "style", "params"}},
 		},
 	},
 }

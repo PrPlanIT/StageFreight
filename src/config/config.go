@@ -76,10 +76,11 @@ type Config struct {
 	// Dependency holds configuration for the dependency update subsystem.
 	Dependency DependencyConfig `yaml:"dependency"`
 
-	// Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled;
-	// dissolves the old docs:/badges:/narrator: surface. Reference docs are a
-	// kind: command build committed via narrate.commit.builds, not a subsystem here.
-	Narrate NarrateConfig `yaml:"narrate"`
+	// Scribe generates content into files and commits it: content: (define-once
+	// defs) + files: (placement, item name-refs) + commit:. Presence-enabled. The
+	// old narrate: content surface (badges/patches). narrate: is reserved for the
+	// (deferred) run report.
+	Scribe ScribeConfig `yaml:"scribe"`
 
 	Test TestConfig `yaml:"test"`
 
@@ -177,29 +178,34 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		return nil, nil, nil, err
 	}
 
-	var rawMap map[string]any
-	if err := yaml.Unmarshal(data, &rawMap); err != nil {
+	// Parse into a yaml.Node (ORDER-PRESERVING — the same representation decodeIDMap
+	// consumes). Preset resolution and the re-encode both run on nodes, so keyed-map
+	// sections (scribe.content/files, publish, git.tags) keep document order; a
+	// map[string]any round-trip here would alphabetize them.
+	var rootNode yaml.Node
+	if err := yaml.Unmarshal(data, &rootNode); err != nil {
 		return nil, nil, nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
-	// Resolve presets on the raw map. ResolvePresets both applies preset:/presets:
+	// Resolve presets on the node. ResolvePresets both applies preset:/presets:
 	// composition AND records provenance entries for every section (the entries feed
 	// LoadWithReport, so it never resolves a second time). Same loader the reporter uses.
 	absPath, _ := filepath.Abs(path)
 	loader := localPresetLoader{baseDir: filepath.Dir(absPath)}
-	resolvedMap, entries, rerr := ResolvePresets(rawMap, loader, "local", absPath, 0, nil)
+	resolvedNode, entries, rerr := ResolvePresets(&rootNode, loader, "local", absPath, 0, nil)
 
-	// Decode the RESOLVED map only when presets actually composed something; a
-	// preset-free config decodes its ORIGINAL bytes verbatim (no map round-trip →
-	// zero behavior change). A resolution failure only breaks the config when presets
-	// are in play — a preset-free config loads regardless of any resolver hiccup.
-	hasPresets := mapHasPresetKey(rawMap)
+	// Decode the RESOLVED node only when presets actually composed something; a
+	// preset-free config decodes its ORIGINAL bytes verbatim (no round-trip → zero
+	// behavior change). Marshaling a *yaml.Node preserves key order (unlike a map),
+	// so the re-encode is lossless. A resolution failure only breaks the config when
+	// presets are in play — a preset-free config loads regardless of any resolver hiccup.
+	hasPresets := nodeHasPresetKey(&rootNode)
 	decodeData := data
 	if hasPresets {
 		if rerr != nil {
 			return nil, nil, nil, fmt.Errorf("resolving presets in %s: %w", path, rerr)
 		}
-		reenc, merr := yaml.Marshal(resolvedMap)
+		reenc, merr := yaml.Marshal(resolvedNode)
 		if merr != nil {
 			return nil, nil, nil, fmt.Errorf("re-encoding resolved %s: %w", path, merr)
 		}
@@ -238,27 +244,27 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	return cfg, warnings, entries, nil
 }
 
-// mapHasPresetKey reports whether a decoded config map carries any preset:/presets:
-// key at any depth — the cheap gate that keeps a preset-free config on its exact
-// original decode path (resolve for provenance still runs; only the decode source
-// stays the untouched bytes).
-func mapHasPresetKey(v any) bool {
-	switch t := v.(type) {
-	case map[string]any:
-		if _, ok := t["preset"]; ok {
-			return true
-		}
-		if _, ok := t["presets"]; ok {
-			return true
-		}
-		for _, vv := range t {
-			if mapHasPresetKey(vv) {
+// nodeHasPresetKey reports whether a config node carries any preset:/presets: key at
+// any depth — the cheap gate that keeps a preset-free config on its exact original
+// decode path (resolve for provenance still runs; only the decode source stays the
+// untouched bytes).
+func nodeHasPresetKey(n *yaml.Node) bool {
+	if n == nil {
+		return false
+	}
+	switch n.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, c := range n.Content {
+			if nodeHasPresetKey(c) {
 				return true
 			}
 		}
-	case []any:
-		for _, vv := range t {
-			if mapHasPresetKey(vv) {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if k := n.Content[i].Value; k == "preset" || k == "presets" {
+				return true
+			}
+			if nodeHasPresetKey(n.Content[i+1]) {
 				return true
 			}
 		}

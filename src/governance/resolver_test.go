@@ -2,7 +2,10 @@ package governance
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // fakeLoader is an in-memory preset loader for testing.
@@ -44,6 +47,69 @@ func requireTrue(t *testing.T, val bool, msg string) {
 	}
 }
 
+// toNode marshals a map fixture to YAML and back to a *yaml.Node, so semantic tests
+// keep readable map literals while exercising the node-based resolver. Key order is
+// not meaningful for these tests; the dedicated order test uses parseNode.
+func toNode(t *testing.T, m map[string]any) *yaml.Node {
+	t.Helper()
+	b, err := yaml.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	var n yaml.Node
+	if err := yaml.Unmarshal(b, &n); err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	return &n
+}
+
+// parseNode parses YAML text into a *yaml.Node, preserving document order.
+func parseNode(t *testing.T, text string) *yaml.Node {
+	t.Helper()
+	var n yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &n); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return &n
+}
+
+// decodeMap decodes a resolved node into a map for value assertions.
+func decodeMap(t *testing.T, n *yaml.Node) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := n.Decode(&m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return m
+}
+
+// nodeKeys returns the ordered keys of the mapping at a dotted path within a node.
+func nodeKeys(t *testing.T, n *yaml.Node, path string) []string {
+	t.Helper()
+	cur := n
+	if cur.Kind == yaml.DocumentNode && len(cur.Content) > 0 {
+		cur = cur.Content[0]
+	}
+	for _, seg := range strings.Split(path, ".") {
+		found := false
+		for i := 0; i+1 < len(cur.Content); i += 2 {
+			if cur.Content[i].Value == seg {
+				cur = cur.Content[i+1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("nodeKeys: path %q: segment %q not found", path, seg)
+		}
+	}
+	var ks []string
+	for i := 0; i+1 < len(cur.Content); i += 2 {
+		ks = append(ks, cur.Content[i].Value)
+	}
+	return ks
+}
+
 // --- Resolver Tests ---
 
 func TestResolvePresets_SimplePreset(t *testing.T) {
@@ -61,10 +127,10 @@ security:
 		},
 	}
 
-	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	resolved, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	sec := resolved["security"].(map[string]any)
+	sec := decodeMap(t, resolved)["security"].(map[string]any)
 	requireEqual(t, true, sec["enabled"], "security.enabled")
 	requireEqual(t, true, sec["sbom"], "security.sbom")
 }
@@ -85,10 +151,10 @@ security:
 		},
 	}
 
-	resolved, entries, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	resolved, entries, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	sec := resolved["security"].(map[string]any)
+	sec := decodeMap(t, resolved)["security"].(map[string]any)
 	requireEqual(t, false, sec["sbom"], "local override should win")
 
 	// Check that the preset entry for sbom was marked as overridden.
@@ -117,7 +183,7 @@ targets:
 		},
 	}
 
-	_, entries, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, entries, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
 	foundReplace := false
@@ -147,7 +213,7 @@ targets:
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err)
 }
 
@@ -167,7 +233,7 @@ badges:
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err) // must reject multi-key presets
 }
 
@@ -185,7 +251,7 @@ badges:
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err) // preset declares "badges" but imported into "targets"
 }
 
@@ -203,7 +269,7 @@ security:
 		},
 	}
 
-	_, entries, err := ResolvePresets(raw, loader, "PrPlanIT/MaintenancePolicy@v1.0.0", "inline", 0, nil)
+	_, entries, err := ResolvePresets(toNode(t, raw), loader, "PrPlanIT/MaintenancePolicy@v1.0.0", "inline", 0, nil)
 	requireNoError(t, err)
 
 	for _, e := range entries {
@@ -236,10 +302,10 @@ targets:
 		},
 	}
 
-	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	resolved, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	items := resolved["targets"].([]any)
+	items := decodeMap(t, resolved)["targets"].([]any)
 	requireEqual(t, 2, len(items), "expected 2 targets")
 	requireEqual(t, "alpha", items[0].(map[string]any)["id"], "first item should be alpha")
 	requireEqual(t, "beta", items[1].(map[string]any)["id"], "second item should be beta")
@@ -265,78 +331,10 @@ targets:
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err)
 	requireTrue(t, indexOf(err.Error(), "preset/a.yml") >= 0, "error should name first contributing preset")
 	requireTrue(t, indexOf(err.Error(), "preset/b.yml") >= 0, "error should name duplicate preset")
-}
-
-func TestResolvePresetList_NarratorTwoLevelMerge(t *testing.T) {
-	loader := fakeLoader{
-		"preset/narrator-a.yml": `
-narrator:
-  - file: README.md
-    items:
-      - id: badge.build
-        kind: badge_ref
-        ref: build
-`,
-		"preset/narrator-b.yml": `
-narrator:
-  - file: README.md
-    items:
-      - id: badge.license
-        kind: badge_ref
-        ref: license
-`,
-	}
-
-	raw := map[string]any{
-		"narrator": map[string]any{
-			"presets": []any{"preset/narrator-a.yml", "preset/narrator-b.yml"},
-		},
-	}
-
-	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
-	requireNoError(t, err)
-
-	narr := resolved["narrator"].([]any)
-	requireEqual(t, 1, len(narr), "same file should be merged into one entry")
-
-	entry := narr[0].(map[string]any)
-	requireEqual(t, "README.md", entry["file"], "file should be README.md")
-
-	items := entry["items"].([]any)
-	requireEqual(t, 2, len(items), "items from both presets should be merged")
-}
-
-func TestResolvePresetList_NarratorDuplicateItemID(t *testing.T) {
-	loader := fakeLoader{
-		"preset/narrator-a.yml": `
-narrator:
-  - file: README.md
-    items:
-      - id: badge.build
-        kind: badge_ref
-`,
-		"preset/narrator-b.yml": `
-narrator:
-  - file: README.md
-    items:
-      - id: badge.build
-        kind: badge_ref
-`,
-	}
-
-	raw := map[string]any{
-		"narrator": map[string]any{
-			"presets": []any{"preset/narrator-a.yml", "preset/narrator-b.yml"},
-		},
-	}
-
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
-	requireError(t, err)
-	requireTrue(t, indexOf(err.Error(), "badge.build") >= 0, "error should name the duplicate item id")
 }
 
 func TestResolvePresetList_LocalSiblingsAppend(t *testing.T) {
@@ -357,10 +355,10 @@ targets:
 		},
 	}
 
-	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	resolved, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	items := resolved["targets"].([]any)
+	items := decodeMap(t, resolved)["targets"].([]any)
 	requireEqual(t, 2, len(items), "expected preset item + inline item")
 	requireEqual(t, "preset-target", items[0].(map[string]any)["id"], "preset item first")
 	requireEqual(t, "inline-target", items[1].(map[string]any)["id"], "inline item appended after presets")
@@ -383,7 +381,7 @@ badges:
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err)
 	requireTrue(t, indexOf(err.Error(), "items") >= 0, "error should mention the missing navigation key")
 }
@@ -398,7 +396,7 @@ func TestResolvePresetList_PresetAndPresetsBothSet(t *testing.T) {
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err)
 }
 
@@ -411,7 +409,7 @@ func TestResolvePresetList_PresetsOnNonKeyedSection(t *testing.T) {
 		},
 	}
 
-	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireError(t, err)
 }
 
@@ -424,10 +422,10 @@ func TestResolvePresetList_EmptyList(t *testing.T) {
 		},
 	}
 
-	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	resolved, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	items, _ := resolved["targets"].([]any)
+	items, _ := decodeMap(t, resolved)["targets"].([]any)
 	requireEqual(t, 0, len(items), "empty presets should produce empty list")
 }
 
@@ -446,10 +444,10 @@ security:
 		},
 	}
 
-	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	resolved, _, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	sec := resolved["security"].(map[string]any)
+	sec := decodeMap(t, resolved)["security"].(map[string]any)
 	requireEqual(t, true, sec["enabled"], "backward compat: preset: form still works for enabled")
 	requireEqual(t, true, sec["sbom"], "backward compat: preset: form still works for sbom")
 }
@@ -474,7 +472,7 @@ targets:
 		},
 	}
 
-	_, entries, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	_, entries, err := ResolvePresets(toNode(t, raw), loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
 	alphaSource := ""
@@ -489,6 +487,41 @@ targets:
 	}
 	requireEqual(t, "preset:preset/targets-a.yml", alphaSource, "alpha should be tagged with targets-a.yml")
 	requireEqual(t, "preset:preset/targets-b.yml", betaSource, "beta should be tagged with targets-b.yml")
+}
+
+// --- scribe keyed-MAP preset composition (order-preserving) ---
+
+// TestResolvePresetMap_ScribeContentComposesInOrder proves the whole point of the
+// node-based resolver: scribe.content is a keyed MAP, and composing it from a preset +
+// inline entries keeps DOCUMENT ORDER (preset entries first, then inline) — a
+// map[string]any round-trip would alphabetize it.
+func TestResolvePresetMap_ScribeContentComposesInOrder(t *testing.T) {
+	loader := fakeLoader{
+		"preset/badges.yml": "scribe:\n  content:\n    build: { label: build }\n    license: { label: license }\n",
+	}
+	raw := parseNode(t, "scribe:\n  content:\n    presets: [preset/badges.yml]\n    release: { label: release }\n")
+
+	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	requireNoError(t, err)
+
+	got := nodeKeys(t, resolved, "scribe.content")
+	requireEqual(t, "[build license release]", fmt.Sprintf("%v", got),
+		"scribe.content must compose in document order (preset entries, then inline)")
+}
+
+// TestResolvePresetMap_ScribeContentDuplicateKeyFails covers the keyed-map dedup: two
+// presets contributing the same content id is a hard error (the map analogue of the
+// list duplicate-id guard).
+func TestResolvePresetMap_ScribeContentDuplicateKeyFails(t *testing.T) {
+	loader := fakeLoader{
+		"preset/a.yml": "scribe:\n  content:\n    build: { label: a }\n",
+		"preset/b.yml": "scribe:\n  content:\n    build: { label: b }\n",
+	}
+	raw := parseNode(t, "scribe:\n  content:\n    presets: [preset/a.yml, preset/b.yml]\n")
+
+	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
+	requireError(t, err)
+	requireTrue(t, indexOf(err.Error(), "build") >= 0, "error should name the duplicate content key")
 }
 
 // --- Renderer Tests ---

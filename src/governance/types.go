@@ -189,7 +189,7 @@ var CanonicalKeyOrder = []string{
 	"builds",
 	"targets",
 	"badges",
-	"narrator",
+	"scribe",
 	"lint",
 	"security",
 	"dependency",

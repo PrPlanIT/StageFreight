@@ -326,51 +326,33 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, werrs...)
 	}
 
-	// ── Narrate: badges ──────────────────────────────────────────────────
+	// ── Scribe: content + files ──────────────────────────────────────────
 
-	badgeIDs := make(map[string]bool)
-	for i, b := range cfg.Narrate.Badges {
-		bpath := fmt.Sprintf("narrate.badges[%d]", i)
-		if b.ID == "" {
-			errs = append(errs, fmt.Sprintf("%s: id is required", bpath))
-		} else if badgeIDs[b.ID] {
-			errs = append(errs, fmt.Sprintf("%s: duplicate badge id %q", bpath, b.ID))
-		} else {
-			badgeIDs[b.ID] = true
+	contentIDs := make(map[string]bool, len(cfg.Scribe.Content))
+	for i, c := range cfg.Scribe.Content {
+		cpath := fmt.Sprintf("scribe.content[%s]", c.ID)
+		if c.ID == "" {
+			errs = append(errs, fmt.Sprintf("scribe.content[%d]: id is required", i))
 		}
-		if b.Output == "" {
-			errs = append(errs, fmt.Sprintf("%s: output is required", bpath))
-		}
-		if b.Value == "" {
-			errs = append(errs, fmt.Sprintf("%s: value is required", bpath))
-		}
-		if b.Text == "" {
-			errs = append(errs, fmt.Sprintf("%s: text is required", bpath))
-		}
+		contentIDs[c.ID] = true
+		errs = append(errs, validateContentDef(c, cpath, buildIDs)...)
 	}
 
-	// ── Narrate: patches ─────────────────────────────────────────────────
-
-	for fi, f := range cfg.Narrate.Patches {
-		fpath := fmt.Sprintf("narrate.patches[%d]", fi)
-
+	for _, f := range cfg.Scribe.Files {
+		fpath := fmt.Sprintf("scribe.files[%s]", f.ID)
 		if f.File == "" {
 			errs = append(errs, fmt.Sprintf("%s: file is required", fpath))
 		}
-
-		itemIDs := make(map[string]bool)
-		for ii, item := range f.Items {
-			ipath := fmt.Sprintf("%s.items[%d]", fpath, ii)
-
-			if item.ID != "" {
-				if itemIDs[item.ID] {
-					errs = append(errs, fmt.Sprintf("%s: duplicate item id %q", ipath, item.ID))
-				}
-				itemIDs[item.ID] = true
+		if !validPlacementModes[f.Mode] {
+			errs = append(errs, fmt.Sprintf("%s: unknown mode %q", fpath, f.Mode))
+		}
+		for _, ref := range f.Items {
+			if ref == "br" {
+				continue
 			}
-
-			ierrs := validateNarratorItem(item, ipath, buildIDs)
-			errs = append(errs, ierrs...)
+			if !contentIDs[ref] {
+				errs = append(errs, fmt.Sprintf("%s: item %q not found in scribe.content", fpath, ref))
+			}
 		}
 	}
 
@@ -445,16 +427,16 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, "dependency.commit: promotion \"mr\" requires push to be true (no remote branch means no merge request)")
 	}
 
-	// ── Narrate: commit ──────────────────────────────────────────────────
+	// ── Scribe: commit ───────────────────────────────────────────────────
 
-	if cfg.Narrate.Commit.Type != "" {
+	if cfg.Scribe.Commit.Type != "" {
 		commitTypeKeyRe3 := regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-		if !commitTypeKeyRe3.MatchString(cfg.Narrate.Commit.Type) {
-			errs = append(errs, fmt.Sprintf("narrate.commit.type: %q must match ^[a-z][a-z0-9_-]*$", cfg.Narrate.Commit.Type))
+		if !commitTypeKeyRe3.MatchString(cfg.Scribe.Commit.Type) {
+			errs = append(errs, fmt.Sprintf("scribe.commit.type: %q must match ^[a-z][a-z0-9_-]*$", cfg.Scribe.Commit.Type))
 		}
 	}
-	for i, p := range cfg.Narrate.Commit.Add {
-		if pathErrs := validateOutputPath(p, fmt.Sprintf("narrate.commit.add[%d]", i)); len(pathErrs) > 0 {
+	for i, p := range cfg.Scribe.Commit.Add {
+		if pathErrs := validateOutputPath(p, fmt.Sprintf("scribe.commit.add[%d]", i)); len(pathErrs) > 0 {
 			errs = append(errs, pathErrs...)
 		}
 	}
@@ -870,117 +852,84 @@ func validateWhen(conditions WhenConditions, path string, tagSources []TagSource
 	return errs
 }
 
-// validateNarratorItem checks kind, placement, and field constraints for a narrator item.
-func validateNarratorItem(item NarratorItem, path string, buildIDs map[string]bool) []string {
+// validateContentDef checks type/render and field constraints for a scribe content def.
+func validateContentDef(c ContentDef, path string, buildIDs map[string]bool) []string {
 	var errs []string
 
-	// Kind validation
-	if item.Kind == "" {
-		errs = append(errs, fmt.Sprintf("%s: kind is required", path))
-		return errs
-	}
-	if !validNarratorItemKinds[item.Kind] {
-		kinds := make([]string, 0, len(validNarratorItemKinds))
-		for k := range validNarratorItemKinds {
-			kinds = append(kinds, k)
-		}
-		errs = append(errs, fmt.Sprintf("%s: unknown narrator item kind %q (supported: %s)", path, item.Kind, strings.Join(kinds, ", ")))
-		return errs
-	}
-
-	// Placement validation (break kind doesn't need placement,
-	// build-contents can use output_file instead — validated in kind-specific block)
-	if item.Kind != "break" && item.Kind != "build-contents" {
-		if !hasPlacementSelector(item.Placement) {
-			errs = append(errs, fmt.Sprintf("%s: placement requires at least one selector (between, after, before, or heading)", path))
+	// Fixed-form producers forbid render: — an ignored knob is a lie.
+	switch c.Type {
+	case "goreportcard", "go-reference":
+		if c.Render != "" {
+			errs = append(errs, fmt.Sprintf("%s: type %q has a fixed render form — remove render:", path, c.Type))
 		}
 	}
 
-	// Placement mode validation
-	if !validPlacementModes[item.Placement.Mode] {
-		errs = append(errs, fmt.Sprintf("%s: unknown placement mode %q", path, item.Placement.Mode))
-	}
-
-	// Kind-specific validation
-	switch item.Kind {
+	switch c.EffectiveKind() {
 	case "badge":
-		if item.Text == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind badge requires text (badge label)", path))
-		}
-		if item.Output != "" {
-			if pathErrs := validateOutputPath(item.Output, path); len(pathErrs) > 0 {
+		if c.Output != "" {
+			if pathErrs := validateOutputPath(c.Output, path); len(pathErrs) > 0 {
 				errs = append(errs, pathErrs...)
 			}
 		}
 
 	case "shield":
-		if item.Shield == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind shield requires shield (shields.io path)", path))
+		// Two forms: a raw shields.io path (shield:) or an inline composition
+		// (message: + verbs). One of the two is required.
+		if c.Shield == "" && c.Message == "" {
+			errs = append(errs, fmt.Sprintf("%s: render shield requires shield: (raw shields.io path) or message: (composed verbs)", path))
 		}
 
 	case "text":
-		if item.Content == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind text requires content", path))
+		if c.Content == "" {
+			errs = append(errs, fmt.Sprintf("%s: type text requires content", path))
 		}
 
 	case "component":
-		if item.Spec == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind component requires spec (component spec file path)", path))
+		if c.Spec == "" {
+			errs = append(errs, fmt.Sprintf("%s: type component requires spec (component spec file path)", path))
 		}
 
 	case "include":
-		if item.Path == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind include requires path (file path to include)", path))
+		if c.Path == "" {
+			errs = append(errs, fmt.Sprintf("%s: type include requires path (file path to include)", path))
 		}
 
 	case "props":
-		if item.Type == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind props requires type (props resolver type ID)", path))
+		if c.Type == "" {
+			errs = append(errs, fmt.Sprintf("%s: props content requires type (props resolver type ID)", path))
 		}
 
 	case "build-contents":
-		if item.Section == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires section (dot-path into manifest)", path))
+		if c.Section == "" {
+			errs = append(errs, fmt.Sprintf("%s: type contents requires section (dot-path into manifest)", path))
 		}
 		// Build ownership must be explicit, never inferred from build-list order.
-		// An explicit source path (its own manifest) sidesteps build selection.
-		if item.Build != "" {
-			if !buildIDs[item.Build] {
-				errs = append(errs, fmt.Sprintf("%s: build %q is not a configured build", path, item.Build))
+		if c.Build != "" {
+			if !buildIDs[c.Build] {
+				errs = append(errs, fmt.Sprintf("%s: build %q is not a configured build", path, c.Build))
 			}
-		} else if item.Source == "" && len(buildIDs) > 1 {
-			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires build (owning build id) when multiple builds are configured", path))
+		} else if c.Source == "" && len(buildIDs) > 1 {
+			errs = append(errs, fmt.Sprintf("%s: type contents requires build (owning build id) when multiple builds are configured", path))
 		}
-		if item.Renderer == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires renderer (table, list, or kv)", path))
-		} else if item.Renderer != "table" && item.Renderer != "list" && item.Renderer != "kv" && item.Renderer != "badges" && item.Renderer != "versions" {
-			errs = append(errs, fmt.Sprintf("%s: unknown renderer %q (supported: table, list, kv, badges, versions)", path, item.Renderer))
+		if c.Render == "" {
+			errs = append(errs, fmt.Sprintf("%s: type contents requires render (table, list, kv, badges, versions)", path))
+		} else if c.Render != "table" && c.Render != "list" && c.Render != "kv" && c.Render != "badges" && c.Render != "versions" {
+			errs = append(errs, fmt.Sprintf("%s: unknown render %q (supported: table, list, kv, badges, versions)", path, c.Render))
 		}
-		if item.OutputFile != "" {
-			if pathErrs := validateOutputPath(item.OutputFile, path+".output_file"); len(pathErrs) > 0 {
+		if c.OutputFile != "" {
+			if pathErrs := validateOutputPath(c.OutputFile, path+".output_file"); len(pathErrs) > 0 {
 				errs = append(errs, pathErrs...)
 			}
 		}
-		// Wrap validation
-		if item.Wrap != "" && item.Wrap != "details" {
-			errs = append(errs, fmt.Sprintf("%s: unknown wrap value %q (supported: details)", path, item.Wrap))
+		if c.Wrap != "" && c.Wrap != "details" {
+			errs = append(errs, fmt.Sprintf("%s: unknown wrap value %q (supported: details)", path, c.Wrap))
 		}
-		if item.Wrap == "details" && item.Summary == "" {
+		if c.Wrap == "details" && c.Summary == "" {
 			errs = append(errs, fmt.Sprintf("%s: summary is required when wrap=details", path))
-		}
-		// build-contents can work with either placement (section embedding) or output_file, or both
-		// but needs at least one destination
-		if !hasPlacementSelector(item.Placement) && item.OutputFile == "" {
-			errs = append(errs, fmt.Sprintf("%s: kind build-contents requires placement selector or output_file (at least one destination)", path))
 		}
 	}
 
 	return errs
-}
-
-// hasPlacementSelector returns true if at least one placement selector is set.
-func hasPlacementSelector(p NarratorPlacement) bool {
-	return (p.Between != [2]string{}) || p.After != "" || p.Before != "" || p.Heading != ""
 }
 
 // validateOutputPath checks that an output path is safe.

@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-func TestNarrateConfig_IsZero(t *testing.T) {
-	if !(NarrateConfig{}).IsZero() {
-		t.Error("empty NarrateConfig should be zero")
+func TestScribeConfig_IsZero(t *testing.T) {
+	if !(ScribeConfig{}).IsZero() {
+		t.Error("empty ScribeConfig should be zero")
 	}
-	if (NarrateConfig{Badges: []BadgeConfig{{ID: "x"}}}).IsZero() {
-		t.Error("NarrateConfig with badges is not zero")
+	if (ScribeConfig{Content: OrderedContent{{ID: "x"}}}).IsZero() {
+		t.Error("ScribeConfig with content is not zero")
 	}
-	if (NarrateConfig{Commit: NarrateCommitConfig{Message: "m"}}).IsZero() {
-		t.Error("NarrateConfig with a commit message is not zero")
+	if (ScribeConfig{Commit: ScribeCommit{Message: "m"}}).IsZero() {
+		t.Error("ScribeConfig with a commit message is not zero")
 	}
 }
 

@@ -9,25 +9,24 @@ import (
 // than one build is configured — ownership is explicit, never inferred from
 // build-list position. Single-build configs keep working without it.
 func TestValidateBuildContentsBuildOwnership(t *testing.T) {
-	base := NarratorItem{
-		Kind:      "build-contents",
-		Section:   "inventories.apk",
-		Renderer:  "badges",
-		Placement: NarratorPlacement{Between: [2]string{"<!--s-->", "<!--e-->"}},
+	base := ContentDef{
+		Type:    "contents",
+		Section: "inventories.apk",
+		Render:  "badges",
 	}
 	multi := map[string]bool{"docker": true, "binary": true}
 	single := map[string]bool{"docker": true}
 
 	cases := []struct {
 		name      string
-		mutate    func(NarratorItem) NarratorItem
+		mutate    func(ContentDef) ContentDef
 		builds    map[string]bool
 		wantErrIn string // "" means expect no errors
 	}{
 		{"multi/no-build is a config error", nil, multi, "requires build"},
-		{"multi/explicit valid build is ok", func(i NarratorItem) NarratorItem { i.Build = "docker"; return i }, multi, ""},
-		{"multi/unknown build is rejected", func(i NarratorItem) NarratorItem { i.Build = "nope"; return i }, multi, "not a configured build"},
-		{"multi/explicit source sidesteps build", func(i NarratorItem) NarratorItem { i.Source = "m.json"; return i }, multi, ""},
+		{"multi/explicit valid build is ok", func(c ContentDef) ContentDef { c.Build = "docker"; return c }, multi, ""},
+		{"multi/unknown build is rejected", func(c ContentDef) ContentDef { c.Build = "nope"; return c }, multi, "not a configured build"},
+		{"multi/explicit source sidesteps build", func(c ContentDef) ContentDef { c.Source = "m.json"; return c }, multi, ""},
 		{"single/no-build still ok (backward compat)", nil, single, ""},
 	}
 
@@ -37,7 +36,7 @@ func TestValidateBuildContentsBuildOwnership(t *testing.T) {
 			if tc.mutate != nil {
 				item = tc.mutate(item)
 			}
-			errs := validateNarratorItem(item, "narrator[0].items[0]", tc.builds)
+			errs := validateContentDef(item, "scribe.content[apk]", tc.builds)
 			if tc.wantErrIn == "" {
 				if len(errs) != 0 {
 					t.Fatalf("want no errors, got %v", errs)

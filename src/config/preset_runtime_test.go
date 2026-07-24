@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,6 +72,39 @@ func TestPresetSourceDecodes(t *testing.T) {
 	}
 	if cfg.PresetSource == nil || cfg.PresetSource.Ref != "abc123" {
 		t.Fatalf("preset_source not decoded: %+v", cfg.PresetSource)
+	}
+}
+
+// TestPresetPreservesScribeContentOrder is THE order-preservation guard for the
+// node-based resolver: a scribe.content map composed via a preset keeps DOCUMENT order
+// (zebra, apple, mango — deliberately non-alphabetical) end-to-end through the full
+// load path. A map[string]any round-trip would alphabetize it to [apple mango zebra].
+func TestPresetPreservesScribeContentOrder(t *testing.T) {
+	preset := "content:\n" +
+		"  zebra: { label: zebra, output: z.svg }\n" +
+		"  apple: { label: apple, output: a.svg }\n" +
+		"  mango: { label: mango, output: m.svg }\n"
+	cfg := "version: 1\n" +
+		"scribe:\n" +
+		"  content:\n" +
+		"    preset: ./badges.yml\n" +
+		"  files:\n" +
+		"    readme:\n" +
+		"      file: README.md\n" +
+		"      between: [\"<!-- s -->\", \"<!-- e -->\"]\n" +
+		"      items: [zebra, apple, mango]\n"
+
+	path := writePresetFixture(t, cfg, "badges.yml", preset)
+	loaded, _, err := LoadWithWarnings(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	var ids []string
+	for _, c := range loaded.Scribe.Content {
+		ids = append(ids, c.ID)
+	}
+	if got := fmt.Sprintf("%v", ids); got != "[zebra apple mango]" {
+		t.Fatalf("scribe.content order lost through preset: got %v, want [zebra apple mango]", ids)
 	}
 }
 
