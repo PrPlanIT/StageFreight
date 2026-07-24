@@ -1,4 +1,4 @@
-package narrator
+package render
 
 // TextModule renders literal markdown text.
 // Template variables ({version}, {env:VAR}, etc.) are resolved before rendering.

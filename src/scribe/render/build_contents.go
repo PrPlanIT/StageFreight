@@ -1,4 +1,4 @@
-package narrator
+package render
 
 import (
 	"fmt"
@@ -49,7 +49,7 @@ func (b BuildContentsModule) Render() string {
 		// No wrapping.
 	default:
 		// Unreachable with valid config. Refuse to render rather than silently degrade.
-		diag.Warn("narrator: BUG: unknown wrap value %q reached runtime (config validation should have rejected this)", b.Wrap)
+		diag.Warn("scribe: BUG: unknown wrap value %q reached runtime (config validation should have rejected this)", b.Wrap)
 		return ""
 	}
 

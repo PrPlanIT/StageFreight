@@ -21,7 +21,7 @@ var docsGenerateCmd = &cobra.Command{
 	Long: `Generate CLI and config reference documentation as markdown fragments.
 
 Output files are written to docs/modules/ and are designed to be assembled
-into reference pages via narrator's kind: include.
+into reference pages via scribe's kind: include.
 
 Generated files:
   docs/modules/cli-reference.md     — CLI command reference from Cobra tree

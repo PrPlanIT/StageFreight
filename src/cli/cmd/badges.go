@@ -1,8 +1,10 @@
 package cmd
 
+// Package-internal badge generation. The SVG artifacts are produced here and
+// referenced by scribe content (![…](…/build.svg)); `stagefreight scribe apply` and
+// the CI narrate stage both call RunConfigBadges. There is no standalone badge command.
 import (
 	"fmt"
-	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,51 +18,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
-	"github.com/spf13/cobra"
 )
-
-var (
-	bgLabel  string
-	bgValue  string
-	bgColor  string
-	bgStatus string
-	bgOutput string
-)
-
-var badgeGenerateCmd = &cobra.Command{
-	Use:   "generate [name...]",
-	Short: "Generate SVG badges from config or flags",
-	Long: `Generate SVG badges defined in narrator config items.
-
-Config-driven (no flags): generates all narrator badge items with output paths, or named items if specified.
-Ad-hoc (--label + --value): generates a single badge from flags.`,
-	RunE: runBadgeGenerate,
-}
-
-func init() {
-	badgeGenerateCmd.Flags().StringVar(&bgLabel, "label", "", "ad-hoc badge label (left side)")
-	badgeGenerateCmd.Flags().StringVar(&bgValue, "value", "", "ad-hoc badge value (right side)")
-	badgeGenerateCmd.Flags().StringVar(&bgColor, "color", "#4c1", "ad-hoc badge color (hex)")
-	cliflag.EnumVar(badgeGenerateCmd.Flags(), &bgStatus, "status", []string{"passed", "warning", "critical"}, "", "status-driven color")
-	badgeGenerateCmd.Flags().StringVar(&bgOutput, "output", ".stagefreight/badges/custom.svg", "output file path")
-
-	badgeCmd.AddCommand(badgeGenerateCmd)
-}
-
-func runBadgeGenerate(cmd *cobra.Command, args []string) error {
-	eng, err := buildDefaultBadgeEngine()
-	if err != nil {
-		return err
-	}
-
-	// Ad-hoc mode: --label and --value provided
-	if bgLabel != "" && bgValue != "" {
-		return generateAdHocBadge(eng)
-	}
-
-	// Config-driven mode
-	return generateConfigBadges(eng, args)
-}
 
 // buildDefaultBadgeEngine creates a badge engine with the default font (dejavu-sans 11pt).
 // Per-item font overrides are handled in buildItemEngine.
@@ -77,40 +35,8 @@ type badgeRow struct {
 	Color string
 }
 
-func generateAdHocBadge(eng *badge.Engine) error {
-	start := time.Now()
-	clr := bgColor
-	if bgStatus != "" {
-		clr = badge.StatusColor(bgStatus)
-	}
-
-	svg := eng.Generate(badge.Badge{
-		Label: bgLabel,
-		Value: bgValue,
-		Color: clr,
-	})
-
-	if err := os.MkdirAll(filepath.Dir(bgOutput), 0o755); err != nil {
-		return fmt.Errorf("creating badge directory: %w", err)
-	}
-	if err := os.WriteFile(bgOutput, []byte(svg), 0o644); err != nil {
-		return fmt.Errorf("writing badge: %w", err)
-	}
-
-	elapsed := time.Since(start)
-	useColor := output.UseColor()
-	w := os.Stdout
-
-	sec := output.NewSection(w, "Badges", elapsed, useColor)
-	sec.Row("%-16s%-24s %-8s %dpt  %s", bgLabel, bgOutput, "dejavu-sans", 11, clr)
-	sec.Separator()
-	sec.Row("1 generated")
-	sec.Close()
-	return nil
-}
-
-// RunConfigBadges generates SVG badges from narrator config items.
-// Extracted for reuse by both Cobra command and CI runners.
+// RunConfigBadges generates SVG badges from scribe config items. Called by
+// `stagefreight scribe apply` and the CI narrate stage.
 func RunConfigBadges(appCfg *config.Config, rootDir string, names []string, status string) error {
 	eng, err := buildDefaultBadgeEngine()
 	if err != nil {
@@ -119,52 +45,22 @@ func RunConfigBadges(appCfg *config.Config, rootDir string, names []string, stat
 	return generateConfigBadgesImpl(eng, appCfg, rootDir, names, status)
 }
 
-func generateConfigBadges(eng *badge.Engine, names []string) error {
-	rootDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
-	}
-	return generateConfigBadgesImpl(eng, cfg, rootDir, names, bgStatus)
-}
-
-// hasConfiguredBadges reports whether any badge items are declared (narrate.badges
-// or legacy narrator badge items with output. The docs/narrate phase defaults badges on,
-// but a project without badges (e.g. a static site) should SKIP generation, not fail.
-// Only the explicit `stagefreight badge generate` treats "none configured" as an error;
-// the automatic narrate path gates on this and skips when it returns false.
+// hasConfiguredBadges reports whether any scribe badge items (inline content with an
+// output path) are declared. A project without badges (e.g. a static site) SKIPS badge
+// generation rather than failing — scribe apply and the narrate stage gate on this.
 func hasConfiguredBadges(appCfg *config.Config) bool {
-	return len(appCfg.Narrate.Badges) > 0 || len(postbuild.CollectNarratorBadgeItems(appCfg)) > 0
+	return len(postbuild.CollectScribeBadgeItems(appCfg)) > 0
 }
 
 func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir string, names []string, status string) error {
 	start := time.Now()
 
-	// Collect badge items from both sources:
-	// 1. Top-level badges: config (new, preferred)
-	// 2. Narrator badge items with output (legacy, backward compat)
-	items := postbuild.CollectNarratorBadgeItems(appCfg)
-
-	// Add badges from top-level config (sorted by ID for deterministic generation).
-	if len(appCfg.Narrate.Badges) > 0 {
-		sorted := make([]config.BadgeConfig, len(appCfg.Narrate.Badges))
-		copy(sorted, appCfg.Narrate.Badges)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-		for _, b := range sorted {
-			items = append(items, config.NarratorItem{
-				ID:     b.ID,
-				Kind:   "badge",
-				Text:   b.Text,
-				Value:  b.Value,
-				Color:  b.Color,
-				Output: b.Output,
-				Link:   b.Link,
-				Font:   b.Font,
-			})
-		}
-	}
+	// All badge content defs (scribe.content entries that generate an SVG), in
+	// document order.
+	items := postbuild.CollectScribeBadgeItems(appCfg)
 
 	if len(items) == 0 {
-		return fmt.Errorf("no badge items configured (check badges: or narrator badge items)")
+		return fmt.Errorf("no badge items configured (scribe.content badges)")
 	}
 
 	// Filter to named items if specified
@@ -173,10 +69,10 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		for _, n := range names {
 			nameSet[n] = true
 		}
-		var filtered []config.NarratorItem
+		var filtered []config.ContentDef
 		for _, item := range items {
 			// Match by badge text (label) or ID
-			if nameSet[item.Text] || (item.ID != "" && nameSet[item.ID]) {
+			if nameSet[item.LabelOrID()] || (item.ID != "" && nameSet[item.ID]) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -246,7 +142,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		if spec.Font != "" || spec.FontFile != "" || spec.FontSize != 0 {
 			override, err := buildItemEngine(spec)
 			if err != nil {
-				return fmt.Errorf("loading font for badge %s: %w", item.Text, err)
+				return fmt.Errorf("loading font for badge %s: %w", item.ID, err)
 			}
 			itemEng = override
 		}
@@ -272,10 +168,10 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		})
 
 		if err := os.MkdirAll(filepath.Dir(spec.Output), 0o755); err != nil {
-			return fmt.Errorf("creating badge directory for %s: %w", item.Text, err)
+			return fmt.Errorf("creating badge directory for %s: %w", item.LabelOrID(), err)
 		}
 		if err := os.WriteFile(spec.Output, []byte(svg), 0o644); err != nil {
-			return fmt.Errorf("writing badge %s: %w", item.Text, err)
+			return fmt.Errorf("writing badge %s: %w", item.ID, err)
 		}
 		generated++
 
@@ -289,7 +185,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 			size = 11
 		}
 		rows = append(rows, badgeRow{
-			Name:  item.Text,
+			Name:  item.LabelOrID(),
 			Out:   spec.Output,
 			Font:  fontName,
 			Size:  size,

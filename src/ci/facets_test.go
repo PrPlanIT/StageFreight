@@ -24,11 +24,13 @@ func TestNarrateFacet_PresenceEmitsStage(t *testing.T) {
 	}
 
 	withNarrate := &config.Config{
-		Narrate: config.NarrateConfig{
-			Badges: []config.BadgeConfig{{ID: "build", Text: "build", Output: "b.svg"}},
+		Scribe: config.ScribeConfig{
+			Content: config.OrderedContent{
+				{ID: "build", Label: "build", Output: "b.svg"},
+			},
 		},
 	}
 	if !has(withNarrate) {
-		t.Error("narrate stage NOT emitted despite narrate.badges configured")
+		t.Error("narrate stage NOT emitted despite scribe.content configured")
 	}
 }

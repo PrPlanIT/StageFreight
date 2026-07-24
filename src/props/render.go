@@ -23,7 +23,7 @@ func ValidateVariant(v Variant) error {
 }
 
 // FormatMarkdown formats a resolved prop as inline markdown.
-// Used by both narrator PropsModule and `props render` CLI.
+// Used by both scribe PropsModule and `props render` CLI.
 // Returns empty string if ImageURL is empty.
 // Panics on unknown variant — callers must validate via ValidateVariant first.
 func FormatMarkdown(p ResolvedProp, variant Variant) string {

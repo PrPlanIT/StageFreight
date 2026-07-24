@@ -1,6 +1,6 @@
 // Package manifest defines the StageFreight manifest schema and deterministic
 // JSON serialization. The manifest is the normalized data bus between raw
-// evidence (Dockerfile, SBOM, scans) and rendering consumers (narrator, inspect, diff).
+// evidence (Dockerfile, SBOM, scans) and rendering consumers (scribe, inspect, diff).
 package manifest
 
 import (

@@ -39,7 +39,7 @@ Output modes:
 func init() {
 	componentDocsCmd.Flags().StringSliceVar(&cdSpecs, "spec", nil, "component spec file(s) to parse (repeatable)")
 	componentDocsCmd.Flags().StringVarP(&cdOutputFile, "output", "o", "", "write docs to file")
-	componentDocsCmd.Flags().StringVar(&cdReadme, "readme", "", "inject docs between <!-- sf:<name> --> markers in target file (section name from narrator config)")
+	componentDocsCmd.Flags().StringVar(&cdReadme, "readme", "", "inject docs between <!-- sf:<name> --> markers in target file (section name from scribe config)")
 
 	componentCmd.AddCommand(componentDocsCmd)
 }
@@ -83,10 +83,10 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 	// Generate markdown.
 	docs := component.GenerateDocs(specs)
 
-	// Resolve target and section name once from narrator config.
-	cfgTarget, cfgSection := resolveComponentTarget(cfg.Narrate.Patches)
+	// Resolve target and section name once from scribe config.
+	cfgTarget, cfgSection := resolveComponentTarget(cfg.Scribe.Files, cfg.Scribe.ContentByID())
 
-	// Resolve target file: --readme CLI flag → narrator config lookup
+	// Resolve target file: --readme CLI flag → scribe config lookup
 	target := cdReadme
 	if target == "" {
 		target = cfgTarget
@@ -111,7 +111,7 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 	if target != "" {
 		sectionName := cfgSection
 		if sectionName == "" {
-			return fmt.Errorf("cannot determine section name: no component item found in narrator config")
+			return fmt.Errorf("cannot determine section name: no component item found in scribe config")
 		}
 
 		existing, err := os.ReadFile(target)
@@ -158,26 +158,24 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolveComponentTarget walks narrator config to find the file path and
+// resolveComponentTarget walks scribe config to find the file path and
 // section name for the first component item.
 // In v2, the section name is derived from the placement between markers.
 // Returns ("", "") if not found.
-func resolveComponentTarget(narratorFiles []config.NarratorFile) (filePath, sectionName string) {
-	for _, f := range narratorFiles {
-		for _, item := range f.Items {
-			if item.Kind == "component" {
-				// Derive section name from between markers: ["<!-- sf:X:start -->", ...]
-				// Extract the section identifier from the start marker.
-				if item.Placement.Between != [2]string{} {
-					marker := item.Placement.Between[0]
-					// Parse "<!-- sf:NAME:start -->" to extract NAME
-					name := extractSectionName(marker)
-					if name != "" {
-						return f.File, name
-					}
-				}
-				return f.File, ""
+func resolveComponentTarget(files []config.FileDef, content map[string]config.ContentDef) (filePath, sectionName string) {
+	for _, f := range files {
+		for _, ref := range f.Items {
+			def, ok := content[ref]
+			if !ok || def.EffectiveKind() != "component" {
+				continue
 			}
+			// Derive section name from the region's between markers.
+			if f.Between != [2]string{} {
+				if name := extractSectionName(f.Between[0]); name != "" {
+					return f.File, name
+				}
+			}
+			return f.File, ""
 		}
 	}
 	return "", ""

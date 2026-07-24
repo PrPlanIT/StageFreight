@@ -15,11 +15,13 @@ func TestHasConfiguredBadges(t *testing.T) {
 	}
 
 	withBadges := &config.Config{
-		Narrate: config.NarrateConfig{
-			Badges: []config.BadgeConfig{{ID: "build", Text: "build", Output: ".stagefreight/badges/build.svg"}},
+		Scribe: config.ScribeConfig{
+			Content: config.OrderedContent{
+				{ID: "build", Label: "build", Output: ".stagefreight/badges/build.svg"},
+			},
 		},
 	}
 	if !hasConfiguredBadges(withBadges) {
-		t.Error("hasConfiguredBadges(with narrate.badges) = false, want true")
+		t.Error("hasConfiguredBadges(with scribe.content badges) = false, want true")
 	}
 }

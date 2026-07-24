@@ -25,17 +25,15 @@ import (
 type BadgeRunner func(w io.Writer, color bool, rootDir string) (string, time.Duration)
 
 // BadgeHook generates configured badges.
-// Condition: returns true only if narrator config has badge items.
+// Condition: returns true only if scribe config has badge items.
 // runner is required and non-nil by contract — every caller has a legitimate badge runner.
 func BadgeHook(appCfg *config.Config, runner BadgeRunner) pipeline.PostBuildHook {
 	return pipeline.PostBuildHook{
 		Name: "badges",
 		Condition: func(pc *pipeline.PipelineContext) bool {
-			for _, f := range appCfg.Narrate.Patches {
-				for _, item := range f.Items {
-					if item.HasGeneration() {
-						return true
-					}
+			for _, c := range appCfg.Scribe.Content {
+				if c.HasGeneration() {
+					return true
 				}
 			}
 			return false
@@ -66,7 +64,7 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 		return fmt.Sprintf("error: %v", err), elapsed
 	}
 
-	items := CollectNarratorBadgeItems(appCfg)
+	items := CollectScribeBadgeItems(appCfg)
 
 	// Detect version for template resolution
 	vi, _ := build.DetectVersion(rootDir, appCfg)
@@ -168,7 +166,7 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 		if badgeColor == "" {
 			badgeColor = "auto"
 		}
-		sec.Row("%-16s%-24s %-8s %.0fpt  %s", item.Text, spec.Output, fontName, size, badgeColor)
+		sec.Row("%-16s%-24s %-8s %.0fpt  %s", item.LabelOrID(), spec.Output, fontName, size, badgeColor)
 	}
 	sec.Close()
 	output.SectionEnd(w, "sf_badges")
@@ -177,14 +175,12 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 	return summary, elapsed
 }
 
-// CollectNarratorBadgeItems returns all narrator items with badge generation configured.
-func CollectNarratorBadgeItems(appCfg *config.Config) []config.NarratorItem {
-	var items []config.NarratorItem
-	for _, f := range appCfg.Narrate.Patches {
-		for _, item := range f.Items {
-			if item.HasGeneration() {
-				items = append(items, item)
-			}
+// CollectScribeBadgeItems returns all scribe content defs that generate a badge SVG.
+func CollectScribeBadgeItems(appCfg *config.Config) []config.ContentDef {
+	var items []config.ContentDef
+	for _, c := range appCfg.Scribe.Content {
+		if c.HasGeneration() {
+			items = append(items, c)
 		}
 	}
 	return items

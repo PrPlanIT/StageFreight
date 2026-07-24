@@ -20,8 +20,8 @@ func makePC() *pipeline.PipelineContext {
 	}
 }
 
-func TestBadgeHook_ConditionFalseWhenNoNarrator(t *testing.T) {
-	appCfg := &config.Config{} // empty narrator
+func TestBadgeHook_ConditionFalseWhenNoScribe(t *testing.T) {
+	appCfg := &config.Config{} // empty scribe
 	runner := func(w io.Writer, color bool, rootDir string) (string, time.Duration) {
 		return "0 generated", 0
 	}
@@ -29,7 +29,7 @@ func TestBadgeHook_ConditionFalseWhenNoNarrator(t *testing.T) {
 
 	pc := makePC()
 	if hook.Condition(pc) {
-		t.Error("BadgeHook.Condition = true with empty narrator config; want false")
+		t.Error("BadgeHook.Condition = true with empty scribe config; want false")
 	}
 }
 

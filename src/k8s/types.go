@@ -1,5 +1,5 @@
 // Package k8s provides Kubernetes cluster discovery for the k8s-inventory
-// narrator module. Discovers workloads, groups by app identity, augments
+// scribe k8s-inventory module. Discovers workloads, groups by app identity, augments
 // with routes/services, and classifies into tiers.
 //
 // Three layers (never collapse):

@@ -756,7 +756,7 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	}
 
 	// Presence-enabled: nothing configured for the narrate phase → nothing to do.
-	if appCfg.Narrate.IsZero() {
+	if appCfg.Scribe.IsZero() {
 		return nil
 	}
 
@@ -800,7 +800,7 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	}
 
 	// Producers: render badges from build metadata (presence-enabled — narrate.badges
-	// or narrator-inline badge items).
+	// or scribe-inline badge items).
 	if hasConfiguredBadges(appCfg) {
 		if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
 			return fmt.Errorf("narrate (badges): %w", err)
@@ -808,16 +808,16 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	}
 
 	// Transform: apply marked-region patches to files (presence-enabled).
-	if len(appCfg.Narrate.Patches) > 0 {
-		if err := RunNarrator(appCfg, rootDir, false, opts.Verbose); err != nil {
-			return fmt.Errorf("narrate (patches): %w", err)
+	if len(appCfg.Scribe.Files) > 0 {
+		if err := RunScribe(appCfg, rootDir, false, opts.Verbose); err != nil {
+			return fmt.Errorf("scribe (patches): %w", err)
 		}
 	}
 
 	// Sink: commit the materialized trees, rendered badges, and patched files.
 	// Gated by run_from. GitLab CI detached-HEAD is handled by the planner's refspecs.
-	if !appCfg.Narrate.Commit.IsZero() {
-		rfResult := config.EvaluateRunFrom(appCfg.Narrate.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
+	if !appCfg.Scribe.Commit.IsZero() {
+		rfResult := config.EvaluateRunFrom(appCfg.Scribe.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 		switch {
 		case !rfResult.Matched && rfResult.Mode == "exit":
 			fmt.Fprintf(os.Stderr, "  narrate commit: blocked (%s)\n", rfResult.Reason)
@@ -825,11 +825,11 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 			fmt.Fprintf(os.Stderr, "  narrate commit: read-only (%s)\n", rfResult.Reason)
 		default: // matched or ignore
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
-				Type:    appCfg.Narrate.Commit.Type,
-				Message: appCfg.Narrate.Commit.Message,
-				Paths:   appCfg.Narrate.Commit.Add,
+				Type:    appCfg.Scribe.Commit.Type,
+				Message: appCfg.Scribe.Commit.Message,
+				Paths:   appCfg.Scribe.Commit.Add,
 				Origin:  config.OriginNarrate,
-				Push:    boolPtr(appCfg.Narrate.Commit.Push),
+				Push:    boolPtr(appCfg.Scribe.Commit.Push),
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: narrate auto-commit failed: %v\n", err)
 			}
@@ -849,7 +849,7 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 func isDocsAutoCommit(appCfg *config.Config, ciCtx *ci.CIContext) bool {
 	workspace := resolveWorkspace(ciCtx)
 	body := gitCommitBody(workspace, "HEAD")
-	return hasTrailer(body, "Cue", "docs/narrator")
+	return hasTrailer(body, "Cue", "docs/scribe")
 }
 
 func gitCommitBody(repoDir, _ string) string {

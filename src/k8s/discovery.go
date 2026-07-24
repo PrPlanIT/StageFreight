@@ -24,7 +24,7 @@ const (
 	labelName         = "app.kubernetes.io/name"
 	labelVersion      = "app.kubernetes.io/version"
 	labelHelmChart    = "helm.sh/chart"
-	labelTierOverride = "narrator.stagefreight.io/tier"
+	labelTierOverride = "scribe.stagefreight.io/tier"
 )
 
 // Discover queries the live cluster and returns a complete DiscoveryResult.

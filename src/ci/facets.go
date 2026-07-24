@@ -70,8 +70,8 @@ var FacetRegistry = []FacetDef{
 		Subsystem: "docs",
 		NeedsDinD: false,
 		// Presence-enabled: the narrate stage emits when anything is configured
-		// (badges, patches, or a commit) — no toggle.
-		Predicate: func(c *config.Config) bool { return !c.Narrate.IsZero() },
+		// (content, files, or a commit) — no toggle.
+		Predicate: func(c *config.Config) bool { return !c.Scribe.IsZero() },
 	},
 }
 

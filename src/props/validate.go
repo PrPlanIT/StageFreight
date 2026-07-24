@@ -57,7 +57,7 @@ func ValidateParams(def Definition, params map[string]string) error {
 	return nil
 }
 
-// ResolveDefinition is the single safe entry point for narrator and CLI.
+// ResolveDefinition is the single safe entry point for scribe and CLI.
 //  1. ValidateParams
 //  2. Resolver.Resolve(params, opts)
 //  3. Sanity-check output (no unresolved {placeholder} tokens)

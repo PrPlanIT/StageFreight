@@ -15,8 +15,8 @@ type ResolvedProp struct {
 	Alt      string // human-readable, e.g. "Docker Pulls", "Go Report Card"
 }
 
-// RenderOptions are presentation overrides supplied by narrator items.
-// Assembled from narrator fields (label, link, style, logo) before resolution.
+// RenderOptions are presentation overrides supplied by scribe items.
+// Assembled from scribe fields (label, link, style, logo) before resolution.
 type RenderOptions struct {
 	Label   string  // override Alt text
 	Link    string  // override LinkURL

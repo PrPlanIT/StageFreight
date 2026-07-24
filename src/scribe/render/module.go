@@ -1,14 +1,14 @@
-// Package narrator composes modules into managed README sections.
+// Package render composes scribe modules into managed README sections.
 //
 // Modules are pluggable content producers (badges, shields, text, etc.)
-// that render to inline markdown. The narrator orchestrates them into rows
+// that render to inline markdown. The composer orchestrates them into rows
 // with layout control, then the result gets injected into <!-- sf:<name> -->
 // sections via the section primitives.
 //
 // Items within a row are space-joined (inline).
 // Rows are blank-line-separated (markdown paragraph breaks).
 // Break modules force a new row.
-package narrator
+package render
 
 import "strings"
 

@@ -1,4 +1,4 @@
-package narrator
+package render
 
 import "github.com/PrPlanIT/StageFreight/src/props"
 
