@@ -296,7 +296,7 @@ commit:
 test:
   enabled: true
   suites:
-    - id: unit
+    unit:
       tool: go
       packages: [./...]
       race: true

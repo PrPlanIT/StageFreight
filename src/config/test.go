@@ -79,10 +79,10 @@ func (s TestSuite) EffectiveGate() Gate {
 // suites are declared, a default suite is synthesized per builder from build
 // metadata (unless Auto is explicitly false).
 type TestConfig struct {
-	Preset  string      `yaml:"preset,omitempty"`
-	Enabled bool        `yaml:"enabled"`
-	Auto    *bool       `yaml:"auto,omitempty"` // nil ⇒ true
-	Suites  []TestSuite `yaml:"suites,omitempty"`
+	Preset  string            `yaml:"preset,omitempty"`
+	Enabled bool              `yaml:"enabled"`
+	Auto    *bool             `yaml:"auto,omitempty"` // nil ⇒ true
+	Suites  OrderedTestSuites `yaml:"suites,omitempty"`
 }
 
 // DefaultTestConfig is auto-on with no declared suites (synthesis derives the

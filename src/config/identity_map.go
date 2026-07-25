@@ -94,6 +94,20 @@ func (o *OrderedBuilds) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// OrderedTestSuites is the test.suites: block — an id→suite map (key becomes
+// TestSuite.ID). The ONLY accepted shape; the retired list form is rejected at
+// decode ("must be an id → entry map").
+type OrderedTestSuites []TestSuite
+
+func (o *OrderedTestSuites) UnmarshalYAML(n *yaml.Node) error {
+	v, err := decodeIDMap(n, func(s *TestSuite, id string) { s.ID = id })
+	if err != nil {
+		return fmt.Errorf("test.suites: %w", err)
+	}
+	*o = v
+	return nil
+}
+
 // OrderedSigningProfiles is signing.profiles — an id→profile map (key becomes
 // SigningProfile.ID).
 type OrderedSigningProfiles []SigningProfile
