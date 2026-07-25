@@ -219,7 +219,7 @@ func resolveGovernanceSourceFromOpts(opts GovernanceReconcileOpts) (governance.G
 	source.Path = opts.Path
 
 	// Layer 2: CI context — infer from caller-provided CI state.
-	if opts.CICtx != nil && opts.CICtx.IsCI() && opts.Config != nil && opts.Config.Lifecycle.Mode == "governance" {
+	if opts.CICtx != nil && opts.CICtx.IsCI() && opts.Config != nil && opts.Config.Mode().Name == config.ModeGovernance {
 		if source.RepoURL == "" {
 			source.RepoURL = opts.CICtx.RepoURL
 		}

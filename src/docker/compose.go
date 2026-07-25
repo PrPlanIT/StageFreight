@@ -182,7 +182,7 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 
 	// Orphan detection: find compose projects running but not in IaC.
 	// Gated by repository trust — never destroy from absence without proof.
-	trust := EvaluateTrust(rctx.RepoRoot, dcfg.IaC.Path, cfg.Lifecycle.Mode)
+	trust := EvaluateTrust(rctx.RepoRoot, dcfg.IaC.Path, cfg.Mode().Name)
 	trust.MarkScanResult(err == nil, len(stacks))
 	trust.MarkDeclaredTargets(len(c.targets) > 0)
 

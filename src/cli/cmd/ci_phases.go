@@ -123,11 +123,10 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 	// The correctness gate (tests) runs INSIDE each mode runner — after lint, before
 	// any dependency mutation — so tests validate the COMMITTED tree first, and deps
 	// re-verifies its own mutation (see depsRunner). Covers image and gitops.
-	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
-	switch mode {
-	case "gitops", "governance":
+	switch {
+	case appCfg.Mode().PhaseReconcile: // gitops/governance reconcile
 		return validateRunner(ctx, appCfg, ciCtx, opts)
-	default: // "image" or "" — image is the default
+	default: // image (build); docker reconciles via CLI, not here
 		return depsRunner(ctx, appCfg, ciCtx, opts)
 	}
 }
@@ -159,9 +158,8 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {
 		return err
 	}
-	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
-	switch mode {
-	case "gitops", "governance":
+	switch {
+	case appCfg.Mode().PhaseReconcile:
 		// Reconcile binds to ACCEPTED state — a commit on the default branch, the
 		// desired cluster state the controller converges to. Proposed intent (a
 		// merge request, feature branch, or tag) must not be enacted; audition has
@@ -219,10 +217,9 @@ func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIC
 	if err := assertAuditionRan(rootDir, "review"); err != nil {
 		return err
 	}
-	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
-	switch mode {
-	case "gitops", "governance":
-		return phaseNotApplicable(rootDir, "review", mode)
+	switch m := appCfg.Mode(); {
+	case m.PhaseReconcile:
+		return phaseNotApplicable(rootDir, "review", m.Name)
 	default:
 		return securityRunner(ctx, appCfg, ciCtx, opts)
 	}
@@ -236,10 +233,9 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "publish"); err != nil {
 		return err
 	}
-	mode := strings.ToLower(strings.TrimSpace(appCfg.Lifecycle.Mode))
-	switch mode {
-	case "gitops", "governance":
-		return phaseNotApplicable(rootDir, "publish", mode)
+	switch m := appCfg.Mode(); {
+	case m.PhaseReconcile:
+		return phaseNotApplicable(rootDir, "publish", m.Name)
 	default:
 		// Authorization gate: publish externalizes irreversibly, so it must not
 		// act unless the build produced the bytes AND review evaluated them. Read

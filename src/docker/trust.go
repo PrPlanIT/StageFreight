@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
@@ -36,7 +37,7 @@ func EvaluateTrust(rootDir, iacPath, expectedMode string) DiscoveryTrust {
 	}
 
 	// 4. Lifecycle mode matches
-	if expectedMode == "docker" {
+	if expectedMode == config.ModeDocker {
 		// Caller should verify this from config, we trust the assertion
 	} else if expectedMode != "" {
 		trust.Reasons = append(trust.Reasons, ReasonLifecycleMismatch)

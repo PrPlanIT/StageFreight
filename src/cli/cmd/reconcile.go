@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/docker"
 	_ "github.com/PrPlanIT/StageFreight/src/docker" // register compose backend
 	_ "github.com/PrPlanIT/StageFreight/src/gitops" // register flux backend
@@ -77,10 +78,10 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	// (reconcileRunner sets it); no-op for a bare CLI reconcile with no ledger.
 	provision.StageBox(cmd.Context(), w, color)
 
-	switch mode {
-	case "gitops":
+	switch cfg.Mode().Name {
+	case config.ModeGitops:
 		renderGitopsPlan(w, plan, result, rctx.DryRun, elapsed, color)
-	case "docker":
+	case config.ModeDocker:
 		if rctx.DryRun || result == nil {
 			docker.RenderPlan(w, plan, elapsed, color)
 		} else {

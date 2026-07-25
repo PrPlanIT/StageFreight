@@ -66,19 +66,20 @@ func RunLifecycle(ctx context.Context, cfg *config.Config, rctx *RuntimeContext)
 	if mode == "" {
 		return phaseError(PhaseResolve, "", fmt.Errorf("lifecycle.mode not set in config"))
 	}
-
-	// Resolve backend name from mode-specific config.
-	var backendName string
-	switch mode {
-	case "gitops":
-		backendName = cfg.GitOps.Backend
-	case "docker":
-		backendName = cfg.Docker.Backend
-	default:
-		backendName = "" // let ResolveBackend fail with appropriate error
+	lm, ok := config.LookupMode(mode)
+	if !ok {
+		return phaseError(PhaseResolve, "", fmt.Errorf("unknown lifecycle.mode %q", mode))
 	}
 
-	backend, err := ResolveBackend(mode, backendName)
+	// Resolve the backend name from the canonical mode table (single source of truth):
+	// gitops→GitOps.Backend, docker→Docker.Backend. image/governance have no RunLifecycle
+	// backend (Backend nil) → empty name → ResolveBackend fails with the right error.
+	var backendName string
+	if lm.Backend != nil {
+		backendName = lm.Backend(cfg)
+	}
+
+	backend, err := ResolveBackend(lm.Name, backendName)
 	if err != nil {
 		return phaseError(PhaseResolve, backendName, err)
 	}

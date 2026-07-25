@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/docker"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
@@ -43,7 +44,7 @@ func runDockerDrift(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	if cfg.Lifecycle.Mode != "docker" {
+	if cfg.Mode().Name != config.ModeDocker {
 		return fmt.Errorf("lifecycle.mode is %q, not docker", cfg.Lifecycle.Mode)
 	}
 

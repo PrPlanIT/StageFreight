@@ -1,5 +1,23 @@
 # Lifecycle mode — validation (A) + mode-table consolidation (B)
 
+> ## STATUS — SHIPPED (A + B, corrected)
+> The final implementation differs from the original (A)/(B) split below in two ways the
+> review forced:
+> - **Validation = mode ALLOWLIST only.** The per-mode "legal-block matrix" was **removed as
+>   overreach**: the phases run for every mode and an off-mode block is *inert* (perform
+>   reconciles, publish is not-applicable), so gating `builds:`/`publish:`/`governance:` would
+>   bake in single-mode exclusivity and reject legitimate/future multi-mode configs. The only
+>   check is: unknown `lifecycle.mode` → error (closes the typo→silent-build footgun).
+> - **One source of truth: `src/config/mode.go`.** `ModeImage/Gitops/Docker/Governance` consts
+>   + the `lifecycleModes` table (`PhaseReconcile`, `Backend`) + `LookupMode`/`Config.Mode()`.
+>   The validator and **every** dispatch site read it — the 4 `ci_phases` switches, `RunLifecycle`,
+>   `capability.go`, `reconcile.go`, `docker.go`, `governance_reconcile.go`, `trust.go` — replacing
+>   the scattered `case "gitops","governance"` literals. Behavior-preserving: `ci render gitlab`
+>   is byte-identical; SF loads; full suite + a table-equivalence test green.
+>
+> The analysis below is the original pre-implementation design, kept for the reasoning. Read
+> the STATUS box for what actually landed.
+>
 > Pre-implementation design. **(A)** is a safe, additive, `validate.go`-only change that
 > closes the silent-typo footgun and adds per-mode block legality. **(B)** is a
 > behavior-preserving refactor that collapses the scattered mode-dispatch into one table.

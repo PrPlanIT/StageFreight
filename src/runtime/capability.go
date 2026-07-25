@@ -37,15 +37,15 @@ func DeriveRequired(cfg *config.Config, rctx *RuntimeContext) []Capability {
 	// All backends must support plan/execute separation.
 	required = append(required, CapPlanExecute)
 
-	// Mode-specific requirements.
-	switch cfg.Lifecycle.Mode {
-	case "gitops":
+	// Mode-specific requirements (canonical mode names from the config mode table).
+	switch cfg.Mode().Name {
+	case config.ModeGitops:
 		required = append(required, CapReconcile)
 		required = append(required, CapImpactAnalysis)
 		if cfg.GitOps.Cluster.Name != "" {
 			required = append(required, CapClusterAuth)
 		}
-	case "docker":
+	case config.ModeDocker:
 		required = append(required, CapReconcile)
 	}
 
