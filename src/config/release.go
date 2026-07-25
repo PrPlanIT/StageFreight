@@ -1,15 +1,15 @@
 package config
 
-import "github.com/PrPlanIT/StageFreight/src/paths"
-
 // ReleaseConfig holds configuration for the release subsystem.
 type ReleaseConfig struct {
-	Preset          string `yaml:"preset,omitempty"`
-	Enabled         bool   `yaml:"enabled"`
-	Required        *bool  `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
-	SecuritySummary string `yaml:"security_summary"`
-	RegistryLinks   bool   `yaml:"registry_links"`
-	CatalogLinks    bool   `yaml:"catalog_links"`
+	Preset  string `yaml:"preset,omitempty"`
+	Enabled bool   `yaml:"enabled"`
+	Required *bool `yaml:"required,omitempty"` // failure is hard pipeline fail (default: false)
+	// SecuritySummary attaches the security summary to the release. The summary's
+	// location is security.output — this is a yes/no toggle, not a path.
+	SecuritySummary bool `yaml:"security_summary"`
+	RegistryLinks   bool `yaml:"registry_links"`
+	CatalogLinks    bool `yaml:"catalog_links"`
 	// Render controls release rendering (default DefaultReleasePresentation; a
 	// partial render: block overlays those defaults).
 	Render  ReleasePresentation `yaml:"render,omitempty"`
@@ -28,7 +28,7 @@ func (r ReleaseConfig) IsRequired() bool {
 func DefaultReleaseConfig() ReleaseConfig {
 	return ReleaseConfig{
 		Enabled:         true,
-		SecuritySummary: paths.Ephemeral("", "security"),
+		SecuritySummary: true,
 		RegistryLinks:   true,
 		CatalogLinks:    true,
 		Render:          DefaultReleasePresentation(),

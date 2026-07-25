@@ -540,7 +540,7 @@ lint:
 
 release:
   enabled: true
-  security_summary: ".stagefreight/security"
+  security_summary: true
   registry_links: true
 
 security:

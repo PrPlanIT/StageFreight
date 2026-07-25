@@ -473,12 +473,8 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	}
 
 	// ── Release ──────────────────────────────────────────────────────────
-
-	if cfg.Release.SecuritySummary != "" {
-		if pathErrs := validateOutputPath(cfg.Release.SecuritySummary, "release.security_summary"); len(pathErrs) > 0 {
-			errs = append(errs, pathErrs...)
-		}
-	}
+	// release.security_summary is a bool (attach yes/no); its location is security.output,
+	// validated there — nothing to validate here.
 
 	// ── Duration/Size unit validation ───────────────────────────────────
 	// Reject invalid values at load time, not at consumption time.

@@ -999,7 +999,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		Config:          appCfg,
 		Tag:             tag,
 		Ref:             ciCtx.SHA, // mint a synthesized channel tag at the build commit
-		SecuritySummary: appCfg.Release.SecuritySummary,
+		SecuritySummary: securitySummaryDir(appCfg),
 		RegistryLinks:   appCfg.Release.RegistryLinks,
 		CatalogLinks:    appCfg.Release.CatalogLinks,
 		ReadOnly:        releaseReadOnly,

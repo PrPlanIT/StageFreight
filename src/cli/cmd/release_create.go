@@ -107,6 +107,16 @@ type releaseReport struct {
 	Tags            []actionResult
 }
 
+// securitySummaryDir returns the directory holding the security summary when the release is
+// configured to attach it (release.security_summary: true), else "". The location is
+// security.output — release.security_summary is a yes/no toggle, not a path.
+func securitySummaryDir(cfg *config.Config) string {
+	if cfg.Release.SecuritySummary {
+		return cfg.Security.OutputDir
+	}
+	return ""
+}
+
 func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	rootDir, err := os.Getwd()
 	if err != nil {
@@ -114,9 +124,11 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply config defaults when CLI flags are not explicitly set, then merge into request.
+	// The --security-summary flag is an explicit path override; otherwise the location is
+	// resolved from security.output when release.security_summary is enabled.
 	secSummary := rcSecuritySummary
-	if !cmd.Flags().Changed("security-summary") && cfg.Release.SecuritySummary != "" {
-		secSummary = cfg.Release.SecuritySummary
+	if !cmd.Flags().Changed("security-summary") {
+		secSummary = securitySummaryDir(cfg)
 	}
 	regLinks := rcRegistryLinks
 	if !cmd.Flags().Changed("registry-links") {
