@@ -421,11 +421,42 @@ publish:                                 # was `targets:` — distribute artifac
     tags: ["test-{branch}-{sha:8}", "latest-test-{branch}"]
     when: { branches: ["!main"], events: [push] }
     retention: { keep_last: 6, protect: ["latest-test-{branch}"] }
-  registry-meta:                                     # push project metadata; description (short, from publish-origin) + readme (long)
+  project-meta:                                      # push project IDENTITY to every place it's shown — registries AND forge repos — from ONE source of truth. Strictly project/repo-scoped, idempotent, warn-not-mangle; NEVER touches org/namespace fields (blast radius).
     kind: metadata
-    registry: [dockerhub, harbor]                    # fans; ghcr omitted (no description API)
-    description: true                                # SHORT — from publish-origin; engine truncates + WARNS per provider cap (Docker Hub ~100 is tightest). Hand-fit with a string, or split targets for a genuinely different one.
-    readme: README.md                                # LONG / full_description, where the provider has one · logo: only where project-scoped
+    # DESTINATIONS fan like any id list: registry: (from registries:) + repo: (from repos:).
+    # Each field below maps to each destination's capability; absent there → silently skipped.
+    # Fan for IDENTICAL. A destination needing genuinely different CONTENT → its own SPLIT
+    # metadata target (exactly as dev/harbor-dev split) — no per-field per-vendor maps.
+    registry: [dockerhub, harbor]                    # registry pages: Docker Hub, Harbor, JFrog, Quay …
+    repos: [github-mirror, primary]                   # forge project pages: GitHub, GitLab, Gitea/Forgejo
+    # DESCRIPTION — short tagline. UNIVERSAL (registries + forges). [variants] longest→shortest;
+    # per destination the engine picks the LONGEST variant that FITS its cap (Docker Hub ~100 is
+    # tightest, GitHub ~350) — an authored fit, NEVER a mid-sentence chop. None fit → WARN + skip
+    # that destination. Bare string = one variant. Omit → the publish-origin repo description.
+    description:
+      - "A declarative lifecycle runtime — GitOps, Kubernetes, Docker & CI from one manifest"   # ~85
+      - "Declarative CI/CD & GitOps lifecycle runtime from one manifest"                          # ~62
+      - "One-manifest CI/CD lifecycle runtime"                                                    # ~37
+    # README — long markdown page body. REGISTRIES ONLY, mapped to each vendor's field:
+    #   Docker Hub "Overview" (full_description) · Harbor "Info" · JFrog "README" · Quay "Description".
+    #   Forges: the README is COMMITTED git content — nothing to push → N/A. GHCR/GitLab CR: no field → skip.
+    # scalar | [variants] (variants let the engine pick by cap). Over every variant's cap → WARN +
+    # skip (never truncate markdown — a half-doc breaks tables/code fences). NOT a description.
+    readme: README.md
+    # WEBSITE — the project's EXTERNAL site (docs/product page), not the repo URL. FORGES with the
+    # field: GitHub, Gitea/Forgejo (labelled "Website"). GitLab has no such field → skip; registries → skip.
+    website: https://stagefreight.prplanit.com
+    # TOPICS — discovery tags. FORGES: GitHub, GitLab, Gitea. UNIFORM CANONICAL (liberal in, strict
+    # out): author however you like; the engine normalizes to lowercase-hyphenated per destination
+    # via SAFE transforms (case-fold, spaces→hyphens) and WARNS on each ("'Machine Learning' →
+    # 'machine-learning'"). A topic it can't safely normalize (over length/count cap, invalid chars)
+    # → WARN + drop that one for that destination. A genuinely different topic SET per platform → split target.
+    topics: [ci-cd, gitops, kubernetes, docker, devops, lifecycle-runtime]
+    # LOGO — the project avatar, synced IDEMPOTENTLY (hash the file, compare to the destination's
+    # current avatar, upload only on change). PROJECT-scoped avatars only: GitLab, Gitea/Forgejo.
+    # GitHub (org/user avatar only) and Docker Hub/Quay (org logo) are ORG-scoped → OUT (a project
+    # config must never mutate org fields). Destinations without a project avatar → skip.
+    logo: docs/assets/logo.png
     when: { branches: [main], events: [push, tag] }
   stagefreight-binaries:                   # ONE archive recipe — {version} differentiates stable (1.2.3) from dev (1.2.3-dev+sha)
     kind: binary-archive
