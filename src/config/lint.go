@@ -1,6 +1,11 @@
 package config
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Level controls how much of the codebase gets scanned.
 type Level string
@@ -10,11 +15,67 @@ const (
 	LevelFull    Level = "full"
 )
 
-// ModuleConfig holds per-module overrides.
+// ModuleConfig holds per-module overrides. Options are authored INLINE (module-specific
+// keys sit directly under the module); the retired `options:` wrapper is gone. Enabled and
+// Exclude are the two typed fields every module shares; any other key is a module-specific
+// option collected into Options (the heterogeneous bag the lint engine reads wholesale).
 type ModuleConfig struct {
-	Enabled *bool          `yaml:"enabled,omitempty"`
-	Exclude []string       `yaml:"exclude,omitempty"`
-	Options map[string]any `yaml:"options,omitempty"`
+	Enabled *bool
+	Exclude []string
+	Options map[string]any
+}
+
+// UnmarshalYAML flattens the module surface: `enabled`/`exclude` become the typed fields,
+// every other key is a module option → Options. A stray `options:` key is the retired
+// wrapper and is rejected loudly (rather than silently nesting under Options["options"]).
+func (m *ModuleConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("module must be a mapping")
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		val := node.Content[i+1]
+		switch key {
+		case "enabled":
+			var b bool
+			if err := val.Decode(&b); err != nil {
+				return fmt.Errorf("enabled: %w", err)
+			}
+			m.Enabled = &b
+		case "exclude":
+			if err := val.Decode(&m.Exclude); err != nil {
+				return fmt.Errorf("exclude: %w", err)
+			}
+		case "options":
+			return fmt.Errorf("the `options:` wrapper was removed — inline the option keys directly under the module")
+		default:
+			if m.Options == nil {
+				m.Options = map[string]any{}
+			}
+			var v any
+			if err := val.Decode(&v); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			m.Options[key] = v
+		}
+	}
+	return nil
+}
+
+// MarshalYAML re-flattens: enabled/exclude plus the option keys at the module's top level,
+// so `config render` shows the inline shape rather than the internal struct.
+func (m ModuleConfig) MarshalYAML() (any, error) {
+	out := map[string]any{}
+	if m.Enabled != nil {
+		out["enabled"] = *m.Enabled
+	}
+	if len(m.Exclude) > 0 {
+		out["exclude"] = m.Exclude
+	}
+	for k, v := range m.Options {
+		out[k] = v
+	}
+	return out, nil
 }
 
 // LintConfig holds lint-specific configuration.
