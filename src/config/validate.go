@@ -656,19 +656,6 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, regis
 			errs = append(errs, fmt.Sprintf("%s: aliases is not valid for kind registry (use tags)", path))
 		}
 
-	case "docker-readme":
-		if len(t.Registry) == 0 {
-			if t.URL == "" {
-				errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires registry: or url:", path))
-			}
-			if t.Path == "" {
-				errs = append(errs, fmt.Sprintf("%s: kind docker-readme requires path when using inline url", path))
-			}
-		}
-		if t.Build != "" {
-			errs = append(errs, fmt.Sprintf("%s: kind docker-readme does not use build reference", path))
-		}
-
 	case "metadata":
 		// Push project identity to registries (registry:) and/or forge repos (repos:).
 		if len(t.Registry) == 0 && len(t.Repos) == 0 {

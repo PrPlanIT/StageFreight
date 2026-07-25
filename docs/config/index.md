@@ -21,7 +21,7 @@ Every top-level key, sorted into meaningful groups:
 |---|---|
 | [Identity & Connectivity](identity.md) | `version` · `vars` · `defaults` · `forges` · `repos` · `registries` |
 | [Builds & Tests](builds.md) | `builds` · `build_cache` · `test` |
-| [Targets](targets.md) | `targets` (per-kind: registry · docker-readme · gitlab-component · release · binary-archive · generic-package · pages) |
+| [Targets](targets.md) | `targets` (per-kind: registry · metadata · gitlab-component · release · binary-archive · generic-package · pages) |
 | [Narrate](narrate.md) | `narrate` |
 | [Lint](lint.md) | `lint` |
 | [Policy](policy.md) | `matchers` · `ci` · `versioning` · `dependency` · `release` · `security` · `commit` · `toolchains` · `glossary` · `presentation` · `tag` · `manifest` |

@@ -8,7 +8,7 @@ package config
 //
 // Target kinds:
 //   - registry: Push image tags to a container registry (requires build reference)
-//   - docker-readme: Sync README to a container registry (standalone)
+//   - metadata: Push project identity (description/readme/website/topics/logo) to registries + forge repos
 //   - gitlab-component: Publish to GitLab CI component catalog (standalone)
 //   - release: Create forge release + rolling git tags (standalone)
 //   - generic-package: Publish archives to a forge generic package registry (standalone)
@@ -35,7 +35,7 @@ type TargetConfig struct {
 	// SelectTags enables CLI filtering via --select.
 	SelectTags []string `yaml:"select_tags,omitempty"`
 
-	// Registry references registries[].id for registry/docker-readme targets. Accepts
+	// Registry references registries[].id for registry/metadata targets. Accepts
 	// a single id (registry: harbor) or a list (registry: [dockerhub, ghcr, harbor]) —
 	// a list fans the target across registries: expandMultiRegistryTargets splits it
 	// into one single-registry target per id at load, so resolution/execution always
@@ -50,16 +50,16 @@ type TargetConfig struct {
 
 	// ── Shared fields (used by multiple kinds, legacy when registry: is set) ──
 
-	// URL is the registry/forge hostname (kind: registry, docker-readme, release).
+	// URL is the registry/forge hostname (kind: registry, metadata, release).
 	URL string `yaml:"url,omitempty"`
 
 	// Provider is the vendor type for auth and API behavior.
 	// Registry: docker, ghcr, gitlab, jfrog, harbor, quay, gitea, generic.
 	// Release: github, gitlab, gitea.
-	// If omitted on registry/docker-readme, inferred from URL.
+	// If omitted on registry, inferred from URL.
 	Provider string `yaml:"provider,omitempty"`
 
-	// Path is the image path within the registry (kind: registry, docker-readme).
+	// Path is the image path within the registry (kind: registry).
 	Path string `yaml:"path,omitempty"`
 
 	// Credentials is the env var prefix for authentication.
@@ -67,7 +67,7 @@ type TargetConfig struct {
 	Credentials string `yaml:"credentials,omitempty"`
 
 	// Description is the short project description/tagline. A scalar for kind:
-	// registry/docker-readme; kind: metadata accepts a LIST of length-tiered variants
+	// registry; kind: metadata accepts a LIST of length-tiered variants
 	// (the engine picks the longest that fits each destination's cap).
 	Description StringOrList `yaml:"description,omitempty"`
 
@@ -88,14 +88,6 @@ type TargetConfig struct {
 	// Best-effort — scan failures warn but do not fail the build.
 	// Push success does not imply scan success; results appear in the registry UI only.
 	NativeScan bool `yaml:"native_scan,omitempty"`
-
-	// ── kind: docker-readme ───────────────────────────────────────────────
-
-	// File is the path to the README file (kind: docker-readme).
-	File string `yaml:"file,omitempty"`
-
-	// LinkBase is the base URL for relative link rewriting (kind: docker-readme).
-	LinkBase string `yaml:"link_base,omitempty"`
 
 	// ── kind: metadata ────────────────────────────────────────────────────
 	// Push project identity to registries (registry:) AND forge repos (repos:) from one
@@ -283,7 +275,6 @@ type TargetCondition struct {
 // validTargetKinds enumerates all recognized target kinds.
 var validTargetKinds = map[string]bool{
 	"registry":         true,
-	"docker-readme":    true,
 	"metadata":         true,
 	"gitlab-component": true,
 	"release":          true,

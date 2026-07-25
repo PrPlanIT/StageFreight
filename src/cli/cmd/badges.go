@@ -88,7 +88,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
 
-	// Inject project description from docker-readme targets
+	// Inject project description from metadata targets
 	if desc := postbuild.FirstProjectDescription(appCfg); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}

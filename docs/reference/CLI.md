@@ -19,8 +19,6 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
 ## Command index
 
 - [`stagefreight`](#cli-stagefreight) — Declarative lifecycle runtime — there's a setting for every stage, this is theatre!
-    - [`badge`](#cli-stagefreight-badge) — Badge generation commands
-        - [`generate`](#cli-stagefreight-badge-generate) — Generate SVG badges from config or flags
     - [`build`](#cli-stagefreight-build) — Build artifacts (binaries, images)
         - [`binary`](#cli-stagefreight-build-binary) — Build Go binaries
     - [`ci`](#cli-stagefreight-ci) — CI subsystem commands
@@ -38,10 +36,6 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
     - [`docker`](#cli-stagefreight-docker) — Docker lifecycle — build, drift, reconcile
         - [`build`](#cli-stagefreight-docker-build) — Build and push container images
         - [`drift`](#cli-stagefreight-docker-drift) — Show drift status for all Docker compose stacks
-        - [`readme`](#cli-stagefreight-docker-readme) — Sync README to container registries
-    - [`docs`](#cli-stagefreight-docs) — Documentation generation commands
-        - [`generate`](#cli-stagefreight-docs-generate) — Generate reference documentation from code
-        - [`run`](#cli-stagefreight-docs-run) — Run the narrate producers locally (badges + patches)
     - [`du`](#cli-stagefreight-du) — Storage-attribution diagnostic — what is eating disk today
     - [`gitops`](#cli-stagefreight-gitops) — GitOps intelligence — inspect, impact, reconcile
         - [`impact`](#cli-stagefreight-gitops-impact) — Compute which kustomizations are affected by recent changes
@@ -55,15 +49,8 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
         - [`diff`](#cli-stagefreight-manifest-diff) — Compare two manifests (not yet implemented)
         - [`generate`](#cli-stagefreight-manifest-generate) — Generate manifest from build config and Dockerfile
         - [`inspect`](#cli-stagefreight-manifest-inspect) — Pretty-print manifest or specific sections
+    - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
     - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
-    - [`narrator`](#cli-stagefreight-narrator) — Compose and inject content into markdown files
-        - [`compose`](#cli-stagefreight-narrator-compose) — Compose modules into a file section from the shell
-        - [`run`](#cli-stagefreight-narrator-run) — Run narrator items from config
-    - [`props`](#cli-stagefreight-props) — Typed presentation items (badges, etc.)
-        - [`categories`](#cli-stagefreight-props-categories) — List prop categories with type counts
-        - [`list`](#cli-stagefreight-props-list) — List all available prop types
-        - [`render`](#cli-stagefreight-props-render) — Resolve and render a prop as markdown
-        - [`show`](#cli-stagefreight-props-show) — Show details for a prop type
     - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
     - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
     - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
@@ -72,6 +59,10 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
         - [`notes`](#cli-stagefreight-release-notes) — Generate release notes from conventional commits
         - [`prune`](#cli-stagefreight-release-prune) — Prune old releases using retention policy
         - [`sync`](#cli-stagefreight-release-sync) — Project releases from primary forge to mirrors
+    - [`scribe`](#cli-stagefreight-scribe) — Compose and inject content into markdown files
+        - [`apply`](#cli-stagefreight-scribe-apply) — Reconcile scribe content into files (badges + region injection)
+        - [`render`](#cli-stagefreight-scribe-render) — Render one declared scribe.content item's markdown
+        - [`types`](#cli-stagefreight-scribe-types) — Browse scribe content producer types, or detail one
     - [`security`](#cli-stagefreight-security) — Security scanning commands
         - [`scan`](#cli-stagefreight-security-scan) — Run vulnerability scan and generate SBOM
     - [`sign`](#cli-stagefreight-sign) — Attach an additional signature to already-built release artifacts
@@ -113,7 +104,6 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 
 **Subcommands:**
 
-- [`badge`](#cli-stagefreight-badge) — Badge generation commands
 - [`build`](#cli-stagefreight-build) — Build artifacts (binaries, images)
 - [`ci`](#cli-stagefreight-ci) — CI subsystem commands
 - [`commit`](#cli-stagefreight-commit) — Create a conventional commit from staged or specified files
@@ -121,20 +111,19 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`config`](#cli-stagefreight-config) — Inspect and manage StageFreight configuration
 - [`dependency`](#cli-stagefreight-dependency) — Dependency management commands
 - [`docker`](#cli-stagefreight-docker) — Docker lifecycle — build, drift, reconcile
-- [`docs`](#cli-stagefreight-docs) — Documentation generation commands
 - [`du`](#cli-stagefreight-du) — Storage-attribution diagnostic — what is eating disk today
 - [`gitops`](#cli-stagefreight-gitops) — GitOps intelligence — inspect, impact, reconcile
 - [`glossary`](#cli-stagefreight-glossary) — Show the repo's change-language conventions
 - [`governance`](#cli-stagefreight-governance) — Governance reconciliation and fleet management
 - [`lint`](#cli-stagefreight-lint) — Run code quality checks
 - [`manifest`](#cli-stagefreight-manifest) — Generate and inspect build manifests
+- [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
 - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
-- [`narrator`](#cli-stagefreight-narrator) — Compose and inject content into markdown files
-- [`props`](#cli-stagefreight-props) — Typed presentation items (badges, etc.)
 - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
 - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
 - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
 - [`release`](#cli-stagefreight-release) — Release management commands
+- [`scribe`](#cli-stagefreight-scribe) — Compose and inject content into markdown files
 - [`security`](#cli-stagefreight-security) — Security scanning commands
 - [`sign`](#cli-stagefreight-sign) — Attach an additional signature to already-built release artifacts
 - [`signing`](#cli-stagefreight-signing) — Signing identity + trust-anchor maintenance
@@ -143,47 +132,6 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`toolchain`](#cli-stagefreight-toolchain) — Manage StageFreight toolchains
 - [`update`](#cli-stagefreight-update) — Update this stagefreight binary in place from the published image
 - [`version`](#cli-stagefreight-version) — Print the version
-
----
-
-<a id="cli-stagefreight-badge" name="cli-stagefreight-badge"></a>
-### stagefreight badge
-
-*↩ [`stagefreight`](#cli-stagefreight)*
-
-**Usage:** `stagefreight badge`
-
-Generate SVG badges from config or ad-hoc flags.
-
-**Subcommands:**
-
-- [`generate`](#cli-stagefreight-badge-generate) — Generate SVG badges from config or flags
-
----
-
-<a id="cli-stagefreight-badge-generate" name="cli-stagefreight-badge-generate"></a>
-### stagefreight badge generate
-
-*↩ [`stagefreight badge`](#cli-stagefreight-badge)*
-
-**Usage:** `stagefreight badge generate [name...]`
-
-Generate SVG badges defined in narrator config items.
-
-Config-driven (no flags): generates all narrator badge items with output paths, or named items if specified.
-Ad-hoc (--label + --value): generates a single badge from flags.
-
-**Flags:**
-
-| Name | Type | Default | Options | Description |
-|------|------|---------|---------|-------------|
-| `--color` | string | `#4c1` | — | ad-hoc badge color (hex) |
-| `--label` | string | — | — | ad-hoc badge label (left side) |
-| `--output` | string | `.stagefreight/badges/custom.svg` | — | output file path |
-| `--status` | string | — | `passed` · `warning` · `critical` | status-driven color |
-| `--value` | string | — | — | ad-hoc badge value (right side) |
-
-_Plus the [global flags](#cli-global-flags)._
 
 ---
 
@@ -425,7 +373,7 @@ Output modes:
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--readme` | string | — | inject docs between <!-- sf:<name> --> markers in target file (section name from narrator config) |
+| `--readme` | string | — | inject docs between <!-- sf:<name> --> markers in target file (section name from scribe config) |
 | `--spec` | stringSlice | — | component spec file(s) to parse (repeatable) |
 | `-o, --output` | string | — | write docs to file |
 
@@ -556,7 +504,6 @@ Docker lifecycle intelligence and container image management.
 
 - [`build`](#cli-stagefreight-docker-build) — Build and push container images
 - [`drift`](#cli-stagefreight-docker-drift) — Show drift status for all Docker compose stacks
-- [`readme`](#cli-stagefreight-docker-readme) — Sync README to container registries
 
 ---
 
@@ -601,89 +548,6 @@ Examples:
 ```
 stagefreight docker drift
 ```
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-docker-readme" name="cli-stagefreight-docker-readme"></a>
-### stagefreight docker readme
-
-*↩ [`stagefreight docker`](#cli-stagefreight-docker)*
-
-**Usage:** `stagefreight docker readme`
-
-Push README content to container registries that support description APIs.
-
-Docker Hub receives both short (100-char) and full markdown descriptions.
-Quay and Harbor receive short descriptions only.
-Other registries are silently skipped.
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--dry-run` | bool | — | show prepared content without pushing |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-docs" name="cli-stagefreight-docs"></a>
-### stagefreight docs
-
-*↩ [`stagefreight`](#cli-stagefreight)*
-
-**Usage:** `stagefreight docs`
-
-Generate reference documentation from code and config structs.
-
-**Subcommands:**
-
-- [`generate`](#cli-stagefreight-docs-generate) — Generate reference documentation from code
-- [`run`](#cli-stagefreight-docs-run) — Run the narrate producers locally (badges + patches)
-
----
-
-<a id="cli-stagefreight-docs-generate" name="cli-stagefreight-docs-generate"></a>
-### stagefreight docs generate
-
-*↩ [`stagefreight docs`](#cli-stagefreight-docs)*
-
-**Usage:** `stagefreight docs generate`
-
-Generate CLI and config reference documentation as markdown fragments.
-
-Output files are written to docs/modules/ and are designed to be assembled
-into reference pages via narrator's kind: include.
-
-Generated files:
-```
-docs/modules/cli-reference.md     — CLI command reference from Cobra tree
-docs/modules/config-reference.md  — Config schema reference from Go structs
-```
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--output-dir` | string | `docs/modules` | output directory for generated fragments |
-| `-h, --help` | bool | — | help for generate |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-docs-run" name="cli-stagefreight-docs-run"></a>
-### stagefreight docs run
-
-*↩ [`stagefreight docs`](#cli-stagefreight-docs)*
-
-**Usage:** `stagefreight docs run`
-
-Runs the presence-enabled narrate producers from config — render badges and
-apply marked-region patches to files — without committing. Same producer logic as
-'stagefreight ci run narrate' (which also lands build trees + auto-commits).
 
 _Plus the [global flags](#cli-global-flags)._
 
@@ -983,6 +847,22 @@ _Plus the [global flags](#cli-global-flags)._
 
 ---
 
+<a id="cli-stagefreight-metadata" name="cli-stagefreight-metadata"></a>
+### stagefreight metadata
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight metadata`
+
+Run kind: metadata targets — push the project's identity (description, readme,
+website, topics, logo) to every registry and forge repo destination that can hold it, from
+one source of truth. Each field maps to the destination's capability and is skipped where
+absent; nothing is truncated, and org/namespace fields are never touched.
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
 <a id="cli-stagefreight-migrate" name="cli-stagefreight-migrate"></a>
 ### stagefreight migrate
 
@@ -1007,194 +887,6 @@ by this migration tool — it was an unversioned alpha that must be rewritten.
 |------|------|---------|-------------|
 | `-i, --in-place` | bool | — | overwrite the config file in place |
 | `-o, --output` | string | — | write migrated config to this path |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-narrator" name="cli-stagefreight-narrator"></a>
-### stagefreight narrator
-
-*↩ [`stagefreight`](#cli-stagefreight)*
-
-**Usage:** `stagefreight narrator`
-
-Narrator manages README sections using <!-- sf:<name> --> markers.
-
-Compose badges, shields, text, and other modules into managed sections.
-Content between markers is owned by StageFreight and replaced on each run.
-Everything outside markers is never touched.
-
-**Subcommands:**
-
-- [`compose`](#cli-stagefreight-narrator-compose) — Compose modules into a file section from the shell
-- [`run`](#cli-stagefreight-narrator-run) — Run narrator items from config
-
----
-
-<a id="cli-stagefreight-narrator-compose" name="cli-stagefreight-narrator-compose"></a>
-### stagefreight narrator compose
-
-*↩ [`stagefreight narrator`](#cli-stagefreight-narrator)*
-
-**Usage:** `stagefreight narrator compose [items...]`
-
-Compose modules into a managed section of a markdown file.
-
-Items are specified as type:value pairs with optional comma-separated fields:
-
-```
-badge:<label>,output:<path>,link:<url>
-shield:<path>,link:<url>,label:<text>
-text:<markdown content>
-component:<spec-file-path>
-break:
-```
-
-Examples:
-```
-stagefreight narrator compose -f README.md -s badges \
-badge:release,output:.stagefreight/badges/release.svg,link:https://github.com/myorg/myrepo/releases \
-shield:docker/pulls/myorg/myrepo,link:https://hub.docker.com/r/myorg/myrepo
-```
-
-```
-stagefreight narrator compose -f README.md --plain \
---placement-match "^## Installation" --placement-position above \
-text:"## Prerequisites"
-```
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--dry-run` | bool | — | preview changes without writing |
-| `--inline` | bool | — | insert inline (no newline padding) |
-| `--placement-match` | string | — | anchor to a regex match |
-| `--placement-position` | string | `below` | position: above, below (default), replace |
-| `--placement-section` | string | — | anchor to a named section |
-| `--plain` | bool | — | output without section markers |
-| `-f, --file` | string | — | target file path (required) |
-| `-s, --section` | string | — | target section name |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-narrator-run" name="cli-stagefreight-narrator-run"></a>
-### stagefreight narrator run
-
-*↩ [`stagefreight narrator`](#cli-stagefreight-narrator)*
-
-**Usage:** `stagefreight narrator run`
-
-Execute all narrator items defined in the narrator config.
-
-Each item is composed from its kind and placed into the target file
-according to its placement markers. Existing managed content between
-markers is replaced idempotently.
-
-Items sharing the same placement markers are composed together:
-inline items are joined with spaces, block items with newlines.
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--dry-run` | bool | — | preview changes without writing files |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-props" name="cli-stagefreight-props"></a>
-### stagefreight props
-
-*↩ [`stagefreight`](#cli-stagefreight)*
-
-**Usage:** `stagefreight props`
-
-Props is StageFreight's composable presentation subsystem.
-
-Declarative, discoverable, validated, schema-aware presentation items.
-Badges are the first prop format. Use 'props list' to see all available types.
-
-**Subcommands:**
-
-- [`categories`](#cli-stagefreight-props-categories) — List prop categories with type counts
-- [`list`](#cli-stagefreight-props-list) — List all available prop types
-- [`render`](#cli-stagefreight-props-render) — Resolve and render a prop as markdown
-- [`show`](#cli-stagefreight-props-show) — Show details for a prop type
-
----
-
-<a id="cli-stagefreight-props-categories" name="cli-stagefreight-props-categories"></a>
-### stagefreight props categories
-
-*↩ [`stagefreight props`](#cli-stagefreight-props)*
-
-**Usage:** `stagefreight props categories`
-
-List prop categories with type counts
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-props-list" name="cli-stagefreight-props-list"></a>
-### stagefreight props list
-
-*↩ [`stagefreight props`](#cli-stagefreight-props)*
-
-**Usage:** `stagefreight props list`
-
-List all registered prop types, grouped by category.
-
-Use --category to filter to a specific category.
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--category` | string | — | filter by category |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-props-render" name="cli-stagefreight-props-render"></a>
-### stagefreight props render
-
-*↩ [`stagefreight props`](#cli-stagefreight-props)*
-
-**Usage:** `stagefreight props render`
-
-Resolve a prop type with the given parameters and print the resulting markdown.
-
-Example:
-```
-stagefreight props render --type docker-pulls --param image=prplanit/stagefreight
-```
-
-**Flags:**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `--param` | stringArray | — | param in key=value format (repeatable) |
-| `--type` | string | — | a prop type id — run `stagefreight props list` to see them (required) |
-
-_Plus the [global flags](#cli-global-flags)._
-
----
-
-<a id="cli-stagefreight-props-show" name="cli-stagefreight-props-show"></a>
-### stagefreight props show
-
-*↩ [`stagefreight props`](#cli-stagefreight-props)*
-
-**Usage:** `stagefreight props show <type>`
-
-Show description, parameters, and example config for a prop type.
 
 _Plus the [global flags](#cli-global-flags)._
 
@@ -1396,7 +1088,7 @@ _Plus the [global flags](#cli-global-flags)._
 **Usage:** `stagefreight release sync`
 
 Reads releases from the primary forge and projects missing ones
-to mirrors that declare sync.releases: true.
+to mirrors whose sync block includes a releases facet (facet × scope).
 
 Use --dry-run to preview what would be created without making changes.
 Without --dry-run, missing releases are created on each mirror.
@@ -1406,6 +1098,97 @@ Without --dry-run, missing releases are created on each mirror.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--dry-run` | bool | — | Preview only, do not create releases |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-scribe" name="cli-stagefreight-scribe"></a>
+### stagefreight scribe
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight scribe`
+
+Scribe manages README sections using <!-- sf:<name> --> markers.
+
+Compose badges, shields, text, and other modules into managed sections.
+Content between markers is owned by StageFreight and replaced on each run.
+Everything outside markers is never touched.
+
+**Subcommands:**
+
+- [`apply`](#cli-stagefreight-scribe-apply) — Reconcile scribe content into files (badges + region injection)
+- [`render`](#cli-stagefreight-scribe-render) — Render one declared scribe.content item's markdown
+- [`types`](#cli-stagefreight-scribe-types) — Browse scribe content producer types, or detail one
+
+---
+
+<a id="cli-stagefreight-scribe-apply" name="cli-stagefreight-scribe-apply"></a>
+### stagefreight scribe apply
+
+*↩ [`stagefreight scribe`](#cli-stagefreight-scribe)*
+
+**Usage:** `stagefreight scribe apply`
+
+Apply the scribe config: generate badge SVG artifacts, then render
+scribe.content into each scribe.files region.
+
+Each files: entry names a marked region; its items are name-refs into
+scribe.content. Referenced content is composed (inline items joined with
+spaces, block items with newlines) and placed between the region markers,
+replacing existing managed content idempotently. Same producers as
+'stagefreight ci run narrate' (which also lands build trees + auto-commits).
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | — | preview changes without writing files |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-scribe-render" name="cli-stagefreight-scribe-render"></a>
+### stagefreight scribe render
+
+*↩ [`stagefreight scribe`](#cli-stagefreight-scribe)*
+
+**Usage:** `stagefreight scribe render <content-id>`
+
+Resolve a single scribe.content item (by id) and print its markdown fragment to
+stdout, or write it to a file with --output.
+
+Only content declared in .stagefreight.yml is renderable — the config is the source of
+truth. To preview a producer type before declaring it, use 'stagefreight scribe types <type>'.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `-o, --output` | string | — | write markdown to a file instead of stdout |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-scribe-types" name="cli-stagefreight-scribe-types"></a>
+### stagefreight scribe types
+
+*↩ [`stagefreight scribe`](#cli-stagefreight-scribe)*
+
+**Usage:** `stagefreight scribe types [type]`
+
+Without an argument, list every available content producer type (the type: values
+usable in scribe.content), grouped by category. With a <type> argument, show that type's
+description, parameters, example config, and a rendered preview.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--category` | string | — | filter the list by category |
 
 _Plus the [global flags](#cli-global-flags)._
 

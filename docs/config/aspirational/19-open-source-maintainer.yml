@@ -51,13 +51,15 @@ targets:
     tags: ["{version}", latest]
     when: { branches: [main], events: [push] }
 
-  # README sync to Docker Hub
-  - id: dockerhub-readme
-    kind: docker-readme
-    url: docker.io
-    path: myorg/myproject
+  # Project identity sync — description + overview to Docker Hub
+  - id: project-meta
+    kind: metadata
+    registry: [dockerhub]
     when: { branches: [main], events: [push, tag] }
-    file: README.md
+    description:
+      - "Self-hosted project — multi-platform image on Docker Hub, GHCR & Quay"
+      - "Self-hosted, multi-registry container image"
+    readme: README.md
 
   - id: primary-release
     kind: release

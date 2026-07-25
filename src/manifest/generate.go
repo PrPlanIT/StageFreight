@@ -134,7 +134,7 @@ func generateForBuild(cfg *config.Config, bc config.BuildConfig, opts GenerateOp
 		url := tc.URL
 		path := tc.Path
 		creds := tc.Credentials
-		if tc.Kind == "registry" || tc.Kind == "docker-readme" {
+		if tc.Kind == "registry" {
 			if reg, err := config.ResolveRegistryForTarget(tc, cfg.Registries, cfg.Vars); err == nil && reg != nil {
 				provider = reg.Provider
 				url = reg.URL

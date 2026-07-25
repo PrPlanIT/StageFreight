@@ -251,6 +251,17 @@ func normalizeTopics(raw []string) ([]string, []string) {
 	return out, warnings
 }
 
+// FirstProjectDescription returns the project description from the first metadata target —
+// for injecting into badges/build context.
+func FirstProjectDescription(cfg *config.Config) string {
+	for _, t := range cfg.Targets {
+		if t.Kind == "metadata" && t.Description.First() != "" {
+			return t.Description.First()
+		}
+	}
+	return ""
+}
+
 // hashFile returns the sha256 hex of a file's contents.
 func hashFile(path string) (string, error) {
 	f, err := os.Open(path)

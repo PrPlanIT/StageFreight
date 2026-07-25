@@ -9,17 +9,15 @@
 - [`forges`](#config-forges)
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
-- [`signing_profiles`](#config-signing_profiles)
 - [`signing`](#config-signing)
-- [`versioning`](#config-versioning)
-- [`matchers`](#config-matchers)
+- [`git`](#config-git)
 - [`builds`](#config-builds)
-- [`targets`](#config-targets)
+- [`publish`](#config-publish)
 - [`lint`](#config-lint)
 - [`security`](#config-security)
 - [`commit`](#config-commit)
 - [`dependency`](#config-dependency)
-- [`narrate`](#config-narrate)
+- [`scribe`](#config-scribe)
 - [`test`](#config-test)
 - [`manifest`](#config-manifest)
 - [`release`](#config-release)
@@ -30,8 +28,7 @@
 - [`docker`](#config-docker)
 - [`build_cache`](#config-build_cache)
 - [`glossary`](#config-glossary)
-- [`presentation`](#config-presentation)
-- [`tag`](#config-tag)
+- [`tagging`](#config-tagging)
 - [`toolchains`](#config-toolchains)
 
 ---
@@ -107,7 +104,7 @@ preset_source:
 <a id="config-forges" name="config-forges"></a>
 ### forges
 
-Forges declares git hosts. Each entry is a host identity (provider, URL, credentials).
+Forges declares git hosts as an id→forge map (provider, URL, credentials).
 
 ```yaml
 forges:
@@ -124,7 +121,7 @@ forges:
 <a id="config-repos" name="config-repos"></a>
 ### repos
 
-Repos declares projects on forges. References forges by id. Has role (primary/mirror).
+Repos declares projects as an id→repo map. References forges by id. Has role.
 
 ```yaml
 repos:
@@ -137,9 +134,27 @@ repos:
     worktree: <string>   # local working tree path (primary only)
     ref: <string>   # pinned ref for non-primary repos (governance, presets)
     sync:   # mirror sync domains
-      git: false   # Git enables authoritative mirror replication via git push --mirror. All refs, branches, tags…
-      releases: false   # Releases enables forge-native release projection (notes, assets, links). Runs after git mirror…
-      docs: false   # Docs enables README/doc file projection via forge commit API. Mutually exclusive with Git (docs…
+      branches:
+        scope: <string>   # "current" | "all" (exact expands here)
+        prune: false   # delete target refs/releases absent on source
+        drafts: false   # releases only: carry unpublished drafts
+        only: [<string>]   # releases only: restrict to these tag-sources
+        match: <string>   # glob filter on ref/tag name
+        assets: <string>   # releases only: "" | "true" | "false" | "link"
+      tags:
+        scope: <string>   # "current" | "all" (exact expands here)
+        prune: false   # delete target refs/releases absent on source
+        drafts: false   # releases only: carry unpublished drafts
+        only: [<string>]   # releases only: restrict to these tag-sources
+        match: <string>   # glob filter on ref/tag name
+        assets: <string>   # releases only: "" | "true" | "false" | "link"
+      releases:
+        scope: <string>   # "current" | "all" (exact expands here)
+        prune: false   # delete target refs/releases absent on source
+        drafts: false   # releases only: carry unpublished drafts
+        only: [<string>]   # releases only: restrict to these tag-sources
+        match: <string>   # glob filter on ref/tag name
+        assets: <string>   # releases only: "" | "true" | "false" | "link"
 ```
 
 ---
@@ -149,7 +164,7 @@ repos:
 <a id="config-registries" name="config-registries"></a>
 ### registries
 
-Registries declares OCI registry hosts. Referenced by targets.
+Registries declares OCI registry hosts as an id→registry map.
 
 ```yaml
 registries:
@@ -163,44 +178,6 @@ registries:
 ---
 
 <!-- --8<-- [end:registries] -->
-<!-- --8<-- [start:signing_profiles] -->
-<a id="config-signing_profiles" name="config-signing_profiles"></a>
-### signing_profiles
-
-Named trust profiles for signing release artifacts and images. A profile declares a trust CLASS (`requires`: `key` | `oidc` | `kms` | `hardware`) and assurance requirements — never a device, vendor, or cosign flag. Targets reference a profile by id via `signing_profile: <id>` (same pattern as `registry:`). With no profile, the implicit `legacy` default signs images when `COSIGN_KEY` resolves; checksum blobs (SHA256SUMS) sign only under an explicit profile.
-
-```yaml
-signing_profiles:
-  - id: <string>   # required
-    requires: [<string>]   # trust class(es); v1 enforces exactly one · one of: hardware, key, kms, oidc · required
-    key:   # Class reference blocks — at most one, matching the declared class.
-      ref: <string>   # required
-    oidc:
-      issuer: <string>
-      identity: <string>
-    kms:
-      ref: <string>   # required
-    pkcs11:   # hardware transport selector (optional; absent = FIDO2 --sk)
-      ref: <string>   # required
-    physical_presence: <string>   # Assurance properties (hardware-class ONLY; enforced in validation). The value is the keyword…
-    non_exportable: <string>
-    transparency_log: false   # TransparencyLog overrides the per-class default (on for oidc, off otherwise).
-    attestation: false   # Attestation also emits a provenance attestation alongside the signature.
-    enforce: false   # Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed…
-    allow_fallback: false   # AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the…
-```
-
-> `requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.
-> `physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.
-> Hardware transport is deployment wiring: a `hardware` profile may carry `pkcs11: { ref: <name> }`, bound via `SF_PKCS11_<REF>` to a full `pkcs11:` URI, e.g. `SF_PKCS11_RELEASE='pkcs11:slot-id=0;id=%02;object=SIGN%20key?module-path=/usr/lib/x86_64-linux-gnu/libykcs11.so'` (YubiKey PIV slot 9c = the digital-signature slot, ykcs11 object id 2). With no `pkcs11` ref the hardware class falls back to FIDO2 (cosign `--sk`). The module path / slot / PIN policy live in the env URI, never in the profile.
-> KMS/Vault ref binding is deployment wiring: set `SF_KMS_<REF>` to the URI, e.g. `SF_KMS_RELEASE-SIGNING-KEY=hashivault://release` (cosign's hashivault:// takes the key NAME only).
-> OIDC/keyless trust domain is deployment wiring too: `SF_SIGSTORE_{DOMAIN,FULCIO,REKOR,ISSUER,TRUSTED_ROOT,IDENTITY_TOKEN}`. Setting FULCIO/REKOR/TRUSTED_ROOT points cosign at a self-hosted Sigstore (public Fulcio won't trust a self-hosted issuer); ISSUER falls back to the profile's `oidc.issuer`; IDENTITY_TOKEN (value or path) supplies the OIDC token for unattended/non-CI signing (ambient providers used when unset). Standing up Fulcio/Rekor is operator infrastructure, not StageFreight.
-> `enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).
-> Aliases normalized at load: `keyless` → `oidc`, `yubikey` → `hardware`.
-
----
-
-<!-- --8<-- [end:signing_profiles] -->
 <!-- --8<-- [start:signing] -->
 <a id="config-signing" name="config-signing"></a>
 ### signing
@@ -215,6 +192,24 @@ signing:
     type: <string>   # "volume" | "host_path"
     name: <string>   # volume name (type: volume)
     path: <string>   # absolute path (type: host_path)
+  profiles:   # id→profile map (was the top-level signing_profiles: list)
+    - id: <string>   # required
+      requires: [<string>]   # trust class(es); v1 enforces exactly one · required
+      key:   # Class reference blocks — at most one, matching the declared class.
+        ref: <string>   # required
+      oidc:
+        issuer: <string>
+        identity: <string>
+      kms:
+        ref: <string>   # required
+      pkcs11:   # hardware transport selector (optional; absent = FIDO2 --sk)
+        ref: <string>   # required
+      physical_presence: <string>   # Assurance properties (hardware-class ONLY; enforced in validation). The value is the keyword…
+      non_exportable: <string>
+      transparency_log: false   # TransparencyLog overrides the per-class default (on for oidc, off otherwise).
+      attestation: false   # Attestation also emits a provenance attestation alongside the signature.
+      enforce: false   # Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed…
+      allow_fallback: false   # AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the…
 ```
 
 > `enabled: false` disables ALL signing regardless of profiles/keys.
@@ -226,46 +221,32 @@ signing:
 ---
 
 <!-- --8<-- [end:signing] -->
-<!-- --8<-- [start:versioning] -->
-<a id="config-versioning" name="config-versioning"></a>
-### versioning
+<!-- --8<-- [start:git] -->
+<a id="config-git" name="config-git"></a>
+### git
 
-Versioning controls how version identity is derived from git state.
+Git is the git: cluster and the single source for ref interpretation: named branch patterns (git.branches), tag patterns (git.tags), and versioning rules (git.versioning). Consumers read cfg.Git.Branches / cfg.Git.Tags / cfg.Git.Versioning.{BranchBuilds,NoLineage} directly — no translation layer.
 
 ```yaml
-versioning:
-  preset: <string>
-  tag_sources:   # TagSources defines named places where version bases can come from. e.g., {id: "stable", pattern… · required
+git:
+  branches: {}   # Branches maps a matcher name to a regex (was matchers.branches).
+  tags:   # Tags maps a tag-source name to its pattern (was versioning.tag_sources list).
     - id: <string>   # ID is the unique identifier (e.g. "stable", "prerelease"). Referenced by branch_builds[].base_from… · required
       pattern: <string>   # Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" · required
-  branch_builds:   # BranchBuilds defines version format for non-tag commits per branch. Evaluated in declaration order…
-    - id: <string>   # ID is the unique identifier. "default" is the catch-all entry and must appear last in the… · required
-      match: <string>   # Match references a declared branch matcher name. Required for named branch_builds entries. The…
-      base_from: [<string>]   # BaseFrom is the ordered fallback chain of tag_sources ids. The runtime walks this list in order… · required
-      format: <string>   # Format is the version template for non-release commits. Supported placeholders: {base}, {sha}… · required
-  no_lineage:   # NoLineage defines behavior when no tag lineage exists (no matching tags).
-    mode: <string>   # Mode controls the response to missing lineage. "error" (default): fail fast with explanation and…
-    version: <string>   # Version is the template used when mode is "explicit". Must contain {sha} or {time} — hardcoded…
+  versioning:   # Versioning holds the derivation rules that consume the patterns above.
+    branch_builds:
+      - id: <string>   # ID is the unique identifier. "default" is the catch-all entry and must appear last in the… · required
+        match: <string>   # Match references a declared branch matcher name. Required for named branch_builds entries. The…
+        base_from: [<string>]   # BaseFrom is the ordered fallback chain of tag_sources ids. The runtime walks this list in order… · required
+        format: <string>   # Format is the version template for non-release commits. Supported placeholders: {base}, {sha}… · required
+    no_lineage:
+      mode: <string>   # Mode controls the response to missing lineage. "error" (default): fail fast with explanation and…
+      version: <string>   # Version is the template used when mode is "explicit". Must contain {sha} or {time} — hardcoded…
 ```
 
 ---
 
-<!-- --8<-- [end:versioning] -->
-<!-- --8<-- [start:matchers] -->
-<a id="config-matchers" name="config-matchers"></a>
-### matchers
-
-Matchers defines reusable named patterns for branches (and future dimensions). Pattern definitions only — no behavior. Referenced by branch_builds[].match and target.when.branches.
-
-```yaml
-matchers:
-  preset: <string>
-  branches: {}   # Branches maps matcher names to regex patterns for branch matching. e.g., "main": "^main$" · required
-```
-
----
-
-<!-- --8<-- [end:matchers] -->
+<!-- --8<-- [end:git] -->
 <!-- --8<-- [start:builds] -->
 <a id="config-builds" name="config-builds"></a>
 ### builds
@@ -323,19 +304,19 @@ builds:
 ---
 
 <!-- --8<-- [end:builds] -->
-<!-- --8<-- [start:targets] -->
-<a id="config-targets" name="config-targets"></a>
-### targets
+<!-- --8<-- [start:publish] -->
+<a id="config-publish" name="config-publish"></a>
+### publish
 
-Distribution targets and side-effects. Each target has a `kind` that determines its behavior: push images, sync READMEs, publish components, or create releases.
+Targets defines distribution targets and side-effects. Declared under the publish: key as an id→target map (execution order preserved). The retired list form (targets:) no longer parses — upgrade via the config migrator.
 
 #### `kind: registry`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: registry   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
-    registry: <string>   # Registry references a registries[].id for registry/docker-readme targets. When set…
+    kind: registry   # Kind is the target type. Determines which fields are valid. · required
+    registry: [<string>]   # Registry references registries[].id for registry/metadata targets. Accepts a single id (registry…
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
     tags: [<string>]   # Tags are tag templates resolved against version info (kind: registry). e.g., ["{version}"…
     signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
@@ -347,57 +328,58 @@ targets:
       keep_monthly: <int>   # keep one per month for the last N months · required
       keep_yearly: <int>   # keep one per year for the last N years · required
       protect: [<string>]   # tag patterns that are never deleted (v2) · required
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
-#### `kind: docker-readme`
+#### `kind: metadata`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: docker-readme   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
-    registry: <string>   # Registry references a registries[].id for registry/docker-readme targets. When set…
-    file: <string>   # File is the path to the README file (kind: docker-readme).
-    link_base: <string>   # LinkBase is the base URL for relative link rewriting (kind: docker-readme).
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    kind: metadata   # Kind is the target type. Determines which fields are valid. · required
+    registry: [<string>]   # Registry references registries[].id for registry/metadata targets. Accepts a single id (registry…
+    repos: [<string>]   # Repos names the destination repos[].id for a kind: release target. The repo with role primary is…
+    description: [<string>]   # Description is the short project description/tagline. A scalar for kind: registry; kind: metadata…
+    readme: <string>   # Readme is the long markdown 'project page' body (registries only: Docker Hub Overview, Harbor Info…
+    website: <string>   # Website is the project's external site URL (forges: GitHub, Gitea/Forgejo).
+    topics: [<string>]   # Topics are discovery tags (forges: GitHub, GitLab, Gitea). Authored freely; the engine normalizes…
+    logo: <string>   # Logo is a path to the project avatar image (project-scoped forges: GitLab, Gitea/Forgejo); synced…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
 #### `kind: gitlab-component`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: gitlab-component   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    kind: gitlab-component   # Kind is the target type. Determines which fields are valid. · required
     spec_files: [<string>]   # SpecFiles lists component spec file paths (kind: gitlab-component).
     catalog: false   # Catalog enables GitLab Catalog registration (kind: gitlab-component).
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
 #### `kind: release`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: release   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    kind: release   # Kind is the target type. Determines which fields are valid. · required
     aliases: [<string>]   # Aliases are rolling git tag aliases (kind: release). e.g., ["{version}", "{major}.{minor}"…
     tag: <string>   # Tag is the immutable identity pattern for a release channel (kind: release). Distinct from Aliases…
     archives: <string>   # Archives references a binary-archive target ID (kind: release and generic-package).
     prerelease: false   # Prerelease marks the forge release as a pre-release (kind: release). DEPRECATED: prefer `type…
-    mirror: <string>   # Mirror references a sources.mirrors[].id for release sync. Forge identity (provider, url…
-    sync_release: false   # SyncRelease syncs release notes + tags to a remote forge (kind: release, remote only).
-    sync_assets: false   # SyncAssets syncs scan artifacts to a remote forge (kind: release, remote only).
     signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
     retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
       keep_last: <int>   # keep the N most recent tags · required
@@ -406,55 +388,55 @@ targets:
       keep_monthly: <int>   # keep one per month for the last N months · required
       keep_yearly: <int>   # keep one per year for the last N years · required
       protect: [<string>]   # tag patterns that are never deleted (v2) · required
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
 #### `kind: binary-archive`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: binary-archive   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    kind: binary-archive   # Kind is the target type. Determines which fields are valid. · required
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
     name: <string>   # Name is the archive filename template (kind: binary-archive). Supports: {id}, {version}, {os}…
-    format: <string>   # Format is the archive format: "tar.gz", "zip", "auto", or "binary" (kind: binary-archive). "auto"… · one of: auto, binary, tar.gz, zip
+    format: <string>   # Format is the archive format: "tar.gz", "zip", "auto", or "binary" (kind: binary-archive). "auto"…
     binary_name: <string>   # BinaryName overrides the binary name inside the archive (kind: binary-archive). Auto-detected from…
     include: [<string>]   # Include lists extra files to bundle into the archive (kind: binary-archive). e.g., ["README.md"…
     checksums: false   # Checksums generates a SHA256SUMS file alongside archives (kind: binary-archive).
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
 #### `kind: generic-package`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: generic-package   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    kind: generic-package   # Kind is the target type. Determines which fields are valid. · required
     repo: <string>   # Repo references a repos[].id (kind: generic-package). The forge identity (provider, url, project…
     package: <string>   # Package is the generic package name (kind: generic-package). Defaults to the repo project's…
     version: <string>   # Version is the immutable package version pattern (kind: generic-package). Resolved against version…
     archives: <string>   # Archives references a binary-archive target ID (kind: release and generic-package).
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
 
 #### `kind: pages`
 
 ```yaml
-targets:
+publish:
   - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
-    kind: pages   # Kind is the target type. Determines which fields are valid. · one of: binary-archive, docker-readme, generic-package, gitlab-component, pages, registry, release · required
+    kind: pages   # Kind is the target type. Determines which fields are valid. · required
     provider: <string>   # Provider is the vendor type for auth and API behavior. Registry: docker, ghcr, gitlab, jfrog… · one of: cloudflare, github
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
     dir: <string>   # Dir publishes a repo directory directly instead of a build's output tree (kind: pages). Exactly one…
@@ -462,19 +444,16 @@ targets:
     project: <string>   # Project is the Cloudflare Pages project name (provider: cloudflare). Default: the target id.…
     base_path: <string>   # BasePath is the URL path the site is served under (kind: pages). Inferred per provider (Cloudflare…
     exclude: [<string>]   # Exclude drops matching paths from the publish workspace before deploy (kind: pages). Globs, applied…
-    when:   # When specifies routing conditions for this target.
-      branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
-      git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
-      events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request… · one of: manual, merge_request, pull_request, push, release, schedule, tag
-      forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+    when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
 ```
-
-> Target IDs must be unique across all targets.
-> The `when` block controls routing: all non-empty fields must match (AND logic).
 
 ---
 
-<!-- --8<-- [end:targets] -->
+<!-- --8<-- [end:publish] -->
 <!-- --8<-- [start:lint] -->
 <a id="config-lint" name="config-lint"></a>
 ### lint
@@ -556,6 +535,9 @@ commit:
   skip_ci: false
   push: false
   conventional: false   # required
+  render:   # Render controls commit rendering (default DefaultCommitPresentation; a partial render: block…
+    preserve_raw_subject: false   # required
+    enforce_conventional: false   # required
   backend: <string>
   types:
     - key: <string>   # required
@@ -610,155 +592,98 @@ dependency:
 ---
 
 <!-- --8<-- [end:dependency] -->
-<!-- --8<-- [start:narrate] -->
-<a id="config-narrate" name="config-narrate"></a>
-### narrate
+<!-- --8<-- [start:scribe] -->
+<a id="config-scribe" name="config-scribe"></a>
+### scribe
 
-Narrate configures the Narrate phase (badges, patches, commit). Presence-enabled; dissolves the old docs:/badges:/narrator: surface. Reference docs are a kind: command build committed via narrate.commit.builds, not a subsystem here.
+Scribe generates content into files and commits it: content: (define-once defs) + files: (placement, item name-refs) + commit:. Presence-enabled. The old narrate: content surface (badges/patches). narrate: is reserved for the (deferred) run report.
 
 ```yaml
-narrate:
-  badges:   # Badges are SVG badge definitions rendered from build metadata (was top-level `badges.items`).…
-    - id: <string>   # stable user-defined ID for narrator reference · required
-      text: <string>   # left side label · required
-      value: <string>   # right side value (templates: {env:*}, {sha}, {base}, etc.) · required
-      color: <string>   # hex color or "auto" · required
-      output: <string>   # SVG output path (required) · required
-      link: <string>   # clickable URL
-      font: <string>   # font name override
-      font_size: <int>   # font size override
-  patches:   # Patches are generic marked-region replacements in files (was `narrator:`): each entry names a file…
-    - file: <string>   # File is the path to the target file (required). · required
-      link_base: <string>   # LinkBase is the base URL for relative link rewriting.
-      items: []   # discriminated union by kind — see per-kind blocks below
-  commit:   # Commit is the auto-commit action for generated output (was `docs.commit`).
-    type: <string>   # conventional type; default: engine's
+scribe:
+  content: []   # discriminated union by kind — see per-kind blocks below
+  files:   # id → placement region, items are content name-refs
+    - file: <string>   # required
+      link_base: <string>
+      between: <value>
+      mode: <string>   # replace (default) | append | prepend | above | below
+      inline: false   # render items side-by-side
+      items: [<string>]   # content ids (+ "br") · required
+  commit:   # scribe's own auto-commit action
+    type: <string>
     message: <string>
     add: [<string>]
     push: false
     skip_ci: false
-    run_from:   # gate mutation to declared origin
+    run_from:
       allow: [<string>]   # permitted origins: "primary"
       mismatch: <string>   # "read-only" (default), "exit", "ignore"
 ```
 
-#### patches items · `kind: badge`
+#### content · `kind: badge`
 
 ```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: badge   # Kind is the item type: badge, shield, text, component, break, include. · required
-  text: <string>   # Text is the badge label (left side text).
-  value: <string>   # Value is the badge value (right side text, supports templates).
-  color: <string>   # Color is the badge color (hex or "auto").
-  font: <string>   # Font is the badge font name override.
-  font_size: <int>   # FontSize is the badge font size override.
-  output: <string>   # Output is the SVG output path for badge generation.
-  link: <string>   # Link is the clickable URL (kind: badge, shield).
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
+- type: <string>   # SOURCE × RENDER.
+  render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
+  label: <string>   # ── inline badge / shield areas ──
+  message: <string>   # right value (templates)
+  color: <string>   # hex or "auto"
+  font: <string>   # badge font override
+  font_size: <int>   # badge font size override
+  output: <string>   # SVG output path (badge generation)
+  link: <string>   # clickable URL
+  logo: <string>   # shields.io logo / props logo
+  logo_color: <string>
+  label_color: <string>
 ```
 
-#### patches items · `kind: shield`
+#### content · `kind: shield`
 
 ```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: shield   # Kind is the item type: badge, shield, text, component, break, include. · required
-  shield: <string>   # Shield is the shields.io path (kind: shield).
-  link: <string>   # Link is the clickable URL (kind: badge, shield).
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
+- type: <string>   # SOURCE × RENDER.
+  render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
+  shield: <string>   # shields.io path (render: shield)
+  link: <string>   # clickable URL
 ```
 
-#### patches items · `kind: text`
+#### content · `kind: text`
 
 ```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: text   # Kind is the item type: badge, shield, text, component, break, include. · required
-  content: <string>   # Content is raw text/markdown content (kind: text).
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
+- type: <string>   # SOURCE × RENDER.
+  content: <string>   # ── text ──
 ```
 
-#### patches items · `kind: component`
+#### content · `kind: component`
 
 ```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: component   # Kind is the item type: badge, shield, text, component, break, include. · required
-  spec: <string>   # Spec is the component spec file path (kind: component).
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
+- type: <string>   # SOURCE × RENDER.
+  spec: <string>   # ── component ──
 ```
 
-#### patches items · `kind: include`
+#### content · `kind: include`
 
 ```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: include   # Kind is the item type: badge, shield, text, component, break, include. · required
-  path: <string>   # Path is the file path to include verbatim (kind: include).
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
+- type: <string>   # SOURCE × RENDER.
+  path: <string>   # ── include ──
 ```
 
-#### patches items · `kind: build-contents`
+#### content · `kind: contents`
 
 ```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: build-contents   # Kind is the item type: badge, shield, text, component, break, include. · required
-  build: <string>   # Build is the id of the build whose manifest this item renders (kind: build-contents). Ownership is…
-  source: <string>   # Source is an optional path to a manifest JSON file (kind: build-contents). If omitted, uses the…
-  section: <string>   # Section is the dot-path into the manifest (kind: build-contents). e.g., "inventories.pip"…
-  renderer: <string>   # Renderer is the rendering format (kind: build-contents). Supported: "table", "list", "kv".
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
-```
-
-#### patches items · `kind: break`
-
-```yaml
-- id: <string>   # ID is the item identifier (unique within file). · required
-  kind: break   # Kind is the item type: badge, shield, text, component, break, include. · required
-  placement:   # Placement declares where this item goes in the target file. · required
-    between: <value>   # Between is a two-element array: [start_marker, end_marker]. Content is placed relative to these…
-    after: <string>   # After is a regex/literal line match (reserved for future use).
-    before: <string>   # Before is a regex/literal line match (reserved for future use).
-    heading: <string>   # Heading is a markdown heading match (reserved for future use).
-    mode: <string>   # Mode controls how content is placed: replace (default), append, prepend, above, below.
-    inline: false   # Inline renders items side-by-side when true (default: false).
+- type: <string>   # SOURCE × RENDER.
+  build: <string>   # ── contents (build manifest) ──
+  source: <string>
+  section: <string>
+  columns: [<string>]   # contents renderer form lives on the RENDER axis (render:), not a separate renderer: key — one…
+  output_file: <string>
+  wrap: <string>
+  summary: <string>
+  style: <string>
+  params: {}   # ── props (github-*, goreportcard, …) ──
 ```
 
 ---
 
-<!-- --8<-- [end:narrate] -->
+<!-- --8<-- [end:scribe] -->
 <!-- --8<-- [start:test] -->
 <a id="config-test" name="config-test"></a>
 ### test
@@ -823,6 +748,11 @@ release:
   security_summary: <string>   # required
   registry_links: false   # required
   catalog_links: false   # required
+  render:   # Render controls release rendering (default DefaultReleasePresentation; a partial render: block…
+    max_entries: <int>   # required
+    group_by_type: false   # required
+    style: <string>   # concise | explanatory | technical · required
+    include_release_visible_only: false   # required
   run_from:   # gate mutation to declared origin
     allow: [<string>]   # permitted origins: "primary"
     mismatch: <string>   # "read-only" (default), "exit", "ignore"
@@ -1047,42 +977,14 @@ glossary:
 ---
 
 <!-- --8<-- [end:glossary] -->
-<!-- --8<-- [start:presentation] -->
-<a id="config-presentation" name="config-presentation"></a>
-### presentation
-
-Presentation defines surface-specific rendering policies.
-
-```yaml
-presentation:
-  preset: <string>
-  commit:   # required
-    preserve_raw_subject: false   # required
-    enforce_conventional: false   # required
-  tag:   # required
-    max_entries: <int>   # required
-    group_by_type: false   # required
-    style: <string>   # concise | explanatory | technical · required
-    include_release_visible_only: false   # required
-    collapse_similar: false   # required
-  release:   # required
-    max_entries: <int>   # required
-    group_by_type: false   # required
-    style: <string>   # concise | explanatory | technical · required
-    include_release_visible_only: false   # required
-```
-
----
-
-<!-- --8<-- [end:presentation] -->
-<!-- --8<-- [start:tag] -->
-<a id="config-tag" name="config-tag"></a>
-### tag
+<!-- --8<-- [start:tagging] -->
+<a id="config-tagging" name="config-tagging"></a>
+### tagging
 
 Tag holds workflow defaults for the tag planner.
 
 ```yaml
-tag:
+tagging:
   preset: <string>
   defaults:   # required
     target: <string>   # default ref to tag (default: HEAD) · required
@@ -1092,11 +994,17 @@ tag:
   message:   # required
     mode: <string>   # auto | prompt_if_missing | require_manual · required
     empty_strategy: <string>   # prompt | fail | allow_empty · required
+  render:   # Render controls tag change-log rendering (default DefaultTagPresentation; a partial render: block…
+    max_entries: <int>   # required
+    group_by_type: false   # required
+    style: <string>   # concise | explanatory | technical · required
+    include_release_visible_only: false   # required
+    collapse_similar: false   # required
 ```
 
 ---
 
-<!-- --8<-- [end:tag] -->
+<!-- --8<-- [end:tagging] -->
 <!-- --8<-- [start:toolchains] -->
 <a id="config-toolchains" name="config-toolchains"></a>
 ### toolchains

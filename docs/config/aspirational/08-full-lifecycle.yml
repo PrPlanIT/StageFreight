@@ -73,15 +73,15 @@ targets:
       keep_last: 10
       protect: ["{branch}-latest"]
 
-  # ── README sync ──────────────────────────────────────────────
-  - id: dockerhub-readme
-    kind: docker-readme
-    url: docker.io
-    path: "{var:org}/{var:app}"
-    credentials: DOCKER
+  # ── Project identity sync ────────────────────────────────────
+  - id: project-meta
+    kind: metadata
+    registry: [dockerhub]
     when: { branches: [main], events: [push, tag] }
-    file: README.md
-    description: "Self-hosted invoicing — multi-platform image with full security scanning"
+    description:
+      - "Self-hosted invoicing — multi-platform image with full security scanning"
+      - "Self-hosted invoicing container image"
+    readme: README.md
 
   # ── Release ──────────────────────────────────────────────────
   - id: primary-release

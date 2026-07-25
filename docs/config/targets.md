@@ -43,8 +43,7 @@ recognized providers (Docker Hub, GHCR, GitLab, Quay, Harbor, JFrog, Gitea, gene
 `kind: metadata` pushes a project's identity — description, long readme/overview, website,
 topics, logo — to every registry **and** forge repo destination that can hold it, from one
 source of truth. Each field maps to what a destination supports and is silently skipped where
-absent; nothing is truncated, and org/namespace fields are never touched. (Supersedes the
-older `kind: docker-readme`, which only synced Docker Hub's README.)
+absent; nothing is truncated, and org/namespace fields are never touched.
 
 ```yaml
 publish:

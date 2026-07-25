@@ -108,7 +108,7 @@ const assuranceRequired = "required"
 type StringOrList []string
 
 // First returns the first element, or "" if empty — for single-value consumers of a
-// field that is now a list (e.g. a docker-readme description).
+// field that is now a list (e.g. a metadata description variant).
 func (s StringOrList) First() string {
 	if len(s) > 0 {
 		return s[0]

@@ -218,12 +218,12 @@ func ValidateTargetRegistryRefs(targets []TargetConfig, registries []RegistryCon
 		}
 
 		// Registry targets must have identity from somewhere.
-		if (t.Kind == "registry" || t.Kind == "docker-readme") && len(t.Registry) == 0 && t.URL == "" {
+		if t.Kind == "registry" && len(t.Registry) == 0 && t.URL == "" {
 			errs = append(errs, fmt.Sprintf("targets[%s]: kind %s requires registry: or url:", t.ID, t.Kind))
 		}
 
 		// Inline-mode registry targets (no registry: ref) must be a complete identity.
-		if (t.Kind == "registry" || t.Kind == "docker-readme") && len(t.Registry) == 0 && t.URL != "" {
+		if t.Kind == "registry" && len(t.Registry) == 0 && t.URL != "" {
 			if t.Kind == "registry" && t.Path == "" {
 				errs = append(errs, fmt.Sprintf("targets[%s]: inline registry target requires path:", t.ID))
 			}

@@ -176,8 +176,8 @@ publish:                                 # distribute artifacts to their destina
       keep_last: 6
       protect: ["latest-test-{branch}"]
 
-  # ── Docker Hub: README sync ──────────────────────────────────────
-  project-meta:                          # project identity → registries + forge repos, one source of truth (was docker-readme)
+  # ── Project identity: registries + forge repos ───────────────────
+  project-meta:                          # project identity → registries + forge repos, one source of truth
     kind: metadata
     registry: [dockerhub, harbor]        # Docker Hub Overview + Harbor Info (long body); short description capped per vendor
     repos: [github-mirror, primary]      # GitHub (description/website/topics) + GitLab (description/topics)

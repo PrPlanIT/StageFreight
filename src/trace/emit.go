@@ -91,7 +91,7 @@ type Emission struct {
 	idx          int            // assigned by Collector; used for index-based MarkRendered
 	Domain       string         // PanelDomain string — which panel owns this
 	Category     Category       // input / decision / mutation / side_effect
-	Key          string         // logical name: "docker_readme", "build_date", "cosign_key"
+	Key          string         // logical name: "project_metadata", "build_date", "cosign_key"
 	Value        string         // raw value — MUST be empty for Secret sensitivity
 	DisplayValue string         // safe render representation (required for Masked/Secret)
 	Status       EmissionStatus // ok | warn | fail | info | skipped

@@ -274,7 +274,7 @@ var fieldOverrides = map[string]FieldOverride{
 	},
 	"targets.kind": {
 		Description:   "Target type. Determines which fields are valid.",
-		AllowedValues: []string{"registry", "docker-readme", "gitlab-component", "release"},
+		AllowedValues: []string{"registry", "metadata", "gitlab-component", "release"},
 		Required:      boolPtr(true),
 	},
 	"targets.build": {
@@ -285,7 +285,7 @@ var fieldOverrides = map[string]FieldOverride{
 		Example:     "docker.io",
 	},
 	"targets.provider": {
-		Description:   "Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry/docker-readme targets.",
+		Description:   "Vendor type for auth and API behavior. Auto-detected from URL if omitted on registry targets.",
 		AllowedValues: []string{"docker", "ghcr", "gitlab", "jfrog", "harbor", "quay", "gitea", "forgejo", "ecr", "gar", "acr", "nexus", "generic", "github"},
 	},
 	"targets.path": {
@@ -334,11 +334,20 @@ var fieldOverrides = map[string]FieldOverride{
 	"targets.retention.protect": {
 		Description: "Tag patterns that are never deleted.",
 	},
-	"targets.file": {
-		Description: "Path to the README file. `kind: docker-readme` only.",
+	"targets.readme": {
+		Description: "Long markdown project-page body (registries with an overview field: Docker Hub, Harbor, JFrog, Quay). `kind: metadata` only.",
 	},
-	"targets.link_base": {
-		Description: "Base URL for relative link rewriting. `kind: docker-readme` only.",
+	"targets.website": {
+		Description: "Project's external site URL (forges: GitHub, Gitea/Forgejo). `kind: metadata` only.",
+	},
+	"targets.topics": {
+		Description: "Discovery tags (forges: GitHub, GitLab, Gitea). Normalized to lowercase-hyphenated. `kind: metadata` only.",
+	},
+	"targets.logo": {
+		Description: "Path to the project avatar image (project-scoped forges: GitLab, Gitea/Forgejo); synced idempotently. `kind: metadata` only.",
+	},
+	"targets.repos": {
+		Description: "Forge repo destinations (references `repos[].id`) for project identity sync. `kind: metadata` only.",
 	},
 	"targets.spec_files": {
 		Description: "Component spec file paths. `kind: gitlab-component` only.",

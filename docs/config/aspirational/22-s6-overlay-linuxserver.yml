@@ -151,14 +151,15 @@ targets:
     when: { branches: [main], events: [push] }
     credentials: DOCKER
 
-  # ── README sync ──────────────────────────────────────────────
-  - id: dockerhub-readme
-    kind: docker-readme
-    url: docker.io
-    path: "{var:org}/{var:app}"
-    credentials: DOCKER
+  # ── Project identity sync ────────────────────────────────────
+  - id: project-meta
+    kind: metadata
+    registry: [dockerhub]
     when: { branches: [main], events: [push, tag] }
-    file: README.md
+    description:
+      - "s6-overlay base image — LinuxServer.io-style multi-arch container"
+      - "s6-overlay multi-arch base image"
+    readme: README.md
 
   # ── Release ──────────────────────────────────────────────────
   - id: primary-release

@@ -27,13 +27,13 @@ targets:
     tags: ["{version}", "latest"]
     credentials: DOCKER
 
-  - id: dockerhub-readme
-    kind: docker-readme
-    url: docker.io
-    path: "{var:org}/{var:repo}"
-    credentials: DOCKER
-    file: "README.md"
-    link_base: "https://github.com/{var:org}/{var:repo}/blob/main"
+  - id: project-meta
+    kind: metadata
+    registry: [dockerhub]
+    description:
+      - "Project identity synced from one source of truth"
+      - "Synced project identity"
+    readme: "README.md"
 
 narrator:
   - file: "README.md"
