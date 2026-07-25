@@ -190,7 +190,7 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		if cacheBranch == "" {
 			cacheBranch = "default"
 		}
-		_, c.cacheTo = BuildCacheFlags(rc.Config.BuildCache, cacheRepoID, cacheBranch, rc.Config.Targets, rc.Config.Registries, rc.Config.Vars)
+		_, c.cacheTo = BuildCacheFlags(rc.Config.BuildCache, cacheRepoID, cacheBranch, rc.Config.Registries, rc.Config.Vars)
 	}
 
 	// ── Pass 1 (candidate) ──

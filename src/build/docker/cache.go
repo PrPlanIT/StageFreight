@@ -33,7 +33,7 @@ type CacheResolution struct {
 //   - Fallback never in cache-to (read-only)
 //   - Ref canonicalization: normalized prefix + hash suffix
 //   - Precedence ordering: local before external in cache-from list
-func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, targets []config.TargetConfig, registries []config.RegistryConfig, vars map[string]string) (cacheFrom, cacheTo []build.CacheRef) {
+func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, registries []config.RegistryConfig, vars map[string]string) (cacheFrom, cacheTo []build.CacheRef) {
 	if !cfg.IsActive() {
 		return nil, nil
 	}
@@ -43,11 +43,11 @@ func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, targets
 		return localFlags(repoID, cfg.Local)
 
 	case "shared":
-		return externalFlags(cfg.External, repoID, branch, targets, registries, vars)
+		return externalFlags(cfg.External, repoID, branch, registries, vars)
 
 	case "hybrid":
 		localFrom, localTo := localFlags(repoID, cfg.Local)
-		extFrom, extTo := externalFlags(cfg.External, repoID, branch, targets, registries, vars)
+		extFrom, extTo := externalFlags(cfg.External, repoID, branch, registries, vars)
 		return append(localFrom, extFrom...), append(localTo, extTo...)
 	}
 
@@ -66,12 +66,12 @@ func localFlags(repoID string, localCfg config.LocalCacheConfig) (cacheFrom, cac
 }
 
 // externalFlags returns BuildKit registry cache refs.
-func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, targets []config.TargetConfig, registries []config.RegistryConfig, vars map[string]string) (cacheFrom, cacheTo []build.CacheRef) {
-	if ext.Target == "" {
+func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, registries []config.RegistryConfig, vars map[string]string) (cacheFrom, cacheTo []build.CacheRef) {
+	if ext.Registry == "" {
 		return nil, nil
 	}
 
-	targetRef := resolveTargetRef(ext.Target, targets, registries, vars)
+	targetRef := resolveRegistryRef(ext.Registry, registries, vars)
 	if targetRef == "" {
 		return nil, nil
 	}
@@ -263,31 +263,22 @@ func repoHash(repoID string) string {
 	return fmt.Sprintf("%x", h[:8])
 }
 
-// resolveTargetRef finds the full registry repo ref (url/path) for a target ID.
-// Walks the identity graph via ResolveRegistryForTarget so targets using
-// `registry: <id>` references resolve correctly — legacy inline
-// `url: ...` + `path: ...` targets still work because the resolver accepts
-// both shapes. Vars are resolved by the resolver.
-func resolveTargetRef(
-	targetID string,
-	targets []config.TargetConfig,
+// resolveRegistryRef resolves a registries[].id to its "url/path" cache ref. The registry's
+// URL + default_path locate the cache; a synthetic registry-referencing target reuses the
+// standard registry resolution (var substitution, provider inference).
+func resolveRegistryRef(
+	registryID string,
 	registries []config.RegistryConfig,
 	vars map[string]string,
 ) string {
-	for _, t := range targets {
-		if t.ID != targetID || t.Kind != "registry" {
-			continue
-		}
-		reg, err := config.ResolveRegistryForTarget(t, registries, vars)
-		if err != nil || reg == nil {
-			return ""
-		}
-		url := strings.TrimSuffix(reg.URL, "/")
-		path := strings.Trim(reg.Path, "/")
-		if path != "" {
-			return url + "/" + path
-		}
-		return url
+	reg, err := config.ResolveRegistryForTarget(config.TargetConfig{Registry: config.StringOrList{registryID}}, registries, vars)
+	if err != nil || reg == nil {
+		return ""
 	}
-	return ""
+	url := strings.TrimSuffix(reg.URL, "/")
+	path := strings.Trim(reg.Path, "/")
+	if path != "" {
+		return url + "/" + path
+	}
+	return url
 }

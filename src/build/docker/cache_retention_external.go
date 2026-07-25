@@ -26,19 +26,19 @@ type ExternalRetentionResult struct {
 // enforceExternalRetention lists cache tags on the registry and prunes stale ones.
 // Scope: only tags matching the deterministic cache prefix (e.g., "cache-").
 // Ownership proof: tag must start with the configured path prefix + "-".
-func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfig, repoID string, targets []config.TargetConfig, registries []config.RegistryConfig, vars map[string]string) ExternalRetentionResult {
+func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfig, repoID string, registries []config.RegistryConfig, vars map[string]string) ExternalRetentionResult {
 	result := ExternalRetentionResult{}
 
-	targetRef := resolveTargetRef(ext.Target, targets, registries, vars)
+	targetRef := resolveRegistryRef(ext.Registry, registries, vars)
 	if targetRef == "" {
-		result.Errors = append(result.Errors, "cache target not resolved")
+		result.Errors = append(result.Errors, "cache registry not resolved")
 		return result
 	}
 
-	// Parse registry URL and path from target ref (e.g., "cr.pcfae.com/prplanit/stagefreight").
+	// Parse registry URL and path from the ref (e.g., "cr.pcfae.com/prplanit/stagefreight").
 	parts := strings.SplitN(targetRef, "/", 2)
 	if len(parts) != 2 {
-		result.Errors = append(result.Errors, fmt.Sprintf("invalid target ref %q", targetRef))
+		result.Errors = append(result.Errors, fmt.Sprintf("invalid registry ref %q", targetRef))
 		return result
 	}
 	registryURL := parts[0]
@@ -52,23 +52,11 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 	prefix := scopeTag.ScopePrefix()
 	result.Prefix = prefix
 
-	// Find the target config and resolve its registry identity via the
-	// identity graph, so registry-id references surface provider +
-	// credentials correctly.
-	var targetCfg *config.TargetConfig
-	for i := range targets {
-		if targets[i].ID == ext.Target {
-			targetCfg = &targets[i]
-			break
-		}
-	}
-	if targetCfg == nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("target %q not found in config", ext.Target))
-		return result
-	}
-	resolvedReg, regErr := config.ResolveRegistryForTarget(*targetCfg, registries, vars)
+	// Resolve the registry identity directly (provider + credentials) via a synthetic
+	// registry-referencing target — the same path resolveRegistryRef used for the URL.
+	resolvedReg, regErr := config.ResolveRegistryForTarget(config.TargetConfig{Registry: config.StringOrList{ext.Registry}}, registries, vars)
 	if regErr != nil || resolvedReg == nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("resolving registry for target %q: %v", ext.Target, regErr))
+		result.Errors = append(result.Errors, fmt.Sprintf("resolving registry %q: %v", ext.Registry, regErr))
 		return result
 	}
 

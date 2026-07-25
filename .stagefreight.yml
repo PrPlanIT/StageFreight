@@ -269,7 +269,7 @@ publish:                                 # distribute artifacts to their destina
 build_cache:
   mode: hybrid
   external:
-    target: harbor-dev
+    registry: harbor
     path: "cache"
     fallback: "main"
   local:

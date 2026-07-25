@@ -264,8 +264,8 @@ func runPostBuildRetention(rc *domains.RunContext, plan *build.BuildPlan, backen
 			LocalCacheDir(repoID, rc.Config.BuildCache.Local), rc.Config.BuildCache.Local.Retention))
 	}
 	ext := rc.Config.BuildCache.External
-	if ext.Target != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {
-		renderExternalRetention(w, color, enforceExternalRetention(ctx, ext, repoID, rc.Config.Targets, rc.Config.Registries, rc.Config.Vars))
+	if ext.Registry != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {
+		renderExternalRetention(w, color, enforceExternalRetention(ctx, ext, repoID, rc.Config.Registries, rc.Config.Vars))
 	}
 
 	// ── Image Retention ──

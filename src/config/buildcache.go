@@ -90,12 +90,12 @@ type LocalRetention struct {
 }
 
 // ExternalCacheConfig defines registry-backed shared cache.
-// References an existing target (kind: registry) by ID — no redeclaring registries.
+// References a registries[].id directly — no publish-target indirection.
 type ExternalCacheConfig struct {
-	// Target references a targets[].id with kind: registry.
-	Target string `yaml:"target,omitempty"`
+	// Registry references a registries[].id. Its URL + default_path locate the cache.
+	Registry string `yaml:"registry,omitempty"`
 
-	// Path is appended to the target URL: <target-url>/<path>/<repo>/<branch>.
+	// Path is appended to the registry URL: <registry-url>/<path>/<repo>/<branch>.
 	Path string `yaml:"path,omitempty"`
 
 	// Fallback is the read-only fallback branch ref (e.g. "default", "main").
