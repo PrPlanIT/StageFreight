@@ -21,7 +21,9 @@ func expandMultiRegistryTargets(targets OrderedTargets) OrderedTargets {
 	// Fast path: nothing to fan.
 	fan := false
 	for _, t := range targets {
-		if len(t.Registry) > 1 {
+		// kind: metadata iterates its registry:+repos: destinations internally; fanning it
+		// would duplicate the repos: (forge) pushes across every registry copy.
+		if t.Kind != "metadata" && len(t.Registry) > 1 {
 			fan = true
 			break
 		}
@@ -31,7 +33,7 @@ func expandMultiRegistryTargets(targets OrderedTargets) OrderedTargets {
 	}
 	out := make(OrderedTargets, 0, len(targets))
 	for _, t := range targets {
-		if len(t.Registry) <= 1 {
+		if t.Kind == "metadata" || len(t.Registry) <= 1 {
 			out = append(out, t)
 			continue
 		}

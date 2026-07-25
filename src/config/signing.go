@@ -107,6 +107,15 @@ const assuranceRequired = "required"
 // StringOrList unmarshals a YAML scalar OR a sequence of strings into []string.
 type StringOrList []string
 
+// First returns the first element, or "" if empty — for single-value consumers of a
+// field that is now a list (e.g. a docker-readme description).
+func (s StringOrList) First() string {
+	if len(s) > 0 {
+		return s[0]
+	}
+	return ""
+}
+
 // UnmarshalYAML accepts a bare scalar (coerced to a one-element list) or a
 // sequence. Anything else is an error.
 func (s *StringOrList) UnmarshalYAML(value *yaml.Node) error {

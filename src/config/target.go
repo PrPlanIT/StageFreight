@@ -66,8 +66,10 @@ type TargetConfig struct {
 	// Resolution: try {PREFIX}_TOKEN first, else {PREFIX}_USER + {PREFIX}_PASS.
 	Credentials string `yaml:"credentials,omitempty"`
 
-	// Description is a short description override (kind: registry, docker-readme).
-	Description string `yaml:"description,omitempty"`
+	// Description is the short project description/tagline. A scalar for kind:
+	// registry/docker-readme; kind: metadata accepts a LIST of length-tiered variants
+	// (the engine picks the longest that fits each destination's cap).
+	Description StringOrList `yaml:"description,omitempty"`
 
 	// Retention controls cleanup of old tags/releases.
 	// Structured only in v2 (no scalar shorthand).
@@ -94,6 +96,25 @@ type TargetConfig struct {
 
 	// LinkBase is the base URL for relative link rewriting (kind: docker-readme).
 	LinkBase string `yaml:"link_base,omitempty"`
+
+	// ── kind: metadata ────────────────────────────────────────────────────
+	// Push project identity to registries (registry:) AND forge repos (repos:) from one
+	// source of truth. Each field maps to each destination's capability; absent → skipped.
+
+	// Readme is the long markdown 'project page' body (registries only: Docker Hub Overview,
+	// Harbor Info, JFrog README, Quay Description). On a forge the README is committed → N/A.
+	Readme string `yaml:"readme,omitempty"`
+
+	// Website is the project's external site URL (forges: GitHub, Gitea/Forgejo).
+	Website string `yaml:"website,omitempty"`
+
+	// Topics are discovery tags (forges: GitHub, GitLab, Gitea). Authored freely; the engine
+	// normalizes to lowercase-hyphenated per destination and warns on any transform.
+	Topics []string `yaml:"topics,omitempty"`
+
+	// Logo is a path to the project avatar image (project-scoped forges: GitLab, Gitea/Forgejo);
+	// synced idempotently. Org-scoped logos (GitHub, Docker Hub) are out of scope.
+	Logo string `yaml:"logo,omitempty"`
 
 	// ── kind: gitlab-component ────────────────────────────────────────────
 
@@ -263,6 +284,7 @@ type TargetCondition struct {
 var validTargetKinds = map[string]bool{
 	"registry":         true,
 	"docker-readme":    true,
+	"metadata":         true,
 	"gitlab-component": true,
 	"release":          true,
 	"binary-archive":   true,

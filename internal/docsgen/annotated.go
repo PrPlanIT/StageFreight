@@ -35,6 +35,7 @@ var unionByType = map[string]kindBlock{
 		kinds: []kindSpec{
 			{"registry", []string{"id", "kind", "registry", "build", "tags", "signing_profile", "native_scan", "retention", "when"}},
 			{"docker-readme", []string{"id", "kind", "registry", "file", "link_base", "when"}},
+			{"metadata", []string{"id", "kind", "registry", "repos", "description", "readme", "website", "topics", "logo", "when"}},
 			{"gitlab-component", []string{"id", "kind", "spec_files", "catalog", "when"}},
 			{"release", []string{"id", "kind", "aliases", "tag", "archives", "prerelease", "mirror", "sync_release", "sync_assets", "signing_profile", "retention", "when"}},
 			{"binary-archive", []string{"id", "kind", "build", "name", "format", "binary_name", "include", "checksums", "when"}},

@@ -669,6 +669,15 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, regis
 			errs = append(errs, fmt.Sprintf("%s: kind docker-readme does not use build reference", path))
 		}
 
+	case "metadata":
+		// Push project identity to registries (registry:) and/or forge repos (repos:).
+		if len(t.Registry) == 0 && len(t.Repos) == 0 {
+			errs = append(errs, fmt.Sprintf("%s: kind metadata requires at least one destination (registry: and/or repos:)", path))
+		}
+		if t.Build != "" {
+			errs = append(errs, fmt.Sprintf("%s: kind metadata does not use build reference", path))
+		}
+
 	case "gitlab-component":
 		if len(t.SpecFiles) == 0 {
 			errs = append(errs, fmt.Sprintf("%s: kind gitlab-component requires spec_files", path))
