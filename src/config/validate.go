@@ -621,10 +621,57 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
+	errs = append(errs, validateLifecycle(cfg)...)
+
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return warnings, nil
+}
+
+// validateLifecycle enforces the mode allowlist and the safe legal-block matrix.
+//
+// lifecycle.mode selects the phase-BODY behavior (build vs reconcile), never gates
+// a phase — the five phases (audition/perform/review/publish/narrate) emit for every
+// mode. Empty ≡ image (the live `default:` behavior in the phase runners).
+//
+// Only mode-specific blocks with a NON-defaulted sentinel are gated: builds/publish
+// (image-only) and governance (governance-only). gitops/docker presence is deliberately
+// NOT checked here — defaults() seeds GitOps.Backend/Docker.Backend on every config, so a
+// content sentinel cannot distinguish authored from default without reading the raw YAML
+// keys. See docs/design/plans/lifecycle-mode-validation.md (§A2, Follow-up).
+func validateLifecycle(cfg *Config) []string {
+	var errs []string
+
+	mode := strings.ToLower(strings.TrimSpace(cfg.Lifecycle.Mode))
+	if mode == "" {
+		mode = "image"
+	}
+
+	switch mode {
+	case "image", "gitops", "docker", "governance":
+		// known mode
+	default:
+		// Unknown mode would silently run the build body (the phase runners' default:).
+		// Fail loud, and skip block-legality (it'd only add noise against a bad mode).
+		return append(errs, fmt.Sprintf(
+			"lifecycle.mode: unknown mode %q (expected: image, gitops, docker, governance)",
+			cfg.Lifecycle.Mode))
+	}
+
+	// Legal-block matrix — safe subset only (non-defaulted sentinels). Catches the harmful
+	// direction: a non-image repo that would wrongly build/push, or a stray governance block.
+	if len(cfg.Builds) > 0 && mode != "image" {
+		errs = append(errs, fmt.Sprintf("builds: valid only in lifecycle.mode: image (got %s)", mode))
+	}
+	if len(cfg.Targets) > 0 && mode != "image" {
+		errs = append(errs, fmt.Sprintf("publish: valid only in lifecycle.mode: image (got %s)", mode))
+	}
+	if len(cfg.Governance.Clusters) > 0 && mode != "governance" {
+		errs = append(errs, fmt.Sprintf("governance: valid only in lifecycle.mode: governance (got %s)", mode))
+	}
+
+	return errs
 }
 
 // cfPagesProjectRe matches Cloudflare Pages' project-name rule: lowercase letters,
