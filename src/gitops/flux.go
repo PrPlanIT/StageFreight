@@ -42,7 +42,7 @@ func (f *FluxBackend) Capabilities() []runtime.Capability {
 // Validate checks that the flux CLI is available and cluster config is complete.
 func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
 	// Resolve flux CLI via toolchain.
-	fluxVer, fluxPinned := toolchain.ResolveVersion(rctx.RepoRoot, "flux", "", cfg.Toolchains.Desired)
+	fluxVer, fluxPinned := toolchain.ResolveVersion(rctx.RepoRoot, "flux", "", cfg.Toolchains)
 	fluxResult, err := provision.Resolve(ctx, rctx.RepoRoot, "flux", fluxVer, "Flux reconcile")
 	if err != nil {
 		if fluxPinned {
@@ -68,7 +68,7 @@ func (f *FluxBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *run
 	if cfg.GitOps.Cluster.Name == "" {
 		return nil // local dev — no cluster auth needed
 	}
-	return BuildKubeconfig(ctx, cfg.GitOps.Cluster, rctx, cfg.Toolchains.Desired)
+	return BuildKubeconfig(ctx, cfg.GitOps.Cluster, rctx, cfg.Toolchains)
 }
 
 // Plan discovers the Flux graph, computes impact, and builds the reconcile set.

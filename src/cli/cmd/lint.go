@@ -93,7 +93,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	engine.ToolchainDesired = cfg.Toolchains.Desired
+	engine.ToolchainDesired = cfg.Toolchains
 
 	if verbose {
 		names := make([]string, len(engine.Modules))
@@ -163,7 +163,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		freshnessOpts = mc.Options
 	}
 	resolver := discovery.NewResolver()
-	resolver.SetToolchainDesired(cfg.Toolchains.Desired)
+	resolver.SetToolchainDesired(cfg.Toolchains)
 	if err := resolver.Configure(freshnessOpts); err != nil {
 		return fmt.Errorf("configuring dependency resolver: %w", err)
 	}

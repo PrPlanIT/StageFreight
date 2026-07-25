@@ -381,7 +381,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		OCILayoutDir:     ociLayoutDir,
 		OutputDir:        req.OutputDir,
 		RootDir:          req.RootDir,
-		ToolchainDesired: req.Config.Toolchains.Desired,
+		ToolchainDesired: req.Config.Toolchains,
 		TrivyCacheMax:    req.Config.Security.Cache.Trivy.MaxSize,
 		TrivyCacheMaxAge: req.Config.Security.Cache.Trivy.MaxAge,
 		GrypeCacheMax:    req.Config.Security.Cache.Grype.MaxSize,

@@ -16,40 +16,33 @@ import (
 // constraint. Selection (which member of the candidate set to adopt) and
 // verification (SHA256 of the chosen artifact) live downstream.
 
-// ToolchainConfig defines operator control over external tool resolution.
-// Top-level in .stagefreight.yml because toolchains are execution substrate,
-// not CI-specific — they run in security scanning, signing, linting, gitops.
-type ToolchainConfig struct {
-	// Desired declares intended tool constraints. Authoritative — not a hint.
-	// If a desired constraint fails to resolve, the system fails. No fallback.
-	Desired map[string]ToolConstraint `yaml:"desired,omitempty"`
-}
+// ToolchainConfig is the toolchains: block — a tool→constraint map (tool name →
+// desired version constraint). Authoritative, not a hint: a constraint that fails to
+// resolve fails the run, no fallback. Top-level in .stagefreight.yml because toolchains
+// are execution substrate (security scanning, signing, linting, gitops), not CI-specific.
+type ToolchainConfig map[string]ToolConstraint
 
-// UnmarshalYAML iterates the desired mapping at the map level so a parse error can
-// name the offending tool (toolchains.desired.<name>) — the per-entry unmarshaler
-// alone cannot, since it never sees its own map key.
+// UnmarshalYAML decodes the tool→constraint mapping directly, naming the offending tool
+// on a parse error. The toolchains block IS the map — the retired `desired:` wrapper is
+// gone (a legacy `toolchains: { desired: … }` now parses `desired` as a tool with no
+// version and fails validation).
 func (c *ToolchainConfig) UnmarshalYAML(node *yaml.Node) error {
-	var raw struct {
-		Desired yaml.Node `yaml:"desired"`
+	if node.Kind == 0 {
+		return nil // no toolchains section
 	}
-	if err := node.Decode(&raw); err != nil {
-		return err
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("toolchains: must be a mapping of tool -> constraint")
 	}
-	if raw.Desired.Kind == 0 {
-		return nil // no desired section
-	}
-	if raw.Desired.Kind != yaml.MappingNode {
-		return fmt.Errorf("toolchains.desired: must be a mapping of tool -> constraint")
-	}
-	c.Desired = make(map[string]ToolConstraint, len(raw.Desired.Content)/2)
-	for i := 0; i+1 < len(raw.Desired.Content); i += 2 {
-		name := raw.Desired.Content[i].Value
-		tc, err := parseToolConstraint(raw.Desired.Content[i+1])
+	out := make(ToolchainConfig, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		name := node.Content[i].Value
+		tc, err := parseToolConstraint(node.Content[i+1])
 		if err != nil {
-			return fmt.Errorf("toolchains.desired.%s: %w", name, err)
+			return fmt.Errorf("toolchains.%s: %w", name, err)
 		}
-		c.Desired[name] = tc
+		out[name] = tc
 	}
+	*c = out
 	return nil
 }
 

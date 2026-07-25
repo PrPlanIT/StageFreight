@@ -110,16 +110,16 @@ func runToolchainList(_ *cobra.Command, _ []string) error {
 	}
 
 	// Show pinned versions from config if available
-	if cfg != nil && len(cfg.Toolchains.Desired) > 0 {
+	if cfg != nil && len(cfg.Toolchains) > 0 {
 		fmt.Println()
 		fmt.Println("Pinned (from .stagefreight.yml):")
 		var keys []string
-		for k := range cfg.Toolchains.Desired {
+		for k := range cfg.Toolchains {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			fmt.Printf("  %-14s %s\n", k, cfg.Toolchains.Desired[k].Constraint)
+			fmt.Printf("  %-14s %s\n", k, cfg.Toolchains[k].Constraint)
 		}
 	}
 

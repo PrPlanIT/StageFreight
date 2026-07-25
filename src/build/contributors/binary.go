@@ -475,7 +475,7 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Desired, now)
+	sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains, now)
 	if serr != nil {
 		return "", serr // FATAL (continuity / state-dir guard)
 	}
@@ -487,7 +487,7 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	artifactID := artifact.NewArtifactID("checksums", filepath.Base(checksumPath))
 	evidence := sc.Evidence(now)
 	sigPath := checksumPath + ".sig"
-	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Desired, checksumPath, sigPath, sc.Plan, sc.Env)
+	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains, checksumPath, sigPath, sc.Plan, sc.Env)
 	if err != nil {
 		rc.RB.Record(artifactID, artifact.Outcome{
 			Type: artifact.OutcomeTypeBlobSignature,

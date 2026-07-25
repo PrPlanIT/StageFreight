@@ -38,7 +38,7 @@ func TestToolConstraintParse(t *testing.T) {
 // rejected. The config is pure intent — no digest to validate here.
 func TestToolConstraintValidate(t *testing.T) {
 	valid := func(c ToolConstraint) error {
-		cfg := &Config{Version: 1, Toolchains: ToolchainConfig{Desired: map[string]ToolConstraint{"trivy": c}}}
+		cfg := &Config{Version: 1, Toolchains: ToolchainConfig{"trivy": c}}
 		_, err := Validate(cfg)
 		return err
 	}
@@ -56,6 +56,39 @@ func TestToolConstraintValidate(t *testing.T) {
 	}
 }
 
+// TestToolchains_FlatShape: the toolchains block IS the tool→constraint map; scalar and
+// {version: …} forms both resolve.
+func TestToolchains_FlatShape(t *testing.T) {
+	var tc ToolchainConfig
+	// exact scalar, wildcard scalar, and explicit {version:} — all still accepted.
+	if err := yaml.Unmarshal([]byte("trivy: 0.69.3\ngrype: \"0.110.x\"\ncosign: {version: 3.0.6}"), &tc); err != nil {
+		t.Fatalf("flat toolchains should decode, got %v", err)
+	}
+	if tc["trivy"].Constraint != "0.69.3" || tc["grype"].Constraint != "0.110.x" || tc["cosign"].Constraint != "3.0.6" {
+		t.Fatalf("exact/wildcard/map forms should all resolve, got %+v", tc)
+	}
+	// The wildcard is a valid constraint (grammar unchanged by the reshape).
+	cfg := &Config{Version: 1, Toolchains: ToolchainConfig{"grype": {Constraint: "0.110.x"}}}
+	if _, err := Validate(cfg); err != nil {
+		t.Fatalf("wildcard constraint must validate, got %v", err)
+	}
+}
+
+// TestToolchains_DesiredWrapperGone: the retired `desired:` wrapper no longer yields tools —
+// it parses `desired` as a single (bogus, version-less) tool, which validation then rejects.
+func TestToolchains_DesiredWrapperGone(t *testing.T) {
+	var tc ToolchainConfig
+	if err := yaml.Unmarshal([]byte("desired:\n  trivy: 0.69.3"), &tc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := tc["trivy"]; ok {
+		t.Fatal("legacy desired: wrapper must NOT produce a trivy tool")
+	}
+	if tc["desired"].Constraint != "" {
+		t.Fatalf("wrapper should mis-parse as an empty 'desired' tool, got %+v", tc)
+	}
+}
+
 // TestToolConstraintToolNameError: a parse error names the offending tool. `version`
 // expects a scalar, so a mapping value is a decode error that must be wrapped with the
 // tool name.
@@ -63,7 +96,7 @@ func TestToolConstraintToolNameError(t *testing.T) {
 	var cfg struct {
 		Toolchains ToolchainConfig `yaml:"toolchains"`
 	}
-	y := "toolchains:\n  desired:\n    helm:\n      version:\n        nested: bad"
+	y := "toolchains:\n  helm:\n    version:\n      nested: bad"
 	err := yaml.Unmarshal([]byte(y), &cfg)
 	if err == nil || !strings.Contains(err.Error(), "helm") {
 		t.Errorf("error must name the tool 'helm', got %v", err)
