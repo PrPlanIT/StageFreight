@@ -76,7 +76,7 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 	// For dry-run, show content from the first target's file
 	if dryRun {
 		t := targets[0]
-		resolvedDesc := gitver.ResolveVars(t.Description, appCfg.Vars)
+		resolvedDesc := gitver.ResolveVars(t.Description.First(), appCfg.Vars)
 
 		file := t.File
 		if file == "" {
@@ -107,7 +107,7 @@ func runDockerReadmeImpl(ctx context.Context, appCfg *config.Config, rootDir str
 			continue
 		}
 		resolvedPath := resolved.Path
-		resolvedDesc := gitver.ResolveVars(t.Description, appCfg.Vars)
+		resolvedDesc := gitver.ResolveVars(t.Description.First(), appCfg.Vars)
 
 		file := t.File
 		if file == "" {

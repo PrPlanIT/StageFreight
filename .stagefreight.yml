@@ -177,12 +177,21 @@ publish:                                 # distribute artifacts to their destina
       protect: ["latest-test-{branch}"]
 
   # ── Docker Hub: README sync ──────────────────────────────────────
-  dockerhub-readme:
-    kind: docker-readme
-    registry: dockerhub
+  project-meta:                          # project identity → registries + forge repos, one source of truth (was docker-readme)
+    kind: metadata
+    registry: [dockerhub, harbor]        # Docker Hub Overview + Harbor Info (long body); short description capped per vendor
+    repos: [github-mirror, primary]      # GitHub (description/website/topics) + GitLab (description/topics)
+    description:                          # length-tiered variants — the engine fits each destination's cap
+      # full (~380) — GitLab & other generous caps
+      - "A declarative lifecycle runtime that governs Git as the source of truth, enforcing operator-defined intent across GitOps workflows, Kubernetes, Docker, and CI ecosystems. StageFreight is open-source, self-building, and replaces fragile shell-script CI pipelines with a single Go binary driven by one .stagefreight.yml file. There's a setting for every stage — this is theatre."
+      # mid (~265) — GitHub's ~350 cap
+      - "A declarative lifecycle runtime that governs Git as the source of truth — GitOps, Kubernetes, Docker & CI from one .stagefreight.yml. Open-source, self-building; replaces fragile shell-script pipelines with a single Go binary. A setting for every stage — this is theatre."
+      # short (~83) — Docker Hub's ~100 cap
+      - "A declarative lifecycle runtime — GitOps, Kubernetes, Docker & CI from one manifest"
+    readme: README.md                    # long markdown body where the destination has one
+    website: https://stagefreight.prplanit.com
+    topics: [ci-cd, gitops, kubernetes, docker, devops, lifecycle-runtime]
     when: { branches: [main], events: [push, tag] }
-    file: "README.md"
-    description: "A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest"
 
   # ── Binary archives: linux amd64/arm64 + SHA256SUMS ──────────────
   # ONE archive recipe, fired on EITHER trigger (when: is an OR-list of condition

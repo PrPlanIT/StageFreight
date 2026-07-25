@@ -38,22 +38,49 @@ recognized providers (Docker Hub, GHCR, GitLab, Quay, Harbor, JFrog, Gitea, gene
 `credentials`, `tags` template expansion, and `retention` are cross-cutting — see
 [Concepts](concepts.md).
 
-## Docker README — sync registry descriptions
+## Project Metadata — sync identity to registries & forge repos
 
-Syncs a README to container-registry description fields, with badge injection and link
-rewriting.
+`kind: metadata` pushes a project's identity — description, long readme/overview, website,
+topics, logo — to every registry **and** forge repo destination that can hold it, from one
+source of truth. Each field maps to what a destination supports and is silently skipped where
+absent; nothing is truncated, and org/namespace fields are never touched. (Supersedes the
+older `kind: docker-readme`, which only synced Docker Hub's README.)
 
 ```yaml
-targets:
-  - id: dockerhub-readme
-    kind: docker-readme
-    url: docker.io
-    path: myorg/myapp
-    credentials: DOCKER
-    file: "README.md"
-    description: "Short description for Docker Hub"
-    link_base: "https://github.com/myorg/myrepo/blob/main"
+publish:
+  project-meta:
+    kind: metadata
+    registry: [dockerhub, harbor]        # registry pages
+    repos: [github-mirror, primary]      # forge project pages
+    description:                         # length-tiered variants — the engine fits each destination's cap
+      - "The full, richest tagline your most generous destination can hold…"
+      - "A trimmer version for tighter caps…"
+      - "A punchy fallback that fits anywhere"
+    readme: README.md                    # long markdown body (registries with an overview field)
+    website: https://example.com         # external site URL (forges that have the field)
+    topics: [ci-cd, gitops, kubernetes]  # discovery tags (forges) — normalized to lowercase-hyphenated
+    logo: assets/logo.png                # project avatar (project-scoped forge avatars)
+    when: { branches: [main], events: [push, tag] }
 ```
+
+### What each destination supports
+
+| destination | description (short) | readme (long body) | website | topics | logo |
+|---|---|---|---|---|---|
+| **Docker Hub** | ✓ ~100 (word-truncated) | ✓ Overview (~25k) | ✕ | ✕ | ✕ (org-scoped) |
+| **Harbor** | — (single field) | ✓ Info (markdown) | ✕ | ✕ | ✕ |
+| **Quay** | — (single field) | ✓ Description (markdown) | ✕ | ✕ | ✕ |
+| **JFrog** | ✓ config description | ✕ (no README API) | ✕ | ✕ | ✕ |
+| **GHCR / GitLab CR** | ✕ (no description API) | ✕ | ✕ | ✕ | ✕ |
+| **GitHub** | ✓ ~350 | ✕ (README is committed) | ✓ | ✓ | ✕ (org-scoped) |
+| **GitLab** | ✓ | ✕ (committed) | ✕ (no field) | ✓ | ✓ project avatar |
+| **Gitea / Forgejo** | ✓ | ✕ (committed) | ✓ | ✓ | ✓ project avatar |
+
+Behavior: single-field registries (Harbor, Quay) take the **readme** in their one markdown
+field (falling back to the short description if no readme); the engine **fits** the longest
+description variant to each destination's cap and **warns** rather than truncating; `logo`
+syncs **idempotently** (re-uploads only on change) and is skipped where the avatar is
+org-scoped. Each run reports per-destination what was set / skipped / warned.
 
 ## Release — cut forge releases
 

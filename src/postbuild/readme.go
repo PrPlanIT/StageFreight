@@ -62,7 +62,7 @@ func RunReadmeSection(ctx context.Context, w io.Writer, _ bool, color bool, targ
 		}
 		resolvedByTarget[t.ID] = reg
 
-		resolvedDesc := gitver.ResolveVars(t.Description, appCfg.Vars)
+		resolvedDesc := gitver.ResolveVars(t.Description.First(), appCfg.Vars)
 
 		file := t.File
 		if file == "" {
@@ -118,11 +118,17 @@ func RunReadmeSection(ctx context.Context, w io.Writer, _ bool, color bool, targ
 	return summary, elapsed
 }
 
-// FirstDockerReadmeDescription returns the description from the first docker-readme target.
-func FirstDockerReadmeDescription(cfg *config.Config) string {
+// FirstProjectDescription returns the project description from the first metadata target
+// (preferred) or docker-readme target — for injecting into badges/build context.
+func FirstProjectDescription(cfg *config.Config) string {
 	for _, t := range cfg.Targets {
-		if t.Kind == "docker-readme" && t.Description != "" {
-			return t.Description
+		if t.Kind == "metadata" && t.Description.First() != "" {
+			return t.Description.First()
+		}
+	}
+	for _, t := range cfg.Targets {
+		if t.Kind == "docker-readme" && t.Description.First() != "" {
+			return t.Description.First()
 		}
 	}
 	return ""

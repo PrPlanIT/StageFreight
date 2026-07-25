@@ -58,6 +58,85 @@ func (g *GitLabForge) setAuthHeader(req *http.Request) {
 
 func (g *GitLabForge) Provider() Provider { return GitLab }
 
+// UpdateRepoMetadata sets project identity on the GitLab project: description + topics via
+// PUT /projects/:id. GitLab has no per-project homepage field, so website is skipped.
+// The avatar (logo) is a multipart upload handled by the idempotent avatar step, not here.
+// Implements MetadataSetter.
+func (g *GitLabForge) UpdateRepoMetadata(ctx context.Context, meta RepoMetadata) (MetadataOutcome, error) {
+	var out MetadataOutcome
+
+	body := map[string]any{}
+	if meta.Description != "" {
+		body["description"] = meta.Description
+	}
+	if meta.Topics != nil {
+		body["topics"] = meta.Topics
+	}
+	if len(body) > 0 {
+		if err := g.doJSON(ctx, "PUT", g.apiURL(""), body, nil); err != nil {
+			return out, fmt.Errorf("gitlab: update project metadata: %w", err)
+		}
+		if meta.Description != "" {
+			out.set("description")
+		}
+		if meta.Topics != nil {
+			out.set("topics")
+		}
+	}
+
+	if meta.Website != "" {
+		out.skip("website", "GitLab has no per-project homepage field")
+	}
+	if meta.LogoPath != "" {
+		if err := g.uploadAvatar(ctx, meta.LogoPath); err != nil {
+			return out, fmt.Errorf("gitlab: upload avatar: %w", err)
+		}
+		out.set("logo")
+	}
+	return out, nil
+}
+
+// uploadAvatar sets the GitLab project avatar via multipart PUT /projects/:id. Idempotency
+// (upload only on change) is the caller's job — the metadata contributor gates this on a
+// committed content-hash, because GitLab may reprocess the served image (hashing it back is
+// unreliable).
+func (g *GitLabForge) uploadAvatar(ctx context.Context, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("avatar", filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return err
+	}
+	w.Close()
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", g.apiURL(""), &buf)
+	if err != nil {
+		return err
+	}
+	g.setAuthHeader(req)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 func (g *GitLabForge) apiURL(path string) string {
 	return fmt.Sprintf("%s/api/v4/projects/%s%s", g.BaseURL, url.PathEscape(g.ProjectID), path)
 }

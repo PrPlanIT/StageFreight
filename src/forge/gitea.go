@@ -78,6 +78,59 @@ func (g *GiteaForge) DeletePackageVersion(ctx context.Context, packageName, vers
 	return fmt.Errorf("generic-package: Gitea/Forgejo generic package deletion not yet implemented: %w", ErrNotSupported)
 }
 
+// UpdateRepoMetadata sets project identity on the Gitea/Forgejo repo: description +
+// website via PATCH, topics via PUT /topics (full replace). The avatar (logo) is a
+// base64 upload handled by the idempotent avatar step. Implements MetadataSetter; also
+// serves Forgejo (which embeds *GiteaForge). Gitea/Forgejo APIs are compatible.
+func (g *GiteaForge) UpdateRepoMetadata(ctx context.Context, meta RepoMetadata) (MetadataOutcome, error) {
+	var out MetadataOutcome
+
+	patch := map[string]any{}
+	if meta.Description != "" {
+		patch["description"] = meta.Description
+	}
+	if meta.Website != "" {
+		patch["website"] = meta.Website
+	}
+	if len(patch) > 0 {
+		if err := g.doJSON(ctx, "PATCH", g.apiURL(""), patch, nil); err != nil {
+			return out, fmt.Errorf("gitea: patch repo metadata: %w", err)
+		}
+		if meta.Description != "" {
+			out.set("description")
+		}
+		if meta.Website != "" {
+			out.set("website")
+		}
+	}
+
+	if meta.Topics != nil {
+		if err := g.doJSON(ctx, "PUT", g.apiURL("/topics"), map[string]any{"topics": meta.Topics}, nil); err != nil {
+			return out, fmt.Errorf("gitea: set topics: %w", err)
+		}
+		out.set("topics")
+	}
+
+	if meta.LogoPath != "" {
+		if err := g.uploadAvatar(ctx, meta.LogoPath); err != nil {
+			return out, fmt.Errorf("gitea: upload avatar: %w", err)
+		}
+		out.set("logo")
+	}
+	return out, nil
+}
+
+// uploadAvatar sets the Gitea/Forgejo repo avatar via POST /avatar with a base64 image.
+// Idempotency is the caller's job (committed content-hash gate).
+func (g *GiteaForge) uploadAvatar(ctx context.Context, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"image": base64.StdEncoding.EncodeToString(data)}
+	return g.doJSON(ctx, "POST", g.apiURL("/avatar"), body, nil)
+}
+
 func (g *GiteaForge) apiURL(path string) string {
 	return fmt.Sprintf("%s/api/v1/repos/%s/%s%s", g.BaseURL, g.Owner, g.Repo, path)
 }

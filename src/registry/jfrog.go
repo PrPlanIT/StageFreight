@@ -94,7 +94,22 @@ func (j *JFrog) DeleteTag(ctx context.Context, repo string, tag string) error {
 	return nil
 }
 
-func (j *JFrog) UpdateDescription(_ context.Context, _, _, _ string) error { return nil }
+// UpdateDescription sets the Artifactory repository's config "description" (the short
+// public description) via a partial config update (POST /api/repositories/:repoKey).
+// Artifactory's repository README is a UI feature with no documented REST API, so the
+// long body (full) is NOT pushed here — only the short description.
+func (j *JFrog) UpdateDescription(ctx context.Context, repo, short, _ string) error {
+	if short == "" {
+		return nil // nothing to set
+	}
+	repoKey, _ := splitJFrogRepo(repo)
+	payload := map[string]string{"description": short}
+	apiURL := fmt.Sprintf("%s/api/repositories/%s", j.baseURL, url.PathEscape(repoKey))
+	if _, err := j.client.doJSON(ctx, "POST", apiURL, payload, nil); err != nil {
+		return fmt.Errorf("jfrog: updating description for %s: %w", repoKey, err)
+	}
+	return nil
+}
 
 // splitJFrogRepo splits "repoKey/image/path" into the repo key and image path.
 // If no slash, assumes the whole string is the image path in a "docker-local" repo.

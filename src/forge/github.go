@@ -57,6 +57,44 @@ func NewGitHub(baseURL string) *GitHubForge {
 
 func (g *GitHubForge) Provider() Provider { return GitHub }
 
+// UpdateRepoMetadata sets project identity on the GitHub repo: description + homepage
+// (website) via PATCH, topics via PUT (full replace). GitHub repos have no avatar
+// (org/user only), so logo is skipped. Implements MetadataSetter.
+func (g *GitHubForge) UpdateRepoMetadata(ctx context.Context, meta RepoMetadata) (MetadataOutcome, error) {
+	var out MetadataOutcome
+
+	patch := map[string]any{}
+	if meta.Description != "" {
+		patch["description"] = meta.Description
+	}
+	if meta.Website != "" {
+		patch["homepage"] = meta.Website
+	}
+	if len(patch) > 0 {
+		if err := g.doJSON(ctx, "PATCH", g.apiURL(""), patch, nil); err != nil {
+			return out, fmt.Errorf("github: patch repo metadata: %w", err)
+		}
+		if meta.Description != "" {
+			out.set("description")
+		}
+		if meta.Website != "" {
+			out.set("website")
+		}
+	}
+
+	if meta.Topics != nil {
+		if err := g.doJSON(ctx, "PUT", g.apiURL("/topics"), map[string]any{"names": meta.Topics}, nil); err != nil {
+			return out, fmt.Errorf("github: set topics: %w", err)
+		}
+		out.set("topics")
+	}
+
+	if meta.LogoPath != "" {
+		out.skip("logo", "GitHub repos have no project avatar (org-scoped only)")
+	}
+	return out, nil
+}
+
 // GitHub has no generic package registry (GitHub Packages is typed-only:
 // npm/maven/container/etc.). Binary distribution uses kind: release instead.
 func (g *GitHubForge) PublishPackageFile(ctx context.Context, opts PublishPackageOptions) (*PublishedPackage, error) {

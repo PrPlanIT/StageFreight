@@ -95,7 +95,7 @@ func (c *crucibleContributor) Detect(rc *domains.RunContext) (domains.Contributi
 	c.runID = build.GenerateCrucibleRunID()
 	c.candidateTag = CrucibleTag("candidate", c.runID)
 	c.verifyTag = CrucibleTag("verify", c.runID)
-	if desc := postbuild.FirstDockerReadmeDescription(rc.Config); desc != "" {
+	if desc := postbuild.FirstProjectDescription(rc.Config); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}
 	c.created = time.Unix(c.pipelineStart.Unix(), 0).UTC().Format(time.RFC3339)

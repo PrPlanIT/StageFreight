@@ -30,7 +30,7 @@ func Run(req Request) error {
 	}
 
 	// Inject project description for {project.description} templates
-	if desc := postbuild.FirstDockerReadmeDescription(req.Config); desc != "" {
+	if desc := postbuild.FirstProjectDescription(req.Config); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}
 

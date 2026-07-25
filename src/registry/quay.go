@@ -92,8 +92,14 @@ func (q *Quay) DeleteTag(ctx context.Context, repo string, tag string) error {
 }
 
 func (q *Quay) UpdateDescription(ctx context.Context, repo, short, full string) error {
+	// Quay's description is a single MARKDOWN field (the repo overview / long body), not a
+	// short tagline — prefer the full markdown, fall back to short (same shape as Harbor).
+	desc := full
+	if desc == "" {
+		desc = short
+	}
 	payload := map[string]string{
-		"description": short,
+		"description": desc,
 	}
 
 	apiURL := fmt.Sprintf("%s/api/v1/repository/%s", q.baseURL, url.PathEscape(repo))

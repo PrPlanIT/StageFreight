@@ -89,7 +89,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	}
 
 	// Inject project description from docker-readme targets
-	if desc := postbuild.FirstDockerReadmeDescription(appCfg); desc != "" {
+	if desc := postbuild.FirstProjectDescription(appCfg); desc != "" {
 		gitver.SetProjectDescription(desc)
 	}
 
