@@ -186,20 +186,21 @@ func CanonicalProvider(provider string) (string, error) {
 
 // ValidateRetention checks that all retention policy values are non-negative.
 func ValidateRetention(r config.RetentionPolicy) error {
-	if r.KeepLast < 0 {
-		return fmt.Errorf("retention keep_last must be >= 0, got %d", r.KeepLast)
-	}
-	if r.KeepDaily < 0 {
-		return fmt.Errorf("retention keep_daily must be >= 0, got %d", r.KeepDaily)
-	}
-	if r.KeepWeekly < 0 {
-		return fmt.Errorf("retention keep_weekly must be >= 0, got %d", r.KeepWeekly)
-	}
-	if r.KeepMonthly < 0 {
-		return fmt.Errorf("retention keep_monthly must be >= 0, got %d", r.KeepMonthly)
-	}
-	if r.KeepYearly < 0 {
-		return fmt.Errorf("retention keep_yearly must be >= 0, got %d", r.KeepYearly)
+	// -1 / 0 / unset all mean ∞ (keep all) for the keep rules; only < -1 is invalid.
+	for _, f := range []struct {
+		name string
+		val  int
+	}{
+		{"keep_last", r.KeepLast},
+		{"keep_daily", r.KeepDaily},
+		{"keep_weekly", r.KeepWeekly},
+		{"keep_monthly", r.KeepMonthly},
+		{"keep_yearly", r.KeepYearly},
+		{"keep_branches", r.KeepBranches},
+	} {
+		if f.val < -1 {
+			return fmt.Errorf("retention %s must be >= -1 (-1/0/unset = keep all), got %d", f.name, f.val)
+		}
 	}
 	return nil
 }

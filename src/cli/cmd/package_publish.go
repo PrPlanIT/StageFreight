@@ -276,9 +276,8 @@ func (s *packageStore) Delete(ctx context.Context, name string) error {
 // never pruned (they don't match the dev family either, but protect makes the
 // guarantee explicit and survives template changes).
 func prunePackageTarget(ctx context.Context, fc forge.Forge, packageName, versionTemplate string, aliasTemplates []string, policy config.RetentionPolicy) (*retention.Result, error) {
-	patterns := retention.TemplatesToPatterns([]string{versionTemplate})
 	effective := policy
 	effective.Protect = append(append([]string{}, policy.Protect...), aliasTemplates...)
 	store := &packageStore{forge: fc, packageName: packageName}
-	return retention.Apply(ctx, store, patterns, effective)
+	return retention.Apply(ctx, store, []string{versionTemplate}, effective)
 }

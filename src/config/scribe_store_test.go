@@ -4,9 +4,9 @@ import "testing"
 
 func TestScribeApplyStoreDefaults(t *testing.T) {
 	s := &ScribeConfig{Content: OrderedContent{
-		{ID: "build"},                                // inline badge, no output → default store
-		{ID: "custom", Output: ".sf/badges/x.svg"},   // explicit output → preserved
-		{ID: "sh", Render: "shield", Message: "x"},   // shield → not a file badge, unaffected
+		{ID: "build"}, // inline badge, no output → default store
+		{ID: "custom", Output: ".sf/badges/x.svg"}, // explicit output → preserved
+		{ID: "sh", Render: "shield", Message: "x"}, // shield → not a file badge, unaffected
 	}}
 	s.ApplyStoreDefaults()
 	if s.Content[0].Output != ".stagefreight/scribe/build.svg" {

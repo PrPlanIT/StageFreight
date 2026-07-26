@@ -77,8 +77,9 @@ func ApplyRetention(ctx context.Context, reg Registry, repo string, tagPatterns 
 		protectedDigests: protectedDigests,
 	}
 
-	patterns := retention.TemplatesToPatterns(tagPatterns)
-	result, err := retention.Apply(ctx, store, patterns, policy)
+	// Pass the raw tag templates through — the engine groups by (template, identity)
+	// and derives candidacy wildcards itself.
+	result, err := retention.Apply(ctx, store, tagPatterns, policy)
 	if err != nil {
 		return &RetentionResult{
 			Provider: reg.Provider(),

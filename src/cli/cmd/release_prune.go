@@ -82,7 +82,8 @@ func runReleasePrune(cmd *cobra.Command, args []string) error {
 
 	start := time.Now()
 	store := &forgeStore{forge: forgeClient}
-	result, err := retention.Apply(ctx, store, patterns, *primaryRelease.Retention)
+	// Engine groups by (template, identity); pass raw alias templates.
+	result, err := retention.Apply(ctx, store, primaryRelease.Aliases, *primaryRelease.Retention)
 	elapsed := time.Since(start)
 
 	if err != nil {

@@ -31,7 +31,7 @@ publish:
     archives: app-dev-archive     # references a kind: binary-archive target
     version: "dev-{sha:8}"        # immutable package version (REQUIRED)
     aliases: ["latest-dev"]       # rolling versions, overwritten every publish (optional)
-    retention: { keep_last: 6, protect: ["latest-dev"] }
+    retention: { keep_last: 6 }   # latest-dev is rolling → auto-exempt, no protect needed
     when: { branches: [main], events: [push] }
 ```
 
@@ -83,13 +83,13 @@ or `?private_token=<token>`.
 
 Retention prunes the **immutable version family** derived from your `version`
 template (e.g. `dev-{sha:8}` → everything matching `^dev-.+$`), keeping the newest
-per the policy. Rolling **aliases are always protected** — `latest-dev` is never
-pruned (it's also folded into the protect set automatically). Policies are the same
-restic-style additive rules used everywhere else (`keep_last`, `keep_daily`, …,
-`protect`).
+per the policy. Rolling **aliases are auto-exempt** — `latest-dev` has no sequence
+variable, so it is never a prune candidate (no `protect:` needed). Policies are the
+same restic-style additive rules used everywhere else (`keep_last`, `keep_daily`, …);
+see [Retention policies](concepts.md#retention-policies) for the per-series model.
 
 ```yaml
-retention: { keep_last: 6, protect: ["latest-dev"] }
+retention: { keep_last: 6 }
 ```
 
 ## Forge support

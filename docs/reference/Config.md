@@ -339,12 +339,14 @@ publish:
     signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
     native_scan: false   # NativeScan enables post-push vulnerability scanning via the registry's own built-in scanner.…
     retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
-      keep_last: <int>   # keep the N most recent tags · required
+      keep_last: <int>   # keep the N most recent tags per series (0/-1/unset = ∞) · required
       keep_daily: <int>   # keep one per day for the last N days · required
       keep_weekly: <int>   # keep one per week for the last N weeks · required
       keep_monthly: <int>   # keep one per month for the last N months · required
       keep_yearly: <int>   # keep one per year for the last N years · required
-      protect: [<string>]   # tag patterns that are never deleted (v2) · required
+      keep_branches: <int>   # keep the N most-recent identity groups per template (bounds retired branches; 0/unset = ∞) · required
+      identity: [<string>]   # extra identity vars beyond the {branch}/{env} defaults — partition tags into independent series · required
+      protect: [<string>]   # tag patterns that are never deleted, an explicit override · required
     when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
       - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
@@ -399,12 +401,14 @@ publish:
     prerelease: false   # Prerelease marks the forge release as a pre-release (kind: release). DEPRECATED: prefer `type…
     signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
     retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
-      keep_last: <int>   # keep the N most recent tags · required
+      keep_last: <int>   # keep the N most recent tags per series (0/-1/unset = ∞) · required
       keep_daily: <int>   # keep one per day for the last N days · required
       keep_weekly: <int>   # keep one per week for the last N weeks · required
       keep_monthly: <int>   # keep one per month for the last N months · required
       keep_yearly: <int>   # keep one per year for the last N years · required
-      protect: [<string>]   # tag patterns that are never deleted (v2) · required
+      keep_branches: <int>   # keep the N most-recent identity groups per template (bounds retired branches; 0/unset = ∞) · required
+      identity: [<string>]   # extra identity vars beyond the {branch}/{env} defaults — partition tags into independent series · required
+      protect: [<string>]   # tag patterns that are never deleted, an explicit override · required
     when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
       - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…

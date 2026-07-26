@@ -11,8 +11,8 @@ import (
 // from the user command surface. Other projects generate their own docs via their
 // own `kind: command` build (e.g. `hasteward docs generate`).
 var docsCmd = &cobra.Command{
-	Use:    "docs",
-	Short:  "StageFreight-internal: generate StageFreight's own reference docs",
+	Use:   "docs",
+	Short: "StageFreight-internal: generate StageFreight's own reference docs",
 	Long: "StageFreight-internal reference-doc generation. Reflects StageFreight's own\n" +
 		"command tree and config structs — meaningful only inside the StageFreight repo,\n" +
 		"where it runs as a build step (builds.reference). Not intended for downstream use;\n" +

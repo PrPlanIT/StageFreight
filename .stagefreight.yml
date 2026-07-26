@@ -149,8 +149,7 @@ publish:                                 # distribute artifacts to their destina
     tags: ["dev-{sha:8}", "latest-dev"]
     when: { branches: [main], events: [push] }
     retention:
-      keep_last: 6
-      protect: ["latest-dev"]
+      keep_last: 6   # latest-dev is rolling (no sequence var) → auto-exempt, no protect needed
 
   # ── Harbor: per-branch test builds (Harbor ONLY, never Docker Hub) ──
   # Every non-main branch push crucible-builds to Harbor so a protected branch
@@ -165,8 +164,8 @@ publish:                                 # distribute artifacts to their destina
     tags: ["test-{branch}-{sha:8}", "latest-test-{branch}"]
     when: { branches: ["!main"], events: [push] }
     retention:
-      keep_last: 6
-      protect: ["latest-test-{branch}"]
+      keep_last: 6        # per-branch: 6 test builds kept for EACH branch (grouped by {branch})
+      keep_branches: 10   # bound retired branches — keep the 10 most-recently-active; latest-test-{branch} is rolling per branch (auto-exempt)
 
   # ── Project identity: registries + forge repos ───────────────────
   project-meta:                          # project identity → registries + forge repos, one source of truth
@@ -228,8 +227,7 @@ publish:                                 # distribute artifacts to their destina
     aliases: ["latest-dev"]
     type: prerelease
     retention:
-      keep_last: 6
-      protect: ["latest-dev"]
+      keep_last: 6   # latest-dev is rolling (no sequence var) → auto-exempt, no protect needed
     when: { branches: [main], events: [push] }
 
   # ── Documentation site → Cloudflare Pages ────────────────────────

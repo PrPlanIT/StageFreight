@@ -7,11 +7,11 @@ import (
 
 func TestFriendlyLayout(t *testing.T) {
 	cases := map[string]string{
-		"YYYY-MM-DD": "2006-01-02",
-		"MM/DD/YY":   "01/02/06",
-		"YYYY/MM/DD": "2006/01/02",
-		"HH:mm:ss":   "15:04:05",
-		"2006-01-02": "2006-01-02", // Go layout passes through untouched
+		"YYYY-MM-DD":  "2006-01-02",
+		"MM/DD/YY":    "01/02/06",
+		"YYYY/MM/DD":  "2006/01/02",
+		"HH:mm:ss":    "15:04:05",
+		"2006-01-02":  "2006-01-02", // Go layout passes through untouched
 		"Jan 2, 2006": "Jan 2, 2006",
 	}
 	for in, want := range cases {

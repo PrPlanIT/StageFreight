@@ -877,21 +877,22 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		if !config.TargetMatchesEnv(t, req.Config) {
 			continue
 		}
-		var patterns []string
+		var templates []string
 		if t.Tag != "" {
-			patterns = retention.TemplatesToPatterns([]string{t.Tag})
+			templates = []string{t.Tag}
 		} else if len(t.Aliases) > 0 {
-			patterns = retention.TemplatesToPatterns(t.Aliases)
+			templates = t.Aliases
 		}
 		pol := *t.Retention
-		// Rolling aliases are never pruned.
-		pol.Protect = append(append([]string{}, pol.Protect...), retention.TemplatesToPatterns(t.Aliases)...)
+		// Rolling aliases are never pruned (Protect holds raw templates; the engine
+		// wildcards them once).
+		pol.Protect = append(append([]string{}, pol.Protect...), t.Aliases...)
 		// Apply the channel's retention identically on the primary and each mirror,
 		// scoped to this channel's own tag/alias patterns (never touches releases
 		// outside them, so no surprising deletions).
 		for _, rf := range retForges {
 			store := &forgeStore{forge: rf.f, pruneTags: t.Tag != ""}
-			res, err := retention.Apply(ctx, store, patterns, pol)
+			res, err := retention.Apply(ctx, store, templates, pol)
 			id := t.ID
 			if rf.label != "primary" {
 				id = t.ID + " (" + rf.label + ")"

@@ -43,85 +43,167 @@ type skipper interface {
 	IsSkipped() bool
 }
 
-// Apply lists all items from the store, filters them by patterns (using
-// config.MatchPatterns), sorts by creation time descending, applies
-// restic-style retention policies, and deletes items not kept.
+// Apply lists all items from the store, then prunes them PER SERIES rather than as
+// one pool. Each tag is placed into a group keyed by (template, identity-values):
+// its template plus the values of that template's identity vars ({branch}, {env}, …).
+// The restic-style policy (keep_last + time buckets) is applied INDEPENDENTLY within
+// each group, so a `keep_last: 6` keeps 6 of every series — one branch's tags never
+// evict another's, and two accumulating templates never share slots.
 //
-// patterns uses the same syntax as branches/git_tags in the config:
+// Group taxonomy:
+//   - Accumulating (template has a sequence var like {sha}/{version}): keep_last /
+//     buckets prune along the sequence within the group.
+//   - Rolling (no sequence var, e.g. "latest-dev"): a single value overwritten in
+//     place — nothing to prune, so the whole group is kept.
+//   - keep_branches: N bounds the NUMBER of identity groups per template — the N
+//     most-recently-active are kept, older ones pruned wholesale (bounds retired
+//     branches). Groups with no identity var are unaffected (there is only one).
 //
-//	["^dev-"]              → only items starting with "dev-"
-//	["^dev-", "!^dev-keep"]→ dev- items, excluding dev-keep*
-//	[]                     → ALL items are candidates
-func Apply(ctx context.Context, store Store, patterns []string, policy config.RetentionPolicy) (*Result, error) {
-	if !policy.Active() {
-		return nil, fmt.Errorf("retention: no active policy (all values zero)")
-	}
-
+// policy.Protect (and any this-run tags a caller injects into it) is an explicit,
+// unconditional keep that overrides all of the above. A policy that keeps everything
+// (0 / -1 / unset on every rule) is a graceful no-op.
+//
+// templates uses the same syntax as branches/git_tags in the config; a "!"-prefixed
+// template excludes from candidacy but never forms a group.
+func Apply(ctx context.Context, store Store, templates []string, policy config.RetentionPolicy) (*Result, error) {
 	result := &Result{}
+
+	// 0 / -1 / unset on every rule ⇒ keep everything: a clean no-op, not an error.
+	if !policy.Active() {
+		return result, nil
+	}
 
 	items, err := store.List(ctx)
 	if err != nil {
 		return result, fmt.Errorf("retention: listing items: %w", err)
 	}
 
-	// Filter items that match the pattern set
-	var allMatched []Item
+	// Compile matchers for grouping; keep wildcard candidacy (with !/OR semantics)
+	// identical to before so what is IN SCOPE does not change — only how in-scope
+	// items are partitioned and pruned.
+	identity := effectiveIdentity(policy.Identity)
+	matchers := make([]tmplMatcher, 0, len(templates))
+	for _, t := range templates {
+		m, cerr := compileTemplate(t, identity)
+		if cerr != nil {
+			return result, cerr
+		}
+		matchers = append(matchers, m)
+	}
+	patterns := TemplatesToPatterns(templates)
+	protectPatterns := TemplatesToPatterns(policy.Protect)
+
+	type group struct {
+		matcherIdx int // -1 = catch-all (in scope but matched no positive template)
+		items      []Item
+	}
+	groups := map[string]*group{}
+	tmplGroupKeys := map[int][]string{} // matcherIdx (identity-bearing) → its group keys
+	keep := map[string]bool{}           // item name → survives
+	var inScope []Item
+
 	for _, item := range items {
-		if config.MatchPatterns(patterns, item.Name) {
-			allMatched = append(allMatched, item)
+		if !config.MatchPatterns(patterns, item.Name) {
+			continue // out of retention scope entirely
+		}
+		inScope = append(inScope, item)
+		result.Matched++
+
+		// Explicit protect (incl. caller-injected this-run tags): unconditional keep.
+		if len(protectPatterns) > 0 && config.MatchPatterns(protectPatterns, item.Name) {
+			keep[item.Name] = true
+			continue
+		}
+
+		// Assign to the first positive template's (identity) group.
+		assigned := false
+		for mi := range matchers {
+			if matchers[mi].negate {
+				continue
+			}
+			key, ok := matchers[mi].groupKey(item.Name)
+			if !ok {
+				continue
+			}
+			g := groups[key]
+			if g == nil {
+				g = &group{matcherIdx: mi}
+				groups[key] = g
+				if len(matchers[mi].idGroups) > 0 {
+					tmplGroupKeys[mi] = append(tmplGroupKeys[mi], key)
+				}
+			}
+			g.items = append(g.items, item)
+			assigned = true
+			break
+		}
+		if !assigned {
+			g := groups[""]
+			if g == nil {
+				g = &group{matcherIdx: -1}
+				groups[""] = g
+			}
+			g.items = append(g.items, item)
 		}
 	}
 
-	result.Matched = len(allMatched)
-
-	if len(allMatched) == 0 {
+	if result.Matched == 0 {
 		return result, nil
 	}
 
-	// Sort by CreatedAt descending (newest first)
-	sort.Slice(allMatched, func(i, j int) bool {
-		return allMatched[i].CreatedAt.After(allMatched[j].CreatedAt)
+	// keep_branches: for each identity-bearing template, keep only the N most-recent
+	// identity groups (ranked by newest tag); drop the rest entirely.
+	dropped := map[string]bool{}
+	if policy.KeepBranches > 0 {
+		for _, keys := range tmplGroupKeys {
+			if len(keys) <= policy.KeepBranches {
+				continue
+			}
+			sort.Slice(keys, func(i, j int) bool {
+				return newestOf(groups[keys[i]].items).After(newestOf(groups[keys[j]].items))
+			})
+			for _, k := range keys[policy.KeepBranches:] {
+				dropped[k] = true
+			}
+		}
+	}
+
+	// Whether any WITHIN-group (sequence) rule is active. keep_branches alone bounds
+	// group count but keeps everything ∞ within each surviving group.
+	seqActive := policy.KeepLast > 0 || policy.KeepDaily > 0 ||
+		policy.KeepWeekly > 0 || policy.KeepMonthly > 0 || policy.KeepYearly > 0
+
+	// Prune the sequence within each surviving group.
+	for key, g := range groups {
+		if dropped[key] {
+			continue // whole group pruned by keep_branches
+		}
+		rolling := g.matcherIdx >= 0 && !matchers[g.matcherIdx].hasSeq
+		if rolling || !seqActive {
+			for _, it := range g.items { // rolling, or no within-group rule ⇒ keep all (∞)
+				keep[it.Name] = true
+			}
+			continue
+		}
+		sorted := append([]Item{}, g.items...)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].CreatedAt.After(sorted[j].CreatedAt)
+		})
+		keepSet := ApplyPolicies(sorted, policy)
+		for i, it := range sorted {
+			if keepSet[i] {
+				keep[it.Name] = true
+			}
+		}
+	}
+
+	// Delete in-scope items not kept, newest-first for stable output.
+	sort.Slice(inScope, func(i, j int) bool {
+		return inScope[i].CreatedAt.After(inScope[j].CreatedAt)
 	})
-
-	// Separate protected items from retention candidates so they do not
-	// consume keep_last or time-bucket slots. Protected items are always
-	// kept; retention policies apply only to the remaining candidates.
-	protectPatterns := TemplatesToPatterns(policy.Protect)
-	isProtected := make([]bool, len(allMatched))
-	var candidates []Item
-	for i, item := range allMatched {
-		if len(protectPatterns) > 0 && config.MatchPatterns(protectPatterns, item.Name) {
-			isProtected[i] = true
-		} else {
-			candidates = append(candidates, item)
-		}
-	}
-
-	// Apply retention policies only to non-protected candidates.
-	keepSet := ApplyPolicies(candidates, policy)
-
-	// Merge back: protected items are always kept, non-protected follow keepSet.
-	keepAll := make([]bool, len(allMatched))
-	ci := 0
-	for i := range allMatched {
-		if isProtected[i] {
-			keepAll[i] = true
-		} else {
-			keepAll[i] = keepSet[ci]
-			ci++
-		}
-	}
-
-	// Count kept
-	for _, keep := range keepAll {
-		if keep {
+	for _, item := range inScope {
+		if keep[item.Name] {
 			result.Kept++
-		}
-	}
-
-	// Delete items not in the keep set
-	for i, item := range allMatched {
-		if keepAll[i] {
 			continue
 		}
 		if err := store.Delete(ctx, item.Name); err != nil {
