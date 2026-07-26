@@ -170,11 +170,9 @@ func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, 
 
 	s := tmpl
 
-	// Escape: {{...}} → literal {...}. Protect before resolution, restore at the end,
-	// so a badge can advertise a scheme like "dev-{sha}" without expanding the current sha.
-	const escOpen, escClose = "\x00sfLB\x00", "\x00sfRB\x00"
-	s = strings.ReplaceAll(s, "{{", escOpen)
-	s = strings.ReplaceAll(s, "}}", escClose)
+	// {{...}} is a literal {...}: protect it from resolution here, restore at the end. Universal —
+	// works in ANY templated field (badge messages, tags, links, …), not just badges.
+	s = EscapeLiterals(s)
 
 	// Resolve {var:name} templates first — var values may contain other templates.
 	s = ResolveVars(s, vars)
@@ -213,9 +211,7 @@ func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, 
 	s = strings.ReplaceAll(s, "{branch}", sanitizeTag(v.Branch))
 	s = strings.ReplaceAll(s, "{sha}", truncate(v.SHA, 7))
 
-	// Restore escaped braces to their literal form.
-	s = strings.ReplaceAll(s, escOpen, "{")
-	s = strings.ReplaceAll(s, escClose, "}")
+	s = RestoreLiterals(s)
 	return s
 }
 
