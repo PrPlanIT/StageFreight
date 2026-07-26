@@ -21,17 +21,17 @@ Every top-level key, sorted into meaningful groups:
 |---|---|
 | [Identity & Connectivity](identity.md) | `version` · `vars` · `defaults` · `forges` · `repos` · `registries` |
 | [Builds & Tests](builds.md) | `builds` · `build_cache` · `test` |
-| [Targets](targets.md) | `targets` (per-kind: registry · metadata · gitlab-component · release · binary-archive · generic-package · pages) |
-| [Narrate](narrate.md) | `narrate` |
+| [Publish](publish.md) | `publish` (per-kind: registry · metadata · gitlab-component · release · binary-archive · generic-package · pages) |
+| [Scribe](scribe.md) | `scribe` |
 | [Lint](lint.md) | `lint` |
-| [Policy](policy.md) | `matchers` · `ci` · `versioning` · `dependency` · `release` · `security` · `commit` · `toolchains` · `glossary` · `presentation` · `tag` · `manifest` |
+| [Policy](policy.md) | `git` · `ci` · `dependency` · `release` · `security` · `commit` · `tagging` · `toolchains` · `glossary` · `manifest` |
 | [Lifecycle Modes](lifecycle.md) | `lifecycle` · `gitops` · `governance` · `docker` |
-| [Signing](signing.md) | `signing` · `signing_profiles` |
+| [Signing](signing.md) | `signing` |
 
 A few ideas cut across every bucket — template variables, credential resolution, retention,
 and the pattern/condition syntax. They live once in **[Concepts](concepts.md)** and are
 referenced from the pages above. The **[Package Distribution](package-distribution.md)** guide
-covers the `generic-package` target kind in depth.
+covers the `generic-package` publish kind in depth.
 
 For the raw, exhaustive dump see the **[Full Schema Reference](../reference/Config.md)**
 (generated). This section is the curated, explained version of the same thing.

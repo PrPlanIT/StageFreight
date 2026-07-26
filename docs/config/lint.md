@@ -14,8 +14,7 @@ lint:
     secrets: { enabled: true }
     freshness:
       enabled: true
-      options:
-        cache_ttl: 300
+      cache_ttl: 300      # module options are inline — no `options:` wrapper
 ```
 
 `--level` (or `--all` for `full`) overrides `lint.level`, which overrides the `changed`
@@ -49,10 +48,9 @@ allowlist.
 
 ```yaml
     unicode:
-      options:
-        detect_control_ascii: true
-        allow_control_ascii_in_paths: ["src/output/banner_art.go"]
-        allow_control_ascii: [27]      # ESC only
+      detect_control_ascii: true
+      allow_control_ascii_in_paths: ["src/output/banner_art.go"]
+      allow_control_ascii: [27]        # ESC only
 ```
 
 ### Freshness & vulnerabilities
@@ -63,7 +61,7 @@ against the OSV database. `vulnerabilities` emits one finding per canonical advi
 per-lockfile `osv-scanner` pass so the same CVE never surfaces twice — even when an
 ecosystem splits its manifest and lockfile into separate files (e.g. npm's `package.json`
 vs `package-lock.json`). Vulnerability options are shared with `freshness` unless placed
-directly under `vulnerabilities.options`.
+directly under the `vulnerabilities` module.
 
 A **pinned** `osv-scanner` that fails to resolve hard-fails the gate; an unpinned/unavailable
 scanner silently skips the osv-scanner leg (the OSV-API leg still runs).

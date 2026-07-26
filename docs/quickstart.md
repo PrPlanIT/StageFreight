@@ -14,7 +14,7 @@ want a knob it doesn't show.
 
 | Scenario | Archetype | Knobs it demonstrates | Live config |
 |---|---|---|---|
-| **Container app (full lifecycle)** | Dockerfile image, dev + stable channels | `builds`, `kind: registry`, `kind: metadata`, `narrate` badges, retention | [DD-UI](https://github.com/PrPlanIT/DD-UI/blob/main/.stagefreight.yml) |
+| **Container app (full lifecycle)** | Dockerfile image, dev + stable channels | `builds`, `kind: registry`, `kind: metadata`, `scribe` badges, retention | [DD-UI](https://github.com/PrPlanIT/DD-UI/blob/main/.stagefreight.yml) |
 | **CLI / binary distribution** | Go binary + image + downloadable archives | `kind: binary`, `kind: binary-archive`, `kind: release` with checksums | [HASteward](https://github.com/PrPlanIT/HASteward/blob/main/.stagefreight.yml) · [Dragonfly](https://github.com/HomeLabHD/dragonfly/blob/main/.stagefreight.yml) · [Jetpack](https://github.com/HomeLabHD/jetpack/blob/main/.stagefreight.yml) |
 | **GitOps repo** | Flux manifest validation, no image build | `lifecycle: { mode: gitops }`, cluster auth | [Dungeon](https://github.com/SoFMeRight/Dungeon/blob/main/.stagefreight.yml) |
 | **Governance / control repo** | Policy reconciliation across repos | `lifecycle: { mode: governance }` | [MaintenancePolicy](https://github.com/PrPlanIT/MaintenancePolicy/blob/main/.stagefreight.yml) |
@@ -47,5 +47,5 @@ narrate**. Forge tokens and registry credentials resolve from CI variables at ru
 !!! note "More scenarios coming"
     A **GitLab CI/CD component** publisher (`kind: gitlab-component` — pushes reusable
     pipeline components to the GitLab component catalog) will be added once a public example
-    repo opens up. Until then, [Configuration › Targets](config/targets.md)
+    repo opens up. Until then, [Configuration › Targets](config/publish.md)
     documents it.

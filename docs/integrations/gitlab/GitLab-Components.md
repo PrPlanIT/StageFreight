@@ -30,8 +30,8 @@ unchanged.
 ### 1. Declare a `gitlab-component` target
 
 ```yaml
-targets:
-  - id: my-component
+publish:
+  my-component:
     kind: gitlab-component
     spec_files: ["templates/my-component.yml"]
     catalog: true        # register the version in the GitLab CI/CD Catalog on release
@@ -51,18 +51,17 @@ stagefreight component docs --readme README.md --commit
 Parses the component spec and injects an inputs table into your README (or any file),
 so the documented inputs never drift from the spec.
 
-### 3. Or embed component docs via the narrator
+### 3. Or embed component docs via scribe
 
 ```yaml
-narrator:
-  - file: "docs/MyComponent.md"
-    items:
-      - id: component-docs
-        kind: component
-        spec: "templates/my-component.yml"
-        placement:
-          between: ["<!-- sf:component:start -->", "<!-- sf:component:end -->"]
-          mode: replace
+scribe:
+  content:
+    component-docs: { type: component, spec: "templates/my-component.yml" }
+  files:
+    - file: "docs/MyComponent.md"
+      between: ["<!-- sf:component:start -->", "<!-- sf:component:end -->"]
+      mode: replace
+      items: [component-docs]
 ```
 
 ## Limitation: catalog links on the release upload path

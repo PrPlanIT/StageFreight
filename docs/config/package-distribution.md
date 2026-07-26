@@ -23,8 +23,8 @@ The two are not exclusive — a project can publish releases *and* packages.
 ## Configuration
 
 ```yaml
-targets:
-  - id: app-pkg-dev
+publish:
+  app-pkg-dev:
     kind: generic-package
     repo: primary                 # repos[].id — forge + project (identity comes from here)
     package: app                  # package name (default: the project's basename)

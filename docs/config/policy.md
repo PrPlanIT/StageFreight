@@ -7,12 +7,14 @@ publish manifests. These are the knobs you reach for once the basics work.
 A few of these keys carry behavior worth explaining before the generated field reference;
 the rest are documented inline in the reference blocks below.
 
-## Matchers — named routing
+## Git — ref interpretation & versioning
 
-`matchers:` defines named patterns (`stable`, `edge`, …) that targets reference from
-`when.git_tags` / `when.branches`, so routing lives in one place. The matching syntax
-itself — regex, negation, literal, first-match-wins — is shared with every conditional field
-and documented under [Concepts → Patterns & conditions](concepts.md#patterns-conditions).
+`git:` interprets the current ref into named **branch** and **tag** patterns and the versions
+they imply. `git.branches` and `git.tags` define named patterns (`main`, `stable`, …) that
+targets reference from `when.branches` / `when.git_tags`, so routing lives in one place;
+`git.versioning` derives `{version}` from those patterns (base tag source + format). The
+matching syntax itself — regex, negation, literal — is shared with every conditional field and
+documented under [Concepts → Patterns & conditions](concepts.md#patterns-conditions).
 
 ## Security scanning
 
@@ -50,19 +52,19 @@ Precedence: CLI `--security-detail` > first matching rule > `release_detail`.
 
 A scan writes `results.json` (Trivy JSON), `results.sarif` (for GitLab/GitHub security
 dashboards), `sbom.json` (CycloneDX, when `sbom: true`), and `summary.md` into `output_dir`.
-These become release assets — see [Targets → Release](targets.md#release-cut-forge-releases).
+These become release assets — see [Publish → Release](publish.md#release-cut-forge-releases).
 
 ## Reference
 
 Each key's generated reference follows.
 
---8<-- "docs/assets/modules/config-reference.md:matchers"
-
---8<-- "docs/assets/modules/config-reference.md:versioning"
+--8<-- "docs/assets/modules/config-reference.md:git"
 
 --8<-- "docs/assets/modules/config-reference.md:ci"
 
 --8<-- "docs/assets/modules/config-reference.md:commit"
+
+--8<-- "docs/assets/modules/config-reference.md:tagging"
 
 --8<-- "docs/assets/modules/config-reference.md:dependency"
 
@@ -75,7 +77,3 @@ Each key's generated reference follows.
 --8<-- "docs/assets/modules/config-reference.md:toolchains"
 
 --8<-- "docs/assets/modules/config-reference.md:glossary"
-
---8<-- "docs/assets/modules/config-reference.md:presentation"
-
---8<-- "docs/assets/modules/config-reference.md:tag"

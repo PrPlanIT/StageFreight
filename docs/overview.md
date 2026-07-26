@@ -8,7 +8,7 @@ fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/
 - **[Quick Start](quickstart.md)** — real, running `.stagefreight.yml` configs across
   archetypes; copy the one closest to yours.
 - **[Configuration](config/index.md)** — the complete `.stagefreight.yml` reference, grouped
-  by concern (identity, builds, targets, narrate, lint, policy, lifecycle, signing), with
+  by concern (identity, builds, publish, scribe, lint, policy, lifecycle, signing), with
   the cross-cutting ideas in **[Concepts](config/concepts.md)**.
 - **[Integrations](integrations/index.md)** — render your CI pipeline, stand up a runner,
   forge/registry support.

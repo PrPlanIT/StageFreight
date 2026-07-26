@@ -60,8 +60,8 @@ revoked individually, and attributed in audit logs.
     `_TOKEN` to silence it.
 
 ```yaml
-targets:
-  - id: harbor-dev
+publish:
+  harbor-dev:
     kind: registry
     build: myapp
     url: cr.example.com
@@ -115,5 +115,6 @@ conditional rule (security detail rules, and so on).
 - Where a rule has multiple condition fields (e.g. `tag:` **and** `branch:`), **all** set
   fields must match (AND). A rule with no fields set is a catch-all.
 
-Named routing patterns (referenced by `when.git_tags: [stable]`) are defined once under
-`matchers:` and reused across targets — see [Policy](policy.md).
+Named routing patterns (referenced by `when.git_tags: [stable]` / `when.branches: [main]`) are
+defined once under `git.tags` / `git.branches` and reused across publish targets — see
+[Policy](policy.md).

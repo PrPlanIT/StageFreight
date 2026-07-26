@@ -10,15 +10,15 @@
 
 **Future:** `auto` could be version-aware — stable semver green, prerelease yellow, `0.x.x` teal, etc.
 
-### `docs run` generates but does not publish — local "last mile" is manual
+### `scribe apply` generates but does not publish — local "last mile" is manual
 
-`stagefreight docs run` runs the enabled documentation generators (badges, reference docs, narrator, docker README) and **writes the files**, but it intentionally does **not** commit or push them — its help reads *"Run all enabled documentation generators (without auto-commit — use `ci run docs` for that)."* The commit/publish step lives only in the lifecycle phase runner (`ci run docs` / narrate), driven by `.stagefreight.yml` `docs.commit`.
+`stagefreight scribe apply` renders the configured scribe content (badges, shields, included fragments) and **writes the files**, but it intentionally does **not** commit or push them. The commit/publish step lives in the Narrate phase runner, driven by `.stagefreight.yml` `scribe.commit`.
 
-This makes docs the **odd one out** among the publish-type operations: registry images publish directly via `stagefreight docker build` (pushes by default) and releases via `stagefreight release create`, but **there is no standalone "publish docs" command** — the only way to complete docs locally is to run the CI-phase command (`ci run docs`) or to do the last mile by hand.
+This makes scribe the **odd one out** among the publish-type operations: registry images push by default and releases publish via `stagefreight release create`, but **there is no standalone "publish scribe content" command** — locally, you complete the last mile by hand.
 
-**Workaround (local docs generation + publish):**
-1. `stagefreight docs run` (or `stagefreight narrator run`) — generate/refresh the files.
+**Workaround (local generation + publish):**
+1. `stagefreight scribe apply` — render/refresh the files.
 2. Review the diff.
-3. `stagefreight commit -t docs -m "refresh generated docs"` then `stagefreight push` — the manual "last mile" that `ci run docs` does automatically.
+3. `stagefreight commit -t docs -m "refresh generated docs"` then `stagefreight push`.
 
-**Future:** give docs a symmetric standalone publish path so the local surface is consistent — either a `--commit` flag on `docs run`, or a dedicated `docs publish`, or fold it into a top-level `stagefreight run` local-pipeline orchestrator (see the local-dev-ergonomics design discussion). Until then, treat `docs run` as generate-only and own the commit/push yourself.
+**Future:** give scribe a symmetric standalone publish path so the local surface is consistent — a `--commit` flag on `scribe apply`, or fold it into a top-level `stagefreight run` local-pipeline orchestrator. Until then, treat `scribe apply` as generate-only and own the commit/push yourself.

@@ -121,9 +121,9 @@ nav:
       - Concepts: config/concepts.md
       - Identity & Connectivity: config/identity.md
       - Builds & Tests: config/builds.md
-      - Targets: config/targets.md
+      - Publish: config/publish.md
       - Package Distribution: config/package-distribution.md
-      - Narrate: config/narrate.md
+      - Scribe: config/scribe.md
       - Lint: config/lint.md
       - Policy: config/policy.md
       - Lifecycle Modes: config/lifecycle.md

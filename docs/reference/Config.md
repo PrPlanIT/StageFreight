@@ -3,9 +3,9 @@
 Complete reference for the `.stagefreight.yml` configuration schema (version 1).
 
 For conceptual documentation and usage examples, see:
-- [Docker Build](../config/targets.md) — builds + targets for container images
-- [Release Management](../config/targets.md) — release targets and rolling tags
-- [Narrator & Badges](../config/narrate.md) — content composition items
+- [Docker Build](../config/publish.md) — builds + targets for container images
+- [Release Management](../config/publish.md) — release targets and rolling tags
+- [Scribe](../config/scribe.md) — content composition items
 - [Security Scanning](../config/policy.md) — vulnerability scanning config
 - [Linter Configuration](../config/lint.md) — lint modules and options
 - [Configuration Examples](../config/index.md) — 24 example manifests

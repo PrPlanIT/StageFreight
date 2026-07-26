@@ -24,7 +24,7 @@ hide:
     Docker Hub, GHCR, GitLab, Quay, Harbor, JFrog, Gitea — with branch/tag routing and
     digest-preserving promotion.
 
-    [Targets →](config/targets.md)
+    [Publish →](config/publish.md)
 
 -   **Cross-Forge Releases**
 
@@ -33,7 +33,7 @@ hide:
     Cut releases on GitLab, GitHub, or Gitea with generated notes, badges, and mirror sync
     across forges.
 
-    [Targets → Release →](config/targets.md#release-cut-forge-releases)
+    [Publish → Release →](config/publish.md#release-cut-forge-releases)
 
 -   **Security Scanning**
 
