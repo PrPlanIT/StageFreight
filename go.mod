@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/go-containerregistry v0.21.7
-	github.com/mattn/go-runewidth v0.0.24
+	github.com/mattn/go-runewidth v0.0.27
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/sergi/go-diff v1.4.0
@@ -19,9 +19,9 @@ require (
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.36.2
-	k8s.io/apimachinery v0.36.2
-	k8s.io/client-go v0.36.2
+	k8s.io/api v0.36.3
+	k8s.io/apimachinery v0.36.3
+	k8s.io/client-go v0.36.3
 	lukechampine.com/blake3 v1.4.1
 	sigs.k8s.io/gateway-api v1.6.1
 )
