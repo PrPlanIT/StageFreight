@@ -170,6 +170,12 @@ func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, 
 
 	s := tmpl
 
+	// Escape: {{...}} → literal {...}. Protect before resolution, restore at the end,
+	// so a badge can advertise a scheme like "dev-{sha}" without expanding the current sha.
+	const escOpen, escClose = "\x00sfLB\x00", "\x00sfRB\x00"
+	s = strings.ReplaceAll(s, "{{", escOpen)
+	s = strings.ReplaceAll(s, "}}", escClose)
+
 	// Resolve {var:name} templates first — var values may contain other templates.
 	s = ResolveVars(s, vars)
 
@@ -207,6 +213,9 @@ func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, 
 	s = strings.ReplaceAll(s, "{branch}", sanitizeTag(v.Branch))
 	s = strings.ReplaceAll(s, "{sha}", truncate(v.SHA, 7))
 
+	// Restore escaped braces to their literal form.
+	s = strings.ReplaceAll(s, escOpen, "{")
+	s = strings.ReplaceAll(s, escClose, "}")
 	return s
 }
 
@@ -426,9 +435,9 @@ func resolveTime(s string) string {
 	s = resolveDateFormat(s, now)
 
 	// Longer tokens before shorter to avoid substring collision
-	s = strings.ReplaceAll(s, "{datetime}", now.Format(time.RFC3339))
+	s = strings.ReplaceAll(s, "{datetime}", now.In(renderLocation()).Format(time.RFC3339))
 	s = strings.ReplaceAll(s, "{timestamp}", strconv.FormatInt(now.Unix(), 10))
-	s = strings.ReplaceAll(s, "{date}", now.Format("2006-01-02"))
+	s = strings.ReplaceAll(s, "{date}", formatFriendly(now, "YYYY-MM-DD"))
 
 	return s
 }
@@ -463,30 +472,63 @@ func resolveDateFormat(s string, now time.Time) string {
 		if layout == "" {
 			break
 		}
-		s = s[:start] + now.Format(layout) + s[end+1:]
+		s = s[:start] + formatFriendly(now, layout) + s[end+1:]
 	}
 	return s
 }
 
 // resolveCommitDate replaces {commit.date} with the HEAD commit author date (UTC, YYYY-MM-DD).
 func resolveCommitDate(s string, rootDir string) string {
-	if !strings.Contains(s, "{commit.date}") {
+	if !strings.Contains(s, "{commit.date") {
 		return s
 	}
+	t, ok := headCommitTime(rootDir)
+
+	// default {commit.date} → YYYY-MM-DD (no time, TZ from $TZ else UTC)
+	if strings.Contains(s, "{commit.date}") {
+		val := ""
+		if ok {
+			val = formatFriendly(t, "YYYY-MM-DD")
+		}
+		s = strings.ReplaceAll(s, "{commit.date}", val)
+	}
+
+	// parameterized {commit.date:FORMAT} → friendly (YYYY/MM/DD…) or Go layout
+	for {
+		start := strings.Index(s, "{commit.date:")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start:], "}")
+		if end == -1 {
+			break
+		}
+		end += start
+		format := s[start+len("{commit.date:") : end]
+		val := ""
+		if ok && format != "" {
+			val = formatFriendly(t, format)
+		}
+		s = s[:start] + val + s[end+1:]
+	}
+	return s
+}
+
+// headCommitTime returns the HEAD commit's author time.
+func headCommitTime(rootDir string) (time.Time, bool) {
 	repo, err := gitstate.OpenRepo(rootDir)
 	if err != nil {
-		return strings.ReplaceAll(s, "{commit.date}", "")
+		return time.Time{}, false
 	}
 	head, err := repo.Head()
 	if err != nil {
-		return strings.ReplaceAll(s, "{commit.date}", "")
+		return time.Time{}, false
 	}
 	c, err := repo.CommitObject(head.Hash())
 	if err != nil {
-		return strings.ReplaceAll(s, "{commit.date}", "")
+		return time.Time{}, false
 	}
-	t := c.Author.When.UTC()
-	return strings.ReplaceAll(s, "{commit.date}", t.Format("2006-01-02"))
+	return c.Author.When, true
 }
 
 // resolveProjectMeta replaces {project.*} templates with auto-detected project metadata.

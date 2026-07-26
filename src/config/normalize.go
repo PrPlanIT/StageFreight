@@ -26,6 +26,10 @@ func Normalize(cfg *Config) error {
 	// Like Signing above, this runs before the vars short-circuit.
 	propagateCooldown(cfg)
 
+	// Derive badge output paths from scribe.store + id (so a badge needs no output:
+	// line). Independent of {var:} templating — runs before the vars short-circuit.
+	cfg.Scribe.ApplyStoreDefaults()
+
 	if len(cfg.Vars) == 0 {
 		return nil
 	}

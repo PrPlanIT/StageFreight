@@ -2,18 +2,41 @@ package config
 
 import (
 	"fmt"
+	"path"
 
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultScribeStore is the default directory for scribe-rendered file assets (badge
+// SVGs, and any future rendered files). Named after the subsystem, consistent with
+// .stagefreight/security, .stagefreight/deps, .stagefreight/manifests.
+const DefaultScribeStore = ".stagefreight/scribe"
 
 // ScribeConfig is the scribe: block — generate content into files and commit it.
 // Content is DEFINED ONCE in content: (id → def) and REFERENCED by name in files:
 // (placement + item name-refs). This replaces the old narrate: content surface
 // (badges list + patches with inline items). narrate: is reserved for the report.
 type ScribeConfig struct {
+	Store   string         `yaml:"store,omitempty"`   // dir for rendered file assets (default .stagefreight/scribe); path = {store}/{id}.svg
 	Content OrderedContent `yaml:"content,omitempty"` // id → content def (SOURCE type × RENDER render)
 	Files   OrderedFiles   `yaml:"files,omitempty"`   // id → placement region, items are content name-refs
 	Commit  ScribeCommit   `yaml:"commit,omitempty"`  // scribe's own auto-commit action
+}
+
+// ApplyStoreDefaults derives Output = {store}/{id}.svg for badge content defs that don't
+// set an explicit output path, so a badge needs no per-item output: line. An explicit
+// output: on a def wins. Store defaults to DefaultScribeStore.
+func (s *ScribeConfig) ApplyStoreDefaults() {
+	store := s.Store
+	if store == "" {
+		store = DefaultScribeStore
+	}
+	for i := range s.Content {
+		c := &s.Content[i]
+		if c.Output == "" && c.EffectiveKind() == "badge" {
+			c.Output = path.Join(store, c.ID+".svg")
+		}
+	}
 }
 
 // IsZero reports whether scribe declares nothing (the phase presence gate).
