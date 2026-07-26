@@ -617,6 +617,7 @@ Scribe generates content into files and commits it: content: (define-once defs) 
 
 ```yaml
 scribe:
+  store: <string>   # dir for rendered file assets (default .stagefreight/scribe); path = {store}/{id}.svg
   content: []   # discriminated union by kind — see per-kind blocks below
   files:   # id → placement region, items are content name-refs
     - file: <string>   # required
