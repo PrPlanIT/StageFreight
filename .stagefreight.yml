@@ -328,14 +328,12 @@ scribe:
       message: "{env:BUILD_STATUS}"
       color: auto
       font: monofur
-      output: ".stagefreight/badges/build.svg"
       link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
     license:
       label: license
       message: "{project.license}"
       color: "#310937"
       font: monofur
-      output: ".stagefreight/badges/license.svg"
       link: LICENSE
     release:
       label: release
@@ -343,54 +341,45 @@ scribe:
       color: "#74ecbe"
       font: dejavu-sans
       font_size: 11
-      output: ".stagefreight/badges/release.svg"
       link: "https://github.com/{var:github_org}/{var:github_repo}/releases"
     updated:
       label: updated
-      message: "{env:BUILD_DATE}"
+      message: "{commit.date}"
       color: "#236144"
       font: dejavu-sans
       font_size: 11
-      output: ".stagefreight/badges/updated.svg"
     pulls:
       label: pulls
       message: "{docker.pulls}"
       color: "#1d63ed"
-      output: ".stagefreight/badges/pulls.svg"
       link: "https://hub.docker.com/r/{var:org}/{var:repo}"
     release-latest:
       label: latest
       message: "v{base}"
       color: "#74ecbe"
-      output: ".stagefreight/badges/latest.svg"
       link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
     release-updated:
       label: updated
       message: "{docker.tag.v{base}.updated}"
       color: "#236144"
-      output: ".stagefreight/badges/release-updated.svg"
     release-size:
       label: size
       message: "{docker.tag.v{base}.size}"
       color: "#555"
-      output: ".stagefreight/badges/release-size.svg"
       link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}"
     dev-latest:
       label: latest-dev
-      message: "dev-{sha:8}"
+      message: "dev-{{sha}}"
       color: "#3b82f6"
-      output: ".stagefreight/badges/latest-dev.svg"
       link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
     dev-updated:
       label: updated
       message: "{docker.tag.latest-dev.updated}"
       color: "#236144"
-      output: ".stagefreight/badges/dev-updated.svg"
     dev-size:
       label: size
       message: "{docker.tag.latest-dev.size}"
       color: "#555"
-      output: ".stagefreight/badges/dev-size.svg"
       link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
 
     # ── inline shields (shields.io draws from the composed verbs; no %2F juggling) ──
@@ -483,7 +472,7 @@ scribe:
       - "README.md"
       - "docs/assets/modules"
       - "docs/reference"
-      - ".stagefreight/badges"
+      - ".stagefreight/scribe"
     push: true
     # StageFreight's own docs are project metadata, not build inputs (the image
     # is built from src/ only — README/docs are never copied in), so the docs
