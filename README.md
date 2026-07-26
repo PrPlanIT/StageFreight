@@ -20,6 +20,22 @@ A declarative lifecycle runtime that governs Git as the source of truth, enforci
 [![latest](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/badges/latest.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest) ![updated](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/badges/release-updated.svg) [![size](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/badges/release-size.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=v0.7.0) [![latest-dev](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/badges/latest-dev.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest-dev) ![updated](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/badges/dev-updated.svg) [![size](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/badges/dev-size.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest-dev)
 <!-- sf:image:end -->
 
+---
+
+## The Canonical Pipeline
+
+You describe intent once in [`.stagefreight.yml`](.stagefreight.yml), and StageFreight runs it as a **lifecycle** — the same five stages whether it's shipping a container image, cutting a cross-forge release, or reconciling a cluster. It even renders your forge's pipeline file *for you* — `stagefreight ci render gitlab` writes the `.gitlab-ci.yml` (also GitHub, Gitea, Forgejo) — so the CI document is a **generated artifact StageFreight owns, never hand-maintained.**
+
+| Act | What it does | Powered by |
+| --- | --- | --- |
+| **Audition** | Prove the change before anything acts on it | lint · tests · policy · config-freshness |
+| **Perform** | The one authoritative build — or, per mode, a reconcile | docker image · binary · gitops · compose |
+| **Review** | Scan what was built, before it can ship | Trivy · Grype · SBOM |
+| **Publish** | The *only* act that distributes | registries · releases · packages · pages · project metadata |
+| **Narrate** | The report that always runs, even on failure | badges · notifications · run summary |
+
+Git is the source of truth: the acts only enact **accepted** state — never a merge request, never an unmerged branch. The same binary is both the CI image and your local CLI.
+
 ### Features:
 
 |                                |                                                                                                           |
@@ -28,88 +44,20 @@ A declarative lifecycle runtime that governs Git as the source of truth, enforci
 | **Multi-Registry Push**        | Docker Hub, GHCR, GitLab, Quay, Harbor, JFrog, Gitea — with branch/tag filtering via regex (`!` negation) |
 | **Security Scanning**          | Trivy + Grype vulnerability scan, Syft SBOM generation, configurable detail levels per branch or tag      |
 | **Cross-Forge Releases**       | Create releases on GitLab, GitHub, or Gitea with auto-generated notes, badges, and cross-platform sync    |
-| **Cache-Aware Linting**        | 9 lint modules run in parallel, delta-only on changed files, with JUnit reporting for CI                  |
+| **Cache-Aware Linting**        | Parallel lint modules, delta-only on changed files, with JUnit reporting for CI                           |
 | **Retention Policies**         | Restic-style tag retention (keep_last, daily, weekly, monthly, yearly) across all registry providers       |
-| **Self-Building**              | StageFreight builds itself — this image is produced by `stagefreight docker build`                        |
+| **Self-Building**              | StageFreight builds, scans, and releases itself through its own pipeline — this image is one of its own artifacts |
 
 ### Documentation:
 
 |                     |                                                                 |
 | ------------------- | --------------------------------------------------------------- |
+| Start Here          | [Quick-Start Scenarios](docs/quickstart.md) · [Full Docs](https://stagefreight.prplanit.com) |
 | CLI Reference       | [Full Command Reference](docs/reference/CLI.md)                |
 | Config Reference    | [Full Config Schema](docs/reference/Config.md)                 |
 | Manifest Examples   | [Aspirational Example Configs](docs/config/aspirational/) · [Quick Examples](docs/config/examples/) |
 | Roadmap             | [Full Vision](docs/design/plans/RoadMap.md)              |
 | GitLab Components | [Publishing GitLab Components](docs/integrations/gitlab/GitLab-Components.md) |
-
----
-
-## Quick Start
-
-```yaml
-# .stagefreight.yml
-version: 1
-
-builds:
-  - id: myapp
-    kind: docker
-    platforms: [linux/amd64]
-
-targets:
-  - id: dockerhub
-    kind: registry
-    build: myapp
-    url: docker.io
-    path: yourorg/yourapp
-    tags: ["{version}", "latest"]
-    when: { events: [tag] }
-    credentials: DOCKER
-```
-
-```yaml
-# .gitlab-ci.yml
-build-image:
-  image: docker.io/prplanit/stagefreight:latest-dev
-  services:
-    - docker.io/library/docker:27-dind
-  script:
-    - stagefreight docker build
-  rules:
-    - if: '$CI_COMMIT_TAG'
-```
-
-```bash
-# or run locally
-docker run --rm -v "$(pwd)":/src -w /src \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  docker.io/prplanit/stagefreight:latest-dev \
-  sh -c 'git config --global --add safe.directory /src && stagefreight docker build --local'
-```
-
----
-
-## CLI Commands
-
-```
-stagefreight docker build       # detect → plan → lint → build → push → retention
-stagefreight docker readme      # sync README to container registries
-stagefreight lint                # run lint modules on the working tree
-stagefreight security scan      # trivy + grype scan + SBOM generation
-stagefreight release create     # create forge release with notes + sync
-stagefreight release notes      # generate release notes from git log
-stagefreight release badge      # generate/commit release status badge SVG
-stagefreight release prune      # prune old releases via retention policy
-stagefreight badge generate     # generate SVG badges from config
-stagefreight narrator run       # compose narrator items into target files
-stagefreight narrator compose   # ad-hoc CLI-driven composition
-stagefreight docs generate      # generate CLI + config reference docs
-stagefreight component docs     # generate component input documentation
-stagefreight dependency update  # update dependencies with freshness analysis
-stagefreight migrate            # migrate config to latest schema version
-stagefreight version            # print version info
-```
-
-See [CLI Reference](docs/reference/CLI.md) for full flag documentation.
 
 ---
 
@@ -124,15 +72,6 @@ See [CLI Reference](docs/reference/CLI.md) for full flag documentation.
 <!-- sf:contents-apk:start -->
 ![chafa](https://img.shields.io/badge/chafa-555?style=flat) ![git](https://img.shields.io/badge/git-555?style=flat) ![tree](https://img.shields.io/badge/tree-555?style=flat)
 <!-- sf:contents-apk:end -->
-
-### Looking for a minimal image?
-
-| Image | Purpose |
-|-------|---------|
-| [`prplanit/stagefreight:0.1.1`](https://hub.docker.com/r/prplanit/stagefreight) | Last pre-CLI release — vanilla DevOps toolchain (bash, docker-cli, buildx, python3, yq, jq, etc.) |
-| [`prplanit/ansible-oci`](https://hub.docker.com/r/prplanit/ansible-oci) | Ansible-native image — Python 3.13 + Alpine 3.22, ansible-core, ansible-lint, sops, rage, pywinrm, kubernetes.core, community.docker, community.sops |
-
-Starting from **0.2.0**, `prplanit/stagefreight` includes the Go CLI binary and is purpose-built for `stagefreight docker build` workflows.
 
 ---
 
