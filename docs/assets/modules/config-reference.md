@@ -745,7 +745,7 @@ release:
   preset: <string>
   enabled: false   # required
   required: false   # failure is hard pipeline fail (default: false)
-  security_summary: <string>   # required
+  security_summary: false   # SecuritySummary attaches the security summary to the release. The summary's location is… · required
   registry_links: false   # required
   catalog_links: false   # required
   render:   # Render controls release rendering (default DefaultReleasePresentation; a partial render: block…
@@ -906,8 +906,8 @@ build_cache:
       max_age: <string>   # e.g. "7d"
       max_size: <string>   # e.g. "15GB"
   external:   # External configures registry-backed shared cache.
-    target: <string>   # Target references a targets[].id with kind: registry.
-    path: <string>   # Path is appended to the target URL: <target-url>/<path>/<repo>/<branch>.
+    registry: <string>   # Registry references a registries[].id. Its URL + default_path locate the cache.
+    path: <string>   # Path is appended to the registry URL: <registry-url>/<path>/<repo>/<branch>.
     fallback: <string>   # Fallback is the read-only fallback branch ref (e.g. "default", "main"). Never written to unless…
     mode: <string>   # Mode is the BuildKit cache mode (e.g. "max", "min"). Default: "max".
     retention:   # Retention defines when stale external cache refs are pruned.
@@ -1011,10 +1011,9 @@ tagging:
 
 Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings.
 
-```yaml
-toolchains:
-  desired: {}   # Desired declares intended tool constraints. Authoritative — not a hint. If a desired constraint…
-```
+| Name | YAML Key | Type | Required | Default | Description |
+|------|----------|------|----------|---------|-------------|
+| `toolchains` | `toolchains` | map[string]object | No | — | Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings. |
 
 ---
 
