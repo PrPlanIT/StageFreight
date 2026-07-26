@@ -1,8 +1,18 @@
-# `.stagefreight.yml` Example Manifests
+# `.stagefreight.yml` Aspirational Manifests
 
-Example configurations for every project archetype. Each file is a standalone, copy-paste-ready `.stagefreight.yml` using the **v1 schema** with comments explaining who it's for, what it does, and why.
+> ⚠️ **These are aspirational vision configs, not copyable reference.** Each file sketches what a
+> `.stagefreight.yml` for a project archetype *could* look like — they intentionally mix
+> implemented features with not-yet-built ones (the commented `# ── Roadmap` blocks), and **they
+> are not kept in lockstep with the current schema.** Treat them as a goalpost for the breadth of
+> use cases StageFreight targets, not as configs to copy.
+>
+> **For configs you can actually copy and run:** the small, schema-current
+> [examples/](../examples/) set, the [generated reference](../../reference/Config.md), and — best
+> of all — real dogfooded configs like StageFreight's own
+> [`.stagefreight.yml`](https://github.com/PrPlanIT/StageFreight/blob/main/.stagefreight.yml) and
+> [DD-UI](https://github.com/PrPlanIT/DD-UI/blob/main/.stagefreight.yml).
 
-Features that are planned but not yet implemented are preserved as commented `# ── Roadmap` blocks at the bottom of each file.
+The archetypes below illustrate the range of projects StageFreight is being built to serve.
 
 ## Per-Repo Manifests (`.stagefreight.yml`)
 

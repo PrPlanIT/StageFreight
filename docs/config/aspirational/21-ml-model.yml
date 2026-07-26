@@ -1,3 +1,4 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
 # .stagefreight.yml — Machine Learning Model Serving
 #
 # Who: ML/AI teams shipping model inference services. Large images with

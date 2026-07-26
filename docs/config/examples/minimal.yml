@@ -2,12 +2,12 @@
 version: 1
 
 builds:
-  - id: myapp
+  myapp:
     kind: docker
     platforms: [linux/amd64]
 
-targets:
-  - id: dockerhub
+publish:
+  dockerhub:
     kind: registry
     build: myapp
     url: docker.io

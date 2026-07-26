@@ -1,3 +1,4 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
 # .stagefreight.yml — Microservices Monorepo
 #
 # Who: Teams with multiple distinct services in a single repository. Each

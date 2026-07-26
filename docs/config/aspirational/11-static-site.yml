@@ -1,3 +1,4 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
 # .stagefreight.yml — Static Site / Documentation
 #
 # Who: Documentation repos, marketing sites, blogs, wikis. Built with Hugo,

@@ -48,13 +48,15 @@ Browse every producer type with `stagefreight scribe types`.
 
 ## `files` — place by name
 
-`files` maps a file's marker region to an ordered list of content **ids**. Content between
-the markers is replaced idempotently each run; everything outside them is never touched.
+`files` is an **id → region map**; each region names a file, its markers, and an ordered list
+of content **ids**. Content between the markers is replaced idempotently each run; everything
+outside them is never touched.
 
 ```yaml
 scribe:
   files:
-    - file: README.md
+    readme-badges:                                    # region id
+      file: README.md
       between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
       mode: replace          # replace (default) | append | prepend | above | below
       inline: true           # space-joined (true) | newline-joined (false)

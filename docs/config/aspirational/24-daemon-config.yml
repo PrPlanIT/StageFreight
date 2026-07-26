@@ -1,3 +1,4 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
 # stagefreight-daemon.yml — Daemon Configuration
 #
 # This is NOT a per-repo .stagefreight.yml — this is the config file
