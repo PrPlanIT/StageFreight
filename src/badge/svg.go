@@ -22,7 +22,12 @@ func (e *Engine) renderSVG(b Badge) string {
 
 	var s strings.Builder
 
-	s.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20">`, totalWidth))
+	// Accessibility: role+aria-label make screen readers announce the badge as a
+	// single "label: value" image, and <title> is the hover tooltip — matching how
+	// shields.io badges are exposed. The visual <text> stays real (selectable) too.
+	ariaLabel := xmlEscape(b.Label + ": " + b.Value)
+	s.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20" role="img" aria-label="%s">`, totalWidth, ariaLabel))
+	s.WriteString(fmt.Sprintf(`<title>%s</title>`, ariaLabel))
 
 	// Embedded font and gradient
 	s.WriteString(`<defs>`)

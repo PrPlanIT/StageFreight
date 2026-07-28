@@ -90,6 +90,15 @@ func LoadFont(name string, data []byte, size float64) (*FontMetrics, error) {
 		familyName = n
 	}
 
+	// Shrink the font we EMBED to just the realistic badge charset — the whole
+	// point: a full DejaVu is ~1 MB base64 per badge, a subset is ~KB. Advances
+	// were measured above from the full font (same glyphs), so layout is
+	// unchanged. On any subsetting failure we keep the full font — a large badge
+	// still renders correctly, we never ship a broken one.
+	if subset, err := subsetToCharset(data); err == nil {
+		data = subset
+	}
+
 	return &FontMetrics{
 		name:     familyName,
 		size:     size,
