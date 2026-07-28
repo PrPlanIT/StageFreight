@@ -199,7 +199,7 @@ registries:
 <a id="config-signing" name="config-signing"></a>
 ### signing
 
-Operational signing configuration (distinct from `signing_profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — "signing is encouraged" and "the system minted an identity for me" are not the same thing.
+Operational signing configuration (distinct from `signing.profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — "signing is encouraged" and "the system minted an identity for me" are not the same thing.
 
 ```yaml
 signing:
@@ -211,7 +211,7 @@ signing:
     path: <string>   # absolute path (type: host_path)
   profiles:   # id→profile map (was the top-level signing_profiles: list)
     - id: <string>   # required
-      requires: [<string>]   # trust class(es); v1 enforces exactly one · required
+      requires: [<string>]   # trust class(es); v1 enforces exactly one · one of: hardware, key, kms, oidc · required
       key:   # Class reference blocks — at most one, matching the declared class.
         ref: <string>   # required
       oidc:
@@ -336,7 +336,7 @@ publish:
     registry: [<string>]   # Registry references registries[].id for registry/metadata targets. Accepts a single id (registry…
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
     tags: [<string>]   # Tags are tag templates resolved against version info (kind: registry). e.g., ["{version}"…
-    signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
+    signing_profile: <string>   # SigningProfile references a signing.profiles[].id — the trust profile this target signs under.…
     native_scan: false   # NativeScan enables post-push vulnerability scanning via the registry's own built-in scanner.…
     retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
       keep_last: <int>   # keep the N most recent tags per series (0/-1/unset = ∞) · required
@@ -399,7 +399,7 @@ publish:
     tag: <string>   # Tag is the immutable identity pattern for a release channel (kind: release). Distinct from Aliases…
     archives: <string>   # Archives references a binary-archive target ID (kind: release and generic-package).
     prerelease: false   # Prerelease marks the forge release as a pre-release (kind: release). DEPRECATED: prefer `type…
-    signing_profile: <string>   # SigningProfile references a signing_profiles[].id — the trust profile this target signs under.…
+    signing_profile: <string>   # SigningProfile references a signing.profiles[].id — the trust profile this target signs under.…
     retention:   # Retention controls cleanup of old tags/releases. Structured only in v2 (no scalar shorthand).
       keep_last: <int>   # keep the N most recent tags per series (0/-1/unset = ∞) · required
       keep_daily: <int>   # keep one per day for the last N days · required

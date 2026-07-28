@@ -1271,7 +1271,7 @@ digests under the same tier — recorded as first-class, additive evidence.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--profile` | string | — | a signing_profiles[].id from config to sign under (required) |
+| `--profile` | string | — | a signing.profiles[].id from config to sign under (required) |
 | `--skip-images` | bool | — | sign only release blobs, not published image digests |
 
 _Plus the [global flags](#cli-global-flags)._

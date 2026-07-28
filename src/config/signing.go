@@ -302,65 +302,65 @@ func ValidateSigningProfiles(profiles []SigningProfile) []string {
 	seen := map[string]bool{}
 	for _, p := range profiles {
 		if strings.TrimSpace(p.ID) == "" {
-			errs = append(errs, "signing_profiles: an entry has an empty id")
+			errs = append(errs, "signing.profiles: an entry has an empty id")
 			continue
 		}
 		if seen[p.ID] {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: duplicate id", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: duplicate id", p.ID))
 		}
 		seen[p.ID] = true
 
 		switch {
 		case len(p.Requires) == 0:
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: requires is empty (expected one of key, oidc, kms, hardware)", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: requires is empty (expected one of key, oidc, kms, hardware)", p.ID))
 			continue
 		case len(p.Requires) > 1:
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: multi-trust composition not yet supported (requires must name exactly one class)", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: multi-trust composition not yet supported (requires must name exactly one class)", p.ID))
 			continue
 		}
 		// Alias-tolerant: validation accepts keyless/yubikey, which Normalize
 		// canonicalizes later. Validate the canonical class without mutating input.
 		class := normalizeTrustClass(p.Requires[0])
 		if !validTrustClasses[class] {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: unknown trust class %q (expected key, oidc, kms, hardware — not a device/provider)", p.ID, p.Requires[0]))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: unknown trust class %q (expected key, oidc, kms, hardware — not a device/provider)", p.ID, p.Requires[0]))
 			continue
 		}
 
 		// Class/field coherence — a nested block for a class other than the declared one.
 		if p.Key != nil && class != TrustKey {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: key block is invalid for class %q", p.ID, class))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: key block is invalid for class %q", p.ID, class))
 		}
 		if p.OIDC != nil && class != TrustOIDC {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: oidc block is invalid for class %q", p.ID, class))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: oidc block is invalid for class %q", p.ID, class))
 		}
 		if p.KMS != nil && class != TrustKMS {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: kms block is invalid for class %q", p.ID, class))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: kms block is invalid for class %q", p.ID, class))
 		}
 		if p.PKCS11 != nil && class != TrustHardware {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: pkcs11 block is invalid for class %q (it selects the hardware transport)", p.ID, class))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: pkcs11 block is invalid for class %q (it selects the hardware transport)", p.ID, class))
 		}
 
 		// Assurance keywords (invariant 2): physical_presence is hardware-only;
 		// non_exportable holds for hardware OR kms (a KMS/Vault-transit key is
 		// non-exportable by design).
 		if p.PhysicalPresence != "" && class != TrustHardware {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: physical_presence is valid only for class hardware", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: physical_presence is valid only for class hardware", p.ID))
 		}
 		if p.NonExportable != "" && class != TrustHardware && class != TrustKMS {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: non_exportable is valid only for class hardware or kms", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: non_exportable is valid only for class hardware or kms", p.ID))
 		}
 		for name, val := range map[string]string{"physical_presence": p.PhysicalPresence, "non_exportable": p.NonExportable} {
 			if val != "" && !strings.EqualFold(val, assuranceRequired) {
-				errs = append(errs, fmt.Sprintf("signing_profiles[%s]: %s must be %q (got %q)", p.ID, name, assuranceRequired, val))
+				errs = append(errs, fmt.Sprintf("signing.profiles[%s]: %s must be %q (got %q)", p.ID, name, assuranceRequired, val))
 			}
 		}
 
 		// Required references per class.
 		if class == TrustKey && (p.Key == nil || strings.TrimSpace(p.Key.Ref) == "") {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: key.ref is required for class key", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: key.ref is required for class key", p.ID))
 		}
 		if class == TrustKMS && (p.KMS == nil || strings.TrimSpace(p.KMS.Ref) == "") {
-			errs = append(errs, fmt.Sprintf("signing_profiles[%s]: kms.ref is required for class kms", p.ID))
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: kms.ref is required for class kms", p.ID))
 		}
 	}
 	return errs

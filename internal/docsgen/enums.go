@@ -13,7 +13,7 @@ var enumSources = map[string]func() []string{
 	"targets.kind":              config.ValidTargetKinds,
 	"targets.format":            config.ValidArchiveFormats,
 	"targets.when.events":       config.ValidEvents,
-	"signing_profiles.requires": config.ValidTrustClasses,
+	"signing.profiles.requires": config.ValidTrustClasses,
 	"lint.level":                config.ValidLintLevels,
 	"manifest.mode":             config.ValidManifestModes,
 	"builds.kind":               config.ValidBuildKinds,

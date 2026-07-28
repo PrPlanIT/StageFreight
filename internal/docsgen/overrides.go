@@ -86,7 +86,7 @@ var sectionOverrides = map[string]SectionOverride{
 		},
 	},
 	"signing": {
-		Summary: "Operational signing configuration (distinct from `signing_profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — \"signing is encouraged\" and \"the system minted an identity for me\" are not the same thing.",
+		Summary: "Operational signing configuration (distinct from `signing.profiles`). Governs whether StageFreight may sign, whether it may create/manage a Tier-0 software identity on your behalf, and where that identity persists. `enabled` and `auto_provision` are deliberately separate — \"signing is encouraged\" and \"the system minted an identity for me\" are not the same thing.",
 		Example: `signing:
   enabled: true            # global kill switch (default true)
   auto_provision: false    # explicit consent to create/manage a Tier-0 key (default false)
@@ -101,31 +101,6 @@ var sectionOverrides = map[string]SectionOverride{
 			"With `auto_provision: false` (default), StageFreight never creates key material — it signs only with an explicit COSIGN_KEY/profile. Opinionated always-on belongs in a runner/distribution config, not core.",
 			"The Tier-0 identity is created once and NEVER silently regenerated: drift, partial state, or an orphan key is fatal.",
 			"The state_dir must live outside the repository (a key there could be committed, baked into an image, or published).",
-		},
-	},
-	"signing_profiles": {
-		Summary: "Named trust profiles for signing release artifacts and images. A profile declares a trust CLASS (`requires`: `key` | `oidc` | `kms` | `hardware`) and assurance requirements — never a device, vendor, or cosign flag. Targets reference a profile by id via `signing_profile: <id>` (same pattern as `registry:`). With no profile, the implicit `legacy` default signs images when `COSIGN_KEY` resolves; checksum blobs (SHA256SUMS) sign only under an explicit profile.",
-		Example: `signing_profiles:
-  - id: release-key
-    requires: key
-    key: { ref: "env:COSIGN_KEY" }      # path or env:VAR
-  - id: maintainer
-    requires: hardware                  # non-exportable key in a signing device
-    pkcs11: { ref: release }            # PIV/HSM transport, bound via SF_PKCS11_RELEASE (absent → FIDO2 --sk)
-    physical_presence: required
-    non_exportable: required
-  - id: org-kms
-    requires: kms
-    kms: { ref: release-signing-key }   # logical ref, bound to a URI at render time
-    non_exportable: required            # a KMS/Vault-transit key never leaves the service`,
-		Notes: []string{
-			"`requires` names the trust class only — machinery names (yubikey/fido2/vault/aws) are rejected as classes.",
-			"`physical_presence` (value `required`) is valid only for `requires: hardware`; `non_exportable` is valid for `hardware` OR `kms`.",
-			"Hardware transport is deployment wiring: a `hardware` profile may carry `pkcs11: { ref: <name> }`, bound via `SF_PKCS11_<REF>` to a full `pkcs11:` URI, e.g. `SF_PKCS11_RELEASE='pkcs11:slot-id=0;id=%02;object=SIGN%20key?module-path=/usr/lib/x86_64-linux-gnu/libykcs11.so'` (YubiKey PIV slot 9c = the digital-signature slot, ykcs11 object id 2). With no `pkcs11` ref the hardware class falls back to FIDO2 (cosign `--sk`). The module path / slot / PIN policy live in the env URI, never in the profile.",
-			"KMS/Vault ref binding is deployment wiring: set `SF_KMS_<REF>` to the URI, e.g. `SF_KMS_RELEASE-SIGNING-KEY=hashivault://release` (cosign's hashivault:// takes the key NAME only).",
-			"OIDC/keyless trust domain is deployment wiring too: `SF_SIGSTORE_{DOMAIN,FULCIO,REKOR,ISSUER,TRUSTED_ROOT,IDENTITY_TOKEN}`. Setting FULCIO/REKOR/TRUSTED_ROOT points cosign at a self-hosted Sigstore (public Fulcio won't trust a self-hosted issuer); ISSUER falls back to the profile's `oidc.issuer`; IDENTITY_TOKEN (value or path) supplies the OIDC token for unattended/non-CI signing (ambient providers used when unset). Standing up Fulcio/Rekor is operator infrastructure, not StageFreight.",
-			"`enforce: true` makes a signing failure fatal; the default is best-effort (recorded as a failed outcome, the build proceeds).",
-			"Aliases normalized at load: `keyless` → `oidc`, `yubikey` → `hardware`.",
 		},
 	},
 	"narrator": {

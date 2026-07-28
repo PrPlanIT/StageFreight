@@ -279,7 +279,7 @@ func imageTargets(results *artifact.ResultsManifest) []imageTarget {
 }
 
 func init() {
-	signCmd.Flags().StringVar(&signProfileID, "profile", "", "a signing_profiles[].id from config to sign under (required)")
+	signCmd.Flags().StringVar(&signProfileID, "profile", "", "a signing.profiles[].id from config to sign under (required)")
 	signCmd.Flags().BoolVar(&signSkipImages, "skip-images", false, "sign only release blobs, not published image digests")
 	rootCmd.AddCommand(signCmd)
 }

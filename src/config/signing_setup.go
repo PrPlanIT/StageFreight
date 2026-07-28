@@ -7,7 +7,7 @@ import (
 )
 
 // SigningConfig is the OPERATIONAL signing block (`signing:`), distinct from the
-// trust-profile list (`signing_profiles:`). It governs whether StageFreight may
+// trust-profile list (`signing.profiles`). It governs whether StageFreight may
 // sign at all, whether it may create/manage Tier-0 identity material on the
 // operator's behalf, and where that material persists.
 //

@@ -43,7 +43,7 @@ type TargetConfig struct {
 	// the registry entry. Path can still be overridden on the target.
 	Registry StringOrList `yaml:"registry,omitempty"`
 
-	// SigningProfile references a signing_profiles[].id — the trust profile this
+	// SigningProfile references a signing.profiles[].id — the trust profile this
 	// target signs under. Empty = the synthesized `legacy` profile (key-signing,
 	// inert unless a key resolves). Reference-by-id, same pattern as Registry.
 	SigningProfile string `yaml:"signing_profile,omitempty"`
