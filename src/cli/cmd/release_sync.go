@@ -19,12 +19,17 @@ var (
 
 var releaseSyncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Project releases from primary forge to mirrors",
-	Long: `Reads releases from the primary forge and projects missing ones
-to mirrors whose sync block includes a releases facet (facet × scope).
+	Short: "Converge mirror forges to the primary's releases (binaries included)",
+	Long: `Converges every mirror whose sync block includes a releases facet toward
+the primary forge's releases — carrying the notes AND re-hosting the attached
+binaries, not just tag+notes shells.
 
-Use --dry-run to preview what would be created without making changes.
-Without --dry-run, missing releases are created on each mirror.`,
+Provenance-bounded and idempotent: an unchanged release is a no-op, a drifted
+asset is replaced on its own, and a release SF did not place (a one-off, or one
+another dev cut on the mirror) is left untouched. Pruning, when the facet opts in,
+removes only SF-placed releases the primary no longer has.
+
+Use --dry-run to preview the desired set without mutating any mirror.`,
 	RunE: runReleaseSync,
 }
 

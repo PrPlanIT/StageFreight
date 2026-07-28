@@ -16,8 +16,9 @@ func UpsertReleases(ctx context.Context, dst releaseForge, desired []DesiredRele
 	return ReconcileReleases(ctx, nil, dst, desired, Options{})
 }
 
-// destroyer is the delete side of a forge.
-type destroyer interface {
+// Destroyer is the delete side of a forge — anything that can remove a release
+// by tag. *forge.Forge implementations satisfy it.
+type Destroyer interface {
 	DeleteRelease(ctx context.Context, tag string) error
 }
 
@@ -26,7 +27,7 @@ type destroyer interface {
 // tombstone: once it's gone from the source, a later mirror reconcile has
 // nothing to resurrect (the desired set no longer contains it). Errors are
 // collected per forge, not fatal, so one unreachable mirror doesn't block the rest.
-func DestroyRelease(ctx context.Context, tag string, forges ...destroyer) []error {
+func DestroyRelease(ctx context.Context, tag string, forges ...Destroyer) []error {
 	var errs []error
 	for _, f := range forges {
 		if err := f.DeleteRelease(ctx, tag); err != nil {
