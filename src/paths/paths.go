@@ -7,7 +7,7 @@
 //
 // The four buckets, four lifecycles:
 //
-//	Durable — committed repo state (badges/, preset-cache/, toolchains.lock). Tracked;
+//	Durable — committed repo state (scribe/, preset-cache/, toolchains.lock). Tracked;
 //	          travels with the repo; reviewed. The ONLY bucket that is ever committed.
 //	Scratch — per-run pipeline I/O (handoff artifacts, reports, dist). In-tree ONLY
 //	          because forge artifact/report paths must live under the project dir;
@@ -39,6 +39,12 @@ const (
 	// from a plain listing (Durable state stays prominent) and self-ignored via its own
 	// .gitignore, so no root .gitignore edit is needed to keep run I/O out of commits.
 	ScratchName = ".tmp"
+
+	// ScribeName is the Durable subdirectory holding scribe-rendered assets (badge SVGs
+	// and any future rendered files). Declared here so the scribe store default (config)
+	// and the durable allowlist (workspace) both derive from ONE name and cannot drift —
+	// the drift that once left scribe outputs gitignored and unrenderable on the forge.
+	ScribeName = "scribe"
 
 	// DefaultCacheRoot is the default mount for the Cache bucket. Overridable per host
 	// (a runner may mount elsewhere); on a hosted runner the forge cache maps onto it.

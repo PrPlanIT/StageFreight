@@ -19,7 +19,8 @@ func TestIsEphemeral(t *testing.T) {
 		{".stagefreight/dist/jetpack.tar.gz", true},
 		{".stagefreight/anything-new.json", true},   // inverted: unknown output → ephemeral by default
 		{".stagefreight/reportsX/y", true},          // not a durable entry → ephemeral (was false under enumerate)
-		{".stagefreight/badges/build.svg", false},   // durable carve-out
+		{".stagefreight/scribe/build.svg", false},   // durable carve-out — the scribe store (regression guard)
+		{".stagefreight/badges/build.svg", true},    // legacy pre-scribe dir is no longer durable → ephemeral
 		{".stagefreight/preset-cache/x.yml", false}, // durable carve-out
 		{".stagefreight/toolchains.lock", false},    // durable carve-out
 		{".stagefreight/.gitignore", false},         // managed, stays tracked
@@ -36,7 +37,7 @@ func TestIsEphemeral(t *testing.T) {
 func TestGitignoreManaged(t *testing.T) {
 	g := gitignoreManaged()
 	// Allowlist body: ignore everything, then re-include the durable set.
-	for _, want := range []string{"/*", "!/.gitignore", "!/badges/", "!/preset-cache/", "!/toolchains.lock"} {
+	for _, want := range []string{"/*", "!/.gitignore", "!/scribe/", "!/preset-cache/", "!/toolchains.lock"} {
 		if !strings.Contains(g, want) {
 			t.Errorf("managed gitignore missing %q:\n%s", want, g)
 		}
@@ -96,8 +97,8 @@ func TestUntrackEphemeral_RefusesOutsideNamespace(t *testing.T) {
 		!strings.Contains(err.Error(), "outside the StageFreight ephemeral namespace") {
 		t.Fatalf("expected scope refusal for user source, got %v", err)
 	}
-	if err := UntrackEphemeral(root, []string{".stagefreight/badges/build.svg"}); err == nil {
-		t.Fatalf("expected refusal for persistent badges/, got nil")
+	if err := UntrackEphemeral(root, []string{".stagefreight/scribe/build.svg"}); err == nil {
+		t.Fatalf("expected refusal for persistent scribe/, got nil")
 	}
 	if err := UntrackEphemeral(root, nil); err != nil {
 		t.Fatalf("empty set must be a no-op, got %v", err)

@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"gopkg.in/yaml.v3"
 )
 
 // DefaultScribeStore is the default directory for scribe-rendered file assets (badge
 // SVGs, and any future rendered files). Named after the subsystem, consistent with
-// .stagefreight/security, .stagefreight/deps, .stagefreight/manifests.
-const DefaultScribeStore = ".stagefreight/scribe"
+// .stagefreight/security, .stagefreight/deps, .stagefreight/manifests. Derived from
+// paths so the durable allowlist (workspace) carves out this exact directory.
+var DefaultScribeStore = path.Join(paths.Root, paths.ScribeName)
 
 // ScribeConfig is the scribe: block — generate content into files and commit it.
 // Content is DEFINED ONCE in content: (id → def) and REFERENCED by name in files:

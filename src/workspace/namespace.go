@@ -33,9 +33,9 @@ const NamespaceDir = paths.Root
 // clean-tree exclusion; miss one and it is silently treated as ephemeral — hence the
 // completeness test.
 var persistentEntries = []string{
-	"badges/",         // published status assets referenced from the README
-	"preset-cache/",   // resolved config presets, committed for reproducibility
-	"toolchains.lock", // machine-maintained toolchain resolved-lock (durable state)
+	paths.ScribeName + "/", // scribe-rendered assets (badge SVGs) referenced from the README
+	"preset-cache/",        // resolved config presets, committed for reproducibility
+	"toolchains.lock",      // machine-maintained toolchain resolved-lock (durable state)
 }
 
 // GitignorePath is the managed ignore file — INSIDE the namespace, never root.
