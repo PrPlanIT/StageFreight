@@ -48,13 +48,15 @@ type DesiredRelease struct {
 	Fingerprint string
 }
 
-// DesiredAsset is a file to re-host on the mirror; Source is how to fetch it
-// from the source forge.
+// DesiredAsset is a file the release should carry. For MIRRORING, Source names
+// how to fetch it from the source forge (re-host). For AUTHORING (upsert), Local
+// is a path to the freshly-built file; Local takes precedence over Source.
 type DesiredAsset struct {
 	Name   string
-	Digest string // source digest, "" if the source forge doesn't expose one
+	Digest string // content digest, "" if unknown
 	Size   int64
-	Source forge.ReleaseAsset
+	Source forge.ReleaseAsset // remote source (mirror re-host)
+	Local  string             // local file path (author upsert)
 }
 
 // Options tunes convergence. Prune enables removal of OUR mirror releases no
@@ -279,8 +281,20 @@ func assetMatches(have forge.ReleaseAsset, want DesiredAsset) bool {
 	return have.Size == want.Size && want.Size != 0
 }
 
-// rehost streams an asset from src into a temp file, then uploads it to dst.
+// rehost places an asset onto dst. For an author upsert (a.Local set) it uploads
+// the local file directly; for a mirror re-host it streams from src into a temp
+// file first. src may be nil when every asset is local.
 func rehost(ctx context.Context, src, dst releaseForge, releaseID string, a DesiredAsset) error {
+	if a.Local != "" {
+		if err := dst.UploadAsset(ctx, releaseID, forge.Asset{Name: a.Name, FilePath: a.Local}); err != nil {
+			return fmt.Errorf("upload %s: %w", a.Name, err)
+		}
+		return nil
+	}
+	if src == nil {
+		return fmt.Errorf("asset %s: no local file and no source forge", a.Name)
+	}
+
 	rc, err := src.DownloadReleaseAsset(ctx, a.Source)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", a.Name, err)
