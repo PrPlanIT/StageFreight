@@ -683,3 +683,59 @@ func (g *GitLabForge) DownloadJobArtifact(ctx context.Context, ref, jobName, art
 
 	return body, nil
 }
+
+// ── Release-reconciliation leaf ops (mirror engine) ──────────────────────
+// GitLab release assets are `assets.links`, not uploaded files.
+
+func (g *GitLabForge) ListReleaseAssets(ctx context.Context, releaseID string) ([]ReleaseAsset, error) {
+	var rel struct {
+		Assets struct {
+			Links []struct {
+				ID             int    `json:"id"`
+				Name           string `json:"name"`
+				URL            string `json:"url"`
+				DirectAssetURL string `json:"direct_asset_url"`
+			} `json:"links"`
+		} `json:"assets"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/releases/"+url.PathEscape(releaseID)), nil, &rel); err != nil {
+		return nil, err
+	}
+	var out []ReleaseAsset
+	for _, l := range rel.Assets.Links {
+		dl := l.DirectAssetURL
+		if dl == "" {
+			dl = l.URL
+		}
+		out = append(out, ReleaseAsset{ID: fmt.Sprintf("%d", l.ID), Name: l.Name, URL: dl})
+	}
+	return out, nil
+}
+
+func (g *GitLabForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAsset) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", asset.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("GitLab download asset %s: %d %s", asset.Name, resp.StatusCode, string(body))
+	}
+	return resp.Body, nil
+}
+
+func (g *GitLabForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
+	return g.doJSON(ctx, "DELETE",
+		g.apiURL(fmt.Sprintf("/releases/%s/assets/links/%s", url.PathEscape(releaseID), assetID)), nil, nil)
+}
+
+func (g *GitLabForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+	return g.doJSON(ctx, "PUT", g.apiURL("/releases/"+url.PathEscape(releaseID)),
+		map[string]any{"description": body}, nil)
+}

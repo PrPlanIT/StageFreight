@@ -327,3 +327,17 @@ func (a *AzureDevOpsForge) CancelPipeline(ctx context.Context, pipelineID string
 func (a *AzureDevOpsForge) DownloadJobArtifact(ctx context.Context, ref, jobName, artifactPath string) ([]byte, error) {
 	return nil, ErrNotSupported
 }
+
+// ── Release-reconciliation leaf ops — not yet supported ──────────────────
+func (a *AzureDevOpsForge) ListReleaseAssets(ctx context.Context, releaseID string) ([]ReleaseAsset, error) {
+	return nil, ErrNotSupported
+}
+func (a *AzureDevOpsForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAsset) (io.ReadCloser, error) {
+	return nil, ErrNotSupported
+}
+func (a *AzureDevOpsForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
+	return ErrNotSupported
+}
+func (a *AzureDevOpsForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+	return ErrNotSupported
+}

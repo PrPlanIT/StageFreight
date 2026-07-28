@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -130,6 +131,26 @@ type Forge interface {
 	// DeletePackageVersion removes a single version of a generic package (used by
 	// retention). Forges without a generic package registry return ErrNotSupported.
 	DeletePackageVersion(ctx context.Context, packageName, version string) error
+
+	// ── Release-reconciliation leaf ops (the mirror engine) ──────────────────
+
+	// ListReleaseAssets returns the FILE assets attached to a release (binaries/
+	// archives), not link assets. Digest/Size drive granular per-asset
+	// convergence. releaseID is the platform release id (numeric for GitHub,
+	// tag name for GitLab).
+	ListReleaseAssets(ctx context.Context, releaseID string) ([]ReleaseAsset, error)
+
+	// DownloadReleaseAsset streams a file asset's bytes from THIS forge (the
+	// source side of a re-host). Caller closes the reader.
+	DownloadReleaseAsset(ctx context.Context, asset ReleaseAsset) (io.ReadCloser, error)
+
+	// DeleteReleaseAsset removes a single file asset from a release, by its
+	// platform asset id — used to replace a drifted asset before re-uploading.
+	DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error
+
+	// UpdateReleaseNotes replaces a release's body (markdown) — used to converge
+	// notes and the provenance/fingerprint marker.
+	UpdateReleaseNotes(ctx context.Context, releaseID, body string) error
 }
 
 // Factory creates Forge instances for target repos.
@@ -264,6 +285,17 @@ type ReleaseInfo struct {
 	Draft       bool
 	Prerelease  bool
 	CreatedAt   time.Time
+}
+
+// ReleaseAsset is a FILE attached to a release (a binary/archive), as seen on
+// a forge. The mirror reconciler compares assets by Digest (preferred) or Size
+// (fallback) to converge only what drifted, and re-hosts by download+upload.
+type ReleaseAsset struct {
+	ID     string // platform asset id (for delete/replace)
+	Name   string // filename
+	Size   int64  // bytes — fallback comparison when Digest is unavailable
+	Digest string // content digest if the forge exposes one, else ""
+	URL    string // download URL (source side)
 }
 
 // PublishPackageOptions configures a generic package file publish.

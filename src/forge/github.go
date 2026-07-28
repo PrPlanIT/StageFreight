@@ -560,3 +560,65 @@ func (g *GitHubForge) DefaultBranch(ctx context.Context) (string, error) {
 	}
 	return resp.DefaultBranch, nil
 }
+
+// ── Release-reconciliation leaf ops (mirror engine) ──────────────────────
+
+func (g *GitHubForge) ListReleaseAssets(ctx context.Context, releaseID string) ([]ReleaseAsset, error) {
+	var out []ReleaseAsset
+	page := 1
+	for {
+		u := fmt.Sprintf("%s?per_page=100&page=%d", g.apiURL("/releases/"+releaseID+"/assets"), page)
+		var assets []struct {
+			ID     int    `json:"id"`
+			Name   string `json:"name"`
+			Size   int64  `json:"size"`
+			Digest string `json:"digest"` // "sha256:..." on newer GitHub; "" if absent
+			URL    string `json:"url"`    // API asset URL; download via Accept: octet-stream
+		}
+		if err := g.doJSON(ctx, "GET", u, nil, &assets); err != nil {
+			return out, err
+		}
+		for _, a := range assets {
+			out = append(out, ReleaseAsset{
+				ID:     fmt.Sprintf("%d", a.ID),
+				Name:   a.Name,
+				Size:   a.Size,
+				Digest: a.Digest,
+				URL:    a.URL,
+			})
+		}
+		if len(assets) < 100 {
+			break
+		}
+		page++
+	}
+	return out, nil
+}
+
+func (g *GitHubForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAsset) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", asset.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+g.Token)
+	req.Header.Set("Accept", "application/octet-stream") // 302 → pre-signed URL; Go strips auth cross-host
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("GitHub download asset %s: %d %s", asset.Name, resp.StatusCode, string(body))
+	}
+	return resp.Body, nil
+}
+
+func (g *GitHubForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
+	// GitHub's asset delete is repo-scoped by asset id, not release-scoped.
+	return g.doJSON(ctx, "DELETE", g.apiURL("/releases/assets/"+assetID), nil, nil)
+}
+
+func (g *GitHubForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+	return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), map[string]any{"body": body}, nil)
+}

@@ -529,3 +529,17 @@ func (g *GiteaForge) DefaultBranch(ctx context.Context) (string, error) {
 	}
 	return resp.DefaultBranch, nil
 }
+
+// ── Release-reconciliation leaf ops — not yet supported ──────────────────
+func (g *GiteaForge) ListReleaseAssets(ctx context.Context, releaseID string) ([]ReleaseAsset, error) {
+	return nil, ErrNotSupported
+}
+func (g *GiteaForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAsset) (io.ReadCloser, error) {
+	return nil, ErrNotSupported
+}
+func (g *GiteaForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
+	return ErrNotSupported
+}
+func (g *GiteaForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+	return ErrNotSupported
+}
