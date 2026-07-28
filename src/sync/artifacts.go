@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"sort"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
@@ -36,24 +35,6 @@ func ScopedReleases(primary []forge.ReleaseInfo, spec *config.FacetSpec, current
 		out = append(out, r)
 	}
 	return out
-}
-
-// ReleasesToPrune returns mirror release tags to delete for an exact (prune)
-// releases sync: those present on the mirror but absent from the desired set.
-// Sorted for deterministic output.
-func ReleasesToPrune(mirror, desired []forge.ReleaseInfo) []string {
-	want := make(map[string]bool, len(desired))
-	for _, r := range desired {
-		want[r.TagName] = true
-	}
-	var del []string
-	for _, r := range mirror {
-		if !want[r.TagName] {
-			del = append(del, r.TagName)
-		}
-	}
-	sort.Strings(del)
-	return del
 }
 
 // ReleaseData holds all data needed to project a release to an accessory.

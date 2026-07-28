@@ -63,6 +63,26 @@ func BuildDesiredReleases(ctx context.Context, src releaseSource, templates []st
 	return desired, nil
 }
 
+// DesiredFromReleases builds the desired set from an already-selected list of
+// source releases (e.g. scoped by a sync facet), resolving each release's file
+// assets for re-hosting. Use this when the caller has already decided WHICH
+// releases to mirror; BuildDesiredReleases is the template+retention front door.
+func DesiredFromReleases(ctx context.Context, src releaseSource, rels []forge.ReleaseInfo) ([]DesiredRelease, error) {
+	var desired []DesiredRelease
+	for _, r := range rels {
+		assets, err := src.ListReleaseAssets(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		d := DesiredRelease{Tag: r.TagName, Name: r.Name, Body: r.Description, Prerelease: r.Prerelease}
+		for _, a := range assets {
+			d.Assets = append(d.Assets, DesiredAsset{Name: a.Name, Digest: a.Digest, Size: a.Size, Source: a})
+		}
+		desired = append(desired, d)
+	}
+	return desired, nil
+}
+
 // keptRecorder is a retention.Store over a fixed item list that RECORDS which
 // items retention would delete instead of deleting them — letting us read the
 // kept set out of the shipped engine without touching it.

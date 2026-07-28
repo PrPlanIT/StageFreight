@@ -53,12 +53,3 @@ func TestScopedReleases_NilSpec(t *testing.T) {
 		t.Fatalf("nil facet should return nil, got %v", got)
 	}
 }
-
-func TestReleasesToPrune(t *testing.T) {
-	mirror := []forge.ReleaseInfo{rel("v1", false), rel("v2", false), rel("old", false)}
-	desired := []forge.ReleaseInfo{rel("v1", false), rel("v2", false)}
-	got := ReleasesToPrune(mirror, desired)
-	if len(got) != 1 || got[0] != "old" {
-		t.Fatalf("prune should delete mirror-only releases, got %v", got)
-	}
-}

@@ -29,6 +29,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/lint"
+	"github.com/PrPlanIT/StageFreight/src/mirror"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/provision"
@@ -1221,7 +1222,10 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	refCtx := stagefreightsync.RefContext{Branch: ciCtx.Branch, Tag: ciCtx.Tag}
 
 	// Check if any mirror wants release sync — resolve primary releases once.
+	// primaryClient is hoisted: it's both the release lister AND the re-host
+	// source the reconciler streams binaries from.
 	var primaryReleases []forge.ReleaseInfo
+	var primaryClient forge.Forge
 	hasReleaseSyncMirror := false
 	for _, m := range mirrors {
 		if m.Sync.SyncsReleases() {
@@ -1233,9 +1237,10 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		primaryURL := config.PrimaryURL(appCfg)
 		if primaryURL != "" {
 			provider := forge.DetectProvider(primaryURL)
-			primaryClient, clientErr := newForgeClient(provider, primaryURL)
+			pc, clientErr := newForgeClient(provider, primaryURL)
 			if clientErr == nil {
-				rels, listErr := primaryClient.ListReleases(ctx)
+				primaryClient = pc
+				rels, listErr := pc.ListReleases(ctx)
 				if listErr == nil {
 					primaryReleases = rels
 				} else {
@@ -1284,63 +1289,45 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, err)
 				continue
 			}
-			mirrorReleases, err := mirrorClient.ListReleases(ctx)
+
+			// Resolve the scoped releases' assets, then converge the mirror with
+			// the reconciler engine: binaries re-hosted from primary, notes
+			// preserved, granular per-asset, and PROVENANCE-BOUNDED — prune
+			// removes only SF-placed releases gone from the desired set; a
+			// foreign or one-off release is never created-over or deleted.
+			desiredRels, err := mirror.DesiredFromReleases(ctx, primaryClient, desired)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release list error: %v\n", m.ID, err)
+				fmt.Fprintf(os.Stderr, "  sync: %s: release desired-set error: %v\n", m.ID, err)
 				continue
 			}
-			mirrorTags := make(map[string]bool, len(mirrorReleases))
-			for _, r := range mirrorReleases {
-				mirrorTags[r.TagName] = true
-			}
-
-			created := 0
-			for _, r := range desired {
-				if mirrorTags[r.TagName] {
-					continue
-				}
-				name := r.Name
-				if name == "" {
-					name = r.TagName
-				}
-				if readOnly {
-					fmt.Printf("  sync: %s: [read-only] would project release %s\n", m.ID, r.TagName)
-					created++
-					continue
-				}
-				_, createErr := mirrorClient.CreateRelease(ctx, forge.ReleaseOptions{
-					TagName:     r.TagName,
-					Name:        name,
-					Description: r.Description,
-					Draft:       r.Draft,
-					// Recover prerelease across the mirror: the primary forge (GitLab)
-					// has no native prerelease field, so r.Prerelease is always false.
-					Type: forge.ReleaseTypeFromPrerelease(r.Prerelease || resolveMirrorPrerelease(appCfg, r.TagName, r.Description)),
-				})
-				if createErr != nil {
-					fmt.Fprintf(os.Stderr, "  sync: %s: release %s error: %v\n", m.ID, r.TagName, createErr)
-				} else {
-					created++
+			// Recover prerelease across the mirror: the primary forge (GitLab) has
+			// no native prerelease field, so r.Prerelease is always false — infer
+			// from the tag/notes as the notes-only path did.
+			for i := range desiredRels {
+				if !desiredRels[i].Prerelease {
+					desiredRels[i].Prerelease = resolveMirrorPrerelease(appCfg, desiredRels[i].Tag, desiredRels[i].Body)
 				}
 			}
 
-			// Prune (exact only): delete mirror releases not in the desired set.
-			pruned := 0
-			if spec.Prune {
-				for _, tag := range stagefreightsync.ReleasesToPrune(mirrorReleases, desired) {
-					if readOnly {
-						fmt.Printf("  sync: %s: [read-only] would prune release %s\n", m.ID, tag)
-						pruned++
-						continue
-					}
-					if delErr := mirrorClient.DeleteRelease(ctx, tag); delErr != nil {
-						fmt.Fprintf(os.Stderr, "  sync: %s: release prune %s error: %v\n", m.ID, tag, delErr)
-					} else {
-						pruned++
-					}
-				}
+			if readOnly {
+				fmt.Printf("  sync: %s: [read-only] would converge %d release(s) (prune=%v)\n", m.ID, len(desiredRels), spec.Prune)
+				continue
 			}
 
+			res, relErr := mirror.ReconcileReleases(ctx, primaryClient, mirrorClient, desiredRels, mirror.Options{Prune: spec.Prune})
+			if relErr != nil {
+				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, relErr)
+				continue
+			}
+			for _, e := range res.Errors {
+				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, e)
+			}
+			if len(res.SkippedForeign) > 0 {
+				fmt.Printf("  sync: %s: release — %d foreign release(s) left untouched\n", m.ID, len(res.SkippedForeign))
+			}
+
+			created := len(res.Created) + len(res.Updated)
+			pruned := len(res.Pruned)
 			switch {
 			case created > 0 && pruned > 0:
 				fmt.Printf("  sync: %s: release ✓ (%d projected, %d pruned)\n", m.ID, created, pruned)

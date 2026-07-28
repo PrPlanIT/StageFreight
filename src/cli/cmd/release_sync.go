@@ -8,6 +8,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
+	"github.com/PrPlanIT/StageFreight/src/mirror"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/spf13/cobra"
 )
@@ -94,66 +95,66 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		mirrorReleases, err := mirrorClient.ListReleases(ctx)
+		// Compute this mirror's desired release set from the primary — every
+		// primary release, each with its file assets resolved for re-hosting —
+		// then converge the mirror to it with the reconciler engine: binaries
+		// carried (not notes-only), notes preserved, granular per-asset, and
+		// provenance-bounded (only ever touches releases SF placed there).
+		desired, err := mirror.BuildDesiredReleases(ctx, primaryClient, nil, config.RetentionPolicy{})
 		if err != nil {
-			sec.Row("%s mirror:%s — failed to list releases: %v", output.StatusIcon("failed", color), m.ID, err)
+			sec.Row("%s mirror:%s — failed to build desired set: %v", output.StatusIcon("failed", color), m.ID, err)
+			totalFailed++
+			continue
+		}
+		// Recover prerelease across the mirror: GitLab (primary) has no native
+		// prerelease field, so infer from the tag/notes.
+		for i := range desired {
+			if !desired[i].Prerelease {
+				desired[i].Prerelease = resolveMirrorPrerelease(cfg, desired[i].Tag, desired[i].Body)
+			}
+		}
+
+		prune := m.Sync.Releases != nil && m.Sync.Releases.Prune
+
+		if relSyncDryRun {
+			sec.Separator()
+			sec.Row("%-16s%s (%d desired, prune=%v, dry-run)", "mirror", m.ID, len(desired), prune)
+			totalSkipped += len(desired)
+			continue
+		}
+
+		res, err := mirror.ReconcileReleases(ctx, primaryClient, mirrorClient, desired, mirror.Options{Prune: prune})
+		if err != nil {
+			sec.Row("%s mirror:%s — %v", output.StatusIcon("failed", color), m.ID, err)
 			totalFailed++
 			continue
 		}
 
-		// Build set of existing tags on mirror.
-		mirrorTags := make(map[string]bool, len(mirrorReleases))
-		for _, r := range mirrorReleases {
-			mirrorTags[r.TagName] = true
-		}
-
-		// Find missing releases.
-		var missing []forge.ReleaseInfo
-		for _, r := range primaryReleases {
-			if !mirrorTags[r.TagName] {
-				missing = append(missing, r)
-			}
-		}
-
-		if len(missing) == 0 {
-			sec.Row("%s mirror:%s — in sync (%d releases)", output.StatusIcon("success", color), m.ID, len(mirrorReleases))
-			totalSkipped += len(primaryReleases)
-			continue
-		}
-
 		sec.Separator()
-		sec.Row("%-16s%s (%d missing)", "mirror", m.ID, len(missing))
-
-		for _, r := range missing {
-			name := r.Name
-			if name == "" {
-				name = r.TagName
-			}
-			description := r.Description
-
-			if relSyncDryRun {
-				sec.Row("  %s %s → %s/%s (dry-run)", output.StatusIcon("success", color), r.TagName, m.Provider, m.Project)
-				totalCreated++
-				continue
-			}
-
-			_, createErr := mirrorClient.CreateRelease(ctx, forge.ReleaseOptions{
-				TagName:     r.TagName,
-				Name:        name,
-				Description: description,
-				Draft:       r.Draft,
-				// Recover prerelease across the mirror: the primary forge (GitLab) has
-				// no native prerelease field, so r.Prerelease is always false.
-				Type: forge.ReleaseTypeFromPrerelease(r.Prerelease || resolveMirrorPrerelease(cfg, r.TagName, description)),
-			})
-			if createErr != nil {
-				sec.Row("  %s %s — %v", output.StatusIcon("failed", color), r.TagName, createErr)
-				totalFailed++
-			} else {
-				sec.Row("  %s %s → %s/%s", output.StatusIcon("success", color), r.TagName, m.Provider, m.Project)
-				totalCreated++
-			}
+		sec.Row("%-16s%s", "mirror", m.ID)
+		for _, tag := range res.Created {
+			sec.Row("  %s %s → %s/%s (created)", output.StatusIcon("success", color), tag, m.Provider, m.Project)
 		}
+		for _, tag := range res.Updated {
+			sec.Row("  %s %s → %s/%s (updated)", output.StatusIcon("success", color), tag, m.Provider, m.Project)
+		}
+		for _, tag := range res.Pruned {
+			sec.Row("  %s %s (pruned)", output.StatusIcon("success", color), tag)
+		}
+		// Foreign releases (no SF marker — a one-off or another dev's) are left
+		// exactly as-is. Surfaced so a human can see what SF declined to manage.
+		for _, tag := range res.SkippedForeign {
+			sec.Row("  %s %s (foreign — left untouched)", output.StatusIcon("skipped", color), tag)
+		}
+		for _, e := range res.Errors {
+			sec.Row("  %s %v", output.StatusIcon("failed", color), e)
+		}
+		if res.InSync > 0 {
+			sec.Row("  %s %d already in sync", output.StatusIcon("success", color), res.InSync)
+		}
+		totalCreated += len(res.Created) + len(res.Updated) + len(res.Pruned)
+		totalSkipped += res.InSync + len(res.SkippedForeign)
+		totalFailed += len(res.Errors)
 	}
 
 	elapsed := time.Since(start)
