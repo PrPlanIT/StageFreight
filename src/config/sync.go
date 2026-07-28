@@ -44,6 +44,7 @@ const (
 type FacetSpec struct {
 	Scope  string   `yaml:"scope,omitempty"`  // "current" | "all" (exact expands here)
 	Prune  bool     `yaml:"prune,omitempty"`  // delete target refs/releases absent on source
+	Force  bool     `yaml:"force,omitempty"`  // refs only: overwrite a DIVERGED mirror ref (default off = keep-divergent)
 	Drafts bool     `yaml:"drafts,omitempty"` // releases only: carry unpublished drafts
 	Only   []string `yaml:"only,omitempty"`   // releases only: restrict to these tag-sources
 	Match  string   `yaml:"match,omitempty"`  // glob filter on ref/tag name
@@ -78,6 +79,9 @@ func (f *FacetSpec) Summary() string {
 		base = "all"
 	}
 	var flags []string
+	if f.Force {
+		flags = append(flags, "force")
+	}
 	if f.Drafts {
 		flags = append(flags, "drafts")
 	}
@@ -205,6 +209,7 @@ func decodeFacet(node *yaml.Node) (*FacetSpec, error) {
 		var raw struct {
 			Scope  string   `yaml:"scope"`
 			Prune  *bool    `yaml:"prune"`
+			Force  *bool    `yaml:"force"`
 			Drafts *bool    `yaml:"drafts"`
 			Only   []string `yaml:"only"`
 			Match  string   `yaml:"match"`
@@ -223,6 +228,9 @@ func decodeFacet(node *yaml.Node) (*FacetSpec, error) {
 		}
 		if raw.Prune != nil {
 			spec.Prune = *raw.Prune
+		}
+		if raw.Force != nil {
+			spec.Force = *raw.Force
 		}
 		if raw.Drafts != nil {
 			spec.Drafts = *raw.Drafts

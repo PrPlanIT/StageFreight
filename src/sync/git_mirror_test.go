@@ -206,25 +206,26 @@ func TestMirrorPush_NoMutationOfWorktree(t *testing.T) {
 }
 
 // pushSpecJoin runs buildPushRefSpecs and joins the refspecs for substring assertions.
-func pushSpecJoin(local, remote map[string]bool, branches, tags *config.FacetSpec, ref RefContext) string {
+func pushSpecJoin(local, remote map[string]string, branches, tags *config.FacetSpec, ref RefContext) string {
 	var out []string
-	for _, r := range buildPushRefSpecs(local, remote, branches, tags, ref) {
+	for _, r := range buildPushRefSpecs(local, remote, branches, tags, ref).specs {
 		out = append(out, r.String())
 	}
 	return strings.Join(out, " ")
 }
 
 // TestBuildPushRefSpecs_PreservesGHPages guards the mirror-vs-pages fix under an
-// exact (prune) mirror: gh-pages (created remote-only by the github-pages deploy)
-// must NOT be pruned, while a genuinely stale remote-only branch still is.
+// exact (prune) mirror that opts into pruning everything (match "*"): gh-pages
+// (created remote-only by the github-pages deploy) is STILL never pruned, while a
+// genuinely stale remote-only branch is.
 func TestBuildPushRefSpecs_PreservesGHPages(t *testing.T) {
-	local := map[string]bool{"refs/heads/main": true, "refs/tags/v1": true}
-	remote := map[string]bool{
-		"refs/heads/main":     true,
-		"refs/heads/gh-pages": true, // remote-only — created by the github-pages deploy
-		"refs/heads/stale":    true, // remote-only — genuinely stale, should be pruned
+	local := map[string]string{"refs/heads/main": "a", "refs/tags/v1": "a"}
+	remote := map[string]string{
+		"refs/heads/main":     "a", // in sync
+		"refs/heads/gh-pages": "b", // remote-only — created by the github-pages deploy
+		"refs/heads/stale":    "c", // remote-only — genuinely stale, should be pruned
 	}
-	exact := &config.FacetSpec{Scope: "all", Prune: true}
+	exact := &config.FacetSpec{Scope: "all", Prune: true, Match: "*"}
 	joined := pushSpecJoin(local, remote, exact, exact, RefContext{})
 	if strings.Contains(joined, ":refs/heads/gh-pages") {
 		t.Fatalf("gh-pages must NOT be pruned — pruning it wipes the docs site; specs=%v", joined)
@@ -234,32 +235,62 @@ func TestBuildPushRefSpecs_PreservesGHPages(t *testing.T) {
 	}
 }
 
+// TestBuildPushRefSpecs_ExactWithoutMatchPrunesNothing is THE new safety guard:
+// prune with no match glob cannot attribute ownership, so a contributor's branch
+// on the mirror (foreign) is never deleted.
+func TestBuildPushRefSpecs_ExactWithoutMatchPrunesNothing(t *testing.T) {
+	local := map[string]string{"refs/heads/main": "a"}
+	remote := map[string]string{"refs/heads/main": "a", "refs/heads/contrib": "z"}
+	exact := &config.FacetSpec{Scope: "all", Prune: true} // prune, but NO match
+	joined := pushSpecJoin(local, remote, exact, exact, RefContext{})
+	if strings.Contains(joined, ":refs/heads/contrib") {
+		t.Fatalf("prune without a match glob must not delete an unattributable (foreign) branch; specs=%v", joined)
+	}
+}
+
+// TestBuildPushRefSpecs_KeepDivergentByDefault is the other new safety guard: a
+// diverged mirror ref is pushed WITHOUT force by default (git rejects a true
+// non-fast-forward), and force-overwritten only when the facet opts in.
+func TestBuildPushRefSpecs_KeepDivergentByDefault(t *testing.T) {
+	local := map[string]string{"refs/heads/main": "new"}
+	remote := map[string]string{"refs/heads/main": "diverged"}
+
+	keep := pushSpecJoin(local, remote, &config.FacetSpec{Scope: "all"}, nil, RefContext{})
+	if !strings.Contains(keep, "refs/heads/main:refs/heads/main") || strings.Contains(keep, "+refs/heads/main") {
+		t.Fatalf("default must push non-force (keep-divergent); specs=%v", keep)
+	}
+	force := pushSpecJoin(local, remote, &config.FacetSpec{Scope: "all", Force: true}, nil, RefContext{})
+	if !strings.Contains(force, "+refs/heads/main:refs/heads/main") {
+		t.Fatalf("force:true must force-overwrite the diverged ref; specs=%v", force)
+	}
+}
+
 // TestBuildPushRefSpecs_AllIsAddOnly: scope:all pushes everything but prunes
-// nothing (the semantic that changed from today's unconditional prune).
+// nothing (a remote-only branch is foreign — left alone).
 func TestBuildPushRefSpecs_AllIsAddOnly(t *testing.T) {
-	local := map[string]bool{"refs/heads/main": true}
-	remote := map[string]bool{"refs/heads/main": true, "refs/heads/stale": true}
+	local := map[string]string{"refs/heads/main": "a"}
+	remote := map[string]string{"refs/heads/main": "b", "refs/heads/stale": "c"}
 	all := &config.FacetSpec{Scope: "all"}
 	joined := pushSpecJoin(local, remote, all, all, RefContext{})
 	if strings.Contains(joined, ":refs/heads/stale") {
 		t.Fatalf("scope:all must not prune; specs=%v", joined)
 	}
-	if !strings.Contains(joined, "+refs/heads/main:refs/heads/main") {
-		t.Fatalf("main should be force-pushed; specs=%v", joined)
+	if !strings.Contains(joined, "refs/heads/main:refs/heads/main") {
+		t.Fatalf("main (behind on the mirror) should be pushed; specs=%v", joined)
 	}
 }
 
 // TestBuildPushRefSpecs_NilFacetUntouched: a nil facet leaves that ref class
 // entirely alone — not pushed, not pruned.
 func TestBuildPushRefSpecs_NilFacetUntouched(t *testing.T) {
-	local := map[string]bool{"refs/heads/main": true, "refs/tags/v1": true}
-	remote := map[string]bool{"refs/tags/old": true}
-	exact := &config.FacetSpec{Scope: "all", Prune: true}
+	local := map[string]string{"refs/heads/main": "a", "refs/tags/v1": "a"}
+	remote := map[string]string{"refs/tags/old": "b"}
+	exact := &config.FacetSpec{Scope: "all", Prune: true, Match: "*"}
 	joined := pushSpecJoin(local, remote, exact, nil, RefContext{}) // tags facet nil
 	if strings.Contains(joined, "refs/tags/") {
 		t.Fatalf("nil tags facet must emit no tag refspecs; specs=%v", joined)
 	}
-	if !strings.Contains(joined, "+refs/heads/main:refs/heads/main") {
+	if !strings.Contains(joined, "refs/heads/main:refs/heads/main") {
 		t.Fatalf("branches facet should still push main; specs=%v", joined)
 	}
 }
@@ -267,10 +298,10 @@ func TestBuildPushRefSpecs_NilFacetUntouched(t *testing.T) {
 // TestBuildPushRefSpecs_CurrentOnlyThatRef: scope:current replicates only the ref
 // the run addresses, never others, never prune.
 func TestBuildPushRefSpecs_CurrentOnlyThatRef(t *testing.T) {
-	local := map[string]bool{"refs/heads/main": true, "refs/heads/feature": true}
+	local := map[string]string{"refs/heads/main": "a", "refs/heads/feature": "b"}
 	current := &config.FacetSpec{Scope: "current"}
-	joined := pushSpecJoin(local, map[string]bool{}, current, nil, RefContext{Branch: "feature"})
-	if !strings.Contains(joined, "+refs/heads/feature:refs/heads/feature") {
+	joined := pushSpecJoin(local, map[string]string{}, current, nil, RefContext{Branch: "feature"})
+	if !strings.Contains(joined, "refs/heads/feature:refs/heads/feature") {
 		t.Fatalf("current branch should push; specs=%v", joined)
 	}
 	if strings.Contains(joined, "refs/heads/main") {
@@ -280,9 +311,9 @@ func TestBuildPushRefSpecs_CurrentOnlyThatRef(t *testing.T) {
 
 // TestBuildPushRefSpecs_MatchFilter: a match glob restricts both push and prune.
 func TestBuildPushRefSpecs_MatchFilter(t *testing.T) {
-	local := map[string]bool{"refs/heads/main": true, "refs/heads/release-1": true, "refs/heads/release-2": true}
+	local := map[string]string{"refs/heads/main": "a", "refs/heads/release-1": "b", "refs/heads/release-2": "c"}
 	spec := &config.FacetSpec{Scope: "all", Match: "release-*"}
-	joined := pushSpecJoin(local, map[string]bool{}, spec, nil, RefContext{})
+	joined := pushSpecJoin(local, map[string]string{}, spec, nil, RefContext{})
 	if strings.Contains(joined, "refs/heads/main:") {
 		t.Fatalf("main should be filtered out by match; specs=%v", joined)
 	}
@@ -437,18 +468,21 @@ func mirrorPushDirect(t *testing.T, worktreeDir, remoteDir string) *MirrorResult
 	if err != nil {
 		t.Fatalf("list remote refs: %v", err)
 	}
-	// Faithful mirror (former unconditional behavior): all heads + all tags, prune.
-	exact := &config.FacetSpec{Scope: "all", Prune: true}
-	refSpecs := buildPushRefSpecs(localRefs, remoteRefs, exact, exact, RefContext{})
+	// Faithful full mirror — the former unconditional behavior, now spelled out:
+	// all heads + tags, prune everything absent from source (match "*" bounds the
+	// prune), force-overwrite divergence. Force lives per-refspec, so the push
+	// itself is Force:false (mirrors production MirrorPush).
+	exact := &config.FacetSpec{Scope: "all", Prune: true, Force: true, Match: "*"}
+	plan := buildPushRefSpecs(localRefs, remoteRefs, exact, exact, RefContext{})
 
-	if len(refSpecs) == 0 {
+	if len(plan.specs) == 0 {
 		return &MirrorResult{AccessoryID: "test-remote", Status: SyncSuccess}
 	}
 
 	err = bareRepo.Push(&git.PushOptions{
 		RemoteName: "mirror",
-		RefSpecs:   refSpecs,
-		Force:      true,
+		RefSpecs:   plan.specs,
+		Force:      false,
 	})
 	if err != nil && err != git.NoErrAlreadyUpToDate {
 		return &MirrorResult{
