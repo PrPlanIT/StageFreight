@@ -56,9 +56,10 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
     - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
     - [`release`](#cli-stagefreight-release) — Release management commands
         - [`create`](#cli-stagefreight-release-create) — Create a release on the forge and sync to targets
+        - [`destroy`](#cli-stagefreight-release-destroy) — Destroy a release across the primary forge and its mirrors
         - [`notes`](#cli-stagefreight-release-notes) — Generate release notes from conventional commits
         - [`prune`](#cli-stagefreight-release-prune) — Prune old releases using retention policy
-        - [`sync`](#cli-stagefreight-release-sync) — Project releases from primary forge to mirrors
+        - [`sync`](#cli-stagefreight-release-sync) — Converge mirror forges to the primary's releases (binaries included)
     - [`scribe`](#cli-stagefreight-scribe) — Compose and inject content into markdown files
         - [`apply`](#cli-stagefreight-scribe-apply) — Reconcile scribe content into files (badges + region injection)
         - [`render`](#cli-stagefreight-scribe-render) — Render one declared scribe.content item's markdown
@@ -988,9 +989,10 @@ Create releases, generate notes, update badges, and sync across forges.
 **Subcommands:**
 
 - [`create`](#cli-stagefreight-release-create) — Create a release on the forge and sync to targets
+- [`destroy`](#cli-stagefreight-release-destroy) — Destroy a release across the primary forge and its mirrors
 - [`notes`](#cli-stagefreight-release-notes) — Generate release notes from conventional commits
 - [`prune`](#cli-stagefreight-release-prune) — Prune old releases using retention policy
-- [`sync`](#cli-stagefreight-release-sync) — Project releases from primary forge to mirrors
+- [`sync`](#cli-stagefreight-release-sync) — Converge mirror forges to the primary's releases (binaries included)
 
 ---
 
@@ -1022,6 +1024,36 @@ unless --skip-sync is set.
 | `--security-summary` | string | — | path to security output directory (reads summary.md) |
 | `--skip-sync` | bool | — | skip syncing to other forges |
 | `--tag` | string | — | release tag (default: detected from git) |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-release-destroy" name="cli-stagefreight-release-destroy"></a>
+### stagefreight release destroy
+
+*↩ [`stagefreight release`](#cli-stagefreight-release)*
+
+**Usage:** `stagefreight release destroy`
+
+Removes a release — the tag entry, notes, and attached assets — from the
+primary forge and every release-sync mirror. The deliberate inverse of
+'release create': it deletes the forge release objects, not the underlying git
+tag, and does not resurrect (once gone from the source, a later mirror reconcile
+has nothing to bring back).
+
+Distinct from 'release prune', which is retention GC over a series. 'destroy'
+removes one named release, everywhere, on purpose.
+
+Use --dry-run to preview which forges would be affected.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | — | preview affected forges without deleting |
+| `--skip-mirrors` | bool | — | destroy on the primary forge only |
+| `--tag` | string | — | release tag to destroy (required) |
 
 _Plus the [global flags](#cli-global-flags)._
 
@@ -1087,11 +1119,16 @@ _Plus the [global flags](#cli-global-flags)._
 
 **Usage:** `stagefreight release sync`
 
-Reads releases from the primary forge and projects missing ones
-to mirrors whose sync block includes a releases facet (facet × scope).
+Converges every mirror whose sync block includes a releases facet toward
+the primary forge's releases — carrying the notes AND re-hosting the attached
+binaries, not just tag+notes shells.
 
-Use --dry-run to preview what would be created without making changes.
-Without --dry-run, missing releases are created on each mirror.
+Provenance-bounded and idempotent: an unchanged release is a no-op, a drifted
+asset is replaced on its own, and a release SF did not place (a one-off, or one
+another dev cut on the mirror) is left untouched. Pruning, when the facet opts in,
+removes only SF-placed releases the primary no longer has.
+
+Use --dry-run to preview the desired set without mutating any mirror.
 
 **Flags:**
 

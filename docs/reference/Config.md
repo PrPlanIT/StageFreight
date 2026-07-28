@@ -154,6 +154,7 @@ repos:
       branches:
         scope: <string>   # "current" | "all" (exact expands here)
         prune: false   # delete target refs/releases absent on source
+        force: false   # refs only: overwrite a DIVERGED mirror ref (default off = keep-divergent)
         drafts: false   # releases only: carry unpublished drafts
         only: [<string>]   # releases only: restrict to these tag-sources
         match: <string>   # glob filter on ref/tag name
@@ -161,6 +162,7 @@ repos:
       tags:
         scope: <string>   # "current" | "all" (exact expands here)
         prune: false   # delete target refs/releases absent on source
+        force: false   # refs only: overwrite a DIVERGED mirror ref (default off = keep-divergent)
         drafts: false   # releases only: carry unpublished drafts
         only: [<string>]   # releases only: restrict to these tag-sources
         match: <string>   # glob filter on ref/tag name
@@ -168,6 +170,7 @@ repos:
       releases:
         scope: <string>   # "current" | "all" (exact expands here)
         prune: false   # delete target refs/releases absent on source
+        force: false   # refs only: overwrite a DIVERGED mirror ref (default off = keep-divergent)
         drafts: false   # releases only: carry unpublished drafts
         only: [<string>]   # releases only: restrict to these tag-sources
         match: <string>   # glob filter on ref/tag name
