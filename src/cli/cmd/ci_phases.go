@@ -182,6 +182,11 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		build, gateErr := performGate(c)
 		if !build {
 			if gateErr != nil {
+				// Check in like every other phase (identity + SF version), then render a
+				// neat FAIL block stating WHY the stage isn't running — instead of exiting
+				// mute. The non-zero exit still follows via silentExit (no double-print).
+				renderPhaseIdentity()
+				renderPhaseBlocked("Perform", time.Now(), gateErr.Error())
 				return silentExit(fmt.Errorf("perform: %w", gateErr))
 			}
 			fmt.Printf("  perform: source is blocked but superseded by %s — deferring to its pipeline\n", c.Replacement)

@@ -2140,6 +2140,19 @@ func renderCISkip(section string, start time.Time, reason string) {
 	sec.Close()
 }
 
+// renderPhaseBlocked reports a phase that will NOT run because the audition contract
+// blocked the source with no available remediation (a dead-end). Symmetric with
+// renderCISkip, but a FAILURE: the phase checks in with a neat block stating WHY the
+// stage is not running instead of exiting mute. A non-zero exit follows via silentExit.
+func renderPhaseBlocked(section string, start time.Time, reason string) {
+	color := output.UseColor()
+	sec := output.NewSection(os.Stdout, section, time.Since(start), color)
+	sec.Row("%-14s%s", "status", "blocked")
+	sec.Row("%-14s%s", "reason", reason)
+	sec.Row("%-14s%s FAIL — stage not run", "result", output.StatusIcon("failed", color))
+	sec.Close()
+}
+
 // governanceSourceConfigured checks if governance has a resolvable source.
 func governanceSourceConfigured(appCfg *config.Config, ciCtx *ci.CIContext) bool {
 	src, err := resolveGovernanceSourceFromOpts(GovernanceReconcileOpts{Config: appCfg, CICtx: ciCtx})
