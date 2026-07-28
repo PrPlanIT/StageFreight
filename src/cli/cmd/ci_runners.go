@@ -53,9 +53,10 @@ func buildCIRegistry() ci.Registry {
 		"publish":  publishPhaseRunner,
 		"narrate":  narratePhaseRunner,
 		// Legacy compatibility aliases — kept for local dev and migration.
+		// (scribe is not a ci-run subsystem — it's a publish action, and the
+		// human-facing entry is the top-level `sf scribe` command.)
 		"build":     buildRunner,
 		"deps":      depsRunner,
-		"docs":      docsRunner,
 		"reconcile": reconcileRunner,
 		"release":   releaseRunner,
 		"security":  securityRunner,
@@ -749,34 +750,39 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 }
 
 // ── docs runner ──────────────────────────────────────────────────────────────
-func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+// scribeRunner renders generated badges/docs and commits them. It is a PUBLISH
+// action — badges/docs are published artifacts and their commit is a forge
+// mutation — so publishPhaseRunner drives it for every mode (image and reconcile
+// alike), giving all repos parity. It does NOT sync; the single terminal mirror
+// sync lives in publish, downstream of this commit, so the sync carries it.
+func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	// Policy gate: skip non-release tags
 	if ciCtx.IsTag() && !tagMatchesReleasePolicy(ciCtx.Tag, appCfg.Git.Tags) {
-		fmt.Printf("  docs: skipping — tag %q does not match any release tag source\n", ciCtx.Tag)
+		fmt.Printf("  scribe: skipping — tag %q does not match any release tag source\n", ciCtx.Tag)
 		return nil
 	}
 
-	// Presence-enabled: nothing configured for the narrate phase → nothing to do.
+	// Presence-enabled: nothing configured for scribe → nothing to do.
 	if appCfg.Scribe.IsZero() {
 		return nil
 	}
 
 	if !ci.IsBranchHeadFresh(ciCtx) {
-		fmt.Println("  narrate: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
+		fmt.Println("  scribe: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
 		return nil
 	}
 
-	// Loop prevention: skip if the current commit is StageFreight's own narrate
+	// Loop prevention: skip if the current commit is StageFreight's own scribe
 	// auto-commit — recognize our own output rather than [skip ci]-suppressing.
 	if isDocsAutoCommit(appCfg, ciCtx) {
-		fmt.Println("  narrate: skipping — current commit is a StageFreight narrate auto-commit")
+		fmt.Println("  scribe: skipping — current commit is a StageFreight scribe auto-commit")
 		return nil
 	}
 
 	rootDir := resolveWorkspace(ciCtx)
 
 	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("narrate subsystem: substrate unhealthy")
+		return fmt.Errorf("scribe subsystem: substrate unhealthy")
 	}
 
 	// Resolve BUILD_STATUS from pipeline state (badges render it). Missing = default failing.
@@ -796,15 +802,15 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	for _, wo := range appCfg.WorktreeOutputs() {
 		dest := wo.Output.WorktreePath()
 		if err := landBuildTree(rootDir, wo.BuildID, dest); err != nil {
-			return fmt.Errorf("narrate: materializing build %q into %q: %w", wo.BuildID, dest, err)
+			return fmt.Errorf("scribe: materializing build %q into %q: %w", wo.BuildID, dest, err)
 		}
 	}
 
-	// Producers: render badges from build metadata (presence-enabled — narrate.badges
-	// or scribe-inline badge items).
+	// Producers: render badges from build metadata (presence-enabled — scribe
+	// content badge items).
 	if hasConfiguredBadges(appCfg) {
 		if err := RunConfigBadges(appCfg, rootDir, nil, ""); err != nil {
-			return fmt.Errorf("narrate (badges): %w", err)
+			return fmt.Errorf("scribe (badges): %w", err)
 		}
 	}
 
@@ -821,26 +827,27 @@ func docsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		rfResult := config.EvaluateRunFrom(appCfg.Scribe.Commit.RunFrom, ciCtx.RepoURL, config.PrimaryURL(appCfg))
 		switch {
 		case !rfResult.Matched && rfResult.Mode == "exit":
-			fmt.Fprintf(os.Stderr, "  narrate commit: blocked (%s)\n", rfResult.Reason)
+			fmt.Fprintf(os.Stderr, "  scribe commit: blocked (%s)\n", rfResult.Reason)
 		case !rfResult.Matched && rfResult.Mode == "read-only":
-			fmt.Fprintf(os.Stderr, "  narrate commit: read-only (%s)\n", rfResult.Reason)
+			fmt.Fprintf(os.Stderr, "  scribe commit: read-only (%s)\n", rfResult.Reason)
 		default: // matched or ignore
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
 				Type:    appCfg.Scribe.Commit.Type,
 				Message: appCfg.Scribe.Commit.Message,
 				Paths:   appCfg.Scribe.Commit.Add,
-				Origin:  config.OriginNarrate,
-				Push:    boolPtr(appCfg.Scribe.Commit.Push),
+				// OriginNarrate is the internal commit-origin marker for loop
+				// prevention; kept stable so existing auto-commits are still
+				// recognized even though this work is now a publish action.
+				Origin: config.OriginNarrate,
+				Push:   boolPtr(appCfg.Scribe.Commit.Push),
 			}); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: narrate auto-commit failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "warning: scribe auto-commit failed: %v\n", err)
 			}
 		}
 	}
 
-	// Sync accessories (git mirror on push events — no release data).
-	// Mirror push is idempotent — safe even when no repo mutation occurred.
-	syncMirrors(ctx, appCfg)
-
+	// No sync here: the single terminal mirror sync lives in publishPhaseRunner,
+	// downstream of this commit, so one sync carries it (and any release data).
 	return nil
 }
 
@@ -1027,9 +1034,8 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
 
-	// Sync mirrors — git + release reconciliation from primary.
-	syncMirrors(ctx, appCfg)
-
+	// No sync here — publishPhaseRunner runs one terminal syncMirrors after the
+	// scribe commit, so a single sync carries releases + the scribe commit.
 	return nil
 }
 

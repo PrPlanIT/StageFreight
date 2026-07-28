@@ -238,10 +238,13 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "publish"); err != nil {
 		return err
 	}
-	switch m := appCfg.Mode(); {
-	case m.PhaseReconcile:
-		return phaseNotApplicable(rootDir, "publish", m.Name)
-	default:
+	// Image-mode artifact distribution — promotion, registry retention, releases,
+	// packages, pages. Not applicable to reconcile modes (no built image to ship).
+	// The forge-mutation actions AFTER this block (scribe render+commit, mirror
+	// sync) run for EVERY mode, so gitops/governance reach the forge in publish
+	// with the same parity as image modes — publish, not narrate, owns forge/
+	// registry/endpoint mutation.
+	if m := appCfg.Mode(); !m.PhaseReconcile {
 		// Authorization gate: publish externalizes irreversibly, so it must not
 		// act unless the build produced the bytes AND review evaluated them. Read
 		// the RAW recorded outcomes independent of the jobs' allow_failure — a
@@ -312,8 +315,19 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		}
 		// Static-site distribution (kind: pages) — deploy to Cloudflare/GitHub Pages,
 		// no-op when no pages target matches the event.
-		return pagesPublishRunner(ctx, appCfg, ciCtx, opts)
+		if err := pagesPublishRunner(ctx, appCfg, ciCtx, opts); err != nil {
+			return err
+		}
 	}
+
+	// Forge mutation for ALL modes: render generated badges/docs and commit them
+	// (scribe is a published artifact), then the single terminal mirror sync that
+	// carries that commit — and any release reconciliation — to every mirror.
+	if err := scribeRunner(ctx, appCfg, ciCtx, opts); err != nil {
+		return err
+	}
+	syncMirrors(ctx, appCfg)
+	return nil
 }
 
 // narratePhaseRunner renders truth from prior phase state. Runs for all modes.
@@ -324,5 +338,10 @@ func narratePhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		return err
 	}
 	narrateAuditionLineage(rootDir)
-	return docsRunner(ctx, appCfg, ciCtx, opts)
+	// Narrate is truth presentation. Generated badges/docs and their commit are
+	// forge mutation, so they moved to the publish domain; narrate is now the home
+	// for the run summary → AI curation → notifications buildout. Until that lands,
+	// present the lineage above and say so plainly rather than reading bare.
+	fmt.Println("  narrate: nothing to notify — summary/notifications not configured")
+	return nil
 }
