@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 )
 
@@ -23,6 +25,7 @@ type fakeAsset struct {
 type fakeRelease struct {
 	id, tag, name, body string
 	prerelease          bool
+	created             time.Time
 	assets              map[string]*fakeAsset
 }
 type fakeForge struct {
@@ -49,7 +52,7 @@ func (f *fakeForge) findByID(id string) *fakeRelease {
 func (f *fakeForge) ListReleases(context.Context) ([]forge.ReleaseInfo, error) {
 	var out []forge.ReleaseInfo
 	for _, r := range f.rels {
-		out = append(out, forge.ReleaseInfo{ID: r.id, TagName: r.tag, Name: r.name, Description: r.body, Prerelease: r.prerelease})
+		out = append(out, forge.ReleaseInfo{ID: r.id, TagName: r.tag, Name: r.name, Description: r.body, Prerelease: r.prerelease, CreatedAt: r.created})
 	}
 	return out, nil
 }
@@ -124,6 +127,7 @@ func (f *fakeForge) DownloadReleaseAsset(_ context.Context, a forge.ReleaseAsset
 func srcRelease(src *fakeForge, tag, body string, assets map[string][]byte) DesiredRelease {
 	src.CreateRelease(context.Background(), forge.ReleaseOptions{TagName: tag, Name: tag, Description: body})
 	r := src.rels[tag]
+	r.created = time.Unix(int64(src.seq), 0) // increasing → creation order for retention ranking
 	d := DesiredRelease{Tag: tag, Name: tag, Body: body}
 	for n, data := range assets {
 		src.seq++
@@ -277,4 +281,55 @@ func srcRelease2(src *fakeForge, tag string) DesiredRelease {
 			Source: forge.ReleaseAsset{Name: n, Digest: a.digest, Size: a.size, URL: fmt.Sprintf("fake://%s/%s/%s", src.name, tag, n)}})
 	}
 	return d
+}
+
+// End-to-end: retention drives the mirror. 5 dev releases on the source; keep_last:3
+// produces a 3-release desired set; the reconciler prunes the 2 stale OURS releases
+// on the mirror (binaries included), never touching anything foreign.
+func TestBuildDesired_RetentionDrivesMirror(t *testing.T) {
+	ctx := context.Background()
+	src, dst := newFake("src"), newFake("dst")
+	for i := 1; i <= 5; i++ {
+		srcRelease(src, fmt.Sprintf("dev-%08d", i), "notes", map[string][]byte{"app": []byte(fmt.Sprintf("v%d", i))})
+	}
+	templates := []string{"dev-{sha:8}"}
+
+	// ∞ policy → all 5 desired → mirror holds 5 (ours).
+	all, err := BuildDesiredReleases(ctx, src, templates, config.RetentionPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("∞ retention → 5 desired, got %d", len(all))
+	}
+	reconcile(t, src, dst, all, Options{})
+	if len(dst.rels) != 5 {
+		t.Fatalf("mirror should hold 5, has %d", len(dst.rels))
+	}
+
+	// keep_last:3 → 3 desired → reconcile-prune removes the 2 oldest OURS releases.
+	desired, err := BuildDesiredReleases(ctx, src, templates, config.RetentionPolicy{KeepLast: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desired) != 3 {
+		t.Fatalf("keep_last:3 → 3 desired, got %d", len(desired))
+	}
+	res := reconcile(t, src, dst, desired, Options{Prune: true})
+	if len(res.Pruned) != 2 {
+		t.Fatalf("expected 2 pruned, got %v", res.Pruned)
+	}
+	if len(dst.rels) != 3 {
+		t.Fatalf("mirror should be 3 after prune, has %d", len(dst.rels))
+	}
+	for _, tag := range []string{"dev-00000003", "dev-00000004", "dev-00000005"} {
+		if dst.rels[tag] == nil {
+			t.Fatalf("retained %s missing from mirror", tag)
+		}
+	}
+	for _, tag := range []string{"dev-00000001", "dev-00000002"} {
+		if dst.rels[tag] != nil {
+			t.Fatalf("%s should have been pruned from mirror", tag)
+		}
+	}
 }
