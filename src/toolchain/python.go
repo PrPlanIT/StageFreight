@@ -28,12 +28,23 @@ func pythonArch(goarch string) string {
 	}
 }
 
-// pythonAsset builds the pbs download filename, URL, and per-asset .sha256 URL. Pure —
-// separated so URL/arch construction is unit-testable without the network.
-func pythonAsset(version, arch string) (name, url, checksumURL string) {
-	name = fmt.Sprintf("cpython-%s+%s-%s-unknown-linux-gnu-install_only.tar.gz", version, pbsReleaseTag, arch)
+// pythonAsset builds the pbs download filename, URL, per-asset .sha256 URL, cache-key
+// version, and platform label. Pure — separated so URL/arch construction is unit-testable
+// without the network. On musl hosts it selects the -unknown-linux-musl install_only build
+// (the glibc build won't execute on Alpine); the cache-key version gains a "-musl" suffix so
+// glibc and musl trees for the same Python version stay distinct and never collide.
+func pythonAsset(version, arch string, musl bool) (name, url, checksumURL, cacheVer, platform string) {
+	libc := "gnu"
+	platform = "linux/" + arch
+	cacheVer = version
+	if musl {
+		libc = "musl"
+		platform += "-musl"
+		cacheVer = version + "-musl"
+	}
+	name = fmt.Sprintf("cpython-%s+%s-%s-unknown-linux-%s-install_only.tar.gz", version, pbsReleaseTag, arch, libc)
 	url = fmt.Sprintf("https://github.com/astral-sh/python-build-standalone/releases/download/%s/%s", pbsReleaseTag, name)
-	return name, url, url + ".sha256"
+	return name, url, url + ".sha256", cacheVer, platform
 }
 
 // resolvePython provisions a checksum-verified CPython DISTRIBUTION (tree — python3 +
@@ -44,14 +55,15 @@ func resolvePython(rootDir, version string) (Result, error) {
 		version = defaultPythonVersion
 	}
 	arch := pythonArch(runtime.GOARCH)
-	downloadName, sourceURL, checksumURL := pythonAsset(version, arch)
+	downloadName, sourceURL, checksumURL, cacheVer, platform := pythonAsset(version, arch, isMuslLibc())
 
+	// Cache keyed by cacheVer (libc-variant-aware) so a glibc tree can't be served on musl.
 	for _, root := range ReadRoots(rootDir) {
-		binPath := CacheBinPathIn(root, "python", version, "python3")
+		binPath := CacheBinPathIn(root, "python", cacheVer, "python3")
 		if _, err := os.Stat(binPath); err != nil {
 			continue
 		}
-		meta, metaErr := readMetadataFrom(root, "python", version)
+		meta, metaErr := readMetadataFrom(root, "python", cacheVer)
 		if metaErr != nil || meta.BinSHA256 == "" {
 			continue
 		}
@@ -62,16 +74,16 @@ func resolvePython(rootDir, version string) (Result, error) {
 	}
 
 	installRoot := InstallRoot(rootDir)
-	installDir := CacheDirIn(installRoot, "python", version)
+	installDir := CacheDirIn(installRoot, "python", cacheVer)
 	lock, err := AcquireInstallLock(installDir, 5*time.Minute)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain python %s: %w", version, err)
 	}
 	defer ReleaseInstallLock(lock)
 
-	binPath := CacheBinPathIn(installRoot, "python", version, "python3")
+	binPath := CacheBinPathIn(installRoot, "python", cacheVer, "python3")
 	if _, err := os.Stat(binPath); err == nil {
-		if meta, metaErr := readMetadataFrom(installRoot, "python", version); metaErr == nil && meta.BinSHA256 != "" {
+		if meta, metaErr := readMetadataFrom(installRoot, "python", cacheVer); metaErr == nil && meta.BinSHA256 != "" {
 			if actual, hashErr := fileSHA256(binPath); hashErr == nil && actual == meta.BinSHA256 {
 				return Result{Tool: "python", Version: version, Path: binPath, CacheHit: true, SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256, Trust: TrustChecksum}, nil
 			}
@@ -108,8 +120,8 @@ func resolvePython(rootDir, version string) (Result, error) {
 		os.RemoveAll(installDir)
 		return Result{}, fmt.Errorf("toolchain python %s: binary checksum failed: %w", version, err)
 	}
-	meta := Metadata{Tool: "python", Version: version, Platform: fmt.Sprintf("linux/%s", arch), SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}
-	if err := writeMetadataTo(installRoot, "python", version, meta); err != nil {
+	meta := Metadata{Tool: "python", Version: version, Platform: platform, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}
+	if err := writeMetadataTo(installRoot, "python", cacheVer, meta); err != nil {
 		os.RemoveAll(installDir)
 		return Result{}, fmt.Errorf("toolchain python %s: metadata write failed (install aborted): %w", version, err)
 	}
