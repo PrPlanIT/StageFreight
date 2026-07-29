@@ -38,6 +38,12 @@ type binaryContributor struct {
 	version *gitver.VersionInfo
 	steps   []build.UniversalStep
 	built   []builtBinary
+
+	// Build-fed scribe render slots, computed from PerformOrder in Plan: renderFirst
+	// runs before any build; renderAfter[buildID] runs once that build's steps finish,
+	// composing the item into the worktree before the build that bakes it executes.
+	renderFirst []string
+	renderAfter map[string][]string
 }
 
 // engineNameFor maps a build's `builder` to its engine dispatch key. Empty defaults
@@ -111,12 +117,20 @@ func (b *binaryContributor) Detect(rc *domains.RunContext) (domains.Contribution
 
 // Plan plans all binary builds (topologically ordered), applying CLI overrides.
 func (b *binaryContributor) Plan(rc *domains.RunContext) (domains.Contribution, error) {
-	ordered, err := build.BuildOrder(b.builds)
+	// PerformOrder interleaves build-fed scribe items with the builds: a scribe node
+	// records a render slot (composed before its consuming build); build nodes plan
+	// steps as before. Late scribe items aren't in the order — they render in publish.
+	order, err := build.PerformOrder(b.builds, rc.Config.Scribe)
 	if err != nil {
 		return domains.Contribution{}, fmt.Errorf("binary build ordering: %w", err)
 	}
+	b.renderFirst, b.renderAfter = build.ScribeRenderSlots(order)
 
-	for _, bc := range ordered {
+	for _, node := range order {
+		if node.IsScribe() {
+			continue // render slots already computed; plan only builds here
+		}
+		bc := *node.Build
 		cfg := toBuildConfig(bc, b.version)
 		// kind: command defaults its image to the ci.image (how SF runs its own CLI).
 		if cfg.Kind == "command" && cfg.Image == "" {
@@ -175,8 +189,27 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 	}
 
 	rootDir, _ := os.Getwd()
+
+	// Compose any build-fed scribe items scheduled before every build.
+	for _, item := range b.renderFirst {
+		if err := b.composeScribe(rc, item, &rows); err != nil {
+			return domains.Contribution{Rows: rows, Status: "failed", Summary: "scribe compose failed"}, err
+		}
+	}
+	prevBuild := ""
 	for i := range b.steps {
 		step := b.steps[i]
+		// A build boundary: the previous build's steps are done, so compose the scribe
+		// items scheduled after it — materializing its output and writing the pages the
+		// NEXT build bakes — before that next build's step runs.
+		if step.BuildID != prevBuild {
+			if prevBuild != "" {
+				if err := b.composeAfter(rc, prevBuild, &rows); err != nil {
+					return domains.Contribution{Rows: rows, Status: "failed", Summary: "scribe compose failed"}, err
+				}
+			}
+			prevBuild = step.BuildID
+		}
 		// Stage: if this build recycles a prior binary build's output (stage: {from, as}),
 		// place it in the workspace BEFORE the step runs, so a command build can invoke the
 		// freshly-built tool (./stagefreight) instead of recompiling or running a stale
@@ -236,11 +269,43 @@ func (b *binaryContributor) Build(rc *domains.RunContext) (domains.Contribution,
 			})
 		}
 	}
+	// Compose any scribe items scheduled after the final build (none in the common
+	// doc-site chain, where the composes sit between builds).
+	if prevBuild != "" {
+		if err := b.composeAfter(rc, prevBuild, &rows); err != nil {
+			return domains.Contribution{Rows: rows, Status: "failed", Summary: "scribe compose failed"}, err
+		}
+	}
 	return domains.Contribution{
 		Rows:    rows,
 		Status:  "success",
 		Summary: fmt.Sprintf("%d binary(ies)", len(b.built)),
 	}, nil
+}
+
+// composeAfter renders every build-fed scribe item scheduled after buildID's steps.
+func (b *binaryContributor) composeAfter(rc *domains.RunContext, buildID string, rows *[]string) error {
+	for _, item := range b.renderAfter[buildID] {
+		if err := b.composeScribe(rc, item, rows); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// composeScribe invokes the injected perform-scribe seam for one item, appending a
+// status row. A nil seam (standalone build command) is a no-op — perform-time scribe
+// composition only applies inside the pipeline.
+func (b *binaryContributor) composeScribe(rc *domains.RunContext, item string, rows *[]string) error {
+	if rc.RenderScribeItem == nil {
+		return nil
+	}
+	if err := rc.RenderScribeItem(rc.Ctx, item); err != nil {
+		*rows = append(*rows, fmt.Sprintf("%-9s %-30s %s", "scribe", item, output.StatusIcon("failed", rc.Color)))
+		return fmt.Errorf("scribe compose %q: %w", item, err)
+	}
+	*rows = append(*rows, fmt.Sprintf("%-9s %-30s %s", "scribe", item, output.StatusIcon("success", rc.Color)))
+	return nil
 }
 
 // Publish archives the built binaries for configured binary-archive targets and

@@ -99,6 +99,13 @@ type RunContext struct {
 	// run finalizes + writes both exactly once after every domain has run.
 	Outputs *artifact.OutputsManifest
 	RB      *build.ResultsBuilder
+
+	// RenderScribeItem composes a build-fed scribe content item into the worktree at
+	// its perform slot: it materializes the item's upstream build output, then renders
+	// ONLY that item's files (leaving late badges for publish). Injected by the perform
+	// entrypoint, which owns the cmd-layer scribe + transport functions; nil for a
+	// standalone build command, in which case a scribe node is a no-op.
+	RenderScribeItem func(ctx context.Context, itemID string) error
 }
 
 // HeaderMode controls how Run renders the run-level identity. The lifecycle

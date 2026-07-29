@@ -47,6 +47,32 @@ type Result struct {
 // It performs the workspace mutations (or, in dry-run, computes previews) but never
 // renders terminal output — that is the CLI's job.
 func Run(appCfg *config.Config, rootDir string, dryRun, verbose bool) (*Result, error) {
+	return runFiles(appCfg, rootDir, dryRun, verbose, func(config.FileDef) bool { return true })
+}
+
+// RunItems renders only the scribe files: regions that reference at least one of the
+// given content item ids. It is the perform-time seam: a build-fed item (e.g. a
+// generated-doc include) composes BEFORE the build that bakes it, while late items
+// (badges needing registry/status) stay untouched for the publish pass. A no-match
+// is a clean no-op (empty result), not an error.
+func RunItems(appCfg *config.Config, rootDir string, itemIDs []string, dryRun, verbose bool) (*Result, error) {
+	want := make(map[string]bool, len(itemIDs))
+	for _, id := range itemIDs {
+		want[id] = true
+	}
+	return runFiles(appCfg, rootDir, dryRun, verbose, func(f config.FileDef) bool {
+		for _, ref := range f.Items {
+			if want[ref] {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// runFiles is the shared engine core: it renders the scribe files: regions the `keep`
+// predicate admits. Run passes keep-all; RunItems passes an item-scoped filter.
+func runFiles(appCfg *config.Config, rootDir string, dryRun, verbose bool, keep func(config.FileDef) bool) (*Result, error) {
 	if len(appCfg.Scribe.Files) == 0 {
 		return nil, fmt.Errorf("no scribe files configured")
 	}
@@ -74,6 +100,9 @@ func Run(appCfg *config.Config, rootDir string, dryRun, verbose bool) (*Result, 
 
 	res := &Result{}
 	for _, file := range appCfg.Scribe.Files {
+		if !keep(file) {
+			continue
+		}
 		fr, previews, err := processFile(appCfg, file, content, rootDir, versionInfo, linkBase, publishBase, verbose, dryRun)
 		if err != nil {
 			return nil, err

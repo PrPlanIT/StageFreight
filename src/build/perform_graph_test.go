@@ -64,6 +64,33 @@ func TestPerformOrder_DocSiteChain(t *testing.T) {
 	}
 }
 
+// ScribeRenderSlots assigns each scribe node to the build right before it: the
+// doc-site chain puts both composes after `reference` (and before `site`), and an
+// item before any build lands in `first`.
+func TestScribeRenderSlots(t *testing.T) {
+	bDocgen := &config.BuildConfig{ID: "docgen"}
+	bSite := &config.BuildConfig{ID: "site"}
+	order := []PerformNode{
+		{ScribeID: "early"}, // before any build
+		{Build: bDocgen},
+		{ScribeID: "ref-pages"},
+		{ScribeID: "inventory"},
+		{Build: bSite},
+	}
+	first, after := ScribeRenderSlots(order)
+
+	if len(first) != 1 || first[0] != "early" {
+		t.Fatalf("first = %v, want [early]", first)
+	}
+	got := after["docgen"]
+	if len(got) != 2 || got[0] != "ref-pages" || got[1] != "inventory" {
+		t.Fatalf("after[docgen] = %v, want [ref-pages inventory]", got)
+	}
+	if len(after["site"]) != 0 {
+		t.Fatalf("nothing should render after site, got %v", after["site"])
+	}
+}
+
 // No build consumes scribe → the order is just the builds (scribe stays late).
 func TestPerformOrder_NoBuildFedScribe(t *testing.T) {
 	builds := []config.BuildConfig{{ID: "img", Kind: "docker"}}

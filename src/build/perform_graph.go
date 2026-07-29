@@ -134,6 +134,29 @@ func PerformOrder(builds []config.BuildConfig, scribe config.ScribeConfig) ([]Pe
 	return out, nil
 }
 
+// ScribeRenderSlots splits a PerformOrder into the render slots the perform executor
+// uses: `first` composes before any build runs; `after[buildID]` composes right after
+// that build's steps finish (so its output can be materialized and the pages the NEXT
+// build bakes are written first). Each scribe node is assigned to the build immediately
+// preceding it in the order — which, by construction of PerformOrder, is on the path
+// between the item's upstream build and its consuming build.
+func ScribeRenderSlots(order []PerformNode) (first []string, after map[string][]string) {
+	after = map[string][]string{}
+	last := ""
+	for _, n := range order {
+		if n.IsScribe() {
+			if last == "" {
+				first = append(first, n.ScribeID)
+			} else {
+				after[last] = append(after[last], n.ScribeID)
+			}
+			continue
+		}
+		last = n.Build.ID
+	}
+	return first, after
+}
+
 func sortedKeys(m map[string]int) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

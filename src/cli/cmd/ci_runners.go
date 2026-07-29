@@ -146,6 +146,11 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		// belongs to audition. (Standalone build commands leave HeaderFull.)
 		Header: domains.HeaderSlim,
 	}
+	// Build-fed scribe items (a build bakes composed pages) compose in perform, at
+	// their DAG slot before the consuming build — this closure is that seam.
+	rc.RenderScribeItem = func(rctx context.Context, itemID string) error {
+		return renderBuildFedScribe(rctx, appCfg, rootDir, itemID, opts.Verbose)
+	}
 	if err := domains.Run(rc); err != nil {
 		if stErr := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.RecordSubsystem(cistate.SubsystemState{
