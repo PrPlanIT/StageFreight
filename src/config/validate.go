@@ -265,14 +265,27 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	// ── Build depends_on validation (all IDs now known) ─────────────────
 
+	scribeIDs := make(map[string]bool, len(cfg.Scribe.Content))
+	for _, c := range cfg.Scribe.Content {
+		scribeIDs[c.ID] = true
+	}
+
 	for i, b := range cfg.Builds {
-		if b.DependsOn != "" {
-			bpath := fmt.Sprintf("builds[%d]", i)
-			if !buildIDs[b.DependsOn] {
-				errs = append(errs, fmt.Sprintf("%s: depends_on references unknown build %q", bpath, b.DependsOn))
+		bpath := fmt.Sprintf("builds[%d]", i)
+		// Build refs (bare or "build:"-prefixed) must name a build; a scribe ref
+		// ("scribe:<id>") must name a scribe content item. Typed prefixes keep the
+		// two id spaces separate, so there is no cross-block uniqueness rule.
+		for _, dep := range b.BuildDeps() {
+			if !buildIDs[dep] {
+				errs = append(errs, fmt.Sprintf("%s: depends_on references unknown build %q", bpath, dep))
 			}
-			if b.DependsOn == b.ID {
+			if dep == b.ID {
 				errs = append(errs, fmt.Sprintf("%s: depends_on cannot reference itself", bpath))
+			}
+		}
+		for _, sdep := range b.ScribeDeps() {
+			if !scribeIDs[sdep] {
+				errs = append(errs, fmt.Sprintf("%s: depends_on references unknown scribe item %q (as scribe:%s)", bpath, sdep, sdep))
 			}
 		}
 		if b.Stage != nil && b.Stage.From != "" {

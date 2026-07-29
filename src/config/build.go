@@ -136,9 +136,13 @@ type BuildConfig struct {
 	// Supported: "" (standard), "crucible" (self-proving rebuild).
 	BuildMode string `yaml:"build_mode,omitempty"`
 
-	// DependsOn references another build ID that must complete before this one.
-	// Enables build ordering: binary builds before docker builds that consume them.
-	DependsOn string `yaml:"depends_on,omitempty"`
+	// DependsOn lists the nodes that must complete before this build runs. Entries
+	// are TYPED references: a bare id (or "build:<id>") is another BUILD; "scribe:<id>"
+	// is a scribe content item that must be rendered first (a build baking scribe
+	// output — e.g. a doc-site build consuming composed pages). Accepts a scalar or a
+	// sequence; a bare id stays a build ref, so existing `depends_on: x` is unchanged.
+	// Typed prefixes keep the build and scribe id spaces separate — no shared-uid rule.
+	DependsOn StringOrList `yaml:"depends_on,omitempty"`
 
 	// ── kind: docker ──────────────────────────────────────────────────────
 
@@ -251,6 +255,31 @@ type CrucibleConfig struct {
 type StageConfig struct {
 	From string `yaml:"from"`
 	As   string `yaml:"as"`
+}
+
+// BuildDeps returns the BUILD ids this build depends on — the bare or "build:"-
+// prefixed entries in depends_on, with the prefix stripped. Scribe deps are excluded.
+func (b BuildConfig) BuildDeps() []string {
+	var out []string
+	for _, d := range b.DependsOn {
+		if _, isScribe := strings.CutPrefix(d, "scribe:"); isScribe {
+			continue
+		}
+		out = append(out, strings.TrimPrefix(d, "build:"))
+	}
+	return out
+}
+
+// ScribeDeps returns the scribe content ids this build consumes as inputs — the
+// "scribe:"-prefixed entries in depends_on. These render before this build runs.
+func (b BuildConfig) ScribeDeps() []string {
+	var out []string
+	for _, d := range b.DependsOn {
+		if id, isScribe := strings.CutPrefix(d, "scribe:"); isScribe {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // IsRequired returns whether build failure is a hard pipeline fail. Default: true.

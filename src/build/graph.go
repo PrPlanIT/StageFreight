@@ -27,17 +27,18 @@ func BuildOrder(builds []config.BuildConfig) ([]config.BuildConfig, error) {
 		if _, ok := inDegree[b.ID]; !ok {
 			inDegree[b.ID] = 0
 		}
-		if b.DependsOn != "" {
-			if _, ok := byID[b.DependsOn]; !ok {
-				return nil, fmt.Errorf("build %q depends on unknown build %q", b.ID, b.DependsOn)
+		buildDeps := b.BuildDeps()
+		for _, dep := range buildDeps {
+			if _, ok := byID[dep]; !ok {
+				return nil, fmt.Errorf("build %q depends on unknown build %q", b.ID, dep)
 			}
 			inDegree[b.ID]++
-			dependents[b.DependsOn] = append(dependents[b.DependsOn], b.ID)
+			dependents[dep] = append(dependents[dep], b.ID)
 		}
 		// stage: {from} recycles another build's output, so it's an ordering edge too —
-		// the staged build must run first. Skip when it's the same as depends_on (already
-		// counted) to avoid a double edge.
-		if b.Stage != nil && b.Stage.From != "" && b.Stage.From != b.DependsOn {
+		// the staged build must run first. Skip when it's already a depends_on edge (to
+		// avoid a double edge).
+		if b.Stage != nil && b.Stage.From != "" && !containsStr(buildDeps, b.Stage.From) {
 			if _, ok := byID[b.Stage.From]; !ok {
 				return nil, fmt.Errorf("build %q stages from unknown build %q", b.ID, b.Stage.From)
 			}
@@ -80,6 +81,15 @@ func BuildOrder(builds []config.BuildConfig) ([]config.BuildConfig, error) {
 	}
 
 	return ordered, nil
+}
+
+func containsStr(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateBuildGraph performs pre-execution validation on a set of universal steps.

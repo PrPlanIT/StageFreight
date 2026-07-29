@@ -40,7 +40,6 @@ type BuildConfig struct {
 	Platforms  []Target
 	BuildMode  string
 	SelectTags []string
-	DependsOn  string
 
 	// Version info for template resolution
 	Version *VersionInfo

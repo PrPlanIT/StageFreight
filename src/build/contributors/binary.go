@@ -609,7 +609,7 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	}
 	return build.BuildConfig{
 		ID: b.ID, Kind: b.Kind, Platforms: platforms, BuildMode: b.BuildMode,
-		SelectTags: b.SelectTags, DependsOn: b.DependsOn, Version: v,
+		SelectTags: b.SelectTags, Version: v,
 		Builder: builder, Command: command, From: b.From,
 		Output: output, Args: b.Args, Env: b.Env, Compress: b.Compress,
 		Image: b.Image,
