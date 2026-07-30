@@ -1,6 +1,10 @@
 package badge
 
-import tdfont "github.com/tdewolff/font"
+import (
+	"encoding/binary"
+
+	tdfont "github.com/tdewolff/font"
+)
 
 // badgeCharset is the realistic set of characters a badge value can physically
 // carry — printable ASCII plus a curated handful of symbols/units. The embedded
@@ -46,5 +50,35 @@ func subsetToCharset(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sub.Write(), nil
+	return zeroFontTimestamps(sub.Write()), nil
+}
+
+// zeroFontTimestamps zeros the head table's created/modified timestamps so the
+// subset font is byte-REPRODUCIBLE run to run. tdewolff/font stamps them with the
+// current time on Write, which otherwise makes every badge SVG differ every run —
+// churning a no-op commit onto every publish. The head checksum goes stale, but SVG
+// @font-face renderers don't validate it. On any parse failure it returns the bytes
+// untouched (a churny badge beats a broken one).
+func zeroFontTimestamps(ttf []byte) []byte {
+	if len(ttf) < 12 {
+		return ttf
+	}
+	numTables := int(binary.BigEndian.Uint16(ttf[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if rec+16 > len(ttf) {
+			break
+		}
+		if string(ttf[rec:rec+4]) == "head" {
+			off := int(binary.BigEndian.Uint32(ttf[rec+8 : rec+12]))
+			// head layout: … created (8 bytes @ +20), modified (8 bytes @ +28).
+			if off >= 0 && off+36 <= len(ttf) {
+				for j := off + 20; j < off+36; j++ {
+					ttf[j] = 0
+				}
+			}
+			break
+		}
+	}
+	return ttf
 }

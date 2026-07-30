@@ -4,6 +4,7 @@ package cmd
 // referenced by scribe content (![…](…/build.svg)); `stagefreight scribe apply` and
 // the CI narrate stage both call RunConfigBadges. There is no standalone badge command.
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"os"
@@ -28,11 +29,12 @@ func buildDefaultBadgeEngine() (*badge.Engine, error) {
 
 // badgeRow holds display data for a single badge in section output.
 type badgeRow struct {
-	Name  string
-	Out   string
-	Font  string
-	Size  float64
-	Color string
+	Name    string
+	Out     string
+	Font    string
+	Size    float64
+	Color   string
+	Changed bool
 }
 
 // RunConfigBadges generates SVG badges from scribe config items. Called by
@@ -132,7 +134,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
-	generated := 0
+	updated, unchanged := 0, 0
 
 	for i, item := range items {
 		spec := specs[i]
@@ -171,10 +173,21 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		if err := os.MkdirAll(filepath.Dir(spec.Output), 0o755); err != nil {
 			return fmt.Errorf("creating badge directory for %s: %w", item.LabelOrID(), err)
 		}
-		if err := os.WriteFile(spec.Output, []byte(svg), 0o644); err != nil {
-			return fmt.Errorf("writing badge %s: %w", item.ID, err)
+		// Write only when the content actually changed — an unchanged badge must
+		// not rewrite the file, or it churns a no-op commit. (Reproducible output,
+		// from zeroed font timestamps, is what makes this comparison meaningful.)
+		changed := true
+		if prev, rerr := os.ReadFile(spec.Output); rerr == nil && bytes.Equal(prev, []byte(svg)) {
+			changed = false
 		}
-		generated++
+		if changed {
+			if err := os.WriteFile(spec.Output, []byte(svg), 0o644); err != nil {
+				return fmt.Errorf("writing badge %s: %w", item.ID, err)
+			}
+			updated++
+		} else {
+			unchanged++
+		}
 
 		// Collect row for section output
 		fontName := spec.Font
@@ -186,11 +199,12 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 			size = 11
 		}
 		rows = append(rows, badgeRow{
-			Name:  item.LabelOrID(),
-			Out:   spec.Output,
-			Font:  fontName,
-			Size:  size,
-			Color: badgeColor,
+			Name:    item.LabelOrID(),
+			Out:     spec.Output,
+			Font:    fontName,
+			Size:    size,
+			Color:   badgeColor,
+			Changed: changed,
 		})
 	}
 
@@ -208,10 +222,14 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 
 	sec := output.NewSection(w, "Badges", elapsed, useColor)
 	for _, r := range rows {
-		sec.Row("%-16s%-24s %-8s %.0fpt  %s", r.Name, r.Out, r.Font, r.Size, r.Color)
+		state := output.StatusIcon("skipped", useColor) // ⊘ unchanged
+		if r.Changed {
+			state = output.StatusIcon("success", useColor) // ✓ updated
+		}
+		sec.Row("%s %-16s%-24s %-8s %.0fpt  %s", state, r.Name, r.Out, r.Font, r.Size, r.Color)
 	}
 	sec.Separator()
-	sec.Row("%d generated", generated)
+	sec.Row("%d updated, %d unchanged", updated, unchanged)
 	sec.Close()
 
 	return nil

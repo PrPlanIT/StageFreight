@@ -1,6 +1,7 @@
 package badge
 
 import (
+	"encoding/binary"
 	"strings"
 	"testing"
 
@@ -25,6 +26,43 @@ func TestSubset_ShrinksFontButKeepsCmap(t *testing.T) {
 	}
 	if sf.GlyphIndex('A') == 0 || sf.GlyphIndex('2') == 0 || sf.GlyphIndex('M') == 0 {
 		t.Fatal("subset cmap lost common badge glyphs — <text> would render blank")
+	}
+}
+
+// The subset font must be byte-reproducible across runs — i.e. the head table's
+// created/modified timestamps are zeroed. (A "subset twice, compare bytes" test would
+// flake: LONGDATETIME is second-resolution, so two rapid in-process subsets land in the
+// same second and match even when the bug is present. Asserting the zeroed timestamp is
+// the robust check.) A stale head timestamp made every badge SVG differ every publish,
+// churning a no-op commit.
+func TestSubset_HeadTimestampsZeroed(t *testing.T) {
+	m, err := LoadBuiltinFont("monofur", 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ttf := m.FontData()
+	if len(ttf) < 12 {
+		t.Fatalf("subset font too small: %d bytes", len(ttf))
+	}
+	numTables := int(binary.BigEndian.Uint16(ttf[4:6]))
+	headOff := -1
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if rec+16 > len(ttf) {
+			break
+		}
+		if string(ttf[rec:rec+4]) == "head" {
+			headOff = int(binary.BigEndian.Uint32(ttf[rec+8 : rec+12]))
+			break
+		}
+	}
+	if headOff < 0 {
+		t.Fatal("no head table in subset font")
+	}
+	for j := headOff + 20; j < headOff+36; j++ {
+		if ttf[j] != 0 {
+			t.Fatalf("head created/modified not zeroed at byte %d — subset font is NOT reproducible run-to-run", j)
+		}
 	}
 }
 
