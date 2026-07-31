@@ -12,12 +12,12 @@ import (
 var srOutput string
 
 var scribeRenderCmd = &cobra.Command{
-	Use:   "render <content-id>",
-	Short: "Render one declared scribe.content item's markdown",
-	Long: `Resolve a single scribe.content item (by id) and print its markdown fragment to
+	Use:   "render <id>",
+	Short: "Render one stencil's markdown",
+	Long: `Resolve a single stencil (by id) and print its markdown fragment to
 stdout, or write it to a file with --output.
 
-Only content declared in .stagefreight.yml is renderable — the config is the source of
+Only stencils declared in .stagefreight.yml are renderable — the config is the source of
 truth. To preview a producer type before declaring it, use 'stagefreight scribe types <type>'.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScribeRender,

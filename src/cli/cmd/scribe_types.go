@@ -14,9 +14,9 @@ var stCategory string
 
 var scribeTypesCmd = &cobra.Command{
 	Use:   "types [type]",
-	Short: "Browse scribe content producer types, or detail one",
-	Long: `Without an argument, list every available content producer type (the type: values
-usable in scribe.content), grouped by category. With a <type> argument, show that type's
+	Short: "Browse stencil producer types, or detail one",
+	Long: `Without an argument, list every available stencil producer type (the type: values
+usable in the stencils library), grouped by category. With a <type> argument, show that type's
 description, parameters, example config, and a rendered preview.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runScribeTypes,

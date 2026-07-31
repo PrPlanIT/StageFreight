@@ -11,7 +11,7 @@ phase-by-phase output actually looks like.
 A run moves through five load-bearing phases — **audition → perform → review → publish →
 narrate** — the same graph regardless of forge:
 
-![StageFreight canonical pipeline graph in GitLab](assets/screenshots/StageFreight-GitLab-Canonical-Pipeline-Graph-1.png){ loading=lazy }
+![StageFreight canonical pipeline graph in GitLab](assets/screenshots/StageFreight-GitLab-Canonical-Pipeline-Graph-1.png)
 
 ## Build pipeline, phase by phase
 
@@ -25,72 +25,72 @@ captures are consecutive segments of one (tall) job log.
 The environment banner, Code/Executor/Config panels, staged toolchain, the lint matrix, and
 the findings gate.
 
-=== "GitLab"
+**GitLab**
 
-    ![Audition job in GitLab, part 1](assets/screenshots/StageFreight-GitLab-Build-Job-1-Audition-1.png){ loading=lazy }
+![Audition job in GitLab, part 1](assets/screenshots/StageFreight-GitLab-Build-Job-1-Audition-1.png)
 
-    ![Audition job in GitLab, part 2](assets/screenshots/StageFreight-GitLab-Build-Job-1-Audition-2.png){ loading=lazy }
+![Audition job in GitLab, part 2](assets/screenshots/StageFreight-GitLab-Build-Job-1-Audition-2.png)
 
-    ![Audition job in GitLab, part 3](assets/screenshots/StageFreight-GitLab-Build-Job-1-Audition-3.png){ loading=lazy }
+![Audition job in GitLab, part 3](assets/screenshots/StageFreight-GitLab-Build-Job-1-Audition-3.png)
 
-=== "GitHub"
+**GitHub**
 
-    ![Audition job in GitHub Actions, part 1](assets/screenshots/StageFreight-GitHub-Build-Job-1-Audition-1.png){ loading=lazy }
+![Audition job in GitHub Actions, part 1](assets/screenshots/StageFreight-GitHub-Build-Job-1-Audition-1.png)
 
-    ![Audition job in GitHub Actions, part 2](assets/screenshots/StageFreight-GitHub-Build-Job-1-Audition-2.png){ loading=lazy }
+![Audition job in GitHub Actions, part 2](assets/screenshots/StageFreight-GitHub-Build-Job-1-Audition-2.png)
 
-    ![Audition job in GitHub Actions, part 3](assets/screenshots/StageFreight-GitHub-Build-Job-1-Audition-3.png){ loading=lazy }
+![Audition job in GitHub Actions, part 3](assets/screenshots/StageFreight-GitHub-Build-Job-1-Audition-3.png)
 
 ### 2. Perform — produce artifacts in containers
 
 Detect → plan → build, with cache retention and the transport archives that carry artifacts
 into publish.
 
-=== "GitLab"
+**GitLab**
 
-    ![Perform job in GitLab, part 1](assets/screenshots/StageFreight-GitLab-Build-Job-2-Perform-1.png){ loading=lazy }
+![Perform job in GitLab, part 1](assets/screenshots/StageFreight-GitLab-Build-Job-2-Perform-1.png)
 
-    ![Perform job in GitLab, part 2](assets/screenshots/StageFreight-GitLab-Build-Job-2-Perform-2.png){ loading=lazy }
+![Perform job in GitLab, part 2](assets/screenshots/StageFreight-GitLab-Build-Job-2-Perform-2.png)
 
-=== "GitHub"
+**GitHub**
 
-    ![Perform job in GitHub Actions](assets/screenshots/StageFreight-GitHub-Build-Job-2-Perform-1.png){ loading=lazy }
+![Perform job in GitHub Actions](assets/screenshots/StageFreight-GitHub-Build-Job-2-Perform-1.png)
 
 ### 3. Review — inspect produced artifacts before publish
 
-=== "GitLab"
+**GitLab**
 
-    ![Review job in GitLab, part 1](assets/screenshots/StageFreight-GitLab-Build-Job-3-Review-1.png){ loading=lazy }
+![Review job in GitLab, part 1](assets/screenshots/StageFreight-GitLab-Build-Job-3-Review-1.png)
 
-    ![Review job in GitLab, part 2](assets/screenshots/StageFreight-GitLab-Build-Job-3-Review-2.png){ loading=lazy }
+![Review job in GitLab, part 2](assets/screenshots/StageFreight-GitLab-Build-Job-3-Review-2.png)
 
-    ![Review job in GitLab, part 3](assets/screenshots/StageFreight-GitLab-Build-Job-3-Review-3.png){ loading=lazy }
+![Review job in GitLab, part 3](assets/screenshots/StageFreight-GitLab-Build-Job-3-Review-3.png)
 
-=== "GitHub"
+**GitHub**
 
-    ![Review job in GitHub Actions, part 1](assets/screenshots/StageFreight-GitHub-Build-Job-3-Review-1.png){ loading=lazy }
+![Review job in GitHub Actions, part 1](assets/screenshots/StageFreight-GitHub-Build-Job-3-Review-1.png)
 
-    ![Review job in GitHub Actions, part 3](assets/screenshots/StageFreight-GitHub-Build-Job-3-Review-3.png){ loading=lazy }
+![Review job in GitHub Actions, part 3](assets/screenshots/StageFreight-GitHub-Build-Job-3-Review-3.png)
 
 ### 4. Publish — push images, cut releases, deploy, retain
 
-=== "GitLab"
+**GitLab**
 
-    ![Publish job in GitLab](assets/screenshots/StageFreight-GitLab-Build-Job-4-Publish-1.png){ loading=lazy }
+![Publish job in GitLab](assets/screenshots/StageFreight-GitLab-Build-Job-4-Publish-1.png)
 
-=== "GitHub"
+**GitHub**
 
-    ![Publish job in GitHub Actions](assets/screenshots/StageFreight-GitHub-Build-Job-4-Publish-1.png){ loading=lazy }
+![Publish job in GitHub Actions](assets/screenshots/StageFreight-GitHub-Build-Job-4-Publish-1.png)
 
 ### 5. Narrate — compose repo-facing content and commit it
 
-=== "GitLab"
+**GitLab**
 
-    ![Narrate job in GitLab](assets/screenshots/StageFreight-GitLab-Build-Job-5-Narrate-1.png){ loading=lazy }
+![Narrate job in GitLab](assets/screenshots/StageFreight-GitLab-Build-Job-5-Narrate-1.png)
 
-=== "GitHub"
+**GitHub**
 
-    ![Narrate job in GitHub Actions](assets/screenshots/StageFreight-GitHub-Build-Job-5-Narrate-1.png){ loading=lazy }
+![Narrate job in GitHub Actions](assets/screenshots/StageFreight-GitHub-Build-Job-5-Narrate-1.png)
 
 ## GitOps pipeline
 
@@ -99,8 +99,8 @@ validation (schema and authority checks across the tree) before **perform**:
 
 ### Audition — GitOps validation
 
-![GitOps audition job in GitLab](assets/screenshots/StageFreight-GitLab-GitOps-Job-1-Audition-1.png){ loading=lazy }
+![GitOps audition job in GitLab](assets/screenshots/StageFreight-GitLab-GitOps-Job-1-Audition-1.png)
 
 ### Perform
 
-![GitOps perform job in GitLab](assets/screenshots/StageFreight-GitLab-GitOps-Job-2-Perform-1.png){ loading=lazy }
+![GitOps perform job in GitLab](assets/screenshots/StageFreight-GitLab-GitOps-Job-2-Perform-1.png)

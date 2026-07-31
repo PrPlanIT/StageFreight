@@ -1,7 +1,7 @@
 package cmd
 
 // Package-internal badge generation. The SVG artifacts are produced here and
-// referenced by scribe content (![…](…/build.svg)); `stagefreight scribe apply` and
+// referenced by stencils (![…](…/build.svg)); `stagefreight scribe apply` and
 // the CI narrate stage both call RunConfigBadges. There is no standalone badge command.
 import (
 	"bytes"
@@ -57,12 +57,12 @@ func hasConfiguredBadges(appCfg *config.Config) bool {
 func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir string, names []string, status string) error {
 	start := time.Now()
 
-	// All badge content defs (scribe.content entries that generate an SVG), in
+	// All badge content defs (stencil entries that generate an SVG), in
 	// document order.
 	items := postbuild.CollectScribeBadgeItems(appCfg)
 
 	if len(items) == 0 {
-		return fmt.Errorf("no badge items configured (scribe.content badges)")
+		return fmt.Errorf("no badge stencils configured")
 	}
 
 	// Filter to named items if specified

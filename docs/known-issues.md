@@ -12,9 +12,9 @@
 
 ### `scribe apply` generates but does not publish — local "last mile" is manual
 
-`stagefreight scribe apply` renders the configured scribe content (badges, shields, included fragments) and **writes the files**, but it intentionally does **not** commit or push them. The commit/publish step lives in the Narrate phase runner, driven by `.stagefreight.yml` `scribe.commit`.
+`stagefreight scribe apply` renders the configured stencils (badges, shields, included fragments) into their files and **writes them**, but it intentionally does **not** commit or push. The commit/publish step runs in CI (the publish phase), driven by `.stagefreight.yml` `scribe.commit`.
 
-This makes scribe the **odd one out** among the publish-type operations: registry images push by default and releases publish via `stagefreight release create`, but **there is no standalone "publish scribe content" command** — locally, you complete the last mile by hand.
+This makes scribe the **odd one out** among the publish-type operations: registry images push by default and releases publish via `stagefreight release create`, but **there is no standalone "publish stencils" command** — locally, you complete the last mile by hand.
 
 **Workaround (local generation + publish):**
 1. `stagefreight scribe apply` — render/refresh the files.

@@ -17,15 +17,13 @@ var (
 
 var scribeApplyCmd = &cobra.Command{
 	Use:   "apply",
-	Short: "Reconcile scribe content into files (badges + region injection)",
-	Long: `Apply the scribe config: generate badge SVG artifacts, then render
-scribe.content into each scribe.files region.
+	Short: "Reconcile stencils into files (badges + region injection)",
+	Long: `Apply the scribe config: generate badge SVG artifacts, then render each
+scribe.files region from the stencils it references.
 
-Each files: entry names a marked region; its items are name-refs into
-scribe.content. Referenced content is composed (inline items joined with
-spaces, block items with newlines) and placed between the region markers,
-replacing existing managed content idempotently. Same producers as
-'stagefreight ci run narrate' (which also lands build trees + auto-commits).`,
+Each files: entry names a marked region; its body embeds stencils by {id}
+(with items: as sugar for a row of stencils). The rendered markdown is placed
+between the region markers, replacing existing managed content idempotently.`,
 	RunE: runScribeApply,
 }
 
