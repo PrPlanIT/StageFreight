@@ -61,9 +61,9 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
         - [`prune`](#cli-stagefreight-release-prune) — Prune old releases using retention policy
         - [`sync`](#cli-stagefreight-release-sync) — Converge mirror forges to the primary's releases (binaries included)
     - [`scribe`](#cli-stagefreight-scribe) — Compose and inject content into markdown files
-        - [`apply`](#cli-stagefreight-scribe-apply) — Reconcile scribe content into files (badges + region injection)
-        - [`render`](#cli-stagefreight-scribe-render) — Render one declared scribe.content item's markdown
-        - [`types`](#cli-stagefreight-scribe-types) — Browse scribe content producer types, or detail one
+        - [`apply`](#cli-stagefreight-scribe-apply) — Reconcile stencils into files (badges + region injection)
+        - [`render`](#cli-stagefreight-scribe-render) — Render one stencil's markdown
+        - [`types`](#cli-stagefreight-scribe-types) — Browse stencil producer types, or detail one
     - [`security`](#cli-stagefreight-security) — Security scanning commands
         - [`scan`](#cli-stagefreight-security-scan) — Run vulnerability scan and generate SBOM
     - [`sign`](#cli-stagefreight-sign) — Attach an additional signature to already-built release artifacts
@@ -1155,9 +1155,9 @@ Everything outside markers is never touched.
 
 **Subcommands:**
 
-- [`apply`](#cli-stagefreight-scribe-apply) — Reconcile scribe content into files (badges + region injection)
-- [`render`](#cli-stagefreight-scribe-render) — Render one declared scribe.content item's markdown
-- [`types`](#cli-stagefreight-scribe-types) — Browse scribe content producer types, or detail one
+- [`apply`](#cli-stagefreight-scribe-apply) — Reconcile stencils into files (badges + region injection)
+- [`render`](#cli-stagefreight-scribe-render) — Render one stencil's markdown
+- [`types`](#cli-stagefreight-scribe-types) — Browse stencil producer types, or detail one
 
 ---
 
@@ -1168,14 +1168,12 @@ Everything outside markers is never touched.
 
 **Usage:** `stagefreight scribe apply`
 
-Apply the scribe config: generate badge SVG artifacts, then render
-scribe.content into each scribe.files region.
+Apply the scribe config: generate badge SVG artifacts, then render each
+scribe.files region from the stencils it references.
 
-Each files: entry names a marked region; its items are name-refs into
-scribe.content. Referenced content is composed (inline items joined with
-spaces, block items with newlines) and placed between the region markers,
-replacing existing managed content idempotently. Same producers as
-'stagefreight ci run narrate' (which also lands build trees + auto-commits).
+Each files: entry names a marked region; its body embeds stencils by {id}
+(with items: as sugar for a row of stencils). The rendered markdown is placed
+between the region markers, replacing existing managed content idempotently.
 
 **Flags:**
 
@@ -1192,12 +1190,12 @@ _Plus the [global flags](#cli-global-flags)._
 
 *↩ [`stagefreight scribe`](#cli-stagefreight-scribe)*
 
-**Usage:** `stagefreight scribe render <content-id>`
+**Usage:** `stagefreight scribe render <id>`
 
-Resolve a single scribe.content item (by id) and print its markdown fragment to
+Resolve a single stencil (by id) and print its markdown fragment to
 stdout, or write it to a file with --output.
 
-Only content declared in .stagefreight.yml is renderable — the config is the source of
+Only stencils declared in .stagefreight.yml are renderable — the config is the source of
 truth. To preview a producer type before declaring it, use 'stagefreight scribe types <type>'.
 
 **Flags:**
@@ -1217,8 +1215,8 @@ _Plus the [global flags](#cli-global-flags)._
 
 **Usage:** `stagefreight scribe types [type]`
 
-Without an argument, list every available content producer type (the type: values
-usable in scribe.content), grouped by category. With a <type> argument, show that type's
+Without an argument, list every available stencil producer type (the type: values
+usable in the stencils library), grouped by category. With a <type> argument, show that type's
 description, parameters, example config, and a rendered preview.
 
 **Flags:**
