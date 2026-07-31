@@ -1,11 +1,12 @@
 # StageFreight documentation site — built with MkDocs Material.
 #
-# This config + the theme overrides live under docs/mkdocs/ (the mkdocs-only machinery,
-# kept out of the repo root); docs/ itself stays plain readable markdown.
+# This config + the theme overrides live under docs/assets/mkdocs/ — mkdocs-only
+# machinery, tucked away beside the other generated/build assets so the repo root AND
+# docs/ browse view stay tidy; docs/ itself is plain readable markdown.
 #
 # Local live preview (no toolchain, no pipeline) — run from the repo root:
 #   docker run --rm -it -p 8000:8000 -v "$PWD":/docs \
-#     docker.io/squidfunk/mkdocs-material:9 serve -f docs/mkdocs/mkdocs.yml -a 0.0.0.0:8000
+#     docker.io/squidfunk/mkdocs-material:9 serve -f docs/assets/mkdocs/mkdocs.yml -a 0.0.0.0:8000
 #
 # Built + deployed by StageFreight itself (see .stagefreight.yml docs-site build + docs
 # pages target) to https://stagefreight.prplanit.com on release tags.
@@ -20,15 +21,17 @@ repo_url: https://github.com/PrPlanIT/StageFreight
 edit_uri: edit/main/docs/
 copyright: Copyright &copy; PrPlanIT
 
-# This config lives in docs/mkdocs/; the content root is the parent docs/ dir.
-docs_dir: ..
+# This config lives in docs/assets/mkdocs/; the content root is docs/ (two levels up).
+docs_dir: ../..
 
 # Never shipped to the site (kept in-repo for maintainers/contributors):
-#   mkdocs/                  → this config + theme overrides (mkdocs machinery, not content)
+#   assets/mkdocs/           → this config + theme overrides (mkdocs machinery, not content)
+#   assets/modules/          → generated reference fragments (pulled in via snippets, not pages)
 #   design/plans/            → design RFCs + internal planning (RoadMap, To-Do, audits)
 #   config/aspirational/README.md  → index for the aspirational example configs (repo browsing)
 exclude_docs: |
-  mkdocs/
+  assets/mkdocs/
+  assets/modules/
   design/plans/
   config/aspirational/README.md
 
