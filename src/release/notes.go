@@ -609,6 +609,14 @@ func categorize(commits []Commit) []CommitCategory {
 	return categories
 }
 
+// Categorize groups parsed conventional commits into ordered display categories
+// (Features, Bug Fixes, …) — the same grouping release notes use. Exported so
+// narrate can build its Changes section from ONE changelog source: generated once,
+// rendered many ways (summary / release body / community note).
+func Categorize(commits []Commit) []CommitCategory {
+	return categorize(commits)
+}
+
 func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Commit) string {
 	var b strings.Builder
 

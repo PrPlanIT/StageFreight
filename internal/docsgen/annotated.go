@@ -50,8 +50,8 @@ var unionByType = map[string]kindBlock{
 			{"command", []string{"id", "kind", "image", "command", "env", "stage", "outputs"}},
 		},
 	},
-	"ContentDef": {
-		typ: reflect.TypeOf(config.ContentDef{}),
+	"StencilDef": {
+		typ: reflect.TypeOf(config.StencilDef{}),
 		kinds: []kindSpec{
 			{"badge", []string{"type", "render", "label", "message", "color", "font", "font_size", "output", "link", "logo", "logo_color", "label_color"}},
 			{"shield", []string{"type", "render", "shield", "link"}},

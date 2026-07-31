@@ -20,6 +20,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/props"
 	"github.com/PrPlanIT/StageFreight/src/registry"
 	"github.com/PrPlanIT/StageFreight/src/scribe/render"
+	"github.com/PrPlanIT/StageFreight/src/stencil"
 )
 
 // FileResult is the outcome for one scribe files: region. Data only — the CLI renders it.
@@ -61,7 +62,7 @@ func RunItems(appCfg *config.Config, rootDir string, itemIDs []string, dryRun, v
 		want[id] = true
 	}
 	return runFiles(appCfg, rootDir, dryRun, verbose, func(f config.FileDef) bool {
-		for _, ref := range f.Items {
+		for _, ref := range RegionElementIDs(f) {
 			if want[ref] {
 				return true
 			}
@@ -77,7 +78,7 @@ func runFiles(appCfg *config.Config, rootDir string, dryRun, verbose bool, keep 
 		return nil, fmt.Errorf("no scribe files configured")
 	}
 
-	content := appCfg.Scribe.ContentByID()
+	content := appCfg.StencilsByID()
 
 	// Detect version for template resolution.
 	versionInfo, err := build.DetectVersion(rootDir, appCfg)
@@ -113,15 +114,15 @@ func runFiles(appCfg *config.Config, rootDir string, dryRun, verbose bool, keep 
 	return res, nil
 }
 
-// RenderContent resolves a single scribe.content item (by id) to its markdown fragment.
-// It is the ad-hoc, read-only counterpart to Run: it renders one declared content item
-// and returns the markdown; it never writes artifacts or mutates files. Only content
-// declared in config is renderable — the config is the source of truth.
+// RenderContent resolves a single stencil (by id) to its markdown fragment. It is the
+// ad-hoc, read-only counterpart to Run: it renders one declared stencil and returns the
+// markdown; it never writes artifacts or mutates files. Only stencils declared in config
+// are renderable — the config is the source of truth.
 func RenderContent(appCfg *config.Config, rootDir, contentID string) (string, error) {
-	content := appCfg.Scribe.ContentByID()
+	content := appCfg.StencilsByID()
 	def, ok := content[contentID]
 	if !ok {
-		return "", fmt.Errorf("scribe.content has no item %q", contentID)
+		return "", fmt.Errorf("no stencil %q", contentID)
 	}
 
 	versionInfo, err := build.DetectVersion(rootDir, appCfg)
@@ -138,19 +139,14 @@ func RenderContent(appCfg *config.Config, rootDir, contentID string) (string, er
 	}
 	linkBase, _ := config.ResolveLinkBase(appCfg)
 
-	synth := config.FileDef{ID: "render", Items: []string{contentID}}
-	mods, err := BuildModules(appCfg, synth, content, linkBase, publishBase, versionInfo, rootDir)
-	if err != nil {
-		return "", err
-	}
-	return render.Compose(mods), nil
+	return resolveStencilMarkdown(appCfg, def, linkBase, publishBase, versionInfo, rootDir)
 }
 
-// referencesBadge reports whether any files: item references a badge content def —
+// referencesBadge reports whether any files: region references a badge stencil —
 // badges need the publish-origin base for their image URL.
-func referencesBadge(s config.ScribeConfig, content map[string]config.ContentDef) bool {
+func referencesBadge(s config.ScribeConfig, content map[string]config.StencilDef) bool {
 	for _, f := range s.Files {
-		for _, ref := range f.Items {
+		for _, ref := range RegionElementIDs(f) {
 			if def, ok := content[ref]; ok && def.EffectiveKind() == "badge" {
 				return true
 			}
@@ -161,7 +157,7 @@ func referencesBadge(s config.ScribeConfig, content map[string]config.ContentDef
 
 // processFile renders one files: region (a marked span + its content refs). It returns
 // the region's FileResult plus any dry-run previews for standalone output_file writes.
-func processFile(appCfg *config.Config, file config.FileDef, content map[string]config.ContentDef, rootDir string, vi *gitver.VersionInfo, linkBase, rawBase string, verbose, dryRun bool) (FileResult, []Preview, error) {
+func processFile(appCfg *config.Config, file config.FileDef, content map[string]config.StencilDef, rootDir string, vi *gitver.VersionInfo, linkBase, rawBase string, verbose, dryRun bool) (FileResult, []Preview, error) {
 	path := file.File
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(rootDir, path)
@@ -183,7 +179,7 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 
 	// build-contents refs with output_file write standalone files (independent of
 	// the region embedding).
-	for _, ref := range file.Items {
+	for _, ref := range RegionElementIDs(file) {
 		def, ok := content[ref]
 		if !ok || def.EffectiveKind() != "build-contents" || def.OutputFile == "" {
 			continue
@@ -216,25 +212,17 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 		}
 	}
 
-	// Build modules from the region's content refs and place them.
-	modules, modErr := BuildModules(appCfg, file, content, linkBase, rawBase, vi, rootDir)
-	if modErr != nil {
-		return FileResult{}, nil, fmt.Errorf("scribe: %w", modErr)
+	// Render the region content (items sugar or a freeform body) and place it.
+	composed, rErr := renderRegion(appCfg, file, content, linkBase, rawBase, vi, rootDir)
+	if rErr != nil {
+		return FileResult{}, nil, fmt.Errorf("scribe: %w", rErr)
 	}
-	if len(modules) > 0 {
-		var composed string
-		if file.Inline {
-			composed = render.ComposeInline(modules)
-		} else {
-			composed = render.Compose(modules)
-		}
-		if composed != "" && file.Between[0] != "" && file.Between[1] != "" {
-			updated, found := registry.ReplaceBetween(fileContent, file.Between[0], file.Between[1], composed)
-			if found {
-				fileContent = updated
-			} else if verbose {
-				fmt.Fprintf(os.Stderr, "  warning: markers not found in %s: %s ... %s\n", file.File, file.Between[0], file.Between[1])
-			}
+	if composed != "" && file.Between[0] != "" && file.Between[1] != "" {
+		updated, found := registry.ReplaceBetween(fileContent, file.Between[0], file.Between[1], composed)
+		if found {
+			fileContent = updated
+		} else if verbose {
+			fmt.Fprintf(os.Stderr, "  warning: markers not found in %s: %s ... %s\n", file.File, file.Between[0], file.Between[1])
 		}
 	}
 
@@ -256,159 +244,269 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 	return FileResult{File: file.File, Status: "success", Detail: "updated"}, previews, nil
 }
 
-// BuildModules resolves a file's item name-refs to content defs and builds a render
-// module per def, dispatching on EffectiveKind. "br" is a row break. The module set is
-// exactly the module dispatch, so render output is preserved. Exported for the
-// synthetic-region composition (e.g. an ad-hoc CLI).
-func BuildModules(appCfg *config.Config, file config.FileDef, content map[string]config.ContentDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string) ([]render.Module, error) {
-	var modules []render.Module
-
-	for _, ref := range file.Items {
-		if ref == "br" {
-			modules = append(modules, render.BreakModule{})
-			continue
+// resolveStencilMarkdown resolves ONE stencil to its markdown fragment, dispatching on
+// EffectiveKind to the matching render module (the module set survives as element
+// producers — only their composition changed). A hard error (a badge with no resolvable
+// image URL) is returned; a soft skip (a producer that can't be served, a missing
+// include) yields "" so the element simply contributes nothing — matching the old
+// Compose skip-empty semantics.
+func resolveStencilMarkdown(appCfg *config.Config, def config.StencilDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string) (string, error) {
+	switch def.EffectiveKind() {
+	case "badge":
+		if def.Output == "" {
+			return "", fmt.Errorf("stencils.%s: badge has no output path", def.ID)
 		}
-		def, ok := content[ref]
+		link := gitver.ResolveVars(def.Link, appCfg.Vars)
+		if vi != nil {
+			link = gitver.ResolveTemplateWithDirAndVars(link, vi, rootDir, appCfg.Vars)
+		}
+		resolved := def
+		resolved.Link = link
+		mod := resolveBadgeModule(resolved, linkBase, rawBase)
+		if mod == nil {
+			return "", fmt.Errorf("stencils.%s: badge has no resolvable image URL (publish-origin unresolved)", def.ID)
+		}
+		return mod.Render(), nil
+
+	case "shield":
+		// Two forms: a raw shields.io path (escape hatch, `shield:`) or an inline
+		// composition from verbs (label/message/color/logo/logo_color) — SF builds the
+		// shields.io URL so configs stop hand-escaping %2F.
+		var shieldPath string
+		if def.Shield != "" {
+			shieldPath = gitver.ResolveVarsShields(def.Shield, appCfg.Vars)
+		} else {
+			shieldPath = composeShieldPath(def, appCfg.Vars)
+		}
+		link := gitver.ResolveVars(def.Link, appCfg.Vars)
+		label := def.LabelOrID()
+		if def.Label == "" && def.Shield != "" {
+			label = shieldPath // raw-path form: fall back to the path as alt
+		}
+		if vi != nil {
+			label = gitver.ResolveTemplateWithDirAndVars(label, vi, "", appCfg.Vars)
+		}
+		return render.ShieldModule{
+			Path:  shieldPath,
+			Label: label,
+			Link:  resolveLink(link, linkBase),
+		}.Render(), nil
+
+	case "text":
+		text := def.Content
+		if vi != nil {
+			text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", appCfg.Vars)
+		}
+		return render.TextModule{Text: text}.Render(), nil
+
+	case "component":
+		spec, err := component.ParseSpec(def.Spec)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scribe: component %s: %v\n", def.Spec, err)
+			return "", nil
+		}
+		docs := component.GenerateDocs([]*component.SpecFile{spec})
+		return render.ComponentModule{Docs: strings.TrimSpace(docs)}.Render(), nil
+
+	case "include":
+		incPath := def.Path
+		if !filepath.IsAbs(incPath) {
+			incPath = filepath.Join(rootDir, incPath)
+		}
+		data, err := os.ReadFile(incPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scribe: include %s: %v\n", def.Path, err)
+			return "", nil
+		}
+		return render.IncludeModule{Content: strings.TrimSpace(string(data))}.Render(), nil
+
+	case "build-contents":
+		m := resolveBuildContentsManifest(appCfg, def, rootDir)
+		if m == nil {
+			return "", nil
+		}
+		return render.BuildContentsModule{
+			Manifest: m,
+			Section:  def.Section,
+			Renderer: def.Render,
+			Columns:  def.Columns,
+			Wrap:     def.Wrap,
+			Summary:  def.Summary,
+		}.Render(), nil
+
+	case "k8s-inventory":
+		sha := ""
+		if vi != nil {
+			sha = vi.SHA
+		}
+		return (&render.K8sInventoryModule{
+			CatalogPath:   def.CatalogPath,
+			CommitSHA:     sha,
+			RepoRoot:      rootDir,
+			ClusterConfig: appCfg.GitOps.Cluster,
+		}).Render(), nil
+
+	case "props":
+		pdef, ok := props.Get(def.Type)
 		if !ok {
-			return nil, fmt.Errorf("files.%s: item %q not found in scribe.content", file.ID, ref)
+			fmt.Fprintf(os.Stderr, "scribe: props type %q not found\n", def.Type)
+			return "", nil
 		}
+		// Derive coordinates from repos: (publish-origin, or a repo: override) so
+		// producers are self-contained; explicit params override the derived ones.
+		resolvedParams, skipReason := resolveProducerParams(appCfg, def, pdef)
+		if skipReason != "" {
+			fmt.Fprintf(os.Stderr, "scribe: props %s skipped: %s\n", def.Type, skipReason)
+			return "", nil
+		}
+		for k, v := range def.Params {
+			resolvedParams[k] = gitver.ResolveVars(v, appCfg.Vars)
+		}
+		opts := props.RenderOptions{
+			Label:   def.Label,
+			Link:    gitver.ResolveVars(def.Link, appCfg.Vars),
+			Style:   def.Style,
+			Logo:    def.Logo,
+			Variant: props.VariantClassic,
+		}
+		resolved, err := props.ResolveDefinition(pdef, resolvedParams, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scribe: props %s: %v\n", def.Type, err)
+			return "", nil
+		}
+		return render.PropsModule{
+			Resolved: resolved,
+			Variant:  props.VariantClassic,
+		}.Render(), nil
+	}
+	return "", nil
+}
 
-		switch def.EffectiveKind() {
-		case "badge":
-			if def.Output == "" {
-				return nil, fmt.Errorf("content.%s: badge has no output path", ref)
-			}
-			link := gitver.ResolveVars(def.Link, appCfg.Vars)
-			if vi != nil {
-				link = gitver.ResolveTemplateWithDirAndVars(link, vi, rootDir, appCfg.Vars)
-			}
-			resolved := def
-			resolved.Link = link
-			mod := resolveBadgeModule(resolved, linkBase, rawBase)
-			if mod == nil {
-				return nil, fmt.Errorf("content.%s: badge has no resolvable image URL (publish-origin unresolved)", ref)
-			}
-			modules = append(modules, mod)
-
-		case "shield":
-			// Two forms: a raw shields.io path (escape hatch, `shield:`) or an
-			// inline composition from verbs (label/message/color/logo/logo_color) —
-			// SF builds the shields.io URL so configs stop hand-escaping %2F.
-			var shieldPath string
-			if def.Shield != "" {
-				shieldPath = gitver.ResolveVarsShields(def.Shield, appCfg.Vars)
-			} else {
-				shieldPath = composeShieldPath(def, appCfg.Vars)
-			}
-			link := gitver.ResolveVars(def.Link, appCfg.Vars)
-			label := def.LabelOrID()
-			if def.Label == "" && def.Shield != "" {
-				label = shieldPath // raw-path form: fall back to the path as alt
-			}
-			if vi != nil {
-				label = gitver.ResolveTemplateWithDirAndVars(label, vi, "", appCfg.Vars)
-			}
-			modules = append(modules, render.ShieldModule{
-				Path:  shieldPath,
-				Label: label,
-				Link:  resolveLink(link, linkBase),
-			})
-
-		case "text":
-			text := def.Content
-			if vi != nil {
-				text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", appCfg.Vars)
-			}
-			modules = append(modules, render.TextModule{Text: text})
-
-		case "component":
-			spec, err := component.ParseSpec(def.Spec)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "scribe: component %s: %v\n", def.Spec, err)
-				continue
-			}
-			docs := component.GenerateDocs([]*component.SpecFile{spec})
-			modules = append(modules, render.ComponentModule{Docs: strings.TrimSpace(docs)})
-
-		case "include":
-			incPath := def.Path
-			if !filepath.IsAbs(incPath) {
-				incPath = filepath.Join(rootDir, incPath)
-			}
-			data, err := os.ReadFile(incPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "scribe: include %s: %v\n", def.Path, err)
-				continue
-			}
-			modules = append(modules, render.IncludeModule{Content: strings.TrimSpace(string(data))})
-
-		case "build-contents":
-			m := resolveBuildContentsManifest(appCfg, def, rootDir)
-			if m != nil {
-				modules = append(modules, render.BuildContentsModule{
-					Manifest: m,
-					Section:  def.Section,
-					Renderer: def.Render,
-					Columns:  def.Columns,
-					Wrap:     def.Wrap,
-					Summary:  def.Summary,
-				})
-			}
-
-		case "k8s-inventory":
-			sha := ""
-			if vi != nil {
-				sha = vi.SHA
-			}
-			modules = append(modules, &render.K8sInventoryModule{
-				CatalogPath:   def.CatalogPath,
-				CommitSHA:     sha,
-				RepoRoot:      rootDir,
-				ClusterConfig: appCfg.GitOps.Cluster,
-			})
-
-		case "props":
-			pdef, ok := props.Get(def.Type)
+// renderRegion produces a files region's content string. A freeform body: is rendered
+// through the stencil grammar ({id} embeds + {#if}) plus a gitver leaf-pass; the items:
+// sugar resolves each stencil and joins them — space within a row, a blank line between
+// rows on "br", empty elements skipped — reproducing the old Compose/ComposeInline
+// semantics exactly (no extra gitver pass: element output is token-terminal).
+func renderRegion(appCfg *config.Config, file config.FileDef, content map[string]config.StencilDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string) (string, error) {
+	if strings.TrimSpace(file.Body) != "" {
+		var firstErr error
+		resolve := func(id string) (string, bool) {
+			def, ok := content[id]
 			if !ok {
-				fmt.Fprintf(os.Stderr, "scribe: props type %q not found\n", def.Type)
-				continue
+				return "", false // not a stencil → leave for the gitver leaf-pass
 			}
-			// Derive coordinates from repos: (publish-origin, or a repo: override) so
-			// producers are self-contained; explicit params override the derived ones.
-			resolvedParams, skipReason := resolveProducerParams(appCfg, def, pdef)
-			if skipReason != "" {
-				fmt.Fprintf(os.Stderr, "scribe: props %s skipped: %s\n", def.Type, skipReason)
-				continue
-			}
-			for k, v := range def.Params {
-				resolvedParams[k] = gitver.ResolveVars(v, appCfg.Vars)
-			}
-			opts := props.RenderOptions{
-				Label:   def.Label,
-				Link:    gitver.ResolveVars(def.Link, appCfg.Vars),
-				Style:   def.Style,
-				Logo:    def.Logo,
-				Variant: props.VariantClassic,
-			}
-			resolved, err := props.ResolveDefinition(pdef, resolvedParams, opts)
+			md, err := resolveStencilMarkdown(appCfg, def, linkBase, rawBase, vi, rootDir)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "scribe: props %s: %v\n", def.Type, err)
-				continue
+				if firstErr == nil {
+					firstErr = err
+				}
+				return "", true
 			}
-			modules = append(modules, render.PropsModule{
-				Resolved: resolved,
-				Variant:  props.VariantClassic,
-			})
+			return md, true
 		}
+		out := renderText(file.Body, stencil.Env{Resolve: resolve}, vi, rootDir, appCfg.Vars)
+		return out, firstErr
 	}
 
-	return modules, nil
+	resolveOne := func(ref string) (string, error) {
+		def, ok := content[ref]
+		if !ok {
+			return "", fmt.Errorf("files.%s: item %q not found in stencils", file.ID, ref)
+		}
+		return resolveStencilMarkdown(appCfg, def, linkBase, rawBase, vi, rootDir)
+	}
+
+	if file.Inline {
+		var parts []string
+		for _, ref := range file.Items {
+			if ref == "br" {
+				continue
+			}
+			md, err := resolveOne(ref)
+			if err != nil {
+				return "", err
+			}
+			if md != "" {
+				parts = append(parts, md)
+			}
+		}
+		return strings.Join(parts, " "), nil
+	}
+
+	var rows []string
+	var current []string
+	flush := func() {
+		if len(current) > 0 {
+			rows = append(rows, strings.Join(current, " "))
+			current = nil
+		}
+	}
+	for _, ref := range file.Items {
+		if ref == "br" {
+			flush()
+			continue
+		}
+		md, err := resolveOne(ref)
+		if err != nil {
+			return "", err
+		}
+		if md != "" {
+			current = append(current, md)
+		}
+	}
+	flush()
+	return strings.Join(rows, "\n\n"), nil
+}
+
+// RegionElementIDs returns the stencil ids a region references — the body's {id} embeds
+// for a freeform body, or the item refs (minus "br") for the items sugar.
+func RegionElementIDs(f config.FileDef) []string {
+	if strings.TrimSpace(f.Body) != "" {
+		return referencedElementIDs(f.Body)
+	}
+	var ids []string
+	for _, ref := range f.Items {
+		if ref != "br" {
+			ids = append(ids, ref)
+		}
+	}
+	return ids
+}
+
+// referencedElementIDs scans a body for {name} embeds, skipping {{escaped}} literals and
+// {#if}/{/if} control tokens. Order-preserving, de-duplicated.
+func referencedElementIDs(body string) []string {
+	var ids []string
+	seen := map[string]bool{}
+	s := body
+	for {
+		i := strings.IndexByte(s, '{')
+		if i < 0 {
+			break
+		}
+		s = s[i:]
+		if strings.HasPrefix(s, "{{") {
+			s = s[2:]
+			continue
+		}
+		j := strings.IndexByte(s, '}')
+		if j < 0 {
+			break
+		}
+		name := strings.TrimSpace(s[1:j])
+		if name != "" && !strings.HasPrefix(name, "#") && !strings.HasPrefix(name, "/") && !seen[name] {
+			seen[name] = true
+			ids = append(ids, name)
+		}
+		s = s[j+1:]
+	}
+	return ids
 }
 
 // composeShieldPath builds a shields.io static-badge path ("badge/<label>-<message>-<color>")
 // from a content def's inline verbs, applying shields.io escaping (_→__, -→--, space→_) and
 // URL path-encoding (/ → %2F) so configs never hand-escape. logo/logo_color become query params.
-func composeShieldPath(def config.ContentDef, vars map[string]string) string {
+func composeShieldPath(def config.StencilDef, vars map[string]string) string {
 	label := gitver.ResolveVars(def.Label, vars)
 	message := gitver.ResolveVars(def.Message, vars)
 	color := strings.TrimPrefix(gitver.ResolveVars(def.Color, vars), "#")
@@ -454,7 +552,7 @@ func escapeShieldSegment(s string) string {
 // needs from repos: context — publish-origin by default, or def.Repo override — so
 // producers stop restating {var:...} coordinates. Returns a non-empty skip reason
 // (never a dead <img>) when the resolved host can't serve the producer.
-func resolveProducerParams(appCfg *config.Config, def config.ContentDef, pdef props.Definition) (map[string]string, string) {
+func resolveProducerParams(appCfg *config.Config, def config.StencilDef, pdef props.Definition) (map[string]string, string) {
 	params := map[string]string{}
 
 	// Which coordinate does this producer consume?
@@ -508,7 +606,7 @@ func producerHostOK(producerID, host string) (bool, string) {
 
 // resolveBadgeModule builds a BadgeModule from a badge content def, using its SVG
 // output path + the raw-content base to form the image URL.
-func resolveBadgeModule(def config.ContentDef, linkBase, rawBase string) render.Module {
+func resolveBadgeModule(def config.StencilDef, linkBase, rawBase string) render.Module {
 	var imgURL string
 	if def.Output != "" && rawBase != "" {
 		imgURL = rawBase + "/" + strings.TrimPrefix(def.Output, "./")
@@ -524,7 +622,7 @@ func resolveBadgeModule(def config.ContentDef, linkBase, rawBase string) render.
 }
 
 // resolveBuildContentsManifest loads or generates a manifest for a build-contents def.
-func resolveBuildContentsManifest(appCfg *config.Config, def config.ContentDef, rootDir string) *manifest.Manifest {
+func resolveBuildContentsManifest(appCfg *config.Config, def config.StencilDef, rootDir string) *manifest.Manifest {
 	if def.Source != "" {
 		srcPath := def.Source
 		if !filepath.IsAbs(srcPath) {

@@ -306,121 +306,120 @@ dependency:
     push: true
     skip_ci: false
 
+stencils:
+  # The shared audience-text library: define each renderable once (id → SOURCE
+  # type × RENDER render). Inline defs (no type) render a badge (default) or a
+  # shield (render: shield); named producers (props/contents/include) render
+  # through the matching module. Embed as {id} in a scribe files body, narrate,
+  # or a release body.
+  # ── generated badges (SVG rendered from build metadata) ──
+  build:
+    label: build
+    message: "{env:BUILD_STATUS}"
+    color: auto
+    font: monofur
+    link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
+  license:
+    label: license
+    message: "{project.license}"
+    color: "#310937"
+    font: monofur
+    link: LICENSE
+  release:
+    label: release
+    message: "v{base}"
+    color: "#74ecbe"
+    font: dejavu-sans
+    font_size: 11
+    link: "https://github.com/{var:github_org}/{var:github_repo}/releases"
+  updated:
+    label: updated
+    message: "{commit.date}"
+    color: "#236144"
+    font: dejavu-sans
+    font_size: 11
+  pulls:
+    label: pulls
+    message: "{docker.pulls}"
+    color: "#1d63ed"
+    link: "https://hub.docker.com/r/{var:org}/{var:repo}"
+  release-latest:
+    label: latest
+    message: "v{base}"
+    color: "#74ecbe"
+    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
+  release-updated:
+    label: updated
+    message: "{docker.tag.v{base}.updated}"
+    color: "#236144"
+  release-size:
+    label: size
+    message: "{docker.tag.v{base}.size}"
+    color: "#555"
+    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}"
+  dev-latest:
+    label: latest-dev
+    message: "dev-{{sha}}"
+    color: "#3b82f6"
+    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
+  dev-updated:
+    label: updated
+    message: "{docker.tag.latest-dev.updated}"
+    color: "#236144"
+  dev-size:
+    label: size
+    message: "{docker.tag.latest-dev.size}"
+    color: "#555"
+    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
+
+  # ── inline shields (shields.io draws from the composed verbs; no %2F juggling) ──
+  donate:  { render: shield, message: donate,  color: "#FF5E5B", logo: ko-fi,          logo_color: white, link: "https://ko-fi.com/T6T41IT163" }
+  sponsor: { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logo_color: white, link: "https://github.com/sponsors/{var:github_org}" }
+  github:  { render: shield, label: GitHub, message: source, color: "#181717", logo: github, link: "https://github.com/{var:github_org}/{var:github_repo}" }
+  gitlab:  { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab, link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}" }
+  docker:  { render: shield, label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, logo_color: white, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
+
+  # ── named producers · repo/module resolve from repos: publish-origin (github-mirror); no params ──
+  go-report:    { type: goreportcard }
+  go-reference: { type: go-reference }
+  last-commit:  { type: github-last-commit }
+  issues-open:  { type: github-issues-open }
+  prs-open:     { type: github-prs-open }
+  contributors: { type: github-contributors }
+
+  # ── build-contents (rendered from a build's manifest inventory) ──
+  contents-base:
+    type: contents
+    build: stagefreight
+    section: inventories.versions
+    render: badges
+  contents-apk:
+    type: contents
+    build: stagefreight
+    section: inventories.apk
+    render: badges
+
+  # ── includes (verbatim generated-module files) ──
+  cli-reference:
+    type: include
+    path: docs/assets/modules/cli-reference.md
+  config-reference:
+    type: include
+    path: docs/assets/modules/config-reference.md
+
 scribe:
-  # content: define each renderable once (id → SOURCE type × RENDER render).
-  # Inline defs (no type) render a badge (default) or a shield (render: shield);
-  # named producers (props/contents/include) render through the matching module.
-  # files: reference these by name — no re-declaration, no badge_ref.
-  content:
-    # ── generated badges (SVG rendered from build metadata) ──
-    build:
-      label: build
-      message: "{env:BUILD_STATUS}"
-      color: auto
-      font: monofur
-      link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
-    license:
-      label: license
-      message: "{project.license}"
-      color: "#310937"
-      font: monofur
-      link: LICENSE
-    release:
-      label: release
-      message: "v{base}"
-      color: "#74ecbe"
-      font: dejavu-sans
-      font_size: 11
-      link: "https://github.com/{var:github_org}/{var:github_repo}/releases"
-    updated:
-      label: updated
-      message: "{commit.date}"
-      color: "#236144"
-      font: dejavu-sans
-      font_size: 11
-    pulls:
-      label: pulls
-      message: "{docker.pulls}"
-      color: "#1d63ed"
-      link: "https://hub.docker.com/r/{var:org}/{var:repo}"
-    release-latest:
-      label: latest
-      message: "v{base}"
-      color: "#74ecbe"
-      link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
-    release-updated:
-      label: updated
-      message: "{docker.tag.v{base}.updated}"
-      color: "#236144"
-    release-size:
-      label: size
-      message: "{docker.tag.v{base}.size}"
-      color: "#555"
-      link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}"
-    dev-latest:
-      label: latest-dev
-      message: "dev-{{sha}}"
-      color: "#3b82f6"
-      link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
-    dev-updated:
-      label: updated
-      message: "{docker.tag.latest-dev.updated}"
-      color: "#236144"
-    dev-size:
-      label: size
-      message: "{docker.tag.latest-dev.size}"
-      color: "#555"
-      link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
-
-    # ── inline shields (shields.io draws from the composed verbs; no %2F juggling) ──
-    donate:  { render: shield, message: donate,  color: "#FF5E5B", logo: ko-fi,          logo_color: white, link: "https://ko-fi.com/T6T41IT163" }
-    sponsor: { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logo_color: white, link: "https://github.com/sponsors/{var:github_org}" }
-    github:  { render: shield, label: GitHub, message: source, color: "#181717", logo: github, link: "https://github.com/{var:github_org}/{var:github_repo}" }
-    gitlab:  { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab, link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}" }
-    docker:  { render: shield, label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, logo_color: white, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
-
-    # ── named producers · repo/module resolve from repos: publish-origin (github-mirror); no params ──
-    go-report:    { type: goreportcard }
-    go-reference: { type: go-reference }
-    last-commit:  { type: github-last-commit }
-    issues-open:  { type: github-issues-open }
-    prs-open:     { type: github-prs-open }
-    contributors: { type: github-contributors }
-
-    # ── build-contents (rendered from a build's manifest inventory) ──
-    contents-base:
-      type: contents
-      build: stagefreight
-      section: inventories.versions
-      render: badges
-    contents-apk:
-      type: contents
-      build: stagefreight
-      section: inventories.apk
-      render: badges
-
-    # ── includes (verbatim generated-module files) ──
-    cli-reference:
-      type: include
-      path: docs/assets/modules/cli-reference.md
-    config-reference:
-      type: include
-      path: docs/assets/modules/config-reference.md
-
-  # files: one placement region per marked span. Placement (between/mode/inline)
-  # is declared once here; items are pure content name-refs (+ "br" for a row break).
+  # files: one placement region per marked span. A region's body embeds stencils
+  # by {id} (items: is sugar for a body).
   files:
     readme.badges:
       file: "README.md"
       between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
-      mode: replace
       inline: true
       items: [build, license, release, updated, donate, sponsor]
 
     readme.project:
       file: "README.md"
       between: ["<!-- sf:project:start -->", "<!-- sf:project:end -->"]
-      mode: replace
       inline: true
       items: [github, gitlab, go-report, go-reference, last-commit, issues-open, prs-open, contributors]
 
@@ -428,31 +427,26 @@ scribe:
     readme.image:
       file: "README.md"
       between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
-      mode: replace
       items: [docker, pulls, br, release-latest, release-updated, release-size, dev-latest, dev-updated, dev-size]
 
     readme.contents.base:
       file: "README.md"
       between: ["<!-- sf:contents-base:start -->", "<!-- sf:contents-base:end -->"]
-      mode: replace
       items: [contents-base]
 
     readme.contents.apk:
       file: "README.md"
       between: ["<!-- sf:contents-apk:start -->", "<!-- sf:contents-apk:end -->"]
-      mode: replace
       items: [contents-apk]
 
     cli.reference:
       file: "docs/reference/CLI.md"
       between: ["<!-- sf:cli-reference:start -->", "<!-- sf:cli-reference:end -->"]
-      mode: replace
       items: [cli-reference]
 
     config.reference:
       file: "docs/reference/Config.md"
       between: ["<!-- sf:config-reference:start -->", "<!-- sf:config-reference:end -->"]
-      mode: replace
       items: [config-reference]
 
   commit:

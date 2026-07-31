@@ -31,7 +31,7 @@ func BadgeHook(appCfg *config.Config, runner BadgeRunner) pipeline.PostBuildHook
 	return pipeline.PostBuildHook{
 		Name: "badges",
 		Condition: func(pc *pipeline.PipelineContext) bool {
-			for _, c := range appCfg.Scribe.Content {
+			for _, c := range appCfg.Stencils {
 				if c.HasGeneration() {
 					return true
 				}
@@ -177,9 +177,9 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 }
 
 // CollectScribeBadgeItems returns all scribe content defs that generate a badge SVG.
-func CollectScribeBadgeItems(appCfg *config.Config) []config.ContentDef {
-	var items []config.ContentDef
-	for _, c := range appCfg.Scribe.Content {
+func CollectScribeBadgeItems(appCfg *config.Config) []config.StencilDef {
+	var items []config.StencilDef
+	for _, c := range appCfg.Stencils {
 		if c.HasGeneration() {
 			items = append(items, c)
 		}

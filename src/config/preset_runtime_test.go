@@ -80,14 +80,14 @@ func TestPresetSourceDecodes(t *testing.T) {
 // (zebra, apple, mango — deliberately non-alphabetical) end-to-end through the full
 // load path. A map[string]any round-trip would alphabetize it to [apple mango zebra].
 func TestPresetPreservesScribeContentOrder(t *testing.T) {
-	preset := "content:\n" +
+	preset := "stencils:\n" +
 		"  zebra: { label: zebra, output: z.svg }\n" +
 		"  apple: { label: apple, output: a.svg }\n" +
 		"  mango: { label: mango, output: m.svg }\n"
 	cfg := "version: 1\n" +
+		"stencils:\n" +
+		"  preset: ./badges.yml\n" +
 		"scribe:\n" +
-		"  content:\n" +
-		"    preset: ./badges.yml\n" +
 		"  files:\n" +
 		"    readme:\n" +
 		"      file: README.md\n" +
@@ -100,11 +100,11 @@ func TestPresetPreservesScribeContentOrder(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	var ids []string
-	for _, c := range loaded.Scribe.Content {
+	for _, c := range loaded.Stencils {
 		ids = append(ids, c.ID)
 	}
 	if got := fmt.Sprintf("%v", ids); got != "[zebra apple mango]" {
-		t.Fatalf("scribe.content order lost through preset: got %v, want [zebra apple mango]", ids)
+		t.Fatalf("stencils order lost through preset: got %v, want [zebra apple mango]", ids)
 	}
 }
 

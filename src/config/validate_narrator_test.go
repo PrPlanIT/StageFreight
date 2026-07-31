@@ -9,7 +9,7 @@ import (
 // than one build is configured — ownership is explicit, never inferred from
 // build-list position. Single-build configs keep working without it.
 func TestValidateBuildContentsBuildOwnership(t *testing.T) {
-	base := ContentDef{
+	base := StencilDef{
 		Type:    "contents",
 		Section: "inventories.apk",
 		Render:  "badges",
@@ -19,14 +19,14 @@ func TestValidateBuildContentsBuildOwnership(t *testing.T) {
 
 	cases := []struct {
 		name      string
-		mutate    func(ContentDef) ContentDef
+		mutate    func(StencilDef) StencilDef
 		builds    map[string]bool
 		wantErrIn string // "" means expect no errors
 	}{
 		{"multi/no-build is a config error", nil, multi, "requires build"},
-		{"multi/explicit valid build is ok", func(c ContentDef) ContentDef { c.Build = "docker"; return c }, multi, ""},
-		{"multi/unknown build is rejected", func(c ContentDef) ContentDef { c.Build = "nope"; return c }, multi, "not a configured build"},
-		{"multi/explicit source sidesteps build", func(c ContentDef) ContentDef { c.Source = "m.json"; return c }, multi, ""},
+		{"multi/explicit valid build is ok", func(c StencilDef) StencilDef { c.Build = "docker"; return c }, multi, ""},
+		{"multi/unknown build is rejected", func(c StencilDef) StencilDef { c.Build = "nope"; return c }, multi, "not a configured build"},
+		{"multi/explicit source sidesteps build", func(c StencilDef) StencilDef { c.Source = "m.json"; return c }, multi, ""},
 		{"single/no-build still ok (backward compat)", nil, single, ""},
 	}
 
@@ -36,7 +36,7 @@ func TestValidateBuildContentsBuildOwnership(t *testing.T) {
 			if tc.mutate != nil {
 				item = tc.mutate(item)
 			}
-			errs := validateContentDef(item, "scribe.content[apk]", tc.builds)
+			errs := validateStencilDef(item, "scribe.content[apk]", tc.builds)
 			if tc.wantErrIn == "" {
 				if len(errs) != 0 {
 					t.Fatalf("want no errors, got %v", errs)

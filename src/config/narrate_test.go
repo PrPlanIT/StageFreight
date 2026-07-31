@@ -9,8 +9,8 @@ func TestScribeConfig_IsZero(t *testing.T) {
 	if !(ScribeConfig{}).IsZero() {
 		t.Error("empty ScribeConfig should be zero")
 	}
-	if (ScribeConfig{Content: OrderedContent{{ID: "x"}}}).IsZero() {
-		t.Error("ScribeConfig with content is not zero")
+	if (ScribeConfig{Files: OrderedFiles{{ID: "x", File: "README.md"}}}).IsZero() {
+		t.Error("ScribeConfig with files is not zero")
 	}
 	if (ScribeConfig{Commit: ScribeCommit{Message: "m"}}).IsZero() {
 		t.Error("ScribeConfig with a commit message is not zero")

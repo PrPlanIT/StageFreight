@@ -17,6 +17,7 @@
 - [`security`](#config-security)
 - [`commit`](#config-commit)
 - [`dependency`](#config-dependency)
+- [`stencils`](#config-stencils)
 - [`scribe`](#config-scribe)
 - [`test`](#config-test)
 - [`manifest`](#config-manifest)
@@ -599,23 +600,99 @@ dependency:
 ---
 
 <!-- --8<-- [end:dependency] -->
+<!-- --8<-- [start:stencils] -->
+<a id="config-stencils" name="config-stencils"></a>
+### stencils
+
+Stencils is the shared audience-text library: id → reusable markdown element with {…} variable fill, embeddable as {id} anywhere SF composes text (scribe file regions, narrate, release bodies). Presence-neutral (a shared library, not a phase). Consumers differ only by destination.
+
+#### `kind: badge`
+
+```yaml
+stencils:
+  - type: <string>   # SOURCE × RENDER.
+    render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
+    label: <string>   # ── inline badge / shield areas ──
+    message: <string>   # right value (templates)
+    color: <string>   # hex or "auto"
+    font: <string>   # badge font override
+    font_size: <int>   # badge font size override
+    output: <string>   # SVG output path (badge generation)
+    link: <string>   # clickable URL
+    logo: <string>   # shields.io logo / props logo
+    logo_color: <string>
+    label_color: <string>
+```
+
+#### `kind: shield`
+
+```yaml
+stencils:
+  - type: <string>   # SOURCE × RENDER.
+    render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
+    shield: <string>   # shields.io path (render: shield)
+    link: <string>   # clickable URL
+```
+
+#### `kind: text`
+
+```yaml
+stencils:
+  - type: <string>   # SOURCE × RENDER.
+    content: <string>   # ── text ──
+```
+
+#### `kind: component`
+
+```yaml
+stencils:
+  - type: <string>   # SOURCE × RENDER.
+    spec: <string>   # ── component ──
+```
+
+#### `kind: include`
+
+```yaml
+stencils:
+  - type: <string>   # SOURCE × RENDER.
+    path: <string>   # ── include ──
+```
+
+#### `kind: contents`
+
+```yaml
+stencils:
+  - type: <string>   # SOURCE × RENDER.
+    build: <string>   # ── contents (build manifest) ──
+    source: <string>
+    section: <string>
+    columns: [<string>]   # contents renderer form lives on the RENDER axis (render:), not a separate renderer: key — one…
+    output_file: <string>
+    wrap: <string>
+    summary: <string>
+    style: <string>
+    params: {}   # ── props (github-*, goreportcard, …) ──
+```
+
+---
+
+<!-- --8<-- [end:stencils] -->
 <!-- --8<-- [start:scribe] -->
 <a id="config-scribe" name="config-scribe"></a>
 ### scribe
 
-Scribe generates content into files and commits it: content: (define-once defs) + files: (placement, item name-refs) + commit:. Presence-enabled. The old narrate: content surface (badges/patches). narrate: is reserved for the (deferred) run report.
+Scribe places rendered stencils into repository files and commits them: files: (placement regions whose bodies reference stencils by {id}) + commit:. Presence-enabled (files/commit gate the stage).
 
 ```yaml
 scribe:
   store: <string>   # dir for rendered file assets (default .stagefreight/scribe); path = {store}/{id}.svg
-  content: []   # discriminated union by kind — see per-kind blocks below
-  files:   # id → placement region, items are content name-refs
+  files:   # id → placement region referencing stencils
     - file: <string>   # required
       link_base: <string>
       between: <value>
-      mode: <string>   # replace (default) | append | prepend | above | below
-      inline: false   # render items side-by-side
-      items: [<string>]   # content ids (+ "br") · required
+      inline: false   # items sugar: render side-by-side
+      items: [<string>]   # stencil ids (+ "br"); sugar for a body
+      body: <string>   # freeform markdown with {id} embeds
   commit:   # scribe's own auto-commit action
     type: <string>
     message: <string>
@@ -625,68 +702,6 @@ scribe:
     run_from:
       allow: [<string>]   # permitted origins: "primary"
       mismatch: <string>   # "read-only" (default), "exit", "ignore"
-```
-
-#### content · `kind: badge`
-
-```yaml
-- type: <string>   # SOURCE × RENDER.
-  render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
-  label: <string>   # ── inline badge / shield areas ──
-  message: <string>   # right value (templates)
-  color: <string>   # hex or "auto"
-  font: <string>   # badge font override
-  font_size: <int>   # badge font size override
-  output: <string>   # SVG output path (badge generation)
-  link: <string>   # clickable URL
-  logo: <string>   # shields.io logo / props logo
-  logo_color: <string>
-  label_color: <string>
-```
-
-#### content · `kind: shield`
-
-```yaml
-- type: <string>   # SOURCE × RENDER.
-  render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
-  shield: <string>   # shields.io path (render: shield)
-  link: <string>   # clickable URL
-```
-
-#### content · `kind: text`
-
-```yaml
-- type: <string>   # SOURCE × RENDER.
-  content: <string>   # ── text ──
-```
-
-#### content · `kind: component`
-
-```yaml
-- type: <string>   # SOURCE × RENDER.
-  spec: <string>   # ── component ──
-```
-
-#### content · `kind: include`
-
-```yaml
-- type: <string>   # SOURCE × RENDER.
-  path: <string>   # ── include ──
-```
-
-#### content · `kind: contents`
-
-```yaml
-- type: <string>   # SOURCE × RENDER.
-  build: <string>   # ── contents (build manifest) ──
-  source: <string>
-  section: <string>
-  columns: [<string>]   # contents renderer form lives on the RENDER axis (render:), not a separate renderer: key — one…
-  output_file: <string>
-  wrap: <string>
-  summary: <string>
-  style: <string>
-  params: {}   # ── props (github-*, goreportcard, …) ──
 ```
 
 ---

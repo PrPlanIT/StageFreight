@@ -23,14 +23,23 @@ func TestNarrateFacet_PresenceEmitsStage(t *testing.T) {
 		t.Error("narrate stage emitted for an empty config (should be presence-gated)")
 	}
 
-	withNarrate := &config.Config{
+	withScribe := &config.Config{
 		Scribe: config.ScribeConfig{
-			Content: config.OrderedContent{
-				{ID: "build", Label: "build", Output: "b.svg"},
+			Files: config.OrderedFiles{
+				{ID: "readme", File: "README.md"},
 			},
 		},
 	}
-	if !has(withNarrate) {
-		t.Error("narrate stage NOT emitted despite scribe.content configured")
+	if !has(withScribe) {
+		t.Error("narrate stage NOT emitted despite scribe.files configured")
+	}
+
+	// The stencils library is presence-NEUTRAL: a stencils-only config (no scribe
+	// files/commit) must NOT emit the stage — the library is shared, not a phase (R7).
+	stencilsOnly := &config.Config{
+		Stencils: config.OrderedStencils{{ID: "build", Label: "build", Output: "b.svg"}},
+	}
+	if has(stencilsOnly) {
+		t.Error("narrate stage should NOT emit for a stencils-only config (library is presence-neutral)")
 	}
 }

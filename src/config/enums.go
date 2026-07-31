@@ -33,9 +33,6 @@ func ValidEvents() []string { return sortedEnum(validEvents) }
 // ValidManifestModes returns the recognized manifest.mode values.
 func ValidManifestModes() []string { return sortedEnum(validManifestModes) }
 
-// ValidPlacementModes returns the recognized placement.mode values.
-func ValidPlacementModes() []string { return sortedEnum(validPlacementModes) }
-
 // ValidTrustClasses returns the recognized signing.profiles[].requires values.
 func ValidTrustClasses() []string { return sortedEnum(validTrustClasses) }
 

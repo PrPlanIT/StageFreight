@@ -76,10 +76,15 @@ type Config struct {
 	// Dependency holds configuration for the dependency update subsystem.
 	Dependency DependencyConfig `yaml:"dependency"`
 
-	// Scribe generates content into files and commits it: content: (define-once
-	// defs) + files: (placement, item name-refs) + commit:. Presence-enabled. The
-	// old narrate: content surface (badges/patches). narrate: is reserved for the
-	// (deferred) run report.
+	// Stencils is the shared audience-text library: id → reusable markdown element
+	// with {…} variable fill, embeddable as {id} anywhere SF composes text (scribe
+	// file regions, narrate, release bodies). Presence-neutral (a shared library, not
+	// a phase). Consumers differ only by destination.
+	Stencils OrderedStencils `yaml:"stencils,omitempty"`
+
+	// Scribe places rendered stencils into repository files and commits them: files:
+	// (placement regions whose bodies reference stencils by {id}) + commit:.
+	// Presence-enabled (files/commit gate the stage).
 	Scribe ScribeConfig `yaml:"scribe"`
 
 	Test TestConfig `yaml:"test"`

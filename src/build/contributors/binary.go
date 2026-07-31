@@ -120,7 +120,7 @@ func (b *binaryContributor) Plan(rc *domains.RunContext) (domains.Contribution, 
 	// PerformOrder interleaves build-fed scribe items with the builds: a scribe node
 	// records a render slot (composed before its consuming build); build nodes plan
 	// steps as before. Late scribe items aren't in the order — they render in publish.
-	order, err := build.PerformOrder(b.builds, rc.Config.Scribe)
+	order, err := build.PerformOrder(b.builds, rc.Config.Stencils)
 	if err != nil {
 		return domains.Contribution{}, fmt.Errorf("binary build ordering: %w", err)
 	}

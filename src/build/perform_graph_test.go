@@ -35,13 +35,13 @@ func TestPerformOrder_DocSiteChain(t *testing.T) {
 		{ID: "site", Kind: "command", Command: "mkdocs",
 			DependsOn: config.StringOrList{"scribe:ref-pages", "scribe:inventory"}},
 	}
-	scribe := config.ScribeConfig{Content: config.OrderedContent{
+	stencils := config.OrderedStencils{
 		{ID: "ref-pages", Type: "include", Build: "docgen", Path: "docs/cli.md"},
 		{ID: "inventory", Type: "k8s-inventory"},
 		{ID: "pulls", Message: "{docker.pulls}"}, // late — not consumed by any build
-	}}
+	}
 
-	nodes, err := PerformOrder(builds, scribe)
+	nodes, err := PerformOrder(builds, stencils)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +94,8 @@ func TestScribeRenderSlots(t *testing.T) {
 // No build consumes scribe → the order is just the builds (scribe stays late).
 func TestPerformOrder_NoBuildFedScribe(t *testing.T) {
 	builds := []config.BuildConfig{{ID: "img", Kind: "docker"}}
-	scribe := config.ScribeConfig{Content: config.OrderedContent{{ID: "license"}}}
-	nodes, err := PerformOrder(builds, scribe)
+	stencils := config.OrderedStencils{{ID: "license"}}
+	nodes, err := PerformOrder(builds, stencils)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,10 +109,10 @@ func TestPerformOrder_Cycle(t *testing.T) {
 	builds := []config.BuildConfig{
 		{ID: "a", Kind: "command", Command: "c", DependsOn: config.StringOrList{"scribe:s"}},
 	}
-	scribe := config.ScribeConfig{Content: config.OrderedContent{
+	stencils := config.OrderedStencils{
 		{ID: "s", Type: "include", Build: "a"}, // s ← a, but a ← s  ⇒ cycle
-	}}
-	if _, err := PerformOrder(builds, scribe); err == nil {
+	}
+	if _, err := PerformOrder(builds, stencils); err == nil {
 		t.Error("a build↔scribe cycle should error")
 	}
 }

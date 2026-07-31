@@ -71,7 +71,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		for _, n := range names {
 			nameSet[n] = true
 		}
-		var filtered []config.ContentDef
+		var filtered []config.StencilDef
 		for _, item := range items {
 			// Match by badge text (label) or ID
 			if nameSet[item.LabelOrID()] || (item.ID != "" && nameSet[item.ID]) {

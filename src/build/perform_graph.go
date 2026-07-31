@@ -31,12 +31,12 @@ func (n PerformNode) IsScribe() bool { return n.ScribeID != "" }
 //
 // This is the "render → consumer ordering" of #39: the graph decides when a scribe
 // item renders (before its consumer), and late items fall through to publish.
-func PerformOrder(builds []config.BuildConfig, scribe config.ScribeConfig) ([]PerformNode, error) {
+func PerformOrder(builds []config.BuildConfig, stencils config.OrderedStencils) ([]PerformNode, error) {
 	byBuildID := make(map[string]*config.BuildConfig, len(builds))
 	for i := range builds {
 		byBuildID[builds[i].ID] = &builds[i]
 	}
-	scribeByID := scribe.ContentByID()
+	scribeByID := stencils.ByID()
 
 	// The build-fed set: scribe items named by some build's depends_on. Only these
 	// enter the perform graph; everything else is a late (publish) item.

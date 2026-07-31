@@ -45,8 +45,8 @@ var keyedListSections = map[string]string{
 // decodeIDMap and are document-order sensitive, which is exactly why the whole preset
 // layer runs on yaml.Node — a map[string]any round-trip would alphabetize them.
 var keyedMapSections = map[string]bool{
-	"scribe.content": true,
-	"scribe.files":   true,
+	"stencils":     true,
+	"scribe.files": true,
 }
 
 // ── yaml.Node accessor kit ───────────────────────────────────────────────────
@@ -185,7 +185,7 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 				entries = append(entries, mapEntries...)
 				continue
 			}
-			return nil, nil, fmt.Errorf("%s: presets: is only allowed on keyed-collection sections (targets, builds, badges.items, versioning.tag_sources, versioning.branch_builds, scribe.content, scribe.files)", currentPath)
+			return nil, nil, fmt.Errorf("%s: presets: is only allowed on keyed-collection sections (targets, builds, badges.items, versioning.tag_sources, versioning.branch_builds, stencils, scribe.files)", currentPath)
 		}
 
 		if !hasPreset {

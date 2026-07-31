@@ -497,16 +497,16 @@ targets:
 // map[string]any round-trip would alphabetize it.
 func TestResolvePresetMap_ScribeContentComposesInOrder(t *testing.T) {
 	loader := fakeLoader{
-		"preset/badges.yml": "scribe:\n  content:\n    build: { label: build }\n    license: { label: license }\n",
+		"preset/badges.yml": "stencils:\n  build: { label: build }\n  license: { label: license }\n",
 	}
-	raw := parseNode(t, "scribe:\n  content:\n    presets: [preset/badges.yml]\n    release: { label: release }\n")
+	raw := parseNode(t, "stencils:\n  presets: [preset/badges.yml]\n  release: { label: release }\n")
 
 	resolved, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
 	requireNoError(t, err)
 
-	got := nodeKeys(t, resolved, "scribe.content")
+	got := nodeKeys(t, resolved, "stencils")
 	requireEqual(t, "[build license release]", fmt.Sprintf("%v", got),
-		"scribe.content must compose in document order (preset entries, then inline)")
+		"stencils must compose in document order (preset entries, then inline)")
 }
 
 // TestResolvePresetMap_ScribeContentDuplicateKeyFails covers the keyed-map dedup: two
@@ -514,10 +514,10 @@ func TestResolvePresetMap_ScribeContentComposesInOrder(t *testing.T) {
 // list duplicate-id guard).
 func TestResolvePresetMap_ScribeContentDuplicateKeyFails(t *testing.T) {
 	loader := fakeLoader{
-		"preset/a.yml": "scribe:\n  content:\n    build: { label: a }\n",
-		"preset/b.yml": "scribe:\n  content:\n    build: { label: b }\n",
+		"preset/a.yml": "stencils:\n  build: { label: a }\n",
+		"preset/b.yml": "stencils:\n  build: { label: b }\n",
 	}
-	raw := parseNode(t, "scribe:\n  content:\n    presets: [preset/a.yml, preset/b.yml]\n")
+	raw := parseNode(t, "stencils:\n  presets: [preset/a.yml, preset/b.yml]\n")
 
 	_, _, err := ResolvePresets(raw, loader, "test@v1", "inline", 0, nil)
 	requireError(t, err)

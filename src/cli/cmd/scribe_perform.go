@@ -16,7 +16,7 @@ import (
 // The commit still happens once, in publish; this only makes the composed pages exist
 // in time for a consuming build.
 func renderBuildFedScribe(_ context.Context, appCfg *config.Config, rootDir, itemID string, verbose bool) error {
-	def, ok := appCfg.Scribe.ContentByID()[itemID]
+	def, ok := appCfg.StencilsByID()[itemID]
 	if !ok {
 		return fmt.Errorf("scribe item %q not found in scribe.content", itemID)
 	}

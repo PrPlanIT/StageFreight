@@ -10,6 +10,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/scribe"
 	"github.com/spf13/cobra"
 )
 
@@ -84,7 +85,7 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 	docs := component.GenerateDocs(specs)
 
 	// Resolve target and section name once from scribe config.
-	cfgTarget, cfgSection := resolveComponentTarget(cfg.Scribe.Files, cfg.Scribe.ContentByID())
+	cfgTarget, cfgSection := resolveComponentTarget(cfg.Scribe.Files, cfg.StencilsByID())
 
 	// Resolve target file: --readme CLI flag → scribe config lookup
 	target := cdReadme
@@ -162,9 +163,9 @@ func runComponentDocs(cmd *cobra.Command, args []string) error {
 // section name for the first component item.
 // In v2, the section name is derived from the placement between markers.
 // Returns ("", "") if not found.
-func resolveComponentTarget(files []config.FileDef, content map[string]config.ContentDef) (filePath, sectionName string) {
+func resolveComponentTarget(files []config.FileDef, content map[string]config.StencilDef) (filePath, sectionName string) {
 	for _, f := range files {
-		for _, ref := range f.Items {
+		for _, ref := range scribe.RegionElementIDs(f) {
 			def, ok := content[ref]
 			if !ok || def.EffectiveKind() != "component" {
 				continue

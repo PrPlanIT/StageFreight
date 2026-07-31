@@ -339,9 +339,8 @@ func narratePhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	}
 	narrateAuditionLineage(rootDir)
 	// Narrate is truth presentation. Generated badges/docs and their commit are
-	// forge mutation, so they moved to the publish domain; narrate is now the home
-	// for the run summary → AI curation → notifications buildout. Until that lands,
-	// present the lineage above and say so plainly rather than reading bare.
-	fmt.Println("  narrate: nothing to notify — summary/notifications not configured")
-	return nil
+	// forge mutation, so they moved to the publish domain; narrate stamps the run's
+	// story stencil (facts + framing), prints it to stdout, and persists the
+	// deterministic "last summary." Notification targets build on top of this.
+	return runNarrate(appCfg, ciCtx, rootDir)
 }

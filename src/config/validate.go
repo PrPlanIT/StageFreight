@@ -265,8 +265,8 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	// ── Build depends_on validation (all IDs now known) ─────────────────
 
-	scribeIDs := make(map[string]bool, len(cfg.Scribe.Content))
-	for _, c := range cfg.Scribe.Content {
+	scribeIDs := make(map[string]bool, len(cfg.Stencils))
+	for _, c := range cfg.Stencils {
 		scribeIDs[c.ID] = true
 	}
 
@@ -339,16 +339,19 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, werrs...)
 	}
 
-	// ── Scribe: content + files ──────────────────────────────────────────
+	// ── Stencils library + scribe files ──────────────────────────────────
 
-	contentIDs := make(map[string]bool, len(cfg.Scribe.Content))
-	for i, c := range cfg.Scribe.Content {
-		cpath := fmt.Sprintf("scribe.content[%s]", c.ID)
+	stencilIDs := make(map[string]bool, len(cfg.Stencils))
+	for i, c := range cfg.Stencils {
+		cpath := fmt.Sprintf("stencils[%s]", c.ID)
 		if c.ID == "" {
-			errs = append(errs, fmt.Sprintf("scribe.content[%d]: id is required", i))
+			errs = append(errs, fmt.Sprintf("stencils[%d]: id is required", i))
 		}
-		contentIDs[c.ID] = true
-		errs = append(errs, validateContentDef(c, cpath, buildIDs)...)
+		if reservedStencilIDs[c.ID] {
+			errs = append(errs, fmt.Sprintf("%s: id shadows a reserved gitver keyword; rename it (a {%s} embed would resolve to the fact, not the stencil)", cpath, c.ID))
+		}
+		stencilIDs[c.ID] = true
+		errs = append(errs, validateStencilDef(c, cpath, buildIDs)...)
 	}
 
 	for _, f := range cfg.Scribe.Files {
@@ -356,15 +359,14 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if f.File == "" {
 			errs = append(errs, fmt.Sprintf("%s: file is required", fpath))
 		}
-		if !validPlacementModes[f.Mode] {
-			errs = append(errs, fmt.Sprintf("%s: unknown mode %q", fpath, f.Mode))
-		}
+		// items: is sugar validated against the library; a freeform body: resolves its
+		// {id} embeds at render time (unknown embeds degrade to literal, like gitver).
 		for _, ref := range f.Items {
 			if ref == "br" {
 				continue
 			}
-			if !contentIDs[ref] {
-				errs = append(errs, fmt.Sprintf("%s: item %q not found in scribe.content", fpath, ref))
+			if !stencilIDs[ref] {
+				errs = append(errs, fmt.Sprintf("%s: item %q not found in stencils", fpath, ref))
 			}
 		}
 	}
@@ -879,8 +881,8 @@ func validateWhen(conditions WhenConditions, path string, tagSources []TagSource
 	return errs
 }
 
-// validateContentDef checks type/render and field constraints for a scribe content def.
-func validateContentDef(c ContentDef, path string, buildIDs map[string]bool) []string {
+// validateStencilDef checks type/render and field constraints for a scribe content def.
+func validateStencilDef(c StencilDef, path string, buildIDs map[string]bool) []string {
 	var errs []string
 
 	// Fixed-form producers forbid render: — an ignored knob is a lie.

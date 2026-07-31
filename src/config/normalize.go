@@ -28,7 +28,7 @@ func Normalize(cfg *Config) error {
 
 	// Derive badge output paths from scribe.store + id (so a badge needs no output:
 	// line). Independent of {var:} templating — runs before the vars short-circuit.
-	cfg.Scribe.ApplyStoreDefaults()
+	cfg.ApplyStencilStoreDefaults()
 
 	if len(cfg.Vars) == 0 {
 		return nil
