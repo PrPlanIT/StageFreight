@@ -34,6 +34,7 @@ exclude_docs: |
   assets/modules/
   design/plans/
   config/aspirational/README.md
+  /README.md
 
 theme:
   name: material
@@ -111,7 +112,7 @@ extra_css:
 
 # ── Navigation ──────────────────────────────────────────────────────────
 nav:
-  - Home: README.md
+  - Home: index.md
   - Directory: overview.md
   - Features: features.md
   - Integrations:
