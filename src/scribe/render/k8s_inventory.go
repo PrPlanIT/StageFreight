@@ -12,7 +12,6 @@ import (
 // Orchestration only — all k8s auth, discovery, and rendering logic lives in src/k8s/.
 type K8sInventoryModule struct {
 	CatalogPath   string               // optional path to catalog
-	CommitSHA     string               // optional git SHA for provenance
 	RepoRoot      string               // for source link verification and Flux graph resolution
 	ClusterConfig config.ClusterConfig // passed to k8s.NewClient for auth + to Discover for exposure rules
 }
@@ -34,5 +33,5 @@ func (m *K8sInventoryModule) Render() string {
 		return ""
 	}
 
-	return k8s.RenderOverview(result, m.CommitSHA)
+	return k8s.RenderOverview(result)
 }

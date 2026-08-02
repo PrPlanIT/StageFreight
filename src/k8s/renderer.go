@@ -39,18 +39,15 @@ func exposureIcon(e ExposureLevel) string {
 // RenderOverview produces stable, deterministic markdown from a DiscoveryResult.
 // Two-layer UX: minimal summary table + expandable details per app.
 // Docs are scanned, not read — instant orientation in <3 seconds.
-func RenderOverview(result *DiscoveryResult, commitSHA string) string {
+// Content-identical cluster state renders byte-identical markdown, so the
+// scribe write-if-changed gate commits only real inventory changes; refresh
+// time and lineage are the auto-commit's own git metadata.
+func RenderOverview(result *DiscoveryResult) string {
 	var b strings.Builder
 
 	// Provenance header
 	b.WriteString("> Generated from live Kubernetes state\n")
-	b.WriteString(fmt.Sprintf("> Cluster: %s | %s",
-		result.Cluster,
-		result.ObservedAt.UTC().Format("2006-01-02T15:04:05Z")))
-	if commitSHA != "" {
-		b.WriteString(fmt.Sprintf(" | %s", commitSHA))
-	}
-	b.WriteString("\n\n")
+	b.WriteString(fmt.Sprintf("> Cluster: %s\n\n", result.Cluster))
 
 	// Status aggregation
 	if len(result.Apps) > 0 {

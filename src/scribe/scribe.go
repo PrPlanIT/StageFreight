@@ -475,13 +475,8 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 		}.Render(), nil
 
 	case "k8s-inventory":
-		sha := ""
-		if vi != nil {
-			sha = vi.SHA
-		}
 		return (&render.K8sInventoryModule{
 			CatalogPath:   def.CatalogPath,
-			CommitSHA:     sha,
 			RepoRoot:      rootDir,
 			ClusterConfig: appCfg.GitOps.Cluster,
 		}).Render(), nil
