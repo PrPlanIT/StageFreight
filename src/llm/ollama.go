@@ -57,5 +57,22 @@ func ollamaGenerate(cfg config.LLMConfig, prompt string) (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("ollama response: %w", err)
 	}
-	return strings.TrimSpace(out.Response), nil
+	return strings.TrimSpace(stripThinking(out.Response)), nil
+}
+
+// stripThinking removes <think>…</think> reasoning blocks that reasoning models
+// (deepseek-r1 et al) prepend to their answer — the notification wants the
+// answer, not the deliberation. An unclosed block drops to end-of-text.
+func stripThinking(s string) string {
+	for {
+		open := strings.Index(s, "<think>")
+		if open < 0 {
+			return s
+		}
+		close := strings.Index(s[open:], "</think>")
+		if close < 0 {
+			return s[:open]
+		}
+		s = s[:open] + s[open+close+len("</think>"):]
+	}
 }

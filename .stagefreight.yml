@@ -306,6 +306,11 @@ dependency:
     push: true
     skip_ci: false
 
+llms:
+  # Model endpoint library — referenced by type: llm stencils via llm: <id>.
+  # AI output is dispatch-only (stdout cards, notifications), never committed.
+  glicynia: { provider: ollama, url: "http://glicynia:11434", model: "deepseek-r1:1.5b" }
+
 stencils:
   # The shared audience-text library: define each renderable once (id → SOURCE
   # type × RENDER render). Inline defs (no type) render a badge (default) or a
@@ -406,6 +411,54 @@ stencils:
   config-reference:
     type: include
     path: docs/assets/modules/config-reference.md
+
+  # ── AI triage (failure-gated notification body; lazy — ollama is only called
+  #    when a failing run dispatches it) ──
+  ci-detail:
+    type: text
+    body: |
+      {commit_title}
+      {status} · {project} {ref}
+      Failed in {failure.subsystem} — {failure.reason}
+      {failures}
+      {vulns}
+      Tests {tests.passed}/{tests.total} · coverage {tests.coverage}
+      Commits since {changelog.range} — {changelog.count}
+  triage:
+    type: llm
+    llm: glicynia
+    body: |
+      {ci-detail}
+
+      In 2-3 sentences: what broke, the likely cause, and the first thing to check.
+  recap:
+    type: llm
+    llm: glicynia
+    body: |
+      {summary}
+
+      In one or two sentences, recap this CI run for a team chat — plain and direct,
+      lead with what shipped. No markdown, no preamble.
+
+notifications:
+  # Phone pings via the in-cluster ntfy (delivery-bag). credentials: NTFY resolves
+  # the NTFY_TOKEN CI variable (write-only token, topic StageFreight-CI).
+  phone:
+    provider: ntfy
+    url: https://ntfy.pcfae.com/StageFreight-CI
+    credentials: NTFY
+  triage:
+    provider: ntfy
+    url: https://ntfy.pcfae.com/StageFreight-CI
+    credentials: NTFY
+    body: "{triage}"
+    when: { outcomes: [failure] }
+  recap:
+    provider: ntfy
+    url: https://ntfy.pcfae.com/StageFreight-CI
+    credentials: NTFY
+    body: "🤖 {recap}"
+    when: { outcomes: [success] }
 
 scribe:
   # files: one placement region per marked span. A region's body embeds stencils
