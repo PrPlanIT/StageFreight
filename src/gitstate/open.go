@@ -2,6 +2,7 @@ package gitstate
 
 import (
 	"fmt"
+	"strings"
 
 	git "github.com/go-git/go-git/v5"
 )
@@ -31,4 +32,23 @@ func RepoRoot(repo *git.Repository) (string, error) {
 		return "", fmt.Errorf("opening worktree: %w", err)
 	}
 	return wt.Filesystem.Root(), nil
+}
+
+// HeadCommitTitle returns the subject line of the HEAD commit (the {commit_title}
+// identity fact — CI_COMMIT_TITLE's local equivalent). Best-effort: "" on any error.
+func HeadCommitTitle(rootDir string) string {
+	repo, err := OpenRepo(rootDir)
+	if err != nil {
+		return ""
+	}
+	head, err := repo.Head()
+	if err != nil {
+		return ""
+	}
+	c, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		return ""
+	}
+	title, _, _ := strings.Cut(c.Message, "\n")
+	return strings.TrimSpace(title)
 }

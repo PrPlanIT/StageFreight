@@ -7,11 +7,13 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/cas"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/security"
@@ -627,6 +629,48 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	if req.Verbose && summaryBody != "" {
 		fmt.Println()
 		fmt.Print(summaryBody)
+	}
+
+	// Record the scan's structured facts ({security.*}) into cistate before the gate
+	// decides, so the counts survive regardless of outcome. blocking = the gate's own
+	// number (non-excused vulns at/above the threshold; 0 when the gate is off).
+	blocking := 0
+	if failOn != "off" {
+		blocking = security.GatingCount(result, cs, failOn, unreachablePolicy)
+	}
+	sbomFact := "off"
+	if req.SBOM {
+		sbomFact = "✓"
+	}
+	// The {vulns} row source: the gating vulns as compact one-liners, capped so
+	// state stays small (the producer bounds display further with limit:).
+	var blockingRows []string
+	for _, v := range security.GatingVulns(result, cs, failOn, unreachablePolicy) {
+		if len(blockingRows) == 12 {
+			break
+		}
+		row := fmt.Sprintf("%s · %s · %s", v.ID, strings.ToLower(v.Severity), v.Package)
+		if v.FixedIn != "" {
+			row += " → " + v.FixedIn
+		}
+		blockingRows = append(blockingRows, row)
+	}
+	secFacts := map[string]string{
+		"blocking": strconv.Itoa(blocking),
+		"critical": strconv.Itoa(result.Critical),
+		"high":     strconv.Itoa(result.High),
+		"medium":   strconv.Itoa(result.Medium),
+		"low":      strconv.Itoa(result.Low),
+		"total":    strconv.Itoa(result.Critical + result.High + result.Medium + result.Low),
+		"sbom":     sbomFact,
+	}
+	if len(blockingRows) > 0 {
+		secFacts["blocking_list"] = strings.Join(blockingRows, "\n")
+	}
+	if err := cistate.UpdateState(req.RootDir, func(s *cistate.State) {
+		s.MergeSubsystemResults("security", secFacts)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
 
 	// Fail if any NON-EXCUSED vulnerability is at or above the configured severity

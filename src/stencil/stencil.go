@@ -13,22 +13,30 @@
 // Grammar — deliberately one embed form, so a badge, a fact, and a composed
 // stencil all read identically and nothing is a special citizen:
 //
-//	{name}                          — an element; replaced by env.Resolve(name)
-//	{#if cond} … {#else} … {/if}    — a region gated by env.Cond(cond)
+//	{name} — an element; replaced by env.Resolve(name)
+//
+// There are NO conditionals — conditional logic does not belong in a templating
+// system. Alternation lives in status-carrying facts (an element that resolves
+// differently on pass/fail); absence lives in elision (empty token → gone; a line
+// whose every token resolved empty → the whole line gone); a different ARC (pass vs
+// fail message) is a different stencil selected by routing. Those three mechanisms
+// cover everything a conditional would, without the body ever branching.
 //
 // The engine is PURE and deterministic: the same template + Env renders
 // byte-identical output (no time, no map-iteration order, no ambient state) — the
 // same reproducibility discipline the badge subset enforces. Graceful by design: a
-// resolver that yields "" renders nothing; an unknown token is left LITERAL so a
-// typo is visible, never silently swallowed. A stencil never breaks and the engine
-// never fabricates.
+// resolver that yields "" renders nothing, and a LINE whose every embed resolved
+// empty renders nothing at all (line elision — authored labels vanish with their
+// data, so "no data → the line disappears" needs no conditionals); an unknown token
+// is left LITERAL — and keeps its line — so a typo is visible, never silently
+// swallowed. A stencil never breaks and the engine never fabricates.
 package stencil
 
 import "strings"
 
-// Env resolves the elements and conditionals a stencil references. A consumer
-// (narrate, scribe, release) supplies these closures over its own facts, so the
-// engine stays vocabulary-agnostic — it knows the grammar, never the nouns.
+// Env resolves the elements a stencil references. A consumer (scribe, the narrate
+// runner, release) supplies this closure over its own facts, so the engine stays
+// vocabulary-agnostic — it knows the grammar, never the nouns.
 type Env struct {
 	// Resolve returns the text an element name expands to, and whether it is known.
 	// A composed stencil embedding other elements resolves them by calling Render
@@ -36,21 +44,17 @@ type Env struct {
 	// expanded output — a fact whose text happens to contain braces is never
 	// re-interpreted.
 	Resolve func(name string) (string, bool)
-	// Cond returns the truth of a conditional name (unknown → false).
-	Cond func(name string) bool
 }
 
-// MapEnv builds an Env from plain maps — handy for tests and simple callers.
-func MapEnv(vars map[string]string, conds map[string]bool) Env {
+// MapEnv builds an Env from a plain map — handy for tests and simple callers.
+func MapEnv(vars map[string]string) Env {
 	return Env{
 		Resolve: func(name string) (string, bool) { v, ok := vars[name]; return v, ok },
-		Cond:    func(name string) bool { return conds[name] },
 	}
 }
 
-// Render resolves conditionals, then substitutes {element} embeds in a single
-// left-to-right pass, then tidies runs of blank lines. Deterministic for pure
-// resolvers.
+// Render substitutes {element} embeds line by line (with line elision), then tidies
+// runs of blank lines. Deterministic for pure resolvers.
 //
 // Each element resolves AT MOST ONCE per render (memoized by name): an impure
 // element — an ollama transform is the motivating case — referenced twice must
@@ -62,18 +66,14 @@ func Render(tmpl string, env Env) string {
 	return collapseBlankLines(Expand(tmpl, env))
 }
 
-// Expand is Render WITHOUT the blank-line tidy: it resolves conditionals + {element}
-// embeds (with the same per-render memoization) but preserves the resolved text
-// verbatim. Use it where element content must survive byte-for-byte — scribe file
-// bodies, where a multi-line element (an included doc, a table) must not have its
-// internal blank runs squeezed, and no terminating newline should be forced. Render
-// layers collapseBlankLines on top for narrate stories, where dropped conditionals
-// and empty beats would otherwise leave ragged gaps.
+// Expand is Render WITHOUT the blank-line tidy: it resolves {element} embeds (with
+// the same per-render memoization and line elision) but preserves the resolved text
+// verbatim otherwise. Use it where element content must survive byte-for-byte —
+// scribe file bodies, where a multi-line element (an included doc, a table) must
+// not have its internal blank runs squeezed, and no terminating newline should be
+// forced. Render layers collapseBlankLines on top for audience summaries, where
+// elided lines would otherwise leave ragged gaps.
 func Expand(tmpl string, env Env) string {
-	cond := env.Cond
-	if cond == nil {
-		cond = func(string) bool { return false }
-	}
 	base := env.Resolve
 	if base == nil {
 		base = func(string) (string, bool) { return "", false }
@@ -91,116 +91,51 @@ func Expand(tmpl string, env Env) string {
 		memo[name] = memoVal{v, ok}
 		return v, ok
 	}
-	resolved := resolveConditionals(tmpl, cond)
-	return substituteInline(resolved, resolve)
+	return substituteInline(tmpl, resolve)
 }
 
-// resolveConditionals expands every {#if cond} … {#else} … {/if} block, keeping
-// the taken branch and recursing into it so nested conditionals resolve too. An
-// unbalanced/malformed block is emitted literally rather than panicking.
-func resolveConditionals(s string, cond func(string) bool) string {
-	const openTag = "{#if "
-	var b strings.Builder
-	for {
-		open := strings.Index(s, openTag)
-		if open < 0 {
-			b.WriteString(s)
-			return b.String()
-		}
-		b.WriteString(s[:open])
-
-		nameEnd := strings.Index(s[open:], "}")
-		if nameEnd < 0 { // malformed opener — emit the rest literally
-			b.WriteString(s[open:])
-			return b.String()
-		}
-		nameEnd += open
-		name := strings.TrimSpace(s[open+len(openTag) : nameEnd])
-
-		body, after, ok := splitIfBlock(s[nameEnd+1:])
-		if !ok { // no matching {/if} — emit literally, don't lose text
-			b.WriteString(s[open:])
-			return b.String()
-		}
-
-		ifBranch, elseBranch := splitElse(body)
-		kept := elseBranch
-		if cond(name) {
-			kept = ifBranch
-		}
-		b.WriteString(resolveConditionals(kept, cond))
-		s = after
-	}
-}
-
-// splitIfBlock returns the text between an already-consumed {#if …} and its
-// MATCHING {/if} (honoring nested {#if …}), plus everything after {/if}.
-func splitIfBlock(s string) (body, after string, ok bool) {
-	const openTag, closeTag = "{#if ", "{/if}"
-	depth := 0
-	i := 0
-	for i < len(s) {
-		nextOpen := strings.Index(s[i:], openTag)
-		nextClose := strings.Index(s[i:], closeTag)
-		if nextClose < 0 {
-			return "", "", false // unbalanced
-		}
-		if nextOpen >= 0 && nextOpen < nextClose {
-			depth++
-			i += nextOpen + len(openTag)
-			continue
-		}
-		if depth == 0 {
-			absClose := i + nextClose
-			return s[:absClose], s[absClose+len(closeTag):], true
-		}
-		depth--
-		i += nextClose + len(closeTag)
-	}
-	return "", "", false
-}
-
-// splitElse splits a conditional body at its top-level {#else} (depth 0). With no
-// else, the else-branch is empty.
-func splitElse(body string) (ifBranch, elseBranch string) {
-	const openTag, elseTag, closeTag = "{#if ", "{#else}", "{/if}"
-	depth := 0
-	i := 0
-	for i < len(body) {
-		nextOpen := strings.Index(body[i:], openTag)
-		nextElse := strings.Index(body[i:], elseTag)
-		nextClose := strings.Index(body[i:], closeTag)
-		if nextElse >= 0 && depth == 0 &&
-			(nextOpen < 0 || nextElse < nextOpen) &&
-			(nextClose < 0 || nextElse < nextClose) {
-			return body[:i+nextElse], body[i+nextElse+len(elseTag):]
-		}
-		if nextOpen >= 0 && (nextClose < 0 || nextOpen < nextClose) {
-			depth++
-			i += nextOpen + len(openTag)
-			continue
-		}
-		if nextClose >= 0 {
-			if depth > 0 {
-				depth--
-			}
-			i += nextClose + len(closeTag)
-			continue
-		}
-		break
-	}
-	return body, ""
-}
-
-// substituteInline replaces {name} embeds in one left-to-right pass. Resolved
-// output is appended directly and never re-scanned. An unknown token is left
-// literal (visible typo, not a silent drop).
+// substituteInline replaces {name} embeds line by line, with LINE ELISION: a line
+// whose every embed resolved EMPTY renders nothing at all — authored text included —
+// so `Shipped {publish.tags} → {publish.registries}` vanishes whole when publish
+// recorded nothing, never leaving a dangling "Shipped → ". This is what lets a body
+// keep its labels/prose next to elidable facts (the wording stays in the body; no
+// phrase-shaped facts). A line containing an UNKNOWN token is always kept (the
+// literal token is a visible typo — visibility beats tidiness), as is any line with
+// a non-empty resolution or no embeds at all. Tokens never span lines.
 func substituteInline(s string, resolve func(string) (string, bool)) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for len(s) > 0 {
+		nl := strings.IndexByte(s, '\n')
+		var line string
+		hasNL := nl >= 0
+		if hasNL {
+			line, s = s[:nl], s[nl+1:]
+		} else {
+			line, s = s, ""
+		}
+		out, nonEmpty, empty, unknown := substituteLine(line, resolve)
+		if empty > 0 && nonEmpty == 0 && unknown == 0 {
+			continue // line elision: every token on the line resolved empty
+		}
+		b.WriteString(out)
+		if hasNL {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// substituteLine replaces {name} embeds in one line, left-to-right. Resolved output
+// is appended directly and never re-scanned. An unknown token is left literal
+// (visible typo, not a silent drop). Returns the token accounting substituteInline
+// uses for line elision: non-empty resolutions, empty resolutions, unknown tokens.
+func substituteLine(s string, resolve func(string) (string, bool)) (out string, nonEmpty, empty, unknown int) {
 	var buf []byte
 	for {
 		open := strings.IndexByte(s, '{')
 		if open < 0 {
-			return string(append(buf, s...))
+			return string(append(buf, s...)), nonEmpty, empty, unknown
 		}
 		buf = append(buf, s[:open]...)
 		s = s[open:]
@@ -216,16 +151,18 @@ func substituteInline(s string, resolve func(string) (string, bool)) string {
 		}
 		close := strings.IndexByte(s, '}')
 		if close < 0 { // dangling '{' — emit the remainder literally
-			return string(append(buf, s...))
+			return string(append(buf, s...)), nonEmpty, empty, unknown
 		}
 		name := strings.TrimSpace(s[1:close])
 		rendered, ok := resolve(name)
 		if !ok {
+			unknown++
 			buf = append(buf, s[:close+1]...) // unknown token — keep literal
 			s = s[close+1:]
 			continue
 		}
 		if rendered == "" {
+			empty++
 			// An element that resolves to EMPTY must leave no stray separator space.
 			// Consume one FOLLOWING horizontal space (the common mid-sequence case:
 			// `{a} {b} {c}` with b empty → "A C"), or — for a trailing empty embed at
@@ -236,7 +173,7 @@ func substituteInline(s string, resolve func(string) (string, bool)) string {
 			switch {
 			case len(rest) > 0 && (rest[0] == ' ' || rest[0] == '\t'):
 				s = rest[1:]
-			case (len(rest) == 0 || rest[0] == '\n') && len(buf) > 0 && (buf[len(buf)-1] == ' ' || buf[len(buf)-1] == '\t'):
+			case len(rest) == 0 && len(buf) > 0 && (buf[len(buf)-1] == ' ' || buf[len(buf)-1] == '\t'):
 				buf = buf[:len(buf)-1]
 				s = rest
 			default:
@@ -244,6 +181,7 @@ func substituteInline(s string, resolve func(string) (string, bool)) string {
 			}
 			continue
 		}
+		nonEmpty++
 		buf = append(buf, rendered...)
 		s = s[close+1:]
 	}

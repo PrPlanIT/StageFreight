@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,8 +35,13 @@ type StencilDef struct {
 	LabelColor string `yaml:"label_color,omitempty"`
 	Shield     string `yaml:"shield,omitempty"` // shields.io path (render: shield)
 
-	// ── text ──
-	Content string `yaml:"content,omitempty"`
+	// ── text (the dumb markdown stencil: facts + {id} stencil embeds, no logic) ──
+	// llm shares body: — there it is the composed INPUT (inject {ci-detail} etc.
+	// and write the ask inline; no separate prompt slot).
+	Body string `yaml:"body,omitempty"`
+
+	// ── llm (AI stencil: composed body × llms: backend → markdown) ──
+	LLM string `yaml:"llm,omitempty"` // llms: entry id (the backend reference)
 
 	// ── component ──
 	Spec string `yaml:"spec,omitempty"`
@@ -43,10 +49,12 @@ type StencilDef struct {
 	// ── include ──
 	Path string `yaml:"path,omitempty"`
 
-	// ── contents (build manifest) ──
+	// ── contents (build manifest) / ci (run-state producers) ──
 	Build   string `yaml:"build,omitempty"`
 	Source  string `yaml:"source,omitempty"`
 	Section string `yaml:"section,omitempty"`
+	// Limit caps a ci producer's rows (self-bounding: excess becomes "+K more").
+	Limit int `yaml:"limit,omitempty"`
 	// contents renderer form lives on the RENDER axis (render:), not a separate
 	// renderer: key — one form vocabulary (badges|table|list|kv|versions).
 	Columns    []string `yaml:"columns,omitempty"`
@@ -76,6 +84,10 @@ func (c StencilDef) EffectiveKind() string {
 		return "badge" // inline default
 	case "contents":
 		return "build-contents"
+	case "ci":
+		return "ci"
+	case "llm":
+		return "llm"
 	case "include":
 		return "include"
 	case "text":
@@ -158,10 +170,94 @@ func (c *Config) ApplyStencilStoreDefaults() {
 	}
 }
 
-// reservedStencilIDs are gitver leaf-fact keywords; a stencil id must not shadow one,
-// or `{id}` would be consumed by the gitver leaf-pass instead of the stencil.
+// reservedStencilIDs are reserved fact names; a stencil id must not shadow one, or
+// `{id}` would be consumed by a fact resolver instead of the stencil. The set is the
+// gitver leaf-fact keywords plus the bare run-status facts (cistate).
 var reservedStencilIDs = map[string]bool{
 	"version": true, "base": true, "major": true, "minor": true, "patch": true,
 	"prerelease": true, "branch": true, "sha": true, "date": true, "datetime": true,
 	"timestamp": true, "n": true, "hex": true, "rand": true, "randhex": true,
+	"status": true, "status_icon": true, "status_verb": true,
+}
+
+// findStencilCycle detects an embed cycle among declared stencils: edges are {id}
+// tokens in a stencil's body that name another DECLARED stencil (every other token is
+// a fact/var for the leaf-pass). Returns a printable "a → b → a" path, or "" if the
+// graph is acyclic. Deterministic: starts DFS in document order.
+func findStencilCycle(stencils OrderedStencils, declared map[string]bool) string {
+	const (
+		unvisited = 0
+		visiting  = 1
+		done      = 2
+	)
+	byID := stencils.ByID()
+	state := make(map[string]int, len(stencils))
+
+	var path []string
+	var walk func(id string) string
+	walk = func(id string) string {
+		state[id] = visiting
+		path = append(path, id)
+		for _, ref := range BodyRefs(byID[id].Body) {
+			if !declared[ref] {
+				continue
+			}
+			switch state[ref] {
+			case visiting:
+				// Trim the path to the cycle entry point for a readable report.
+				start := 0
+				for i, p := range path {
+					if p == ref {
+						start = i
+						break
+					}
+				}
+				return strings.Join(append(path[start:], ref), " → ")
+			case unvisited:
+				if cycle := walk(ref); cycle != "" {
+					return cycle
+				}
+			}
+		}
+		path = path[:len(path)-1]
+		state[id] = done
+		return ""
+	}
+
+	for _, s := range stencils {
+		if state[s.ID] == unvisited {
+			if cycle := walk(s.ID); cycle != "" {
+				return cycle
+			}
+		}
+	}
+	return ""
+}
+
+// BodyRefs scans a body for {name} embed tokens (skipping {{…}} literal escapes) and
+// returns the names in order of appearance. It mirrors the stencil engine's brace scan
+// so validation (cycle detection) and rendering agree on what a body references.
+func BodyRefs(body string) []string {
+	var refs []string
+	s := body
+	for {
+		open := strings.IndexByte(s, '{')
+		if open < 0 {
+			return refs
+		}
+		s = s[open:]
+		if strings.HasPrefix(s, "{{") {
+			s = s[2:]
+			continue
+		}
+		close := strings.IndexByte(s, '}')
+		if close < 0 {
+			return refs
+		}
+		name := strings.TrimSpace(s[1:close])
+		if name != "" {
+			refs = append(refs, name)
+		}
+		s = s[close+1:]
+	}
 }

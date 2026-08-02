@@ -11,11 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/component"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/llm"
 	"github.com/PrPlanIT/StageFreight/src/manifest"
 	"github.com/PrPlanIT/StageFreight/src/props"
 	"github.com/PrPlanIT/StageFreight/src/registry"
@@ -115,12 +118,15 @@ func runFiles(appCfg *config.Config, rootDir string, dryRun, verbose bool, keep 
 }
 
 // RenderContent resolves a single stencil (by id) to its markdown fragment. It is the
-// ad-hoc, read-only counterpart to Run: it renders one declared stencil and returns the
-// markdown; it never writes artifacts or mutates files. Only stencils declared in config
-// are renderable — the config is the source of truth.
+// ad-hoc, read-only counterpart to Run: it renders one stencil and returns the
+// markdown; it never writes artifacts or mutates files. Resolution honors the
+// shadowing order: a user-declared stencil first, then SF's shipped defaults
+// (modality-resolved — {summary}/{postmortem} always mean this run's arc bodies).
 func RenderContent(appCfg *config.Config, rootDir, contentID string) (string, error) {
-	content := appCfg.StencilsByID()
-	def, ok := content[contentID]
+	def, ok := appCfg.StencilsByID()[contentID]
+	if !ok {
+		def, ok = config.ShippedStencil(contentID, appCfg.Mode().Name)
+	}
 	if !ok {
 		return "", fmt.Errorf("no stencil %q", contentID)
 	}
@@ -140,6 +146,122 @@ func RenderContent(appCfg *config.Config, rootDir, contentID string) (string, er
 	linkBase, _ := config.ResolveLinkBase(appCfg)
 
 	return resolveStencilMarkdown(appCfg, def, linkBase, publishBase, versionInfo, rootDir)
+}
+
+// renderStencilBody resolves a freeform body — the dumb markdown stencil's output,
+// and the llm stencil's composed INPUT. Resolution order per token: recorded run
+// FACTS first (reserved, unshadowable — dotted {domain.key} + the bare status
+// facts), then stencil embeds (user, then shipped; embedded output is never
+// re-scanned), then the gitver leaf-pass fills the remaining vocabulary ({sha},
+// {var:…}). Unknown tokens stay literal at every layer, so a typo is visible.
+// Audience bodies get the blank-run tidy (elided lines leave no ragged gaps) and
+// no trailing newline (the embed contract).
+func renderStencilBody(appCfg *config.Config, def config.StencilDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string, st *cistate.State, visiting map[string]bool) string {
+	declared := appCfg.StencilsByID()
+	text := stencil.Expand(def.Body, stencil.Env{
+		Resolve: func(name string) (string, bool) {
+			if v, ok := st.Fact(name); ok {
+				return v, true
+			}
+			other, ok := declared[name]
+			if !ok {
+				other, ok = config.ShippedStencil(name, appCfg.Mode().Name)
+			}
+			if !ok || visiting[name] {
+				return "", false // a fact/var for the leaf-pass, or a cycle → literal
+			}
+			visiting[name] = true
+			md, err := resolveStencilMarkdownIn(appCfg, other, linkBase, rawBase, vi, rootDir, st, visiting)
+			delete(visiting, name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "scribe: %s embed {%s}: %v\n", def.ID, name, err)
+				return "", true // known but unservable — contributes nothing
+			}
+			return strings.TrimRight(md, "\n"), true
+		},
+	})
+	if vi != nil {
+		text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", appCfg.Vars)
+	}
+	return strings.TrimRight(collapseBlanks(text), "\n")
+}
+
+// llmMemo caches each llm stencil's output for the life of the process — an
+// impure element is ONE VALUE PER RUN, stable wherever it appears (announce card
+// and notification see the same text), and a dead backend warns once, not per
+// consumer. Failures memoize as "" (degrade — presentation never hard-fails).
+var (
+	llmMemoMu sync.Mutex
+	llmMemo   = map[string]string{}
+)
+
+// renderLLMStencil dispatches an AI stencil: compose the body through the SAME
+// pipeline a text stencil uses (facts + embeds + leaf-pass — the prompt is just a
+// rendered body), send it to the referenced llms: backend, return markdown.
+func renderLLMStencil(appCfg *config.Config, def config.StencilDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string, st *cistate.State, visiting map[string]bool) string {
+	llmMemoMu.Lock()
+	if v, ok := llmMemo[def.ID]; ok {
+		llmMemoMu.Unlock()
+		return v
+	}
+	llmMemoMu.Unlock()
+
+	out := ""
+	if backend, ok := appCfg.LLMs.ByID()[def.LLM]; ok {
+		prompt := renderStencilBody(appCfg, def, linkBase, rawBase, vi, rootDir, st, visiting)
+		generated, err := llm.Generate(backend, prompt)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scribe: llm %s (%s): %v\n", def.ID, def.LLM, err)
+		} else {
+			out = generated
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "scribe: llm %s: no llms: entry %q\n", def.ID, def.LLM)
+	}
+
+	llmMemoMu.Lock()
+	llmMemo[def.ID] = out
+	llmMemoMu.Unlock()
+	return out
+}
+
+// collapseBlanks squeezes 3+ consecutive newlines to exactly 2 and trims leading
+// blank lines, so lines elided from a text body don't leave ragged gaps.
+func collapseBlanks(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	newlines := 0
+	wrote := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			newlines++
+			if wrote && newlines <= 2 {
+				b.WriteByte('\n')
+			}
+			continue
+		}
+		newlines = 0
+		wrote = true
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// RenderText renders a freeform body — a notification subject/body, or any other
+// one-off audience text — through the full stencil grammar: run facts, stencil
+// embeds (user then shipped), then the gitver leaf-pass. Best-effort: on a version
+// or render error it degrades toward the raw body rather than failing the caller.
+func RenderText(appCfg *config.Config, rootDir, body string) string {
+	versionInfo, err := build.DetectVersion(rootDir, appCfg)
+	if err != nil {
+		versionInfo = nil
+	}
+	linkBase, _ := config.ResolveLinkBase(appCfg)
+	out, rErr := resolveStencilMarkdown(appCfg, config.StencilDef{Type: "text", Body: body}, linkBase, "", versionInfo, rootDir)
+	if rErr != nil {
+		return strings.TrimSpace(body)
+	}
+	return strings.TrimSpace(out)
 }
 
 // referencesBadge reports whether any files: region references a badge stencil —
@@ -251,6 +373,22 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 // include) yields "" so the element simply contributes nothing — matching the old
 // Compose skip-empty semantics.
 func resolveStencilMarkdown(appCfg *config.Config, def config.StencilDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string) (string, error) {
+	// The run's recorded truth backs {fact} tokens in text bodies. A missing or
+	// unreadable state degrades to the zero state: dotted facts resolve empty (their
+	// lines elide) and rendering stays deterministic for a given state file.
+	st, err := cistate.ReadState(rootDir)
+	if err != nil {
+		st = &cistate.State{Version: 1}
+	}
+	return resolveStencilMarkdownIn(appCfg, def, linkBase, rawBase, vi, rootDir, st, map[string]bool{def.ID: true})
+}
+
+// resolveStencilMarkdownIn is resolveStencilMarkdown with the embed-recursion state: a
+// text stencil's body embeds other stencils by {id} (resolved recursively through this
+// dispatcher), st carries the run facts, and visiting carries the ids currently on the
+// resolution stack so a cycle degrades to a literal token instead of recursing forever
+// (validation rejects declared cycles up front; this is the render-time backstop).
+func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, linkBase, rawBase string, vi *gitver.VersionInfo, rootDir string, st *cistate.State, visiting map[string]bool) (string, error) {
 	switch def.EffectiveKind() {
 	case "badge":
 		if def.Output == "" {
@@ -292,12 +430,14 @@ func resolveStencilMarkdown(appCfg *config.Config, def config.StencilDef, linkBa
 			Link:  resolveLink(link, linkBase),
 		}.Render(), nil
 
+	case "ci":
+		return renderCIStencil(def, st), nil
+
 	case "text":
-		text := def.Content
-		if vi != nil {
-			text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", appCfg.Vars)
-		}
-		return render.TextModule{Text: text}.Render(), nil
+		return render.TextModule{Text: renderStencilBody(appCfg, def, linkBase, rawBase, vi, rootDir, st, visiting)}.Render(), nil
+
+	case "llm":
+		return renderLLMStencil(appCfg, def, linkBase, rawBase, vi, rootDir, st, visiting), nil
 
 	case "component":
 		spec, err := component.ParseSpec(def.Spec)

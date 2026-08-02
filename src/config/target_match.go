@@ -120,6 +120,42 @@ func forgeMatches(forges []string, forge string) bool {
 	return false
 }
 
+// NotificationEligibility interprets a notification's when: — the SAME grammar as
+// publish targets (events/branches/git_tags/forges, OR over condition-sets) plus
+// the outcomes: dimension. Lives here, in the one when: interpreter, per the
+// eligibility-routing invariant. outcome is the run's word: success | failure |
+// warning (unknown matches only an empty outcomes:).
+func NotificationEligibility(when WhenConditions, outcome, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
+	if len(when) == 0 {
+		return MatchResult{Eligible: true}
+	}
+	if len(when) == 1 {
+		return notifyConditionEligibility(when[0], outcome, event, branch, tag, forge, tagPolicies, branchPolicies)
+	}
+	for _, c := range when {
+		if r := notifyConditionEligibility(c, outcome, event, branch, tag, forge, tagPolicies, branchPolicies); r.Eligible {
+			return r
+		}
+	}
+	return MatchResult{Reason: fmt.Sprintf("no when: condition matched (outcome=%q event=%q tag=%q branch=%q)", outcome, event, tag, branch)}
+}
+
+func notifyConditionEligibility(c TargetCondition, outcome, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
+	if len(c.Outcomes) > 0 && !containsFold(c.Outcomes, outcome) {
+		return MatchResult{Reason: fmt.Sprintf("run outcome %q not in outcomes:%v", outcome, c.Outcomes)}
+	}
+	return conditionEligibility(c, event, branch, tag, forge, tagPolicies, branchPolicies)
+}
+
+func containsFold(list []string, v string) bool {
+	for _, e := range list {
+		if strings.EqualFold(strings.TrimSpace(e), v) {
+			return true
+		}
+	}
+	return false
+}
+
 // TargetMatches reports whether a target's when: conditions are satisfied — the
 // bool view of TargetEligibility for call sites that don't narrate. See the
 // TargetEligibility invariant: this is the single shared gating predicate;

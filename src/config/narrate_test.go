@@ -36,6 +36,62 @@ func TestOutputSpec_Worktree(t *testing.T) {
 	}
 }
 
+// TestValidate_NarrateAnnounces covers announce id resolution: a declared stencil id
+// and the built-in "summary" pass; an unknown id fails.
+func TestValidate_NarrateAnnounces(t *testing.T) {
+	hasAnnounceErr := func(cfg *Config) bool {
+		_, err := Validate(cfg)
+		return err != nil && strings.Contains(err.Error(), "narrate.announces")
+	}
+
+	builtin := &Config{Version: 1, Narrate: NarrateConfig{Announces: []string{"summary"}}}
+	if hasAnnounceErr(builtin) {
+		t.Error("built-in \"summary\" should be announceable")
+	}
+
+	declared := &Config{Version: 1,
+		Stencils: OrderedStencils{{ID: "fun-fact", Type: "text", Body: "hi"}},
+		Narrate:  NarrateConfig{Announces: []string{"fun-fact"}}}
+	if hasAnnounceErr(declared) {
+		t.Error("a declared stencil id should be announceable")
+	}
+
+	unknown := &Config{Version: 1, Narrate: NarrateConfig{Announces: []string{"nope"}}}
+	if !hasAnnounceErr(unknown) {
+		t.Error("an unknown announce id should fail validation")
+	}
+}
+
+// TestValidate_StencilEmbedCycle covers cycle rejection: text stencils embedding each
+// other in a loop (or a self-embed) fail validation; a linear chain passes.
+func TestValidate_StencilEmbedCycle(t *testing.T) {
+	hasCycleErr := func(stencils OrderedStencils) bool {
+		_, err := Validate(&Config{Version: 1, Stencils: stencils})
+		return err != nil && strings.Contains(err.Error(), "embed cycle")
+	}
+
+	chain := OrderedStencils{
+		{ID: "a", Type: "text", Body: "a then {b}"},
+		{ID: "b", Type: "text", Body: "b then {sha}"}, // {sha} is a fact, not an edge
+	}
+	if hasCycleErr(chain) {
+		t.Error("a linear embed chain should pass validation")
+	}
+
+	loop := OrderedStencils{
+		{ID: "a", Type: "text", Body: "a sees {b}"},
+		{ID: "b", Type: "text", Body: "b sees {a}"},
+	}
+	if !hasCycleErr(loop) {
+		t.Error("a two-stencil embed loop should fail validation")
+	}
+
+	self := OrderedStencils{{ID: "a", Type: "text", Body: "me: {a}"}}
+	if !hasCycleErr(self) {
+		t.Error("a self-embed should fail validation")
+	}
+}
+
 // TestValidate_WorktreeCollision covers the safeguard that two build outputs may not land
 // at the same working-tree path (which would make the tree order-dependent).
 func TestValidate_WorktreeCollision(t *testing.T) {

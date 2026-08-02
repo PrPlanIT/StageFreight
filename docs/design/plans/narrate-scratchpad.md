@@ -271,3 +271,255 @@ the changelog), so the migration pays for itself.
 6. `ollama` stencil kind (dispatch-only, impure).
 7. `release`/`webhook` targets; `gitops`/`governance` default stencils; `sf narrate template`
    scaffold; then the `scribe.content` → `stencils:` lift when the changelog forces it.
+
+---
+
+## Rendered — the summary for my last run (`6efb5ca` · main)
+
+> Rendered against the **real** changelog (18 commits since `dev-a5870b7`) + the real
+> commit/version. The run-outcome bits (status / shipped / phases / housekeeping) are the
+> representative *passed* case — that run's exact `cistate` isn't local. This is the default
+> `image` story in its verbatim format.
+
+### The summary — medium-verbose, first-party, gates-with-results up front
+
+The bar: a dev glances on their phone and knows EXACTLY what went good or bad — every gate
+with its **real result** (lint, **tests**, security, build, publish), what changed, one tap
+to the pipeline. Reads like an official integration, not a DIY curl. Detailed enough to feed
+ollama + a prompt → a brief, targeted push.
+
+**Passed:**
+
+```markdown
+## ✅ stagefreight · main — passed · 2m 48s
+`6efb5ca` · v0.7.0-dev+6efb5ca · "docs: decouple docs home into index.md"
+
+**Audition**  ✓  lint clean · no secrets · source fresh
+**Tests**     ✓  142 passed, 0 failed · 78.4% coverage
+**Security**  ✓  Trivy + Grype: 0 blocking (3 low) · SBOM generated
+**Build**     ✓  stagefreight · linux/amd64, arm64 → `sha256:75225fc`
+**Publish**   ✓  `dev-6efb5ca`, `latest-dev` → docker.io · ghcr.io · cr.pcfae.com · release cut
+
+**Changes** (18 since `dev-a5870b7`)
+Features — stencils: shared text-composition library (breaking) · scribe: build-fed compose + DAG scheduler
+Fixes — badge reproducible subset · docs-site build
+Docs/chore — forge-portable README + screenshots · mkdocs relocation · deps
+
+[→ open pipeline](https://gitlab.prplanit.com/37/-/pipelines/1234)
+```
+
+**Failed** — you see EXACTLY what broke, without opening the forge:
+
+```markdown
+## 🚨 stagefreight · main — FAILED · 1m 12s
+`6efb5ca` · "docs: decouple docs home into index.md"
+
+**Audition**  ✓  lint clean · no secrets
+**Tests**     ✗  3 failed / 142 — TestRenderRegion_ComposeParity, TestDocsFreshness_Coverage, +1
+**Security**  ⊘  skipped (tests gate failed)
+**Build**     ⊘  not reached
+**Publish**   ⊘  not reached
+
+Failed at **review** — 3 tests failed; nothing shipped.
+
+[→ open pipeline](https://gitlab.prplanit.com/37/-/pipelines/1234)
+```
+
+### The critical data this needs (the honest gap)
+
+The numbers that make it "I know exactly what happened" — **142 tests / 78.4% coverage**,
+**0 blocking / 3 low vulns**, the **digest + platforms** — are NOT in `cistate` today. It
+records phase outcomes (✓/✗ + a reason) but not the counts. Making this real = the test /
+security / build subsystems recording their **structured results** (they already compute them:
+the test run, trivy/grype output, coverage, the build manifest) into `cistate` for narrate to
+read. The format above is the target; wiring that substance is the actual build.
+
+### ollama pass-through
+
+This medium-verbose block IS the source. `kind: ollama` (from: it) + a user prompt →
+"2-line push: pass/fail + the one thing that matters" or "explain the failure for the on-call
+dev". Rich summary feeds the AI; the AI targets it per prompt. One source, many densities.
+
+---
+
+## UPDATE 2 — the frozen schema (2026-08)
+
+> Iterated to convergence in a scratchpad repo (`narrate-summary.md`) and frozen. Sections
+> above are the record of how we got here; **this section supersedes them where they
+> conflict.** The biggest reversals from UPDATE 1 are called out inline with their reasons.
+
+### The model, final
+
+**A stencil is a markdown generator.** Every stencil emits markdown; every consumer — a
+scribe region, the stdout announce, a notification, an AI stencil's input, a release body —
+takes markdown. Two families:
+
+- **`type: text`** — the deliberately dumb markdown stencil: a freeform `body:` that
+  understands exactly two things, **facts** and **stencil embeds** (`{id}`). No
+  conditionals, no loops, no logic. This is the existing `text` producer grown up:
+  `content:` renames to `body:` (one field name across the language) and it gains embed
+  resolution. Type always explicit — typeless already means badge; `message:` is a badge
+  *parameter*, never a body.
+- **Typed stencils** — producers with knobs (the `contents`/`k8s-inventory`/`goreportcard`
+  precedent). Run data that needs presentation choices gets a type; config lives on the
+  type, never in the body grammar.
+
+**Facts:** bare `{var}` for the forge-CI-variable class (`{sha}` `{ref}` `{status}`
+`{duration}` `{pipeline_url}` `{status_icon}` `{status_verb}` …); dotted `{domain.stat}`
+for run-recorded metrics (`{tests.passed}`, `{security.blocking}`, `{diff}` stat /
+`{diff.patch}` byte-capped). Sorting rule: forge-everyday → fact; pipeline-computed +
+presentation-choice → typed stencil.
+
+**`{#if}` is retired from the body grammar — entirely.** This supersedes UPDATE 1's "the
+sole control form." Alternation lives in status-carrying facts; absence lives in
+presence-elision. Engine work: strip conditionals from `src/stencil`, migrate
+`templates/image.md`.
+
+**Resolution order:** reserved facts (unshadowable, validated) → user stencils → shipped
+stencils. Shadowing a shipped id IS the override mechanism.
+
+**Modality: one id, per-modality shipped bodies.** Elision only *hides* lines; it cannot
+*add* the ones gitops/governance need. `{summary}`/`{ci-detail}` ids are stable everywhere;
+the shipped body behind them resolves by run modality. A repo runs one modality, so a
+per-repo `stencils.summary:` override IS the per-modality override. The UPDATE-1-era
+one-liner shapes (image build-and-ship / gitops "converged N, 1 drifted, healed" /
+governance "swept 3 clusters, 2 flagged") seed those default bodies.
+
+### Schema, final
+
+```yaml
+llms:                      # endpoint library (sibling of forges:/registries:) — earns library
+  local: { provider: ollama, url: "http://ollama:11434", model: llama3.2 }   # status because otherwise
+  # hosted: { provider: anthropic, model: claude-sonnet-5, credentials: ANTHROPIC }  # creds leak into stencils:
+
+stencils:
+  summary:   { type: text, body: "…facts + {failures} + {changelog}…" }   # shipped per modality
+  ci-detail: { type: text, body: "…plainer + {diff.patch}…" }             # the AI's read
+  triage:    { type: llm, llm: local, body: "{ci-detail}\n\nIn 2-3 sentences: what broke…" }
+  # four shipped type: ci producers (cistate readers): failures, vulns, artifacts, changelog
+  # — knobs: render / limit / columns / groups; self-bounding (+K more → tail)
+
+notifications:             # TOP-LEVEL, endpoint+message FUSED — reverses UPDATE 1's
+  phone:                   # "endpoint library mirroring registries:". Reason: the library
+    provider: ntfy         # pattern pays when actions fan many-to-few (publish × registries);
+    url: https://ntfy.sh/sf-ci      # a notification is one-to-one — message and destination
+    credentials: NTFY               # are the same thought. vars: absorbs shared URLs.
+    subject: "{status_icon} {project} {ref} — {status}"
+    body: "{summary}"
+  triage:
+    provider: ntfy
+    url: https://ntfy.sh/sf-ci
+    credentials: NTFY
+    body: "{triage}"
+    when: { outcomes: [failure] }   # ONE trigger grammar — no on:. when: gains outcomes:
+                                    # (success|failure|warning); omitted = always; composes
+narrate:                            # with branches:/events: ("failures, but only on main").
+  announces: [summary]              # stdout cards — stdout is a target, not an endpoint
+```
+
+**Notification provider knobs — full control, not a subset.** The ntfy provider carries the
+complete header vocabulary the hand-rolled GitLab component already proved out (actions,
+attach, click, markdown, priority, tags, title, email): `subject` (→ Title), `tags`,
+`priority`, `click`, `attach`, `actions`, `markdown`, `email`, plus `credentials` (→
+`Authorization: Bearer`) and `max_length` (trim at a line boundary, always preserving the
+`{pipeline_url}` line). Subject/body are freeform bodies like everything else —
+`body: "{summary}\n\n{fun-fact}"` composes with zero new concepts.
+
+**AI, final shape:** `type: llm` + `llm: <id>` reference — supersedes `kind: ollama` with
+`from:`/`prompt:` (the body is the prompt; you inject `{ci-detail}` and ask inline; `from:`
+is subsumed by embedding). One stencil type, swappable backend
+(`ollama | openai | anthropic | claude-agent`), creds behind `credentials:`. Engine notes
+carry over: POST `{url}/api/generate`, extract `.response`; temp 0/seed narrows but never
+guarantees byte-stability — impure by construction. The old ollama toy component wasn't
+useful because it was prompt-in-a-vacuum; this lands because the input is a *composed
+stencil of run truth*.
+
+### Consumers & the record
+
+- **Persisted "last summary": the old detailed story is DEAD.** The current
+  `.stagefreight/narrate/summary.md` output (the story.md spine above) does not survive.
+  The persisted record is the deterministic render of the run's `summary` stencil
+  (modality-resolved, or the user's override). Determinism test carries over: fixed
+  cistate rendered twice → identical bytes.
+- **Release notes become a consumer — behind a byte-parity gate.** The release body
+  migrates to a shipped stencil, and the migration is acceptable ONLY if the default
+  render is **byte-identical** to today's generated release notes (golden test — same
+  discipline as the scribe extraction). Templated-and-adaptable with zero visible change,
+  or it doesn't ship. The determinism boundary applies with teeth: an `llm` stencil
+  embedded in a release body is a **validation error** — AI feeds dispatch, never the
+  committed record.
+- **Evaluation:** lazy per consumer, memoized per run — a `triage` referenced only by a
+  `when: {outcomes: [failure]}` notification never calls ollama on green. Impure errors
+  degrade the stencil to empty (presentation never hard-fails a run). Embed cycles are a
+  validation error.
+
+### In-pass purifications (existing grammar)
+
+- **De-nest `{docker.tag.v{base}.updated}`** — the shipped config's last nested `{}`.
+  Dynamic part becomes a knob (`type: docker-tag, tag: "v{base}", stat: size`-shaped);
+  tokens stay flat.
+- **Colon double-duty documented, not churned:** after a known source (`env:`/`var:`) = a
+  lookup; after a fact (`{sha:8}`, `{hex:8}`) = a width modifier. Closed prefix set keeps
+  it unambiguous.
+
+### Noted for later
+
+- `when:` may need dimensions beyond `outcomes:` — the old `on: release` case is already
+  expressible (`events: [tag]` + `git_tags:`), but gitops **drift** is a run condition
+  `outcomes:` doesn't cover. Extend `when:` when the gitops modality lands, not before.
+- `sf narrate template <modality>` scaffold survives in spirit: emit the shipped default
+  stencil body so overrides fork from the real thing.
+- Continuity ("3rd green in a row") — someday, unchanged.
+
+### Addendum (same session) — two arcs, line elision, the copy bar
+
+Iterating the actual target output against "is this what devs want" refined UPDATE 2 in
+four ways (scratchpad commit `fe7c6cc`):
+
+- **Two-arc default — branching lives in routing, never in bodies.** One body straining to
+  render pass AND fail is success-hardcoded with holes. Ship `summary` (success-voiced:
+  "Shipped … →", commits-since) and `postmortem` (failure-voiced: leads with
+  `Failed in {failure.subsystem} — {failure.reason}` + `{failures}` rows, "commits
+  *waiting* since"), selected by `when: {outcomes:}` on two notification entries.
+  `announces:` entries take the same optional `when:`. The complete trio: **elision
+  handles less data · modality resolution handles different data · `when:` routing
+  handles a different arc.** Conditionals stay dead.
+- **Line elision (new engine rule).** A line containing ≥1 `{}` where EVERY `{}` resolved
+  empty drops whole — authored text included. Makes authored labels safe
+  (`Shipped {publish.tags} → …` vanishes cleanly when publish didn't run). Layout law:
+  keep authored lines single-domain so tokens are all-present or all-empty together. This
+  is what keeps ALL wording in the body — no phrase-shaped facts/units baking English into
+  Go (units stay reserved for the four that loop).
+- **The copy bar.** Shipped default bodies are PRODUCT COPY, held to the structured-output
+  UX standard: visually scannable, zero insider vocabulary, and for counts **the label IS
+  the information** ("Security — 0 blocking, 3 low CVEs", never a bare "0 blocking · 3
+  low"). Acceptance = the render shown to someone without SF context; per-modality
+  defaults iterate against real runs on a real phone before they're called shipped.
+- **Facts:** `{commit_subject}` renames to **`{commit_title}`** (= CI_COMMIT_TITLE — the
+  forge's own word). `{failure.subsystem}`/`{failure.reason}` and per-domain
+  `{<domain>.outcome}`/`{<domain>.reason}` are facts (cistate Outcome/Reason are recorded
+  data, not prose). Default bodies elide skipped domains; explicit skipped lines are an
+  operator choice via those facts.
+- **Deferred, curious — `when.transitions:`.** The UX teams actually keep enabled is
+  transition-aware silence (broke / fixed / still-failing / milestone; routine green is
+  the dashboard's job — heartbeat pings are the muted-channel anti-pattern). Purely more
+  `when:` grammar: `transitions: [broke|fixed|still-failing|still-passing]` compares to
+  the previous run on the same ref; brings `{runs.streak}`/`{runs.since_green}` facts.
+  To scope: previous-outcome source on ephemeral runners (natural fit: forge API query at
+  dispatch time). Once landed, the shipped profile goes quiet (postmortem on
+  broke/still-failing, recovery on fixed, summary reserved for milestones + stdout);
+  until then the outcome-gated two-arc default stands. Promotes the old "Continuity
+  (someday)" from garnish to the core of notification UX.
+
+### The build (supersedes "Next")
+
+1. cistate enrichment: test/security/build record structured results (counts, coverage,
+   vuln rows, digest, diff) — the honest gap called out under "Rendered" still holds.
+2. The four `type: ci` producers + `{diff}`/`{diff.patch}` facts.
+3. `type: text` grow-up (`content:` → `body:`, embed resolution) — lands with the
+   extraction plan's unified render pass.
+4. `{#if}` removal + `templates/image.md` migration to elision + status facts.
+5. `notifications:` domain (fused entries, full ntfy knob set, `when.outcomes:`) +
+   `llms:` library + `type: llm`.
+6. Per-modality default bodies (image drafted; gitops/governance designed against real
+   runs) + release-notes-as-stencil behind the byte-parity golden.

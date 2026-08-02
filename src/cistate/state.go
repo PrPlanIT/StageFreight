@@ -92,6 +92,13 @@ type SubsystemState struct {
 	// fix was produced (the remediation candidate). Consumed by narrate / publish / the forge
 	// status renderer / webhooks — never by the orchestrator's build decision.
 	Replacement string `json:"replacement,omitempty"`
+	// Results is the subsystem's recorded FACTS — flat key→value pairs a subsystem
+	// computed during the run (test: passed/failed/total/coverage; security:
+	// blocking/low/…; publish: tags/registries). Consumed by the stencil fact
+	// resolver as {<domain>.<key>} tokens. Riding the subsystem shard keeps facts
+	// union-safe across forwarded job artifacts (same guarantee as Outcome). Generic
+	// by design: any subsystem (any modality) records facts without a schema change.
+	Results map[string]string `json:"results,omitempty"`
 }
 
 // PipelineStatus derives the aggregate pipeline outcome from all subsystems.
@@ -149,7 +156,9 @@ func (st *State) PipelineStatus() string {
 	return "passing"
 }
 
-// CIState captures the CI environment for this pipeline run.
+// CIState captures the CI environment for this pipeline run, plus the run's
+// identity facts ({project}/{modality}/{pipeline_url}/{commit_title}) recorded by
+// the phases that can compute them (best-effort fill; empty stays empty).
 type CIState struct {
 	Provider   string `json:"provider"`
 	PipelineID string `json:"pipeline_id"`
@@ -157,6 +166,12 @@ type CIState struct {
 	Branch     string `json:"branch,omitempty"`
 	Tag        string `json:"tag,omitempty"`
 	SHA        string `json:"sha"`
+
+	Project     string `json:"project,omitempty"`      // repo/project name ({project})
+	Modality    string `json:"modality,omitempty"`     // lifecycle mode ({modality})
+	PipelineURL string `json:"pipeline_url,omitempty"` // forge pipeline URL ({pipeline_url})
+	CommitTitle string `json:"commit_title,omitempty"` // HEAD commit subject ({commit_title})
+	Version     string `json:"version,omitempty"`      // detected version string ({version})
 }
 
 // BuildState holds build-specific domain metadata.
@@ -296,15 +311,43 @@ func WriteState(rootDir string, st *State) error {
 	return writeSubsystemShards(rootDir, st.Subsystems)
 }
 
-// RecordSubsystem upserts a subsystem entry by name.
+// RecordSubsystem upserts a subsystem entry by name. A record carrying no Results
+// preserves the existing entry's Results — lifecycle records (attempted/outcome) and
+// fact records (MergeSubsystemResults) are written by different call sites, and an
+// outcome upsert must not erase the facts a subsystem already recorded.
 func (st *State) RecordSubsystem(s SubsystemState) {
 	for i, existing := range st.Subsystems {
 		if existing.Name == s.Name {
+			if s.Results == nil {
+				s.Results = existing.Results
+			}
 			st.Subsystems[i] = s
 			return
 		}
 	}
 	st.Subsystems = append(st.Subsystems, s)
+}
+
+// MergeSubsystemResults merges fact key→value pairs into a subsystem's Results,
+// creating the entry if the subsystem has no record yet and leaving every lifecycle
+// field untouched. This is the write path for recorded facts ({domain.key} tokens).
+func (st *State) MergeSubsystemResults(name string, results map[string]string) {
+	if len(results) == 0 {
+		return
+	}
+	for i := range st.Subsystems {
+		if st.Subsystems[i].Name != name {
+			continue
+		}
+		if st.Subsystems[i].Results == nil {
+			st.Subsystems[i].Results = make(map[string]string, len(results))
+		}
+		for k, v := range results {
+			st.Subsystems[i].Results[k] = v
+		}
+		return
+	}
+	st.Subsystems = append(st.Subsystems, SubsystemState{Name: name, Results: results})
 }
 
 // UpdateState does read-modify-write. The caller mutates individual fields

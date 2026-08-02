@@ -65,3 +65,36 @@ func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachable
 	}
 	return base - excused
 }
+
+// GatingVulns returns the vulnerabilities GatingCount counts — at or above the
+// fail-on threshold and not excused as proven-unreachable — in scan-result order.
+// Nil when the gate is off. This is the ROW source for audience text ({vulns});
+// the counts stay authoritative for the gate itself.
+func GatingVulns(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachablePolicy string) []Vulnerability {
+	if failOn == "" || strings.EqualFold(strings.TrimSpace(failOn), "off") {
+		return nil
+	}
+	minRank := severity.Rank(severity.Normalize(failOn))
+
+	excusedIDs := map[string]bool{}
+	if unreachablePolicy == "pass" && cs != nil {
+		for _, v := range cs.Vulnerabilities {
+			if r, ok := reachabilityOf(v); !ok || r.State != evidence.ReachUnreachable {
+				continue
+			}
+			excusedIDs[v.ID] = true
+			for _, a := range v.Aliases {
+				excusedIDs[a] = true
+			}
+		}
+	}
+
+	var out []Vulnerability
+	for _, v := range result.Vulnerabilities {
+		if severity.Rank(severity.Normalize(v.Severity)) < minRank || excusedIDs[v.ID] {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}

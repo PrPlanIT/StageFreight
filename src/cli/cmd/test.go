@@ -6,6 +6,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cli/cliflag"
 	"os"
 
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/test"
 	"github.com/spf13/cobra"
@@ -59,14 +60,41 @@ func runTestCmd(cmd *cobra.Command, args []string) error {
 // the exact gate a lint critical uses — no new authorization wiring. Advisory
 // suites render red but never affect the return.
 func auditionTests(ctx context.Context, appCfg *config.Config, rootDir string) error {
-	passed, err := test.Verify(ctx, appCfg, rootDir, os.Stdout, test.IntentCorrectness)
+	passed, res, err := test.Verify(ctx, appCfg, rootDir, os.Stdout, test.IntentCorrectness)
 	if err != nil {
 		return fmt.Errorf("test subsystem: %w", err)
 	}
+	recordTestSubsystem(rootDir, passed, res)
 	if !passed {
 		return silentExit(fmt.Errorf("test: one or more gating suites failed"))
 	}
 	return nil
+}
+
+// recordTestSubsystem persists the test subsystem's outcome + structured facts
+// ({tests.passed}/{tests.failed}/{tests.total}/{tests.coverage}/{tests.failures})
+// into cistate for the stencil language to read. Recording never fails the gate.
+func recordTestSubsystem(rootDir string, passed bool, res *test.TestResult) {
+	if res == nil || len(res.Suites) == 0 {
+		return
+	}
+	outcome := "success"
+	if !passed {
+		outcome = "failed"
+	}
+	reason := ""
+	if facts := res.Facts(); facts["failed"] != "" && facts["failed"] != "0" {
+		reason = facts["failed"] + " of " + facts["total"] + " tests failed"
+	}
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
+		st.RecordSubsystem(cistate.SubsystemState{
+			Name: "test", Attempted: true, Completed: true, Required: true,
+			Outcome: outcome, Reason: reason,
+			Results: res.Facts(),
+		})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
 }
 
 // filterSuites selects by explicit suite ids (if any) and/or gate tier.

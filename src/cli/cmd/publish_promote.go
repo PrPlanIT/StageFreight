@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/cas"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -55,6 +58,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	existingResults, _ := artifact.ReadResultsManifest(rootDir)
 	rb := build.ResultsBuilderFromManifest(existingResults)
 	recordedResults := false
+	var pubTags, pubHosts, pubDigests []string
 
 	// Per-artifact distribution evidence, collected then rendered as a first-class
 	// section. Publish is now the sole phase that mutates registries, so it must
@@ -147,6 +151,9 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 					continue
 				}
 				dist.tags = append(dist.tags, distTag{ref: res.Ref, digest: res.Digest, ok: true})
+				pubTags = appendDistinct(pubTags, tag)
+				pubHosts = appendDistinct(pubHosts, t.Registry.Host)
+				pubDigests = appendDistinct(pubDigests, shortDigest(res.Digest))
 				if t.Registry.NativeScan {
 					k := scanKey{t.Registry.Host, t.Registry.Path}
 					scanTags[k] = append(scanTags[k], tag)
@@ -247,6 +254,20 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		sec.Row("  digest preserved")
 		sec.Row("  rebuild not required")
 		sec.Close()
+	}
+
+	// Structured publish facts ({publish.tags}/{publish.registries}) for the stencil
+	// language — recorded by the phase that performed the distribution.
+	if len(pubTags) > 0 {
+		if err := cistate.UpdateState(rootDir, func(s *cistate.State) {
+			s.MergeSubsystemResults("publish", map[string]string{
+				"tags":       strings.Join(pubTags, ", "),
+				"registries": strings.Join(pubHosts, ", "),
+				"digest":     strings.Join(pubDigests, ", "),
+			})
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+		}
 	}
 
 	// Write published.json from the publish phase — the observed publication

@@ -6,11 +6,7 @@ import (
 )
 
 func env() Env {
-	e := MapEnv(
-		map[string]string{"name": "stagefreight", "empty": "", "shipped": "6 images"},
-		map[string]bool{"on": true, "off": false},
-	)
-	return e
+	return MapEnv(map[string]string{"name": "stagefreight", "empty": "", "shipped": "6 images"})
 }
 
 func TestRender_Element(t *testing.T) {
@@ -27,36 +23,40 @@ func TestRender_UnknownLiteral(t *testing.T) {
 	}
 }
 
-// A resolver that yields "" renders nothing (still consumed); the stencil never breaks.
+// A resolver that yields "" renders nothing — and a line whose EVERY embed resolved
+// empty drops whole, authored text included (line elision): the label vanishes with
+// its data, so "no data → the line disappears" needs no conditionals.
 func TestRender_EmptyResolves(t *testing.T) {
-	if got := Render("[{empty}]", env()); got != "[]\n" {
-		t.Fatalf("got %q", got)
+	if got := Render("[{empty}]", env()); got != "\n" {
+		t.Fatalf("all-empty line should elide: got %q", got)
 	}
 }
 
-func TestRender_ConditionalIfElse(t *testing.T) {
-	if got := Render("{#if on}A{#else}B{/if}-{#if off}C{#else}D{/if}", env()); got != "A-D\n" {
-		t.Fatalf("got %q", got)
+// Line elision accounting: an all-empty-token line drops; any non-empty resolution
+// or unknown-literal token keeps the line (visibility beats tidiness); a line with
+// no embeds at all is never elided.
+func TestRender_LineElision(t *testing.T) {
+	e := MapEnv(map[string]string{"a": "A", "b": ""})
+	cases := []struct{ in, want string }{
+		{"one\nShipped {b} → {b}\ntwo", "one\ntwo\n"},              // label + all-empty → whole line gone
+		{"one\nShipped {a} → {b}\ntwo", "one\nShipped A →\ntwo\n"}, // non-empty keeps the line
+		{"one\n{b} {nope}\ntwo", "one\n{nope}\ntwo\n"},             // unknown literal keeps the line
+		{"just text\n{b}", "just text\n"},                          // token-only empty line drops
+		{"{{a}}\n{b}", "{{a}}\n"},                                  // escape is authored text, never elides
+	}
+	for _, tc := range cases {
+		if got := Render(tc.in, e); got != tc.want {
+			t.Errorf("%q: got %q want %q", tc.in, got, tc.want)
+		}
 	}
 }
 
-func TestRender_ConditionalNoElseDropped(t *testing.T) {
-	if got := Render("x{#if off}Y{/if}z", env()); got != "xz\n" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestRender_ConditionalNested(t *testing.T) {
-	tmpl := "{#if on}outer {#if off}io{#else}ie{/if} tail{/if}"
-	if got := Render(tmpl, env()); got != "outer ie tail\n" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-// Unbalanced conditional must not lose text or panic — emitted literally.
-func TestRender_UnbalancedLiteral(t *testing.T) {
-	if got := Render("before {#if on}dangling", env()); got != "before {#if on}dangling\n" {
-		t.Fatalf("got %q", got)
+// There are NO conditionals in the grammar: a {#if …} sequence is just unknown
+// tokens, left literal so the retired syntax is VISIBLE in output, never silently
+// interpreted or swallowed.
+func TestRender_NoConditionalGrammar(t *testing.T) {
+	if got := Render("x {#if on}Y{/if} z", env()); got != "x {#if on}Y{/if} z\n" {
+		t.Fatalf("retired conditional syntax must stay literal: got %q", got)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestRender_CollapsesBlankLines(t *testing.T) {
 
 // Nil closures degrade gracefully rather than panicking.
 func TestRender_NilEnvSafe(t *testing.T) {
-	if got := Render("x {y} {#if z}q{/if}", Env{}); got != "x {y}\n" {
+	if got := Render("x {y}", Env{}); got != "x {y}\n" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -97,7 +97,7 @@ func TestRender_ResolvesOncePerRender(t *testing.T) {
 // {{ … }} is a gitver literal-escape: stencil must NOT resolve it, and must pass it
 // through untouched so the downstream leaf fact-pass unescapes it to a literal.
 func TestRender_DoubleBraceEscaped(t *testing.T) {
-	e := MapEnv(map[string]string{"build": "BADGE", "sha": "SHA"}, nil)
+	e := MapEnv(map[string]string{"build": "BADGE", "sha": "SHA"})
 	if got := Render("{build}", e); got != "BADGE\n" {
 		t.Fatalf("single brace should resolve: %q", got)
 	}
@@ -109,17 +109,18 @@ func TestRender_DoubleBraceEscaped(t *testing.T) {
 	}
 }
 
-// An element that resolves to empty leaves no stray separator space — but a mid-prose
-// empty must NOT eat a real space (e.g. a comma's).
+// An element that resolves to empty leaves no stray separator space on a line that
+// SURVIVES elision (some other embed resolved non-empty) — and a mid-prose empty
+// must NOT eat a real space (e.g. a comma's).
 func TestRender_EmptyElidesSeparatorSpace(t *testing.T) {
-	e := MapEnv(map[string]string{"a": "A", "b": "", "c": "C"}, nil)
+	e := MapEnv(map[string]string{"a": "A", "b": "", "c": "C"})
 	cases := []struct{ in, want string }{
-		{"{a} {b} {c}", "A C\n"}, // mid-sequence: following space consumed
-		{"{a} {b}", "A\n"},       // trailing empty: preceding space consumed
-		{"x {b} y", "x y\n"},     // single following space consumed
-		{"{b} {c}", "C\n"},       // leading empty: following space consumed
-		{"## H {b}", "## H\n"},   // trailing empty at end-of-line
-		{"a, {b}c", "a, c\n"},    // mid-prose: the comma's space is preserved
+		{"{a} {b} {c}", "A C\n"},   // mid-sequence: following space consumed
+		{"{a} {b}", "A\n"},         // trailing empty: preceding space consumed
+		{"{a} x {b} y", "A x y\n"}, // single following space consumed
+		{"{b} {c}", "C\n"},         // leading empty: following space consumed
+		{"## H {b} {c}", "## H C\n"},
+		{"{a}, {b}c", "A, c\n"}, // mid-prose: the comma's space is preserved
 	}
 	for _, tc := range cases {
 		if got := Render(tc.in, e); got != tc.want {
@@ -130,7 +131,7 @@ func TestRender_EmptyElidesSeparatorSpace(t *testing.T) {
 
 // The engine is pure: the same template + Env renders byte-identical output.
 func TestRender_Deterministic(t *testing.T) {
-	tmpl := "{name}: {#if on}{shipped}{#else}{empty}{/if}"
+	tmpl := "{name}: {shipped} {empty}"
 	if a, b := Render(tmpl, env()), Render(tmpl, env()); a != b {
 		t.Fatalf("not deterministic:\n a=%q\n b=%q", a, b)
 	}

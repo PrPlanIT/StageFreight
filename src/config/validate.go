@@ -337,6 +337,14 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		// When block validation
 		werrs := validateWhen(t.When, tpath, cfg.Git.Tags, cfg.Git.Branches)
 		errs = append(errs, werrs...)
+		// outcomes: is the notification dimension of when: — a publish target's
+		// eligibility is evaluated before a run outcome exists.
+		for _, w := range t.When {
+			if len(w.Outcomes) > 0 {
+				errs = append(errs, fmt.Sprintf("%s.when.outcomes: not valid on publish targets (outcomes: gates notifications)", tpath))
+				break
+			}
+		}
 	}
 
 	// ── Stencils library + scribe files ──────────────────────────────────
@@ -348,12 +356,52 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, fmt.Sprintf("stencils[%d]: id is required", i))
 		}
 		if reservedStencilIDs[c.ID] {
-			errs = append(errs, fmt.Sprintf("%s: id shadows a reserved gitver keyword; rename it (a {%s} embed would resolve to the fact, not the stencil)", cpath, c.ID))
+			errs = append(errs, fmt.Sprintf("%s: id shadows a reserved fact name; rename it (a {%s} embed would resolve to the fact, not the stencil)", cpath, c.ID))
+		}
+		if strings.Contains(c.ID, ".") {
+			errs = append(errs, fmt.Sprintf("%s: dotted ids are reserved for {domain.stat} facts; rename it", cpath))
 		}
 		stencilIDs[c.ID] = true
 		errs = append(errs, validateStencilDef(c, cpath, buildIDs)...)
 	}
 
+	// Embed cycles: a text stencil's body may embed other stencils by {id}; a cycle
+	// ({a}→{b}→{a}, or a self-embed) can never resolve and is rejected here rather
+	// than degraded at render time. Only edges to DECLARED stencil ids count — every
+	// other token is a fact/var for the leaf-pass, not an embed.
+	if cycle := findStencilCycle(cfg.Stencils, stencilIDs); cycle != "" {
+		errs = append(errs, fmt.Sprintf("stencils: embed cycle: %s", cycle))
+	}
+
+	// ── LLMs library ──────────────────────────────────────────────────────
+
+	llmIDs := make(map[string]bool, len(cfg.LLMs))
+	for _, l := range cfg.LLMs {
+		lpath := fmt.Sprintf("llms[%s]", l.ID)
+		llmIDs[l.ID] = true
+		switch l.Provider {
+		case "ollama":
+			if l.URL == "" {
+				errs = append(errs, fmt.Sprintf("%s: provider ollama requires url", lpath))
+			}
+			if l.Model == "" {
+				errs = append(errs, fmt.Sprintf("%s: provider ollama requires model", lpath))
+			}
+		case "":
+			errs = append(errs, fmt.Sprintf("%s: provider is required (ollama)", lpath))
+		case "openai", "anthropic", "claude-agent":
+			errs = append(errs, fmt.Sprintf("%s: provider %q is reserved but not yet implemented (supported: ollama)", lpath, l.Provider))
+		default:
+			errs = append(errs, fmt.Sprintf("%s: unknown provider %q (supported: ollama)", lpath, l.Provider))
+		}
+	}
+	for _, c := range cfg.Stencils {
+		if c.EffectiveKind() == "llm" && c.LLM != "" && !llmIDs[c.LLM] {
+			errs = append(errs, fmt.Sprintf("stencils[%s]: llm %q not found in llms:", c.ID, c.LLM))
+		}
+	}
+
+	llmTainted := LLMTaintedStencils(cfg.Stencils)
 	for _, f := range cfg.Scribe.Files {
 		fpath := fmt.Sprintf("scribe.files[%s]", f.ID)
 		if f.File == "" {
@@ -368,6 +416,54 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			if !stencilIDs[ref] {
 				errs = append(errs, fmt.Sprintf("%s: item %q not found in stencils", fpath, ref))
 			}
+		}
+		// The determinism boundary: AI output is dispatch-only (stdout cards,
+		// notifications) — never the committed record. A scribe region referencing
+		// an llm stencil, directly or through a text embed, is rejected.
+		for _, ref := range append(append([]string{}, f.Items...), BodyRefs(f.Body)...) {
+			if llmTainted[ref] {
+				errs = append(errs, fmt.Sprintf("%s: stencil %q carries AI output — dispatch-only, never committed to files", fpath, ref))
+			}
+		}
+	}
+
+	// ── Notifications ─────────────────────────────────────────────────────
+
+	for _, n := range cfg.Notifications {
+		npath := fmt.Sprintf("notifications[%s]", n.ID)
+		switch n.Provider {
+		case "ntfy", "webhook":
+		case "":
+			errs = append(errs, fmt.Sprintf("%s: provider is required (ntfy | webhook)", npath))
+		default:
+			errs = append(errs, fmt.Sprintf("%s: unknown provider %q (supported: ntfy, webhook)", npath, n.Provider))
+		}
+		if n.URL == "" {
+			errs = append(errs, fmt.Sprintf("%s: url is required", npath))
+		}
+		errs = append(errs, validateWhen(n.When, npath, cfg.Git.Tags, cfg.Git.Branches)...)
+		for _, w := range n.When {
+			for _, o := range w.Outcomes {
+				switch o {
+				case "success", "failure", "warning":
+				default:
+					errs = append(errs, fmt.Sprintf("%s.when.outcomes: unknown outcome %q (success | failure | warning)", npath, o))
+				}
+			}
+		}
+	}
+
+	// ── Narrate ───────────────────────────────────────────────────────────
+
+	// announces: ids must resolve — a declared stencil, or a shipped default
+	// (which a user stencil may shadow; shadowing a shipped id is the override).
+	for i, id := range cfg.Narrate.Announces {
+		if id == "" {
+			errs = append(errs, fmt.Sprintf("narrate.announces[%d]: id is required", i))
+			continue
+		}
+		if !stencilIDs[id] && !IsShippedStencilID(id) {
+			errs = append(errs, fmt.Sprintf("narrate.announces[%d]: %q is not a declared stencil or a shipped default", i, id))
 		}
 	}
 
@@ -909,8 +1005,29 @@ func validateStencilDef(c StencilDef, path string, buildIDs map[string]bool) []s
 		}
 
 	case "text":
-		if c.Content == "" {
-			errs = append(errs, fmt.Sprintf("%s: type text requires content", path))
+		if c.Body == "" {
+			errs = append(errs, fmt.Sprintf("%s: type text requires body", path))
+		}
+
+	case "ci":
+		// section: picks the run-state producer; defaults to the stencil id (so the
+		// shipped ids work with knob-only overrides like {type: ci, limit: 5}).
+		section := c.Section
+		if section == "" {
+			section = c.ID
+		}
+		switch section {
+		case "failures", "vulns", "artifacts", "changelog":
+		default:
+			errs = append(errs, fmt.Sprintf("%s: type ci requires section: failures | vulns | artifacts | changelog (defaults to the stencil id)", path))
+		}
+
+	case "llm":
+		if c.Body == "" {
+			errs = append(errs, fmt.Sprintf("%s: type llm requires body (the composed input — inject facts/stencils and write the ask inline)", path))
+		}
+		if c.LLM == "" {
+			errs = append(errs, fmt.Sprintf("%s: type llm requires llm: (an llms: entry id)", path))
 		}
 
 	case "component":

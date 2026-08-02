@@ -5,6 +5,9 @@
 package test
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -78,4 +81,43 @@ func (r TestResult) Failed() bool {
 		}
 	}
 	return false
+}
+
+// Facts flattens the aggregate result into the recorded fact map the stencil
+// language reads as {tests.*}: passed/failed/total counts, coverage (only when
+// exactly one suite measured it — no invented cross-suite math), and the failing
+// leaf-test names. Empty map when nothing ran.
+func (r TestResult) Facts() map[string]string {
+	if len(r.Suites) == 0 {
+		return nil
+	}
+	total, failed := 0, 0
+	var failures []string
+	measured := 0
+	coverage := ""
+	for _, s := range r.Suites {
+		for _, p := range s.Packages {
+			total += p.Tests
+			failed += len(p.Failures)
+			for _, f := range p.Failures {
+				failures = append(failures, f.Name)
+			}
+		}
+		if s.Coverage >= 0 {
+			measured++
+			coverage = fmt.Sprintf("%.1f%%", s.Coverage)
+		}
+	}
+	facts := map[string]string{
+		"total":  strconv.Itoa(total),
+		"passed": strconv.Itoa(total - failed),
+		"failed": strconv.Itoa(failed),
+	}
+	if measured == 1 {
+		facts["coverage"] = coverage
+	}
+	if len(failures) > 0 {
+		facts["failures"] = strings.Join(failures, ", ")
+	}
+	return facts
 }

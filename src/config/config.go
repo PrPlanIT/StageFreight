@@ -76,6 +76,10 @@ type Config struct {
 	// Dependency holds configuration for the dependency update subsystem.
 	Dependency DependencyConfig `yaml:"dependency"`
 
+	// LLMs is the model endpoint library (llms:): id → { provider, url, model,
+	// credentials }, referenced by type: llm stencils via llm: <id>.
+	LLMs OrderedLLMs `yaml:"llms,omitempty"`
+
 	// Stencils is the shared audience-text library: id → reusable markdown element
 	// with {…} variable fill, embeddable as {id} anywhere SF composes text (scribe
 	// file regions, narrate, release bodies). Presence-neutral (a shared library, not
@@ -86,6 +90,15 @@ type Config struct {
 	// (placement regions whose bodies reference stencils by {id}) + commit:.
 	// Presence-enabled (files/commit gate the stage).
 	Scribe ScribeConfig `yaml:"scribe"`
+
+	// Notifications sends a message when a run finishes: id → { provider, on, subject,
+	// body, … }. Flat, one entry per notification. subject/body accept {…} embeds; an
+	// omitted body defaults to the run's apex summary. Dispatched by the narrate phase.
+	Notifications OrderedNotifications `yaml:"notifications,omitempty"`
+
+	// Narrate is the stdout storytelling surface: announces: lists stencil ids rendered
+	// as structured-output cards at the end of the run (default: the built-in summary).
+	Narrate NarrateConfig `yaml:"narrate,omitempty"`
 
 	Test TestConfig `yaml:"test"`
 

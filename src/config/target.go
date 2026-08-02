@@ -270,6 +270,13 @@ type TargetCondition struct {
 	// private mirror that only resolves from the self-hosted GitLab runner, or a
 	// ghcr push that only makes sense on GitHub Actions.
 	Forges []string `yaml:"forges,omitempty"`
+
+	// Outcomes gates on the RUN outcome (success | failure | warning) — the
+	// notification dimension of the one when: grammar ("failures, but only on
+	// main" composes with branches:/events:). Empty = every outcome. Only valid
+	// on notifications: a publish target's when: is evaluated for eligibility
+	// BEFORE an outcome exists, so outcomes: there is a validation error.
+	Outcomes []string `yaml:"outcomes,omitempty"`
 }
 
 // validTargetKinds enumerates all recognized target kinds.

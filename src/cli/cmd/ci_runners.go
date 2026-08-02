@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,6 +215,43 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 				Name: "build", Attempted: true, Completed: true, Required: buildRequired,
 				Outcome: "success", Reason: reason,
 			})
+			// Structured facts for the stencil language: what the build produced
+			// ({build.images}/{build.digest}) and — when perform itself pushed —
+			// what went out ({publish.tags}/{publish.registries}). Under transport
+			// nothing is pushed here; the publish phase records the publish facts.
+			var imageNames, digests, tags, hosts, extraArtifacts []string
+			for _, a := range outputs.Artifacts {
+				if a.Kind == "docker" {
+					imageNames = appendDistinct(imageNames, a.Name)
+				} else {
+					extraArtifacts = appendDistinct(extraArtifacts, fmt.Sprintf("%s (%s)", a.Name, a.Kind))
+				}
+			}
+			for _, v := range views {
+				if v.PushStatus != artifact.OutcomeSuccess {
+					continue
+				}
+				digests = appendDistinct(digests, shortDigest(v.Digest))
+				tags = appendDistinct(tags, v.Tag)
+				hosts = appendDistinct(hosts, v.Host)
+			}
+			buildFacts := map[string]string{}
+			if len(imageNames) > 0 {
+				buildFacts["images"] = strconv.Itoa(len(imageNames))
+			}
+			if len(digests) > 0 {
+				buildFacts["digest"] = strings.Join(digests, ", ")
+			}
+			if len(extraArtifacts) > 0 {
+				buildFacts["artifacts"] = strings.Join(extraArtifacts, "\n") // {artifacts} rows
+			}
+			st.MergeSubsystemResults("build", buildFacts)
+			if len(tags) > 0 {
+				st.MergeSubsystemResults("publish", map[string]string{
+					"tags":       strings.Join(tags, ", "),
+					"registries": strings.Join(hosts, ", "),
+				})
+			}
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 		}
@@ -253,6 +291,29 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	}
 
 	return nil
+}
+
+// appendDistinct appends v when non-empty and not already present (order-preserving).
+func appendDistinct(list []string, v string) []string {
+	if v == "" {
+		return list
+	}
+	for _, existing := range list {
+		if existing == v {
+			return list
+		}
+	}
+	return append(list, v)
+}
+
+// shortDigest abbreviates an image digest for audience text ("sha256:75225fc") —
+// the full digest stays in the manifests; the fact is a recognizer, not a proof.
+func shortDigest(d string) string {
+	algo, hex, ok := strings.Cut(d, ":")
+	if !ok || len(hex) <= 7 {
+		return d
+	}
+	return algo + ":" + hex[:7]
 }
 
 // ── deps runner ──────────────────────────────────────────────────────────────
@@ -402,7 +463,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		// not this graph change. A failed re-verify REJECTS the bump (no commit) but
 		// does NOT halt the pipeline: the committed tree is still healthy. Same test
 		// subsystem, one renderer/gate — renders as "Verify Upgrade".
-		if ok, verr := test.Verify(ctx, appCfg, rootDir, os.Stdout, test.IntentDepReverify); verr != nil {
+		if ok, _, verr := test.Verify(ctx, appCfg, rootDir, os.Stdout, test.IntentDepReverify); verr != nil {
 			fmt.Fprintf(os.Stderr, "  deps: re-verification error; not committing the update: %v\n", verr)
 			return nil
 		} else if !ok {
