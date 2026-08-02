@@ -52,13 +52,15 @@ func (st *State) Fact(name string) (string, bool) {
 	// through to the gitver leaf-pass instead of resolving to nothing).
 	case "sha":
 		if st.CI.SHA == "" {
-			return "", false
+			return "", false // no run identity → the token stays gitver's
 		}
 		return shortSHA(st.CI.SHA), true
 	case "version":
-		if st.CI.Version == "" {
-			return "", false
+		if st.CI.SHA == "" {
+			return "", false // no run identity → the token stays gitver's
 		}
+		// Run identity present: an unversioned repo (gitops) records no version —
+		// the token elides rather than rendering a literal {version} on the phone.
 		return st.CI.Version, true
 	}
 

@@ -16,12 +16,19 @@ package config
 // (so line elision drops whole lines with their labels when a domain recorded
 // nothing), and the pipeline link stays last for tap-through.
 
-// shippedSummaryImage is the SUCCESS arc: what shipped, the receipts, what changed.
-const shippedSummaryImage = `{commit_title}
+// shippedSummary is the SUCCESS arc: what shipped/converged, the receipts, what
+// changed. It is the UNION body — every modality's lines in one template,
+// composed per-LINE: each line is single-domain and elides when its domain
+// recorded nothing, so an image run, a gitops run, or a repo doing both all
+// render coherently from this one body. Adding a modality = designing its fact
+// vocabulary and appending its lines here — never a new template.
+const shippedSummary = `{commit_title}
 {sha} · {version}
 
 Shipped {publish.tags} → {publish.registries}
 {artifacts}
+Converged {reconcile.succeeded}/{reconcile.total} {reconcile.units} on {reconcile.cluster}
+Skipped {reconcile.declined} that failed validation
 
 Tests — {tests.passed}/{tests.total} passed · {tests.coverage} coverage
 Security — {security.blocking} blocking, {security.low} low CVEs · SBOM {security.sbom}
@@ -34,9 +41,10 @@ Pruned {retention.pruned} stale cache entries
 → {pipeline_url}
 `
 
-// shippedPostmortemImage is the FAILURE arc: leads with the break, receipts after,
-// changelog reframed as waiting. Nothing shipped is said by the absent Shipped line.
-const shippedPostmortemImage = `{commit_title}
+// shippedPostmortem is the FAILURE arc (union body, same per-line rule): leads
+// with the break, receipts after, changelog reframed as waiting. Nothing shipped
+// is said by the absent Shipped line.
+const shippedPostmortem = `{commit_title}
 {sha} · {version}
 
 Failed in {failure.subsystem} — {failure.reason}
@@ -44,6 +52,7 @@ Failed in {failure.subsystem} — {failure.reason}
 {vulns}
 
 Tests — {tests.passed}/{tests.total} passed · {tests.coverage} coverage
+Converged {reconcile.succeeded}/{reconcile.total} {reconcile.units} on {reconcile.cluster}
 
 Commits waiting since {changelog.range} — {changelog.count}
 
@@ -64,12 +73,12 @@ const ShippedNotificationSubject = "{project} {ref} — {status} in {duration}"
 func ShippedStencil(id, modality string) (StencilDef, bool) {
 	switch id {
 	case "summary":
-		// Modality seam: image/docker (and, for now, everything else) share the
-		// image bodies; gitops/governance bodies land with their fact vocabularies.
+		// UNION bodies — one template for every modality (and any mix), composed
+		// per-line; the modality param is deliberately unused.
 		_ = modality
-		return StencilDef{ID: id, Type: "text", Body: shippedSummaryImage}, true
+		return StencilDef{ID: id, Type: "text", Body: shippedSummary}, true
 	case "postmortem":
-		return StencilDef{ID: id, Type: "text", Body: shippedPostmortemImage}, true
+		return StencilDef{ID: id, Type: "text", Body: shippedPostmortem}, true
 	// The four looping producers — the only run data that earns presentation
 	// config. Self-bounding rows read from cistate; empty renders nothing.
 	case "failures", "vulns", "artifacts", "changelog":

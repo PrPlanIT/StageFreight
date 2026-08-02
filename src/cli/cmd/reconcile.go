@@ -3,9 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/docker"
 	_ "github.com/PrPlanIT/StageFreight/src/docker" // register compose backend
@@ -92,6 +95,17 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no renderer for lifecycle mode: %q", mode)
 	}
 
+	// Record the reconcile subsystem + its facts ({reconcile.*}) into cistate —
+	// the gitops lines of the union summary render from these. Recorded BEFORE
+	// the failure check so a failed reconcile still narrates what happened.
+	// Dry-run records nothing (a plan is not an outcome). Gitops only for now:
+	// the union body's line says "on {reconcile.cluster}", which the gitops
+	// facet guarantees; the compose modality gets its own facts + line when its
+	// vocabulary is designed.
+	if !rctx.DryRun && cfg.Mode().Name == config.ModeGitops {
+		recordReconcileState(rootDir, cfg, plan, result)
+	}
+
 	// Check for failures
 	if result != nil {
 		for _, ar := range result.Actions {
@@ -108,6 +122,90 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// recordReconcileState persists the reconcile subsystem's outcome + structured
+// facts. Recording never fails the reconcile.
+func recordReconcileState(rootDir string, appCfg *config.Config, plan *runtime.LifecyclePlan, result *runtime.LifecycleResult) {
+	facts, outcome, reason := reconcileFacts(appCfg, plan, result)
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
+		st.RecordSubsystem(cistate.SubsystemState{
+			Name: "reconcile", Attempted: true, Completed: true, Required: true,
+			Outcome: outcome, Reason: reason,
+			Results: facts,
+		})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
+}
+
+// reconcileFacts flattens a reconcile plan/result into the {reconcile.*} fact map:
+// counts (total/succeeded/failed), declined (only when >0, so the line elides at
+// zero), the cluster, the backend's unit noun, and per-action failure rows for
+// the {failures} producer. A nil result (nothing executed) records the plan size
+// with zero outcomes.
+func reconcileFacts(appCfg *config.Config, plan *runtime.LifecyclePlan, result *runtime.LifecycleResult) (facts map[string]string, outcome, reason string) {
+	total, declined := 0, 0
+	backend := ""
+	if plan != nil {
+		total = len(plan.Actions)
+		declined = len(plan.Declined)
+		backend = plan.Backend
+	}
+	succeeded, failed := 0, 0
+	var failureRows []string
+	if result != nil {
+		for _, ar := range result.Actions {
+			if ar.Success {
+				succeeded++
+				continue
+			}
+			failed++
+			row := ar.Name
+			if ar.Message != "" {
+				row += " — " + ar.Message
+			}
+			failureRows = append(failureRows, row)
+		}
+	}
+
+	facts = map[string]string{
+		"total":     strconv.Itoa(total),
+		"succeeded": strconv.Itoa(succeeded),
+		"failed":    strconv.Itoa(failed),
+		"backend":   backend,
+		"units":     backendUnits(backend),
+	}
+	if cluster := strings.TrimSpace(appCfg.GitOps.Cluster.Name); cluster != "" {
+		facts["cluster"] = cluster
+	}
+	if declined > 0 {
+		facts["declined"] = strconv.Itoa(declined)
+	}
+	if len(failureRows) > 0 {
+		facts["failures"] = strings.Join(failureRows, "\n")
+	}
+
+	outcome = "success"
+	reason = ""
+	if failed > 0 {
+		outcome = "failed"
+		reason = fmt.Sprintf("%d of %d %s failed to reconcile", failed, total, backendUnits(backend))
+	}
+	return facts, outcome, reason
+}
+
+// backendUnits is the backend's own noun for its reconcile units — recorded as
+// DATA so body copy stays backend-neutral ("Converged 14/14 kustomizations").
+func backendUnits(backend string) string {
+	switch backend {
+	case "flux":
+		return "kustomizations"
+	case "compose":
+		return "services"
+	default:
+		return "targets"
+	}
 }
 
 // renderGitopsPlan renders gitops plan/result using Section output.

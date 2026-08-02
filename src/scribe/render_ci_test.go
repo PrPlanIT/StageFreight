@@ -29,14 +29,20 @@ func TestRenderCIStencil(t *testing.T) {
 		return renderCIStencil(config.StencilDef{ID: id, Type: "ci", Limit: limit}, st)
 	}
 
-	// failures: test rows first, then other failed subsystems with reasons.
-	wantFailures := "✗ TestA\n✗ TestB\n✗ TestC\n✗ mirror — sync refused"
+	// failures: test rows first, then per-subsystem row lists (which SUPPRESS the
+	// generic "✗ name — reason" row for that subsystem), then generic rows for
+	// failed subsystems without rows of their own.
+	st.RecordSubsystem(cistate.SubsystemState{
+		Name: "reconcile", Attempted: true, Outcome: "failed", Reason: "1 of 3 kustomizations failed to reconcile",
+		Results: map[string]string{"failures": "compass/echoip — health check timeout"},
+	})
+	wantFailures := "✗ TestA\n✗ TestB\n✗ TestC\n✗ compass/echoip — health check timeout\n✗ mirror — sync refused"
 	if got := ci("failures", 0); got != wantFailures {
 		t.Errorf("failures:\n got %q\nwant %q", got, wantFailures)
 	}
 
 	// limit self-bounds with a +K more tail.
-	if got := ci("failures", 2); got != "✗ TestA\n✗ TestB\n+2 more" {
+	if got := ci("failures", 2); got != "✗ TestA\n✗ TestB\n+3 more" {
 		t.Errorf("failures limit: got %q", got)
 	}
 

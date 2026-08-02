@@ -30,6 +30,7 @@ func TestFact(t *testing.T) {
 		{"failure.subsystem", "", true}, // nothing failed → elides
 		{"retention.pruned", "", true},  // zero pruned → elides
 		{"duration", "", true},          // unrecorded duration → elides
+		{"version", "", false},          // no run identity → stays gitver's token
 		{"nonsense", "", false},         // unknown bare → literal
 	}
 	for _, tc := range cases {

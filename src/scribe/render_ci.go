@@ -41,11 +41,15 @@ func renderCIStencil(def config.StencilDef, st *cistate.State) string {
 	return boundRows(rows, limit)
 }
 
-// failureRows lists what broke: each failing test by name, then every other
-// failed subsystem with its recorded reason (the test subsystem itself is the
-// headline fact — {failure.subsystem} — not a row).
+// failureRows lists what broke: each failing test by name, then any subsystem's
+// own recorded failure rows (Results["failures"], newline-joined — reconcile's
+// per-kustomization failures, and whatever future domains record), then a
+// generic "✗ name — reason" for failed subsystems that provided no rows of
+// their own. The test subsystem never gets a generic row — it is the headline
+// fact ({failure.subsystem}), and its per-test rows already speak.
 func failureRows(st *cistate.State) []string {
 	var rows []string
+	covered := map[string]bool{"test": true}
 	if tests := st.GetSubsystem("test"); tests != nil && tests.Results["failures"] != "" {
 		for _, name := range strings.Split(tests.Results["failures"], ", ") {
 			if name != "" {
@@ -55,7 +59,19 @@ func failureRows(st *cistate.State) []string {
 	}
 	for i := range st.Subsystems {
 		s := &st.Subsystems[i]
-		if !s.Attempted || s.Outcome != "failed" || s.Name == "test" {
+		if s.Name == "test" || s.Results["failures"] == "" {
+			continue
+		}
+		for _, r := range strings.Split(s.Results["failures"], "\n") {
+			if r = strings.TrimSpace(r); r != "" {
+				rows = append(rows, "✗ "+r)
+			}
+		}
+		covered[s.Name] = true
+	}
+	for i := range st.Subsystems {
+		s := &st.Subsystems[i]
+		if !s.Attempted || s.Outcome != "failed" || covered[s.Name] {
 			continue
 		}
 		if s.Reason != "" {
