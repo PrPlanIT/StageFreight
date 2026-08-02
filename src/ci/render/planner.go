@@ -117,7 +117,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:    []string{"perform", "review", "publish"},
 				Commands: []string{"stagefreight ci run narrate"},
 				Source:   model.SourceSpec{FullClone: true},
-				// Forge write credential: narrate's docs auto-commit is a git push.
+				// ForgeAPI: narrate reads forge context for the pipeline link today and
+				// run-over-run outcome queries later (when.transitions). The docs
+				// auto-commit is NOT narrate's — scribe runs in the publish phase.
 				Capabilities: model.CapabilitySpec{ForgeAPI: true},
 				Policy:       model.PolicySpec{AllowFailure: true, WhenAlways: true},
 			},
