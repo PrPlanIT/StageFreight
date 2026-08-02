@@ -102,12 +102,16 @@ publish:
     - *sf-context
   script:
     - stagefreight ci run publish
+  artifacts:
+    paths: [.stagefreight/subsystems/]
+    expire_in: 1 week
   allow_failure: true
 
 narrate:
   stage: narrate
   needs:
     - perform
+    - review
     - publish
   variables:
     GIT_DEPTH: 0

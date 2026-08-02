@@ -47,6 +47,13 @@ func dispatchNotifications(appCfg *config.Config, rootDir string, st *cistate.St
 			}
 		}
 		body := trimBodyToLength(scribe.RenderText(appCfg, rootDir, bodyTmpl), n.MaxLength)
+		if body == "" {
+			// A body whose every line elided has nothing to say — a degraded AI
+			// stencil, a modality with no matching facts. Skip rather than ping
+			// noise (ntfy renders an empty POST as "triggered").
+			fmt.Printf("  narrate: notification %q skipped — body rendered empty\n", n.ID)
+			continue
+		}
 
 		click := n.Click
 		if click == "" {

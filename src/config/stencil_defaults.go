@@ -51,8 +51,11 @@ Commits waiting since {changelog.range} — {changelog.count}
 `
 
 // ShippedNotificationSubject is the default notification title — a freeform body
-// like everything else ({duration} joins when a duration source lands).
-const ShippedNotificationSubject = "{status_icon} {project} {ref} — {status}"
+// like everything else ({duration} joins when a duration source lands). No
+// {status_icon}: ntfy renders the notification's Tags emoji in front of the
+// title already (white_check_mark / rotating_light), and two icons read as a
+// stutter. The fact stays available for custom subjects.
+const ShippedNotificationSubject = "{project} {ref} — {status}"
 
 // ShippedStencil returns SF's built-in stencil definition for id under the given
 // lifecycle modality, if one exists. Callers must check user stencils FIRST —

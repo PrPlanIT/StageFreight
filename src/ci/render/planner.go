@@ -90,18 +90,31 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
-				Name:         "publish",
-				Stage:        "publish",
-				Needs:        []string{"perform", "review"},
-				Commands:     []string{"stagefreight ci run publish"},
-				Source:       model.SourceSpec{FullClone: true},
+				Name:     "publish",
+				Stage:    "publish",
+				Needs:    []string{"perform", "review"},
+				Commands: []string{"stagefreight ci run publish"},
+				Source:   model.SourceSpec{FullClone: true},
+				Artifacts: model.ArtifactSpec{
+					// publish forwards its own subsystem fragments (subsystems/
+					// publish.json — the recorded tags/registries facts) the same way
+					// review forwards security.json: fragments are the SINGLE cross-job
+					// state carrier, and narrate unions them (ReadState). Without this
+					// the publish facts died with the job and the summary's Shipped
+					// line elided.
+					Paths:    []string{paths.Ephemeral("", "subsystems") + "/"},
+					ExpireIn: "1 week",
+				},
 				Capabilities: model.CapabilitySpec{ForgeAPI: true, PackageRegistries: packageRegistries(cfg)},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
-				Name:     "narrate",
-				Stage:    "narrate",
-				Needs:    []string{"perform", "publish"},
+				Name:  "narrate",
+				Stage: "narrate",
+				// review is a needs edge for its subsystems/security.json fragment —
+				// narrate renders the security receipts from it. (perform carries the
+				// rest of .stagefreight/, publish its publish.json fragment.)
+				Needs:    []string{"perform", "review", "publish"},
 				Commands: []string{"stagefreight ci run narrate"},
 				Source:   model.SourceSpec{FullClone: true},
 				// Forge write credential: narrate's docs auto-commit is a git push.
