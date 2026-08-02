@@ -105,7 +105,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					Paths:    []string{paths.Ephemeral("", "subsystems") + "/"},
 					ExpireIn: "1 week",
 				},
-				Capabilities: model.CapabilitySpec{ForgeAPI: true, PackageRegistries: packageRegistries(cfg)},
+				// OIDC: scribe's k8s-inventory region authenticates to the cluster via
+				// the STAGEFREIGHT_OIDC id_token, same as perform's reconcile.
+				Capabilities: model.CapabilitySpec{ForgeAPI: true, OIDC: true, PackageRegistries: packageRegistries(cfg)},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
@@ -116,12 +118,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				// rest of .stagefreight/, publish its publish.json fragment.)
 				Needs:    []string{"perform", "review", "publish"},
 				Commands: []string{"stagefreight ci run narrate"},
-				Source:   model.SourceSpec{FullClone: true},
-				// ForgeAPI: narrate reads forge context for the pipeline link today and
-				// run-over-run outcome queries later (when.transitions). The docs
-				// auto-commit is NOT narrate's — scribe runs in the publish phase.
-				Capabilities: model.CapabilitySpec{ForgeAPI: true},
-				Policy:       model.PolicySpec{AllowFailure: true, WhenAlways: true},
+				// FullClone: the changelog facts walk tag history.
+				Source: model.SourceSpec{FullClone: true},
+				Policy: model.PolicySpec{AllowFailure: true, WhenAlways: true},
 			},
 		},
 	}

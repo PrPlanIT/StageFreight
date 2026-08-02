@@ -138,14 +138,6 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 		}
 	}
 
-	// narrate needs BUILD_DATE
-	if j.Name == "narrate" {
-		if !hasVars {
-			buf.WriteString("  variables:\n")
-		}
-		buf.WriteString("    BUILD_DATE: \"$CI_COMMIT_TIMESTAMP\"\n")
-	}
-
 	// before_script (CI context)
 	if defaults.CIContext {
 		buf.WriteString("  before_script:\n")

@@ -111,7 +111,6 @@ narrate:
     - publish
   variables:
     GIT_DEPTH: 0
-    BUILD_DATE: "$CI_COMMIT_TIMESTAMP"
   before_script:
     - *sf-context
   script:
