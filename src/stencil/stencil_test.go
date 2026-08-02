@@ -38,11 +38,11 @@ func TestRender_EmptyResolves(t *testing.T) {
 func TestRender_LineElision(t *testing.T) {
 	e := MapEnv(map[string]string{"a": "A", "b": ""})
 	cases := []struct{ in, want string }{
-		{"one\nShipped {b} → {b}\ntwo", "one\ntwo\n"},              // label + all-empty → whole line gone
-		{"one\nShipped {a} → {b}\ntwo", "one\nShipped A →\ntwo\n"}, // non-empty keeps the line
-		{"one\n{b} {nope}\ntwo", "one\n{nope}\ntwo\n"},             // unknown literal keeps the line
-		{"just text\n{b}", "just text\n"},                          // token-only empty line drops
-		{"{{a}}\n{b}", "{{a}}\n"},                                  // escape is authored text, never elides
+		{"one\nShipped {b} → {b}\ntwo", "one\ntwo\n"},            // label + all-empty → whole line gone
+		{"one\nShipped {a} → {b}\ntwo", "one\nShipped A\ntwo\n"}, // non-empty keeps the line; the orphaned joiner goes with the empty
+		{"one\n{b} {nope}\ntwo", "one\n{nope}\ntwo\n"},           // unknown literal keeps the line
+		{"just text\n{b}", "just text\n"},                        // token-only empty line drops
+		{"{{a}}\n{b}", "{{a}}\n"},                                // escape is authored text, never elides
 	}
 	for _, tc := range cases {
 		if got := Render(tc.in, e); got != tc.want {
@@ -120,7 +120,11 @@ func TestRender_EmptyElidesSeparatorSpace(t *testing.T) {
 		{"{a} x {b} y", "A x y\n"}, // single following space consumed
 		{"{b} {c}", "C\n"},         // leading empty: following space consumed
 		{"## H {b} {c}", "## H C\n"},
-		{"{a}, {b}c", "A, c\n"}, // mid-prose: the comma's space is preserved
+		{"{a}, {b}c", "A, c\n"},        // mid-prose: the comma's space is preserved
+		{"{a} · {b}", "A\n"},           // trailing empty takes its joiner glyph with it
+		{"{a} — {b}", "A\n"},           //
+		{"v{a}: {b}", "vA\n"},          // orphaned colon goes too
+		{"{a} · {c} · {b}", "A · C\n"}, // only the LAST joiner is orphaned
 	}
 	for _, tc := range cases {
 		if got := Render(tc.in, e); got != tc.want {

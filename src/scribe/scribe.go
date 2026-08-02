@@ -84,7 +84,7 @@ func runFiles(appCfg *config.Config, rootDir string, dryRun, verbose bool, keep 
 	content := appCfg.StencilsByID()
 
 	// Detect version for template resolution.
-	versionInfo, err := build.DetectVersion(rootDir, appCfg)
+	versionInfo, err := build.DetectVersionLenient(rootDir, appCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
@@ -131,7 +131,7 @@ func RenderContent(appCfg *config.Config, rootDir, contentID string) (string, er
 		return "", fmt.Errorf("no stencil %q", contentID)
 	}
 
-	versionInfo, err := build.DetectVersion(rootDir, appCfg)
+	versionInfo, err := build.DetectVersionLenient(rootDir, appCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
 	}
@@ -252,7 +252,7 @@ func collapseBlanks(s string) string {
 // embeds (user then shipped), then the gitver leaf-pass. Best-effort: on a version
 // or render error it degrades toward the raw body rather than failing the caller.
 func RenderText(appCfg *config.Config, rootDir, body string) string {
-	versionInfo, err := build.DetectVersion(rootDir, appCfg)
+	versionInfo, err := build.DetectVersionLenient(rootDir, appCfg)
 	if err != nil {
 		versionInfo = nil
 	}

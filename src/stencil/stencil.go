@@ -163,18 +163,19 @@ func substituteLine(s string, resolve func(string) (string, bool)) (out string, 
 		}
 		if rendered == "" {
 			empty++
-			// An element that resolves to EMPTY must leave no stray separator space.
-			// Consume one FOLLOWING horizontal space (the common mid-sequence case:
-			// `{a} {b} {c}` with b empty → "A C"), or — for a trailing empty embed at
-			// end-of-line — one PRECEDING space (`## Changes {range}` → "## Changes").
-			// A mid-prose empty with non-space neighbors is left alone, so `a, {x}b`
-			// stays "a, b" and never eats the comma's space.
+			// An element that resolves to EMPTY must leave no stray separator.
+			// Mid-sequence, consume one FOLLOWING horizontal space (`{a} {b} {c}`
+			// with b empty → "A C"); a mid-prose empty with non-space neighbors is
+			// left alone, so `a, {x}b` stays "a, b" and never eats the comma's
+			// space. A TRAILING empty at end-of-line takes its authored separator
+			// with it: `{sha} · {version}` with no version → "a9cf440", never a
+			// dangling "a9cf440 ·".
 			rest := s[close+1:]
 			switch {
 			case len(rest) > 0 && (rest[0] == ' ' || rest[0] == '\t'):
 				s = rest[1:]
-			case len(rest) == 0 && len(buf) > 0 && (buf[len(buf)-1] == ' ' || buf[len(buf)-1] == '\t'):
-				buf = buf[:len(buf)-1]
+			case len(rest) == 0:
+				buf = trimDanglingSeparator(buf)
 				s = rest
 			default:
 				s = rest
@@ -185,6 +186,24 @@ func substituteLine(s string, resolve func(string) (string, bool)) (out string, 
 		buf = append(buf, rendered...)
 		s = s[close+1:]
 	}
+}
+
+// danglingSeparators are the joiner glyphs an end-of-line empty element strips
+// along with its spacing — the punctuation whose only job was joining the two
+// values, one of which turned out not to exist.
+var danglingSeparators = []string{"·", "—", "–", "→", "-", "|", ",", ";", ":"}
+
+// trimDanglingSeparator removes trailing spaces and at most ONE orphaned joiner
+// glyph (plus its surrounding spaces) from the line so far.
+func trimDanglingSeparator(buf []byte) []byte {
+	s := strings.TrimRight(string(buf), " \t")
+	for _, sep := range danglingSeparators {
+		if strings.HasSuffix(s, sep) {
+			s = strings.TrimRight(strings.TrimSuffix(s, sep), " \t")
+			break
+		}
+	}
+	return []byte(s)
 }
 
 // collapseBlankLines squeezes 3+ consecutive newlines to exactly 2, so dropped

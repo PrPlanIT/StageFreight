@@ -26,6 +26,27 @@ func DetectVersion(rootDir string, cfg *config.Config) (*gitver.VersionInfo, err
 	return gitver.DetectVersionWithOpts(rootDir, opts)
 }
 
+// HasVersionScheme reports whether the config declares a version derivation
+// scheme (git.versioning.branch_builds). Absence is a VALID state — an
+// unversioned repo (a gitops config repo, say) has commits and tags but no
+// version to derive — not a configuration error.
+func HasVersionScheme(cfg *config.Config) bool {
+	return cfg != nil && len(cfg.Git.Versioning.BranchBuilds) > 0
+}
+
+// DetectVersionLenient is DetectVersion for AUDIENCE-TEXT rendering (scribe
+// bodies, narrate cards, notifications): an unversioned repo yields a minimal
+// run identity (SHA/branch) with no error, so the template leaf-pass still runs
+// and {version} simply elides — no "version detection failed" noise for a repo
+// that never claimed to have a version. Build/publish/release paths keep the
+// strict DetectVersion: THEY require a scheme, and its absence stays loud.
+func DetectVersionLenient(rootDir string, cfg *config.Config) (*gitver.VersionInfo, error) {
+	if !HasVersionScheme(cfg) {
+		return gitver.IdentityOnly(rootDir), nil
+	}
+	return DetectVersion(rootDir, cfg)
+}
+
 // versioningOptsFromConfig builds gitver.VersioningOpts from a config.Config.
 //
 // INVARIANT:

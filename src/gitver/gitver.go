@@ -128,6 +128,34 @@ func SyntheticVersion() *VersionInfo {
 	return &VersionInfo{Version: "dev", Base: "0.0.0", SHA: sha, Branch: branch}
 }
 
+// IdentityOnly returns a VersionInfo carrying just the run identity — HEAD's
+// short SHA and the branch (git, falling back to the CI env like
+// SyntheticVersion) — with NO version fields. For unversioned repos: templates
+// still resolve {sha}/{branch}/{env:}/{var:}, while {version}/{base} resolve
+// empty and elide. Best-effort: an unreadable repo degrades to the env values.
+func IdentityOnly(rootDir string) *VersionInfo {
+	v := &VersionInfo{}
+	if repo, err := gitstate.OpenRepo(rootDir); err == nil {
+		if head, herr := repo.Head(); herr == nil {
+			sha := head.Hash().String()
+			if len(sha) > 7 {
+				sha = sha[:7]
+			}
+			v.SHA = sha
+			if head.Name().IsBranch() {
+				v.Branch = head.Name().Short()
+			}
+		}
+	}
+	if v.SHA == "" {
+		v.SHA = firstEnv("SF_CI_SHA", "CI_COMMIT_SHA", "GITHUB_SHA")
+	}
+	if v.Branch == "" {
+		v.Branch = firstEnv("SF_CI_BRANCH", "CI_COMMIT_BRANCH", "GITHUB_REF_NAME")
+	}
+	return v
+}
+
 func DetectVersionWithOpts(rootDir string, opts *VersioningOpts) (*VersionInfo, error) {
 	if opts == nil {
 		return nil, fmt.Errorf("versioning opts required (nil opts is forbidden)")

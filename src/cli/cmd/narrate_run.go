@@ -69,8 +69,14 @@ func recordNarrateFacts(appCfg *config.Config, ciCtx *ci.CIContext, rootDir stri
 		if st.CI.Ref == "" {
 			st.CI.Ref = firstNonEmptyStr(ciCtx.Branch, ciCtx.Tag)
 		}
+		// The build runner's InitFromCI never runs on gitops/governance paths —
+		// without this fill the {sha} fact is empty and (with no version scheme
+		// for gitver either) the phone card shows a literal {sha} token.
+		if st.CI.SHA == "" {
+			st.CI.SHA = ciCtx.SHA
+		}
 		if st.CI.Version == "" {
-			if vi, vErr := build.DetectVersion(rootDir, appCfg); vErr == nil && vi != nil {
+			if vi, vErr := build.DetectVersionLenient(rootDir, appCfg); vErr == nil && vi != nil {
 				st.CI.Version = vi.Version
 			}
 		}
