@@ -111,3 +111,12 @@ func IsForbidden(err error) bool {
 	}
 	return false
 }
+
+// AbortsRetention reports whether this error should stop a retention run rather
+// than be retried per-tag. A 401/403 is credential-wide — every remaining delete
+// would fail identically — so the retention engine records the rest as blocked
+// instead of issuing N doomed calls. (Satisfies the engine's aborter interface
+// structurally, without the retention package importing registry.)
+func (e *HTTPError) AbortsRetention() bool {
+	return e.StatusCode == http.StatusUnauthorized || e.StatusCode == http.StatusForbidden
+}

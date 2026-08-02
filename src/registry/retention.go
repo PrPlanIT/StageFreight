@@ -16,6 +16,7 @@ type RetentionResult struct {
 	Kept     int      // tags kept by policy
 	Deleted  []string // tags successfully deleted
 	Skipped  []string // tags skipped (digest shared with protected tag)
+	Blocked  []string // tags not attempted after a store-wide failure (e.g. 403) aborted the run
 	Errors   []error  // errors from individual deletes
 }
 
@@ -94,6 +95,7 @@ func ApplyRetention(ctx context.Context, reg Registry, repo string, tagPatterns 
 		Kept:     result.Kept,
 		Deleted:  result.Deleted,
 		Skipped:  result.Skipped,
+		Blocked:  result.Blocked,
 		Errors:   result.Errors,
 	}, nil
 }

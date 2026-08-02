@@ -60,6 +60,7 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 	var totalDeleted int
 	var totalKept int
 	var totalSkipped int
+	var totalBlocked int
 	var totalErrors int
 	var deletedNames []string
 	var skippedNames []string
@@ -94,13 +95,25 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 				continue
 			}
 
+			// Same root-cause aggregation as the remote path: a credential-wide 403
+			// collapses to one remediation line instead of a wall; other errors print
+			// individually.
+			var forbidden int
 			for _, e := range result.Errors {
-				fmt.Fprintf(w, "  ERROR: %v\n", e)
+				if registry.IsForbidden(e) {
+					forbidden++
+				} else {
+					fmt.Fprintf(w, "  ERROR: %v\n", e)
+				}
+			}
+			if forbidden > 0 {
+				fmt.Fprintf(w, "  ! %s\n", registry.ScopeDeniedMessage(reg.Provider, reg.Credentials, forbidden+len(result.Blocked)))
 			}
 
 			totalKept += result.Kept
 			totalDeleted += len(result.Deleted)
 			totalSkipped += len(result.Skipped)
+			totalBlocked += len(result.Blocked)
 			totalErrors += len(result.Errors)
 			deletedNames = append(deletedNames, result.Deleted...)
 			skippedNames = append(skippedNames, result.Skipped...)
@@ -132,6 +145,9 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 	summary := fmt.Sprintf("kept %d, pruned %d", totalKept, totalDeleted)
 	if totalSkipped > 0 {
 		summary += fmt.Sprintf(", %d skipped", totalSkipped)
+	}
+	if totalBlocked > 0 {
+		summary += fmt.Sprintf(", %d blocked", totalBlocked)
 	}
 	if totalErrors > 0 {
 		summary += fmt.Sprintf(", %d error(s)", totalErrors)

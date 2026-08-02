@@ -25,6 +25,7 @@ type Result struct {
 	Kept    int      // items kept by policy
 	Deleted []string // items successfully deleted
 	Skipped []string // items skipped (digest shared with protected item)
+	Blocked []string // items not attempted after a store-wide failure aborted the run
 	Errors  []error  // errors from individual deletes
 }
 
@@ -41,6 +42,14 @@ type Store interface {
 // a skip rather than a failure.
 type skipper interface {
 	IsSkipped() bool
+}
+
+// aborter checks whether an error from Store.Delete is store-wide (e.g. a
+// credential lacking permission) rather than item-specific. When it returns true,
+// every remaining delete would fail identically, so the engine stops attempting
+// them and records the rest as Blocked instead of issuing N doomed calls.
+type aborter interface {
+	AbortsRetention() bool
 }
 
 // Apply lists all items from the store, then prunes them PER SERIES rather than as
@@ -201,20 +210,32 @@ func Apply(ctx context.Context, store Store, templates []string, policy config.R
 	sort.Slice(inScope, func(i, j int) bool {
 		return inScope[i].CreatedAt.After(inScope[j].CreatedAt)
 	})
+	aborted := false
 	for _, item := range inScope {
 		if keep[item.Name] {
 			result.Kept++
 			continue
 		}
-		if err := store.Delete(ctx, item.Name); err != nil {
-			var skip skipper
-			if errors.As(err, &skip) && skip.IsSkipped() {
-				result.Skipped = append(result.Skipped, item.Name)
-			} else {
-				result.Errors = append(result.Errors, fmt.Errorf("deleting %s: %w", item.Name, err))
-			}
-		} else {
+		if aborted {
+			// A store-wide failure already fired; remaining deletes would fail
+			// identically, so record them without hammering the API again.
+			result.Blocked = append(result.Blocked, item.Name)
+			continue
+		}
+		err := store.Delete(ctx, item.Name)
+		if err == nil {
 			result.Deleted = append(result.Deleted, item.Name)
+			continue
+		}
+		var skip skipper
+		if errors.As(err, &skip) && skip.IsSkipped() {
+			result.Skipped = append(result.Skipped, item.Name)
+			continue
+		}
+		result.Errors = append(result.Errors, fmt.Errorf("deleting %s: %w", item.Name, err))
+		var ab aborter
+		if errors.As(err, &ab) && ab.AbortsRetention() {
+			aborted = true // credential-wide: stop, blocking the rest
 		}
 	}
 

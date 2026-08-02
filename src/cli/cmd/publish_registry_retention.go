@@ -81,6 +81,8 @@ func pruneRemoteRegistries(ctx context.Context, appCfg *config.Config, rootDir s
 		label   string
 		kept    int
 		deleted []string
+		hint    string  // aggregated plain-English remediation for scope-denied deletes
+		others  []error // non-403 delete errors, surfaced individually
 	}
 	var results []jobResult
 	for _, j := range jobs {
@@ -94,10 +96,28 @@ func pruneRemoteRegistries(ctx context.Context, appCfg *config.Config, rootDir s
 			fmt.Fprintf(w, "  ERROR: %s: %v\n", j.label, rerr)
 			continue
 		}
+		// Aggregate per-tag delete failures by root cause. A 403 is credential-wide,
+		// not per-tag, so N identical scope rejections collapse into one remediation
+		// line instead of a wall; genuinely distinct (non-403) errors are surfaced
+		// individually.
+		var forbidden int
+		var others []error
 		for _, e := range res.Errors {
-			fmt.Fprintf(w, "  ERROR: %s: %v\n", j.label, e)
+			if registry.IsForbidden(e) {
+				forbidden++
+			} else {
+				others = append(others, e)
+			}
 		}
-		results = append(results, jobResult{label: j.label, kept: res.Kept, deleted: res.Deleted})
+		hint := ""
+		if forbidden > 0 {
+			// forbidden = tags actually attempted; res.Blocked = the tags the
+			// short-circuit spared from a doomed retry — same cause, counted together.
+			hint = registry.ScopeDeniedMessage(j.provider, j.credentials, forbidden+len(res.Blocked))
+		}
+		results = append(results, jobResult{
+			label: j.label, kept: res.Kept, deleted: res.Deleted, hint: hint, others: others,
+		})
 	}
 
 	sec := output.NewSection(w, "Retention", time.Since(start), color)
@@ -107,6 +127,12 @@ func pruneRemoteRegistries(ctx context.Context, appCfg *config.Config, rootDir s
 		sec.Row("%-40s  kept %d, pruned %d", r.label, r.kept, len(r.deleted))
 		for _, d := range r.deleted {
 			sec.Row("  - %s", d)
+		}
+		if r.hint != "" {
+			sec.Row("  ! %s", r.hint)
+		}
+		for _, e := range r.others {
+			sec.Row("  ERROR: %v", e)
 		}
 	}
 	sec.Close()
