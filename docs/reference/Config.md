@@ -34,8 +34,11 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`security`](#config-security)
 - [`commit`](#config-commit)
 - [`dependency`](#config-dependency)
+- [`llms`](#config-llms)
 - [`stencils`](#config-stencils)
 - [`scribe`](#config-scribe)
+- [`notifications`](#config-notifications)
+- [`narrate`](#config-narrate)
 - [`test`](#config-test)
 - [`manifest`](#config-manifest)
 - [`release`](#config-release)
@@ -356,6 +359,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 #### `kind: metadata`
@@ -376,6 +380,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 #### `kind: gitlab-component`
@@ -391,6 +396,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 #### `kind: release`
@@ -418,6 +424,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 #### `kind: binary-archive`
@@ -437,6 +444,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 #### `kind: generic-package`
@@ -454,6 +462,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 #### `kind: pages`
@@ -474,6 +483,7 @@ publish:
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
         events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
         forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
 ```
 
 ---
@@ -617,6 +627,23 @@ dependency:
 ---
 
 <!-- --8<-- [end:dependency] -->
+<!-- --8<-- [start:llms] -->
+<a id="config-llms" name="config-llms"></a>
+### llms
+
+LLMs is the model endpoint library (llms:): id → { provider, url, model, credentials }, referenced by type: llm stencils via llm: <id>.
+
+```yaml
+llms:
+  - provider: <string>   # ollama (openai | anthropic | claude-agent reserved) · required
+    url: <string>   # ollama: server base URL
+    model: <string>   # model name/tag
+    credentials: <string>   # env prefix for hosted providers
+```
+
+---
+
+<!-- --8<-- [end:llms] -->
 <!-- --8<-- [start:stencils] -->
 <a id="config-stencils" name="config-stencils"></a>
 ### stencils
@@ -656,7 +683,6 @@ stencils:
 ```yaml
 stencils:
   - type: <string>   # SOURCE × RENDER.
-    content: <string>   # ── text ──
 ```
 
 #### `kind: component`
@@ -680,7 +706,7 @@ stencils:
 ```yaml
 stencils:
   - type: <string>   # SOURCE × RENDER.
-    build: <string>   # ── contents (build manifest) ──
+    build: <string>   # ── contents (build manifest) / ci (run-state producers) ──
     source: <string>
     section: <string>
     columns: [<string>]   # contents renderer form lives on the RENDER axis (render:), not a separate renderer: key — one…
@@ -724,6 +750,52 @@ scribe:
 ---
 
 <!-- --8<-- [end:scribe] -->
+<!-- --8<-- [start:notifications] -->
+<a id="config-notifications" name="config-notifications"></a>
+### notifications
+
+Notifications sends a message when a run finishes: id → { provider, on, subject, body, … }. Flat, one entry per notification. subject/body accept {…} embeds; an omitted body defaults to the run's apex summary. Dispatched by the narrate phase.
+
+```yaml
+notifications:
+  - provider: <string>   # ntfy | webhook · required
+    url: <string>   # Transport. Credentials follows the shipped env-prefix convention (credentials: NTFY → NTFY_TOKEN…
+    credentials: <string>
+    subject: <string>   # Message — freeform stencil bodies.
+    body: <string>
+    when:   # When gates dispatch: outcomes: (success | failure | warning) composing with…
+      - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
+        git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
+        events: [<string>]   # Events lists CI event type filters. Supported: push, tag, release, schedule, manual, pull_request…
+        forges: [<string>]   # Forges restricts this target to specific CI forges by provider name (github, gitlab, gitea…
+        outcomes: [<string>]   # Outcomes gates on the RUN outcome (success | failure | warning) — the notification dimension of…
+    max_length: <int>   # MaxLength hard-caps the rendered body in bytes (ntfy's default server limit is 4096). Trimming…
+    priority: <string>   # ntfy knobs — the full header vocabulary.
+    tags: [<string>]   # emoji tags (comma-joined into the Tags header)
+    click: <string>   # tap-through URL (stencil body; default {pipeline_url})
+    attach: <string>   # attachment URL
+    actions: <string>   # ntfy actions spec string
+    markdown: false   # render body as markdown
+    email: <string>   # forward to email address
+```
+
+---
+
+<!-- --8<-- [end:notifications] -->
+<!-- --8<-- [start:narrate] -->
+<a id="config-narrate" name="config-narrate"></a>
+### narrate
+
+Narrate is the stdout storytelling surface: announces: lists stencil ids rendered as structured-output cards at the end of the run (default: the built-in summary).
+
+```yaml
+narrate:
+  announces: [<string>]
+```
+
+---
+
+<!-- --8<-- [end:narrate] -->
 <!-- --8<-- [start:test] -->
 <a id="config-test" name="config-test"></a>
 ### test
