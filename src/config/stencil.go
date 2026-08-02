@@ -177,7 +177,7 @@ var reservedStencilIDs = map[string]bool{
 	"version": true, "base": true, "major": true, "minor": true, "patch": true,
 	"prerelease": true, "branch": true, "sha": true, "date": true, "datetime": true,
 	"timestamp": true, "n": true, "hex": true, "rand": true, "randhex": true,
-	"status": true, "status_icon": true, "status_verb": true,
+	"status": true, "status_icon": true, "status_verb": true, "duration": true,
 }
 
 // findStencilCycle detects an embed cycle among declared stencils: edges are {id}

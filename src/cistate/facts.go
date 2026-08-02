@@ -1,6 +1,7 @@
 package cistate
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -44,6 +45,8 @@ func (st *State) Fact(name string) (string, bool) {
 		return st.CI.PipelineURL, true
 	case "commit_title":
 		return st.CI.CommitTitle, true
+	case "duration":
+		return humaneDuration(st.CI.DurationSecs), true
 	// {sha}/{version} are gitver's keywords; the RUN's recorded identity wins when
 	// present (ok only when non-empty, so a local render without state falls
 	// through to the gitver leaf-pass instead of resolving to nothing).
@@ -106,6 +109,21 @@ func (st *State) Fact(name string) (string, bool) {
 		return sub.Reason, true
 	}
 	return sub.Results[key], true
+}
+
+// humaneDuration renders elapsed seconds the way a human says them ("42s",
+// "3m 12s", "1h 04m"). Zero/negative → "" (unrecorded → the token elides).
+func humaneDuration(secs int) string {
+	if secs <= 0 {
+		return ""
+	}
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	if secs < 3600 {
+		return fmt.Sprintf("%dm %02ds", secs/60, secs%60)
+	}
+	return fmt.Sprintf("%dh %02dm", secs/3600, (secs%3600)/60)
 }
 
 // shortSHA abbreviates a commit SHA to the 7-hex display form.

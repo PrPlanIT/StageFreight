@@ -29,6 +29,7 @@ func TestFact(t *testing.T) {
 		{"publish.tags", "", true},      // domain never ran → elides
 		{"failure.subsystem", "", true}, // nothing failed → elides
 		{"retention.pruned", "", true},  // zero pruned → elides
+		{"duration", "", true},          // unrecorded duration → elides
 		{"nonsense", "", false},         // unknown bare → literal
 	}
 	for _, tc := range cases {
@@ -57,6 +58,20 @@ func TestFact_Failure(t *testing.T) {
 	}
 	if got, _ := st.Fact("status_icon"); got != "🚨" {
 		t.Errorf("status_icon = %q, want 🚨", got)
+	}
+}
+
+// TestHumaneDuration pins the {duration} rendering at each magnitude.
+func TestHumaneDuration(t *testing.T) {
+	cases := map[int]string{0: "", -5: "", 42: "42s", 192: "3m 12s", 3845: "1h 04m"}
+	for in, want := range cases {
+		if got := humaneDuration(in); got != want {
+			t.Errorf("humaneDuration(%d) = %q, want %q", in, got, want)
+		}
+	}
+	st := &State{Version: 1, CI: CIState{DurationSecs: 192}}
+	if got, ok := st.Fact("duration"); got != "3m 12s" || !ok {
+		t.Errorf("Fact(duration) = (%q, %v)", got, ok)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/ci"
@@ -71,6 +72,13 @@ func recordNarrateFacts(appCfg *config.Config, ciCtx *ci.CIContext, rootDir stri
 		if st.CI.Version == "" {
 			if vi, vErr := build.DetectVersion(rootDir, appCfg); vErr == nil && vi != nil {
 				st.CI.Version = vi.Version
+			}
+		}
+		// {duration}: elapsed from the run's first state write (audition) to now.
+		// Recorded once here; every render reads the recorded value.
+		if st.CI.StartedAt > 0 && st.CI.DurationSecs == 0 {
+			if secs := time.Now().Unix() - st.CI.StartedAt; secs > 0 {
+				st.CI.DurationSecs = int(secs)
 			}
 		}
 		// Both or neither: a count with no baseline (no previous release tag) makes

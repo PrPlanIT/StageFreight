@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/ci"
@@ -172,6 +173,13 @@ type CIState struct {
 	PipelineURL string `json:"pipeline_url,omitempty"` // forge pipeline URL ({pipeline_url})
 	CommitTitle string `json:"commit_title,omitempty"` // HEAD commit subject ({commit_title})
 	Version     string `json:"version,omitempty"`      // detected version string ({version})
+
+	// StartedAt is stamped (unix seconds) on the run's FIRST state write — the
+	// audition, in practice — and rides the state artifact across jobs. narrate
+	// derives DurationSecs from it at gather time; {duration} renders from the
+	// recorded value, so the render itself stays deterministic.
+	StartedAt    int64 `json:"started_at,omitempty"`
+	DurationSecs int   `json:"duration_secs,omitempty"`
 }
 
 // BuildState holds build-specific domain metadata.
@@ -293,9 +301,14 @@ func shardFileName(name string) string {
 }
 
 // WriteState writes pipeline state atomically (tmp + fsync + rename).
-// Normalizes Version to 1 on write.
+// Normalizes Version to 1 on write and stamps StartedAt on the run's first write
+// (the {duration} fact's zero point — recording time is impure by nature; the
+// RENDER of the recorded value stays deterministic).
 func WriteState(rootDir string, st *State) error {
 	st.Version = 1
+	if st.CI.StartedAt == 0 {
+		st.CI.StartedAt = time.Now().Unix()
+	}
 
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
