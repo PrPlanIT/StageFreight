@@ -338,6 +338,26 @@ llms:
   # AI output is dispatch-only (stdout cards, notifications), never committed.
   glicynia: { provider: ollama, url: "http://glicynia:11434", model: "deepseek-r1:1.5b" }
 
+notifications:
+  # Phone pings via the in-cluster ntfy (delivery-bag). credentials: NTFY resolves
+  # the NTFY_TOKEN CI variable (write-only token, topic StageFreight-CI).
+  phone:
+    provider: ntfy
+    url: https://ntfy.pcfae.com/StageFreight-CI
+    credentials: NTFY
+  triage:
+    provider: ntfy
+    url: https://ntfy.pcfae.com/StageFreight-CI
+    credentials: NTFY
+    body: "{triage}"
+    when: { outcomes: [failure] }
+  recap:
+    provider: ntfy
+    url: https://ntfy.pcfae.com/StageFreight-CI
+    credentials: NTFY
+    body: "🤖 {recap}"
+    when: { outcomes: [success] }
+
 release:
   enabled: true
   security_summary: true
@@ -561,23 +581,4 @@ stencils:
 
       In one or two sentences, recap this CI run for a team chat — plain and direct,
       lead with what shipped. No markdown, no preamble.
-
-notifications:
-  # Phone pings via the in-cluster ntfy (delivery-bag). credentials: NTFY resolves
-  # the NTFY_TOKEN CI variable (write-only token, topic StageFreight-CI).
-  phone:
-    provider: ntfy
-    url: https://ntfy.pcfae.com/StageFreight-CI
-    credentials: NTFY
-  triage:
-    provider: ntfy
-    url: https://ntfy.pcfae.com/StageFreight-CI
-    credentials: NTFY
-    body: "{triage}"
-    when: { outcomes: [failure] }
-  recap:
-    provider: ntfy
-    url: https://ntfy.pcfae.com/StageFreight-CI
-    credentials: NTFY
-    body: "🤖 {recap}"
-    when: { outcomes: [success] }
+      
