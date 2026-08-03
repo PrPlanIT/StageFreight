@@ -278,6 +278,77 @@ commit:
   conventional: true
   backend: git
 
+dependency:
+  enabled: true
+  output: ".stagefreight/deps"
+  scope:
+    go_modules: true
+    dockerfile_env: true
+  commit:
+    enabled: true
+    type: chore
+    message: "update managed dependencies"
+    push: true
+    skip_ci: false
+
+lint:
+  level: full
+  exclude:
+    - "*.ttf"
+    - "*.png"
+    - "*.jpg"
+    - "*.ico"
+    - "*.woff"
+    - "*.woff2"
+  modules:
+    freshness:
+      enabled: true
+      cache_ttl: 300
+      sources:
+        docker_images: true
+        github_releases: true
+        go_modules: true
+      vulnerability:
+        enabled: true
+    tabs:
+      enabled: true
+    # House-style policy (default-off globally): StageFreight values output indirection
+    # through the diag/renderer boundary, so it enables direct-output on ITS OWN source.
+    direct-output:
+      enabled: true
+    secrets:
+      enabled: true
+      exclude:
+        - "go.sum"
+    conflicts:
+      enabled: true
+    filesize:
+      enabled: true
+    unicode:
+      enabled: true
+      # Unicode / invisible text defense — see docs/Linter.md § Unicode
+      # No allowlist needed: banner art is build-generated with escaped
+      # string literals (no raw control bytes in source).
+      detect_bidi: true
+      detect_zero_width: true
+      detect_control_ascii: true
+
+llms:
+  # Model endpoint library — referenced by type: llm stencils via llm: <id>.
+  # AI output is dispatch-only (stdout cards, notifications), never committed.
+  glicynia: { provider: ollama, url: "http://glicynia:11434", model: "deepseek-r1:1.5b" }
+
+release:
+  enabled: true
+  security_summary: true
+  registry_links: true
+
+security:
+  enabled: true
+  output: ".stagefreight/security"
+  sbom: true
+  release_detail: full
+
 # Tests run in audition (sibling to lint). The whole repo at gate: perform with
 # -race: a failed suite fails audition → withholds the cistate artifact → halts
 # perform + downstream (the same gate lint criticals use). git and the C toolchain
@@ -293,23 +364,74 @@ test:
       coverage: true
       gate: perform
 
-dependency:
-  enabled: true
-  output: ".stagefreight/deps"
-  scope:
-    go_modules: true
-    dockerfile_env: true
-  commit:
-    enabled: true
-    type: chore
-    message: "update managed dependencies"
-    push: true
-    skip_ci: false
+toolchains:
+  trivy: "0.69.3"
+  syft: "1.42.3"
+  grype: "0.110.0"
+  osv-scanner: "2.3.5"
+  cosign: "3.0.6"
+  flux: "2.8.3"
+  kubectl: "1.34.2"
 
-llms:
-  # Model endpoint library — referenced by type: llm stencils via llm: <id>.
-  # AI output is dispatch-only (stdout cards, notifications), never committed.
-  glicynia: { provider: ollama, url: "http://glicynia:11434", model: "deepseek-r1:1.5b" }
+scribe:
+  # files: one placement region per marked span. A region's body embeds stencils
+  # by {id} (items: is sugar for a body).
+  files:
+    readme.badges:
+      file: "README.md"
+      between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
+      inline: true
+      items: [build, license, release, updated, donate, sponsor]
+
+    readme.project:
+      file: "README.md"
+      between: ["<!-- sf:project:start -->", "<!-- sf:project:end -->"]
+      inline: true
+      items: [github, gitlab, go-report, go-reference, last-commit, issues-open, prs-open, contributors]
+
+    # Multi-row (breaks): Row 1 = docker + pulls, Row 2 = release + dev tags.
+    readme.image:
+      file: "README.md"
+      between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
+      items: [docker, pulls, br, release-latest, release-updated, release-size, dev-latest, dev-updated, dev-size]
+
+    readme.contents.base:
+      file: "README.md"
+      between: ["<!-- sf:contents-base:start -->", "<!-- sf:contents-base:end -->"]
+      items: [contents-base]
+
+    readme.contents.apk:
+      file: "README.md"
+      between: ["<!-- sf:contents-apk:start -->", "<!-- sf:contents-apk:end -->"]
+      items: [contents-apk]
+
+    cli.reference:
+      file: "docs/reference/CLI.md"
+      between: ["<!-- sf:cli-reference:start -->", "<!-- sf:cli-reference:end -->"]
+      items: [cli-reference]
+
+    config.reference:
+      file: "docs/reference/Config.md"
+      between: ["<!-- sf:config-reference:start -->", "<!-- sf:config-reference:end -->"]
+      items: [config-reference]
+
+  commit:
+    type: docs
+    message: "refresh generated docs and badges"
+    add:
+      - "README.md"
+      - "docs/assets/modules"
+      - "docs/reference"
+      - ".stagefreight/scribe"
+    push: true
+    # StageFreight's own docs are project metadata, not build inputs (the image
+    # is built from src/ only — README/docs are never copied in), so the docs
+    # auto-commit is synchronization output, not new source intent. Marking it
+    # skip-ci keeps it from entering the lifecycle and spawning a follow-up
+    # pipeline that auto-cancels the scribe which produced it. (Repos that ship docs IN
+    # the image — e.g. FAIRER-pages — keep this false: there a docs change is a
+    # real build input.) Broader X-StageFreight-Generated-keyed policy is TODO.
+    skip_ci: true
 
 stencils:
   # The shared audience-text library: define each renderable once (id → SOURCE
@@ -459,125 +581,3 @@ notifications:
     credentials: NTFY
     body: "🤖 {recap}"
     when: { outcomes: [success] }
-
-scribe:
-  # files: one placement region per marked span. A region's body embeds stencils
-  # by {id} (items: is sugar for a body).
-  files:
-    readme.badges:
-      file: "README.md"
-      between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
-      inline: true
-      items: [build, license, release, updated, donate, sponsor]
-
-    readme.project:
-      file: "README.md"
-      between: ["<!-- sf:project:start -->", "<!-- sf:project:end -->"]
-      inline: true
-      items: [github, gitlab, go-report, go-reference, last-commit, issues-open, prs-open, contributors]
-
-    # Multi-row (breaks): Row 1 = docker + pulls, Row 2 = release + dev tags.
-    readme.image:
-      file: "README.md"
-      between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
-      items: [docker, pulls, br, release-latest, release-updated, release-size, dev-latest, dev-updated, dev-size]
-
-    readme.contents.base:
-      file: "README.md"
-      between: ["<!-- sf:contents-base:start -->", "<!-- sf:contents-base:end -->"]
-      items: [contents-base]
-
-    readme.contents.apk:
-      file: "README.md"
-      between: ["<!-- sf:contents-apk:start -->", "<!-- sf:contents-apk:end -->"]
-      items: [contents-apk]
-
-    cli.reference:
-      file: "docs/reference/CLI.md"
-      between: ["<!-- sf:cli-reference:start -->", "<!-- sf:cli-reference:end -->"]
-      items: [cli-reference]
-
-    config.reference:
-      file: "docs/reference/Config.md"
-      between: ["<!-- sf:config-reference:start -->", "<!-- sf:config-reference:end -->"]
-      items: [config-reference]
-
-  commit:
-    type: docs
-    message: "refresh generated docs and badges"
-    add:
-      - "README.md"
-      - "docs/assets/modules"
-      - "docs/reference"
-      - ".stagefreight/scribe"
-    push: true
-    # StageFreight's own docs are project metadata, not build inputs (the image
-    # is built from src/ only — README/docs are never copied in), so the docs
-    # auto-commit is synchronization output, not new source intent. Marking it
-    # skip-ci keeps it from entering the lifecycle and spawning a follow-up
-    # pipeline that auto-cancels the scribe which produced it. (Repos that ship docs IN
-    # the image — e.g. FAIRER-pages — keep this false: there a docs change is a
-    # real build input.) Broader X-StageFreight-Generated-keyed policy is TODO.
-    skip_ci: true
-
-lint:
-  level: full
-  exclude:
-    - "*.ttf"
-    - "*.png"
-    - "*.jpg"
-    - "*.ico"
-    - "*.woff"
-    - "*.woff2"
-  modules:
-    freshness:
-      enabled: true
-      cache_ttl: 300
-      sources:
-        docker_images: true
-        github_releases: true
-        go_modules: true
-      vulnerability:
-        enabled: true
-    tabs:
-      enabled: true
-    # House-style policy (default-off globally): StageFreight values output indirection
-    # through the diag/renderer boundary, so it enables direct-output on ITS OWN source.
-    direct-output:
-      enabled: true
-    secrets:
-      enabled: true
-      exclude:
-        - "go.sum"
-    conflicts:
-      enabled: true
-    filesize:
-      enabled: true
-    unicode:
-      enabled: true
-      # Unicode / invisible text defense — see docs/Linter.md § Unicode
-      # No allowlist needed: banner art is build-generated with escaped
-      # string literals (no raw control bytes in source).
-      detect_bidi: true
-      detect_zero_width: true
-      detect_control_ascii: true
-
-release:
-  enabled: true
-  security_summary: true
-  registry_links: true
-
-security:
-  enabled: true
-  output: ".stagefreight/security"
-  sbom: true
-  release_detail: full
-
-toolchains:
-  trivy: "0.69.3"
-  syft: "1.42.3"
-  grype: "0.110.0"
-  osv-scanner: "2.3.5"
-  cosign: "3.0.6"
-  flux: "2.8.3"
-  kubectl: "1.34.2"
