@@ -25,6 +25,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/PrPlanIT/StageFreight/src/release/trustdisclosure"
 	"github.com/PrPlanIT/StageFreight/src/retention"
+	"github.com/PrPlanIT/StageFreight/src/scribe"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 	"github.com/spf13/cobra"
 )
@@ -532,6 +533,26 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			Images:       imageRows,
 			Downloads:    downloadRows,
 			Verify:       verify,
+		}
+		// The active release target's notes: reference selects the body stencil
+		// (validated: declared, type text). Body embeds beyond the release
+		// elements resolve through the stencil library — text compositions and
+		// AI stencils alike; what goes in a release body is the author's call.
+		if t := activeReleaseTarget(req.Config); t != nil && t.Notes != "" {
+			if def, ok := req.Config.StencilsByID()[t.Notes]; ok {
+				input.NotesBody = def.Body
+			}
+		}
+		input.ResolveStencil = func(id string, elements map[string]string) (string, bool) {
+			if _, ok := req.Config.StencilsByID()[id]; !ok {
+				return "", false
+			}
+			rendered, rerr := scribe.RenderContentWith(req.Config, rootDir, id, elements)
+			if rerr != nil {
+				fmt.Fprintf(os.Stderr, "warning: release notes embed {%s}: %v\n", id, rerr)
+				return "", true
+			}
+			return rendered, true
 		}
 		notes, err = release.GenerateNotes(input)
 		if err != nil {

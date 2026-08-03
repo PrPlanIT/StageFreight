@@ -118,6 +118,12 @@ type TargetConfig struct {
 
 	// ── kind: release ─────────────────────────────────────────────────────
 
+	// Notes names the stencil (a type: text body in stencils:) that composes
+	// this release's notes document (kind: release). An explicit reference —
+	// different targets may name different stencils. Empty = SF's shipped
+	// default body.
+	Notes string `yaml:"notes,omitempty"`
+
 	// Aliases are rolling git tag aliases (kind: release).
 	// e.g., ["{version}", "{major}.{minor}", "latest"]
 	// Named "aliases" to avoid collision with Tags (image tags) and git_tags (policy filters).

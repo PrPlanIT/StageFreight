@@ -104,6 +104,19 @@ type NotesInput struct {
 	Images       []ImageRow                  // resolved registry image rows for availability table
 	Downloads    []BinaryRow                 // binary/archive artifacts for downloads table
 	Verify       *trustdisclosure.Disclosure // signing/verification disclosure (nil = nothing signed)
+
+	// NotesBody is the release-notes stencil body composing this document —
+	// resolved by the caller from the release target's notes: reference.
+	// Empty = SF's shipped default body.
+	NotesBody string
+
+	// ResolveStencil renders a declared stencil by id for body embeds beyond the
+	// release elements — text compositions, AI stencils, whatever the author
+	// chose. The release elements are passed through so an embedded stencil (an
+	// AI reword of {release.changes}, say) can ingest them. Supplied by the
+	// caller (the stencil library lives in config); nil leaves non-release
+	// tokens literal.
+	ResolveStencil func(id string, elements map[string]string) (string, bool)
 }
 
 // GenerateNotes produces markdown release notes from git log between two refs.
@@ -618,67 +631,124 @@ func Categorize(commits []Commit) []CommitCategory {
 }
 
 // defaultReleaseNotesBody is the shipped release-notes stencil body: the
-// generated sections in their canonical order, each a block element. Override
-// it by declaring a `release-notes` text stencil in stencils: — reorder or
-// drop sections, add authored markdown between them. Block lines place each
-// section's bytes verbatim, so the default body renders byte-identically to
-// the sections' own output.
-const defaultReleaseNotesBody = `{release.hero}
-{release.security-tile}
-{release.images}
-{release.downloads}
-{release.verification}
-{release.highlights}
-{release.changes}
-{release.security}
----
+// natural language of the notes — hero lines, the security tile label, the
+// rule, the changelog wrapper — authored here, with {} filled by facts
+// ({project}, {version}, {sha}, {release.type}) and the conditional section
+// widgets (which carry their own headings/wrappers and elide wholly with
+// their data). Override it by declaring a `release-notes` text stencil in
+// stencils: — reword the language, reorder or delete sections, add your own
+// markdown between them.
+const defaultReleaseNotesBody = "## 📦 {project} — `v{version}`\n" +
+	"> **Release type:** {release.type} • **Commit:** `{sha}`\n" +
+	"\n" +
+	"**Security:** {release.security-tile}\n" +
+	"\n" +
+	"{release.images}\n" +
+	"{release.downloads}\n" +
+	"{release.verification}\n" +
+	"{release.highlights}\n" +
+	"{release.changes}\n" +
+	"{release.security}\n" +
+	"---\n" +
+	"\n" +
+	"<details>\n" +
+	"<summary>Full changelog</summary>\n" +
+	"\n" +
+	"{release.changelog}\n" +
+	"\n" +
+	"</details>\n"
 
-{release.changelog}`
-
-// renderNotes composes the release body from the section elements through the
-// release-notes stencil body (shipped default, or the config's override).
+// renderNotes composes the release body from facts + section widgets through
+// the release-notes stencil body (shipped default, or the config's override).
 func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Commit) string {
-	elements := map[string]string{
-		"release.hero":          sectionHero(input),
-		"release.security-tile": sectionSecurityTile(input),
-		"release.images":        sectionImages(input),
-		"release.downloads":     sectionDownloads(input),
-		"release.verification":  sectionVerification(input),
-		"release.highlights":    sectionHighlights(input),
-		"release.changes":       sectionChanges(categories),
-		"release.security":      sectionSecurity(input),
-		"release.changelog":     sectionChangelog(allCommits),
+	project := input.ProjectName
+	if project == "" {
+		project = "release"
+	}
+	version := input.Version
+	if version == "" {
+		version = "unreleased"
+	}
+	rtLabel := input.ReleaseType
+	if rtLabel == "" {
+		rtLabel = releaseType(input.IsPrerelease)
 	}
 
-	body := defaultReleaseNotesBody
-	if input.Config != nil {
-		if def, ok := input.Config.StencilsByID()["release-notes"]; ok && def.EffectiveKind() == "text" && def.Body != "" {
-			body = def.Body
-		}
+	elements := map[string]string{
+		// Facts — data, one render.
+		"project":               project,
+		"version":               version,
+		"sha":                   input.SHA,
+		"release.type":          rtLabel,
+		"release.security-tile": input.SecurityTile,
+		// Conditional section widgets — heading/wrapper + data as one unit, so
+		// the whole section vanishes when its data is absent.
+		"release.images":       sectionImages(input),
+		"release.downloads":    sectionDownloads(input),
+		"release.verification": sectionVerification(input),
+		"release.highlights":   sectionHighlights(input),
+		"release.changes":      sectionChanges(categories),
+		"release.security":     sectionSecurity(input),
+		"release.changelog":    sectionChangelog(allCommits),
 	}
-	return composeNotesBody(body, elements)
+
+	body := input.NotesBody
+	if body == "" {
+		body = defaultReleaseNotesBody
+	}
+	resolveStencil := func(id string) (string, bool) {
+		if input.ResolveStencil == nil {
+			return "", false
+		}
+		return input.ResolveStencil(id, elements)
+	}
+	return composeNotesBody(body, elements, resolveStencil)
 }
 
 // composeNotesBody renders a release-notes body line by line. A line consisting
 // of exactly one {element} places that element's bytes VERBATIM (the element
 // carries its own newlines — generated tables and code fences survive
-// byte-exact); an empty element leaves nothing, not even the line. Any other
-// line is authored markdown, emitted as-is with known {element} tokens
-// substituted inline (trimmed) and unknown tokens left literal.
-func composeNotesBody(body string, elements map[string]string) string {
+// byte-exact). Any other line is authored markdown with known {element} tokens
+// substituted inline (trimmed) and unknown tokens left literal. Elision matches
+// the stencil engine's law at this format's granularity: a line whose every
+// known element resolved empty drops whole — and takes ONE immediately
+// following blank body line (its separator) with it.
+func composeNotesBody(body string, elements map[string]string, resolveStencil func(string) (string, bool)) string {
+	resolve := func(name string) (string, bool) {
+		if content, ok := elements[name]; ok {
+			return content, true
+		}
+		if resolveStencil != nil {
+			return resolveStencil(name)
+		}
+		return "", false
+	}
+
 	var b strings.Builder
 	lines := strings.Split(body, "\n")
+	eatBlank := false
 	for i, line := range lines {
 		last := i == len(lines)-1
+		if eatBlank {
+			eatBlank = false
+			if line == "" {
+				continue
+			}
+		}
 		if name, ok := blockElementName(line); ok {
-			if content, known := elements[name]; known {
+			if content, known := resolve(name); known {
+				if content == "" {
+					eatBlank = true
+					continue
+				}
 				b.WriteString(content)
 				continue
 			}
 		}
-		out := line
-		for name, content := range elements {
-			out = strings.ReplaceAll(out, "{"+name+"}", strings.TrimRight(content, "\n"))
+		out, nonEmpty, empty := substituteNotesLine(line, resolve)
+		if empty > 0 && nonEmpty == 0 {
+			eatBlank = true
+			continue
 		}
 		b.WriteString(out)
 		if !last {
@@ -688,6 +758,43 @@ func composeNotesBody(body string, elements map[string]string) string {
 	return b.String()
 }
 
+// substituteNotesLine replaces resolvable {element} tokens inline (trimmed),
+// leaving unknown tokens literal, and returns the elision accounting.
+func substituteNotesLine(line string, resolve func(string) (string, bool)) (out string, nonEmpty, empty int) {
+	// Scan tokens left to right; resolved output is spliced in and never re-scanned.
+	var b strings.Builder
+	rest := line
+	for {
+		open := strings.IndexByte(rest, '{')
+		if open < 0 {
+			b.WriteString(rest)
+			break
+		}
+		close := strings.IndexByte(rest[open:], '}')
+		if close < 0 {
+			b.WriteString(rest)
+			break
+		}
+		close += open
+		name := rest[open+1 : close]
+		content, ok := resolve(name)
+		if !ok {
+			b.WriteString(rest[:close+1])
+			rest = rest[close+1:]
+			continue
+		}
+		if content == "" {
+			empty++
+		} else {
+			nonEmpty++
+		}
+		b.WriteString(rest[:open])
+		b.WriteString(strings.TrimRight(content, "\n"))
+		rest = rest[close+1:]
+	}
+	return b.String(), nonEmpty, empty
+}
+
 // blockElementName reports whether a body line is exactly one {element} token.
 func blockElementName(line string) (string, bool) {
 	t := strings.TrimSpace(line)
@@ -695,40 +802,6 @@ func blockElementName(line string) (string, bool) {
 		return t[1 : len(t)-1], true
 	}
 	return "", false
-}
-
-// sectionHero renders the hero header + metadata line.
-func sectionHero(input NotesInput) string {
-	var b strings.Builder
-	version := input.Version
-	if version == "" {
-		version = "unreleased"
-	}
-	project := input.ProjectName
-	if project == "" {
-		project = "release"
-	}
-	b.WriteString(fmt.Sprintf("## 📦 %s — `v%s`\n", project, version))
-
-	var meta []string
-	rtLabel := input.ReleaseType
-	if rtLabel == "" {
-		rtLabel = releaseType(input.IsPrerelease)
-	}
-	meta = append(meta, fmt.Sprintf("**Release type:** %s", rtLabel))
-	if input.SHA != "" {
-		meta = append(meta, fmt.Sprintf("**Commit:** `%s`", input.SHA))
-	}
-	b.WriteString(fmt.Sprintf("> %s\n\n", strings.Join(meta, " • ")))
-	return b.String()
-}
-
-// sectionSecurityTile renders the compact status line in the hero area.
-func sectionSecurityTile(input NotesInput) string {
-	if input.SecurityTile == "" {
-		return ""
-	}
-	return fmt.Sprintf("**Security:** %s\n\n", input.SecurityTile)
 }
 
 // sectionImages renders the Image Availability table with its supply-chain extras.
@@ -894,22 +967,19 @@ func sectionSecurity(input NotesInput) string {
 	return "## Security\n\n" + input.SecurityBody + "\n"
 }
 
-// sectionChangelog renders the collapsible full-changelog block.
+// sectionChangelog renders the full-changelog entry lines — the looping content
+// only; the collapsible wrapper is the body's authored markdown.
 func sectionChangelog(allCommits []Commit) string {
-	var b strings.Builder
-	b.WriteString("<details>\n<summary>Full changelog</summary>\n\n")
 	if len(allCommits) == 0 {
-		b.WriteString("No changes found.\n")
-	} else {
-		for _, c := range allCommits {
-			author := ""
-			if c.Author != "" {
-				author = fmt.Sprintf(" (%s)", c.Author)
-			}
-			b.WriteString(fmt.Sprintf("- [`%s`] %s%s\n", c.Hash, c.Summary, author))
-		}
+		return "No changes found.\n"
 	}
-	b.WriteString("\n</details>\n")
-
+	var b strings.Builder
+	for _, c := range allCommits {
+		author := ""
+		if c.Author != "" {
+			author = fmt.Sprintf(" (%s)", c.Author)
+		}
+		b.WriteString(fmt.Sprintf("- [`%s`] %s%s\n", c.Hash, c.Summary, author))
+	}
 	return b.String()
 }

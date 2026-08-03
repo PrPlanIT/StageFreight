@@ -201,6 +201,7 @@ publish:                                 # distribute artifacts to their destina
   # ── Primary release (rolling git tag aliases + binaries) ─────────
   primary-release:
     kind: release
+    notes: release-notes
     type: latest
     repos: [primary]                 # canonical release on the primary forge (gitlab)
     archives: stagefreight-binaries
@@ -210,6 +211,7 @@ publish:                                 # distribute artifacts to their destina
   # ── GitHub release (authored on the mirror) with binaries ────────
   github-release:
     kind: release
+    notes: release-notes
     type: latest
     repos: [github-mirror]           # authored directly on github (was mirror: + sync_release:)
     archives: stagefreight-binaries
@@ -221,6 +223,7 @@ publish:                                 # distribute artifacts to their destina
   #    projection deferred until mirror-side retention lands.)
   dev-release:
     kind: release
+    notes: release-notes
     repos: [primary]                 # canonical dev release on the primary forge (gitlab)
     archives: stagefreight-binaries  # the same one recipe as primary-release (OR-list when:)
     tag: "dev-{sha:8}"
@@ -581,4 +584,28 @@ stencils:
 
       In one or two sentences, recap this CI run for a team chat — plain and direct,
       lead with what shipped. No markdown, no preamble.
+
+  # ── release notes body (matches the shipped default, stated explicitly) ──
+  release-notes:
+    type: text
+    body: |
+      ## 📦 {project} — `v{version}`
+      > **Release type:** {release.type} • **Commit:** `{sha}`
+
+      **Security:** {release.security-tile}
+
+      {release.images}
+      {release.downloads}
+      {release.verification}
+      {release.highlights}
+      {release.changes}
+      {release.security}
+      ---
+
+      <details>
+      <summary>Full changelog</summary>
+
+      {release.changelog}
+
+      </details>
       

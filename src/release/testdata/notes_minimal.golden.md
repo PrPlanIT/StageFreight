@@ -1,5 +1,5 @@
 ## 📦 release — `vunreleased`
-> **Release type:** stable
+> **Release type:** stable • **Commit:** `abc12345`
 
 ---
 

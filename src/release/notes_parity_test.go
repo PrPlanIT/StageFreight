@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/release/trustdisclosure"
 )
 
@@ -68,26 +67,24 @@ func parityFullInput() (NotesInput, []CommitCategory, []Commit) {
 	return input, categories, commits
 }
 
-// parityMinimalInput is the all-optionals-absent case: hero, rule, empty changelog.
+// parityMinimalInput is the all-optional-sections-absent case: hero lines, rule,
+// empty changelog. SHA is present — run identity always is on a real release.
 func parityMinimalInput() (NotesInput, []CommitCategory, []Commit) {
-	return NotesInput{}, nil, nil
+	return NotesInput{SHA: "abc12345"}, nil, nil
 }
 
-// TestRenderNotes_OverrideBody covers the stylable half: a user release-notes
-// stencil reorders/drops sections, authors its own markdown around them, and
-// unknown tokens stay visibly literal.
+// TestRenderNotes_OverrideBody covers the stylable half: a target-referenced
+// notes stencil reorders/drops sections, authors its own markdown around them,
+// and unknown tokens stay visibly literal.
 func TestRenderNotes_OverrideBody(t *testing.T) {
 	input, cats, commits := parityFullInput()
-	input.Config = &config.Config{Version: 1, Stencils: config.OrderedStencils{{
-		ID: "release-notes", Type: "text",
-		Body: "Thanks for flying PrPlanIT ✈\n\n{release.hero}\n{release.changes}\ninline hero-less footer {release.nope}",
-	}}}
+	input.NotesBody = "Thanks for flying PrPlanIT ✈\n\n## 📦 {project} — `v{version}`\n\n{release.changes}\ninline footer {release.nope}"
 
 	got := renderNotes(input, cats, commits)
 	if !strings.HasPrefix(got, "Thanks for flying PrPlanIT ✈\n") {
 		t.Errorf("authored lead line missing:\n%q", got)
 	}
-	if !strings.Contains(got, "## Notable Changes") || !strings.Contains(got, "## 📦 stagefreight") {
+	if !strings.Contains(got, "## Notable Changes") || !strings.Contains(got, "## 📦 stagefreight — `v0.7.0`") {
 		t.Errorf("selected sections missing:\n%q", got)
 	}
 	for _, dropped := range []string{"## Downloads", "## Image Availability", "## Verification", "Full changelog"} {
@@ -95,24 +92,57 @@ func TestRenderNotes_OverrideBody(t *testing.T) {
 			t.Errorf("dropped section %q still present", dropped)
 		}
 	}
-	if !strings.Contains(got, "inline hero-less footer {release.nope}") {
+	if !strings.Contains(got, "inline footer {release.nope}") {
 		t.Errorf("unknown token must stay literal:\n%q", got)
 	}
 }
 
-// TestComposeNotesBody pins the block-verbatim placement rule: a block line
-// places element bytes verbatim, an empty block leaves nothing (not even the
-// line), and inline substitution trims trailing newlines.
+// TestComposeNotesBody pins the placement rules: a block line places element
+// bytes verbatim, inline substitution trims trailing newlines, an all-empty
+// line (block or inline) drops whole AND takes one following blank separator
+// line with it, and unknown tokens keep their line.
 func TestComposeNotesBody(t *testing.T) {
 	elements := map[string]string{
 		"release.a": "A1\nA2\n\n",
 		"release.b": "",
 		"release.c": "C\n",
 	}
-	got := composeNotesBody("{release.a}\n{release.b}\nmid {release.c} line\n---", elements)
+	got := composeNotesBody("{release.a}\n{release.b}\nmid {release.c} line\n---", elements, nil)
 	want := "A1\nA2\n\nmid C line\n---"
 	if got != want {
 		t.Errorf("compose:\n got %q\nwant %q", got, want)
+	}
+
+	// An elided line eats its following blank separator — inline and block alike.
+	got = composeNotesBody("head\nLabel: {release.b}\n\n{release.b}\n\ntail {release.nope}", elements, nil)
+	want = "head\ntail {release.nope}"
+	if got != want {
+		t.Errorf("separator eating:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestRenderNotes_StencilEmbeds covers the author's-choice composition: a body
+// swaps a release element for a stencil that INGESTS that element (the AI-reword
+// flow — the resolver receives the release elements so a model can process
+// {release.changes} and hand back its own take).
+func TestRenderNotes_StencilEmbeds(t *testing.T) {
+	input, cats, commits := parityFullInput()
+	input.NotesBody = "## 📦 {project}\n\n{friendly-changes}\n---"
+	input.ResolveStencil = func(id string, elements map[string]string) (string, bool) {
+		if id != "friendly-changes" {
+			return "", false
+		}
+		raw := elements["release.changes"]
+		if !strings.Contains(raw, "shared text-composition library") {
+			t.Errorf("resolver must receive the release elements; got %q", raw)
+		}
+		return "In plain words: we shipped the stencil engine.\n", true
+	}
+
+	got := renderNotes(input, cats, commits)
+	want := "## 📦 stagefreight\n\nIn plain words: we shipped the stencil engine.\n---"
+	if got != want {
+		t.Errorf("ai-reword compose:\n got %q\nwant %q", got, want)
 	}
 }
 

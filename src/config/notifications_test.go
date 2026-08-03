@@ -78,28 +78,45 @@ func TestValidate_NotificationWhen(t *testing.T) {
 	}
 }
 
-// TestValidate_ReleaseNotesStencil covers the release-body override rules: it
-// must be a text body, and it may not embed AI output (the release body is the
-// committed record).
-func TestValidate_ReleaseNotesStencil(t *testing.T) {
-	wrongType := &Config{Version: 1, Stencils: OrderedStencils{{ID: "release-notes", Type: "ci", Section: "changelog"}}}
-	if _, err := Validate(wrongType); err == nil || !strings.Contains(err.Error(), "must be type text") {
-		t.Errorf("non-text release-notes should fail; got %v", err)
+// TestValidate_ReleaseNotesReference covers the release target's notes:
+// reference — the release body is the committed record: it must name a
+// declared type: text stencil, may not embed AI output, and the field is
+// release-kind only.
+func TestValidate_ReleaseNotesReference(t *testing.T) {
+	fails := func(cfg *Config, want string) {
+		t.Helper()
+		if _, err := Validate(cfg); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("want error containing %q; got %v", want, err)
+		}
 	}
 
-	tainted := &Config{Version: 1,
-		LLMs: OrderedLLMs{{ID: "l", Provider: "ollama", URL: "http://x", Model: "m"}},
+	fails(&Config{Version: 1, Targets: OrderedTargets{{ID: "r", Kind: "release", Notes: "nope"}}},
+		`notes "nope" not found`)
+	fails(&Config{Version: 1,
+		Targets:  OrderedTargets{{ID: "r", Kind: "release", Notes: "cl"}},
+		Stencils: OrderedStencils{{ID: "cl", Type: "ci", Section: "changelog"}}},
+		"must be a type: text stencil")
+	fails(&Config{Version: 1, Targets: OrderedTargets{{ID: "img", Kind: "registry", Registry: StringOrList{"x"}, Notes: "n"}}},
+		"notes: is a kind: release field")
+
+	// What a release body embeds — AI stencils included — is the author's
+	// editorial choice, not SF's to police.
+	aiNotes := &Config{Version: 1,
+		LLMs:    OrderedLLMs{{ID: "l", Provider: "ollama", URL: "http://x", Model: "m"}},
+		Targets: OrderedTargets{{ID: "r", Kind: "release", Notes: "n"}},
 		Stencils: OrderedStencils{
 			{ID: "hype", Type: "llm", LLM: "l", Body: "hype this release"},
-			{ID: "release-notes", Type: "text", Body: "{release.hero}\n{hype}"},
+			{ID: "n", Type: "text", Body: "{release.changes}\n{hype}"},
 		}}
-	if _, err := Validate(tainted); err == nil || !strings.Contains(err.Error(), "never the committed release record") {
-		t.Errorf("AI-tainted release-notes should fail; got %v", err)
+	if _, err := Validate(aiNotes); err != nil && strings.Contains(err.Error(), "notes") {
+		t.Errorf("AI-embedding release notes are the author's choice; got %v", err)
 	}
 
-	ok := &Config{Version: 1, Stencils: OrderedStencils{{ID: "release-notes", Type: "text", Body: "{release.hero}\n{release.changes}"}}}
-	if _, err := Validate(ok); err != nil && strings.Contains(err.Error(), "release-notes") {
-		t.Errorf("valid release-notes override should pass; got %v", err)
+	ok := &Config{Version: 1,
+		Targets:  OrderedTargets{{ID: "r", Kind: "release", Notes: "n"}},
+		Stencils: OrderedStencils{{ID: "n", Type: "text", Body: "{release.changes}"}}}
+	if _, err := Validate(ok); err != nil && strings.Contains(err.Error(), "notes") {
+		t.Errorf("valid notes reference should pass; got %v", err)
 	}
 }
 

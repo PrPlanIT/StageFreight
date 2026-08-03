@@ -427,19 +427,26 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
-	// The release-notes override composes the release BODY — the committed record.
-	// Same boundary: it must be a text body, and it may not embed AI output.
-	for _, c := range cfg.Stencils {
-		if c.ID != "release-notes" {
+	// A release target's notes: reference names the stencil composing the
+	// release body. It must be a declared type: text stencil; what the body
+	// embeds — including AI stencils — is the author's editorial choice.
+	stencilDefs := cfg.Stencils.ByID()
+	for _, t := range cfg.Targets {
+		if t.Notes == "" {
 			continue
 		}
-		if c.EffectiveKind() != "text" {
-			errs = append(errs, "stencils[release-notes]: must be type text (the release body is composed markdown)")
+		tpath := fmt.Sprintf("publish[%s]", t.ID)
+		if t.Kind != "release" {
+			errs = append(errs, fmt.Sprintf("%s: notes: is a kind: release field", tpath))
+			continue
 		}
-		for _, ref := range BodyRefs(c.Body) {
-			if llmTainted[ref] {
-				errs = append(errs, fmt.Sprintf("stencils[release-notes]: embeds %q which carries AI output — dispatch-only, never the committed release record", ref))
-			}
+		def, ok := stencilDefs[t.Notes]
+		if !ok {
+			errs = append(errs, fmt.Sprintf("%s: notes %q not found in stencils", tpath, t.Notes))
+			continue
+		}
+		if def.EffectiveKind() != "text" || def.Body == "" {
+			errs = append(errs, fmt.Sprintf("%s: notes %q must be a type: text stencil with a body", tpath, t.Notes))
 		}
 	}
 
