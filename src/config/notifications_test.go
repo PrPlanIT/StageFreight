@@ -78,6 +78,31 @@ func TestValidate_NotificationWhen(t *testing.T) {
 	}
 }
 
+// TestValidate_ReleaseNotesStencil covers the release-body override rules: it
+// must be a text body, and it may not embed AI output (the release body is the
+// committed record).
+func TestValidate_ReleaseNotesStencil(t *testing.T) {
+	wrongType := &Config{Version: 1, Stencils: OrderedStencils{{ID: "release-notes", Type: "ci", Section: "changelog"}}}
+	if _, err := Validate(wrongType); err == nil || !strings.Contains(err.Error(), "must be type text") {
+		t.Errorf("non-text release-notes should fail; got %v", err)
+	}
+
+	tainted := &Config{Version: 1,
+		LLMs: OrderedLLMs{{ID: "l", Provider: "ollama", URL: "http://x", Model: "m"}},
+		Stencils: OrderedStencils{
+			{ID: "hype", Type: "llm", LLM: "l", Body: "hype this release"},
+			{ID: "release-notes", Type: "text", Body: "{release.hero}\n{hype}"},
+		}}
+	if _, err := Validate(tainted); err == nil || !strings.Contains(err.Error(), "never the committed release record") {
+		t.Errorf("AI-tainted release-notes should fail; got %v", err)
+	}
+
+	ok := &Config{Version: 1, Stencils: OrderedStencils{{ID: "release-notes", Type: "text", Body: "{release.hero}\n{release.changes}"}}}
+	if _, err := Validate(ok); err != nil && strings.Contains(err.Error(), "release-notes") {
+		t.Errorf("valid release-notes override should pass; got %v", err)
+	}
+}
+
 // TestValidate_LLM covers the llms: library and the determinism boundary: llm
 // stencils need a body and a known backend; only ollama is implemented; and a
 // scribe file region referencing AI output — even through a text embed — fails.

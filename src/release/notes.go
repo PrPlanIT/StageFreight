@@ -617,10 +617,89 @@ func Categorize(commits []Commit) []CommitCategory {
 	return categorize(commits)
 }
 
-func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Commit) string {
-	var b strings.Builder
+// defaultReleaseNotesBody is the shipped release-notes stencil body: the
+// generated sections in their canonical order, each a block element. Override
+// it by declaring a `release-notes` text stencil in stencils: — reorder or
+// drop sections, add authored markdown between them. Block lines place each
+// section's bytes verbatim, so the default body renders byte-identically to
+// the sections' own output.
+const defaultReleaseNotesBody = `{release.hero}
+{release.security-tile}
+{release.images}
+{release.downloads}
+{release.verification}
+{release.highlights}
+{release.changes}
+{release.security}
+---
 
-	// 1. Hero header
+{release.changelog}`
+
+// renderNotes composes the release body from the section elements through the
+// release-notes stencil body (shipped default, or the config's override).
+func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Commit) string {
+	elements := map[string]string{
+		"release.hero":          sectionHero(input),
+		"release.security-tile": sectionSecurityTile(input),
+		"release.images":        sectionImages(input),
+		"release.downloads":     sectionDownloads(input),
+		"release.verification":  sectionVerification(input),
+		"release.highlights":    sectionHighlights(input),
+		"release.changes":       sectionChanges(categories),
+		"release.security":      sectionSecurity(input),
+		"release.changelog":     sectionChangelog(allCommits),
+	}
+
+	body := defaultReleaseNotesBody
+	if input.Config != nil {
+		if def, ok := input.Config.StencilsByID()["release-notes"]; ok && def.EffectiveKind() == "text" && def.Body != "" {
+			body = def.Body
+		}
+	}
+	return composeNotesBody(body, elements)
+}
+
+// composeNotesBody renders a release-notes body line by line. A line consisting
+// of exactly one {element} places that element's bytes VERBATIM (the element
+// carries its own newlines — generated tables and code fences survive
+// byte-exact); an empty element leaves nothing, not even the line. Any other
+// line is authored markdown, emitted as-is with known {element} tokens
+// substituted inline (trimmed) and unknown tokens left literal.
+func composeNotesBody(body string, elements map[string]string) string {
+	var b strings.Builder
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		last := i == len(lines)-1
+		if name, ok := blockElementName(line); ok {
+			if content, known := elements[name]; known {
+				b.WriteString(content)
+				continue
+			}
+		}
+		out := line
+		for name, content := range elements {
+			out = strings.ReplaceAll(out, "{"+name+"}", strings.TrimRight(content, "\n"))
+		}
+		b.WriteString(out)
+		if !last {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// blockElementName reports whether a body line is exactly one {element} token.
+func blockElementName(line string) (string, bool) {
+	t := strings.TrimSpace(line)
+	if len(t) > 2 && strings.HasPrefix(t, "{") && strings.HasSuffix(t, "}") && !strings.ContainsAny(t[1:len(t)-1], "{}") {
+		return t[1 : len(t)-1], true
+	}
+	return "", false
+}
+
+// sectionHero renders the hero header + metadata line.
+func sectionHero(input NotesInput) string {
+	var b strings.Builder
 	version := input.Version
 	if version == "" {
 		version = "unreleased"
@@ -631,7 +710,6 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 	}
 	b.WriteString(fmt.Sprintf("## 📦 %s — `v%s`\n", project, version))
 
-	// Metadata line
 	var meta []string
 	rtLabel := input.ReleaseType
 	if rtLabel == "" {
@@ -642,158 +720,183 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 		meta = append(meta, fmt.Sprintf("**Commit:** `%s`", input.SHA))
 	}
 	b.WriteString(fmt.Sprintf("> %s\n\n", strings.Join(meta, " • ")))
+	return b.String()
+}
 
-	// 2. Security tile (compact status in hero area)
-	if input.SecurityTile != "" {
-		b.WriteString(fmt.Sprintf("**Security:** %s\n\n", input.SecurityTile))
+// sectionSecurityTile renders the compact status line in the hero area.
+func sectionSecurityTile(input NotesInput) string {
+	if input.SecurityTile == "" {
+		return ""
 	}
+	return fmt.Sprintf("**Security:** %s\n\n", input.SecurityTile)
+}
 
-	// 3. Image Availability table
-	if len(input.Images) > 0 {
-		b.WriteString("## Image Availability\n\n")
-		b.WriteString("| Registry | Image | Tags |\n")
-		b.WriteString("|----------|-------|------|\n")
-		for _, img := range input.Images {
-			// Registry cell: linked label or plain text
-			var regCell string
-			if img.RegistryURL != "" {
-				regCell = fmt.Sprintf("[%s](%s)", img.RegistryLabel, img.RegistryURL)
+// sectionImages renders the Image Availability table with its supply-chain extras.
+func sectionImages(input NotesInput) string {
+	if len(input.Images) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Image Availability\n\n")
+	b.WriteString("| Registry | Image | Tags |\n")
+	b.WriteString("|----------|-------|------|\n")
+	for _, img := range input.Images {
+		// Registry cell: linked label or plain text
+		var regCell string
+		if img.RegistryURL != "" {
+			regCell = fmt.Sprintf("[%s](%s)", img.RegistryLabel, img.RegistryURL)
+		} else {
+			regCell = img.RegistryLabel
+		}
+
+		// Tags cell: linked code spans or plain code
+		tagParts := make([]string, 0, len(img.Tags))
+		for _, t := range img.Tags {
+			if t.URL != "" {
+				tagParts = append(tagParts, fmt.Sprintf("[`%s`](%s)", t.Name, t.URL))
 			} else {
-				regCell = img.RegistryLabel
+				tagParts = append(tagParts, fmt.Sprintf("`%s`", t.Name))
 			}
-
-			// Tags cell: linked code spans or plain code
-			tagParts := make([]string, 0, len(img.Tags))
-			for _, t := range img.Tags {
-				if t.URL != "" {
-					tagParts = append(tagParts, fmt.Sprintf("[`%s`](%s)", t.Name, t.URL))
-				} else {
-					tagParts = append(tagParts, fmt.Sprintf("`%s`", t.Name))
-				}
-			}
-
-			b.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", regCell, img.ImageRef, strings.Join(tagParts, " ")))
 		}
-		b.WriteString("\n")
 
-		// Digest pull commands and artifact links
-		hasExtras := false
+		b.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", regCell, img.ImageRef, strings.Join(tagParts, " ")))
+	}
+	b.WriteString("\n")
+
+	// Digest pull commands and artifact links
+	hasExtras := false
+	for _, img := range input.Images {
+		if img.DigestRef != "" || img.SBOM != "" || img.Provenance != "" || img.Signature != "" {
+			hasExtras = true
+			break
+		}
+	}
+	if hasExtras {
+		b.WriteString("<details>\n<summary>Digest pull commands & supply chain artifacts</summary>\n\n")
 		for _, img := range input.Images {
-			if img.DigestRef != "" || img.SBOM != "" || img.Provenance != "" || img.Signature != "" {
-				hasExtras = true
-				break
+			if img.DigestRef == "" && img.SBOM == "" && img.Provenance == "" && img.Signature == "" {
+				continue
 			}
-		}
-		if hasExtras {
-			b.WriteString("<details>\n<summary>Digest pull commands & supply chain artifacts</summary>\n\n")
-			for _, img := range input.Images {
-				if img.DigestRef == "" && img.SBOM == "" && img.Provenance == "" && img.Signature == "" {
-					continue
-				}
-				b.WriteString(fmt.Sprintf("**%s**\n", img.ImageRef))
-				if img.DigestRef != "" {
-					b.WriteString(fmt.Sprintf("```\ndocker pull %s\n```\n", img.DigestRef))
-				}
-				if img.SBOM != "" {
-					b.WriteString(fmt.Sprintf("- SBOM: `%s`\n", img.SBOM))
-				}
-				if img.Provenance != "" {
-					b.WriteString(fmt.Sprintf("- Provenance: `%s`\n", img.Provenance))
-				}
-				if img.Signature != "" {
-					b.WriteString(fmt.Sprintf("- Signature: `%s`\n", img.Signature))
-				}
-				b.WriteString("\n")
+			b.WriteString(fmt.Sprintf("**%s**\n", img.ImageRef))
+			if img.DigestRef != "" {
+				b.WriteString(fmt.Sprintf("```\ndocker pull %s\n```\n", img.DigestRef))
 			}
-			b.WriteString("</details>\n\n")
-		}
-	}
-
-	// 3b. Downloads table (binary/archive artifacts)
-	if len(input.Downloads) > 0 {
-		b.WriteString("## Downloads\n\n")
-		b.WriteString("| Platform | File | Size | SHA-256 |\n")
-		b.WriteString("|----------|------|------|---------|\n")
-		for _, dl := range input.Downloads {
-			b.WriteString(fmt.Sprintf("| `%s` | `%s` | %s | `%s` |\n",
-				dl.Platform, dl.Name, formatBytes(dl.Size), truncHash(dl.SHA256)))
-		}
-		b.WriteString("\n")
-
-		// Full checksums in collapsible block
-		b.WriteString("<details>\n<summary>Full checksums</summary>\n\n")
-		b.WriteString("```\n")
-		for _, dl := range input.Downloads {
-			b.WriteString(fmt.Sprintf("%s  %s\n", dl.SHA256, dl.Name))
-		}
-		b.WriteString("```\n</details>\n\n")
-	}
-
-	// 3c. Verification — disclose the signing tier + how to verify, explicitly, so
-	// "signed" never collapses distinct trust models into one badge.
-	if input.Verify != nil {
-		b.WriteString(renderVerification(input.Verify))
-	}
-
-	// 4. Highlights (tag message)
-	if input.TagMessage != "" {
-		b.WriteString("## Highlights\n")
-		b.WriteString(bulletize(input.TagMessage))
-		b.WriteString("\n\n")
-	}
-
-	// 5. Notable Changes (H2 wrapper, H4 categories)
-	// Deduplicate commits within each category by summary+scope+author.
-	if len(categories) > 0 {
-		b.WriteString("## Notable Changes\n\n")
-		for _, cat := range categories {
-			b.WriteString(fmt.Sprintf("#### %s\n", cat.Title))
-			type dedupKey struct{ scope, summary, author string }
-			seen := make(map[dedupKey]int)
-			type dedupEntry struct {
-				key   dedupKey
-				count int
+			if img.SBOM != "" {
+				b.WriteString(fmt.Sprintf("- SBOM: `%s`\n", img.SBOM))
 			}
-			var entries []dedupEntry
-			for _, c := range cat.Commits {
-				k := dedupKey{c.Scope, c.Summary, c.Author}
-				if idx, ok := seen[k]; ok {
-					entries[idx].count++
-				} else {
-					seen[k] = len(entries)
-					entries = append(entries, dedupEntry{key: k, count: 1})
-				}
+			if img.Provenance != "" {
+				b.WriteString(fmt.Sprintf("- Provenance: `%s`\n", img.Provenance))
 			}
-			for _, e := range entries {
-				scope := ""
-				if e.key.scope != "" {
-					scope = fmt.Sprintf("**%s**: ", e.key.scope)
-				}
-				author := ""
-				if e.key.author != "" {
-					author = fmt.Sprintf(" (%s)", e.key.author)
-				}
-				countSuffix := ""
-				if e.count > 1 {
-					countSuffix = fmt.Sprintf(" ×%d", e.count)
-				}
-				b.WriteString(fmt.Sprintf("- %s%s%s%s\n", scope, e.key.summary, author, countSuffix))
+			if img.Signature != "" {
+				b.WriteString(fmt.Sprintf("- Signature: `%s`\n", img.Signature))
 			}
 			b.WriteString("\n")
 		}
+		b.WriteString("</details>\n\n")
 	}
+	return b.String()
+}
 
-	// 6. Security section
-	if input.SecurityBody != "" {
-		b.WriteString("## Security\n\n")
-		b.WriteString(input.SecurityBody)
+// sectionDownloads renders the Downloads table + full checksums.
+func sectionDownloads(input NotesInput) string {
+	if len(input.Downloads) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Downloads\n\n")
+	b.WriteString("| Platform | File | Size | SHA-256 |\n")
+	b.WriteString("|----------|------|------|---------|\n")
+	for _, dl := range input.Downloads {
+		b.WriteString(fmt.Sprintf("| `%s` | `%s` | %s | `%s` |\n",
+			dl.Platform, dl.Name, formatBytes(dl.Size), truncHash(dl.SHA256)))
+	}
+	b.WriteString("\n")
+
+	// Full checksums in collapsible block
+	b.WriteString("<details>\n<summary>Full checksums</summary>\n\n")
+	b.WriteString("```\n")
+	for _, dl := range input.Downloads {
+		b.WriteString(fmt.Sprintf("%s  %s\n", dl.SHA256, dl.Name))
+	}
+	b.WriteString("```\n</details>\n\n")
+	return b.String()
+}
+
+// sectionVerification renders the signing-tier disclosure — the tier stated
+// plainly plus the verify recipe, so "signed" never collapses distinct trust
+// models into one badge.
+func sectionVerification(input NotesInput) string {
+	if input.Verify == nil {
+		return ""
+	}
+	return renderVerification(input.Verify)
+}
+
+// sectionHighlights renders the annotated-tag message as bullets.
+func sectionHighlights(input NotesInput) string {
+	if input.TagMessage == "" {
+		return ""
+	}
+	return "## Highlights\n" + bulletize(input.TagMessage) + "\n\n"
+}
+
+// sectionChanges renders Notable Changes (H2 wrapper, H4 categories),
+// deduplicating commits within each category by summary+scope+author.
+func sectionChanges(categories []CommitCategory) string {
+	if len(categories) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Notable Changes\n\n")
+	for _, cat := range categories {
+		b.WriteString(fmt.Sprintf("#### %s\n", cat.Title))
+		type dedupKey struct{ scope, summary, author string }
+		seen := make(map[dedupKey]int)
+		type dedupEntry struct {
+			key   dedupKey
+			count int
+		}
+		var entries []dedupEntry
+		for _, c := range cat.Commits {
+			k := dedupKey{c.Scope, c.Summary, c.Author}
+			if idx, ok := seen[k]; ok {
+				entries[idx].count++
+			} else {
+				seen[k] = len(entries)
+				entries = append(entries, dedupEntry{key: k, count: 1})
+			}
+		}
+		for _, e := range entries {
+			scope := ""
+			if e.key.scope != "" {
+				scope = fmt.Sprintf("**%s**: ", e.key.scope)
+			}
+			author := ""
+			if e.key.author != "" {
+				author = fmt.Sprintf(" (%s)", e.key.author)
+			}
+			countSuffix := ""
+			if e.count > 1 {
+				countSuffix = fmt.Sprintf(" ×%d", e.count)
+			}
+			b.WriteString(fmt.Sprintf("- %s%s%s%s\n", scope, e.key.summary, author, countSuffix))
+		}
 		b.WriteString("\n")
 	}
+	return b.String()
+}
 
-	// 7. Horizontal rule
-	b.WriteString("---\n\n")
+// sectionSecurity renders the Security section body.
+func sectionSecurity(input NotesInput) string {
+	if input.SecurityBody == "" {
+		return ""
+	}
+	return "## Security\n\n" + input.SecurityBody + "\n"
+}
 
-	// 8. Full changelog (always present, collapsible)
+// sectionChangelog renders the collapsible full-changelog block.
+func sectionChangelog(allCommits []Commit) string {
+	var b strings.Builder
 	b.WriteString("<details>\n<summary>Full changelog</summary>\n\n")
 	if len(allCommits) == 0 {
 		b.WriteString("No changes found.\n")

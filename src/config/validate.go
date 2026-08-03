@@ -427,6 +427,22 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
+	// The release-notes override composes the release BODY — the committed record.
+	// Same boundary: it must be a text body, and it may not embed AI output.
+	for _, c := range cfg.Stencils {
+		if c.ID != "release-notes" {
+			continue
+		}
+		if c.EffectiveKind() != "text" {
+			errs = append(errs, "stencils[release-notes]: must be type text (the release body is composed markdown)")
+		}
+		for _, ref := range BodyRefs(c.Body) {
+			if llmTainted[ref] {
+				errs = append(errs, fmt.Sprintf("stencils[release-notes]: embeds %q which carries AI output — dispatch-only, never the committed release record", ref))
+			}
+		}
+	}
+
 	// ── Notifications ─────────────────────────────────────────────────────
 
 	for _, n := range cfg.Notifications {
