@@ -135,13 +135,14 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | **Cross-forge** release sync (GitLab→GitHub mirror) | ✅ | 🔧 | 🔧 | — | High |
 | Prerelease / **Latest** classification, per-forge (`type:` → GitHub `make_latest`) | ✅ | ➕ (release flags) | 🔧 | ➕ goreleaser | Med |
 | Security summary embedded in release notes | ✅ | 🔧 | 🔧 | — | Med |
+| **Release notes as a stencil** — the body owns the language; targets reference it (`notes:`); AI embeds are the author's choice | ✅ | — | — | ➕ goreleaser templates | High |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
 - **Backends:** GitHub / GitLab / Gitea / Forgejo release APIs (asset upload, release links, rolling tags). **Azure DevOps: releases honestly return `ErrNotSupported`** (no native git-release object) — see [honest status](#honest-status).
 - **Otherwise:** goreleaser is the strongest standalone here (archives, checksums, release, on GitHub/GitLab). What it doesn't do is mirror a release to a *second* forge with its own identity, or thread your scan/advisory summary into the notes — those stay bespoke.
 - **Tutorials:** [goreleaser](https://goreleaser.com/) · [softprops/action-gh-release](https://github.com/softprops/action-gh-release) · [GitLab release-cli](https://docs.gitlab.com/ci/yaml/#release)
-- **Since:** binary archives + SHA256SUMS landed in v0.6.1 *(TODO: pin commit)*; release core ≤ v0.6.0.
+- **Since:** release-notes-as-stencil v0.8.0 (byte-parity gated migration); binary archives + SHA256SUMS v0.6.1; release core ≤ v0.6.0.
 </details>
 
 ---
@@ -212,6 +213,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Own SVG badges (no shields.io dependency) | ✅ | 🔧 | 🔧 | ➕ shields.io | Med |
 | Marker-section injection into README/any file | ✅ | ➕ readme actions | 🔧 | ➕ markdown-magic | Med |
 | Sync README to Docker Hub / registries | ✅ | ➕ dockerhub-description | 🔧 | — | Med |
+| **Cross-destination project identity** (`kind: metadata`) — descriptions, topics, website, logo fanned to registries + forges | ✅ | 🔧 | 🔧 | — | High |
 | Generate CLI/config reference docs from code | ✅ | 🔧 | 🔧 | ➕ cobra docs | Med |
 | Render build manifest contents into docs (`build-contents`) | ✅ | 🔧 | 🔧 | — | High |
 | Auto-commit generated docs (with skip-ci classification) | ✅ | ➕ git-auto-commit | 🔧 | — | Med |
@@ -221,7 +223,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 - **Backends:** local files + git (auto-commit), registry description APIs, shields.io (only for the external `kind: props` badges; native `kind: badge` SVGs are self-owned).
 - **Otherwise:** stitch together shields.io URLs, a README-injection action, a Docker Hub description action, and cobra-doc generation — each separate. The **`build-contents`** renderer (image inventory → README table) and the generated-commit **skip-ci classification** (a docs commit is synchronization output, not source intent — so it shouldn't re-trigger the lifecycle) are SF-specific.
 - **Tutorials:** [shields.io](https://shields.io/) · [peter-evans/dockerhub-description](https://github.com/peter-evans/dockerhub-description) · [cobra doc gen](https://github.com/spf13/cobra/blob/main/site/content/docs/generating_documentation.md)
-- **Since:** narrator `build:` ownership selector + docs `skip_ci` classification both v0.6.1 (`7d0feb1`, `bfca092`); narrator/badges core ≤ v0.6.0.
+- **Since:** stencils extracted as the shared text-composition library v0.8.0; scribe `build:` ownership selector + docs `skip_ci` classification both v0.6.1 (`7d0feb1`, `bfca092`); scribe/badges core ≤ v0.6.0 (as "narrator").
 </details>
 
 ---
@@ -272,18 +274,25 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | **CI-vendor portability** — one config → GitLab · GitHub · Gitea · Forgejo · Azure 🚧 | ✅ | — | — | — | **High** |
 | **Render the CI file itself** from one config | ✅ | — | — | — | **High** |
 | Conventional-commit planner + change language (glossary) | ✅ | ➕ commitlint | ➕ | ✅ commitizen | Med |
+| Templated commit / tag / release message rendering (`commit.render` · `tagging.render` · `release.render`) | ✅ | 🔧 | 🔧 | ➕ git-cliff | Med |
+| **Commit backend with converge push** — fetch/fast-forward/object-replay before pushing; forge-API commit mode | ✅ | 🔧 | 🔧 | — | High |
+| **Config presets** with provenance-aware resolution (`config resolve` shows where every value came from) | ✅ | — | ➕ includes | — | High |
+| **Repository reconciliation** — the repo converges to its encoded intent (builder⇄go-floor, generated files) | ✅ | — | — | — | High |
 | Generated-commit skip-ci policy (no self-triggering loops) | ✅ | 🔧 | 🔧 | — | Med |
 | GitOps reconcile (Flux / [Argo 🚧]) + change-impact | ✅ | 🔧 flux scripts | 🔧 | ✅ flux/argo | Med |
 | K8s endpoint exposure classification | ✅ | — | — | — | High |
 | Control-repo / multi-repo governance mode | ✅ | 🔧 | 🔧 | — | High |
+| **Ansible host convergence** — declared playbook library, containerized runtime, converge-on-commit 🚧 | ✅ | 🔧 | 🔧 | ➕ AWX/Semaphore | High |
+| Cross-pipeline reconcile serialization (perform mutual exclusion) | ✅ | ➕ concurrency | ✅ resource_group | — | Low |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
-- **Backends:** the forge as a **render target** — five wired emitters (`gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`), each forge-native with golden tests; git (commits), Flux/Argo + Kubernetes (gitops), Docker (compose drift).
-- **Portability / no lock-in:** `render.Emit(forge, …)` dispatches to all five from one forge-neutral pipeline model, so the *same* `.stagefreight.yml` renders `.gitlab-ci.yml`, GitHub Actions workflows, Gitea/Forgejo, or Azure pipelines. To migrate CI hosts by hand you'd rewrite every pipeline in the new vendor's YAML dialect; here it's `stagefreight ci render <forge> --write`. (Azure DevOps is experimental; and the CLI `--help` still reads "Supported forges: gitlab" — stale, the code supports all five.)
+- **Backends:** the forge as a **render target** — five wired emitters (`gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`), each forge-native with golden tests; git (commits), Flux/Argo + Kubernetes (gitops), Docker (compose drift), ansible-in-a-container (host convergence — the execution image owns the runtime + collections).
+- **Ansible vs AWX/Semaphore:** those give you a web UI, run history, and schedules — but as another stateful service to operate. SF ties convergence to the commit that changed the intent (Renovate bumps a pin → merge → nodes roll → phone ping), with a trust posture (pinned execution image, committed known_hosts, forge-protected key) neither ships. Runbooks (`converge: false`) are declared-but-CI-unreachable: lint + `--check` preview, human-run only.
+- **Portability / no lock-in:** `render.Emit(forge, …)` dispatches to all five from one forge-neutral pipeline model, so the *same* `.stagefreight.yml` renders `.gitlab-ci.yml`, GitHub Actions workflows, Gitea/Forgejo, or Azure pipelines. To migrate CI hosts by hand you'd rewrite every pipeline in the new vendor's YAML dialect; here it's `stagefreight ci render <forge> --write`. (Azure DevOps is experimental.)
 - **`ci render` is unusual:** instead of you maintaining `.gitlab-ci.yml`/workflows by hand, SF generates them from `.stagefreight.yml`. The thing other tools assume you write, SF treats as output. (Caveat from real use: because it's generated + dogfooded, a CI-skeleton or config-schema change can require regeneration — see KnownIssues.)
 - **Tutorials:** [commitlint](https://commitlint.js.org/) · [Flux](https://fluxcd.io/) · [Argo CD](https://argo-cd.readthedocs.io/)
-- **Since:** generated-commit skip-ci classification v0.6.1 (`bfca092`/`124f3ba`); glossary + ci-render ≤ v0.6.0.
+- **Since:** ansible host convergence + perform serialization on main post-v0.8.0 (🚧 unreleased — ships with the next release); generated-commit skip-ci classification v0.6.1 (`bfca092`/`124f3ba`); glossary + ci-render ≤ v0.6.0.
 </details>
 
 ---
@@ -304,6 +313,27 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 - **Otherwise:** wire a `wrangler` action (Node toolchain + API token) or the GitHub Pages action per repo; multi-domain attach and DNS-provider-aware messaging you'd script by hand.
 - **Tutorials:** [Cloudflare Pages Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/) · [actions/deploy-pages](https://github.com/actions/deploy-pages)
 - **Since:** Cloudflare/GitHub pages providers ≤ v0.6.x; multi-domain (`domain:` list) + non-fatal DomainOutcome + the `8000018` idempotent-attach fix landed in the v0.7 line *(TODO: pin commit)*.
+</details>
+
+---
+
+## 14. Narration, Notifications & AI
+
+| Capability | StageFreight | GitHub Actions | GitLab CI | Specialized tool | DIY effort |
+|---|---|---|---|---|---|
+| **Run summaries as stencils** — union bodies of facts, per-line elision, override by shadowing | ✅ | — | — | — | High |
+| Phone/webhook notifications with outcome gating (`when: outcomes:`) | ✅ | ➕ slack actions | ➕ integrations | ✅ ntfy/apprise | Med |
+| Full ntfy vocabulary (priority, tags, click, attach, actions, email) | ✅ | — | — | ✅ ntfy | Low |
+| **AI narration** — `type: llm` stencils over an `llms:` endpoint library (failure triage, success recap) | ✅ | — | — | — | High |
+| Documented + ratcheted fact vocabulary (docs test fails undocumented facts) | ✅ | — | — | — | High |
+
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** ntfy (full header vocabulary) and webhooks for dispatch; ollama for AI narration (openai/anthropic/claude-agent reserved behind the same `llms:` shape).
+- **Otherwise:** a slack-notify action with a hand-rolled message template per repo, no shared fact vocabulary, no elision (empty sections render as noise), and no story arc — SF renders ONE union body per outcome arc that any modality mix composes into. AI-wise: nothing comparable is integrated in CI tooling; you'd script a model call and paste output into a webhook.
+- **Contracts that make AI safe here:** degrade-to-empty (a down model never fails the pipeline or sends a broken ping), per-run memoization, `<think>` stripping, and the dispatch-only boundary — AI text reaches notifications, stdout cards, and (author's choice) release bodies, never the committed record.
+- **Tutorials:** [ntfy](https://ntfy.sh/) · [ollama](https://ollama.com/)
+- **Since:** the whole family v0.8.0 — stencil engine (`type: text/ci/llm`), cistate facts, notifications with `when: outcomes:`, llms library, union-body summaries; fact-vocabulary ratchet post-v0.8.0.
 </details>
 
 ---
@@ -335,6 +365,8 @@ Things this matrix marks 🚧 or that deserve a caveat, stated plainly:
 - **Dependency updates** are Go + Dockerfile focused; Renovate covers more ecosystems.
 - **Pre-1.0:** the config schema isn't frozen — expect breaking changes across versions, and regenerate the CI skeleton after upgrades.
 - **`manifest diff`** is declared but not yet implemented.
+- **AI narration is plumbing-solid, output-modest:** with small local models (the dogfood runs deepseek-r1:1.5b) the triage/recap text is entertainment-grade; the contracts (degrade-to-empty, dispatch-only) are the hardened part. Point `llms:` at a stronger backend for serious summaries.
+- **Ansible host convergence is on main, unreleased** — ships with the next release; converge idempotency is the playbook author's contract (SF provides the per-host gate pattern in the docs).
 
 Where the matrix shows StageFreight's real, hard-to-replicate value: **crucible reproducibility**, **multi-registry retention**, **the perform/review/publish byte-transport trust model**, **governed toolchains**, and **rendering the CI file itself** — these are the High-DIY-effort rows you'd otherwise build and maintain yourself.
 
@@ -342,7 +374,7 @@ Where the matrix shows StageFreight's real, hard-to-replicate value: **crucible 
 
 ## Maintaining this doc
 
-- **Coverage** (rows) is complete as of v0.7 — this pass added §13 Pages, the semantic release-type / `make_latest` row, and Rust builds, and corrected the signing detail (all mechanisms are coded, but it stays 🚧 **unverified** — the old "hardcoded `--key`" note was stale). When a feature lands, add its row.
+- **Coverage** (rows) is complete as of v0.8 + the post-v0.8 main line — this pass added §14 Narration/Notifications/AI, the release-notes-stencil row, ansible host convergence + perform serialization (🚧 unreleased), and retired the stale `--help` caveat. When a feature lands, add its row.
 - **Provenance** (the "Since" lines) is being filled in. To pin a feature's introducing commit:
   `git log --oneline --reverse -- <path/to/feature> | head -1`, or map to the release tag it first shipped in (`git tag --contains <commit>`).
 - Keep the comparison columns **fair** — the alternatives are capable; the story is *declarative + integrated*, not *only-SF-can*.

@@ -1,5 +1,22 @@
 # Known Issues
 
+## Structural
+
+### Config-schema and CI-skeleton changes need the image-first two-step
+
+The pipeline runs inside its own published image, and audition's freshness gate renders the
+CI skeleton with the RUNNING image. Two consequences:
+
+1. **New config field**: shipping a struct field and a config that uses it in ONE push fails —
+   the running (old) image hits strict decode (`field X not found`) at audition before the new
+   image ever bakes.
+2. **Planner/emitter change**: regenerating `.gitlab-ci.yml` in the same push as the change
+   fails the freshness check — audition renders the OLD shape.
+
+**Workflow:** ship the code first, let `latest-dev` bake, then adopt the field / regenerate
+the skeleton in a follow-up commit. This is inherent to dogfooding the running image rather
+than a bug; the two-step is the contract.
+
 ## Minor
 
 ### `color: auto` falls through to default grey for version strings

@@ -70,7 +70,7 @@ without a manual copy-paste.
 - Security scanning (review) and release notes with a configurable security
   summary.
 - Badge generation and README/shield injection.
-- Dependency auto-update and the narrator changelog/inventory.
+- Dependency auto-update and the scribe changelog/inventory.
 
 ## Self-hosted runner deployments
 
