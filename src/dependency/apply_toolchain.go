@@ -12,11 +12,11 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
-// applyToolchainDesiredUpdates updates toolchains.desired versions in .stagefreight.yml.
+// applyToolchainUpdates updates toolchain constraints in .stagefreight.yml.
 // Uses section-scoped line-level YAML editing to preserve file structure and comments.
-// Only edits version lines within the toolchains.desired section — never touches
+// Only edits constraint lines within the flat toolchains: section — never touches
 // identically-named keys elsewhere in the file.
-func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
+func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
 	configPath := filepath.Join(repoRoot, ".stagefreight.yml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -38,13 +38,12 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 	configModified := false
 	lockModified := false
 
-	// Find the toolchains.desired section boundaries.
-	// We need to be inside both "toolchains:" and "desired:" subsection.
-	desiredStart, desiredEnd := findDesiredSection(lines)
-	if desiredStart < 0 {
-		// No toolchains.desired section — can't update
+	// Find the flat toolchains: section boundaries.
+	sectionStart, sectionEnd := findToolchainsSection(lines)
+	if sectionStart < 0 {
+		// No toolchains section — can't update
 		for _, dep := range deps {
-			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: "no toolchains.desired section in config"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: "no toolchains section in config"})
 		}
 		return nil, skipped, nil, nil
 	}
@@ -52,23 +51,16 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 	for _, dep := range deps {
 		toolName := dep.Name
 
-		// Locate the tool's constraint line within the desired section.
-		verIdx, verKey := -1, ""
-		for i := desiredStart; i <= desiredEnd && i < len(lines); i++ {
-			if strings.TrimSpace(lines[i]) != toolName+":" {
-				continue
-			}
-			if vi, vk := findToolConstraintLine(lines, i, leadIndentWidth(lines[i]), desiredEnd); vi >= 0 {
-				verIdx, verKey = vi, vk
-				break
-			}
-		}
+		// Locate the tool's constraint line within the toolchains section. The
+		// entry is either scalar shorthand (`trivy: "0.69.3"`) or a block map
+		// whose `version:` key carries the constraint.
+		verIdx, verKey, constraint := findToolEntry(lines, sectionStart, sectionEnd, toolName)
 		if verIdx < 0 {
-			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: "version line not found in toolchains.desired"})
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: "constraint line not found in toolchains section"})
 			continue
 		}
 
-		if version.IsWildcardConstraint(lineValue(lines[verIdx])) {
+		if version.IsWildcardConstraint(constraint) {
 			// The constraint (a range) stays in the config; only the resolved-LOCK moves.
 			// dep.Latest is the newest in-line member (the target). The PRIOR lock value is
 			// what moves — "" on a first lock, which reads as a birth, not a bump.
@@ -128,55 +120,75 @@ func applyToolchainDesiredUpdates(deps []supplychain.Dependency, repoRoot string
 	return applied, skipped, changedFiles, nil
 }
 
-// findDesiredSection locates the line range of the toolchains.desired section.
-// Returns (startLine, endLine) inclusive, or (-1, -1) if not found.
-// The section ends when indentation returns to or above the desired: level.
-func findDesiredSection(lines []string) (int, int) {
-	inToolchains := false
-	toolchainsIndent := -1
-	desiredStart := -1
-	desiredIndent := -1
-
+// findToolchainsSection locates the line range of the flat top-level toolchains:
+// section — the tool entries indented under it. Returns (startLine, endLine)
+// inclusive, or (-1, -1) when the config declares no toolchains. The indent-0
+// requirement keeps identically-named nested keys elsewhere from matching.
+func findToolchainsSection(lines []string) (int, int) {
+	start := -1
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-
-		indent := len(line) - len(strings.TrimLeft(line, " "))
-
-		// Detect "toolchains:" at top level
-		if trimmed == "toolchains:" && !inToolchains {
-			inToolchains = true
-			toolchainsIndent = indent
+		indent := leadIndentWidth(line)
+		if start < 0 {
+			if indent == 0 && trimmed == "toolchains:" {
+				start = i + 1
+			}
 			continue
 		}
-
-		if inToolchains && desiredStart < 0 {
-			// Looking for "desired:" within toolchains
-			if indent <= toolchainsIndent && trimmed != "" {
-				// Left the toolchains section without finding desired
-				return -1, -1
-			}
-			if trimmed == "desired:" {
-				desiredStart = i + 1
-				desiredIndent = indent
-				continue
-			}
-		}
-
-		if desiredStart >= 0 {
-			// Inside desired section — check if we've left it
-			if indent <= desiredIndent && trimmed != "" {
-				return desiredStart, i - 1
-			}
+		if indent == 0 {
+			return start, i - 1
 		}
 	}
-
-	if desiredStart >= 0 {
-		return desiredStart, len(lines) - 1
+	if start >= 0 {
+		return start, len(lines) - 1
 	}
 	return -1, -1
+}
+
+// findToolEntry locates a tool's constraint within the toolchains section and
+// returns the line to edit on a bump, the key to write there, and the constraint
+// the config expresses. Scalar shorthand (`trivy: "0.69.3"`) and the inline flow
+// map (`trivy: {version: "0.69.3"}`) carry the constraint on the tool's own line;
+// the block-map form carries it on a nested `version:` line.
+func findToolEntry(lines []string, start, end int, toolName string) (verIdx int, verKey, constraint string) {
+	for i := start; i <= end && i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		colon := strings.Index(trimmed, ":")
+		if colon < 0 || trimmed[:colon] != toolName {
+			continue
+		}
+		value := strings.TrimSpace(trimmed[colon+1:])
+		if c := strings.Index(value, " #"); c >= 0 {
+			value = strings.TrimSpace(value[:c])
+		}
+		if value != "" {
+			return i, toolName, flowMapVersion(strings.Trim(value, `"'`))
+		}
+		if vi, vk := findToolConstraintLine(lines, i, leadIndentWidth(lines[i]), end); vi >= 0 {
+			return vi, vk, lineValue(lines[vi])
+		}
+		return -1, "", ""
+	}
+	return -1, "", ""
+}
+
+// flowMapVersion unwraps an inline `{version: X}` flow map to X; any other value
+// passes through as the constraint itself.
+func flowMapVersion(v string) string {
+	if !strings.HasPrefix(v, "{") {
+		return v
+	}
+	inner := strings.TrimSuffix(strings.TrimPrefix(v, "{"), "}")
+	if idx := strings.Index(inner, ":"); idx >= 0 {
+		return strings.Trim(strings.TrimSpace(inner[idx+1:]), `"' `)
+	}
+	return ""
 }
 
 func leadIndent(line string) string   { return line[:leadIndentWidth(line)] }

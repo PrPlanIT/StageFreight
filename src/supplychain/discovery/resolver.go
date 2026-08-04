@@ -35,8 +35,7 @@ func (m *Resolver) clock() time.Time {
 	return time.Now()
 }
 
-// SetToolchainDesired records the toolchains.desired config used by
-// checkToolchainDesired.
+// SetToolchainDesired records the toolchains config used by checkToolchains.
 func (m *Resolver) SetToolchainDesired(desired map[string]config.ToolConstraint) {
 	m.desired = desired
 }
@@ -83,8 +82,8 @@ func (m *Resolver) resolveFile(ctx context.Context, file lint.FileInfo) ([]suppl
 	case base == "go.mod":
 		return m.checkGoMod(ctx, file)
 	case base == ".stagefreight.yml":
-		// Toolchain desired versions — config-driven discovery
-		return m.checkToolchainDesired(ctx, m.desired), nil
+		// Toolchain constraints — config-driven discovery
+		return m.checkToolchains(ctx, m.desired), nil
 	case base == "Cargo.toml":
 		return m.checkCargo(ctx, file)
 	case base == "package.json":

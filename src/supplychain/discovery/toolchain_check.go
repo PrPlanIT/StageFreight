@@ -41,10 +41,10 @@ func collectMatchingReleaseTags(constraint string, fetchPage func(page int) ([]s
 	return tags
 }
 
-// checkToolchainDesired generates Dependency entries from toolchains.desired config.
-// Each desired tool version is checked against its upstream GitHub release.
+// checkToolchains generates Dependency entries from the toolchains config.
+// Each pinned tool version is checked against its upstream GitHub release.
 // This is the replacement for Dockerfile ENV scanning — versions now live in config.
-func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string]config.ToolConstraint) []supplychain.Dependency {
+func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]config.ToolConstraint) []supplychain.Dependency {
 	if !m.cfg.SourceEnabled(supplychain.EcosystemToolchain) {
 		return nil
 	}
@@ -73,7 +73,7 @@ func (m *Resolver) checkToolchainDesired(ctx context.Context, desired map[string
 			Name:      def.Name,
 			Ecosystem: supplychain.EcosystemToolchain,
 			File:      ".stagefreight.yml",
-			Binding:   fmt.Sprintf("toolchains.desired.%s.version", def.Name),
+			Binding:   fmt.Sprintf("toolchains.%s", def.Name),
 		}
 		if !wildcard {
 			dep.Current = constraint
