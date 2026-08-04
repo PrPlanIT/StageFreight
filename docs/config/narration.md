@@ -13,16 +13,54 @@ deterministic.
 ## The run story: facts, union bodies, elision
 
 Every subsystem records its outcome and metrics into the pipeline state as it
-runs; narration renders them through **facts** — `{dotted.tokens}` that always
-resolve and elide when their domain recorded nothing:
+runs; narration renders them through **facts** — tokens that always resolve and
+elide when their domain recorded nothing. The complete vocabulary:
 
-- Identity: `{project}` `{ref}` `{sha}` `{version}` `{commit_title}`
-  `{pipeline_url}` `{duration}`
-- Status: `{status}` `{status_icon}` `{status_verb}`, and on failure
-  `{failure.subsystem}` / `{failure.reason}`
-- Domains: `{publish.*}`, `{tests.*}`, `{security.*}`, `{changelog.*}`,
-  `{retention.pruned}`, `{reconcile.*}` (gitops), `{ansible.*}` (host
-  convergence)
+**Identity & status** (bare names, usable anywhere):
+
+| Fact | Renders |
+|---|---|
+| `{project}` | project name (from the git remote) |
+| `{modality}` | the run's lifecycle modality |
+| `{ref}` | branch or tag the run built |
+| `{sha}` / `{version}` | the run's recorded identity (short SHA / version) |
+| `{commit_title}` | HEAD commit title |
+| `{pipeline_url}` | forge pipeline URL (tap-through target) |
+| `{duration}` | elapsed from the run's first state write ("3m 12s") |
+| `{status}` / `{status_icon}` / `{status_verb}` | pipeline outcome as word / icon / verb |
+
+**Domain facts** (`{domain.key}` — one domain per subsystem; every metric
+elides when its domain recorded nothing):
+
+| Domain | Keys |
+|---|---|
+| `failure.` | `subsystem` · `reason` (the first pipeline-failing subsystem) |
+| `publish.` | `tags` · `registries` |
+| `tests.` | `total` · `passed` · `coverage` |
+| `security.` | `blocking` · `critical` · `high` · `medium` · `low` · `total` · `sbom` · `blocking_list` |
+| `changelog.` | `count` · `range` |
+| `reconcile.` (gitops) | `total` · `succeeded` · `failed` · `declined` · `backend` · `units` · `cluster` · `failures` |
+| `ansible.` (hosts) | `total` · `converged` · `changed` · `unreachable` · `failed` |
+| `retention.` | `pruned` |
+
+Every recorded domain additionally serves `{domain.outcome}` and
+`{domain.reason}` — the universal subsystem keys.
+
+**Producers and arcs** (shipped stencils, embeddable as `{id}` and overridable
+by shadowing): `{summary}` and `{postmortem}` (the arc bodies), plus the four
+looping producers `{changelog}`, `{failures}`, `{vulns}`, `{artifacts}` —
+self-bounding row lists that render nothing when empty.
+
+**Everything else falls through to the template leaf-pass**: `{base}`,
+`{major}`/`{minor}`/`{patch}`, `{env:NAME}`, `{var:name}`, `{project.*}`, and
+the date/counter vocabulary — see [Concepts](concepts.md). Resolution order per
+token: caller context (release elements) → recorded facts → your `stencils:` →
+shipped stencils → the leaf-pass; unknown tokens stay visibly literal, so a
+typo shows itself.
+
+This vocabulary is ratcheted: the registry lives beside the fact resolver
+(`src/cistate/vocabulary.go`) and a docs test fails any fact that ships
+undocumented.
 
 The shipped `summary` (success arc) and `postmortem` (failure arc) are **union
 bodies**: one template holding every modality's lines, composed per line — a
