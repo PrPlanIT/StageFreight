@@ -20,11 +20,11 @@ Every top-level key, sorted into meaningful groups:
 | Section | Top-level keys it covers |
 |---|---|
 | [Lifecycle & Convergence](lifecycle.md) | `lifecycle` · `gitops` · `governance` · `docker` · `ansible` |
-| [Identity & Connectivity](identity.md) | `version` · `vars` · `defaults` · `forges` · `repos` · `registries` |
+| [Identity & Connectivity](identity.md) | `version` · `vars` · `defaults` · `forges` · `repos` · `registries` · `llms` |
 | [Builds & Tests](builds.md) | `builds` · `build_cache` · `test` |
 | [Publish](publish.md) | `publish` (per-kind: registry · metadata · gitlab-component · release · binary-archive · generic-package · pages) |
 | [Stencils & Scribe](scribe.md) | `stencils` · `scribe` |
-| [Narration & Notifications](narration.md) | `narrate` · `notifications` · `llms` |
+| [Narration & Notifications](narration.md) | `narrate` · `notifications` |
 | [Lint](lint.md) | `lint` |
 | [Policy](policy.md) | `git` · `ci` · `dependency` · `release` · `security` · `commit` · `tagging` · `toolchains` · `glossary` · `manifest` |
 | [Signing](signing.md) | `signing` |

@@ -87,60 +87,30 @@ Dispatch rules worth knowing:
 
 --8<-- "docs/assets/modules/config-reference.md:notifications"
 
-## `llms:` + `type: llm` — AI as a stencil
+## Dispatching AI narration
 
-AI narration is two declarations: a backend in the `llms:` library, and a
-stencil of `type: llm` that composes an input body and sends it through that
-backend. The library exists so endpoints and credentials never leak into
-composition — an AI stencil says `llm: local` and stays pure text.
+AI lives elsewhere in the config — model endpoints in the
+[`llms:` library](identity.md) (Identity & Connectivity, a sibling of forges
+and registries) and the [`type: llm` stencil](scribe.md) that composes input
+and consumes a backend (Stencils & Scribe). Narration is where their output
+DISPATCHES: embed an AI stencil in a notification body like any other stencil.
 
 ```yaml
-llms:
-  local:
-    provider: ollama                 # openai | anthropic | claude-agent reserved
-    url: http://ollama.example.com:11434
-    model: deepseek-r1:1.5b
-
-stencils:
-  triage:
-    type: llm
-    llm: local
-    body: |
-      You are a CI triage assistant. In two sentences, explain the most likely
-      cause of this failure and the first thing to check.
-
-      {postmortem}
-
 notifications:
   failure-triage:
     provider: ntfy
     url: https://ntfy.example.com/MyRepo-CI
     credentials: NTFY
-    body: "{postmortem}\n\n{triage}"
+    body: "{postmortem}\n\n{triage}"     # triage is a type: llm stencil
     when:
       outcomes: [failure]
 ```
 
-The `body:` of an llm stencil is the composed **input**: facts and stencil
-embeds resolve first (so the model receives the real postmortem, the real
-changelog), then the result goes to the backend and the response renders as the
-stencil's output. Contracts that keep this safe and cheap:
-
-- **Degrade to empty** — an unreachable backend or failed generation renders
-  nothing (and the empty-body skip means no broken ping). The pipeline never
-  fails because a model was down.
-- **Per-run memoization** — a given llm stencil generates once per run, however
-  many bodies embed it.
-- **Reasoning-model hygiene** — `<think>…</think>` traces are stripped from
-  output before rendering.
-- **Dispatch-only, enforced** — `type: llm` stencils (and any text stencil that
-  transitively embeds one) are rejected by validation in scribe file regions.
-  The one deliberate exception: **release bodies** may embed AI stencils —
-  what a release says is the author's editorial choice, and the release
-  elements (`{release.changes}` etc.) flow into the stencil's input so a model
-  can rewrite them.
-
---8<-- "docs/assets/modules/config-reference.md:llms"
+The dispatch-side behaviors that matter here: an unreachable backend renders
+nothing, and the **empty-body skip** means no broken ping goes out; generation
+is memoized per run, so a subject and body embedding the same AI stencil cost
+one generation. AI output is dispatch-only — these bodies and release notes,
+never scribe file regions.
 
 ## Where narration runs
 

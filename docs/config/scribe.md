@@ -97,6 +97,33 @@ scribe:
     push: true
 ```
 
+## `type: llm` — AI stencils
+
+An llm stencil composes an input and sends it through an `llms:` backend
+([Identity & Connectivity](identity.md)); the model's response renders as the stencil's
+output. The `body:` is the composed INPUT — facts and `{stencil}` embeds resolve first, so
+the model receives the real postmortem or changelog, and the ask is written inline:
+
+```yaml
+stencils:
+  triage:
+    type: llm
+    llm: local          # llms: entry id
+    body: |
+      You are a CI triage assistant. In two sentences, explain the most likely
+      cause of this failure and the first thing to check.
+
+      {postmortem}
+```
+
+Contracts: **degrade to empty** (an unreachable backend renders nothing — the pipeline never
+fails because a model was down), **per-run memoization** (one generation per stencil per run),
+and `<think>…</think>` reasoning traces are stripped. AI output is **dispatch-only**: llm
+stencils — and any text stencil transitively embedding one — are rejected by validation in
+scribe file regions; the committed record stays deterministic. The deliberate exception is
+release bodies, where embedding AI is the author's editorial choice. See
+[Narration & Notifications](narration.md) for dispatch examples.
+
 ## CLI
 
 | Command | What it does |
