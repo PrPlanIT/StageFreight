@@ -1,7 +1,9 @@
 package gitstate
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -60,8 +62,18 @@ func (t *systemTransport) RemoteRefHash(remote, ref string) (plumbing.Hash, erro
 func (t *systemTransport) run(args ...string) error {
 	cmd := exec.Command("git", append([]string{"-C", t.rootDir}, args...)...)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Stream stderr live (progress, auth prompts) while capturing it, so a
+	// failure's actual git message travels in the error — callers classify
+	// refusals (e.g. non-fast-forward vs auth) from text, never exit codes.
+	var stderr bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			if len(msg) > 2000 {
+				msg = msg[:2000]
+			}
+			return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, msg)
+		}
 		return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return nil
