@@ -200,7 +200,7 @@ signing:
     type: <string>   # "volume" | "host_path"
     name: <string>   # volume name (type: volume)
     path: <string>   # absolute path (type: host_path)
-  profiles:   # id→profile map (was the top-level signing_profiles: list)
+  profiles:   # id→profile map
     <id>:   # entry key = the unique id
       requires: [<string>]   # trust class(es); v1 enforces exactly one · one of: hardware, key, kms, oidc · required
       key:   # Class reference blocks — at most one, matching the declared class.
@@ -237,8 +237,8 @@ Git is the git: cluster and the single source for ref interpretation: named bran
 
 ```yaml
 git:
-  branches: {}   # Branches maps a matcher name to a regex (was matchers.branches).
-  tags:   # Tags maps a tag-source name to its pattern (was versioning.tag_sources list).
+  branches: {}   # Branches maps a matcher name to a regex.
+  tags:   # Tags maps a tag-source name to its pattern.
     <id>:   # entry key = the unique id
       pattern: <string>   # Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" · required
   versioning:   # Versioning holds the derivation rules that consume the patterns above.
@@ -316,7 +316,7 @@ builds:
 <a id="config-publish" name="config-publish"></a>
 ### publish
 
-Targets defines distribution targets and side-effects. Declared under the publish: key as an id→target map (execution order preserved). The retired list form (targets:) no longer parses — upgrade via the config migrator.
+Targets defines distribution targets and side-effects. Declared under the publish: key as an id→target map (execution order preserved).
 
 #### `kind: registry`
 

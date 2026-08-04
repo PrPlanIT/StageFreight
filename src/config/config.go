@@ -60,8 +60,7 @@ type Config struct {
 	Builds OrderedBuilds `yaml:"builds"`
 
 	// Targets defines distribution targets and side-effects. Declared under the
-	// publish: key as an id→target map (execution order preserved). The retired
-	// list form (targets:) no longer parses — upgrade via the config migrator.
+	// publish: key as an id→target map (execution order preserved).
 	Targets OrderedTargets `yaml:"publish,omitempty"`
 
 	// Lint holds lint-specific configuration (unchanged from v1).

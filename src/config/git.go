@@ -7,14 +7,13 @@ import (
 )
 
 // GitConfig is the git: cluster — how the engine interprets a ref into named
-// branch/tag patterns and the versions they imply (was matchers + versioning,
-// merged into one cohesive block). It is the SINGLE source: consumers read
+// branch/tag patterns and the versions they imply. It is the SINGLE source: consumers read
 // cfg.Git.Branches / cfg.Git.Tags / cfg.Git.Versioning directly — no translation
 // layer, no separate Matchers/Versioning types.
 type GitConfig struct {
-	// Branches maps a matcher name to a regex (was matchers.branches).
+	// Branches maps a matcher name to a regex.
 	Branches map[string]string `yaml:"branches,omitempty"`
-	// Tags maps a tag-source name to its pattern (was versioning.tag_sources list).
+	// Tags maps a tag-source name to its pattern.
 	Tags OrderedTagSources `yaml:"tags,omitempty"`
 	// Versioning holds the derivation rules that consume the patterns above.
 	Versioning GitVersioning `yaml:"versioning,omitempty"`

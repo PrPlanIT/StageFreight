@@ -8,8 +8,7 @@ import (
 
 // OrderedTargets is the publish: block — the distribution targets as an id→target
 // map (the map key becomes each target's ID). Backed by a slice so execution
-// order (YAML map order) is preserved. This is the ONLY accepted shape; the
-// retired list form (targets:) upgrades through the config migrator, never here.
+// order (YAML map order) is preserved. This is the ONLY accepted shape.
 type OrderedTargets []TargetConfig
 
 // expandMultiRegistryTargets fans a target declaring registry: [a, b, c] into N
