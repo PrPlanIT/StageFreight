@@ -526,6 +526,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			TagPatterns:  tagPatterns,
 			SecurityTile: secTile,
 			SecurityBody: secBody,
+			ProjectName:  detectProjectName(rootDir),
 			Version:      versionInfo.Version,
 			SHA:          sha,
 			IsPrerelease: isPrerelease,
