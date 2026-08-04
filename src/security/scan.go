@@ -413,6 +413,19 @@ func vulnCountsSuffix(result *ScanResult) string {
 	return "(" + strings.Join(parts, ", ") + ")"
 }
 
+// mdText neutralizes scanner-supplied text for embedding in markdown bodies:
+// angle brackets become entities so tag-shaped content (a CVE description
+// quoting a <script> tag, say) renders as literal text instead of live HTML,
+// pipes are escaped so table rows keep their columns, and newlines collapse to
+// spaces so one value stays one row.
+func mdText(s string) string {
+	return strings.NewReplacer(
+		"\r", " ", "\n", " ",
+		"|", "\\|",
+		"<", "&lt;", ">", "&gt;",
+	).Replace(s)
+}
+
 func buildDetailedBody(result *ScanResult, tile string) string {
 	var b strings.Builder
 	b.WriteString(tile)
@@ -445,7 +458,7 @@ func buildDetailedBody(result *ScanResult, tile string) string {
 			if len(desc) > 80 {
 				desc = desc[:77] + "..."
 			}
-			b.WriteString(fmt.Sprintf("- **%s** — %s (%s)\n", v.ID, desc, v.Package))
+			b.WriteString(fmt.Sprintf("- **%s** — %s (%s)\n", mdText(v.ID), mdText(desc), mdText(v.Package)))
 			shown++
 		}
 	}
@@ -485,7 +498,7 @@ func buildFullBody(result *ScanResult, tile string) string {
 				fixedIn = "—"
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
-				sevDisplay, v.ID, v.Package, v.Installed, fixedIn, desc))
+				sevDisplay, mdText(v.ID), mdText(v.Package), mdText(v.Installed), mdText(fixedIn), mdText(desc)))
 		}
 	}
 
