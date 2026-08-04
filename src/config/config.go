@@ -121,6 +121,10 @@ type Config struct {
 	// GitOps defines configuration for the gitops lifecycle mode.
 	GitOps GitOpsConfig `yaml:"gitops"`
 
+	// Ansible defines the ansible host-convergence subsystem. Presence-gated
+	// (any converge playbook activates it) and independent of lifecycle.mode.
+	Ansible AnsibleConfig `yaml:"ansible"`
+
 	// Docker defines configuration for the docker lifecycle mode.
 	Docker DockerLifecycleConfig `yaml:"docker"`
 
@@ -302,6 +306,7 @@ func defaults() *Config {
 		Manifest:   DefaultManifestConfig(),
 		Release:    DefaultReleaseConfig(),
 		GitOps:     DefaultGitOpsConfig(),
+		Ansible:    DefaultAnsibleConfig(),
 		BuildCache: DefaultBuildCacheConfig(),
 		Docker:     DefaultDockerLifecycleConfig(),
 		Glossary:   DefaultGlossaryConfig(),

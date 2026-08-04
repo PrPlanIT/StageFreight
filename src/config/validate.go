@@ -752,6 +752,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	}
 
 	errs = append(errs, validateLifecycle(cfg)...)
+	errs = append(errs, validateAnsible(cfg)...)
 
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
@@ -777,6 +778,49 @@ func validateLifecycle(cfg *Config) []string {
 			cfg.Lifecycle.Mode, ModeImage, ModeGitops, ModeDocker, ModeGovernance)}
 	}
 	return nil
+}
+
+// validateAnsible checks the ansible play library. Deliberately NOT gated on
+// lifecycle.mode — ansible coexists with gitops/governance (the same
+// non-exclusivity doctrine as validateLifecycle's note above).
+func validateAnsible(cfg *Config) []string {
+	var errs []string
+	a := cfg.Ansible
+	if len(a.Playbooks) == 0 {
+		return nil // subsystem absent — nothing to check
+	}
+	if strings.TrimSpace(a.Inventory) == "" {
+		errs = append(errs, "ansible.inventory: required when playbooks are declared")
+	}
+	if strings.TrimSpace(a.Image) == "" {
+		errs = append(errs, "ansible.image: required when playbooks are declared")
+	}
+	seen := map[string]bool{}
+	for _, p := range a.Playbooks {
+		path := fmt.Sprintf("ansible.playbooks.%s", p.ID)
+		if seen[p.ID] {
+			errs = append(errs, fmt.Sprintf("%s: duplicate playbook id", path))
+		}
+		seen[p.ID] = true
+		if strings.TrimSpace(p.Path) == "" {
+			errs = append(errs, fmt.Sprintf("%s.path: required", path))
+		}
+		if len(p.Groups) == 0 {
+			errs = append(errs, fmt.Sprintf("%s.groups: at least one inventory group required", path))
+		}
+	}
+	if a.HasConvergePlaybooks() {
+		if strings.TrimSpace(a.SSH.User) == "" {
+			errs = append(errs, "ansible.ssh.user: required when a converge playbook is declared")
+		}
+		if strings.TrimSpace(a.SSH.Credentials) == "" {
+			errs = append(errs, "ansible.ssh.credentials: required when a converge playbook is declared")
+		}
+		if strings.TrimSpace(a.SSH.KnownHosts) == "" {
+			errs = append(errs, "ansible.ssh.known_hosts: required when a converge playbook is declared (host-key verification is always strict)")
+		}
+	}
+	return errs
 }
 
 // cfPagesProjectRe matches Cloudflare Pages' project-name rule: lowercase letters,
