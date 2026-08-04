@@ -61,6 +61,10 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					ExpireIn: "1 day",
 				},
 				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
+				// Reconcile/converge mutates live systems (flux, ansible
+				// cordon/drain): concurrent pipelines must queue behind one
+				// perform, never race it.
+				Policy: model.PolicySpec{Serialize: "perform"},
 			},
 			{
 				Name:     "review",

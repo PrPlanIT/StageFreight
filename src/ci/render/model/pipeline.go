@@ -159,4 +159,11 @@ type PolicySpec struct {
 	// WhenAlways means this job runs regardless of prior job outcomes.
 	// Used for narrate/docs jobs that must always emit truth.
 	WhenAlways bool
+
+	// Serialize names a mutual-exclusion group: across ALL pipelines of the
+	// project, at most one job holding the same group runs at a time. Set on
+	// jobs that mutate shared external state (perform's reconcile/converge —
+	// two pipelines racing cordon/drain on one fleet must queue, not race).
+	// GitLab lowers it to resource_group; forges without a primitive omit it.
+	Serialize string
 }

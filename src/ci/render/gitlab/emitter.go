@@ -12,6 +12,7 @@
 //   - SourceSpec.FullClone → variables.GIT_DEPTH: 0
 //   - PolicySpec.WhenAlways → when: always
 //   - PolicySpec.AllowFailure → allow_failure: true
+//   - PolicySpec.Serialize → resource_group
 package gitlab
 
 import (
@@ -178,6 +179,11 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 	// allow_failure
 	if j.Policy.AllowFailure {
 		buf.WriteString("  allow_failure: true\n")
+	}
+
+	// resource_group — GitLab's mutual-exclusion primitive for Serialize.
+	if j.Policy.Serialize != "" {
+		fmt.Fprintf(buf, "  resource_group: %s\n", j.Policy.Serialize)
 	}
 }
 
