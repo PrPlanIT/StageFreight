@@ -94,6 +94,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	engine.ToolchainDesired = cfg.Toolchains
+	engine.Ansible = &cfg.Ansible
 
 	if verbose {
 		names := make([]string, len(engine.Modules))

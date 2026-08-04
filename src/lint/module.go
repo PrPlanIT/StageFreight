@@ -35,6 +35,14 @@ type ToolchainAwareModule interface {
 	SetToolchainDesired(desired map[string]config.ToolConstraint)
 }
 
+// AnsibleAwareModule is implemented by modules that need the repo's ansible
+// subsystem config (execution image, declared play library). The engine calls
+// SetAnsibleConfig after construction. Mirrors ToolchainAwareModule.
+type AnsibleAwareModule interface {
+	Module
+	SetAnsibleConfig(cfg config.AnsibleConfig)
+}
+
 // SnapshotAwareModule is implemented by modules that can consume a
 // pre-resolved supplychain.Snapshot instead of resolving dependencies
 // themselves. The engine calls SetSnapshot after construction, before Run(),

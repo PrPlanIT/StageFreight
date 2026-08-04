@@ -28,6 +28,11 @@ type Engine struct {
 	Verbose          bool
 	ToolchainDesired map[string]config.ToolConstraint
 
+	// Ansible carries the repo's ansible subsystem config to AnsibleAwareModule
+	// implementations (the ansible-lint module needs the execution image and the
+	// declared play library). nil means "not configured" — the module no-ops.
+	Ansible *config.AnsibleConfig
+
 	// Snapshot is an optional, pre-resolved supply-chain Snapshot produced
 	// once (via discovery.Discover) and shared by the caller across
 	// consumers — e.g. the audition pipeline threads the same Snapshot into
@@ -193,6 +198,15 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		for _, m := range e.Modules {
 			if ta, ok := m.(ToolchainAwareModule); ok {
 				ta.SetToolchainDesired(e.ToolchainDesired)
+			}
+		}
+	}
+
+	// Propagate ansible subsystem config to modules that need it.
+	if e.Ansible != nil {
+		for _, m := range e.Modules {
+			if aa, ok := m.(AnsibleAwareModule); ok {
+				aa.SetAnsibleConfig(*e.Ansible)
 			}
 		}
 	}
