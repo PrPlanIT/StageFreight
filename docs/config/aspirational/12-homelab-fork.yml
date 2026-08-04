@@ -12,12 +12,12 @@
 version: 1
 
 builds:
-  - id: immich-custom
+  immich-custom:
     kind: docker
     platforms: [linux/amd64, linux/arm64]
 
 targets:
-  - id: dockerhub
+  dockerhub:
     kind: registry
     build: immich-custom
     url: docker.io
@@ -25,7 +25,7 @@ targets:
     tags: ["{version}-custom", latest]
     when: { git_tags: ["re:.*"], events: [tag] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:.*"], events: [tag] }
 

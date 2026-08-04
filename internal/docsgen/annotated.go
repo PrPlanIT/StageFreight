@@ -7,6 +7,27 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
+var idMapMarkerType = reflect.TypeOf((*config.IDMap)(nil)).Elem()
+
+// isOrderedIDMap reports whether a field type is one of the id→entry map types:
+// a Go slice that DECODES as a YAML map keyed by entry id (the house convention
+// behind forges/repos/registries/builds/publish/stencils/…). Detection is the
+// compile-checked config.IDMap marker, so a new map type joins docs correctly by
+// implementing it — and never by naming convention. Their docs must render map
+// form: the "- id:" list form these slices would otherwise render is a shape
+// the strict decoder REJECTS.
+func isOrderedIDMap(t reflect.Type) bool {
+	t = unwrapPtr(t)
+	return t.Kind() == reflect.Slice && t.Implements(idMapMarkerType)
+}
+
+// idMapEntryLine opens every id-map block: the entry key stands in for the id.
+func idMapEntryLine(indent string) string { return indent + "<id>:   # entry key = the unique id" }
+
+// idMapSkipsField reports whether a field is the entry's stamped ID — the map
+// key, which must not render as a field inside the entry body.
+func idMapSkipsField(f reflect.StructField) bool { return f.Name == "ID" }
+
 // This file renders goreleaser-style annotated YAML: for a discriminated-union config
 // section (targets, builds), it emits one YAML skeleton per kind, showing only that
 // kind's fields with their description, allowed values, and required-ness as inline
@@ -111,9 +132,11 @@ var kindFieldEnums = map[string][]string{
 }
 
 // renderUnionBlocks emits one annotated YAML block per kind. topLevel wraps each block in
-// the section's list (`targets:\n  - ...`); nested renders a bare list item (`- ...`) under
-// a "<section> <field> · kind: X" heading, since it's an entry in a parent list.
-func renderUnionBlocks(kb kindBlock, topLevel bool, wrapperKey, label string) string {
+// the section's shape — id→entry map form when the section is an Ordered id-map
+// (`builds:\n  <id>:\n    ...`), list form otherwise (`targets:\n  - ...`);
+// nested renders a bare list item (`- ...`) under a "<section> <field> · kind: X"
+// heading, since it's an entry in a parent list.
+func renderUnionBlocks(kb kindBlock, topLevel bool, wrapperKey, label string, idMap bool) string {
 	byKey := fieldsByYAMLKey(kb.typ)
 	fieldIndent := "  "
 	if topLevel {
@@ -123,18 +146,25 @@ func renderUnionBlocks(kb kindBlock, topLevel bool, wrapperKey, label string) st
 	for _, ks := range kb.kinds {
 		var lines []string
 		for _, key := range ks.fields {
-			if f, ok := byKey[key]; ok {
-				lines = append(lines, yamlFieldLines(f, kb.typ.Name(), fieldIndent, wrapperKey, ks.name)...)
+			f, ok := byKey[key]
+			if !ok || (idMap && idMapSkipsField(f)) {
+				continue
 			}
+			lines = append(lines, yamlFieldLines(f, kb.typ.Name(), fieldIndent, wrapperKey, ks.name)...)
 		}
 		if len(lines) == 0 {
 			continue
 		}
-		if topLevel {
+		switch {
+		case topLevel && idMap:
+			lines = append([]string{idMapEntryLine("  ")}, lines...)
+			b.WriteString("#### `kind: " + ks.name + "`\n\n")
+			b.WriteString("```yaml\n" + wrapperKey + ":\n" + strings.Join(lines, "\n") + "\n```\n\n")
+		case topLevel:
 			lines[0] = "  - " + strings.TrimLeft(lines[0], " ")
 			b.WriteString("#### `kind: " + ks.name + "`\n\n")
 			b.WriteString("```yaml\n" + wrapperKey + ":\n" + strings.Join(lines, "\n") + "\n```\n\n")
-		} else {
+		default:
 			lines[0] = "- " + strings.TrimLeft(lines[0], " ")
 			b.WriteString("#### " + label + " · `kind: " + ks.name + "`\n\n")
 			b.WriteString("```yaml\n" + strings.Join(lines, "\n") + "\n```\n\n")
@@ -145,19 +175,24 @@ func renderUnionBlocks(kb kindBlock, topLevel bool, wrapperKey, label string) st
 
 // renderSectionYAML emits a single nested annotated YAML block for a first-party struct
 // section (a list of the struct if isList, else a plain nested mapping).
-func renderSectionYAML(sectionKey string, t reflect.Type, isList bool) string {
+func renderSectionYAML(sectionKey string, t reflect.Type, isList, isIDMap bool) string {
 	indent := "  "
-	if isList {
-		indent = "    " // list-item continuation
+	if isList || isIDMap {
+		indent = "    " // room under the list marker / the <id>: entry key
 	}
 	var lines []string
 	for i := 0; i < t.NumField(); i++ {
+		if isIDMap && idMapSkipsField(t.Field(i)) {
+			continue
+		}
 		lines = append(lines, yamlFieldLines(t.Field(i), t.Name(), indent, sectionKey, "")...)
 	}
 	if len(lines) == 0 {
 		return ""
 	}
-	if isList {
+	if isIDMap {
+		lines = append([]string{idMapEntryLine("  ")}, lines...)
+	} else if isList {
 		lines[0] = "  - " + strings.TrimLeft(lines[0], " ")
 	}
 	return "```yaml\n" + sectionKey + ":\n" + strings.Join(lines, "\n") + "\n```\n\n"
@@ -200,13 +235,17 @@ func yamlFieldLines(field reflect.StructField, declType, indent, docPrefix, kind
 	}
 
 	if isFirstPartyConfig(elem) {
-		list := unwrapPtr(field.Type).Kind() == reflect.Slice
+		idMap := isOrderedIDMap(field.Type)
+		list := !idMap && unwrapPtr(field.Type).Kind() == reflect.Slice
 		childIndent := indent + "  "
-		if list {
-			childIndent = indent + "    " // room for the "- " list marker
+		if list || idMap {
+			childIndent = indent + "    " // room under the list marker / the <id>: entry key
 		}
 		var children []string
 		for i := 0; i < elem.NumField(); i++ {
+			if idMap && idMapSkipsField(elem.Field(i)) {
+				continue
+			}
 			children = append(children, yamlFieldLines(elem.Field(i), elem.Name(), childIndent, docPath, "")...)
 		}
 		head := indent + yamlKey + ":"
@@ -216,7 +255,9 @@ func yamlFieldLines(field reflect.StructField, declType, indent, docPrefix, kind
 		if comment != "" {
 			head += "   # " + comment
 		}
-		if list && len(children) > 0 {
+		if idMap && len(children) > 0 {
+			children = append([]string{idMapEntryLine(indent + "  ")}, children...)
+		} else if list && len(children) > 0 {
 			children[0] = indent + "  - " + strings.TrimLeft(children[0], " ")
 		}
 		return append([]string{head}, children...)

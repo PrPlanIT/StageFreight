@@ -18,7 +18,7 @@ policies:
     stable: "^\\d+\\.\\d+\\.\\d+$"
 
 targets:
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: [stable], events: [tag] }
 

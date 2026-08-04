@@ -18,37 +18,37 @@ policies:
     stable: "^\\d+\\.\\d+\\.\\d+$"
 
 builds:
-  - id: app
+  app:
     kind: docker
     dockerfile: Dockerfile
     target: production
     platforms: [linux/amd64, linux/arm64]
 
-  - id: worker
+  worker:
     kind: docker
     dockerfile: Dockerfile
     target: worker
     platforms: [linux/amd64, linux/arm64]
 
-  - id: migrations
+  migrations:
     kind: docker
     dockerfile: Dockerfile
     target: migrate
     platforms: [linux/amd64]              # migrations only run on amd64
 
-  - id: cron
+  cron:
     kind: docker
     dockerfile: Dockerfile
     target: cron
     platforms: [linux/amd64, linux/arm64]
 
 targets:
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: [stable], events: [tag] }
 
   # ── app image ────────────────────────────────────────────────
-  - id: app-dockerhub
+  app-dockerhub:
     kind: registry
     build: app
     url: docker.io
@@ -56,7 +56,7 @@ targets:
     tags: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: app-ghcr
+  app-ghcr:
     kind: registry
     build: app
     url: ghcr.io
@@ -65,7 +65,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── worker image ─────────────────────────────────────────────
-  - id: worker-dockerhub
+  worker-dockerhub:
     kind: registry
     build: worker
     url: docker.io
@@ -74,7 +74,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── migrations image ─────────────────────────────────────────
-  - id: migrations-dockerhub
+  migrations-dockerhub:
     kind: registry
     build: migrations
     url: docker.io
@@ -83,7 +83,7 @@ targets:
     when: { git_tags: [stable], events: [tag] }
 
   # ── cron image ───────────────────────────────────────────────
-  - id: cron-dockerhub
+  cron-dockerhub:
     kind: registry
     build: cron
     url: docker.io

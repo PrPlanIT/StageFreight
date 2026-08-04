@@ -120,3 +120,25 @@ func (o *OrderedSigningProfiles) UnmarshalYAML(n *yaml.Node) error {
 	*o = v
 	return nil
 }
+
+// IDMap is the marker every Ordered* id→entry map type implements — the
+// compile-checked contract that the type is a Go slice DECODING as a YAML map
+// keyed by entry id. Consumers that must know the YAML shape (the docs
+// generator renders map form, never "- id:" list form) detect it through this
+// interface instead of naming conventions.
+type IDMap interface{ isIDMap() }
+
+func (OrderedForges) isIDMap()           {}
+func (OrderedRepos) isIDMap()            {}
+func (OrderedRegistries) isIDMap()       {}
+func (OrderedBuilds) isIDMap()           {}
+func (OrderedTestSuites) isIDMap()       {}
+func (OrderedSigningProfiles) isIDMap()  {}
+func (OrderedTagSources) isIDMap()       {}
+func (OrderedBranchBuilds) isIDMap()     {}
+func (OrderedTargets) isIDMap()          {}
+func (OrderedFiles) isIDMap()            {}
+func (OrderedStencils) isIDMap()         {}
+func (OrderedLLMs) isIDMap()             {}
+func (OrderedNotifications) isIDMap()    {}
+func (OrderedAnsiblePlaybooks) isIDMap() {}

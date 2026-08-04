@@ -25,13 +25,13 @@ policies:
     all: ".*"
 
 builds:
-  - id: invoiceninja
+  invoiceninja:
     kind: docker
     platforms: [linux/amd64, linux/arm64, linux/arm/v7]
 
 targets:
   # ── Docker Hub ───────────────────────────────────────────────
-  - id: dockerhub
+  dockerhub:
     kind: registry
     build: invoiceninja
     url: docker.io
@@ -42,7 +42,7 @@ targets:
     credentials: DOCKER
 
   # ── GHCR ─────────────────────────────────────────────────────
-  - id: ghcr
+  ghcr:
     kind: registry
     build: invoiceninja
     url: ghcr.io
@@ -52,7 +52,7 @@ targets:
     credentials: GHCR
 
   # ── Quay.io ─────────────────────────────────────────────────
-  - id: quay
+  quay:
     kind: registry
     build: invoiceninja
     url: quay.io
@@ -62,7 +62,7 @@ targets:
     credentials: QUAY
 
   # ── Private registry — all branches ──────────────────────────
-  - id: private
+  private:
     kind: registry
     build: invoiceninja
     url: registry.prplanit.com
@@ -75,7 +75,7 @@ targets:
       protect: ["{branch}-latest"]
 
   # ── Project identity sync ────────────────────────────────────
-  - id: project-meta
+  project-meta:
     kind: metadata
     registry: [dockerhub]
     when: { branches: [main], events: [push, tag] }
@@ -85,7 +85,7 @@ targets:
     readme: README.md
 
   # ── Release ──────────────────────────────────────────────────
-  - id: primary-release
+  primary-release:
     kind: release
     aliases: ["{version}", "{major}.{minor}", latest]
     when: { git_tags: [stable], events: [tag] }

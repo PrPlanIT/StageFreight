@@ -17,13 +17,13 @@ policies:
     all: ".*"
 
 builds:
-  - id: expense-tracker
+  expense-tracker:
     kind: docker
     platforms: [linux/amd64]
 
 targets:
   # All branches push to the private registry — no public exposure
-  - id: internal-registry
+  internal-registry:
     kind: registry
     build: expense-tracker
     url: registry.prplanit.com
@@ -31,7 +31,7 @@ targets:
     tags: ["{version}", "{branch}-{sha:.7}", "{branch}-latest"]
     when: { branches: [all], events: [push] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:.*"], events: [tag] }
 

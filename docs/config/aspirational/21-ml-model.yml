@@ -18,7 +18,7 @@ policies:
     main: "^main$"
 
 builds:
-  - id: fraud-detector
+  fraud-detector:
     kind: docker
     platforms: [linux/amd64]
     build_args:
@@ -26,7 +26,7 @@ builds:
       CUDA_VERSION: "12.4"
 
 targets:
-  - id: private-registry
+  private-registry:
     kind: registry
     build: fraud-detector
     url: registry.prplanit.com
@@ -34,7 +34,7 @@ targets:
     tags: ["{version}", "{version}-cuda12.4", latest]
     when: { branches: [main], events: [push] }
 
-  - id: dockerhub
+  dockerhub:
     kind: registry
     build: fraud-detector
     url: docker.io
@@ -42,7 +42,7 @@ targets:
     tags: ["{version}", latest]
     when: { branches: [main], events: [push] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:.*"], events: [tag] }
 

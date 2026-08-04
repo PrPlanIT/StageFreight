@@ -18,14 +18,14 @@ policies:
 
 builds:
   # API backend — standard container image
-  - id: api
+  api:
     kind: docker
     dockerfile: api/Dockerfile
     context: api
     platforms: [linux/amd64, linux/arm64]
 
 targets:
-  - id: dockerhub-api
+  dockerhub-api:
     kind: registry
     build: api
     url: docker.io
@@ -33,7 +33,7 @@ targets:
     tags: ["{version}", latest]
     when: { branches: [main], events: [push] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:.*"], events: [tag] }
 

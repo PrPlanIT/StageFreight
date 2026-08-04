@@ -15,7 +15,7 @@ it is produced:
 
 ```yaml
 builds:
-  - id: myapp
+  myapp:
     kind: docker
     platforms: [linux/amd64, linux/arm64]
     dockerfile: "Dockerfile"
@@ -31,7 +31,7 @@ layers are compared to verify reproducibility.
 
 ```yaml
 builds:
-  - id: myapp
+  myapp:
     kind: docker
     build_mode: crucible
 ```
@@ -44,7 +44,7 @@ change; `watch` lets you declare additional path→layer rules.
 
 ```yaml
 builds:
-  - id: myapp
+  myapp:
     kind: docker
     cache:
       auto_detect: true

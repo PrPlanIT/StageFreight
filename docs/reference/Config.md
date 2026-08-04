@@ -46,6 +46,7 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`lifecycle`](#config-lifecycle)
 - [`governance`](#config-governance)
 - [`gitops`](#config-gitops)
+- [`ansible`](#config-ansible)
 - [`docker`](#config-docker)
 - [`build_cache`](#config-build_cache)
 - [`glossary`](#config-glossary)
@@ -129,7 +130,7 @@ Forges declares git hosts as an id→forge map (provider, URL, credentials).
 
 ```yaml
 forges:
-  - id: <string>   # unique identifier (e.g., "prplanit-gitlab") · required
+  <id>:   # entry key = the unique id
     provider: <string>   # gitlab, github, gitea · one of: gitlab, github, gitea, forgejo, azuredevops · required
     url: <string>   # base URL (e.g., "https://gitlab.prplanit.com") · required
     credentials: <string>   # env var prefix for token resolution
@@ -146,7 +147,7 @@ Repos declares projects as an id→repo map. References forges by id. Has role.
 
 ```yaml
 repos:
-  - id: <string>   # unique identifier · required
+  <id>:   # entry key = the unique id
     forge: <string>   # references forges[].id · required
     project: <string>   # project path on the forge (e.g., "{var:gitlab_group}/{var:repo}") · required
     roles: [<string>]   # ["primary"] | ["mirror"] | ["mirror", "publish-origin"] | []
@@ -192,7 +193,7 @@ Registries declares OCI registry hosts as an id→registry map.
 
 ```yaml
 registries:
-  - id: <string>   # unique identifier (e.g., "dockerhub") · required
+  <id>:   # entry key = the unique id
     provider: <string>   # docker, harbor, ghcr, quay, gitea, generic · one of: acr, docker, dockerhub, ecr, forgejo, gar, generic, ghcr, gitea, github, gitlab, harbor, jfrog, local, nexus, quay · required
     url: <string>   # registry URL (e.g., "docker.io") · required
     credentials: <string>   # env var prefix for token resolution
@@ -217,7 +218,7 @@ signing:
     name: <string>   # volume name (type: volume)
     path: <string>   # absolute path (type: host_path)
   profiles:   # id→profile map (was the top-level signing_profiles: list)
-    - id: <string>   # required
+    <id>:   # entry key = the unique id
       requires: [<string>]   # trust class(es); v1 enforces exactly one · one of: hardware, key, kms, oidc · required
       key:   # Class reference blocks — at most one, matching the declared class.
         ref: <string>   # required
@@ -255,11 +256,11 @@ Git is the git: cluster and the single source for ref interpretation: named bran
 git:
   branches: {}   # Branches maps a matcher name to a regex (was matchers.branches).
   tags:   # Tags maps a tag-source name to its pattern (was versioning.tag_sources list).
-    - id: <string>   # ID is the unique identifier (e.g. "stable", "prerelease"). Referenced by branch_builds[].base_from… · required
+    <id>:   # entry key = the unique id
       pattern: <string>   # Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" · required
   versioning:   # Versioning holds the derivation rules that consume the patterns above.
     branch_builds:
-      - id: <string>   # ID is the unique identifier. "default" is the catch-all entry and must appear last in the… · required
+      <id>:   # entry key = the unique id
         match: <string>   # Match references a declared branch matcher name. Required for named branch_builds entries. The…
         base_from: [<string>]   # BaseFrom is the ordered fallback chain of tag_sources ids. The runtime walks this list in order… · required
         format: <string>   # Format is the version template for non-release commits. Supported placeholders: {base}, {sha}… · required
@@ -281,7 +282,7 @@ Named build artifacts. Each build has a unique ID referenced by targets. Current
 
 ```yaml
 builds:
-  - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
+  <id>:   # entry key = the unique id
     kind: docker   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
     dockerfile: <string>   # Dockerfile is the path to the Dockerfile. Default: auto-detect.
     context: <string>   # Context is the Docker build context path. Default: "." (repo root).
@@ -294,7 +295,7 @@ builds:
 
 ```yaml
 builds:
-  - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
+  <id>:   # entry key = the unique id
     kind: binary   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
     builder: <string>   # Builder is the toolchain that interprets the build. Supported: "go", "rust", "node", "elixir"… · one of: android, c, dotnet, elixir, go, jvm, node, python, rust
     from: <string>   # From is the source/input root or entry point. e.g., "./src/cli" (Go package), "./src/main.rs"…
@@ -308,7 +309,7 @@ builds:
 
 ```yaml
 builds:
-  - id: <string>   # ID is the unique identifier for this build, referenced by targets. · required
+  <id>:   # entry key = the unique id
     kind: command   # Kind is the build type. Determines which fields are valid. Supported: "docker", "binary"… · one of: binary, command, docker · required
     image: <string>   # Image is the container image a containerized build (builder: node, elixir) runs inside (with the…
     command: <string>   # Command is the builder subcommand (binary: e.g. "build") or the full command (kind: command).…
@@ -338,7 +339,7 @@ Targets defines distribution targets and side-effects. Declared under the publis
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: registry   # Kind is the target type. Determines which fields are valid. · required
     registry: [<string>]   # Registry references registries[].id for registry/metadata targets. Accepts a single id (registry…
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
@@ -366,7 +367,7 @@ publish:
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: metadata   # Kind is the target type. Determines which fields are valid. · required
     registry: [<string>]   # Registry references registries[].id for registry/metadata targets. Accepts a single id (registry…
     repos: [<string>]   # Repos names the destination repos[].id for a kind: release target. The repo with role primary is…
@@ -387,7 +388,7 @@ publish:
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: gitlab-component   # Kind is the target type. Determines which fields are valid. · required
     spec_files: [<string>]   # SpecFiles lists component spec file paths (kind: gitlab-component).
     catalog: false   # Catalog enables GitLab Catalog registration (kind: gitlab-component).
@@ -403,7 +404,7 @@ publish:
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: release   # Kind is the target type. Determines which fields are valid. · required
     aliases: [<string>]   # Aliases are rolling git tag aliases (kind: release). e.g., ["{version}", "{major}.{minor}"…
     tag: <string>   # Tag is the immutable identity pattern for a release channel (kind: release). Distinct from Aliases…
@@ -431,7 +432,7 @@ publish:
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: binary-archive   # Kind is the target type. Determines which fields are valid. · required
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
     name: <string>   # Name is the archive filename template (kind: binary-archive). Supports: {id}, {version}, {os}…
@@ -451,7 +452,7 @@ publish:
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: generic-package   # Kind is the target type. Determines which fields are valid. · required
     repo: <string>   # Repo references a repos[].id (kind: generic-package). The forge identity (provider, url, project…
     package: <string>   # Package is the generic package name (kind: generic-package). Defaults to the repo project's…
@@ -469,7 +470,7 @@ publish:
 
 ```yaml
 publish:
-  - id: <string>   # ID is the unique identifier for this target (logging, status, enable/disable). · required
+  <id>:   # entry key = the unique id
     kind: pages   # Kind is the target type. Determines which fields are valid. · required
     provider: <string>   # Provider is the vendor type for auth and API behavior. Registry: docker, ghcr, gitlab, jfrog… · one of: cloudflare, github
     build: <string>   # Build references a BuildConfig.ID. Required for kind: registry.
@@ -635,7 +636,8 @@ LLMs is the model endpoint library (llms:): id → { provider, url, model, crede
 
 ```yaml
 llms:
-  - provider: <string>   # ollama (openai | anthropic | claude-agent reserved) · required
+  <id>:   # entry key = the unique id
+    provider: <string>   # ollama (openai | anthropic | claude-agent reserved) · required
     url: <string>   # ollama: server base URL
     model: <string>   # model name/tag
     credentials: <string>   # env prefix for hosted providers
@@ -654,7 +656,8 @@ Stencils is the shared audience-text library: id → reusable markdown element w
 
 ```yaml
 stencils:
-  - type: <string>   # SOURCE × RENDER.
+  <id>:   # entry key = the unique id
+    type: <string>   # SOURCE × RENDER.
     render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
     label: <string>   # ── inline badge / shield areas ──
     message: <string>   # right value (templates)
@@ -672,7 +675,8 @@ stencils:
 
 ```yaml
 stencils:
-  - type: <string>   # SOURCE × RENDER.
+  <id>:   # entry key = the unique id
+    type: <string>   # SOURCE × RENDER.
     render: <string>   # form: badge (default) | shield | image | table | list | kv | versions | raw
     shield: <string>   # shields.io path (render: shield)
     link: <string>   # clickable URL
@@ -682,14 +686,16 @@ stencils:
 
 ```yaml
 stencils:
-  - type: <string>   # SOURCE × RENDER.
+  <id>:   # entry key = the unique id
+    type: <string>   # SOURCE × RENDER.
 ```
 
 #### `kind: component`
 
 ```yaml
 stencils:
-  - type: <string>   # SOURCE × RENDER.
+  <id>:   # entry key = the unique id
+    type: <string>   # SOURCE × RENDER.
     spec: <string>   # ── component ──
 ```
 
@@ -697,7 +703,8 @@ stencils:
 
 ```yaml
 stencils:
-  - type: <string>   # SOURCE × RENDER.
+  <id>:   # entry key = the unique id
+    type: <string>   # SOURCE × RENDER.
     path: <string>   # ── include ──
 ```
 
@@ -705,7 +712,8 @@ stencils:
 
 ```yaml
 stencils:
-  - type: <string>   # SOURCE × RENDER.
+  <id>:   # entry key = the unique id
+    type: <string>   # SOURCE × RENDER.
     build: <string>   # ── contents (build manifest) / ci (run-state producers) ──
     source: <string>
     section: <string>
@@ -730,7 +738,8 @@ Scribe places rendered stencils into repository files and commits them: files: (
 scribe:
   store: <string>   # dir for rendered file assets (default .stagefreight/scribe); path = {store}/{id}.svg
   files:   # id → placement region referencing stencils
-    - file: <string>   # required
+    <id>:   # entry key = the unique id
+      file: <string>   # required
       link_base: <string>
       between: <value>
       inline: false   # items sugar: render side-by-side
@@ -758,7 +767,8 @@ Notifications sends a message when a run finishes: id → { provider, on, subjec
 
 ```yaml
 notifications:
-  - provider: <string>   # ntfy | webhook · required
+  <id>:   # entry key = the unique id
+    provider: <string>   # ntfy | webhook · required
     url: <string>   # Transport. Credentials follows the shipped env-prefix convention (credentials: NTFY → NTFY_TOKEN…
     credentials: <string>
     subject: <string>   # Message — freeform stencil bodies.
@@ -806,7 +816,7 @@ test:
   enabled: false   # required
   auto: false   # nil ⇒ true
   suites:
-    - id: <string>   # required
+    <id>:   # entry key = the unique id
       tool: <string>   # required
       gate: <string>   # default: perform
       from: <string>   # module/crate dir when not at repo root (e.g. dd-ui's api/)
@@ -968,6 +978,32 @@ gitops:
 ---
 
 <!-- --8<-- [end:gitops] -->
+<!-- --8<-- [start:ansible] -->
+<a id="config-ansible" name="config-ansible"></a>
+### ansible
+
+Ansible defines the ansible host-convergence subsystem. Presence-gated (any converge playbook activates it) and independent of lifecycle.mode.
+
+```yaml
+ansible:
+  preset: <string>
+  backend: <string>   # Backend selects the host-convergence backend. Default: "ansible". · required
+  image: <string>   # Image is the execution image the playbooks (and ansible-lint) run in — the ansible runtime… · required
+  inventory: <string>   # Inventory is the repo-relative ansible inventory file. · required
+  ssh:   # SSH is the shared connection identity used by every play. · required
+    user: <string>   # User is the remote login user on the managed hosts. · required
+    credentials: <string>   # Credentials is the env-prefix name the SSH key material is read from. · required
+    known_hosts: <string>   # KnownHosts is the repo-relative known_hosts file holding the managed hosts' public keys. Host-key… · required
+  playbooks:   # Playbooks is the play library: an order-preserving id → entry map. Entries with converge: true… · required
+    <id>:   # entry key = the unique id
+      path: <string>   # Path is the repo-relative playbook file. · required
+      groups: [<string>]   # Groups are the inventory groups this play targets (rendered as --limit). · required
+      converge: false   # Converge marks the play as desired-state: it runs on every perform reconcile. False declares a… · required
+```
+
+---
+
+<!-- --8<-- [end:ansible] -->
 <!-- --8<-- [start:docker] -->
 <a id="config-docker" name="config-docker"></a>
 ### docker

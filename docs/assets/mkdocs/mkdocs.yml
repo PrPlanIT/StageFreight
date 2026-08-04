@@ -129,14 +129,15 @@ nav:
   - Configuration:
       - Overview: config/index.md
       - Concepts: config/concepts.md
+      - Lifecycle & Convergence: config/lifecycle.md
       - Identity & Connectivity: config/identity.md
       - Builds & Tests: config/builds.md
       - Publish: config/publish.md
       - Package Distribution: config/package-distribution.md
       - Stencils & Scribe: config/scribe.md
+      - Narration & Notifications: config/narration.md
       - Lint: config/lint.md
       - Policy: config/policy.md
-      - Lifecycle Modes: config/lifecycle.md
       - Signing: config/signing.md
       - Full Schema Reference: reference/Config.md
   - CLI Reference: reference/CLI.md

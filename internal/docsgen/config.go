@@ -46,6 +46,7 @@ type configSection struct {
 	Fields   []fieldRow   // flattened rows (used for scalar/map sections)
 	ElemType reflect.Type // the first-party struct type of the section, if any → rendered as annotated YAML
 	IsList   bool         // whether the section is a list of that struct
+	IsIDMap  bool         // whether the section is an Ordered* id→entry map (renders map form)
 }
 
 func renderConfigSection(s configSection) string {
@@ -67,11 +68,11 @@ func renderConfigSection(s configSection) string {
 	// (e.g. narrate items) — so kind-conditional shapes are broken out, not flattened.
 	if s.ElemType != nil {
 		if u, ok := unionFor(s.ElemType); ok {
-			b.WriteString(renderUnionBlocks(u, true, s.Key, ""))
+			b.WriteString(renderUnionBlocks(u, true, s.Key, "", s.IsIDMap))
 		} else {
-			b.WriteString(renderSectionYAML(s.Key, s.ElemType, s.IsList))
+			b.WriteString(renderSectionYAML(s.Key, s.ElemType, s.IsList, s.IsIDMap))
 			for _, nu := range collectNestedUnions(s.ElemType, "", map[reflect.Type]bool{}) {
-				b.WriteString(renderUnionBlocks(nu.kb, false, s.Key, nu.label))
+				b.WriteString(renderUnionBlocks(nu.kb, false, s.Key, nu.label, false))
 			}
 		}
 		if so, ok := sectionOverrides[s.Key]; ok {
@@ -161,9 +162,10 @@ func discoverSections() []configSection {
 			elemType = elemType.Elem()
 		}
 		isList := false
+		isIDMap := isOrderedIDMap(elemType)
 		switch elemType.Kind() {
 		case reflect.Slice:
-			isList = true
+			isList = !isIDMap
 			elemType = elemType.Elem()
 			if elemType.Kind() == reflect.Ptr {
 				elemType = elemType.Elem()
@@ -181,6 +183,7 @@ func discoverSections() []configSection {
 			if isFirstPartyConfig(elemType) {
 				section.ElemType = elemType
 				section.IsList = isList
+				section.IsIDMap = isIDMap
 			}
 			section.Fields = walkStruct(elemType, yamlKey)
 		} else {

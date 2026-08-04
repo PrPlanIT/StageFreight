@@ -18,32 +18,32 @@ policies:
     stable: "^\\d+\\.\\d+\\.\\d+$"
 
 builds:
-  - id: gateway
+  gateway:
     kind: docker
     dockerfile: services/gateway/Dockerfile
     context: services/gateway
     platforms: [linux/amd64, linux/arm64]
 
-  - id: users
+  users:
     kind: docker
     dockerfile: services/users/Dockerfile
     context: services/users
     platforms: [linux/amd64, linux/arm64]
 
-  - id: billing
+  billing:
     kind: docker
     dockerfile: services/billing/Dockerfile
     context: services/billing
     platforms: [linux/amd64, linux/arm64]
 
-  - id: notifications
+  notifications:
     kind: docker
     dockerfile: services/notifications/Dockerfile
     context: services/notifications
     platforms: [linux/amd64, linux/arm64]
 
 targets:
-  - id: gateway-dockerhub
+  gateway-dockerhub:
     kind: registry
     build: gateway
     url: docker.io
@@ -51,7 +51,7 @@ targets:
     tags: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: users-dockerhub
+  users-dockerhub:
     kind: registry
     build: users
     url: docker.io
@@ -59,7 +59,7 @@ targets:
     tags: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: billing-dockerhub
+  billing-dockerhub:
     kind: registry
     build: billing
     url: docker.io
@@ -67,7 +67,7 @@ targets:
     tags: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: notifications-dockerhub
+  notifications-dockerhub:
     kind: registry
     build: notifications
     url: docker.io
@@ -75,7 +75,7 @@ targets:
     tags: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: [stable], events: [tag] }
 

@@ -3,6 +3,8 @@
 ## Command index
 
 - [`stagefreight`](#cli-stagefreight) — Declarative lifecycle runtime — there's a setting for every stage, this is theatre!
+    - [`ansible`](#cli-stagefreight-ansible) — Host convergence via the declared playbook library
+        - [`run`](#cli-stagefreight-ansible-run) — Run one declared playbook by id
     - [`build`](#cli-stagefreight-build) — Build artifacts (binaries, images)
         - [`binary`](#cli-stagefreight-build-binary) — Build Go binaries
     - [`ci`](#cli-stagefreight-ci) — CI subsystem commands
@@ -89,6 +91,7 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 
 **Subcommands:**
 
+- [`ansible`](#cli-stagefreight-ansible) — Host convergence via the declared playbook library
 - [`build`](#cli-stagefreight-build) — Build artifacts (binaries, images)
 - [`ci`](#cli-stagefreight-ci) — CI subsystem commands
 - [`commit`](#cli-stagefreight-commit) — Create a conventional commit from staged or specified files
@@ -117,6 +120,50 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`toolchain`](#cli-stagefreight-toolchain) — Manage StageFreight toolchains
 - [`update`](#cli-stagefreight-update) — Update this stagefreight binary in place from the published image
 - [`version`](#cli-stagefreight-version) — Print the version
+
+---
+
+<a id="cli-stagefreight-ansible" name="cli-stagefreight-ansible"></a>
+### stagefreight ansible
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight ansible`
+
+Host convergence via the declared playbook library
+
+**Subcommands:**
+
+- [`run`](#cli-stagefreight-ansible-run) — Run one declared playbook by id
+
+---
+
+<a id="cli-stagefreight-ansible-run" name="cli-stagefreight-ansible-run"></a>
+### stagefreight ansible run
+
+*↩ [`stagefreight ansible`](#cli-stagefreight-ansible)*
+
+**Usage:** `stagefreight ansible run <playbook-id>`
+
+Run a single playbook from the ansible: library — the ONLY way a
+converge: false runbook executes. CI never reaches runbooks; this verb is the
+human lane, with the same execution image, strict host-key posture, and
+--check plan preview as the converge set.
+
+Examples:
+```
+stagefreight ansible run provision-hosts --plan
+stagefreight ansible run postgres-major-upgrade -e target_version=17
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--plan` | bool | — | ansible-playbook --check --diff preview, no changes |
+| `-e, --extra-vars` | stringArray | — | launch-time vars passed to ansible-playbook -e (repeatable) |
+
+_Plus the [global flags](#cli-global-flags)._
 
 ---
 

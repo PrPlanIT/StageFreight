@@ -20,12 +20,12 @@ policies:
     release: "^release/.*$"
 
 builds:
-  - id: patient-portal
+  patient-portal:
     kind: docker
     platforms: [linux/amd64]
 
 targets:
-  - id: private-registry
+  private-registry:
     kind: registry
     build: patient-portal
     url: registry.prplanit.com
@@ -33,7 +33,7 @@ targets:
     tags: ["{version}", "{version}-{sha:.7}"]
     when: { branches: [main, release], events: [push] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:^\\d+\\.\\d+\\.\\d+$"], events: [tag] }
 

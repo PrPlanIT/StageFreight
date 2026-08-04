@@ -36,7 +36,7 @@ policies:
     develop: "^develop$"
 
 builds:
-  - id: my-s6-app
+  my-s6-app:
     kind: docker
     platforms: [linux/amd64, linux/arm64, linux/arm/v7]
     build_args:
@@ -45,7 +45,7 @@ builds:
 targets:
   # ── Stable channel ──────────────────────────────────────────
   # Multi-arch manifests on Docker Hub
-  - id: dockerhub-stable
+  dockerhub-stable:
     kind: registry
     build: my-s6-app
     url: docker.io
@@ -60,7 +60,7 @@ targets:
     credentials: DOCKER
 
   # Multi-arch manifests on lscr.io (ghcr.io vanity)
-  - id: lscr-stable
+  lscr-stable:
     kind: registry
     build: my-s6-app
     url: lscr.io
@@ -76,7 +76,7 @@ targets:
   # Per-arch tags on Docker Hub (amd64-*, arm64v8-*)
   # LSCR publishes arch-prefixed tags alongside multi-arch manifests
   # for legacy consumers that can't resolve manifests.
-  - id: dockerhub-stable-perarch
+  dockerhub-stable-perarch:
     kind: registry
     build: my-s6-app
     url: docker.io
@@ -91,7 +91,7 @@ targets:
     credentials: DOCKER
 
   # ── Develop channel ─────────────────────────────────────────
-  - id: dockerhub-develop
+  dockerhub-develop:
     kind: registry
     build: my-s6-app
     url: docker.io
@@ -108,7 +108,7 @@ targets:
       keep_last: 10
       protect: [develop]
 
-  - id: dockerhub-develop-perarch
+  dockerhub-develop-perarch:
     kind: registry
     build: my-s6-app
     url: docker.io
@@ -123,7 +123,7 @@ targets:
     credentials: DOCKER
 
   # ── Nightly channel ─────────────────────────────────────────
-  - id: dockerhub-nightly
+  dockerhub-nightly:
     kind: registry
     build: my-s6-app
     url: docker.io
@@ -139,7 +139,7 @@ targets:
       keep_last: 10
       protect: [nightly]
 
-  - id: dockerhub-nightly-perarch
+  dockerhub-nightly-perarch:
     kind: registry
     build: my-s6-app
     url: docker.io
@@ -153,7 +153,7 @@ targets:
     credentials: DOCKER
 
   # ── Project identity sync ────────────────────────────────────
-  - id: project-meta
+  project-meta:
     kind: metadata
     registry: [dockerhub]
     when: { branches: [main], events: [push, tag] }
@@ -163,7 +163,7 @@ targets:
     readme: README.md
 
   # ── Release ──────────────────────────────────────────────────
-  - id: primary-release
+  primary-release:
     kind: release
     aliases: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }

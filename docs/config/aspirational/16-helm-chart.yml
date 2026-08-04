@@ -12,7 +12,7 @@
 version: 1
 
 targets:
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:.*"], events: [tag] }
 

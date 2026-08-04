@@ -17,12 +17,12 @@ policies:
     all: ".*"
 
 builds:
-  - id: sales-pipeline
+  sales-pipeline:
     kind: docker
     platforms: [linux/amd64]
 
 targets:
-  - id: private-registry
+  private-registry:
     kind: registry
     build: sales-pipeline
     url: registry.prplanit.com
@@ -30,7 +30,7 @@ targets:
     tags: ["{version}", "{branch}-{sha:.7}"]
     when: { branches: [all], events: [push] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: ["re:.*"], events: [tag] }
 

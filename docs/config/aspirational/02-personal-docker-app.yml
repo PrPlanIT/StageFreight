@@ -15,12 +15,12 @@ policies:
     stable: "^\\d+\\.\\d+\\.\\d+$"
 
 builds:
-  - id: app
+  app:
     kind: docker
     platforms: [linux/amd64, linux/arm64]
 
 targets:
-  - id: dockerhub
+  dockerhub:
     kind: registry
     build: app
     url: docker.io
@@ -28,7 +28,7 @@ targets:
     tags: ["{version}", "{major}.{minor}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: ghcr
+  ghcr:
     kind: registry
     build: app
     url: ghcr.io
@@ -36,7 +36,7 @@ targets:
     tags: ["{version}", latest]
     when: { git_tags: [stable], events: [tag] }
 
-  - id: primary-release
+  primary-release:
     kind: release
     when: { git_tags: [stable], events: [tag] }
 

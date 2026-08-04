@@ -20,13 +20,13 @@ policies:
     main: "^main$"
 
 builds:
-  - id: myproject
+  myproject:
     kind: docker
     platforms: [linux/amd64, linux/arm64, linux/arm/v7]
 
 targets:
   # Docker Hub — full rolling tag set for community discoverability
-  - id: dockerhub
+  dockerhub:
     kind: registry
     build: myproject
     url: docker.io
@@ -35,7 +35,7 @@ targets:
     when: { branches: [main], events: [push] }
 
   # GitHub Container Registry
-  - id: ghcr
+  ghcr:
     kind: registry
     build: myproject
     url: ghcr.io
@@ -44,7 +44,7 @@ targets:
     when: { branches: [main], events: [push] }
 
   # Quay.io — some distros and enterprise users prefer it
-  - id: quay
+  quay:
     kind: registry
     build: myproject
     url: quay.io
@@ -53,7 +53,7 @@ targets:
     when: { branches: [main], events: [push] }
 
   # Project identity sync — description + overview to Docker Hub
-  - id: project-meta
+  project-meta:
     kind: metadata
     registry: [dockerhub]
     when: { branches: [main], events: [push, tag] }
@@ -62,7 +62,7 @@ targets:
       - "Self-hosted, multi-registry container image"
     readme: README.md
 
-  - id: primary-release
+  primary-release:
     kind: release
     aliases: ["{version}", "{major}.{minor}", latest]
     when: { git_tags: [stable], events: [tag] }
