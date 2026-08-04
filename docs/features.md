@@ -49,6 +49,8 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | **Reproducible build self-proof** (crucible) | ✅ | 🔧 | 🔧 | — (niche: rebuilderd) | **High** |
 | Build cache (local + registry-backed) | ✅ | ➕ cache action | ➕ cache: | ➕ buildx cache | Med |
 | Build ordering / dependency graph | ✅ | ➕ needs: | ✅ needs: | — | Low |
+| **Typed test suites** — go/rust native-flag projections (`-race`, `-tags`, features), `script` escape hatch, auto-synthesized from builds | ✅ | ➕ setup + run steps | 🔧 | ➕ per-tool | Med |
+| Coverage floor gate (`coverage_min` fails the suite) | ✅ | ➕ codecov | ➕ coverage regex | ✅ codecov | Med |
 | UPX binary compression | ✅ | 🔧 | 🔧 | ➕ goreleaser | Low |
 | Docker-compose drift detection | ✅ | 🔧 | 🔧 | ➕ ansible/terraform | High |
 
@@ -91,6 +93,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | **Restic-style tag retention** (keep_last/daily/weekly/monthly/yearly) | ✅ | 🔧 | ➕ cleanup policy (GitLab-only) | — | **High** |
 | Retention across **any** registry | ✅ | 🔧 | — | ➕ regctl scripts | High |
 | Protect tag patterns from deletion | ✅ | 🔧 | ➕ regex keep | — | Med |
+| **Per-series retention grouping** — series by template+identity, `keep_branches`, rolling tags auto-exempt | ✅ | — | — | — | High |
 | Local daemon image pruning (`--load` dev builds) | ✅ | 🔧 | 🔧 | 🔧 docker rmi | Low |
 | BuildKit cache prune + retention | ✅ | ➕ gha cache evicts | 🔧 | 🔧 | Med |
 | Host hygiene (dangling images, exited containers, networks) | ✅ | — | — | 🔧 docker system prune | Med |
@@ -133,6 +136,8 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Binary archives (tar.gz/zip) + **SHA256SUMS** | ✅ | 🔧 | 🔧 | ✅ goreleaser | Med |
 | Rolling git-tag aliases (`v1`, `v1.2`) | ✅ | 🔧 | 🔧 | ➕ | Med |
 | **Cross-forge** release sync (GitLab→GitHub mirror) | ✅ | 🔧 | 🔧 | — | High |
+| **Mirror reconciliation engine** — provenance-bounded (only SF-authored releases), retention-driven desired state, upsert + `destroy` | ✅ | — | — | — | High |
+| Safe mirror refs plane (keep-divergent, foreign-sacred prune) + per-repo sync facets × scopes (exact / current / drafts) with topology view | ✅ | — | — | — | High |
 | Prerelease / **Latest** classification, per-forge (`type:` → GitHub `make_latest`) | ✅ | ➕ (release flags) | 🔧 | ➕ goreleaser | Med |
 | Security summary embedded in release notes | ✅ | 🔧 | 🔧 | — | Med |
 | **Release notes as a stencil** — the body owns the language; targets reference it (`notes:`); AI embeds are the author's choice | ✅ | — | — | ➕ goreleaser templates | High |
@@ -154,6 +159,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Delta-only (changed-files) linting | ✅ | ➕ paths-filter | ➕ rules:changes | ➕ pre-commit | Med |
 | Cache-aware lint with TTL eviction | ✅ | ➕ cache action | ➕ cache: | ➕ pre-commit | Med |
 | Built-in modules (secrets, tabs, line endings, freshness…) | ✅ | ➕ many actions | ➕ many | ✅ pre-commit/megalinter | Med |
+| ansible-lint from the execution image, over declared plays only (graduated severities) 🚧 | ✅ | ➕ action | ➕ | ✅ ansible-lint | Low |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
@@ -217,6 +223,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Generate CLI/config reference docs from code | ✅ | 🔧 | 🔧 | ➕ cobra docs | Med |
 | Render build manifest contents into docs (`build-contents`) | ✅ | 🔧 | 🔧 | — | High |
 | Auto-commit generated docs (with skip-ci classification) | ✅ | ➕ git-auto-commit | 🔧 | — | Med |
+| Builds and scribe items in **one dependency graph** — typed `depends_on`, a build can consume rendered scribe output | ✅ | — | — | — | Med |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
@@ -277,6 +284,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Templated commit / tag / release message rendering (`commit.render` · `tagging.render` · `release.render`) | ✅ | 🔧 | 🔧 | ➕ git-cliff | Med |
 | **Commit backend with converge push** — fetch/fast-forward/object-replay before pushing; forge-API commit mode | ✅ | 🔧 | 🔧 | — | High |
 | **Config presets** with provenance-aware resolution (`config resolve` shows where every value came from) | ✅ | — | ➕ includes | — | High |
+| Unified `when:` gating grammar — events/branches/git_tags/outcomes as OR-lists, shared by publish targets and notifications | ✅ | 🔧 if: expressions | ➕ rules: | — | Med |
 | **Repository reconciliation** — the repo converges to its encoded intent (builder⇄go-floor, generated files) | ✅ | — | — | — | High |
 | Generated-commit skip-ci policy (no self-triggering loops) | ✅ | 🔧 | 🔧 | — | Med |
 | GitOps reconcile (Flux / [Argo 🚧]) + change-impact | ✅ | 🔧 flux scripts | 🔧 | ✅ flux/argo | Med |
@@ -375,6 +383,9 @@ Where the matrix shows StageFreight's real, hard-to-replicate value: **crucible 
 ## Maintaining this doc
 
 - **Coverage** (rows) is complete as of v0.8 + the post-v0.8 main line — this pass added §14 Narration/Notifications/AI, the release-notes-stencil row, ansible host convergence + perform serialization (🚧 unreleased), and retired the stale `--help` caveat. When a feature lands, add its row.
+- **Update discipline:** coverage is judged against the SHIP LOG, not memory — before editing,
+  run `git log --pretty=%s $(git log -1 --format=%H -- docs/features.md)..HEAD | grep -E '^feat'`
+  (every feature since the matrix's own last edit) and evaluate every line against the rows.
 - **Provenance** (the "Since" lines) is being filled in. To pin a feature's introducing commit:
   `git log --oneline --reverse -- <path/to/feature> | head -1`, or map to the release tag it first shipped in (`git tag --contains <commit>`).
 - Keep the comparison columns **fair** — the alternatives are capable; the story is *declarative + integrated*, not *only-SF-can*.
