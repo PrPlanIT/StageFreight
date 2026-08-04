@@ -95,6 +95,14 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no renderer for lifecycle mode: %q", mode)
 	}
 
+	// Ansible converge set — coexists with the primary mode (same doctrine as
+	// the perform runner); runs after the mode's own reconcile.
+	if cfg.Ansible.HasConvergePlaybooks() {
+		if err := runAnsibleConverge(cmd.Context(), cfg, rootDir, rctx.DryRun); err != nil {
+			return err
+		}
+	}
+
 	// Record the reconcile subsystem + its facts ({reconcile.*}) into cistate —
 	// the gitops lines of the union summary render from these. Recorded BEFORE
 	// the failure check so a failed reconcile still narrates what happened.

@@ -2030,8 +2030,9 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	hasGitOps := strings.TrimSpace(appCfg.GitOps.Cluster.Name) != ""
 	hasGovernanceClusters := len(appCfg.Governance.Clusters) > 0
 	hasGovernanceSource := governanceSourceConfigured(appCfg, ciCtx)
+	hasAnsible := appCfg.Ansible.HasConvergePlaybooks()
 
-	if !hasGitOps && !hasGovernanceClusters {
+	if !hasGitOps && !hasGovernanceClusters && !hasAnsible {
 		renderCISkip("Reconcile", start, "no reconcile target configured")
 		return nil
 	}
@@ -2069,6 +2070,15 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 			}); err != nil {
 				return err
 			}
+		}
+	}
+
+	// Ansible host convergence — the declared converge set, alongside gitops
+	// and governance (same non-exclusivity doctrine). Runbooks (converge:
+	// false) are structurally unreachable from here.
+	if hasAnsible {
+		if err := runAnsibleConverge(ctx, appCfg, rootDir, false); err != nil {
+			return err
 		}
 	}
 

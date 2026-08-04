@@ -29,6 +29,7 @@ Shipped {publish.tags} → {publish.registries}
 {artifacts}
 Converged {reconcile.succeeded}/{reconcile.total} {reconcile.units} on {reconcile.cluster}
 Skipped {reconcile.declined} that failed validation
+Converged {ansible.converged}/{ansible.total} nodes · {ansible.changed} changed
 
 Tests — {tests.passed}/{tests.total} passed · {tests.coverage} coverage
 Security — {security.blocking} blocking, {security.low} low CVEs · SBOM {security.sbom}
@@ -53,6 +54,7 @@ Failed in {failure.subsystem} — {failure.reason}
 
 Tests — {tests.passed}/{tests.total} passed · {tests.coverage} coverage
 Converged {reconcile.succeeded}/{reconcile.total} {reconcile.units} on {reconcile.cluster}
+Converged {ansible.converged}/{ansible.total} nodes · {ansible.changed} changed
 
 Commits waiting since {changelog.range} — {changelog.count}
 

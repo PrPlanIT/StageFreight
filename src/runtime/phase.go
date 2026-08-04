@@ -58,10 +58,7 @@ func phaseError(phase, backend string, err error) error {
 // Cleanup ALWAYS runs, even on error.
 // Dry-run skips Execute and renders the Plan instead.
 func RunLifecycle(ctx context.Context, cfg *config.Config, rctx *RuntimeContext) error {
-	// Cleanup always runs — register before any work.
-	defer rctx.Resolved.Cleanup()
-
-	// --- Resolve backend ---
+	// --- Resolve mode → backend name ---
 	mode := cfg.Lifecycle.Mode
 	if mode == "" {
 		return phaseError(PhaseResolve, "", fmt.Errorf("lifecycle.mode not set in config"))
@@ -79,10 +76,29 @@ func RunLifecycle(ctx context.Context, cfg *config.Config, rctx *RuntimeContext)
 		backendName = lm.Backend(cfg)
 	}
 
-	backend, err := ResolveBackend(lm.Name, backendName)
+	return RunLifecycleBackend(ctx, cfg, rctx, lm.Name, backendName)
+}
+
+// RunLifecycleBackend runs the phase sequence against an explicitly named
+// (mode, backend) pair, independent of cfg.Lifecycle.Mode. Presence-gated
+// subsystems that coexist with the repo's primary mode (ansible convergence
+// alongside gitops) dispatch through here; RunLifecycle is the mode-derived
+// front door that delegates to it.
+func RunLifecycleBackend(ctx context.Context, cfg *config.Config, rctx *RuntimeContext, mode, name string) error {
+	backend, err := ResolveBackend(mode, name)
 	if err != nil {
-		return phaseError(PhaseResolve, backendName, err)
+		return phaseError(PhaseResolve, name, err)
 	}
+	return RunLifecycleWith(ctx, cfg, rctx, backend)
+}
+
+// RunLifecycleWith runs the phase sequence against a caller-constructed backend
+// instance — the seam for pre-phase scoping a registry constructor can't carry
+// (e.g. `ansible run <id>` selecting one play before Validate).
+func RunLifecycleWith(ctx context.Context, cfg *config.Config, rctx *RuntimeContext, backend LifecycleBackend) error {
+	// Cleanup always runs — register before any work.
+	defer rctx.Resolved.Cleanup()
+
 	rctx.Resolved.Backend = backend
 
 	// --- Validate ---
