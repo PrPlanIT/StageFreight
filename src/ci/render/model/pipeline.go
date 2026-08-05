@@ -43,6 +43,28 @@ type PipelineDefaults struct {
 	//   GitLab: before_script exporting SF_CI_* from CI_* variables
 	//   GitHub: env block or setup step mapping GITHUB_* to SF_CI_*
 	CIContext bool
+
+	// ReleaseTagRules are the git.tags release sources (RE2), one rule per
+	// source: a tag push matching any include (or missing any exclude) spawns
+	// a pipeline — explicit release intent. Every other tag (the machinery
+	// tags scribe pushes: latest, latest-dev, dev-<sha>) spawns nothing.
+	// Empty means every tag spawns a pipeline — either no tag policy is
+	// declared, or a pattern isn't valid RE2 (the binary's literal-match
+	// fallback has no forge equivalent, and dropping an include could block a
+	// real release, so the whole gate degrades to allow). The forge gate is
+	// an optimization at pipeline-creation time; the binary's release-policy
+	// gate stays authoritative inside the pipeline.
+	ReleaseTagRules []TagRule
+}
+
+// TagRule is one git.tags source lowered for forge workflow rules.
+type TagRule struct {
+	// Pattern is the RE2 pattern, exclude prefix stripped.
+	Pattern string
+
+	// Exclude means the source matches tags NOT matching Pattern
+	// (a git.tags `!pattern` source) — emitted as a negated match.
+	Exclude bool
 }
 
 // Job is a single pipeline job in the forge-neutral model.

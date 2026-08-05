@@ -2,6 +2,8 @@ package render
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/ci/render/model"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -27,6 +29,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 			Interruptible:    true,
 			CancelSuperseded: true,
 			CIContext:        true,
+			ReleaseTagRules:  releaseTagRules(cfg),
 		},
 		Jobs: []model.Job{
 			{
@@ -136,6 +139,50 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 		p.Jobs[i].Routing = model.RoutingSpec{Labels: cfg.CI.Routing.For(p.Jobs[i].Name)}
 	}
 	return p, nil
+}
+
+// releaseTagPatterns collects the git.tags patterns for the workflow tag gate:
+// intent tags (matching a declared release pattern) spawn pipelines, state
+// tags (scribe bookkeeping — latest, latest-dev, dev-<sha>) spawn nothing.
+// Exclude patterns (! prefix) are skipped — a forge workflow rule can't
+// express the binary's exclude-first evaluation, so the emitted gate is
+// allow-listed on the include patterns and the binary's release-policy gate
+// remains the authority inside the pipeline.
+func releaseTagPatterns(cfg *config.Config) []string {
+	var out []string
+	for _, ts := range cfg.Git.Tags {
+		if p := strings.TrimSpace(ts.Pattern); p != "" && !strings.HasPrefix(p, "!") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// releaseTagRules lowers the git.tags sources for the forge workflow tag
+// gate: intent tags (matching a declared release source) spawn pipelines,
+// state tags (scribe bookkeeping — latest, latest-dev, dev-<sha>) spawn
+// nothing. Each source is one rule — include or `!` exclude — mirroring
+// tagMatchesReleasePolicy's OR across sources. A pattern that isn't valid
+// RE2 (the binary matches those as literal strings, which forge rules can't)
+// returns nil: the gate degrades to allow-all rather than risk a rule set
+// more restrictive than the binary's, which could suppress a real release.
+func releaseTagRules(cfg *config.Config) []model.TagRule {
+	var out []model.TagRule
+	for _, ts := range cfg.Git.Tags {
+		p := strings.TrimSpace(ts.Pattern)
+		if p == "" {
+			continue
+		}
+		rule := model.TagRule{Pattern: p}
+		if strings.HasPrefix(p, "!") {
+			rule = model.TagRule{Pattern: p[1:], Exclude: true}
+		}
+		if _, err := regexp.Compile(rule.Pattern); err != nil {
+			return nil
+		}
+		out = append(out, rule)
+	}
+	return out
 }
 
 // packageRegistries lists the registries the publish job may push to, by config

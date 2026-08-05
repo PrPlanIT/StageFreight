@@ -27,6 +27,10 @@ func canonicalPipeline() model.Pipeline {
 			Interruptible:    true,
 			CancelSuperseded: true,
 			CIContext:        true,
+			ReleaseTagRules: []model.TagRule{
+				{Pattern: `^v?\d+\.\d+\.\d+$`},
+				{Pattern: `^tmp-.*`, Exclude: true},
+			},
 		},
 		Jobs: []model.Job{
 			{

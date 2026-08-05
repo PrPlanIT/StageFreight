@@ -18,6 +18,7 @@ package gitlab
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/ci/render/model"
 )
@@ -49,7 +50,11 @@ func Emit(p model.Pipeline) ([]byte, error) {
 	// Loop-prevention lives here, not in a [skip ci] subject token. A narrate commit
 	// carries a `Generated-By: StageFreight` trailer; this rule declines to START a new
 	// branch pipeline for it — regenerating those assets would only re-emit the same
-	// commit (the loop). Tag pipelines always run (a release must build) and a deps
+	// commit (the loop). Tags split by intent: one matching a declared git.tags
+	// release pattern spawns a pipeline (operator release intent — a release must
+	// build); every other tag is scribe bookkeeping state (latest, latest-dev,
+	// dev-<sha> — pointers to builds that already exist) and spawns nothing. With no
+	// declared patterns every tag spawns, mirroring the binary's release gate. A deps
 	// commit (`Updated-By: StageFreight`, no skip trailer) falls through to the default
 	// rule and rebuilds. This is a signal StageFreight owns and renders, scoped to branch
 	// pushes — unlike the forge's context-blind [skip ci], which also suppresses tags.
@@ -59,7 +64,19 @@ func Emit(p model.Pipeline) ([]byte, error) {
 		buf.WriteString("    on_new_commit: interruptible\n")
 	}
 	buf.WriteString("  rules:\n")
-	buf.WriteString("    - if: $CI_COMMIT_TAG\n")
+	if rules := p.Defaults.ReleaseTagRules; len(rules) > 0 {
+		for _, r := range rules {
+			op := "=~"
+			if r.Exclude {
+				op = "!~"
+			}
+			fmt.Fprintf(&buf, "    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG %s /%s/'\n", op, ruleRegex(r.Pattern))
+		}
+		buf.WriteString("    - if: $CI_COMMIT_TAG\n")
+		buf.WriteString("      when: never\n")
+	} else {
+		buf.WriteString("    - if: $CI_COMMIT_TAG\n")
+	}
 	buf.WriteString("    - if: '$CI_COMMIT_MESSAGE =~ /Generated-By: StageFreight/'\n")
 	buf.WriteString("      when: never\n")
 	buf.WriteString("    - when: always\n")
@@ -200,6 +217,13 @@ func ciContextExports() []string {
 		`export SF_CI_WORKSPACE="$PWD"`,
 		`export SF_CI_PIPELINE_ID="${CI_PIPELINE_ID}"`,
 	}
+}
+
+// ruleRegex prepares an RE2 pattern for a /…/-delimited GitLab rule inside a
+// single-quoted YAML scalar: forward slashes escape (the delimiter), single
+// quotes double (YAML's escape).
+func ruleRegex(pattern string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(pattern, "/", `\/`), "'", "''")
 }
 
 // needsTransport returns true if any job requires Docker capability.

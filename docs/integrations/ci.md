@@ -50,7 +50,29 @@ One **universal skeleton** serves every repo mode — StageFreight resolves the 
 StageFreight's own generated commits (badges, docs, dependency bumps) carry a
 `Generated-By: StageFreight` trailer, and the rendered pipeline skips CI on those commits
 (`when: never` on GitLab, an `if:` guard on GitHub) so an automated commit never triggers
-another pipeline. Tags always run regardless of the trailer.
+another pipeline.
+
+### Tag pipelines: intent tags run, state tags don't
+
+Tags split by intent. A tag matching one of your declared `git.tags` sources is a
+**release** — pushing `v1.2.3` spawns a pipeline that builds and publishes it. The tags
+StageFreight pushes as bookkeeping (`latest`, `latest-dev`, `dev-<sha>` — pointers to
+builds that already exist) match no release source and spawn nothing. The rendered
+GitLab workflow rules carry your `git.tags` patterns verbatim (includes as `=~`,
+`!`-excludes as `!~`), so the gate is whatever *your* repo declared — nothing about
+StageFreight's own tag names is baked in.
+
+Repos with **no `git.tags` block** get no gate: every tag spawns a pipeline (which is
+also why recursive bookkeeping-tag pipelines persist until you declare tag sources).
+The forge rule is an optimization at pipeline-creation time; the binary's release-policy
+gate stays authoritative inside the pipeline — the one construct GitLab rules can't carry
+(a tag pattern that isn't valid RE2, which the binary matches as a literal string)
+degrades the whole gate back to all-tags-spawn rather than ever suppressing a release.
+
+The gate is GitLab-only: Actions-family forges (GitHub, Gitea, Forgejo) filter tags by
+glob, not regex, and their job guards have no regex operator — declared regex sources
+can't be carried faithfully, so those skeletons run every tag pipeline and the binary's
+release gate skips non-release tags in-stage.
 
 ## Credentials
 
