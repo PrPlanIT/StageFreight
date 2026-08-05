@@ -982,6 +982,7 @@ ansible:
       path: <string>   # Path is the repo-relative playbook file. · required
       groups: [<string>]   # Groups are the inventory groups this play targets (rendered as --limit). · required
       converge: false   # Converge marks the play as desired-state: it runs on every perform reconcile. False declares a… · required
+      required: false   # Required: failure is hard pipeline fail (default: true — a converge mutates hosts, so a partial…
 ```
 
 ---
