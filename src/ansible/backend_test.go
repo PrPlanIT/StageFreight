@@ -28,3 +28,13 @@ func TestResolveKeyMaterial(t *testing.T) {
 		t.Errorf("absence must name both forms: %v", err)
 	}
 }
+
+// TestShellJoin pins the argv → /bin/sh -c quoting: every arg single-quoted,
+// embedded single quotes escaped, shell metacharacters inert.
+func TestShellJoin(t *testing.T) {
+	got := shellJoin([]string{"ansible-playbook", "-e", `msg=it's a "test" $(x)`})
+	want := `'ansible-playbook' '-e' 'msg=it'\''s a "test" $(x)'`
+	if got != want {
+		t.Errorf("shellJoin:\n got %s\nwant %s", got, want)
+	}
+}

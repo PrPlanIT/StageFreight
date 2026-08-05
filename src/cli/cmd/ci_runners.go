@@ -2047,20 +2047,22 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	// machines before converging what is scheduled onto them. Coexists with
 	// gitops/governance (same non-exclusivity doctrine); runbooks (converge:
 	// false) are structurally unreachable from here.
+	// Continue-then-fail: a failed converge is held, not returned — gitops
+	// and governance still reconcile (if a converge died mid-drain, manifest
+	// sync is exactly what should still happen), then the held failure fails
+	// the job at the end.
+	var ansibleErr error
 	if hasAnsible {
-		if err := runAnsibleConverge(ctx, appCfg, rootDir, false); err != nil {
-			return err
-		}
+		ansibleErr = runAnsibleConverge(ctx, appCfg, rootDir, false)
 	}
 
 	// GitOps reconcile — auth resolved at runtime (CA cert, OIDC, or kubeconfig).
 	// No pre-flight gate — let the runtime detect available auth and fail
-	// with a clear error if nothing works.
+	// with a clear error if nothing works. The primary path is called directly
+	// (ansible is dispatched above, once).
 	if hasGitOps {
-		cmd := &cobra.Command{}
-		cmd.SetContext(ctx)
-		if err := runReconcile(cmd, []string{}); err != nil {
-			return err
+		if err := runPrimaryReconcile(ctx, rootDir, false); err != nil {
+			return errors.Join(ansibleErr, err)
 		}
 	}
 
@@ -2078,12 +2080,12 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 				CICtx:   ciCtx,
 				Verbose: opts.Verbose,
 			}); err != nil {
-				return err
+				return errors.Join(ansibleErr, err)
 			}
 		}
 	}
 
-	return nil
+	return ansibleErr
 }
 
 // ── shared executor preflight ─────────────────────────────────────────────────

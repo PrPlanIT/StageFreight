@@ -81,7 +81,7 @@ func runAnsibleRun(cmd *cobra.Command, args []string) error {
 	if runErr != nil {
 		return runErr
 	}
-	return ansibleFailure(rctx.Result())
+	return ansibleFailure(cfg, rctx.Result())
 }
 
 // runAnsibleConverge is the CI perform-phase entry: runs the converge set,
@@ -108,34 +108,40 @@ func runAnsibleConverge(ctx context.Context, appCfg *config.Config, rootDir stri
 	renderAnsibleRun(os.Stdout, backend, rctx, time.Since(start))
 
 	// Record BEFORE the failure check so a failed converge still narrates.
-	recordAnsibleState(rootDir, backend, rctx.Result(), runErr)
+	recordAnsibleState(rootDir, appCfg, backend, rctx.Result(), runErr)
 	if runErr != nil {
 		return runErr
 	}
-	return ansibleFailure(rctx.Result())
+	return ansibleFailure(appCfg, rctx.Result())
 }
 
 // ansibleFailure distills a lifecycle result into the subsystem's fail-loud
-// contract: any unsuccessful action fails the phase.
-func ansibleFailure(result *runtime.LifecycleResult) error {
+// contract: a failed REQUIRED play fails the phase. Plays declared
+// required: false are advisory — their failures are recorded and narrated by
+// recordAnsibleState but never exit nonzero.
+func ansibleFailure(appCfg *config.Config, result *runtime.LifecycleResult) error {
 	if result == nil {
 		return nil
 	}
-	failed := 0
+	requiredFailed := 0
 	for _, ar := range result.Actions {
-		if !ar.Success {
-			failed++
+		if ar.Success {
+			continue
+		}
+		if p, ok := appCfg.Ansible.PlaybookByID(ar.Name); !ok || p.IsRequired() {
+			requiredFailed++
 		}
 	}
-	if failed > 0 {
-		return fmt.Errorf("ansible: %d/%d plays failed", failed, len(result.Actions))
+	if requiredFailed > 0 {
+		return fmt.Errorf("ansible: %d/%d plays failed", requiredFailed, len(result.Actions))
 	}
 	return nil
 }
 
 // recordAnsibleState persists the ansible subsystem outcome + {ansible.*} facts.
-// Recording never fails the converge.
-func recordAnsibleState(rootDir string, backend *ansible.Backend, result *runtime.LifecycleResult, runErr error) {
+// Recording never fails the converge. Required reflects whether the failure
+// gates the pipeline: false only when every failed play is advisory.
+func recordAnsibleState(rootDir string, appCfg *config.Config, backend *ansible.Backend, result *runtime.LifecycleResult, runErr error) {
 	agg := backend.Aggregate()
 	outcome, reason := "success", ""
 	switch {
@@ -145,6 +151,7 @@ func recordAnsibleState(rootDir string, backend *ansible.Backend, result *runtim
 		outcome = "failed"
 		reason = fmt.Sprintf("%d unreachable, %d failed of %d hosts", agg.Unreachable, agg.Failed, agg.Total)
 	}
+	required := runErr != nil || outcome != "failed" || ansibleFailure(appCfg, result) != nil
 	facts := map[string]string{
 		"total":     strconv.Itoa(agg.Total),
 		"converged": strconv.Itoa(agg.Converged),
@@ -158,7 +165,7 @@ func recordAnsibleState(rootDir string, backend *ansible.Backend, result *runtim
 	}
 	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 		st.RecordSubsystem(cistate.SubsystemState{
-			Name: "ansible", Attempted: true, Completed: true, Required: true,
+			Name: "ansible", Attempted: true, Completed: true, Required: required,
 			Outcome: outcome, Reason: reason,
 			Results: facts,
 		})
@@ -201,14 +208,19 @@ func renderAnsibleRun(w *os.File, backend *ansible.Backend, rctx *runtime.Runtim
 		}
 		if len(p.FailedHosts()) > 0 || p.ExitCode != 0 {
 			status = "failed"
+			if play, ok := cfg.Ansible.PlaybookByID(p.ID); ok && !play.IsRequired() {
+				status = "warning"
+				suffix += " (advisory — required: false)"
+			}
 		}
 		output.RowStatus(sec, fmt.Sprintf("[%d/%d] %s", i+1, len(plays), p.ID), suffix, status, color)
-		if status == "failed" {
+		if status != "success" {
 			if result != nil && i < len(result.Actions) && result.Actions[i].Message != "" {
 				fmt.Fprintf(w, "    │   %s\n", result.Actions[i].Message)
-			} else if p.Output != "" {
-				// Dry-run failures have no Execute result — the play output is
-				// the only evidence; tail it rather than hide it.
+			}
+			// The play output is the evidence — a one-line message alone has
+			// already cost a debugging session; tail it, never hide it.
+			if p.Output != "" {
 				tail := p.Output
 				if len(tail) > 1200 {
 					tail = tail[len(tail)-1200:]

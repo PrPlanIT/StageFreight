@@ -63,6 +63,32 @@ func TestAnsibleConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestAnsiblePlaybook_IsRequired pins the fail-loud default: unset means a
+// play failure hard-fails the phase; only an explicit required: false opts
+// down to advisory.
+func TestAnsiblePlaybook_IsRequired(t *testing.T) {
+	if !(AnsiblePlaybook{}).IsRequired() {
+		t.Error("unset required must default to true")
+	}
+	cfg := decodeAnsibleFixture(t, `
+ansible:
+  image: docker.io/hlhd/ansible:v2.20.4
+  inventory: ansible/inventory
+  ssh: {user: automation, credentials: DUNGEON, known_hosts: ansible/known_hosts}
+  playbooks:
+    gating: {path: a.yml, groups: [all], converge: true}
+    advisory: {path: b.yml, groups: [all], converge: true, required: false}
+`)
+	gating, _ := cfg.Ansible.PlaybookByID("gating")
+	advisory, _ := cfg.Ansible.PlaybookByID("advisory")
+	if !gating.IsRequired() {
+		t.Error("gating play must be required")
+	}
+	if advisory.IsRequired() {
+		t.Error("required: false must decode to advisory")
+	}
+}
+
 // TestAnsibleConfig_EnvPrefix pins the gitops-convention derivation.
 func TestAnsibleConfig_EnvPrefix(t *testing.T) {
 	s := AnsibleSSH{Credentials: "dungeon-nodes"}

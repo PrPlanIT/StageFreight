@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -44,11 +46,29 @@ func init() {
 }
 
 func runReconcile(cmd *cobra.Command, args []string) error {
-	start := time.Now()
 	rootDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
+
+	// Ansible converge set FIRST — substrate before cluster state (same order
+	// as the perform runner); coexists with the primary mode.
+	// Continue-then-fail: a failed converge is held, not returned — the
+	// primary reconcile still runs (if a converge died mid-drain, manifest
+	// sync is exactly what should still happen), then the held failure
+	// surfaces in the combined error.
+	var ansibleErr error
+	if cfg.Ansible.HasConvergePlaybooks() {
+		ansibleErr = runAnsibleConverge(cmd.Context(), cfg, rootDir, reconcileGlobalDry)
+	}
+	return errors.Join(ansibleErr, runPrimaryReconcile(cmd.Context(), rootDir, reconcileGlobalDry))
+}
+
+// runPrimaryReconcile executes the lifecycle.mode backend (flux/compose) —
+// everything reconcile does minus the ansible subsystem, which its callers
+// dispatch themselves (bare CLI above, the CI perform runner directly).
+func runPrimaryReconcile(ctx context.Context, rootDir string, dryRun bool) error {
+	start := time.Now()
 
 	mode := cfg.Lifecycle.Mode
 	if mode == "" {
@@ -61,19 +81,11 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		CI:       ciCtx,
 		Invoker:  runtime.DetectInvoker(ciCtx),
 		RepoRoot: rootDir,
-		DryRun:   reconcileGlobalDry,
-	}
-
-	// Ansible converge set FIRST — substrate before cluster state (same order
-	// as the perform runner); coexists with the primary mode.
-	if cfg.Ansible.HasConvergePlaybooks() {
-		if err := runAnsibleConverge(cmd.Context(), cfg, rootDir, rctx.DryRun); err != nil {
-			return err
-		}
+		DryRun:   dryRun,
 	}
 
 	// RunLifecycle: Resolve → Validate → Prepare → Plan → Execute → Cleanup.
-	if err := runtime.RunLifecycle(cmd.Context(), cfg, rctx); err != nil {
+	if err := runtime.RunLifecycle(ctx, cfg, rctx); err != nil {
 		return err
 	}
 
@@ -85,9 +97,9 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	elapsed := time.Since(start)
 
 	// Staged Tools box — the tools the lifecycle prepared (flux/kubectl), in front of
-	// the reconcile render box. cmd.Context() carries the run ledger in the perform path
+	// the reconcile render box. The context carries the run ledger in the perform path
 	// (reconcileRunner sets it); no-op for a bare CLI reconcile with no ledger.
-	provision.StageBox(cmd.Context(), w, color)
+	provision.StageBox(ctx, w, color)
 
 	switch cfg.Mode().Name {
 	case config.ModeGitops:

@@ -51,6 +51,18 @@ type AnsiblePlaybook struct {
 	// reconcile. False declares a runbook — a named human operation that CI
 	// can never trigger.
 	Converge bool `yaml:"converge"`
+
+	// Required: failure is hard pipeline fail (default: true — a converge
+	// mutates hosts, so a partial apply must never pass silently). Set false
+	// for advisory plays: a failure is recorded and narrated but the phase
+	// still exits clean.
+	Required *bool `yaml:"required,omitempty"`
+}
+
+// IsRequired reports whether this play's failure hard-fails the phase.
+// Unset defaults to true.
+func (p AnsiblePlaybook) IsRequired() bool {
+	return p.Required == nil || *p.Required
 }
 
 // AnsibleSSH is the shared SSH connection identity for all plays.
