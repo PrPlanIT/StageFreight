@@ -2043,6 +2043,16 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 		return fmt.Errorf("reconcile subsystem: substrate unhealthy")
 	}
 
+	// Ansible host convergence FIRST — hosts are the substrate; converge the
+	// machines before converging what is scheduled onto them. Coexists with
+	// gitops/governance (same non-exclusivity doctrine); runbooks (converge:
+	// false) are structurally unreachable from here.
+	if hasAnsible {
+		if err := runAnsibleConverge(ctx, appCfg, rootDir, false); err != nil {
+			return err
+		}
+	}
+
 	// GitOps reconcile — auth resolved at runtime (CA cert, OIDC, or kubeconfig).
 	// No pre-flight gate — let the runtime detect available auth and fail
 	// with a clear error if nothing works.
@@ -2070,15 +2080,6 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 			}); err != nil {
 				return err
 			}
-		}
-	}
-
-	// Ansible host convergence — the declared converge set, alongside gitops
-	// and governance (same non-exclusivity doctrine). Runbooks (converge:
-	// false) are structurally unreachable from here.
-	if hasAnsible {
-		if err := runAnsibleConverge(ctx, appCfg, rootDir, false); err != nil {
-			return err
 		}
 	}
 

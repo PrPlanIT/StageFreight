@@ -64,6 +64,14 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		DryRun:   reconcileGlobalDry,
 	}
 
+	// Ansible converge set FIRST — substrate before cluster state (same order
+	// as the perform runner); coexists with the primary mode.
+	if cfg.Ansible.HasConvergePlaybooks() {
+		if err := runAnsibleConverge(cmd.Context(), cfg, rootDir, rctx.DryRun); err != nil {
+			return err
+		}
+	}
+
 	// RunLifecycle: Resolve → Validate → Prepare → Plan → Execute → Cleanup.
 	if err := runtime.RunLifecycle(cmd.Context(), cfg, rctx); err != nil {
 		return err
@@ -93,14 +101,6 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		}
 	default:
 		return fmt.Errorf("no renderer for lifecycle mode: %q", mode)
-	}
-
-	// Ansible converge set — coexists with the primary mode (same doctrine as
-	// the perform runner); runs after the mode's own reconcile.
-	if cfg.Ansible.HasConvergePlaybooks() {
-		if err := runAnsibleConverge(cmd.Context(), cfg, rootDir, rctx.DryRun); err != nil {
-			return err
-		}
 	}
 
 	// Record the reconcile subsystem + its facts ({reconcile.*}) into cistate —
