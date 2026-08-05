@@ -25,6 +25,7 @@ type FluxBackend struct {
 	graph        *FluxGraph
 	reconcileSet []KustomizationKey
 	fluxBin      string // resolved flux binary path
+	authMethod   string // resolved at Prepare; surfaced via plan Notes
 }
 
 func (f *FluxBackend) Name() string { return "flux" }
@@ -68,7 +69,9 @@ func (f *FluxBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *run
 	if cfg.GitOps.Cluster.Name == "" {
 		return nil // local dev — no cluster auth needed
 	}
-	return BuildKubeconfig(ctx, cfg.GitOps.Cluster, rctx, cfg.Toolchains)
+	method, err := BuildKubeconfig(ctx, cfg.GitOps.Cluster, rctx, cfg.Toolchains)
+	f.authMethod = method
+	return err
 }
 
 // Plan discovers the Flux graph, computes impact, and builds the reconcile set.
@@ -81,10 +84,16 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	}
 	f.graph = graph
 
+	notes := map[string]string{}
+	if f.authMethod != "" {
+		notes["auth"] = f.authMethod
+	}
+
 	if len(graph.Kustomizations) == 0 {
 		return &runtime.LifecyclePlan{
 			Mode:    "gitops",
 			Backend: "flux",
+			Notes:   notes,
 		}, nil
 	}
 
@@ -152,6 +161,7 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 		Backend:  "flux",
 		Actions:  actions,
 		Declined: declined,
+		Notes:    notes,
 	}, nil
 }
 

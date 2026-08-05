@@ -18,17 +18,19 @@ import (
 // CA is resolved from environment: <PREFIX>_CA_FILE or <PREFIX>_CA_B64.
 // OIDC token is resolved from STAGEFREIGHT_OIDC.
 // All ephemeral files are registered for cleanup on rctx.Resolved.
-func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolConstraint) error {
+// Returns the resolved auth method ("oidc" | "sa-token") as DATA for the
+// renderer — this package never prints.
+func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtime.RuntimeContext, desired map[string]config.ToolConstraint) (string, error) {
 	prefix := envPrefix(cfg.Name)
 
 	// Create isolated kubeconfig — never mutate ~/.kube/config.
 	kubeconfigFile, err := os.CreateTemp("", "stagefreight-kubeconfig-*")
 	if err != nil {
-		return fmt.Errorf("creating kubeconfig tmpfile: %w", err)
+		return "", fmt.Errorf("creating kubeconfig tmpfile: %w", err)
 	}
 	if err := kubeconfigFile.Chmod(0600); err != nil {
 		os.Remove(kubeconfigFile.Name())
-		return fmt.Errorf("setting kubeconfig permissions: %w", err)
+		return "", fmt.Errorf("setting kubeconfig permissions: %w", err)
 	}
 	kubeconfigFile.Close()
 	rctx.Resolved.KubeconfigPath = kubeconfigFile.Name()
@@ -39,7 +41,7 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 	// Resolve CA.
 	caPath, err := resolveCA(prefix, rctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Resolve auth — OIDC token or service account token.
@@ -61,19 +63,17 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 		}
 	}
 	if token == "" {
-		return fmt.Errorf("no cluster auth: set STAGEFREIGHT_OIDC or %s_TOKEN", prefix)
+		return "", fmt.Errorf("no cluster auth: set STAGEFREIGHT_OIDC or %s_TOKEN", prefix)
 	}
-
-	fmt.Fprintf(os.Stderr, "prepare[flux]: auth method=%s\n", credName)
 
 	// Resolve kubectl via toolchain.
 	kubectlVer, kubectlPinned := toolchain.ResolveVersion(rctx.RepoRoot, "kubectl", "", desired)
 	kubectlResult, resolveErr := provision.Resolve(ctx, rctx.RepoRoot, "kubectl", kubectlVer, "cluster queries")
 	if resolveErr != nil {
 		if kubectlPinned {
-			return fmt.Errorf("kubectl pinned version %s failed to resolve: %w", kubectlVer, resolveErr)
+			return "", fmt.Errorf("kubectl pinned version %s failed to resolve: %w", kubectlVer, resolveErr)
 		}
-		return fmt.Errorf("kubectl toolchain resolve: %w", resolveErr)
+		return "", fmt.Errorf("kubectl toolchain resolve: %w", resolveErr)
 	}
 	kb := kubectlResult.Path
 
@@ -82,27 +82,27 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 		"--server="+cfg.Server,
 		"--certificate-authority="+caPath,
 	); err != nil {
-		return fmt.Errorf("kubectl set-cluster: %w", err)
+		return "", fmt.Errorf("kubectl set-cluster: %w", err)
 	}
 
 	if err := kubectlRun(kb, "config", "set-credentials", credName,
 		"--token="+token,
 	); err != nil {
-		return fmt.Errorf("kubectl set-credentials: %w", err)
+		return "", fmt.Errorf("kubectl set-credentials: %w", err)
 	}
 
 	if err := kubectlRun(kb, "config", "set-context", cfg.Name,
 		"--cluster="+cfg.Name,
 		"--user="+credName,
 	); err != nil {
-		return fmt.Errorf("kubectl set-context: %w", err)
+		return "", fmt.Errorf("kubectl set-context: %w", err)
 	}
 
 	if err := kubectlRun(kb, "config", "use-context", cfg.Name); err != nil {
-		return fmt.Errorf("kubectl use-context: %w", err)
+		return "", fmt.Errorf("kubectl use-context: %w", err)
 	}
 
-	return nil
+	return credName, nil
 }
 
 // resolveCA resolves the cluster CA from environment variables.

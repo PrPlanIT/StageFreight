@@ -3,11 +3,15 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/spf13/cobra"
 )
 
@@ -59,11 +63,49 @@ func runCIRun(cmd *cobra.Command, args []string) error {
 
 	registry := buildCIRegistry()
 
-	if err := ci.RunSubsystem(registry, subsystem, ctx, cfg, ciCtx, opts); err != nil {
-		return err
+	start := time.Now()
+	runErr := ci.RunSubsystem(registry, subsystem, ctx, cfg, ciCtx, opts)
+
+	// The one output allowed outside the subsystem boxes: a closing summary
+	// covering everything THIS job recorded. When it renders, a failure has
+	// already been shown in its row — exit silently instead of trailing the
+	// boxes with a naked error string.
+	summarized := renderJobSummary(os.Stdout, time.Since(start))
+	if runErr != nil {
+		if summarized {
+			return &SilentExitError{Code: 1}
+		}
+		return runErr
 	}
 
 	return nil
+}
+
+// renderJobSummary renders one outcome row per subsystem recorded by this
+// process (the cistate session view — the state FILE unions other jobs'
+// records via forwarded artifacts, which would re-report other phases' work).
+// Returns whether anything rendered.
+func renderJobSummary(w *os.File, elapsed time.Duration) bool {
+	subs := cistate.SessionSubsystems()
+	if len(subs) == 0 {
+		return false
+	}
+	color := output.UseColor()
+	sec := output.NewSection(w, "Summary", elapsed, color)
+	for _, s := range subs {
+		status := s.Outcome
+		suffix := ""
+		if s.Outcome == "failed" && !s.Required {
+			status = "warning"
+			suffix = "  (advisory)"
+		}
+		if s.Reason != "" {
+			suffix += "  " + s.Reason
+		}
+		output.RowStatus(sec, s.Name, suffix, status, color)
+	}
+	sec.Close()
+	return true
 }
 
 // generatedCommitShouldSkip reports whether a phase run must self-skip because HEAD is a

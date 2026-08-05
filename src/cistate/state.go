@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
@@ -335,10 +336,40 @@ func (st *State) RecordSubsystem(s SubsystemState) {
 				s.Results = existing.Results
 			}
 			st.Subsystems[i] = s
+			recordSession(s)
 			return
 		}
 	}
 	st.Subsystems = append(st.Subsystems, s)
+	recordSession(s)
+}
+
+// The session view: subsystems recorded by THIS process, in record order.
+// The state file unions records across pipeline jobs via forwarded artifacts,
+// so a job-end summary rendered from the file would re-report other phases'
+// work; the session ledger scopes reporting to what this run actually did.
+var (
+	sessionMu         sync.Mutex
+	sessionSubsystems []SubsystemState
+)
+
+func recordSession(s SubsystemState) {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	for i, existing := range sessionSubsystems {
+		if existing.Name == s.Name {
+			sessionSubsystems[i] = s
+			return
+		}
+	}
+	sessionSubsystems = append(sessionSubsystems, s)
+}
+
+// SessionSubsystems returns the subsystems recorded by this process.
+func SessionSubsystems() []SubsystemState {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	return append([]SubsystemState(nil), sessionSubsystems...)
 }
 
 // MergeSubsystemResults merges fact key→value pairs into a subsystem's Results,

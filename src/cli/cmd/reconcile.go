@@ -233,6 +233,10 @@ func backendUnits(backend string) string {
 func renderGitopsPlan(w *os.File, plan *runtime.LifecyclePlan, result *runtime.LifecycleResult, dryRun bool, elapsed time.Duration, color bool) {
 	sec := output.NewSection(w, "Reconcile", elapsed, color)
 
+	if plan != nil && plan.Notes["auth"] != "" {
+		sec.Row("auth   %s", plan.Notes["auth"])
+	}
+
 	if plan == nil || (len(plan.Actions) == 0 && len(plan.Declined) == 0) {
 		sec.Row("No affected kustomizations — nothing to reconcile.")
 		sec.Close()

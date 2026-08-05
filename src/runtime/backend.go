@@ -62,6 +62,9 @@ type LifecyclePlan struct {
 	// They are reported, not executed — Execute never touches them.
 	Declined []PlannedAction
 	DryRun   bool
+	// Notes are backend-recorded run facts for the renderer (e.g. the resolved
+	// auth method) — DATA, not output; presentation belongs to the cmd layer.
+	Notes map[string]string
 }
 
 // PlannedAction describes a single action to be executed.
