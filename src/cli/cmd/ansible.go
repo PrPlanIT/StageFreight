@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/ansible"
@@ -75,7 +76,7 @@ func runAnsibleRun(cmd *cobra.Command, args []string) error {
 		DryRun:   ansibleRunPlan,
 	}
 	start := time.Now()
-	runErr := runtime.RunLifecycleWith(cmd.Context(), cfg, rctx, backend)
+	runErr := runtime.RunLifecycleWith(cmd.Context(), cfg, rctx, "ansible", backend)
 	renderAnsibleRun(os.Stdout, backend, rctx, time.Since(start))
 	if runErr != nil {
 		return runErr
@@ -103,7 +104,7 @@ func runAnsibleConverge(ctx context.Context, appCfg *config.Config, rootDir stri
 		RepoRoot: rootDir,
 		DryRun:   dryRun,
 	}
-	runErr := runtime.RunLifecycleWith(ctx, appCfg, rctx, backend)
+	runErr := runtime.RunLifecycleWith(ctx, appCfg, rctx, "ansible", backend)
 	renderAnsibleRun(os.Stdout, backend, rctx, time.Since(start))
 
 	// Record BEFORE the failure check so a failed converge still narrates.
@@ -202,8 +203,20 @@ func renderAnsibleRun(w *os.File, backend *ansible.Backend, rctx *runtime.Runtim
 			status = "failed"
 		}
 		output.RowStatus(sec, fmt.Sprintf("[%d/%d] %s", i+1, len(plays), p.ID), suffix, status, color)
-		if status == "failed" && result != nil && i < len(result.Actions) && result.Actions[i].Message != "" {
-			fmt.Fprintf(w, "    │   %s\n", result.Actions[i].Message)
+		if status == "failed" {
+			if result != nil && i < len(result.Actions) && result.Actions[i].Message != "" {
+				fmt.Fprintf(w, "    │   %s\n", result.Actions[i].Message)
+			} else if p.Output != "" {
+				// Dry-run failures have no Execute result — the play output is
+				// the only evidence; tail it rather than hide it.
+				tail := p.Output
+				if len(tail) > 1200 {
+					tail = tail[len(tail)-1200:]
+				}
+				for _, line := range strings.Split(strings.TrimSpace(tail), "\n") {
+					fmt.Fprintf(w, "    │   %s\n", line)
+				}
+			}
 		}
 	}
 	sec.Close()

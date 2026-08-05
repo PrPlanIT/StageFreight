@@ -89,13 +89,13 @@ func RunLifecycleBackend(ctx context.Context, cfg *config.Config, rctx *RuntimeC
 	if err != nil {
 		return phaseError(PhaseResolve, name, err)
 	}
-	return RunLifecycleWith(ctx, cfg, rctx, backend)
+	return RunLifecycleWith(ctx, cfg, rctx, mode, backend)
 }
 
 // RunLifecycleWith runs the phase sequence against a caller-constructed backend
 // instance — the seam for pre-phase scoping a registry constructor can't carry
 // (e.g. `ansible run <id>` selecting one play before Validate).
-func RunLifecycleWith(ctx context.Context, cfg *config.Config, rctx *RuntimeContext, backend LifecycleBackend) error {
+func RunLifecycleWith(ctx context.Context, cfg *config.Config, rctx *RuntimeContext, mode string, backend LifecycleBackend) error {
 	// Cleanup always runs — register before any work.
 	defer rctx.Resolved.Cleanup()
 
@@ -103,7 +103,7 @@ func RunLifecycleWith(ctx context.Context, cfg *config.Config, rctx *RuntimeCont
 
 	// --- Validate ---
 	// Check capabilities first.
-	required := DeriveRequired(cfg, rctx)
+	required := DeriveRequired(mode, cfg, rctx)
 	if err := ValidateCapabilities(backend, required); err != nil {
 		return phaseError(PhaseValidate, backend.Name(), err)
 	}

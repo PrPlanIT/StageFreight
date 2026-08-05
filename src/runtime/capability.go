@@ -29,23 +29,25 @@ func ValidateCapabilities(backend LifecycleBackend, required []Capability) error
 	return nil
 }
 
-// DeriveRequired determines which capabilities are needed based on config and context.
+// DeriveRequired determines which capabilities the RUNNING mode needs, given config and context.
 // Phase ↔ Capability binding is enforced here.
-func DeriveRequired(cfg *config.Config, rctx *RuntimeContext) []Capability {
+func DeriveRequired(mode string, cfg *config.Config, rctx *RuntimeContext) []Capability {
 	var required []Capability
 
 	// All backends must support plan/execute separation.
 	required = append(required, CapPlanExecute)
 
-	// Mode-specific requirements (canonical mode names from the config mode table).
-	switch cfg.Mode().Name {
+	// Requirements derive from the mode being RUN, never the repo's primary
+	// lifecycle.mode — coexisting subsystems (ansible beside gitops) validate
+	// against their own contract, not the host repo's.
+	switch mode {
 	case config.ModeGitops:
 		required = append(required, CapReconcile)
 		required = append(required, CapImpactAnalysis)
 		if cfg.GitOps.Cluster.Name != "" {
 			required = append(required, CapClusterAuth)
 		}
-	case config.ModeDocker:
+	case config.ModeDocker, "ansible":
 		required = append(required, CapReconcile)
 	}
 
