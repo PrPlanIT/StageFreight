@@ -258,7 +258,9 @@ func overlaySubsystemShards(rootDir string, st *State) {
 		if err := json.Unmarshal(data, &s); err != nil || s.Name == "" {
 			continue
 		}
-		st.RecordSubsystem(s)
+		// Direct upsert — loading OTHER jobs' shards must not stamp the
+		// session ledger, which reports only what THIS process executed.
+		st.upsertSubsystem(s)
 	}
 }
 
@@ -330,18 +332,24 @@ func WriteState(rootDir string, st *State) error {
 // fact records (MergeSubsystemResults) are written by different call sites, and an
 // outcome upsert must not erase the facts a subsystem already recorded.
 func (st *State) RecordSubsystem(s SubsystemState) {
+	recordSession(st.upsertSubsystem(s))
+}
+
+// upsertSubsystem is the pure upsert (no session stamp): shard overlay uses it
+// directly so loaded state never masquerades as this process's work. Returns
+// the record as stored (Results preserved on a results-less upsert).
+func (st *State) upsertSubsystem(s SubsystemState) SubsystemState {
 	for i, existing := range st.Subsystems {
 		if existing.Name == s.Name {
 			if s.Results == nil {
 				s.Results = existing.Results
 			}
 			st.Subsystems[i] = s
-			recordSession(s)
-			return
+			return s
 		}
 	}
 	st.Subsystems = append(st.Subsystems, s)
-	recordSession(s)
+	return s
 }
 
 // The session view: subsystems recorded by THIS process, in record order.

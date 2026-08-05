@@ -91,7 +91,7 @@ func renderJobSummary(w *os.File, elapsed time.Duration) bool {
 		return false
 	}
 	color := output.UseColor()
-	sec := output.NewSection(w, "Summary", elapsed, color)
+	sec := output.NewSection(w, "Outcomes", elapsed, color)
 	for _, s := range subs {
 		status := s.Outcome
 		suffix := ""
