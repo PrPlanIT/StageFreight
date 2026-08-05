@@ -18,6 +18,25 @@ Our runner for **builds and everything that isn't GitOps**. It runs on a shared
     share trust.
 
 ```yaml
+# GitLab runner stack on freightyard — the build runner (StageFreight crucible + governance).
+# Jobs run on the HOST docker (socket executor) and join the stagefreight compose network,
+# where `dind` and `buildkitd` are network aliases — job containers resolve
+# tcp://dind:2376 natively and mount the dind client certs by host path. BuildKit runs
+# beside dind with its own independent PKI (generated once by buildkitd-certs); jobs mount
+# its client certs at /buildkit-certs. The /stagefreight host dir is the shared SF cache
+# root (toolchains, buildx state), mounted into dind, buildkitd, and every job.
+# Jobs receive DOCKER_HOST/DOCKER_TLS_VERIFY/DOCKER_CERT_PATH as runner-provided env
+# (--env), so ANY project's docker-consuming jobs work here — no pipeline-side wiring
+# required. The runner's OWN executor connection is pinned to the host socket
+# (--docker-host), which makes that job env injection safe: an explicit host cannot be
+# overridden by environment lookup. Jobs run
+# unprivileged (docker work happens inside the companions, not the job container).
+#
+# Registration only runs when /etc/gitlab-runner/config.toml is absent — flag changes
+# here need a fresh register (remove the generated config.toml) on redeploy.
+# Secrets via stack environment: CI_SERVER_URL, RUNNER_TOKEN (glrt-… authentication
+# token — the runner is CREATED in GitLab first, where tags/untagged/locked live).
+
 services:
   dind:
     image: docker:dind
@@ -129,20 +148,22 @@ services:
           gitlab-runner register \
             --docker-dns=10.0.0.1 \
             --docker-dns=10.0.0.2 \
+            --docker-dns=172.22.30.122 \
             --docker-dns=1.1.1.1 \
             --docker-dns=8.8.8.8 \
-            --docker-dns=127.0.0.1 \
+            --docker-host=unix:///var/run/docker.sock \
             --docker-image=alpine:latest \
             --docker-network-mode=stagefreight \
             --docker-privileged=false \
-            --docker-env=DOCKER_HOST=tcp://dind:2376 \
-            --docker-env=DOCKER_TLS_VERIFY=1 \
-            --docker-env=DOCKER_CERT_PATH=/certs/client \
+            --docker-volumes=/cache \
             --docker-volumes=/opt/docker/gitlab-runner/stagefreight:/stagefreight \
             --docker-volumes=/opt/docker/gitlab-runner/buildkitd-certs/client:/buildkit-certs:ro \
             --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
+            --env=DOCKER_CERT_PATH=/certs/client \
+            --env=DOCKER_HOST=tcp://dind:2376 \
+            --env=DOCKER_TLS_VERIFY=1 \
             --executor=docker \
-            --name=$${RUNNER_NAME:-"Build Runner"} \
+            --name=$${RUNNER_NAME:-"GitLab Runner"} \
             --non-interactive \
             --token=$${RUNNER_TOKEN} \
             --url=$${CI_SERVER_URL}
@@ -186,3 +207,48 @@ volumes:
   dind-storage:
   buildkitd-state:
 ```
+
+The stack reads its secrets from a `.env` beside the compose file (never committed):
+
+```bash
+CI_SERVER_URL=https://gitlab.example.com/
+RUNNER_TOKEN=glrt-…        # authentication token from the runner created in GitLab
+RUNNER_NAME=Freightyard    # description shown in GitLab; identity itself lives in GitLab
+```
+
+## Runner identity lives in GitLab
+
+Both runners register with a **`glrt-…` authentication token** (`--token`): create the
+runner in GitLab first (project → Settings → CI/CD → Runners → *New project runner*) and
+pick its **name, tags, run-untagged policy, and locked status** there. The compose stack
+only needs the resulting token in its `.env` — nothing in the stack sets identity.
+
+You can also create the runner via the API, which hands back the `glrt-…` token for the
+`.env` in one shot:
+
+```bash
+curl --request POST --header "PRIVATE-TOKEN: <token>" \
+  "https://gitlab.example.com/api/v4/user/runners" \
+  --data runner_type=project_type \
+  --data project_id=<id> \
+  --data description=Dungeon-Pedestal \
+  --data tag_list=k8s-dungeon-production \
+  --data run_untagged=false
+```
+
+Tags are how you pin projects to a specific runner: give the runner a tag, enable it for
+the project, and tag the project's jobs to match — same mechanism for any project, no
+stack changes.
+
+Our runner records:
+
+| Runner | Tags | Run untagged |
+|---|---|---|
+| **Freightyard** (this page) | `sf-governance-prplanit`, `sf-build-internal` | yes |
+| **[Dungeon-Pedestal](gitlab-runner-gitops-k8s.md)** | `k8s-dungeon-production` | no |
+
+!!! warning "Registration is one-shot"
+    `register-runner` only runs when the generated `config.toml` is **absent**. To apply
+    changed registration flags (or bind to a newly created runner), remove
+    `/opt/docker/gitlab-runner/config/config.toml` and redeploy — otherwise the stack keeps
+    the old registration silently.

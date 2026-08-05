@@ -3,12 +3,32 @@
 Our runner for **GitOps / Kubernetes** pipelines (`lifecycle.mode: gitops`) — it's where we
 run Flux manifest validation and reconciliation. It's a simpler stack than the
 [Build Runner](gitlab-runner-builds.md): **DinD** + the **GitLab runner** with the docker executor,
-and no BuildKit (GitOps repos don't build images).
+and no BuildKit (GitOps repos don't build images). Jobs run on the **host docker**
+(socket executor) and join the `stagefreight` compose network, where `dind` is a network
+alias — so the perform phase's docker work (StageFreight's containerized **ansible
+converge** runs plays inside an execution image) reaches `tcp://dind:2376` with verified
+TLS out of the box.
 
 ```yaml
+# GitLab runner stack on dungeon-pedestal — the gitops runner (k8s-dungeon-production).
+# Freightyard architecture: jobs run on the HOST docker (socket executor) and join the
+# stagefreight compose network, where `dind` is a network alias — so job containers
+# resolve tcp://dind:2376 natively and mount the dind client certs by host path.
+# Jobs receive DOCKER_HOST/DOCKER_TLS_VERIFY/DOCKER_CERT_PATH as runner-provided env
+# (--env), so ANY project's docker-consuming jobs work here — no pipeline-side wiring
+# required. The runner's OWN executor connection is pinned to the host socket
+# (--docker-host), which makes that job env injection safe: an explicit host cannot be
+# overridden by environment lookup. Jobs run
+# unprivileged (docker work happens inside the dind companion, not the job container).
+#
+# Registration only runs when /etc/gitlab-runner/config.toml is absent — flag changes
+# here need a fresh register (remove the generated config.toml) on redeploy.
+# Secrets via stack environment: CI_SERVER_URL, RUNNER_TOKEN (glrt-… authentication
+# token — the runner is CREATED in GitLab first, where tags/untagged/locked live).
+
 services:
   dind:
-    image: docker:dind # Latest stable version
+    image: docker:dind
     privileged: true
     restart: always
     environment:
@@ -23,9 +43,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    networks:
+      stagefreight:
+        aliases:
+          - dind
 
   register-runner:
-    image: gitlab/gitlab-runner:latest # Always use latest stable
+    image: gitlab/gitlab-runner:latest
     restart: 'no'
     depends_on:
       dind:
@@ -36,46 +60,69 @@ services:
         if [ ! -f /etc/gitlab-runner/config.toml ]; then
           echo "Config does not exist, registering runner..."
           gitlab-runner register \
-            --non-interactive \
-            --locked=false \
-            --name=${RUNNER_NAME:-"GitLab Runner"} \
-            --executor=docker \
-            --docker-dns "10.0.0.1,10.0.0.2,1.1.1.1,8.8.8.8" \
-            --docker-host=tcp://dind:2376 \
+            --docker-dns=10.0.0.1 \
+            --docker-dns=10.0.0.2 \
+            --docker-dns=172.22.30.122 \
+            --docker-dns=1.1.1.1 \
+            --docker-dns=8.8.8.8 \
+            --docker-host=unix:///var/run/docker.sock \
             --docker-image=alpine:latest \
-            --docker-privileged \
-            --docker-volumes "/cache" \
-            --docker-volumes "/certs/client" \
-            --tag-list=${RUNNER_TAGS:-"docker,alpine"} \
-            --run-untagged=${RUN_UNTAGGED:-true}
+            --docker-network-mode=stagefreight \
+            --docker-privileged=false \
+            --docker-volumes=/cache \
+            --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
+            --env=DOCKER_CERT_PATH=/certs/client \
+            --env=DOCKER_HOST=tcp://dind:2376 \
+            --env=DOCKER_TLS_VERIFY=1 \
+            --executor=docker \
+            --name=$${RUNNER_NAME:-"GitLab Runner"} \
+            --non-interactive \
+            --token=$${RUNNER_TOKEN} \
+            --url=$${CI_SERVER_URL}
         else
           echo "Runner config already exists, skipping registration"
         fi
     environment:
       - CI_SERVER_URL=${CI_SERVER_URL}
-      - REGISTRATION_TOKEN=${REGISTRATION_TOKEN}
-      - DOCKER_TLS_VERIFY=1
-      - DOCKER_CERT_PATH=/certs/client
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
-      - /opt/docker/gitlab-runner/certs:/certs:ro
+    networks:
+      - stagefreight
 
   runner:
-    image: gitlab/gitlab-runner:latest # Latest stable version
+    image: gitlab/gitlab-runner:latest
     restart: always
     depends_on:
       dind:
         condition: service_healthy
-    environment:
-      - DOCKER_HOST=tcp://dind:2376
-      - DOCKER_TLS_VERIFY=1
-      - DOCKER_CERT_PATH=/certs/client
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
-      - /opt/docker/gitlab-runner/certs:/certs:ro
+    healthcheck:
+      test: ["CMD", "gitlab-runner", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - stagefreight
+
+networks:
+  stagefreight:
+    name: stagefreight
 
 volumes:
   dind-storage:
+```
+
+The stack reads its secrets from a `.env` beside the compose file (never committed):
+
+```bash
+CI_SERVER_URL=https://gitlab.example.com/
+RUNNER_TOKEN=glrt-…             # authentication token from the runner created in GitLab
+RUNNER_NAME=Dungeon-Pedestal    # description shown in GitLab; identity itself lives in GitLab
 ```
 
 !!! note "Cluster authentication"
@@ -83,3 +130,12 @@ volumes:
     runner needs credentials to reach it — in our setup, a CA used for OIDC-style auth. That
     cluster-auth material is configured per-cluster and layered on top of this runner; it's
     not part of the compose stack above.
+
+## Runner identity
+
+This runner's identity is defined **in GitLab at creation** (token flow — see
+[Build Runner § Runner identity lives in GitLab](gitlab-runner-builds.md#runner-identity-lives-in-gitlab)):
+
+| Runner | Tags | Run untagged |
+|---|---|---|
+| **Dungeon-Pedestal** | `k8s-dungeon-production` | no |
