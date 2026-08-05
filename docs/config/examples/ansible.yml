@@ -21,7 +21,8 @@ ansible:
 
   ssh:
     user: automation
-    # Env prefix → AUTOMATION_NODES_SSH_KEY (+ optional _SSH_KEY_PASSPHRASE).
+    # Env prefix → AUTOMATION_NODES_SSH_KEY, or _SSH_KEY_B64 for the maskable
+    # single-line form (+ optional _SSH_KEY_PASSPHRASE).
     # Set it masked + PROTECTED on the forge so only protected-ref pipelines
     # can reach the fleet.
     credentials: AUTOMATION_NODES

@@ -6,6 +6,7 @@ package ansible
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -69,11 +70,31 @@ func (b *Backend) ImageRef() string { return b.imageRef }
 func (b *Backend) ImageID() string { return b.imageID }
 
 // CredentialsPresent reports whether the SSH key material this config needs is
-// available in the environment. The key ships as a forge-protected variable,
-// so MR/unprotected-ref pipelines legitimately lack it — dispatch uses this
-// for a clear "skipped" instead of a mid-run auth failure.
+// available in the environment — raw (<PREFIX>_SSH_KEY) or base64
+// (<PREFIX>_SSH_KEY_B64, the maskable single-line form, mirroring the gitops
+// <NAME>_CA_B64 convention). The key ships as a forge-protected variable, so
+// MR/unprotected-ref pipelines legitimately lack it — dispatch uses this for a
+// clear "skipped" instead of a mid-run auth failure.
 func CredentialsPresent(cfg *config.Config) bool {
-	return os.Getenv(cfg.Ansible.SSH.EnvPrefix()+"_SSH_KEY") != ""
+	prefix := cfg.Ansible.SSH.EnvPrefix()
+	return os.Getenv(prefix+"_SSH_KEY") != "" || os.Getenv(prefix+"_SSH_KEY_B64") != ""
+}
+
+// resolveKeyMaterial reads the private key from the environment: the raw PEM
+// variable wins; the _B64 variant decodes (forge masking rejects multiline
+// values, so the base64 form is what a masked variable stores).
+func resolveKeyMaterial(prefix string) ([]byte, error) {
+	if raw := os.Getenv(prefix + "_SSH_KEY"); raw != "" {
+		return []byte(raw), nil
+	}
+	if b64 := os.Getenv(prefix + "_SSH_KEY_B64"); b64 != "" {
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
+		if err != nil {
+			return nil, fmt.Errorf("%s_SSH_KEY_B64: decoding: %w", prefix, err)
+		}
+		return decoded, nil
+	}
+	return nil, fmt.Errorf("%s_SSH_KEY (or %s_SSH_KEY_B64) not set — ansible credentials unavailable in this context", prefix, prefix)
 }
 
 func (b *Backend) Name() string { return "ansible" }
@@ -139,12 +160,10 @@ func (b *Backend) Validate(ctx context.Context, cfg *config.Config, rctx *runtim
 func (b *Backend) Prepare(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
 	a := cfg.Ansible
 	prefix := a.SSH.EnvPrefix()
-	keyPEM := os.Getenv(prefix + "_SSH_KEY")
-	if keyPEM == "" {
-		return fmt.Errorf("%s_SSH_KEY not set — ansible credentials unavailable in this context", prefix)
+	keyBytes, err := resolveKeyMaterial(prefix)
+	if err != nil {
+		return err
 	}
-
-	keyBytes := []byte(keyPEM)
 	if pass := os.Getenv(prefix + "_SSH_KEY_PASSPHRASE"); pass != "" {
 		raw, err := gossh.ParseRawPrivateKeyWithPassphrase(keyBytes, []byte(pass))
 		if err != nil {

@@ -43,8 +43,9 @@ default: [`docker.io/hlhd/ansible`](https://hub.docker.com/r/hlhd/ansible); brin
 pointing `image:` elsewhere. Pin a version tag — updates ride the deps engine's docker-image
 tag-line semantics.
 
-**Trust posture.** The SSH key resolves from `<PREFIX>_SSH_KEY` (prefix from
-`ssh.credentials`); store it masked + **protected** so unprotected-ref pipelines never receive
+**Trust posture.** The SSH key resolves from `<PREFIX>_SSH_KEY` (raw PEM) or
+`<PREFIX>_SSH_KEY_B64` (base64 — the single-line form a masked variable can hold, mirroring
+`<NAME>_CA_B64`); store it masked + **protected** so unprotected-ref pipelines never receive
 it — they render "skipped — credentials not available", the signature of a correctly-protected
 setup. Host-key verification is always strict against the repo-committed `ssh.known_hosts`
 (`ssh-keyscan` the fleet once); host trust is auditable in git. The perform job carries a

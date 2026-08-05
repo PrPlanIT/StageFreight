@@ -56,6 +56,8 @@ type AnsiblePlaybook struct {
 // AnsibleSSH is the shared SSH connection identity for all plays.
 // The private key is resolved from environment variables at runtime:
 //   - <PREFIX>_SSH_KEY: PEM private key material
+//   - <PREFIX>_SSH_KEY_B64: base64 of the PEM — the single-line form a forge
+//     MASKED variable can hold (mirrors the gitops <NAME>_CA_B64 convention)
 //   - <PREFIX>_SSH_KEY_PASSPHRASE: optional key passphrase
 //
 // Credentials is uppercased with hyphens replaced by underscores to form the
