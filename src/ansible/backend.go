@@ -158,6 +158,12 @@ func (b *Backend) Prepare(ctx context.Context, cfg *config.Config, rctx *runtime
 	} else if _, err := gossh.ParsePrivateKey(keyBytes); err != nil {
 		return fmt.Errorf("%s_SSH_KEY: %w", prefix, err)
 	}
+	// PEM requires a trailing newline and shell plumbing loves to strip it
+	// ($(cat key) does, CI variable UIs sometimes do) — normalize, since
+	// OpenSSH rejects the un-terminated form as "invalid format".
+	if len(keyBytes) > 0 && keyBytes[len(keyBytes)-1] != '\n' {
+		keyBytes = append(keyBytes, '\n')
+	}
 
 	tmp, err := os.CreateTemp("", "sf-ansible-key-*")
 	if err != nil {
