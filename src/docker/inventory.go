@@ -71,14 +71,6 @@ func (a *AnsibleInventory) Resolve(_ context.Context, selector TargetSelector) (
 	return targets, nil
 }
 
-// ansibleYAML is the top-level Ansible inventory YAML structure.
-type ansibleYAML struct {
-	All struct {
-		Hosts    map[string]map[string]any `yaml:"hosts"`
-		Children map[string]ansibleGroup   `yaml:"children"`
-	} `yaml:"all"`
-}
-
 type ansibleGroup struct {
 	Hosts    map[string]map[string]any `yaml:"hosts"`
 	Children map[string]ansibleGroup   `yaml:"children"`
@@ -108,31 +100,31 @@ func parseInventory(data []byte) ([]HostTarget, map[string]groupInfo, error) {
 }
 
 func parseYAMLInventory(data []byte) ([]HostTarget, map[string]groupInfo, error) {
-	var inv ansibleYAML
-	if err := yaml.Unmarshal(data, &inv); err != nil {
+	// In Ansible's YAML inventory format EVERY top-level key is a group —
+	// `all:` is merely the conventional one; sibling top-level groups
+	// (`k8s_master:`, `proxmox:`) are equally real and commonly used.
+	var doc map[string]ansibleGroup
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, nil, err
 	}
 
 	allHosts := map[string]*HostTarget{}
 	groups := map[string]groupInfo{}
 
-	// Top-level hosts
-	for name, vars := range inv.All.Hosts {
-		allHosts[name] = buildHost(name, vars)
-	}
-
-	// Walk children recursively
+	// Walk groups recursively, MERGING into any prior definition — a children:
+	// entry may be a null REFERENCE to a group defined elsewhere (commonly a
+	// top-level sibling), and a reference must never erase the definition.
 	var walkGroup func(name string, g ansibleGroup)
 	walkGroup = func(name string, g ansibleGroup) {
-		gi := groupInfo{}
+		gi := groups[name]
 		for hostName, vars := range g.Hosts {
 			if _, exists := allHosts[hostName]; !exists {
 				allHosts[hostName] = buildHost(hostName, vars)
 			}
-			gi.Hosts = append(gi.Hosts, hostName)
+			gi.Hosts = appendUnique(gi.Hosts, hostName)
 		}
 		for childName, childGroup := range g.Children {
-			gi.Children = append(gi.Children, childName)
+			gi.Children = appendUnique(gi.Children, childName)
 			walkGroup(childName, childGroup)
 		}
 		sort.Strings(gi.Hosts)
@@ -140,8 +132,13 @@ func parseYAMLInventory(data []byte) ([]HostTarget, map[string]groupInfo, error)
 		groups[name] = gi
 	}
 
-	for name, group := range inv.All.Children {
-		walkGroup(name, group)
+	topLevel := make([]string, 0, len(doc))
+	for name := range doc {
+		topLevel = append(topLevel, name)
+	}
+	sort.Strings(topLevel)
+	for _, name := range topLevel {
+		walkGroup(name, doc[name])
 	}
 
 	// Convert to sorted slice
@@ -154,6 +151,16 @@ func parseYAMLInventory(data []byte) ([]HostTarget, map[string]groupInfo, error)
 	})
 
 	return result, groups, nil
+}
+
+// appendUnique appends s to list unless already present.
+func appendUnique(list []string, s string) []string {
+	for _, v := range list {
+		if v == s {
+			return list
+		}
+	}
+	return append(list, s)
 }
 
 func buildHost(name string, vars map[string]any) *HostTarget {
