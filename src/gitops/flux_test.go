@@ -63,3 +63,18 @@ func TestReconcileVerdicts_Skipped_FailClosed(t *testing.T) {
 		t.Errorf("nothing is accelerable when validation was skipped, got %v", validated)
 	}
 }
+
+// TestCleanFluxError pins the multi-line-leak fix: a failed flux reconcile
+// streams progress glyphs; only the meaningful last line survives, unglyphed.
+func TestCleanFluxError(t *testing.T) {
+	raw := "► annotating Kustomization infra-configs in flux-system namespace\n" +
+		"✔ Kustomization annotated\n" +
+		"◎ waiting for Kustomization reconciliation\n" +
+		"✗ context deadline exceeded\n"
+	if got := cleanFluxError(raw); got != "context deadline exceeded" {
+		t.Errorf("cleanFluxError = %q, want %q", got, "context deadline exceeded")
+	}
+	if got := cleanFluxError("   \n\n"); got != "reconcile failed" {
+		t.Errorf("empty input = %q, want fallback", got)
+	}
+}

@@ -2,8 +2,10 @@ package gitops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,9 +86,17 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	}
 	f.graph = graph
 
-	notes := map[string]string{}
+	notes := map[string]string{"backend": "flux"}
 	if f.authMethod != "" {
 		notes["auth"] = f.authMethod
+	}
+	if name := strings.TrimSpace(cfg.GitOps.Cluster.Name); name != "" {
+		notes["cluster"] = name
+	}
+	// Cluster identity — best-effort (a query failure never fails the plan);
+	// answers "which cluster got reconciled" in the box.
+	for k, v := range clusterIdentity(ctx, rctx.Resolved.KubectlPath) {
+		notes[k] = v
 	}
 
 	if len(graph.Kustomizations) == 0 {
@@ -234,13 +244,13 @@ func (f *FluxBackend) Execute(ctx context.Context, plan *runtime.LifecyclePlan, 
 
 		if err != nil {
 			ar.Success = false
-			ar.Message = strings.TrimSpace(string(out))
+			ar.Message = cleanFluxError(string(out))
 			results = append(results, ar)
 			continue
 		}
 
 		ar.Success = true
-		ar.Message = strings.TrimSpace(string(out))
+		ar.Message = ""
 		results = append(results, ar)
 	}
 
@@ -250,6 +260,84 @@ func (f *FluxBackend) Execute(ctx context.Context, plan *runtime.LifecyclePlan, 
 // Cleanup is handled by rctx.Resolved cleanup funcs registered in Prepare.
 func (f *FluxBackend) Cleanup(rctx *runtime.RuntimeContext) {
 	// Kubeconfig + CA tmpfiles are cleaned up via rctx.Resolved.Cleanup().
+}
+
+// clusterIdentity returns best-effort canonical cluster facts for the reconcile
+// box — the k8s server version and node count. Any query failure yields no
+// entry (the box degrades gracefully to the config-derived name/backend).
+// Distro-agnostic: `kubectl version` / `get nodes` answer the same for kubeadm,
+// k3s, etc. The richer identity+health vision is a design-plan follow-up.
+func clusterIdentity(ctx context.Context, kubectlPath string) map[string]string {
+	facts := map[string]string{}
+	if kubectlPath == "" {
+		return facts
+	}
+	run := func(args ...string) (string, bool) {
+		cmd := exec.CommandContext(ctx, kubectlPath, args...)
+		cmd.Env = kubectlEnv()
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err == nil
+	}
+	if out, ok := run("version", "-o", "json"); ok {
+		var v struct {
+			ServerVersion struct {
+				GitVersion string `json:"gitVersion"`
+			} `json:"serverVersion"`
+		}
+		if json.Unmarshal([]byte(out), &v) == nil && v.ServerVersion.GitVersion != "" {
+			facts["version"] = v.ServerVersion.GitVersion
+		}
+	}
+	// One `get nodes -o json` → total + control-plane count. Control-plane is
+	// the UNION of the current label (node-role.kubernetes.io/control-plane) and
+	// the legacy one (…/master) — k3s and older/RKE clusters still use master,
+	// so a single-label check would miscount them as all-workers. Workers are
+	// the remainder; other roles (etcd, gpu, storage) are topology detail for
+	// the fuller health view, not this identity glance. Role labels absent →
+	// the renderer falls back to a plain node count.
+	if out, ok := run("get", "nodes", "-o", "json"); ok {
+		var list struct {
+			Items []struct {
+				Metadata struct {
+					Labels map[string]string `json:"labels"`
+				} `json:"metadata"`
+			} `json:"items"`
+		}
+		if json.Unmarshal([]byte(out), &list) == nil && len(list.Items) > 0 {
+			total := len(list.Items)
+			cp := 0
+			for _, n := range list.Items {
+				_, isCP := n.Metadata.Labels["node-role.kubernetes.io/control-plane"]
+				_, isMaster := n.Metadata.Labels["node-role.kubernetes.io/master"]
+				if isCP || isMaster {
+					cp++
+				}
+			}
+			facts["nodes"] = strconv.Itoa(total)
+			if cp > 0 && cp <= total {
+				facts["control_plane"] = strconv.Itoa(cp)
+				facts["workers"] = strconv.Itoa(total - cp)
+			}
+		}
+	}
+	return facts
+}
+
+// cleanFluxError distills a failed `flux reconcile` invocation to its meaningful
+// line. Flux streams multi-line progress (► annotating / ✔ annotated / ◎
+// waiting / ✗ <error>); the raw blob sprayed into the render box only carried
+// its box prefix on line one. Keep the last non-empty line (the outcome),
+// stripped of the leading status glyph.
+func cleanFluxError(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimLeft(line, "✗►◎✔ "))
+	}
+	return "reconcile failed"
 }
 
 // FluxReconcileResult reports the outcome of reconciling one kustomization.

@@ -76,6 +76,7 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 		return "", fmt.Errorf("kubectl toolchain resolve: %w", resolveErr)
 	}
 	kb := kubectlResult.Path
+	rctx.Resolved.KubectlPath = kb // reused for cluster-identity queries in Plan
 
 	// Build kubeconfig via kubectl.
 	if err := kubectlRun(kb, "config", "set-cluster", cfg.Name,

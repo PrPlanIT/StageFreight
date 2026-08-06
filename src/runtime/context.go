@@ -45,6 +45,7 @@ func (r *RuntimeContext) Result() *LifecycleResult { return r.result }
 type ResolvedState struct {
 	KubeconfigPath string // isolated tmpfile (gitops)
 	CAPath         string // decoded CA tmpfile if from B64
+	KubectlPath    string // resolved kubectl binary (cluster-identity queries)
 
 	Backend      LifecycleBackend // selected backend instance
 	cleanupFuncs []func()

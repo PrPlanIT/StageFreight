@@ -233,8 +233,26 @@ func backendUnits(backend string) string {
 func renderGitopsPlan(w *os.File, plan *runtime.LifecyclePlan, result *runtime.LifecycleResult, dryRun bool, elapsed time.Duration, color bool) {
 	sec := output.NewSection(w, "Reconcile", elapsed, color)
 
-	if plan != nil && plan.Notes["auth"] != "" {
-		sec.Row("auth   %s", plan.Notes["auth"])
+	// Cluster identity — which cluster got reconciled, and by what backend.
+	if plan != nil {
+		if n := plan.Notes["cluster"]; n != "" {
+			id := n
+			if v := plan.Notes["version"]; v != "" {
+				id += " · " + v
+			}
+			if cp, wk := plan.Notes["control_plane"], plan.Notes["workers"]; cp != "" && wk != "" {
+				id += " · " + cp + " control-plane · " + wk + " workers"
+			} else if nodes := plan.Notes["nodes"]; nodes != "" {
+				id += " · " + nodes + " nodes"
+			}
+			sec.Row("cluster  %s", id)
+		}
+		if b := plan.Notes["backend"]; b != "" {
+			sec.Row("backend  %s", b)
+		}
+		if plan.Notes["auth"] != "" {
+			sec.Row("auth     %s", plan.Notes["auth"])
+		}
 	}
 
 	if plan == nil || (len(plan.Actions) == 0 && len(plan.Declined) == 0) {
@@ -271,7 +289,11 @@ func renderGitopsPlan(w *os.File, plan *runtime.LifecyclePlan, result *runtime.L
 		output.RowStatus(sec, label, suffix, status, color)
 
 		if !dryRun && result != nil && i < len(result.Actions) && !result.Actions[i].Success && result.Actions[i].Message != "" {
-			fmt.Fprintf(w, "    │   %s\n", result.Actions[i].Message)
+			// Prefix EVERY line so a multi-line message can never spray outside
+			// the box (the raw-flux-blob leak).
+			for _, line := range strings.Split(strings.TrimRight(result.Actions[i].Message, "\n"), "\n") {
+				fmt.Fprintf(w, "    │   %s\n", line)
+			}
 		}
 	}
 
