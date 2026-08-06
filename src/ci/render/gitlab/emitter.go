@@ -79,6 +79,14 @@ func Emit(p model.Pipeline) ([]byte, error) {
 	}
 	buf.WriteString("    - if: '$CI_COMMIT_MESSAGE =~ /Generated-By: StageFreight/'\n")
 	buf.WriteString("      when: never\n")
+	// Dedup: a branch with an open merge request would otherwise spawn TWO
+	// pipelines for one commit (a branch pipeline AND an MR pipeline). Suppress
+	// the branch pipeline and let the MR pipeline (which falls through to the
+	// terminal rule) be the single run. Inert on branches without an MR — the
+	// common push still runs. Renovate, which opens an MR per update branch, is
+	// the pathological case this halves.
+	buf.WriteString("    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'\n")
+	buf.WriteString("      when: never\n")
 	buf.WriteString("    - when: always\n")
 
 	// ── shared context anchor ──────────────────────────────────────────────
