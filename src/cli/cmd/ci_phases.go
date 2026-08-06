@@ -275,8 +275,16 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		if !ci.IsBranchHeadFresh(ciCtx) {
 			fmt.Fprintln(os.Stdout, "  publish: distribution skipped — pipeline SHA is not branch HEAD (a newer pipeline will ship)")
 		} else if n, untargeted, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
+			recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+				Name: "publish", Attempted: true, Required: true,
+				Outcome: "failed", Reason: err.Error(),
+			})
 			return fmt.Errorf("publish promotion: %w", err)
 		} else if n > 0 {
+			recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+				Name: "publish", Attempted: true, Completed: true, Required: true,
+				Outcome: "success", Reason: fmt.Sprintf("%d tag(s) published", n),
+			})
 			// (The Distribution box already reports "N of N tag(s) published"; no
 			// extra raw line here — keep the publish output cleanly boxed.)
 			// Retire the content store: publish is its terminal reader, so once the

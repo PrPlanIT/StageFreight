@@ -94,6 +94,10 @@ type SubsystemState struct {
 	// fix was produced (the remediation candidate). Consumed by narrate / publish / the forge
 	// status renderer / webhooks — never by the orchestrator's build decision.
 	Replacement string `json:"replacement,omitempty"`
+	// Contract marks a verdict-about-the-candidate record (e.g. the audition
+	// contract) as opposed to work a job performed. Job-end Outcomes rendering
+	// excludes contracts — the job's exit already states its verdict.
+	Contract bool `json:"contract,omitempty"`
 	// Results is the subsystem's recorded FACTS — flat key→value pairs a subsystem
 	// computed during the run (test: passed/failed/total/coverage; security:
 	// blocking/low/…; publish: tags/registries). Consumed by the stencil fact

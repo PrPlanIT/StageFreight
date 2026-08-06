@@ -84,15 +84,23 @@ func runCIRun(cmd *cobra.Command, args []string) error {
 // renderJobSummary renders one outcome row per subsystem recorded by this
 // process (the cistate session view — the state FILE unions other jobs'
 // records via forwarded artifacts, which would re-report other phases' work).
+// Contract records are excluded: a contract is the job's verdict about the
+// candidate, not work performed inside it — the exit code already states it.
 // Returns whether anything rendered.
 func renderJobSummary(w *os.File, elapsed time.Duration) bool {
-	subs := cistate.SessionSubsystems()
-	if len(subs) == 0 {
+	var rows []cistate.SubsystemState
+	for _, s := range cistate.SessionSubsystems() {
+		if s.Contract {
+			continue
+		}
+		rows = append(rows, s)
+	}
+	if len(rows) == 0 {
 		return false
 	}
 	color := output.UseColor()
 	sec := output.NewSection(w, "Outcomes", elapsed, color)
-	for _, s := range subs {
+	for _, s := range rows {
 		status := s.Outcome
 		suffix := ""
 		if s.Outcome == "failed" && !s.Required {

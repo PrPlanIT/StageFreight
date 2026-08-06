@@ -148,10 +148,10 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 
 // TestPromoteArtifacts_PartialFailureReportsAll proves the failure semantics:
 // when a tag fails, promotion does NOT abandon the rest half-done — it attempts
-// every tag and aggregates the failures, so an operator can re-run (promotion is
-// idempotent) to converge rather than guess at a half-published state. Uses an
-// unreachable host so no registry is needed; the point is that BOTH tags are
-// attempted and reported, not that one fails.
+// every tag, and the returned error carries the aggregate VERDICT (failed/total
+// counts — a total of 2 proves both were attempted). Per-target evidence lives
+// in the Distribution box and published.json, never duplicated into the error.
+// Uses an unreachable host so no registry is needed.
 func TestPromoteArtifacts_PartialFailureReportsAll(t *testing.T) {
 	root := t.TempDir()
 	layoutDir, digest := writeValidLayout(t, []byte("partial-failure-manifest"))
@@ -180,11 +180,8 @@ func TestPromoteArtifacts_PartialFailureReportsAll(t *testing.T) {
 		t.Fatal("expected an aggregated error for unreachable targets")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "x/app:a") {
-		t.Errorf("error does not reference tag a — did promotion stop early? %v", msg)
-	}
-	if !strings.Contains(msg, "x/app:b") {
-		t.Errorf("error does not reference tag b — did promotion stop early? %v", msg)
+	if !strings.Contains(msg, "2 of 2 tag(s) failed to publish") {
+		t.Errorf("error must carry the aggregate verdict proving both tags were attempted: %v", msg)
 	}
 }
 

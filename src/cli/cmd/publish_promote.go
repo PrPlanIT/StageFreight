@@ -284,11 +284,12 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		}
 	}
 	if len(failures) > 0 {
-		// Partial distribution: report exactly which tags succeeded (promoted)
-		// and which failed, so an operator can re-run (idempotent) to converge
-		// rather than guess at a half-published state.
-		return promoted, untargeted, fmt.Errorf("publish promotion: %d tag(s) succeeded, %d failed: %v",
-			promoted, len(failures), failures)
+		// Partial distribution: the Distribution box has already rendered the
+		// per-target evidence and published.json records the half-published
+		// state for an idempotent re-run — the error carries only the verdict,
+		// never a second copy of the dump.
+		return promoted, untargeted, fmt.Errorf("%d of %d tag(s) failed to publish",
+			len(failures), promoted+len(failures))
 	}
 	return promoted, untargeted, nil
 }

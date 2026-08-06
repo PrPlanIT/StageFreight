@@ -387,6 +387,15 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	mut := lint.Classify(lintFindings)
 	in.Fatal = mut.HasFatal()
 	in.Remediable = mut.HasRemediable()
+	lintOutcome := "success"
+	if in.Fatal {
+		lintOutcome = "failed"
+	}
+	recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+		Name: "lint", Attempted: true, Completed: true, Required: true,
+		Outcome: lintOutcome,
+		Reason:  fmt.Sprintf("%d findings (%d fatal)", len(lintFindings), len(mut.Fatal)),
+	})
 	if in.Fatal {
 		return fmt.Errorf("deps subsystem (lint): source has %d fatal finding(s) — not mutating a void tree", len(mut.Fatal))
 	}
@@ -425,6 +434,10 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	result, err := runDependencyUpdateLogic(ctx, appCfg, rootDir, opts.Verbose, snapshot)
 	if err != nil {
 		in.DepsErrored = true
+		recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+			Name: "deps", Attempted: true, Required: true,
+			Outcome: "failed", Reason: err.Error(),
+		})
 		return fmt.Errorf("deps subsystem: %w", err)
 	}
 
@@ -455,6 +468,12 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	updateSec.Row("%-16s%d", "skipped", len(result.Skipped))
 	updateSec.Row("%-16s%d", "files changed", len(result.FilesChanged))
 	updateSec.Close()
+
+	recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+		Name: "deps", Attempted: true, Completed: true, Required: true,
+		Outcome: "success",
+		Reason:  fmt.Sprintf("%d applied · %d skipped", len(result.Applied), len(result.Skipped)),
+	})
 
 	// Auto-commit if configured and files changed — gated by run_from.
 	if appCfg.Dependency.Commit.Enabled && len(result.FilesChanged) > 0 {
@@ -2021,6 +2040,14 @@ func advisorySuffix(warned int) string {
 		return ""
 	}
 	return fmt.Sprintf(", %d advisory", warned)
+}
+
+// recordSubsystemOutcome upserts one subsystem lifecycle record (Results are
+// preserved on a results-less upsert). Write failures warn, never fail the phase.
+func recordSubsystemOutcome(rootDir string, s cistate.SubsystemState) {
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) { st.RecordSubsystem(s) }); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
 }
 
 // ── reconcile runner ────────────────────────────────────────────────────────

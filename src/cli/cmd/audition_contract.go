@@ -93,6 +93,7 @@ func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
 		Name:        "audition",
 		Attempted:   true,
 		Completed:   true,
+		Contract:    true,
 		Blocking:    blocking,
 		Replacement: in.Replacement,
 		// AllowFailure drives the BADGE only (PipelineStatus), never control. A blocking subject
