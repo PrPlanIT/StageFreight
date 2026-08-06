@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -54,7 +55,14 @@ type Backend struct {
 	plays       []config.AnsiblePlaybook
 	extraVars   []string // -e key=val passthrough (run verb)
 	results     []PlayResult
+	stream      func(playID string) io.WriteCloser // live-output sink factory (cmd-owned)
 }
+
+// SetStream supplies a per-play live-output sink factory. The backend tees
+// the play's raw subprocess output into it as it runs (pure passthrough —
+// presentation, section markers, and destination belong to the caller) while
+// still capturing the full text for recap parsing. Nil disables streaming.
+func (b *Backend) SetStream(f func(playID string) io.WriteCloser) { b.stream = f }
 
 // SelectPlay narrows execution to a single declared play (the run verb).
 func (b *Backend) SelectPlay(p config.AnsiblePlaybook) { b.plays = []config.AnsiblePlaybook{p} }
@@ -336,8 +344,23 @@ func (b *Backend) runPlay(ctx context.Context, cfg *config.Config, rctx *runtime
 
 	cmd := exec.CommandContext(ctx, b.dockerBin, "start", "-a", "-i", cid)
 	cmd.Stdin = bytes.NewReader(b.keyMaterial)
-	runOut, runErr := cmd.CombinedOutput()
-	res.Output = string(runOut)
+	// Tee, don't buffer: a converge runs for many minutes per node, and a
+	// silent log is indistinguishable from a hung one. The capture buffer
+	// stays authoritative for recap parsing.
+	var buf bytes.Buffer
+	dest := io.Writer(&buf)
+	var sink io.WriteCloser
+	if b.stream != nil {
+		sink = b.stream(p.ID)
+		dest = io.MultiWriter(&buf, sink)
+	}
+	cmd.Stdout = dest
+	cmd.Stderr = dest
+	runErr := cmd.Run()
+	if sink != nil {
+		sink.Close()
+	}
+	res.Output = buf.String()
 	if runErr != nil {
 		if ee, ok := runErr.(*exec.ExitError); ok {
 			res.ExitCode = ee.ExitCode()

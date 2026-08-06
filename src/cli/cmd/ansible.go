@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -67,6 +68,7 @@ func runAnsibleRun(cmd *cobra.Command, args []string) error {
 	backend := &ansible.Backend{}
 	backend.SelectPlay(play)
 	backend.SetExtraVars(ansibleRunExtraVars)
+	backend.SetStream(ansibleLiveStream)
 
 	ciCtx := ci.ResolveContext()
 	rctx := &runtime.RuntimeContext{
@@ -97,6 +99,7 @@ func runAnsibleConverge(ctx context.Context, appCfg *config.Config, rootDir stri
 	}
 
 	backend := &ansible.Backend{}
+	backend.SetStream(ansibleLiveStream)
 	ciCtx := ci.ResolveContext()
 	rctx := &runtime.RuntimeContext{
 		CI:       ciCtx,
@@ -172,6 +175,15 @@ func recordAnsibleState(rootDir string, appCfg *config.Config, backend *ansible.
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
 	}
+}
+
+// ansibleLiveStream is the per-play live-output sink: the play's raw
+// ansible output streams into a collapsed CI log group as it runs (a
+// converge is minutes-per-node — a silent log reads as a hang), and the
+// results box afterwards stays the summary verdict. Outside CI the group
+// markers elide and the output streams plain.
+func ansibleLiveStream(playID string) io.WriteCloser {
+	return output.OpenLogGroup(os.Stdout, "sf_ansible_"+playID, fmt.Sprintf("ansible: %s (live)", playID))
 }
 
 // renderAnsibleRun renders the per-play results box: image identity, then one

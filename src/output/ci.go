@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -31,32 +32,123 @@ func IsGitLabCI() bool {
 	return os.Getenv("GITLAB_CI") == "true"
 }
 
-// GitLab collapsible section helpers.
+// Collapsible log sections — THE one primitive for grouping CI log output,
+// dispatched by provider: GitLab sections, Actions-family (GitHub, Gitea,
+// Forgejo) ::group:: workflow commands, Azure DevOps ##[group]. Outside a
+// recognized CI the markers elide and content streams plain. Every grouping
+// call site in the codebase routes through these three functions (plus the
+// OpenLogGroup stream adapter built on them), so provider behavior is
+// patched centrally, here, once.
+//
+// Semantics per provider:
+//   - GitLab distinguishes expanded (SectionStart) from collapsed
+//     (SectionStartCollapsed) sections.
+//   - Actions/ADO groups are ALWAYS collapsed; an expanded section there
+//     emits no marker (visibility beats folding), a collapsed one groups.
+// SectionEnd emits the closer matching whatever the id's start emitted —
+// the open registry tracks that, so starts/ends stay symmetrical without
+// call sites caring about the provider.
 
+const (
+	providerGitLab  = "gitlab"
+	providerActions = "actions"
+	providerADO     = "ado"
+)
+
+func sectionProvider() string {
+	switch {
+	case IsGitLabCI():
+		return providerGitLab
+	case os.Getenv("GITHUB_ACTIONS") == "true":
+		return providerActions
+	case os.Getenv("TF_BUILD") == "True":
+		return providerADO
+	}
+	return ""
+}
+
+// sectionOpen tracks which ids emitted a group marker, so SectionEnd knows
+// whether a closer is due on providers without id-addressed ends.
+var (
+	sectionMu   sync.Mutex
+	sectionOpen = map[string]bool{}
+)
+
+func sectionMark(id string, emitted bool) {
+	sectionMu.Lock()
+	defer sectionMu.Unlock()
+	sectionOpen[id] = emitted
+}
+
+func sectionUnmark(id string) bool {
+	sectionMu.Lock()
+	defer sectionMu.Unlock()
+	emitted := sectionOpen[id]
+	delete(sectionOpen, id)
+	return emitted
+}
+
+// SectionStart opens an expanded (visible) log group.
 func SectionStart(w io.Writer, id, name string) {
-	if !IsGitLabCI() {
-		return
+	switch sectionProvider() {
+	case providerGitLab:
+		fmt.Fprintf(w, "\033[0Ksection_start:%d:%s\r\033[0K%s\n", time.Now().Unix(), id, name)
+		sectionMark(id, true)
+	default:
+		// Actions/ADO groups are always collapsed — expanded intent means
+		// no marker there, content stays visible.
+		sectionMark(id, false)
 	}
-	ts := time.Now().Unix()
-	fmt.Fprintf(w, "\033[0Ksection_start:%d:%s\r\033[0K%s\n", ts, id, name)
 }
 
-func SectionEnd(w io.Writer, id string) {
-	if !IsGitLabCI() {
-		return
-	}
-	ts := time.Now().Unix()
-	fmt.Fprintf(w, "\033[0Ksection_end:%d:%s\r\033[0K\n", ts, id)
-}
-
-// SectionStartCollapsed starts a section that is collapsed by default.
+// SectionStartCollapsed opens a group that is folded by default.
 func SectionStartCollapsed(w io.Writer, id, name string) {
-	if !IsGitLabCI() {
+	switch sectionProvider() {
+	case providerGitLab:
+		fmt.Fprintf(w, "\033[0Ksection_start:%d:%s[collapsed=true]\r\033[0K%s\n", time.Now().Unix(), id, name)
+		sectionMark(id, true)
+	case providerActions:
+		fmt.Fprintf(w, "::group::%s\n", name)
+		sectionMark(id, true)
+	case providerADO:
+		fmt.Fprintf(w, "##[group]%s\n", name)
+		sectionMark(id, true)
+	default:
+		sectionMark(id, false)
+	}
+}
+
+// SectionEnd closes the group opened under id.
+func SectionEnd(w io.Writer, id string) {
+	if !sectionUnmark(id) {
 		return
 	}
-	ts := time.Now().Unix()
-	fmt.Fprintf(w, "\033[0Ksection_start:%d:%s[collapsed=true]\r\033[0K%s\n", ts, id, name)
+	switch sectionProvider() {
+	case providerGitLab:
+		fmt.Fprintf(w, "\033[0Ksection_end:%d:%s\r\033[0K\n", time.Now().Unix(), id)
+	case providerActions:
+		fmt.Fprintln(w, "::endgroup::")
+	case providerADO:
+		fmt.Fprintln(w, "##[endgroup]")
+	}
 }
+
+// OpenLogGroup opens a collapsed group and returns it as an io.WriteCloser:
+// writes pass through to w live (always — grouping never buffers), Close
+// emits the group end. The adapter for streaming subprocess output behind a
+// folded header (e.g. a live ansible converge).
+func OpenLogGroup(w io.Writer, id, title string) io.WriteCloser {
+	SectionStartCollapsed(w, id, title)
+	return &logGroup{w: w, id: id}
+}
+
+type logGroup struct {
+	w  io.Writer
+	id string
+}
+
+func (g *logGroup) Write(p []byte) (int, error) { return g.w.Write(p) }
+func (g *logGroup) Close() error                { SectionEnd(g.w, g.id); return nil }
 
 // JUnit XML types for GitLab test reporting.
 
