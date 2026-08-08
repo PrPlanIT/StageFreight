@@ -30,6 +30,13 @@ The pipeline model — render, tags, the five-job lifecycle — is in
 
 ## Credentials
 
-GitHub uses the built-in `GITHUB_TOKEN` by default; set `GH_TOKEN` to a PAT for broader scope
-(e.g. pushing to another repo). The workflow requests `contents: write` on jobs that commit
-back. Gitea and Forgejo use their platform access tokens.
+Each forge's client uses its own access token; the repo auto-detects from `GITHUB_REPOSITORY`
+(Actions) or `CI_REPO` (Woodpecker).
+
+- **GitHub** — the built-in `GITHUB_TOKEN` works by default; set `GH_TOKEN` to a PAT for broader
+  scope (e.g. pushing to another repo). The workflow requests `contents: write` on jobs that
+  commit back.
+- **Gitea** — `GITEA_TOKEN`: a Gitea **access token** with repository read/write scope; drives
+  commits, PRs, releases, and tags over the `/api/v1` REST API.
+- **Forgejo** — `FORGEJO_TOKEN`: a Forgejo access token with the same repository read/write
+  scope (the client shares Gitea's `/api/v1` backend).
