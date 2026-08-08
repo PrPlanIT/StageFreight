@@ -10,7 +10,7 @@ fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/
 - **[Configuration](config/index.md)** — the complete `.stagefreight.yml` reference, grouped
   by concern (identity, builds, publish, scribe, lint, policy, lifecycle, signing), with
   the cross-cutting ideas in **[Concepts](config/concepts.md)**.
-- **[Integrations](integrations/index.md)** — render your CI pipeline, stand up a runner,
+- **[Integrations](integrations/README.md)** — render your CI pipeline, stand up a runner,
   forge/registry support.
 - **[Design](design/index.md)** — the phase model and the architecture behind it.
 

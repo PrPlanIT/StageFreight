@@ -57,7 +57,7 @@ Git is the source of truth: the acts only enact **accepted** state — never a m
 | Config Reference    | [Full Config Schema](docs/reference/Config.md)                 |
 | Manifest Examples   | [Aspirational Example Configs](docs/config/aspirational/) · [Quick Examples](docs/config/examples/) |
 | Roadmap             | [Full Vision](docs/design/plans/RoadMap.md)              |
-| GitLab Components | [Publishing GitLab Components](docs/integrations/gitlab/GitLab-Components.md) |
+| GitLab | [GitLab Integration](docs/integrations/gitlab/README.md) |
 
 ---
 

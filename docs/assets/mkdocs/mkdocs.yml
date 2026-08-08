@@ -63,6 +63,7 @@ theme:
   features:
     - navigation.tabs
     - navigation.sections
+    - navigation.indexes
     - navigation.top
     - navigation.footer
     - navigation.instant
@@ -116,13 +117,11 @@ nav:
   - Directory: overview.md
   - Features: features.md
   - Integrations:
-      - Overview: integrations/index.md
-      - Set-up: integrations/setup.md
+      - integrations/README.md
       - CI Setup: integrations/ci.md
       - GitLab: integrations/gitlab/README.md
-      - GitLab Components: integrations/gitlab/GitLab-Components.md
-      - Build Runner: integrations/gitlab/runner/docker/gitlab-runner-builds.md
-      - GitOps Runner: integrations/gitlab/runner/docker/gitlab-runner-gitops-k8s.md
+      - GitLab Runner: integrations/gitlab/runner/docker/README.md
+      - GitHub / Gitea / Forgejo: integrations/actions/README.md
       - Azure DevOps: integrations/azuredevops/README.md
   - Quick Start: quickstart.md
   - Screenshots: screenshots.md

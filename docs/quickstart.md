@@ -38,7 +38,7 @@ A `.stagefreight.yml` describes *what* to do. Two more steps turn it into a live
 
 2. **Have a runner.** **GitHub Actions runs on GitHub-hosted runners natively** — nothing to
    stand up. GitLab and other self-hosted setups need a runner with Docker + BuildKit;
-   [Integrations](integrations/index.md) carries the runner deployments.
+   [Integrations](integrations/README.md) carries the runner deployments.
 
 Then **push** (or **tag**) and the pipeline runs **audition → perform → review → publish →
 narrate**. Forge tokens and registry credentials resolve from CI variables at run time — see

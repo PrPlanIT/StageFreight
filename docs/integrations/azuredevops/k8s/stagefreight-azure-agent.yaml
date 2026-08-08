@@ -1,6 +1,6 @@
 # StageFreight Azure DevOps self-hosted agent — DinD + persistent buildkitd (k8s)
 #
-# The k8s analog of integrations/gitlab/runner-compose.buildkitd.yml. Compose
+# The k8s analog of integrations/gitlab/runner/docker/gitlab-runner-full.yml. Compose
 # shares one network; here one pod shares localhost, so the same trust split holds:
 #
 #   agent        → runs Azure DevOps jobs (the stagefreight CI image as the job container)

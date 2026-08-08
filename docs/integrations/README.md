@@ -1,19 +1,13 @@
 # StageFreight Integrations
 
-One `.stagefreight.yml` drives every forge and registry. StageFreight speaks each
-platform's native API, so beyond "build and push" it does the platform-specific
-things a maintainer would otherwise wire by hand. This is the capability matrix —
-what's universal, and what's special per provider.
+One `.stagefreight.yml` drives every forge and registry via each platform's native API.
+This page is the capability matrix — what's universal, and what's per-provider.
 
 ## Forges
 
-`stagefreight ci render <forge>` generates a native, audition-enforced pipeline
-from your config; the forge client handles releases/PRs/commits over the API.
-
-The columns are observations, not a maturity label: what's implemented, and
-whether it has actually run against a live instance. **Live validated** means the
-full pipeline has executed on that platform — a fact, not a judgment about how
-complete the code is (every render is implemented and golden-tested).
+`stagefreight ci render <forge>` generates a native, audition-enforced pipeline; the forge
+client handles releases/PRs/commits over the API. **Live validated** = the full pipeline
+has run end-to-end on that platform; every render is implemented and golden-tested regardless.
 
 | Forge | render | releases | PRs / MRs | catalog component | badges + README | live validated |
 |-------------|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -23,12 +17,10 @@ complete the code is (every render is implemented and golden-tested).
 | Forgejo | ✓ | ✓ | ✓ | — | ✓ | ✗ |
 | Azure DevOps | ✓ | —¹ | ✓ | — | ✓ | ✗² |
 
-StageFreight builds itself on GitLab end-to-end, and the full pipeline has also
-run on **GitHub-hosted** runners (building a real downstream project). GitHub,
-Gitea, and Forgejo share one golden-tested Actions render backend, so GitHub's
-live run largely exercises all three; what's still unproven for Gitea/Forgejo is
-the live runtime (OIDC, runner, DinD), not the code. A `✗` graduates to `✓` with a
-real run — the integration folders carry the checklists.
+Live runs so far: GitLab (StageFreight's own CI) and GitHub-hosted (a downstream project).
+GitHub/Gitea/Forgejo share one Actions render backend, so that run covers the render for
+all three; Gitea/Forgejo's live runtime (OIDC, runner, DinD) is unproven. Per-forge
+checklists live in the integration folders.
 
 ¹ Azure DevOps has no native git-release object; release surfaces return
 `ErrNotSupported` by design (use tags).
@@ -36,9 +28,7 @@ real run — the integration folders carry the checklists.
 [`azuredevops/`](azuredevops/).
 
 **GitLab standout:** StageFreight can publish a GitLab **CI Catalog component**
-and link it from the release. (Driving StageFreight *via* a component is
-deprecated — render is the path — but the publish/discoverability capability
-stays. See [`gitlab/GitLab-Components.md`](gitlab/GitLab-Components.md).)
+and link it from the release — see [GitLab → CI/CD Catalog components](gitlab/README.md#cicd-catalog-components).
 
 ## Registries
 
@@ -74,7 +64,7 @@ without a manual copy-paste.
 
 ## Self-hosted runner deployments
 
-- GitLab: [`gitlab/docker/`](gitlab/docker/) — Compose (runner + buildkitd + DinD).
+- GitLab: [`gitlab/runner/docker/`](gitlab/runner/docker/README.md) — Compose (runner + BuildKit + DinD).
 - Azure DevOps: [`azuredevops/k8s/`](azuredevops/k8s/) — Kubernetes (agent +
   buildkitd + DinD), same trust split.
 - GitHub: validated on **GitHub-hosted** runners; a self-hosted GitHub Actions

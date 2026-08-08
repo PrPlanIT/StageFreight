@@ -26,7 +26,7 @@ produced by its own pipeline.
 ## Documentation map
 
 - **[Overview](overview.md)** — the directory and where to start
-- **[Integrations](integrations/index.md)** — GitLab, GitHub Actions, Azure DevOps set-up
+- **[Integrations](integrations/README.md)** — GitLab, GitHub Actions, Azure DevOps set-up
 - **[Configuration](config/index.md)** — the full `.stagefreight.yml` reference
 - **[CLI Reference](reference/CLI.md)** — every command and flag
 - **[Design](design/index.md)** — pipeline flow, invariants, and boundaries

@@ -88,10 +88,16 @@ supplied per platform:
 - **GitHub** — the built-in `GITHUB_TOKEN` is used by default; set `GH_TOKEN` to a PAT to
   override when you need broader scope (e.g. pushing to another repo). The workflow requests
   `contents: write` on the jobs that commit back.
+- **Azure DevOps** — a PAT with **Code (read & write)**, authenticated over HTTP Basic. The
+  client reads `AZURE_DEVOPS_TOKEN` (or `AZURE_DEVOPS_EXT_PAT`), falling back to the pipeline's
+  built-in `SYSTEM_ACCESSTOKEN` — which Azure does **not** expose to jobs by default, so map it
+  in: `env: { SYSTEM_ACCESSTOKEN: $(System.AccessToken) }` and grant the build service Contribute.
+  Org/project/repo auto-detect from `SYSTEM_COLLECTIONURI` / `SYSTEM_TEAMPROJECT` /
+  `BUILD_REPOSITORY_NAME`. Releases are `ErrNotSupported` (no native git-release — use tags).
 
 ## Forge status & runners
 
-The [Integrations overview](index.md#forges) carries the full capability and live-validation
+The [Integrations overview](README.md#forges) carries the full capability and live-validation
 matrix. On runners:
 
 - **GitLab** — self-hosted runner deployments (Compose: runner + buildkitd + DinD) are

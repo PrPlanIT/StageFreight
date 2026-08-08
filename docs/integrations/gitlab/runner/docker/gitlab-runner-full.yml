@@ -1,27 +1,5 @@
-# StageFreight GitLab Runner — DinD + persistent buildkitd (fast)
-#
-# Persistent buildkitd daemon for image builds. Mount caches (Go
-# compilation, module cache) persist between jobs. DinD available
-# for Docker-dependent operations (security scans, docker push).
-#
-# Trust split:
-#   runner       → host Docker socket (container management only)
-#   build jobs   → BUILDKIT_HOST=tcp://buildkitd:1234 (mTLS, independent PKI)
-#   docker jobs  → DOCKER_HOST=tcp://dind:2376 (DinD TLS)
-#   other jobs   → no daemon access
-#
-# Use this when: build speed matters, persistent runner, trusted repos.
-#
-# Required env vars in .env or shell:
-#   CI_SERVER_URL  — GitLab instance URL
-#   RUNNER_TOKEN   — runner authentication token
-#
-# Optional env vars:
-#   SF_CERTS_PATH    — DinD cert storage (default: ./certs)
-#   SF_RUNTIME_PATH  — StageFreight persistent data (default: ./stagefreight)
-#   SF_CONFIG_PATH   — Runner config dir (default: ./config)
-#   SF_BUILDKIT_CERTS_PATH — BuildKit PKI storage (default: ./buildkitd-certs)
-#   RUNNER_NAME      — Runner display name (default: StageFreight Runner)
+# GitLab runner — full: minimal + persistent BuildKit (independent PKI) + build cache.
+# Superset of the minimal stack; adds container image builds. Setup: README.md.
 
 services:
   dind:
@@ -33,8 +11,13 @@ services:
       DOCKER_TLS_SAN: DNS:dind
     volumes:
       - dind-storage:/var/lib/docker
-      - ${SF_CERTS_PATH:-./certs}:/certs
-      - ${SF_RUNTIME_PATH:-./stagefreight}:/stagefreight
+      - /opt/docker/gitlab-runner/certs:/certs
+      - /opt/docker/gitlab-runner/stagefreight:/stagefreight
+    # Pull-through cache for the job's inner docker.io pulls. Cache is OFF unless
+    # REGISTRY_MIRROR_DOCKER is set (unset → empty list → direct upstream).
+    configs:
+      - source: dind_daemon_json
+        target: /etc/docker/daemon.json
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 10s
@@ -57,7 +40,6 @@ services:
           exit 0
         fi
         apk add --no-cache openssl >/dev/null 2>&1
-        echo "Generating independent BuildKit PKI..."
         mkdir -p /out/ca /out/server /out/client
 
         # CA
@@ -83,10 +65,8 @@ services:
           -CA /out/ca/cert.pem -CAkey /out/ca/key.pem -CAcreateserial \
           -out /out/client/cert.pem -days 3650 2>/dev/null
         cp /out/ca/cert.pem /out/client/ca.pem
-
-        echo "BuildKit PKI generated (independent from DinD)"
     volumes:
-      - ${SF_BUILDKIT_CERTS_PATH:-./buildkitd-certs}:/out
+      - /opt/docker/gitlab-runner/buildkitd-certs:/out
 
   buildkitd:
     image: moby/buildkit:latest
@@ -102,11 +82,16 @@ services:
       - --tlscert=/certs/server/cert.pem
       - --tlskey=/certs/server/key.pem
       - --oci-worker-gc=true
-      - --oci-worker-gc-keepstorage=35000
+      - --oci-worker-gc-keepstorage=12000
     volumes:
       - buildkitd-state:/var/lib/buildkit
-      - ${SF_RUNTIME_PATH:-./stagefreight}:/stagefreight
-      - ${SF_BUILDKIT_CERTS_PATH:-./buildkitd-certs}:/certs:ro
+      - /opt/docker/gitlab-runner/stagefreight:/stagefreight
+      - /opt/docker/gitlab-runner/buildkitd-certs:/certs:ro
+    # Per-registry pull-through cache for build bases. Each registry's cache is
+    # OFF unless its REGISTRY_MIRROR_* is set (unset → empty list → direct upstream).
+    configs:
+      - source: buildkitd_toml
+        target: /etc/buildkit/buildkitd.toml
     healthcheck:
       test: ["CMD-SHELL", "buildctl --addr tcp://127.0.0.1:1234 --tlscacert /certs/ca/cert.pem --tlscert /certs/client/cert.pem --tlskey /certs/client/key.pem debug workers"]
       interval: 10s
@@ -130,31 +115,32 @@ services:
     command:
       - |
         if [ ! -f /etc/gitlab-runner/config.toml ]; then
-          echo "Config does not exist, registering runner..."
           gitlab-runner register \
-            --docker-env=DOCKER_HOST=tcp://dind:2376 \
-            --docker-env=DOCKER_TLS_VERIFY=1 \
-            --docker-env=DOCKER_CERT_PATH=/certs/client \
+            --docker-dns=1.1.1.1 \
+            --docker-dns=8.8.8.8 \
+            --docker-host=unix:///var/run/docker.sock \
             --docker-image=alpine:latest \
             --docker-network-mode=stagefreight \
             --docker-privileged=false \
-            --docker-volumes=${SF_RUNTIME_PATH:-/opt/stagefreight}:/stagefreight \
-            --docker-volumes=${SF_BUILDKIT_CERTS_PATH:-/opt/buildkitd-certs}/client:/buildkit-certs:ro \
-            --docker-volumes=${SF_CERTS_PATH:-/opt/certs}/client:/certs/client:ro \
+            --docker-volumes=/cache \
+            --docker-volumes=/opt/docker/gitlab-runner/stagefreight:/stagefreight \
+            --docker-volumes=/opt/docker/gitlab-runner/buildkitd-certs/client:/buildkit-certs:ro \
+            --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
+            --env=DOCKER_CERT_PATH=/certs/client \
+            --env=DOCKER_HOST=tcp://dind:2376 \
+            --env=DOCKER_TLS_VERIFY=1 \
             --executor=docker \
-            --name=$${RUNNER_NAME:-"StageFreight Runner"} \
+            --name=$${RUNNER_NAME:-"GitLab Runner"} \
             --non-interactive \
             --token=$${RUNNER_TOKEN} \
             --url=$${CI_SERVER_URL}
-        else
-          echo "Runner config already exists, skipping registration"
         fi
     environment:
       - CI_SERVER_URL=${CI_SERVER_URL}
       - RUNNER_TOKEN=${RUNNER_TOKEN}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SF_CONFIG_PATH:-./config}:/etc/gitlab-runner:z
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
     networks:
       - stagefreight
 
@@ -168,7 +154,7 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SF_CONFIG_PATH:-./config}:/etc/gitlab-runner:z
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
     healthcheck:
       test: ["CMD", "gitlab-runner", "list"]
       interval: 30s
@@ -177,6 +163,21 @@ services:
       start_period: 10s
     networks:
       - stagefreight
+
+configs:
+  dind_daemon_json:
+    content: |
+      { "registry-mirrors": [${REGISTRY_MIRROR_DOCKER:+"https://${REGISTRY_MIRROR_DOCKER}"}] }
+  buildkitd_toml:
+    content: |
+      [registry."docker.io"]
+        mirrors = [${REGISTRY_MIRROR_DOCKER:+"${REGISTRY_MIRROR_DOCKER}"}]
+      [registry."ghcr.io"]
+        mirrors = [${REGISTRY_MIRROR_GHCR:+"${REGISTRY_MIRROR_GHCR}"}]
+      [registry."quay.io"]
+        mirrors = [${REGISTRY_MIRROR_QUAY:+"${REGISTRY_MIRROR_QUAY}"}]
+      [registry."lscr.io"]
+        mirrors = [${REGISTRY_MIRROR_LSCR:+"${REGISTRY_MIRROR_LSCR}"}]
 
 networks:
   stagefreight:
