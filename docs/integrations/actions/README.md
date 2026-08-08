@@ -17,18 +17,19 @@ drives releases/PRs/commits over each forge's API.
 | `gitea` | `.gitea/workflows/stagefreight.yml` |
 | `forgejo` | `.forgejo/workflows/stagefreight.yml` |
 
-Render, tags, and credentials are covered in [CI Integration](../ci.md).
+The pipeline model — render, tags, the five-job lifecycle — is in
+[Getting Started](../../getting-started.md).
 
 ## Runners
 
 - **GitHub-hosted** runners work as-is — no setup, and the only live-validated path.
 - **Self-hosted** Actions runners (GitHub, Gitea, Forgejo) need a Docker daemon — and
   BuildKit for image builds — reachable from the job; a packaged deployment isn't
-  published yet. The GitLab [runner stacks](../gitlab/runner/docker/README.md) are a
-  reference for the required companions.
+  published yet. The GitLab [runner stacks](../gitlab/README.md#runner) are a reference for
+  the required companions.
 
 ## Credentials
 
-GitHub uses the built-in `GITHUB_TOKEN` by default; set `GH_TOKEN` to a PAT for broader
-scope. Gitea and Forgejo use their platform tokens. See
-[CI Integration → Credentials](../ci.md#credentials).
+GitHub uses the built-in `GITHUB_TOKEN` by default; set `GH_TOKEN` to a PAT for broader scope
+(e.g. pushing to another repo). The workflow requests `contents: write` on jobs that commit
+back. Gitea and Forgejo use their platform access tokens.

@@ -9,15 +9,15 @@ the Azure DevOps API. Azure has no native git-release object, so release surface
 
 ## Rendering
 
-`stagefreight ci render azuredevops --write` writes `azure-pipelines.yml`. Render, tags,
-and credentials are covered in [CI Integration](../ci.md); only the Azure-specific pieces
-are below.
+`stagefreight ci render azuredevops --write` writes `azure-pipelines.yml`. The pipeline model
+— render, tags, the five-job lifecycle — is in [Getting Started](../../getting-started.md);
+the Azure-specific pieces are below.
 
 ## Agent
 
 [`k8s/stagefreight-azure-agent.yaml`](k8s/stagefreight-azure-agent.yaml) — a self-hosted
 Azure DevOps agent in Kubernetes with `buildkitd` (image builds) and `dind`, the k8s
-analog of the GitLab [`gitlab-runner-full.yml`](../gitlab/runner/docker/gitlab-runner-full.yml)
+analog of the GitLab [`gitlab-runner-full.yml`](../gitlab/gitlab-runner-full.yml)
 stack. The three containers share one pod, so the builders are reached on `127.0.0.1`
 rather than the service names GitLab uses:
 
@@ -59,7 +59,7 @@ jobs by default — map it in and grant the build service Contribute:
 ```
 
 Org/project/repo auto-detect from `SYSTEM_COLLECTIONURI` / `SYSTEM_TEAMPROJECT` /
-`BUILD_REPOSITORY_NAME`. See [CI Integration → Credentials](../ci.md#credentials).
+`BUILD_REPOSITORY_NAME`. Releases are `ErrNotSupported` (no native git-release — use tags).
 
 ## Validation checklist
 

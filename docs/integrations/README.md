@@ -62,10 +62,11 @@ without a manual copy-paste.
 - Badge generation and README/shield injection.
 - Dependency auto-update and the scribe changelog/inventory.
 
-## Self-hosted runner deployments
+## Self-hosted runners
 
-- GitLab: [`gitlab/runner/docker/`](gitlab/runner/docker/README.md) — Compose (runner + BuildKit + DinD).
-- Azure DevOps: [`azuredevops/k8s/`](azuredevops/k8s/) — Kubernetes (agent +
-  buildkitd + DinD), same trust split.
-- GitHub: validated on **GitHub-hosted** runners; a self-hosted GitHub Actions
-  runner deployment guide is not written yet.
+Each forge page carries its own runner/agent setup:
+
+- [GitLab](gitlab/README.md#runner) — Compose (runner + BuildKit + DinD).
+- [Azure DevOps](azuredevops/README.md) — Kubernetes agent (buildkitd + DinD).
+- [GitHub / Gitea / Forgejo](actions/README.md) — GitHub-hosted works as-is; a self-hosted
+  Actions runner guide is pending.

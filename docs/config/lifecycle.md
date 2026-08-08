@@ -11,7 +11,7 @@ converge in the same reconcile pass. Future host/infra backends join this page t
 
 !!! example "Real examples"
     `dungeon` runs `mode: gitops`; `MaintenancePolicy` runs `mode: governance` — see
-    [Quick Start](../quickstart.md).
+    [Getting Started](../getting-started.md).
 
 --8<-- "docs/assets/modules/config-reference.md:lifecycle"
 

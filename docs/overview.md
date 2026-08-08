@@ -1,11 +1,11 @@
 # Directory
 
 Everything here, one level deep — the table of contents for the whole site. New here? The
-fastest path is **[Quick Start](quickstart.md)**, then **[Configuration](config/index.md)**.
+fastest path is **[Getting Started](getting-started.md)**, then **[Configuration](config/index.md)**.
 
 ## Start here
 
-- **[Quick Start](quickstart.md)** — real, running `.stagefreight.yml` configs across
+- **[Getting Started](getting-started.md)** — real, running `.stagefreight.yml` configs across
   archetypes; copy the one closest to yours.
 - **[Configuration](config/index.md)** — the complete `.stagefreight.yml` reference, grouped
   by concern (identity, builds, publish, scribe, lint, policy, lifecycle, signing), with
