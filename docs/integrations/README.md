@@ -1,7 +1,9 @@
 # StageFreight Integrations
 
 One `.stagefreight.yml` drives every forge and registry via each platform's native API.
-This page is the capability matrix — what's universal, and what's per-provider.
+This page is the **per-provider** capability matrix; everything provider-agnostic — the
+lifecycle, digest-preserving promotion, security scanning, badges, dependency updates — is in
+[Features](../features.md).
 
 ## Forges
 
@@ -30,6 +32,15 @@ checklists live in the integration folders.
 **GitLab standout:** StageFreight can publish a GitLab **CI Catalog component**
 and link it from the release — see [GitLab → CI/CD Catalog components](gitlab/README.md#cicd-catalog-components).
 
+## Self-hosted runners
+
+Each forge page carries its own runner/agent setup:
+
+- [GitLab](gitlab/README.md#runner) — Compose (runner + BuildKit + DinD).
+- [Azure DevOps](azuredevops/README.md) — Kubernetes agent (buildkitd + DinD).
+- [GitHub / Gitea / Forgejo](actions/README.md) — GitHub-hosted works as-is; a self-hosted
+  Actions runner guide is pending.
+
 ## Registries
 
 Pushes are **digest-preserving** (the bytes review approved are the bytes
@@ -50,23 +61,3 @@ published — no rebuild). Retention is restic-style additive policies
 **Docker Hub standout:** StageFreight syncs your repository's full README/overview
 to Docker Hub from the repo, so the registry page and the source stay in step
 without a manual copy-paste.
-
-## Universal (every provider, from one config)
-
-- Lifecycle: `audition → perform → review → publish → narrate`, rendered natively
-  per forge.
-- Digest-preserving promotion (perform retains to a content store; publish
-  distributes the exact reviewed digest).
-- Security scanning (review) and release notes with a configurable security
-  summary.
-- Badge generation and README/shield injection.
-- Dependency auto-update and the scribe changelog/inventory.
-
-## Self-hosted runners
-
-Each forge page carries its own runner/agent setup:
-
-- [GitLab](gitlab/README.md#runner) — Compose (runner + BuildKit + DinD).
-- [Azure DevOps](azuredevops/README.md) — Kubernetes agent (buildkitd + DinD).
-- [GitHub / Gitea / Forgejo](actions/README.md) — GitHub-hosted works as-is; a self-hosted
-  Actions runner guide is pending.
