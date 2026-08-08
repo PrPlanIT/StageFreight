@@ -1,0 +1,48 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Published Library / Package
+#
+# Who: Maintainers of libraries published to package registries — npm, PyPI,
+#      crates.io, Go modules, NuGet. No Docker image, no container build.
+# What: Release notes on any git tag and security scanning with SBOM. The
+#       library's own toolchain handles `npm publish` / `cargo publish` —
+#       StageFreight handles release notes and security posture.
+# Build: None (container-wise).
+# Why: Libraries don't produce images but still benefit from automated release
+#      notes and dependency security scanning.
+
+version: 1
+
+targets:
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+  sbom: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   audit_deps: true
+#   secret_findings: alert
+#
+# license:
+#   compliance: true
+#   headers: true
+#   spdx: true
+#
+# docs:
+#   readme_sync: [npm]
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   test:
+#     sanity:
+#       - { name: install, run: "npm ci" }
+#       - { name: lint, run: "npm run lint" }
+#       - { name: typecheck, run: "npm run typecheck" }
+#       - { name: unit-tests, run: "npm test -- --coverage" }
+#       - { name: build, run: "npm run build" }
+#       - { name: package-dry-run, run: "npm publish --dry-run" }

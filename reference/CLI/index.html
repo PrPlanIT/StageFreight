@@ -1,0 +1,5501 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest.">
+      
+      
+      
+        <link rel="canonical" href="https://stagefreight.prplanit.com/reference/CLI/">
+      
+      
+        <link rel="prev" href="../Config/">
+      
+      
+        <link rel="next" href="../../design/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/logo-192.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>CLI Reference - StageFreight</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#stagefreight-cli-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="StageFreight" class="md-header__button md-logo" aria-label="StageFreight" data-md-component="logo">
+      
+  <img src="../../assets/logo-192.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            StageFreight
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CLI Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/PrPlanIT/StageFreight" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PrPlanIT/StageFreight
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Directory
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../integrations/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../screenshots/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Screenshots
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../config/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../design/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Design
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../philosophy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="StageFreight" class="md-nav__button md-logo" aria-label="StageFreight" data-md-component="logo">
+      
+  <img src="../../assets/logo-192.png" alt="logo">
+
+    </a>
+    StageFreight
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/PrPlanIT/StageFreight" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PrPlanIT/StageFreight
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/gitlab/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitLab
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub / Gitea / Forgejo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/azuredevops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure DevOps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screenshots/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screenshots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../config/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lifecycle & Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identity & Connectivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/builds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Builds & Tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/publish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/package-distribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Package Distribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/scribe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stencils & Scribe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/narration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Narration & Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/signing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../Config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Schema Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#command-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command index
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#global-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ansible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ansible
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ansible-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ansible run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-build-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight build binary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci-checkout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci checkout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci-render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight commit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-component-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight component docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-config-render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight config render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-config-resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight config resolve
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-dependency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight dependency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-dependency-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight dependency update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight docker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-docker-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight docker build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-docker-drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight docker drift
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-du" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight du
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops-impact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops impact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops reconcile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-glossary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight glossary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-governance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight governance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-governance-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight governance reconcile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-lint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight lint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest-diff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest diff
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest-generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest generate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-migrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight migrate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-pull" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight pull
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-push" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight push
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight reconcile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-destroy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release destroy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-prune" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release prune
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release sync
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe-render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-security-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight security scan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-sign" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight sign
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-signing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight signing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-signing-anchor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight signing anchor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-tag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight tag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-toolchain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight toolchain
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-toolchain-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight toolchain list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-toolchain-prune" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight toolchain prune
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight version
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../design/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/pipeline-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/DependencyUpdate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependency Update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/invariants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Invariants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/ci-render/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Render
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/content-store-lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Store Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/perform-build-contributors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Perform Build Contributors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../philosophy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../known-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../licensing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Licensing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#command-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command index
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#global-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ansible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ansible
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ansible-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ansible run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-build-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight build binary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci-checkout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci checkout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci-render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-ci-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight ci run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight commit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-component-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight component docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-config-render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight config render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-config-resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight config resolve
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-dependency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight dependency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-dependency-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight dependency update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight docker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-docker-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight docker build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-docker-drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight docker drift
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-du" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight du
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops-impact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops impact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-gitops-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight gitops reconcile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-glossary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight glossary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-governance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight governance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-governance-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight governance reconcile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-lint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight lint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest-diff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest diff
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest-generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest generate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-manifest-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight manifest inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-migrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight migrate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-pull" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight pull
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-push" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight push
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight reconcile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-destroy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release destroy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-prune" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release prune
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-release-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight release sync
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe-render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-scribe-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight scribe types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-security-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight security scan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-sign" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight sign
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-signing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight signing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-signing-anchor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight signing anchor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-tag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight tag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-toolchain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight toolchain
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-toolchain-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight toolchain list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-toolchain-prune" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight toolchain prune
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stagefreight-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stagefreight version
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="stagefreight-cli-reference">StageFreight — CLI Reference<a class="headerlink" href="#stagefreight-cli-reference" title="Permanent link">&para;</a></h1>
+<p>Complete reference for all <code>stagefreight</code> commands, flags, and subcommands.</p>
+<p>For conceptual documentation and usage examples, see:
+- <a href="../../config/publish/">Docker Build</a> — build, push, and manage container images
+- <a href="../../config/publish/">Release Management</a> — create releases, generate notes, sync across forges
+- <a href="../../config/scribe/">Scribe</a> — content composition and badge generation
+- <a href="../../config/policy/">Security Scanning</a> — vulnerability scanning and SBOM generation
+- <a href="../../config/lint/">Linter Configuration</a> — lint modules and cache contract</p>
+<p>Generated sections below are assembled from <code>docs/modules/cli-reference.md</code> via Narrator.</p>
+<hr />
+<!-- sf:cli-reference:start -->
+<!-- generated by stagefreight docs generate; do not edit manually -->
+
+<h2 id="command-index">Command index<a class="headerlink" href="#command-index" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="#cli-stagefreight"><code>stagefreight</code></a> — Declarative lifecycle runtime — there's a setting for every stage, this is theatre!<ul>
+<li><a href="#cli-stagefreight-ansible"><code>ansible</code></a> — Host convergence via the declared playbook library<ul>
+<li><a href="#cli-stagefreight-ansible-run"><code>run</code></a> — Run one declared playbook by id</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-build"><code>build</code></a> — Build artifacts (binaries, images)<ul>
+<li><a href="#cli-stagefreight-build-binary"><code>binary</code></a> — Build Go binaries</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-ci"><code>ci</code></a> — CI subsystem commands<ul>
+<li><a href="#cli-stagefreight-ci-checkout"><code>checkout</code></a> — Materialize the repository workspace via go-git (no git binary required)</li>
+<li><a href="#cli-stagefreight-ci-render"><code>render</code></a> — Render forge-native CI pipeline from .stagefreight.yml</li>
+<li><a href="#cli-stagefreight-ci-run"><code>run</code></a> — Run a CI subsystem</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-commit"><code>commit</code></a> — Create a conventional commit from staged or specified files</li>
+<li><a href="#cli-stagefreight-component"><code>component</code></a> — GitLab CI component management<ul>
+<li><a href="#cli-stagefreight-component-docs"><code>docs</code></a> — Generate input documentation from component spec files</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-config"><code>config</code></a> — Inspect and manage StageFreight configuration<ul>
+<li><a href="#cli-stagefreight-config-render"><code>render</code></a> — Show the effective config after preset resolution</li>
+<li><a href="#cli-stagefreight-config-resolve"><code>resolve</code></a> — Show how the effective config resolved, with provenance</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-dependency"><code>dependency</code></a> — Dependency management commands<ul>
+<li><a href="#cli-stagefreight-dependency-update"><code>update</code></a> — Update outdated dependencies</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-docker"><code>docker</code></a> — Docker lifecycle — build, drift, reconcile<ul>
+<li><a href="#cli-stagefreight-docker-build"><code>build</code></a> — Build and push container images</li>
+<li><a href="#cli-stagefreight-docker-drift"><code>drift</code></a> — Show drift status for all Docker compose stacks</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-du"><code>du</code></a> — Storage-attribution diagnostic — what is eating disk today</li>
+<li><a href="#cli-stagefreight-gitops"><code>gitops</code></a> — GitOps intelligence — inspect, impact, reconcile<ul>
+<li><a href="#cli-stagefreight-gitops-impact"><code>impact</code></a> — Compute which kustomizations are affected by recent changes</li>
+<li><a href="#cli-stagefreight-gitops-inspect"><code>inspect</code></a> — Discover and display the Flux dependency graph</li>
+<li><a href="#cli-stagefreight-gitops-reconcile"><code>reconcile</code></a> — Reconcile affected Flux kustomizations</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-glossary"><code>glossary</code></a> — Show the repo's change-language conventions</li>
+<li><a href="#cli-stagefreight-governance"><code>governance</code></a> — Governance reconciliation and fleet management<ul>
+<li><a href="#cli-stagefreight-governance-reconcile"><code>reconcile</code></a> — Reconcile governance policy to satellite repos</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-lint"><code>lint</code></a> — Run code quality checks</li>
+<li><a href="#cli-stagefreight-manifest"><code>manifest</code></a> — Generate and inspect build manifests<ul>
+<li><a href="#cli-stagefreight-manifest-diff"><code>diff</code></a> — Compare two manifests (not yet implemented)</li>
+<li><a href="#cli-stagefreight-manifest-generate"><code>generate</code></a> — Generate manifest from build config and Dockerfile</li>
+<li><a href="#cli-stagefreight-manifest-inspect"><code>inspect</code></a> — Pretty-print manifest or specific sections</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-metadata"><code>metadata</code></a> — Push project identity to registries and forge repos</li>
+<li><a href="#cli-stagefreight-migrate"><code>migrate</code></a> — Migrate config to the latest schema version</li>
+<li><a href="#cli-stagefreight-pull"><code>pull</code></a> — Plan and bring the remote's commits into the current branch</li>
+<li><a href="#cli-stagefreight-push"><code>push</code></a> — Plan and push the current branch to its remote (or an explicit destination)</li>
+<li><a href="#cli-stagefreight-reconcile"><code>reconcile</code></a> — Reconcile infrastructure to declared state</li>
+<li><a href="#cli-stagefreight-release"><code>release</code></a> — Release management commands<ul>
+<li><a href="#cli-stagefreight-release-create"><code>create</code></a> — Create a release on the forge and sync to targets</li>
+<li><a href="#cli-stagefreight-release-destroy"><code>destroy</code></a> — Destroy a release across the primary forge and its mirrors</li>
+<li><a href="#cli-stagefreight-release-notes"><code>notes</code></a> — Generate release notes from conventional commits</li>
+<li><a href="#cli-stagefreight-release-prune"><code>prune</code></a> — Prune old releases using retention policy</li>
+<li><a href="#cli-stagefreight-release-sync"><code>sync</code></a> — Converge mirror forges to the primary's releases (binaries included)</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-scribe"><code>scribe</code></a> — Compose and inject content into markdown files<ul>
+<li><a href="#cli-stagefreight-scribe-apply"><code>apply</code></a> — Reconcile stencils into files (badges + region injection)</li>
+<li><a href="#cli-stagefreight-scribe-render"><code>render</code></a> — Render one stencil's markdown</li>
+<li><a href="#cli-stagefreight-scribe-types"><code>types</code></a> — Browse stencil producer types, or detail one</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-security"><code>security</code></a> — Security scanning commands<ul>
+<li><a href="#cli-stagefreight-security-scan"><code>scan</code></a> — Run vulnerability scan and generate SBOM</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-sign"><code>sign</code></a> — Attach an additional signature to already-built release artifacts</li>
+<li><a href="#cli-stagefreight-signing"><code>signing</code></a> — Signing identity + trust-anchor maintenance<ul>
+<li><a href="#cli-stagefreight-signing-anchor"><code>anchor</code></a> — Regenerate the canonical signing trust anchor (managed SECURITY.md section)</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-tag"><code>tag</code></a> — Plan, validate, and create a release tag</li>
+<li><a href="#cli-stagefreight-test"><code>test</code></a> — Run the project's test suites (go test / cargo test / custom)</li>
+<li><a href="#cli-stagefreight-toolchain"><code>toolchain</code></a> — Manage StageFreight toolchains<ul>
+<li><a href="#cli-stagefreight-toolchain-list"><code>list</code></a> — Show installed toolchain versions</li>
+<li><a href="#cli-stagefreight-toolchain-prune"><code>prune</code></a> — Remove old toolchain versions from cache</li>
+</ul>
+</li>
+<li><a href="#cli-stagefreight-update"><code>update</code></a> — Update this stagefreight binary in place from the published image</li>
+<li><a href="#cli-stagefreight-version"><code>version</code></a> — Print the version</li>
+</ul>
+</li>
+</ul>
+<p><a id="cli-global-flags" name="cli-global-flags"></a></p>
+<h2 id="global-flags">Global flags<a class="headerlink" href="#global-flags" title="Permanent link">&para;</a></h2>
+<p>Available on every command:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--config</code></td>
+<td>string</td>
+<td>—</td>
+<td>config file (default: .stagefreight.yml)</td>
+</tr>
+<tr>
+<td><code>-v, --verbose</code></td>
+<td>bool</td>
+<td>—</td>
+<td>verbose output</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><a id="cli-stagefreight" name="cli-stagefreight"></a></p>
+<h3 id="stagefreight">stagefreight<a class="headerlink" href="#stagefreight" title="Permanent link">&para;</a></h3>
+<p><strong>Usage:</strong> <code>stagefreight</code></p>
+<p>StageFreight — a declarative lifecycle runtime that governs Git as the source of truth, enforcing operator-defined intent across GitOps workflows, Kubernetes, Docker, and CI ecosystems.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--config</code></td>
+<td>string</td>
+<td>—</td>
+<td>config file (default: .stagefreight.yml)</td>
+</tr>
+<tr>
+<td><code>-v, --verbose</code></td>
+<td>bool</td>
+<td>—</td>
+<td>verbose output</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-ansible"><code>ansible</code></a> — Host convergence via the declared playbook library</li>
+<li><a href="#cli-stagefreight-build"><code>build</code></a> — Build artifacts (binaries, images)</li>
+<li><a href="#cli-stagefreight-ci"><code>ci</code></a> — CI subsystem commands</li>
+<li><a href="#cli-stagefreight-commit"><code>commit</code></a> — Create a conventional commit from staged or specified files</li>
+<li><a href="#cli-stagefreight-component"><code>component</code></a> — GitLab CI component management</li>
+<li><a href="#cli-stagefreight-config"><code>config</code></a> — Inspect and manage StageFreight configuration</li>
+<li><a href="#cli-stagefreight-dependency"><code>dependency</code></a> — Dependency management commands</li>
+<li><a href="#cli-stagefreight-docker"><code>docker</code></a> — Docker lifecycle — build, drift, reconcile</li>
+<li><a href="#cli-stagefreight-du"><code>du</code></a> — Storage-attribution diagnostic — what is eating disk today</li>
+<li><a href="#cli-stagefreight-gitops"><code>gitops</code></a> — GitOps intelligence — inspect, impact, reconcile</li>
+<li><a href="#cli-stagefreight-glossary"><code>glossary</code></a> — Show the repo's change-language conventions</li>
+<li><a href="#cli-stagefreight-governance"><code>governance</code></a> — Governance reconciliation and fleet management</li>
+<li><a href="#cli-stagefreight-lint"><code>lint</code></a> — Run code quality checks</li>
+<li><a href="#cli-stagefreight-manifest"><code>manifest</code></a> — Generate and inspect build manifests</li>
+<li><a href="#cli-stagefreight-metadata"><code>metadata</code></a> — Push project identity to registries and forge repos</li>
+<li><a href="#cli-stagefreight-migrate"><code>migrate</code></a> — Migrate config to the latest schema version</li>
+<li><a href="#cli-stagefreight-pull"><code>pull</code></a> — Plan and bring the remote's commits into the current branch</li>
+<li><a href="#cli-stagefreight-push"><code>push</code></a> — Plan and push the current branch to its remote (or an explicit destination)</li>
+<li><a href="#cli-stagefreight-reconcile"><code>reconcile</code></a> — Reconcile infrastructure to declared state</li>
+<li><a href="#cli-stagefreight-release"><code>release</code></a> — Release management commands</li>
+<li><a href="#cli-stagefreight-scribe"><code>scribe</code></a> — Compose and inject content into markdown files</li>
+<li><a href="#cli-stagefreight-security"><code>security</code></a> — Security scanning commands</li>
+<li><a href="#cli-stagefreight-sign"><code>sign</code></a> — Attach an additional signature to already-built release artifacts</li>
+<li><a href="#cli-stagefreight-signing"><code>signing</code></a> — Signing identity + trust-anchor maintenance</li>
+<li><a href="#cli-stagefreight-tag"><code>tag</code></a> — Plan, validate, and create a release tag</li>
+<li><a href="#cli-stagefreight-test"><code>test</code></a> — Run the project's test suites (go test / cargo test / custom)</li>
+<li><a href="#cli-stagefreight-toolchain"><code>toolchain</code></a> — Manage StageFreight toolchains</li>
+<li><a href="#cli-stagefreight-update"><code>update</code></a> — Update this stagefreight binary in place from the published image</li>
+<li><a href="#cli-stagefreight-version"><code>version</code></a> — Print the version</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-ansible" name="cli-stagefreight-ansible"></a></p>
+<h3 id="stagefreight-ansible">stagefreight ansible<a class="headerlink" href="#stagefreight-ansible" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight ansible</code></p>
+<p>Host convergence via the declared playbook library</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-ansible-run"><code>run</code></a> — Run one declared playbook by id</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-ansible-run" name="cli-stagefreight-ansible-run"></a></p>
+<h3 id="stagefreight-ansible-run">stagefreight ansible run<a class="headerlink" href="#stagefreight-ansible-run" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-ansible"><code>stagefreight ansible</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight ansible run &lt;playbook-id&gt;</code></p>
+<p>Run a single playbook from the ansible: library — the ONLY way a
+converge: false runbook executes. CI never reaches runbooks; this verb is the
+human lane, with the same execution image, strict host-key posture, and
+--check plan preview as the converge set.</p>
+<p>Examples:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>stagefreight ansible run provision-hosts --plan
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>stagefreight ansible run postgres-major-upgrade -e target_version=17
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--plan</code></td>
+<td>bool</td>
+<td>—</td>
+<td>ansible-playbook --check --diff preview, no changes</td>
+</tr>
+<tr>
+<td><code>-e, --extra-vars</code></td>
+<td>stringArray</td>
+<td>—</td>
+<td>launch-time vars passed to ansible-playbook -e (repeatable)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-build" name="cli-stagefreight-build"></a></p>
+<h3 id="stagefreight-build">stagefreight build<a class="headerlink" href="#stagefreight-build" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight build</code></p>
+<p>Build binaries, container images, and other artifacts.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-build-binary"><code>binary</code></a> — Build Go binaries</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-build-binary" name="cli-stagefreight-build-binary"></a></p>
+<h3 id="stagefreight-build-binary">stagefreight build binary<a class="headerlink" href="#stagefreight-build-binary" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-build"><code>stagefreight build</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight build binary</code></p>
+<p>Build Go binaries for configured platforms.</p>
+<p>Compiles Go binaries using go build, cross-compiling for all configured platforms.
+Injects version, commit, and build date via ldflags.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--build</code></td>
+<td>string</td>
+<td>—</td>
+<td>build specific entry by ID (default: all)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>show plan without executing</td>
+</tr>
+<tr>
+<td><code>--local</code></td>
+<td>bool</td>
+<td>—</td>
+<td>build for current platform only</td>
+</tr>
+<tr>
+<td><code>--output-dir</code></td>
+<td>string</td>
+<td>—</td>
+<td>override output directory</td>
+</tr>
+<tr>
+<td><code>--platform</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>override platforms (comma-separated)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-ci" name="cli-stagefreight-ci"></a></p>
+<h3 id="stagefreight-ci">stagefreight ci<a class="headerlink" href="#stagefreight-ci" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight ci</code></p>
+<p>Provider-neutral CI entry points.</p>
+<p>Generated CI files translate forge-native context into SF_CI_* environment
+variables, then call stagefreight ci run <phase>. Phase behavior is
+configured in .stagefreight.yml. CI files are generated by ci render.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-ci-checkout"><code>checkout</code></a> — Materialize the repository workspace via go-git (no git binary required)</li>
+<li><a href="#cli-stagefreight-ci-render"><code>render</code></a> — Render forge-native CI pipeline from .stagefreight.yml</li>
+<li><a href="#cli-stagefreight-ci-run"><code>run</code></a> — Run a CI subsystem</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-ci-checkout" name="cli-stagefreight-ci-checkout"></a></p>
+<h3 id="stagefreight-ci-checkout">stagefreight ci checkout<a class="headerlink" href="#stagefreight-ci-checkout" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-ci"><code>stagefreight ci</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight ci checkout</code></p>
+<p>Clone the CI repository into the workspace using the embedded go-git transport.</p>
+<p>On Actions-family container jobs (GitHub/Gitea/Forgejo) the checkout runs INSIDE the
+StageFreight image, which carries no git binary — so actions/checkout would fall back
+to a .git-less REST tarball, breaking every git-aware subsystem. This command clones
+the repo itself (auth resolved from GITHUB_TOKEN etc. via the standard resolver) so a
+real .git is present. go-git is ownership-agnostic, so no safe.directory is required.</p>
+<p>GitLab does not use this — its runner clones at the runner level and the container
+inherits the .git.</p>
+<p>Exit codes: 0=success, 1=checkout error, 3=context error</p>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-ci-render" name="cli-stagefreight-ci-render"></a></p>
+<h3 id="stagefreight-ci-render">stagefreight ci render<a class="headerlink" href="#stagefreight-ci-render" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-ci"><code>stagefreight ci</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight ci render &lt;forge&gt;</code></p>
+<p>Generate a forge-native CI pipeline file from StageFreight configuration.</p>
+<p>Supported forges: gitlab, github, gitea, forgejo, azuredevops  (azuredevops is experimental)</p>
+<p>The rendered file is a committed generated artifact. StageFreight owns the
+pipeline document — it is not hand-maintained.</p>
+<p>Modes:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>--write   Write the rendered pipeline to the repo (e.g. .gitlab-ci.yml)
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>--check   Verify the committed pipeline matches what would be rendered (exit 1 if stale)
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>(default) Print the rendered pipeline to stdout
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--check</code></td>
+<td>bool</td>
+<td>—</td>
+<td>verify committed pipeline is up to date</td>
+</tr>
+<tr>
+<td><code>--write</code></td>
+<td>bool</td>
+<td>—</td>
+<td>write rendered pipeline to repo</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-ci-run" name="cli-stagefreight-ci-run"></a></p>
+<h3 id="stagefreight-ci-run">stagefreight ci run<a class="headerlink" href="#stagefreight-ci-run" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-ci"><code>stagefreight ci</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight ci run &lt;subsystem&gt;</code></p>
+<p>Run a CI phase or legacy subsystem by name.</p>
+<p>Canonical phases: audition, perform, review, publish, narrate</p>
+<p>Generated CI files set SF_CI_* environment variables, then call this command.
+Phase behavior is configured in .stagefreight.yml.</p>
+<p>Exit codes: 0=success, 1=phase error, 2=config error, 3=context error</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--tag</code></td>
+<td>string</td>
+<td>—</td>
+<td>release tag (overrides SF_CI_TAG for release subsystem)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-commit" name="cli-stagefreight-commit"></a></p>
+<h3 id="stagefreight-commit">stagefreight commit<a class="headerlink" href="#stagefreight-commit" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight commit [summary] [paths...]</code></p>
+<p>Create a git commit with conventional commit formatting.</p>
+<p>Summary can be provided as a positional argument or via --message.
+Paths can be provided as positional args (after summary or after --),
+via --add flags, --all, or from the existing staging area.</p>
+<p>In CI environments, the push refspec is auto-detected from CI_COMMIT_REF_NAME
+or CI_COMMIT_BRANCH. Use --refspec for explicit control.</p>
+<p>Examples:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>stagefreight commit -t docs -m &quot;refresh generated docs&quot;
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>stagefreight commit -t docs &quot;refresh generated docs&quot;
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>stagefreight commit -t feat &quot;add api validation&quot; src/api/ src/config/config.go
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>stagefreight commit -t fix -m &quot;handle nil config&quot; -- src/api/ src/config/config.go
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>stagefreight commit -t docs --add README.md -m &quot;document commit flow&quot; -- docs/ examples/
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>stagefreight commit --dry-run -t docs -m &quot;test generated docs&quot; --add docs/ -- README.md
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>stagefreight commit -t feat --breaking -m &quot;replace auth middleware&quot; -- src/auth/
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>stagefreight commit -t docs -m &quot;refresh docs&quot; --push --refspec HEAD:refs/heads/main
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>stagefreight commit -t feat -m &quot;hotfix auth flow&quot; --push --refspec HEAD:refs/heads/release/v1
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--add</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>files/dirs to stage (repeatable, supports globs)</td>
+</tr>
+<tr>
+<td><code>--all</code></td>
+<td>bool</td>
+<td>—</td>
+<td>stage all changes (git add -A)</td>
+</tr>
+<tr>
+<td><code>--body</code></td>
+<td>string</td>
+<td>—</td>
+<td>commit body (appended after blank line)</td>
+</tr>
+<tr>
+<td><code>--breaking</code></td>
+<td>bool</td>
+<td>—</td>
+<td>mark as breaking change (!)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>show what would be committed without executing</td>
+</tr>
+<tr>
+<td><code>--maintainer-override</code></td>
+<td>bool</td>
+<td>—</td>
+<td>bypass governance/policy failures when the commit path is still deterministic<br>does NOT bypass mechanical failures (detached HEAD, hook rejection, sync errors)<br>bypassed checks are recorded in output and result</td>
+</tr>
+<tr>
+<td><code>--push</code></td>
+<td>bool</td>
+<td>—</td>
+<td>push after commit</td>
+</tr>
+<tr>
+<td><code>--refspec</code></td>
+<td>string</td>
+<td>—</td>
+<td>push refspec (e.g. HEAD:refs/heads/main)</td>
+</tr>
+<tr>
+<td><code>--remote</code></td>
+<td>string</td>
+<td><code>origin</code></td>
+<td>git remote for push</td>
+</tr>
+<tr>
+<td><code>--sign-off</code></td>
+<td>bool</td>
+<td>—</td>
+<td>add Signed-off-by trailer</td>
+</tr>
+<tr>
+<td><code>--skip-ci</code></td>
+<td>bool</td>
+<td>—</td>
+<td>append [skip ci] to subject line</td>
+</tr>
+<tr>
+<td><code>-m, --message</code></td>
+<td>string</td>
+<td>—</td>
+<td>commit summary message</td>
+</tr>
+<tr>
+<td><code>-s, --scope</code></td>
+<td>string</td>
+<td>—</td>
+<td>commit scope</td>
+</tr>
+<tr>
+<td><code>-t, --type</code></td>
+<td>string</td>
+<td>—</td>
+<td>conventional commit type (e.g. feat, fix, docs, chore); custom types resolve against glossary.types in config</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-component" name="cli-stagefreight-component"></a></p>
+<h3 id="stagefreight-component">stagefreight component<a class="headerlink" href="#stagefreight-component" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight component</code></p>
+<p>Parse component specs, generate documentation, and manage component releases.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-component-docs"><code>docs</code></a> — Generate input documentation from component spec files</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-component-docs" name="cli-stagefreight-component-docs"></a></p>
+<h3 id="stagefreight-component-docs">stagefreight component docs<a class="headerlink" href="#stagefreight-component-docs" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-component"><code>stagefreight component</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight component docs</code></p>
+<p>Parse GitLab CI component spec files and generate markdown
+documentation tables for their inputs.</p>
+<p>Supports custom group metadata via comments:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a># input_section_name- Group Title
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a># input_section_desc- Group description text
+</span></code></pre></div></p>
+<p>Output modes:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>- Default: print markdown to stdout
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>- --output: write markdown to a file
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>- --readme: inject docs between markers in target file
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--readme</code></td>
+<td>string</td>
+<td>—</td>
+<td>inject docs between <!-- sf:<name> --> markers in target file (section name from scribe config)</td>
+</tr>
+<tr>
+<td><code>--spec</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>component spec file(s) to parse (repeatable)</td>
+</tr>
+<tr>
+<td><code>-o, --output</code></td>
+<td>string</td>
+<td>—</td>
+<td>write docs to file</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-config" name="cli-stagefreight-config"></a></p>
+<h3 id="stagefreight-config">stagefreight config<a class="headerlink" href="#stagefreight-config" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight config</code></p>
+<p>Commands for inspecting resolved config, rendering effective config, and managing governance.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-config-render"><code>render</code></a> — Show the effective config after preset resolution</li>
+<li><a href="#cli-stagefreight-config-resolve"><code>resolve</code></a> — Show how the effective config resolved, with provenance</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-config-render" name="cli-stagefreight-config-render"></a></p>
+<h3 id="stagefreight-config-render">stagefreight config render<a class="headerlink" href="#stagefreight-config-render" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-config"><code>stagefreight config</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight config render</code></p>
+<p>Renders the effective StageFreight config from .stagefreight.yml.</p>
+<p>Without --gated: shows config after preset resolution (what config declares).
+With --gated: shows runnable plan (what will actually execute after capability gating).</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--gated</code></td>
+<td>bool</td>
+<td>—</td>
+<td>Show runnable plan after capability gating</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-config-resolve" name="cli-stagefreight-config-resolve"></a></p>
+<h3 id="stagefreight-config-resolve">stagefreight config resolve<a class="headerlink" href="#stagefreight-config-resolve" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-config"><code>stagefreight config</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight config resolve</code></p>
+<p>Shows the resolved view of .stagefreight.yml — the config as the engine sees it:
+- Which presets contributed, and how many local values overrode them
+- Per-section provenance (manifest vs preset)
+- With --verbose, per-value provenance (path, operation, source, overrides)</p>
+<p>Resolution goes through the same loadResolved path builds use, so what this
+prints is what runs — not a separate reporter-only view.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-o, --output</code></td>
+<td>string</td>
+<td>—</td>
+<td>Output format: json</td>
+</tr>
+<tr>
+<td><code>-v, --verbose</code></td>
+<td>bool</td>
+<td>—</td>
+<td>Show per-value provenance</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-dependency" name="cli-stagefreight-dependency"></a></p>
+<h3 id="stagefreight-dependency">stagefreight dependency<a class="headerlink" href="#stagefreight-dependency" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight dependency</code></p>
+<p><strong>Aliases:</strong> deps</p>
+<p>Resolve, update, and audit project dependencies.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-dependency-update"><code>update</code></a> — Update outdated dependencies</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-dependency-update" name="cli-stagefreight-dependency-update"></a></p>
+<h3 id="stagefreight-dependency-update">stagefreight dependency update<a class="headerlink" href="#stagefreight-dependency-update" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-dependency"><code>stagefreight dependency</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight dependency update [path]</code></p>
+<p>Resolve, update, and verify project dependencies.</p>
+<p>Generates artifacts: deps.patch, deps-report.md, resolve.json.
+Use --dry-run to resolve and report without applying changes.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--bundle</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>include deps-updated.tgz</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>resolve and report without applying changes</td>
+</tr>
+<tr>
+<td><code>--ecosystem</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>—</td>
+<td>filter to specific ecosystem(s)</td>
+</tr>
+<tr>
+<td><code>--max-update</code></td>
+<td>string</td>
+<td>—</td>
+<td><code>major</code> · <code>minor</code> · <code>patch</code></td>
+<td>update-type ceiling (default from config, else minor)</td>
+</tr>
+<tr>
+<td><code>--no-verify</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>skip go test after update</td>
+</tr>
+<tr>
+<td><code>--no-vulncheck</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>skip govulncheck after update</td>
+</tr>
+<tr>
+<td><code>--output</code></td>
+<td>string</td>
+<td><code>.stagefreight/deps</code></td>
+<td>—</td>
+<td>output directory for artifacts</td>
+</tr>
+<tr>
+<td><code>--policy</code></td>
+<td>string</td>
+<td><code>all</code></td>
+<td><code>all</code> · <code>security</code></td>
+<td>update policy</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-docker" name="cli-stagefreight-docker"></a></p>
+<h3 id="stagefreight-docker">stagefreight docker<a class="headerlink" href="#stagefreight-docker" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight docker</code></p>
+<p>Docker lifecycle intelligence and container image management.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-docker-build"><code>build</code></a> — Build and push container images</li>
+<li><a href="#cli-stagefreight-docker-drift"><code>drift</code></a> — Show drift status for all Docker compose stacks</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-docker-build" name="cli-stagefreight-docker-build"></a></p>
+<h3 id="stagefreight-docker-build">stagefreight docker build<a class="headerlink" href="#stagefreight-docker-build" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-docker"><code>stagefreight docker</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight docker build</code></p>
+<p>Build container images using docker buildx.</p>
+<p>Detects Dockerfiles, resolves tags from git, and pushes to configured registries.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--build</code></td>
+<td>string</td>
+<td>—</td>
+<td>—</td>
+<td>build a specific entry by ID (default: all)</td>
+</tr>
+<tr>
+<td><code>--build-mode</code></td>
+<td>string</td>
+<td>—</td>
+<td><code>crucible</code></td>
+<td>build execution strategy (self-proving self-build)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>show the plan without executing</td>
+</tr>
+<tr>
+<td><code>--local</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>build for current platform, load into daemon</td>
+</tr>
+<tr>
+<td><code>--platform</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>—</td>
+<td>override platforms (comma-separated)</td>
+</tr>
+<tr>
+<td><code>--tag</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>—</td>
+<td>override/add tags</td>
+</tr>
+<tr>
+<td><code>--target</code></td>
+<td>string</td>
+<td>—</td>
+<td>—</td>
+<td>override Dockerfile target stage</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-docker-drift" name="cli-stagefreight-docker-drift"></a></p>
+<h3 id="stagefreight-docker-drift">stagefreight docker drift<a class="headerlink" href="#stagefreight-docker-drift" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-docker"><code>stagefreight docker</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight docker drift</code></p>
+<p>Scan IaC, resolve inventory targets, and compute drift for each stack.
+Read-only — no mutations. Reuses the same plan model as reconcile.</p>
+<p>Examples:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>stagefreight docker drift
+</span></code></pre></div></p>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-du" name="cli-stagefreight-du"></a></p>
+<h3 id="stagefreight-du">stagefreight du<a class="headerlink" href="#stagefreight-du" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight du</code></p>
+<p>Report what StageFreight and its CI occupy on disk, grouped so an operator can act: the persistent cache mount (toolchains by version, build/scan caches by subsystem, per-project rust targets), the Docker daemon(s) (host vs dind, images by family with tags, dangling, volumes, build cache), and discovered repositories. Bars are share of total disk; a reclaim ledger names the biggest wins. Read-only.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--cache</code></td>
+<td>string</td>
+<td>—</td>
+<td>persistent cache mount path (default /stagefreight; on a runner host use e.g. /opt/docker/gitlab-runner/stagefreight)</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>bool</td>
+<td>—</td>
+<td>machine-readable JSON output</td>
+</tr>
+<tr>
+<td><code>--max-depth</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td>repository discovery recursion depth</td>
+</tr>
+<tr>
+<td><code>--no-repos</code></td>
+<td>bool</td>
+<td>—</td>
+<td>skip repository discovery</td>
+</tr>
+<tr>
+<td><code>--repos</code></td>
+<td>string</td>
+<td>—</td>
+<td>comma-separated roots to discover repositories under (default: $HOME)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-gitops" name="cli-stagefreight-gitops"></a></p>
+<h3 id="stagefreight-gitops">stagefreight gitops<a class="headerlink" href="#stagefreight-gitops" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight gitops</code></p>
+<p>GitOps intelligence — inspect, impact, reconcile</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-gitops-impact"><code>impact</code></a> — Compute which kustomizations are affected by recent changes</li>
+<li><a href="#cli-stagefreight-gitops-inspect"><code>inspect</code></a> — Discover and display the Flux dependency graph</li>
+<li><a href="#cli-stagefreight-gitops-reconcile"><code>reconcile</code></a> — Reconcile affected Flux kustomizations</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-gitops-impact" name="cli-stagefreight-gitops-impact"></a></p>
+<h3 id="stagefreight-gitops-impact">stagefreight gitops impact<a class="headerlink" href="#stagefreight-gitops-impact" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-gitops"><code>stagefreight gitops</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight gitops impact</code></p>
+<p>Determine which Flux Kustomizations are affected by file changes
+between two refs. Walks the reverse dependency graph for transitive impact.
+Outputs the ordered reconcile set.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--base</code></td>
+<td>string</td>
+<td><code>HEAD~1</code></td>
+<td>base ref for diff</td>
+</tr>
+<tr>
+<td><code>--head</code></td>
+<td>string</td>
+<td><code>HEAD</code></td>
+<td>head ref for diff</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-gitops-inspect" name="cli-stagefreight-gitops-inspect"></a></p>
+<h3 id="stagefreight-gitops-inspect">stagefreight gitops inspect<a class="headerlink" href="#stagefreight-gitops-inspect" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-gitops"><code>stagefreight gitops</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight gitops inspect</code></p>
+<p>Walk the repository and discover all Flux Kustomization objects.
+Display the dependency graph, paths, orphans, and bootstrap state.</p>
+<p>No configuration needed — everything is derived from actual manifests.</p>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-gitops-reconcile" name="cli-stagefreight-gitops-reconcile"></a></p>
+<h3 id="stagefreight-gitops-reconcile">stagefreight gitops reconcile<a class="headerlink" href="#stagefreight-gitops-reconcile" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-gitops"><code>stagefreight gitops</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight gitops reconcile</code></p>
+<p>Reconcile Flux kustomizations affected by recent changes.
+By default, computes impact from HEAD~1..HEAD and reconciles the affected set.
+Use --all to reconcile everything, or --only to target a specific kustomization.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--all</code></td>
+<td>bool</td>
+<td>—</td>
+<td>reconcile all kustomizations</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>preview reconcile set without executing</td>
+</tr>
+<tr>
+<td><code>--only</code></td>
+<td>string</td>
+<td>—</td>
+<td>reconcile only this kustomization (ns/name)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-glossary" name="cli-stagefreight-glossary"></a></p>
+<h3 id="stagefreight-glossary">stagefreight glossary<a class="headerlink" href="#stagefreight-glossary" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight glossary</code></p>
+<p>Display the glossary of commit types, aliases, and release visibility
+defined in .stagefreight.yml.</p>
+<p>This is the shared semantic model used by commit authoring, tag planning,
+and release rendering. Use --json for machine-readable output.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>bool</td>
+<td>—</td>
+<td>output as JSON</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-governance" name="cli-stagefreight-governance"></a></p>
+<h3 id="stagefreight-governance">stagefreight governance<a class="headerlink" href="#stagefreight-governance" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight governance</code></p>
+<p>Commands for reconciling governance policy across governed repositories.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-governance-reconcile"><code>reconcile</code></a> — Reconcile governance policy to satellite repos</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-governance-reconcile" name="cli-stagefreight-governance-reconcile"></a></p>
+<h3 id="stagefreight-governance-reconcile">stagefreight governance reconcile<a class="headerlink" href="#stagefreight-governance-reconcile" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-governance"><code>stagefreight governance</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight governance reconcile</code></p>
+<p>Reads governance clusters from the policy repo, resolves presets,
+generates managed configs, and commits to satellite repos.</p>
+<p>Forge identity (provider, URL, credentials) is read from sources.primary
+in .stagefreight.yml — the same config every StageFreight repo uses.</p>
+<p>Use --dry-run to preview changes without committing.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--apply</code></td>
+<td>bool</td>
+<td>—</td>
+<td>Actually commit changes (required for real writes)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>Preview changes without committing</td>
+</tr>
+<tr>
+<td><code>--path</code></td>
+<td>string</td>
+<td>—</td>
+<td>Override governance clusters file path</td>
+</tr>
+<tr>
+<td><code>--ref</code></td>
+<td>string</td>
+<td>—</td>
+<td>Override governance source ref</td>
+</tr>
+<tr>
+<td><code>--source</code></td>
+<td>string</td>
+<td>—</td>
+<td>Override governance source repo URL</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-lint" name="cli-stagefreight-lint"></a></p>
+<h3 id="stagefreight-lint">stagefreight lint<a class="headerlink" href="#stagefreight-lint" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight lint [paths...]</code></p>
+<p>Run cache-aware, delta-only code quality checks.</p>
+<p>By default, only changed files are scanned (--level changed).
+Use --level full or --all to scan everything.</p>
+<p>Modules run in parallel and results are cached by content hash.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--all</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>scan all files (shorthand for --level full)</td>
+</tr>
+<tr>
+<td><code>--baseline</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>diff against the merge-base: mark newly-introduced non-text artifacts and findings</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>with --fix-safe: preview what would change without writing</td>
+</tr>
+<tr>
+<td><code>--fix-safe</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files</td>
+</tr>
+<tr>
+<td><code>--level</code></td>
+<td>string</td>
+<td>—</td>
+<td><code>changed</code> · <code>full</code></td>
+<td>scan level (default: from config, then changed)</td>
+</tr>
+<tr>
+<td><code>--module</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>—</td>
+<td>run only these modules (comma-separated)</td>
+</tr>
+<tr>
+<td><code>--no-cache</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>disable cache (clear and rescan)</td>
+</tr>
+<tr>
+<td><code>--no-module</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>—</td>
+<td>skip these modules (comma-separated)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-manifest" name="cli-stagefreight-manifest"></a></p>
+<h3 id="stagefreight-manifest">stagefreight manifest<a class="headerlink" href="#stagefreight-manifest" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight manifest</code></p>
+<p>Manifest generates a normalized view of build evidence from Dockerfile
+analysis, SBOM data, and security scans into a single deterministic JSON document.</p>
+<p>Subcommands:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>generate    Create manifest from build config and Dockerfile
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>inspect     Pretty-print manifest or specific sections
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>diff        Compare two manifests (not yet implemented)
+</span></code></pre></div></p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-manifest-diff"><code>diff</code></a> — Compare two manifests (not yet implemented)</li>
+<li><a href="#cli-stagefreight-manifest-generate"><code>generate</code></a> — Generate manifest from build config and Dockerfile</li>
+<li><a href="#cli-stagefreight-manifest-inspect"><code>inspect</code></a> — Pretty-print manifest or specific sections</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-manifest-diff" name="cli-stagefreight-manifest-diff"></a></p>
+<h3 id="stagefreight-manifest-diff">stagefreight manifest diff<a class="headerlink" href="#stagefreight-manifest-diff" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-manifest"><code>stagefreight manifest</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight manifest diff &lt;manifest-a&gt; &lt;manifest-b&gt;</code></p>
+<p>Diff compares two manifest JSON files and shows what changed between them.</p>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-manifest-generate" name="cli-stagefreight-manifest-generate"></a></p>
+<h3 id="stagefreight-manifest-generate">stagefreight manifest generate<a class="headerlink" href="#stagefreight-manifest-generate" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-manifest"><code>stagefreight manifest</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight manifest generate</code></p>
+<p>Generate creates a normalized manifest JSON for each build defined
+in .stagefreight.yml. The manifest captures inventory (packages, binaries,
+base image versions) extracted from Dockerfile analysis.</p>
+<p>Output location is controlled by manifest.mode in config:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>ephemeral   temp location, discarded after use (default)
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>workspace   .stagefreight/manifests/, not auto-committed
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>commit      included in docs commit
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>publish     exported as release asset
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--build-id</code></td>
+<td>string</td>
+<td>—</td>
+<td>generate for a specific build ID only</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>preview manifest without writing files</td>
+</tr>
+<tr>
+<td><code>--output</code></td>
+<td>string</td>
+<td>—</td>
+<td>output format: json (default: summary)</td>
+</tr>
+<tr>
+<td><code>--platform</code></td>
+<td>string</td>
+<td>—</td>
+<td>filter to a specific platform (os/arch)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-manifest-inspect" name="cli-stagefreight-manifest-inspect"></a></p>
+<h3 id="stagefreight-manifest-inspect">stagefreight manifest inspect<a class="headerlink" href="#stagefreight-manifest-inspect" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-manifest"><code>stagefreight manifest</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight manifest inspect [manifest-path]</code></p>
+<p>Inspect reads a manifest JSON and displays it in human-readable format.</p>
+<p>If no path is given, resolves the manifest from config and build ID.
+Use --section to extract a specific dot-path (e.g., inventories.pip).
+Use --format to control output: json, table, human (default: human).</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--build-id</code></td>
+<td>string</td>
+<td>—</td>
+<td>—</td>
+<td>resolve manifest for a specific build ID</td>
+</tr>
+<tr>
+<td><code>--format</code></td>
+<td>string</td>
+<td><code>human</code></td>
+<td><code>json</code> · <code>table</code> · <code>human</code></td>
+<td>output format</td>
+</tr>
+<tr>
+<td><code>--section</code></td>
+<td>string</td>
+<td>—</td>
+<td>—</td>
+<td>dot-path into manifest (e.g., inventories.pip)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-metadata" name="cli-stagefreight-metadata"></a></p>
+<h3 id="stagefreight-metadata">stagefreight metadata<a class="headerlink" href="#stagefreight-metadata" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight metadata</code></p>
+<p>Run kind: metadata targets — push the project's identity (description, readme,
+website, topics, logo) to every registry and forge repo destination that can hold it, from
+one source of truth. Each field maps to the destination's capability and is skipped where
+absent; nothing is truncated, and org/namespace fields are never touched.</p>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-migrate" name="cli-stagefreight-migrate"></a></p>
+<h3 id="stagefreight-migrate">stagefreight migrate<a class="headerlink" href="#stagefreight-migrate" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight migrate [file]</code></p>
+<p>Migrate a .stagefreight.yml config file to the latest schema version.</p>
+<p>By default, prints the migrated config to stdout. Use --in-place to
+overwrite the file, or --output to write to a different path.</p>
+<p>Currently the latest schema version is 1. Future schema changes will
+add migration steps here.</p>
+<p>Note: The pre-version config format (before version: 1) is not supported
+by this migration tool — it was an unversioned alpha that must be rewritten.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-i, --in-place</code></td>
+<td>bool</td>
+<td>—</td>
+<td>overwrite the config file in place</td>
+</tr>
+<tr>
+<td><code>-o, --output</code></td>
+<td>string</td>
+<td>—</td>
+<td>write migrated config to this path</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-pull" name="cli-stagefreight-pull"></a></p>
+<h3 id="stagefreight-pull">stagefreight pull<a class="headerlink" href="#stagefreight-pull" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight pull</code></p>
+<p>Pull the current branch's remote into your local branch.</p>
+<p>StageFreight shows the plan and executes it: fast-forward when you're behind, or rebase
+your local commits onto the remote (with your confirmation) when the branch has diverged.
+It refuses on a mid-flight git operation rather than acting on a half-finished state.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--remote</code></td>
+<td>string</td>
+<td><code>origin</code></td>
+<td>git remote to pull from</td>
+</tr>
+<tr>
+<td><code>--yes</code></td>
+<td>bool</td>
+<td>—</td>
+<td>approve a rebase-onto-remote (diverged branch) without prompting</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-push" name="cli-stagefreight-push"></a></p>
+<h3 id="stagefreight-push">stagefreight push<a class="headerlink" href="#stagefreight-push" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight push [remote] [branch]</code></p>
+<p>Push the current branch to its remote, or to an explicit destination.</p>
+<p>With no arguments, StageFreight plans against the branch's own upstream — uploading,
+creating tracking, fast-forwarding, or (for a protected destination) replaying with your
+confirmation. It never silently rewrites a feature branch.</p>
+<p>With "push <remote> <branch>" it plans an explicit cross-target push (e.g. a feature branch
+onto origin/main): ahead/behind are computed against that destination — fast-forward when it
+is behind you (Confirm on protected trunk), refuse when it already contains you, and hand the
+rebase back to git when the two have diverged.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--no-rebase</code></td>
+<td>bool</td>
+<td>—</td>
+<td>legacy: fail instead of rebasing on a diverged branch (refspec path only)</td>
+</tr>
+<tr>
+<td><code>--refspec</code></td>
+<td>string</td>
+<td>—</td>
+<td>push refspec (e.g. HEAD:refs/heads/main) — uses the legacy convergence path</td>
+</tr>
+<tr>
+<td><code>--remote</code></td>
+<td>string</td>
+<td><code>origin</code></td>
+<td>git remote to push to</td>
+</tr>
+<tr>
+<td><code>--yes</code></td>
+<td>bool</td>
+<td>—</td>
+<td>approve a transformational plan (e.g. replay onto a protected branch) without prompting</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-reconcile" name="cli-stagefreight-reconcile"></a></p>
+<h3 id="stagefreight-reconcile">stagefreight reconcile<a class="headerlink" href="#stagefreight-reconcile" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight reconcile</code></p>
+<p>Universal lifecycle reconciliation trigger.</p>
+<p>Reads lifecycle.mode from .stagefreight.yml and dispatches to the
+configured backend (flux, compose, etc.). All intelligence lives
+in StageFreight — CI and CLI are just transports.</p>
+<p>Examples:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>stagefreight reconcile
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>stagefreight reconcile --dry-run
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>show plan without executing</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-release" name="cli-stagefreight-release"></a></p>
+<h3 id="stagefreight-release">stagefreight release<a class="headerlink" href="#stagefreight-release" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight release</code></p>
+<p>Create releases, generate notes, update badges, and sync across forges.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-release-create"><code>create</code></a> — Create a release on the forge and sync to targets</li>
+<li><a href="#cli-stagefreight-release-destroy"><code>destroy</code></a> — Destroy a release across the primary forge and its mirrors</li>
+<li><a href="#cli-stagefreight-release-notes"><code>notes</code></a> — Generate release notes from conventional commits</li>
+<li><a href="#cli-stagefreight-release-prune"><code>prune</code></a> — Prune old releases using retention policy</li>
+<li><a href="#cli-stagefreight-release-sync"><code>sync</code></a> — Converge mirror forges to the primary's releases (binaries included)</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-release-create" name="cli-stagefreight-release-create"></a></p>
+<h3 id="stagefreight-release-create">stagefreight release create<a class="headerlink" href="#stagefreight-release-create" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-release"><code>stagefreight release</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight release create</code></p>
+<p>Create a release on the detected forge (GitLab, GitHub, Gitea)
+with generated or provided release notes.</p>
+<p>Optionally uploads assets (scan artifacts, SBOMs) and adds
+registry image links. Syncs to configured remote release targets
+unless --skip-sync is set.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--asset</code></td>
+<td>stringSlice</td>
+<td>—</td>
+<td>files to attach to release (repeatable)</td>
+</tr>
+<tr>
+<td><code>--catalog-links</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>add GitLab Catalog link to release</td>
+</tr>
+<tr>
+<td><code>--draft</code></td>
+<td>bool</td>
+<td>—</td>
+<td>create as draft release</td>
+</tr>
+<tr>
+<td><code>--name</code></td>
+<td>string</td>
+<td>—</td>
+<td>release name (default: tag)</td>
+</tr>
+<tr>
+<td><code>--notes</code></td>
+<td>string</td>
+<td>—</td>
+<td>path to release notes markdown file</td>
+</tr>
+<tr>
+<td><code>--prerelease</code></td>
+<td>bool</td>
+<td>—</td>
+<td>mark as prerelease</td>
+</tr>
+<tr>
+<td><code>--registry-links</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>add registry image links to release</td>
+</tr>
+<tr>
+<td><code>--security-summary</code></td>
+<td>string</td>
+<td>—</td>
+<td>path to security output directory (reads summary.md)</td>
+</tr>
+<tr>
+<td><code>--skip-sync</code></td>
+<td>bool</td>
+<td>—</td>
+<td>skip syncing to other forges</td>
+</tr>
+<tr>
+<td><code>--tag</code></td>
+<td>string</td>
+<td>—</td>
+<td>release tag (default: detected from git)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-release-destroy" name="cli-stagefreight-release-destroy"></a></p>
+<h3 id="stagefreight-release-destroy">stagefreight release destroy<a class="headerlink" href="#stagefreight-release-destroy" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-release"><code>stagefreight release</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight release destroy</code></p>
+<p>Removes a release — the tag entry, notes, and attached assets — from the
+primary forge and every release-sync mirror. The deliberate inverse of
+'release create': it deletes the forge release objects, not the underlying git
+tag, and does not resurrect (once gone from the source, a later mirror reconcile
+has nothing to bring back).</p>
+<p>Distinct from 'release prune', which is retention GC over a series. 'destroy'
+removes one named release, everywhere, on purpose.</p>
+<p>Use --dry-run to preview which forges would be affected.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>preview affected forges without deleting</td>
+</tr>
+<tr>
+<td><code>--skip-mirrors</code></td>
+<td>bool</td>
+<td>—</td>
+<td>destroy on the primary forge only</td>
+</tr>
+<tr>
+<td><code>--tag</code></td>
+<td>string</td>
+<td>—</td>
+<td>release tag to destroy (required)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-release-notes" name="cli-stagefreight-release-notes"></a></p>
+<h3 id="stagefreight-release-notes">stagefreight release notes<a class="headerlink" href="#stagefreight-release-notes" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-release"><code>stagefreight release</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight release notes</code></p>
+<p>Generate markdown release notes from the git log between two refs.</p>
+<p>Parses conventional commits (feat, fix, chore, etc.) and groups them
+by category. Optionally embeds a security scan summary.</p>
+<p>If --from is omitted, finds the previous tag automatically.
+If --to is omitted, defaults to HEAD.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--from</code></td>
+<td>string</td>
+<td>—</td>
+<td>start ref (default: previous tag)</td>
+</tr>
+<tr>
+<td><code>--security-summary</code></td>
+<td>string</td>
+<td>—</td>
+<td>path to security summary markdown to embed</td>
+</tr>
+<tr>
+<td><code>--to</code></td>
+<td>string</td>
+<td>—</td>
+<td>end ref (default: HEAD)</td>
+</tr>
+<tr>
+<td><code>-o, --output</code></td>
+<td>string</td>
+<td>—</td>
+<td>write notes to file (default: stdout)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-release-prune" name="cli-stagefreight-release-prune"></a></p>
+<h3 id="stagefreight-release-prune">stagefreight release prune<a class="headerlink" href="#stagefreight-release-prune" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-release"><code>stagefreight release</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight release prune</code></p>
+<p>Delete old releases on the detected forge using the retention
+policy from the primary release target in .stagefreight.yml.</p>
+<p>Alias templates from the release target are converted to patterns so
+only releases matching the configured tag scheme are candidates.</p>
+<p>Use --dry-run to preview what would be deleted without deleting.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>show what would be deleted without deleting</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-release-sync" name="cli-stagefreight-release-sync"></a></p>
+<h3 id="stagefreight-release-sync">stagefreight release sync<a class="headerlink" href="#stagefreight-release-sync" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-release"><code>stagefreight release</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight release sync</code></p>
+<p>Converges every mirror whose sync block includes a releases facet toward
+the primary forge's releases — carrying the notes AND re-hosting the attached
+binaries, not just tag+notes shells.</p>
+<p>Provenance-bounded and idempotent: an unchanged release is a no-op, a drifted
+asset is replaced on its own, and a release SF did not place (a one-off, or one
+another dev cut on the mirror) is left untouched. Pruning, when the facet opts in,
+removes only SF-placed releases the primary no longer has.</p>
+<p>Use --dry-run to preview the desired set without mutating any mirror.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>Preview only, do not create releases</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-scribe" name="cli-stagefreight-scribe"></a></p>
+<h3 id="stagefreight-scribe">stagefreight scribe<a class="headerlink" href="#stagefreight-scribe" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight scribe</code></p>
+<p>Scribe manages README sections using <!-- sf:<name> --> markers.</p>
+<p>Compose badges, shields, text, and other modules into managed sections.
+Content between markers is owned by StageFreight and replaced on each run.
+Everything outside markers is never touched.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-scribe-apply"><code>apply</code></a> — Reconcile stencils into files (badges + region injection)</li>
+<li><a href="#cli-stagefreight-scribe-render"><code>render</code></a> — Render one stencil's markdown</li>
+<li><a href="#cli-stagefreight-scribe-types"><code>types</code></a> — Browse stencil producer types, or detail one</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-scribe-apply" name="cli-stagefreight-scribe-apply"></a></p>
+<h3 id="stagefreight-scribe-apply">stagefreight scribe apply<a class="headerlink" href="#stagefreight-scribe-apply" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-scribe"><code>stagefreight scribe</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight scribe apply</code></p>
+<p>Apply the scribe config: generate badge SVG artifacts, then render each
+scribe.files region from the stencils it references.</p>
+<p>Each files: entry names a marked region; its body embeds stencils by {id}
+(with items: as sugar for a row of stencils). The rendered markdown is placed
+between the region markers, replacing existing managed content idempotently.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>preview changes without writing files</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-scribe-render" name="cli-stagefreight-scribe-render"></a></p>
+<h3 id="stagefreight-scribe-render">stagefreight scribe render<a class="headerlink" href="#stagefreight-scribe-render" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-scribe"><code>stagefreight scribe</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight scribe render &lt;id&gt;</code></p>
+<p>Resolve a single stencil (by id) and print its markdown fragment to
+stdout, or write it to a file with --output.</p>
+<p>Only stencils declared in .stagefreight.yml are renderable — the config is the source of
+truth. To preview a producer type before declaring it, use 'stagefreight scribe types <type>'.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-o, --output</code></td>
+<td>string</td>
+<td>—</td>
+<td>write markdown to a file instead of stdout</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-scribe-types" name="cli-stagefreight-scribe-types"></a></p>
+<h3 id="stagefreight-scribe-types">stagefreight scribe types<a class="headerlink" href="#stagefreight-scribe-types" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-scribe"><code>stagefreight scribe</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight scribe types [type]</code></p>
+<p>Without an argument, list every available stencil producer type (the type: values
+usable in the stencils library), grouped by category. With a <type> argument, show that type's
+description, parameters, example config, and a rendered preview.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--category</code></td>
+<td>string</td>
+<td>—</td>
+<td>filter the list by category</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-security" name="cli-stagefreight-security"></a></p>
+<h3 id="stagefreight-security">stagefreight security<a class="headerlink" href="#stagefreight-security" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight security</code></p>
+<p>Vulnerability scanning, SBOM generation, and security attestation.</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-security-scan"><code>scan</code></a> — Run vulnerability scan and generate SBOM</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-security-scan" name="cli-stagefreight-security-scan"></a></p>
+<h3 id="stagefreight-security-scan">stagefreight security scan<a class="headerlink" href="#stagefreight-security-scan" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-security"><code>stagefreight security</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight security scan</code></p>
+<p>Scan a container image for vulnerabilities using Trivy and Grype,
+then deduplicate results and optionally generate SBOM artifacts using Syft.</p>
+<p>Individual scanners can be toggled via security.scanners in .stagefreight.yml.
+Results are written to the output directory as JSON, SARIF, and SBOM files.
+A markdown summary is generated at the configured detail level for embedding
+in release notes.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--fail-on-critical</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>exit non-zero if critical vulnerabilities found</td>
+</tr>
+<tr>
+<td><code>--image</code></td>
+<td>string</td>
+<td>—</td>
+<td>—</td>
+<td>image reference or tarball to scan (required)</td>
+</tr>
+<tr>
+<td><code>--sbom</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>—</td>
+<td>generate SBOM artifacts</td>
+</tr>
+<tr>
+<td><code>--security-detail</code></td>
+<td>string</td>
+<td>—</td>
+<td><code>none</code> · <code>counts</code> · <code>detailed</code> · <code>full</code></td>
+<td>override detail level for summary</td>
+</tr>
+<tr>
+<td><code>--skip</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>skip scan (for pipeline control)</td>
+</tr>
+<tr>
+<td><code>--strict</code></td>
+<td>bool</td>
+<td>—</td>
+<td>—</td>
+<td>fail if scan is partial, target lacks digest identity, or artifact verification fails</td>
+</tr>
+<tr>
+<td><code>-o, --output</code></td>
+<td>string</td>
+<td>—</td>
+<td>—</td>
+<td>output directory for artifacts (default: from config)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-sign" name="cli-stagefreight-sign"></a></p>
+<h3 id="stagefreight-sign">stagefreight sign<a class="headerlink" href="#stagefreight-sign" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight sign</code></p>
+<p>Layers an additional signature onto the immutable artifacts a build already
+produced — a human publication act, separate from CI artifact production. The
+canonical use is hardware (YubiKey) authorization of an official release: CI builds
+and records the artifacts; a maintainer, on a machine with the token, runs this and
+physically touches the key.</p>
+<p>It is strictly ADDITIVE and manifest-sourced:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>- never rebuilds, republishes, or mutates artifact contents
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>- validates recorded digests first (refuses to sign drifted artifacts)
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>- writes a distinct signature file, preserving lower-tier signatures
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>- extends the results manifest with new trust evidence (never replaces)
+</span></code></pre></div></p>
+<p>The operation is generic — interactivity emerges from the selected profile's trust
+class (hardware prompts for touch/PIN; key/kms/oidc are non-interactive). It signs
+the release SHA256SUMS and each published image digest; when the profile opts into
+attestation (attestation: true) it also attests the build provenance onto those
+digests under the same tier — recorded as first-class, additive evidence.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--profile</code></td>
+<td>string</td>
+<td>—</td>
+<td>a signing.profiles[].id from config to sign under (required)</td>
+</tr>
+<tr>
+<td><code>--skip-images</code></td>
+<td>bool</td>
+<td>—</td>
+<td>sign only release blobs, not published image digests</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-signing" name="cli-stagefreight-signing"></a></p>
+<h3 id="stagefreight-signing">stagefreight signing<a class="headerlink" href="#stagefreight-signing" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight signing</code></p>
+<p>Signing identity + trust-anchor maintenance</p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-signing-anchor"><code>anchor</code></a> — Regenerate the canonical signing trust anchor (managed SECURITY.md section)</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-signing-anchor" name="cli-stagefreight-signing-anchor"></a></p>
+<h3 id="stagefreight-signing-anchor">stagefreight signing anchor<a class="headerlink" href="#stagefreight-signing-anchor" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-signing"><code>stagefreight signing</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight signing anchor</code></p>
+<p>Regenerates the managed signing-anchor section — the stable, committed, canonical
+trust anchor that per-release Verification sections reference.</p>
+<p>It updates ONLY the marked section (between <!-- sf:signing-anchor:start --> and</p>
+<!-- sf:signing-anchor:end -->
+<p>), preserving all surrounding operator-authored
+security prose. Deterministic and idempotent. This is an explicit docs-generation
+step: it never runs during publish and never mutates the repo silently.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--config</code></td>
+<td>string</td>
+<td><code>.stagefreight.yml</code></td>
+<td>config file</td>
+</tr>
+<tr>
+<td><code>--file</code></td>
+<td>string</td>
+<td><code>SECURITY.md</code></td>
+<td>file whose managed signing-anchor section to update</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-tag" name="cli-stagefreight-tag"></a></p>
+<h3 id="stagefreight-tag">stagefreight tag<a class="headerlink" href="#stagefreight-tag" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight tag [version]</code></p>
+<p>Release tag planner with policy enforcement, semantic highlights,
+and interactive approval.</p>
+<p>Modes:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>stagefreight tag v0.5.0        Explicit version
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>stagefreight tag --patch       Bump from previous release
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>stagefreight tag --minor
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>stagefreight tag --major
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>stagefreight tag               Interactive selection (TTY only)
+</span></code></pre></div></p>
+<p>The tag is validated against versioning.tags before creation.
+Highlights are generated from the glossary pipeline or prompted
+when in interactive mode.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dry-run</code></td>
+<td>bool</td>
+<td>—</td>
+<td>preview only, do not create tag</td>
+</tr>
+<tr>
+<td><code>--from</code></td>
+<td>string</td>
+<td>—</td>
+<td>override previous release boundary</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>bool</td>
+<td>—</td>
+<td>output plan as JSON (implies --dry-run)</td>
+</tr>
+<tr>
+<td><code>--major</code></td>
+<td>bool</td>
+<td>—</td>
+<td>bump major from previous release</td>
+</tr>
+<tr>
+<td><code>--minor</code></td>
+<td>bool</td>
+<td>—</td>
+<td>bump minor from previous release</td>
+</tr>
+<tr>
+<td><code>--patch</code></td>
+<td>bool</td>
+<td>—</td>
+<td>bump patch from previous release</td>
+</tr>
+<tr>
+<td><code>--push</code></td>
+<td>bool</td>
+<td>—</td>
+<td>push tag to origin after creation</td>
+</tr>
+<tr>
+<td><code>--target</code></td>
+<td>string</td>
+<td>—</td>
+<td>ref to tag (default: HEAD)</td>
+</tr>
+<tr>
+<td><code>-m, --message</code></td>
+<td>string</td>
+<td>—</td>
+<td>override tag message</td>
+</tr>
+<tr>
+<td><code>-y, --yes</code></td>
+<td>bool</td>
+<td>—</td>
+<td>skip approval prompt</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-test" name="cli-stagefreight-test"></a></p>
+<h3 id="stagefreight-test">stagefreight test<a class="headerlink" href="#stagefreight-test" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight test [suite-id...]</code></p>
+<p>Run StageFreight test suites locally — the SAME suites, resolved the same way,
+the CI audition phase runs. No arguments runs all suites; pass suite ids to run a
+subset, or --gate to filter by lifecycle tier.</p>
+<p>Suites are auto-synthesized from your builds when none are declared in .stagefreight.yml
+(a go builder → "go test ./..."; a rust builder → "cargo test").</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--gate</code></td>
+<td>string</td>
+<td>—</td>
+<td><code>perform</code> · <code>advisory</code></td>
+<td>run only suites with this gate</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-toolchain" name="cli-stagefreight-toolchain"></a></p>
+<h3 id="stagefreight-toolchain">stagefreight toolchain<a class="headerlink" href="#stagefreight-toolchain" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight toolchain</code></p>
+<p>Inspect and manage the StageFreight toolchain cache.</p>
+<p>StageFreight resolves external tools (Go, Trivy, Grype, etc.) at runtime:
+downloaded, checksum-verified, cached, and executed by absolute path.</p>
+<p>Subcommands:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>list    Show installed toolchain versions
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>prune   Remove old toolchain versions from cache
+</span></code></pre></div></p>
+<p><strong>Subcommands:</strong></p>
+<ul>
+<li><a href="#cli-stagefreight-toolchain-list"><code>list</code></a> — Show installed toolchain versions</li>
+<li><a href="#cli-stagefreight-toolchain-prune"><code>prune</code></a> — Remove old toolchain versions from cache</li>
+</ul>
+<hr />
+<p><a id="cli-stagefreight-toolchain-list" name="cli-stagefreight-toolchain-list"></a></p>
+<h3 id="stagefreight-toolchain-list">stagefreight toolchain list<a class="headerlink" href="#stagefreight-toolchain-list" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-toolchain"><code>stagefreight toolchain</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight toolchain list</code></p>
+<p>Show installed toolchain versions</p>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-toolchain-prune" name="cli-stagefreight-toolchain-prune"></a></p>
+<h3 id="stagefreight-toolchain-prune">stagefreight toolchain prune<a class="headerlink" href="#stagefreight-toolchain-prune" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight-toolchain"><code>stagefreight toolchain</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight toolchain prune</code></p>
+<p>Remove old toolchain versions from writable cache roots.</p>
+<p>By default, shows what would be deleted (dry-run). Use --confirm to actually delete.</p>
+<p>Safety:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>- Never prunes read-only cache roots
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>- Never prunes the version currently pinned in .stagefreight.yml
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>- Keeps at least --keep-latest versions per tool
+</span></code></pre></div></p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--confirm</code></td>
+<td>bool</td>
+<td>—</td>
+<td>actually delete (default is dry-run)</td>
+</tr>
+<tr>
+<td><code>--keep-latest</code></td>
+<td>int</td>
+<td><code>1</code></td>
+<td>keep the N most recent versions per tool</td>
+</tr>
+<tr>
+<td><code>--older-than</code></td>
+<td>int</td>
+<td>—</td>
+<td>only prune versions installed more than N days ago</td>
+</tr>
+<tr>
+<td><code>--tool</code></td>
+<td>string</td>
+<td>—</td>
+<td>filter to specific tool</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-update" name="cli-stagefreight-update"></a></p>
+<h3 id="stagefreight-update">stagefreight update<a class="headerlink" href="#stagefreight-update" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight update</code></p>
+<p>Pull the StageFreight image and atomically replace the running binary with the one inside it.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>stagefreight update          docker.io/prplanit/stagefreight:latest
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>stagefreight update --dev    docker.io/prplanit/stagefreight:latest-dev
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>stagefreight update --image &lt;ref&gt;
+</span></code></pre></div>
+<p>The image binary is static (CGO_ENABLED=0) so it runs on any linux host; it is verified to run here before the swap, and the swap is atomic — the running process is unaffected.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dev</code></td>
+<td>bool</td>
+<td>—</td>
+<td>update from the latest-dev image instead of the latest release</td>
+</tr>
+<tr>
+<td><code>--image</code></td>
+<td>string</td>
+<td>—</td>
+<td>image ref to update from (overrides default and --dev)</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<p><a id="cli-stagefreight-version" name="cli-stagefreight-version"></a></p>
+<h3 id="stagefreight-version">stagefreight version<a class="headerlink" href="#stagefreight-version" title="Permanent link">&para;</a></h3>
+<p><em>↩ <a href="#cli-stagefreight"><code>stagefreight</code></a></em></p>
+<p><strong>Usage:</strong> <code>stagefreight version</code></p>
+<p>Print the version. --verbose adds build + runtime provenance (Go version, executable SHA-256, replay-guard capability) so a stale binary cannot masquerade as a guarded build.</p>
+<p><strong>Flags:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--verbose</code></td>
+<td>bool</td>
+<td>—</td>
+<td>show full build + runtime provenance</td>
+</tr>
+</tbody>
+</table>
+<p><em>Plus the <a href="#cli-global-flags">global flags</a>.</em></p>
+<hr />
+<!-- sf:cli-reference:end -->
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../Config/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Full Schema Reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Full Schema Reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../design/" class="md-footer__link md-footer__link--next" aria-label="Next: Overview">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Overview
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; PrPlanIT
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

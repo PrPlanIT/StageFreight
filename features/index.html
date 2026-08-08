@@ -1,0 +1,3499 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest.">
+      
+      
+      
+        <link rel="canonical" href="https://stagefreight.prplanit.com/features/">
+      
+      
+        <link rel="prev" href="../overview/">
+      
+      
+        <link rel="next" href="../getting-started/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/logo-192.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Features - StageFreight</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#stagefreight-feature-matrix" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="StageFreight" class="md-header__button md-logo" aria-label="StageFreight" data-md-component="logo">
+      
+  <img src="../assets/logo-192.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            StageFreight
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Features
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/PrPlanIT/StageFreight" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PrPlanIT/StageFreight
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Directory
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../integrations/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../screenshots/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Screenshots
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../config/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../reference/CLI/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../design/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Design
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../philosophy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="StageFreight" class="md-nav__button md-logo" aria-label="StageFreight" data-md-component="logo">
+      
+  <img src="../assets/logo-192.png" alt="logo">
+
+    </a>
+    StageFreight
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/PrPlanIT/StageFreight" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PrPlanIT/StageFreight
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-read-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to read it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-publish-to-registries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Publish to Registries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-retention-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Retention &amp; Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-versioning-tagging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Versioning &amp; Tagging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-releases-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Releases &amp; Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-lint-code-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Lint / Code Quality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-security-supply-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Security &amp; Supply Chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-dependency-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Dependency Updates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-docs-badges-readmes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Docs, Badges &amp; READMEs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-transport-trust-the-differentiator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Transport &amp; Trust (the differentiator)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-governed-toolchains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Governed Toolchains
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-orchestration-conventions-infra-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Orchestration, Conventions &amp; Infra Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-static-site-pages-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Static-Site / Pages Deployment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-narration-notifications-ai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Narration, Notifications &amp; AI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-backends-stagefreight-speaks-for-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A — Backends StageFreight speaks for you
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#honest-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Honest status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintaining-this-doc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintaining this doc
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/gitlab/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitLab
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub / Gitea / Forgejo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/azuredevops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure DevOps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../screenshots/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screenshots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../config/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lifecycle & Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identity & Connectivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/builds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Builds & Tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/publish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/package-distribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Package Distribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/scribe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stencils & Scribe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/narration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Narration & Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/signing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/Config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Schema Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/CLI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../design/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/pipeline-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/DependencyUpdate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependency Update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/invariants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Invariants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/ci-render/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Render
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/content-store-lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Store Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/perform-build-contributors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Perform Build Contributors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../philosophy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../known-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../licensing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Licensing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-read-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to read it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-publish-to-registries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Publish to Registries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-retention-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Retention &amp; Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-versioning-tagging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Versioning &amp; Tagging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-releases-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Releases &amp; Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-lint-code-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Lint / Code Quality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-security-supply-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Security &amp; Supply Chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-dependency-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Dependency Updates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-docs-badges-readmes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Docs, Badges &amp; READMEs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-transport-trust-the-differentiator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Transport &amp; Trust (the differentiator)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-governed-toolchains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Governed Toolchains
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-orchestration-conventions-infra-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Orchestration, Conventions &amp; Infra Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-static-site-pages-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Static-Site / Pages Deployment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-narration-notifications-ai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Narration, Notifications &amp; AI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-backends-stagefreight-speaks-for-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A — Backends StageFreight speaks for you
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#honest-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Honest status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintaining-this-doc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintaining this doc
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="stagefreight-feature-matrix">StageFreight — Feature Matrix<a class="headerlink" href="#stagefreight-feature-matrix" title="Permanent link">&para;</a></h1>
+<p>A capability-by-capability comparison of <strong>what StageFreight gives you declaratively</strong> versus what
+the same outcome costs on raw CI platforms, with the closest dedicated tool and an honest "how hard
+is this to build yourself" rating.</p>
+<p>The point of this document: most of these capabilities are things you <em>can</em> do anywhere — but on a
+raw CI platform you assemble them from actions, plugins, and hand-written API calls against each
+backend. StageFreight collapses that into one <code>.stagefreight.yml</code> and talks to the backends for you.
+Where StageFreight is <strong>behind</strong> or <strong>not yet GA</strong>, this document says so plainly.</p>
+<p><strong>One config, many CI hosts.</strong> <code>stagefreight ci render &lt;forge&gt;</code> emits a <em>native</em> pipeline for
+<strong>GitLab, GitHub Actions, Gitea, Forgejo, and Azure DevOps</strong> from the same <code>.stagefreight.yml</code>. Your
+pipeline isn't married to a vendor — switching CI hosts is a <em>re-render, not a rewrite</em>. Nothing else
+in this matrix offers that, because every other tool <em>is</em> one of those vendors.</p>
+<blockquote>
+<p>This is a <strong>living document.</strong> Capability coverage is complete; per-feature commit provenance
+(the "Since" lines) is seeded and being filled in over time. See <a href="#maintaining-this-doc">Maintaining this doc</a>.</p>
+</blockquote>
+<h2 id="how-to-read-it">How to read it<a class="headerlink" href="#how-to-read-it" title="Permanent link">&para;</a></h2>
+<p>Columns are the tools; rows are capabilities. StageFreight is first.</p>
+<table>
+<thead>
+<tr>
+<th>Mark</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✅</td>
+<td>First-class &amp; <strong>declarative</strong> — you configure it, the tool does it</td>
+</tr>
+<tr>
+<td>➕</td>
+<td>Available, but via a <strong>marketplace action / plugin / extra service</strong> you wire up</td>
+</tr>
+<tr>
+<td>🔧</td>
+<td>Possible only by <strong>writing it yourself</strong> (scripts + direct backend API calls)</td>
+</tr>
+<tr>
+<td>🚧</td>
+<td><strong>Designed but gated / experimental</strong> in StageFreight — not yet GA</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Not meaningfully a thing on that platform</td>
+</tr>
+</tbody>
+</table>
+<p><strong>DIY effort</strong> = how much work it is to pull off yourself / talk to the backend directly:
+<strong>Low</strong> (a few lines) · <strong>Med</strong> (a real script + auth) · <strong>High</strong> (a subsystem of its own).</p>
+<p>The <strong>Specialized tool</strong> column names the best-in-class single-purpose tool, so you can see what
+StageFreight is consolidating — and where that dedicated tool is still the stronger standalone choice.</p>
+<hr />
+<h2 id="1-build">1. Build<a class="headerlink" href="#1-build" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Multi-platform container build</td>
+<td>✅</td>
+<td>➕ buildx action</td>
+<td>🔧 buildx by hand</td>
+<td>➕ buildx / depot</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Go binary build (<strong>full multi-OS/arch</strong> cross-compile)</td>
+<td>✅</td>
+<td>➕ setup-go + matrix</td>
+<td>🔧 matrix by hand</td>
+<td>➕ goreleaser</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Rust (cargo) binary build — <strong>host-only</strong> (no cross-compile / no crucible)</td>
+<td>✅</td>
+<td>➕ setup-rust + matrix</td>
+<td>🔧 matrix by hand</td>
+<td>➕ cargo-dist</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>7 more languages</strong> (containerized): Node/Electron · .NET (per-RID) · JVM (Java/Kotlin/Scala) · Python (wheel/PyInstaller) · C/C++ (CMake/Meson/Make) · Elixir · Android (signed APK)</td>
+<td>✅</td>
+<td>➕ per-language setup + matrix</td>
+<td>🔧 per-language</td>
+<td>➕ per-language toolchain</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong><code>kind: command</code></strong> build type (escape hatch — any image/command, capture declared outputs)</td>
+<td>✅</td>
+<td>✅ run:</td>
+<td>✅ script:</td>
+<td>—</td>
+<td>Low</td>
+</tr>
+<tr>
+<td><strong>Reproducible build self-proof</strong> (crucible)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>— (niche: rebuilderd)</td>
+<td><strong>High</strong></td>
+</tr>
+<tr>
+<td>Build cache (local + registry-backed)</td>
+<td>✅</td>
+<td>➕ cache action</td>
+<td>➕ cache:</td>
+<td>➕ buildx cache</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Build ordering / dependency graph</td>
+<td>✅</td>
+<td>➕ needs:</td>
+<td>✅ needs:</td>
+<td>—</td>
+<td>Low</td>
+</tr>
+<tr>
+<td><strong>Typed test suites</strong> — go/rust native-flag projections (<code>-race</code>, <code>-tags</code>, features), <code>script</code> escape hatch, auto-synthesized from builds</td>
+<td>✅</td>
+<td>➕ setup + run steps</td>
+<td>🔧</td>
+<td>➕ per-tool</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Coverage floor gate (<code>coverage_min</code> fails the suite)</td>
+<td>✅</td>
+<td>➕ codecov</td>
+<td>➕ coverage regex</td>
+<td>✅ codecov</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>UPX binary compression</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ goreleaser</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Docker-compose drift detection</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ ansible/terraform</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** Docker **buildx/BuildKit** (`docker buildx build`, OCI-layout export, digest capture), native **Go** + **Rust (cargo)** toolchains, and **7 containerized language builders** — Node/Electron, .NET (per-RID self-contained), JVM (Java/Kotlin/Scala/Groovy/Clojure → jar via Maven/Gradle), Python (wheel/sdist or PyInstaller), C/C++ (CMake/Meson/Make), Elixir (mix release), Android (signed APK) — plus a `kind: command` **escape-hatch builder** (any image/command, declared `outputs[]`). Governed Go SDK download — see §11. buildkitd or DinD host. **Cross-compile:** free-form GOOS/GOARCH for Go; per-RID/image for container builders where the toolchain supports it; **Rust is host-only**.
+- **Crucible** = two passes: pass-1 gestation (`--output type=oci`, never pushed), pass-2 re-runs the candidate natively and **diffs the bytes** to prove the image is reproducible. Almost no CI platform does this for you — by hand you'd build twice, extract artifacts, and compare digests across a coherent backend.
+- **Otherwise:** hand-write `docker buildx` invocations, parse `--metadata-file`/digest output, manage `--cache-from`/`--cache-to`, and (for binaries) a build matrix per OS/arch with ldflags version injection.
+- **Tutorials:** [docker/build-push-action](https://github.com/docker/build-push-action) · [buildx cache](https://docs.docker.com/build/cache/backends/) · [goreleaser builds](https://goreleaser.com/customization/builds/) · [reproducible-builds.org](https://reproducible-builds.org/)
+- **Since:** binary build engine + caching shipped through v0.6.1 (Go caches on the `/stagefreight` mount, commit `12b8806`; cache-state row `67d916f`). Crucible: ≤ v0.6.0 *(TODO: pin commit)*.
+</details>
+
+<hr />
+<h2 id="2-publish-to-registries">2. Publish to Registries<a class="headerlink" href="#2-publish-to-registries" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Push to one registry</td>
+<td>✅</td>
+<td>✅ login+push</td>
+<td>✅</td>
+<td>✅ docker</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Push to <strong>many registries</strong> (8 providers)</td>
+<td>✅</td>
+<td>🔧 per-registry</td>
+<td>🔧 per-registry</td>
+<td>➕ crane/regctl</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Tag templating (<code>{version}</code>, <code>{major}.{minor}</code>, <code>{sha:8}</code>)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ docker/metadata-action</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Sync README to registry (Docker Hub, Harbor, Quay…)</td>
+<td>✅</td>
+<td>➕ dockerhub-description</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Publish GitLab CI component to Catalog</td>
+<td>✅</td>
+<td>—</td>
+<td>➕ manual</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Native registry scan trigger (Harbor Trivy)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** Docker Hub (v2 + token-auth), GHCR (packages API), GitLab registry, **Harbor** (v2.0 — push, scan trigger, project ensure, description), JFrog Artifactory/JCR, Quay (v1), Gitea/Forgejo packages, local Docker daemon, generic OCI Distribution.
+- **Otherwise:** for each registry, hand-write the token-auth dance, push, and (for description sync) the provider-specific description API — Docker Hub caps short desc at 100 chars / full at 25 KB; Harbor/Quay each differ.
+- **Tutorials:** [GHA: push to multiple registries](https://docs.docker.com/build/ci/github-actions/multi-registry/) · [docker/metadata-action](https://github.com/docker/metadata-action) · [peter-evans/dockerhub-description](https://github.com/peter-evans/dockerhub-description) · [GitLab Catalog](https://docs.gitlab.com/ci/components/)
+- **Since:** ≤ v0.6.0 *(TODO: pin commits per provider)*.
+</details>
+
+<hr />
+<h2 id="3-retention-cleanup">3. Retention &amp; Cleanup<a class="headerlink" href="#3-retention-cleanup" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Restic-style tag retention</strong> (keep_last/daily/weekly/monthly/yearly)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>➕ cleanup policy (GitLab-only)</td>
+<td>—</td>
+<td><strong>High</strong></td>
+</tr>
+<tr>
+<td>Retention across <strong>any</strong> registry</td>
+<td>✅</td>
+<td>🔧</td>
+<td>—</td>
+<td>➕ regctl scripts</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Protect tag patterns from deletion</td>
+<td>✅</td>
+<td>🔧</td>
+<td>➕ regex keep</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>Per-series retention grouping</strong> — series by template+identity, <code>keep_branches</code>, rolling tags auto-exempt</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Local daemon image pruning (<code>--load</code> dev builds)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>🔧 docker rmi</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>BuildKit cache prune + retention</td>
+<td>✅</td>
+<td>➕ gha cache evicts</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Host hygiene (dangling images, exited containers, networks)</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>🔧 docker system prune</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backend:** each registry's delete API + shared-digest protection (won't delete a tag whose digest another kept tag still points at).
+- **Otherwise:** GitLab has a built-in tag cleanup policy, but it's GitLab-only; everywhere else you hand-write the "list tags → apply keep policy → DELETE the losers" engine per registry, plus the digest-sharing safety. This is a genuine subsystem to build well.
+- **Tutorials:** [GitLab cleanup policy](https://docs.gitlab.com/user/packages/container_registry/reduce_container_registry_storage/) · [restic forget policy](https://restic.readthedocs.io/en/stable/060_forget.html) (the model SF borrows) · [regctl](https://github.com/regclient/regclient)
+- **Since:** ≤ v0.6.0 *(TODO)*.
+</details>
+
+<hr />
+<h2 id="4-versioning-tagging">4. Versioning &amp; Tagging<a class="headerlink" href="#4-versioning-tagging" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Version derived from git (no version file)</td>
+<td>✅</td>
+<td>➕ git-describe action</td>
+<td>🔧</td>
+<td>➕ semantic-release</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Tag-lineage sources (stable vs prerelease channels)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ semantic-release</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Per-branch version formats (e.g. <code>dev-{sha}</code>)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Policy-enforced tag planner + approval</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ semantic-release</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Generated tag annotation / highlights</td>
+<td>✅</td>
+<td>➕ changelog action</td>
+<td>➕</td>
+<td>✅ git-cliff</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backend:** git (tags, lineage), the glossary/change-language engine (§12) for highlights.
+- **Otherwise:** semantic-release/git-cliff cover changelog + version bump well, but channel lineage ("this prerelease descends from which stable line") and per-branch version formats are usually bespoke bash around `git describe`.
+- **Tutorials:** [semantic-release](https://semantic-release.gitbook.io/) · [git-cliff](https://git-cliff.org/) · [GHA git describe](https://github.com/marketplace/actions/git-describe)
+- **Since:** `stagefreight tag` planner ≤ v0.6.0; v0.6.1 cut with it *(TODO: pin commit)*.
+</details>
+
+<hr />
+<h2 id="5-releases-artifacts">5. Releases &amp; Artifacts<a class="headerlink" href="#5-releases-artifacts" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Create a forge release</td>
+<td>✅</td>
+<td>➕ gh-release action</td>
+<td>✅ release-cli</td>
+<td>✅ goreleaser</td>
+<td>Low</td>
+</tr>
+<tr>
+<td>Binary archives (tar.gz/zip) + <strong>SHA256SUMS</strong></td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>✅ goreleaser</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Rolling git-tag aliases (<code>v1</code>, <code>v1.2</code>)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>Cross-forge</strong> release sync (GitLab→GitHub mirror)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td><strong>Mirror reconciliation engine</strong> — provenance-bounded (only SF-authored releases), retention-driven desired state, upsert + <code>destroy</code></td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Safe mirror refs plane (keep-divergent, foreign-sacred prune) + per-repo sync facets × scopes (exact / current / drafts) with topology view</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Prerelease / <strong>Latest</strong> classification, per-forge (<code>type:</code> → GitHub <code>make_latest</code>)</td>
+<td>✅</td>
+<td>➕ (release flags)</td>
+<td>🔧</td>
+<td>➕ goreleaser</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Security summary embedded in release notes</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>Release notes as a stencil</strong> — the body owns the language; targets reference it (<code>notes:</code>); AI embeds are the author's choice</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>➕ goreleaser templates</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** GitHub / GitLab / Gitea / Forgejo release APIs (asset upload, release links, rolling tags). **Azure DevOps: releases honestly return `ErrNotSupported`** (no native git-release object) — see [honest status](#honest-status).
+- **Otherwise:** goreleaser is the strongest standalone here (archives, checksums, release, on GitHub/GitLab). What it doesn't do is mirror a release to a *second* forge with its own identity, or thread your scan/advisory summary into the notes — those stay bespoke.
+- **Tutorials:** [goreleaser](https://goreleaser.com/) · [softprops/action-gh-release](https://github.com/softprops/action-gh-release) · [GitLab release-cli](https://docs.gitlab.com/ci/yaml/#release)
+- **Since:** release-notes-as-stencil v0.8.0 (byte-parity gated migration); binary archives + SHA256SUMS v0.6.1; release core ≤ v0.6.0.
+</details>
+
+<hr />
+<h2 id="6-lint-code-quality">6. Lint / Code Quality<a class="headerlink" href="#6-lint-code-quality" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Delta-only (changed-files) linting</td>
+<td>✅</td>
+<td>➕ paths-filter</td>
+<td>➕ rules:changes</td>
+<td>➕ pre-commit</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Cache-aware lint with TTL eviction</td>
+<td>✅</td>
+<td>➕ cache action</td>
+<td>➕ cache:</td>
+<td>➕ pre-commit</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Built-in modules (secrets, tabs, line endings, freshness…)</td>
+<td>✅</td>
+<td>➕ many actions</td>
+<td>➕ many</td>
+<td>✅ pre-commit/megalinter</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>ansible-lint from the execution image, over declared plays only (graduated severities) 🚧</td>
+<td>✅</td>
+<td>➕ action</td>
+<td>➕</td>
+<td>✅ ansible-lint</td>
+<td>Low</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backend:** local filesystem + git (diff vs target branch); embeds gitleaks-style secret scanning.
+- **Otherwise:** pre-commit / MegaLinter are the standalone analogs and have a larger rule ecosystem; StageFreight's value is that lint is one phase of the same lifecycle with shared caching, not a separate tool to wire.
+- **Tutorials:** [pre-commit](https://pre-commit.com/) · [MegaLinter](https://megalinter.io/) · [GHA paths-filter](https://github.com/dorny/paths-filter)
+- **Since:** ≤ v0.6.0 *(TODO)*.
+</details>
+
+<hr />
+<h2 id="7-security-supply-chain">7. Security &amp; Supply Chain<a class="headerlink" href="#7-security-supply-chain" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Image vuln scan (Trivy + Grype)</td>
+<td>✅</td>
+<td>➕ trivy-action</td>
+<td>➕ template</td>
+<td>✅ trivy/grype</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>SBOM (SPDX + CycloneDX)</td>
+<td>✅</td>
+<td>➕ sbom-action</td>
+<td>➕</td>
+<td>✅ syft</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Scan the <strong>exact built bytes</strong> (OCI layout, no registry round-trip)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Cross-pipeline advisory bridge</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Image / artifact <strong>signing</strong> (key · keyless/OIDC · KMS · hardware)</td>
+<td>🚧</td>
+<td>➕ cosign-installer</td>
+<td>➕</td>
+<td>✅ cosign</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Provenance / OCI labels</td>
+<td>✅</td>
+<td>➕ provenance attest</td>
+<td>➕</td>
+<td>✅ cosign attest</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** Trivy, Grype, Syft, osv-scanner, govulncheck, cosign — all **governed/verified downloads** (§11). Scans can read the content-store **OCI layout directly** (`trivy --input` / `grype oci-dir:`), so you scan the bytes you built and review, not a re-pulled copy.
+- **Signing is implemented but not yet verified (🚧 experimental).** The mechanism is selected from a declared **signing profile** via a cosign class solver (`src/sign/cosign/render.go`): `key`, **keyless/OIDC** (Fulcio/Rekor, `SF_SIGSTORE_*` deployment env), **KMS** (logical key ref), and **hardware** (PKCS#11/YubiKey, FIDO2 `--sk`) with hardware-class assurance (physical-presence, non-exportable) enforced at validation; Tier-0 auto-provision anchors an ephemeral keyless identity when no key/profile resolves. So it is far past "hardcoded `--key`" — the code path exists for every class — **but it has not been exercised/verified end-to-end**, so treat it as experimental until proven. Signed `SHA256SUMS` bundles remain on the roadmap. See `docs/design/plans/signing-trust-model.md`.
+- **Tutorials:** [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) · [anchore/sbom-action](https://github.com/anchore/sbom-action) · [sigstore/cosign](https://docs.sigstore.dev/cosign/signing/signing_with_containers/) · [SLSA provenance](https://slsa.dev/)
+- **Since:** scan/SBOM/advisory ≤ v0.6.0; signing profile/class-solver (keyless/KMS/hardware) **coded** in the v0.6→v0.7 line but **unverified** *(TODO: pin commit; verify end-to-end)*.
+</details>
+
+<hr />
+<h2 id="8-dependency-updates">8. Dependency Updates<a class="headerlink" href="#8-dependency-updates" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Go module updates + verify</td>
+<td>✅</td>
+<td>➕ dependabot</td>
+<td>➕ renovate</td>
+<td>✅ renovate</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Dockerfile base-image <code>FROM</code> updates</td>
+<td>✅</td>
+<td>➕ dependabot</td>
+<td>➕ renovate</td>
+<td>✅ renovate</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Post-update vuln check (govulncheck)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Direct-commit <strong>or</strong> MR promotion mode</td>
+<td>✅</td>
+<td>➕ (PR only)</td>
+<td>➕ (MR only)</td>
+<td>➕ renovate</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Toolchain metadata recorded for SBOM</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** Go toolchain (`go get`/`go mod tidy` via governed Go SDK), Dockerfile parsing, GitHub releases (for `FROM` tag bumps), the forge (for MR mode).
+- **Honest scope:** **Renovate** covers far more ecosystems (npm, pip, gradle, helm, …) and is the stronger standalone updater. StageFreight's edge is that updates are part of *its* lifecycle (verify → vuln-check → its commit/MR conventions → its release notes), Go- and Dockerfile-focused for now.
+- **Tutorials:** [Renovate](https://docs.renovatebot.com/) · [Dependabot](https://docs.github.com/code-security/dependabot)
+- **Since:** direct/MR promotion present; this session confirmed `promotion: direct` is the StageFreight-repo default. ≤ v0.6.0 *(TODO)*.
+</details>
+
+<hr />
+<h2 id="9-docs-badges-readmes">9. Docs, Badges &amp; READMEs<a class="headerlink" href="#9-docs-badges-readmes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Own SVG badges (no shields.io dependency)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ shields.io</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Marker-section injection into README/any file</td>
+<td>✅</td>
+<td>➕ readme actions</td>
+<td>🔧</td>
+<td>➕ markdown-magic</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Sync README to Docker Hub / registries</td>
+<td>✅</td>
+<td>➕ dockerhub-description</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>Cross-destination project identity</strong> (<code>kind: metadata</code>) — descriptions, topics, website, logo fanned to registries + forges</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Generate CLI/config reference docs from code</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ cobra docs</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Render build manifest contents into docs (<code>build-contents</code>)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Auto-commit generated docs (with skip-ci classification)</td>
+<td>✅</td>
+<td>➕ git-auto-commit</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Builds and scribe items in <strong>one dependency graph</strong> — typed <code>depends_on</code>, a build can consume rendered scribe output</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** local files + git (auto-commit), registry description APIs, shields.io (only for the external `kind: props` badges; native `kind: badge` SVGs are self-owned).
+- **Otherwise:** stitch together shields.io URLs, a README-injection action, a Docker Hub description action, and cobra-doc generation — each separate. The **`build-contents`** renderer (image inventory → README table) and the generated-commit **skip-ci classification** (a docs commit is synchronization output, not source intent — so it shouldn't re-trigger the lifecycle) are SF-specific.
+- **Tutorials:** [shields.io](https://shields.io/) · [peter-evans/dockerhub-description](https://github.com/peter-evans/dockerhub-description) · [cobra doc gen](https://github.com/spf13/cobra/blob/main/site/content/docs/generating_documentation.md)
+- **Since:** stencils extracted as the shared text-composition library v0.8.0; scribe `build:` ownership selector + docs `skip_ci` classification both v0.6.1 (`7d0feb1`, `bfca092`); scribe/badges core ≤ v0.6.0 (as "narrator").
+</details>
+
+<hr />
+<h2 id="10-transport-trust-the-differentiator">10. Transport &amp; Trust (the differentiator)<a class="headerlink" href="#10-transport-trust-the-differentiator" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-addressed store carrying bytes across phases</td>
+<td>✅</td>
+<td>🔧 artifacts</td>
+<td>🔧 artifacts</td>
+<td>—</td>
+<td><strong>High</strong></td>
+</tr>
+<tr>
+<td><strong>Reviewed bytes == published bytes</strong> guarantee</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Verify-on-write (digest re-hash between phases)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Perform / Review / Publish phase split</td>
+<td>✅</td>
+<td>🔧 stage gates</td>
+<td>🔧 stage gates</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Build/publish manifest (<code>outputs.json</code>/<code>published.json</code>)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backend:** a CAS (content-addressed store, FSStore today) carrying an OCI layout perform→review→publish; publish is the *sole* distributor.
+- **Why it matters:** on raw CI, "build in one job, scan in another, push in a third" usually means each job **re-pulls or re-builds**, so what you scanned isn't provably what you shipped. SF's transport keeps the exact reviewed bytes and re-verifies the digest before distribution. This is the architectural heart of the project and has no off-the-shelf equivalent.
+- **Tutorials:** conceptually adjacent: [SLSA build provenance](https://slsa.dev/spec/v1.0/provenance) · [in-toto attestations](https://in-toto.io/).
+- **Since:** the perform/review/publish + manifest split is the v0.5→v0.6 line of work (domain-spine refactor + manifest `outputs.json`/`published.json` split, shipped through v0.6.x) *(TODO: pin commits)*.
+</details>
+
+<hr />
+<h2 id="11-governed-toolchains">11. Governed Toolchains<a class="headerlink" href="#11-governed-toolchains" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Resolve + <strong>checksum-verify</strong> + cache build tools</td>
+<td>✅</td>
+<td>➕ setup-* (per tool)</td>
+<td>🔧</td>
+<td>➕ asdf/mise</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>One substrate for Go, Trivy, Syft, Grype, cosign, flux, kubectl, osv</td>
+<td>✅</td>
+<td>🔧 (8 separate actions)</td>
+<td>🔧</td>
+<td>➕ mise</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Pin versions in config, hard-fail if unresolvable</td>
+<td>✅</td>
+<td>➕</td>
+<td>🔧</td>
+<td>➕ mise</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>No host-PATH fallback, no DinD requirement</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backend:** official download URLs + published checksums for each tool; immutable cache with `.metadata.json` provenance, file-locked installs, persistent on the `/stagefreight` mount.
+- **Otherwise:** a `setup-go` + a trivy-installer + a cosign-installer + … per tool, none of which give you a single governed, checksum-verified, provenance-recorded cache. mise/asdf are the closest standalone idea but don't verify against official checksums the same way.
+- **Tutorials:** [mise](https://mise.jdx.dev/) · [actions/setup-go](https://github.com/actions/setup-go)
+- **Since:** ≤ v0.6.0; persistent Go-cache path on the mount confirmed v0.6.1 (`12b8806`).
+</details>
+
+<hr />
+<h2 id="12-orchestration-conventions-infra-modes">12. Orchestration, Conventions &amp; Infra Modes<a class="headerlink" href="#12-orchestration-conventions-infra-modes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CI-vendor portability</strong> — one config → GitLab · GitHub · Gitea · Forgejo · Azure 🚧</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td><strong>High</strong></td>
+</tr>
+<tr>
+<td><strong>Render the CI file itself</strong> from one config</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td><strong>High</strong></td>
+</tr>
+<tr>
+<td>Conventional-commit planner + change language (glossary)</td>
+<td>✅</td>
+<td>➕ commitlint</td>
+<td>➕</td>
+<td>✅ commitizen</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Templated commit / tag / release message rendering (<code>commit.render</code> · <code>tagging.render</code> · <code>release.render</code>)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ git-cliff</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>Commit backend with converge push</strong> — fetch/fast-forward/object-replay before pushing; forge-API commit mode</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td><strong>Config presets</strong> with provenance-aware resolution (<code>config resolve</code> shows where every value came from)</td>
+<td>✅</td>
+<td>—</td>
+<td>➕ includes</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Unified <code>when:</code> gating grammar — events/branches/git_tags/outcomes as OR-lists, shared by publish targets and notifications</td>
+<td>✅</td>
+<td>🔧 if: expressions</td>
+<td>➕ rules:</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td><strong>Repository reconciliation</strong> — the repo converges to its encoded intent (builder⇄go-floor, generated files)</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Generated-commit skip-ci policy (no self-triggering loops)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>GitOps reconcile (Flux / [Argo 🚧]) + change-impact</td>
+<td>✅</td>
+<td>🔧 flux scripts</td>
+<td>🔧</td>
+<td>✅ flux/argo</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>K8s endpoint exposure classification</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Control-repo / multi-repo governance mode</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td><strong>Ansible host convergence</strong> — declared playbook library, containerized runtime, converge-on-commit 🚧</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>➕ AWX/Semaphore</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Cross-pipeline reconcile serialization (perform mutual exclusion)</td>
+<td>✅</td>
+<td>➕ concurrency</td>
+<td>✅ resource_group</td>
+<td>—</td>
+<td>Low</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** the forge as a **render target** — five wired emitters (`gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`), each forge-native with golden tests; git (commits), Flux/Argo + Kubernetes (gitops), Docker (compose drift), ansible-in-a-container (host convergence — the execution image owns the runtime + collections).
+- **Ansible vs AWX/Semaphore:** those give you a web UI, run history, and schedules — but as another stateful service to operate. SF ties convergence to the commit that changed the intent (Renovate bumps a pin → merge → nodes roll → phone ping), with a trust posture (pinned execution image, committed known_hosts, forge-protected key) neither ships. Runbooks (`converge: false`) are declared-but-CI-unreachable: lint + `--check` preview, human-run only.
+- **Portability / no lock-in:** `render.Emit(forge, …)` dispatches to all five from one forge-neutral pipeline model, so the *same* `.stagefreight.yml` renders `.gitlab-ci.yml`, GitHub Actions workflows, Gitea/Forgejo, or Azure pipelines. To migrate CI hosts by hand you'd rewrite every pipeline in the new vendor's YAML dialect; here it's `stagefreight ci render <forge> --write`. (Azure DevOps is experimental.)
+- **`ci render` is unusual:** instead of you maintaining `.gitlab-ci.yml`/workflows by hand, SF generates them from `.stagefreight.yml`. The thing other tools assume you write, SF treats as output. (Caveat from real use: because it's generated + dogfooded, a CI-skeleton or config-schema change can require regeneration — see KnownIssues.)
+- **Tutorials:** [commitlint](https://commitlint.js.org/) · [Flux](https://fluxcd.io/) · [Argo CD](https://argo-cd.readthedocs.io/)
+- **Since:** ansible host convergence + perform serialization on main post-v0.8.0 (🚧 unreleased — ships with the next release); generated-commit skip-ci classification v0.6.1 (`bfca092`/`124f3ba`); glossary + ci-render ≤ v0.6.0.
+</details>
+
+<hr />
+<h2 id="13-static-site-pages-deployment">13. Static-Site / Pages Deployment<a class="headerlink" href="#13-static-site-pages-deployment" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Deploy to <strong>Cloudflare Pages</strong> (native Direct Upload — no wrangler/npm)</td>
+<td>✅</td>
+<td>➕ wrangler action</td>
+<td>🔧</td>
+<td>➕ wrangler</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Deploy to <strong>GitHub Pages</strong> (gh-pages force-push + CNAME)</td>
+<td>✅</td>
+<td>✅ pages action</td>
+<td>🔧</td>
+<td>➕</td>
+<td>Low</td>
+</tr>
+<tr>
+<td><strong>Multiple custom domains</strong> per project (Cloudflare)</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>DNS-aware attach guidance (authoritative-NS classification)</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Same content → <strong>container image AND Pages</strong> from one config</td>
+<td>✅</td>
+<td>🔧</td>
+<td>🔧</td>
+<td>—</td>
+<td>Med</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** Cloudflare Pages **Direct Upload API** — a faithful port of wrangler's protocol (no wrangler, no npm, no Docker): SF makes the CF API calls itself. GitHub Pages via go-git force-push to `gh-pages` (+ `.nojekyll`/`CNAME`, no git binary). The Cloudflare path idempotently ensures the project, attaches **each** listed custom domain, and classifies the domain's authoritative nameservers to tailor DNS guidance — the attach is **non-fatal**, reported as data so a domain hiccup never fails a deploy.
+- **Otherwise:** wire a `wrangler` action (Node toolchain + API token) or the GitHub Pages action per repo; multi-domain attach and DNS-provider-aware messaging you'd script by hand.
+- **Tutorials:** [Cloudflare Pages Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/) · [actions/deploy-pages](https://github.com/actions/deploy-pages)
+- **Since:** Cloudflare/GitHub pages providers ≤ v0.6.x; multi-domain (`domain:` list) + non-fatal DomainOutcome + the `8000018` idempotent-attach fix landed in the v0.7 line *(TODO: pin commit)*.
+</details>
+
+<hr />
+<h2 id="14-narration-notifications-ai">14. Narration, Notifications &amp; AI<a class="headerlink" href="#14-narration-notifications-ai" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>StageFreight</th>
+<th>GitHub Actions</th>
+<th>GitLab CI</th>
+<th>Specialized tool</th>
+<th>DIY effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Run summaries as stencils</strong> — union bodies of facts, per-line elision, override by shadowing</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Phone/webhook notifications with outcome gating (<code>when: outcomes:</code>)</td>
+<td>✅</td>
+<td>➕ slack actions</td>
+<td>➕ integrations</td>
+<td>✅ ntfy/apprise</td>
+<td>Med</td>
+</tr>
+<tr>
+<td>Full ntfy vocabulary (priority, tags, click, attach, actions, email)</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>✅ ntfy</td>
+<td>Low</td>
+</tr>
+<tr>
+<td><strong>AI narration</strong> — <code>type: llm</code> stencils over an <code>llms:</code> endpoint library (failure triage, success recap)</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+<tr>
+<td>Documented + ratcheted fact vocabulary (docs test fails undocumented facts)</td>
+<td>✅</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>High</td>
+</tr>
+</tbody>
+</table>
+<details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
+
+- **Backends:** ntfy (full header vocabulary) and webhooks for dispatch; ollama for AI narration (openai/anthropic/claude-agent reserved behind the same `llms:` shape).
+- **Otherwise:** a slack-notify action with a hand-rolled message template per repo, no shared fact vocabulary, no elision (empty sections render as noise), and no story arc — SF renders ONE union body per outcome arc that any modality mix composes into. AI-wise: nothing comparable is integrated in CI tooling; you'd script a model call and paste output into a webhook.
+- **Contracts that make AI safe here:** degrade-to-empty (a down model never fails the pipeline or sends a broken ping), per-run memoization, `<think>` stripping, and the dispatch-only boundary — AI text reaches notifications, stdout cards, and (author's choice) release bodies, never the committed record.
+- **Tutorials:** [ntfy](https://ntfy.sh/) · [ollama](https://ollama.com/)
+- **Since:** the whole family v0.8.0 — stencil engine (`type: text/ci/llm`), cistate facts, notifications with `when: outcomes:`, llms library, union-body summaries; fact-vocabulary ratchet post-v0.8.0.
+</details>
+
+<hr />
+<h2 id="appendix-a-backends-stagefreight-speaks-for-you">Appendix A — Backends StageFreight speaks for you<a class="headerlink" href="#appendix-a-backends-stagefreight-speaks-for-you" title="Permanent link">&para;</a></h2>
+<p>Every row below is a system you'd otherwise authenticate to and call by hand.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Backends</th>
+<th>What SF does against them</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Container registries</strong></td>
+<td>Docker Hub, GHCR, GitLab, Harbor, JFrog, Quay, Gitea/Forgejo, local daemon, generic OCI</td>
+<td>push, tag list, retention/delete, README sync, native scan trigger (Harbor), referrer discovery, digest verify</td>
+</tr>
+<tr>
+<td><strong>Git forges</strong></td>
+<td>GitHub/GHES, GitLab, Gitea, Forgejo, Azure DevOps 🚧</td>
+<td>releases, asset upload, multi-file commits, tags, MRs/PRs, pipeline cancel, artifact download</td>
+</tr>
+<tr>
+<td><strong>Toolchains</strong></td>
+<td>Go SDK, Trivy, Syft, Grype, osv-scanner, cosign, flux2, kubectl</td>
+<td>resolve → checksum-verify → cache → invoke by absolute path</td>
+</tr>
+<tr>
+<td><strong>Build</strong></td>
+<td>Docker buildx / BuildKit, buildkitd, DinD, CAS content store</td>
+<td>multi-arch build, OCI export, cache, crucible 2-pass, byte transport</td>
+</tr>
+<tr>
+<td><strong>Security</strong></td>
+<td>cosign 🚧, Trivy, Grype, Syft, osv-scanner, govulncheck</td>
+<td>sign (key/keyless/KMS/hardware — coded, unverified)/attest, scan, SBOM, advisory bridge, provenance</td>
+</tr>
+<tr>
+<td><strong>Infra</strong></td>
+<td>Kubernetes, Flux / [Argo 🚧], Docker Compose, Ansible inventory</td>
+<td>gitops reconcile/impact, compose drift, exposure classification</td>
+</tr>
+<tr>
+<td><strong>Static hosting</strong></td>
+<td>Cloudflare Pages, GitHub Pages</td>
+<td>Direct-Upload deploy, multi-domain attach, authoritative-NS classification, CNAME</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="honest-status">Honest status<a class="headerlink" href="#honest-status" title="Permanent link">&para;</a></h2>
+<p>Things this matrix marks 🚧 or that deserve a caveat, stated plainly:</p>
+<ul>
+<li><strong>Signing is coded but unverified (experimental).</strong> Mechanism selection — key, keyless/OIDC (Fulcio/Rekor), KMS, and hardware (PKCS#11/YubiKey/FIDO2) — exists via signing profiles + a cosign class solver, with hardware-class assurance enforced. It is well past "hardcoded <code>--key</code>," but has <strong>not been exercised/verified end-to-end</strong> — don't rely on it in production until proven. Signed <code>SHA256SUMS</code> bundles remain on the roadmap.</li>
+<li><strong>Azure DevOps is experimental</strong> and honestly returns <code>ErrNotSupported</code> for releases (no native git-release object).</li>
+<li><strong>OIDC</strong> is wired for keyless signing (Sigstore identity) and gitops; it is not a dead seam. Its main consumer (signing) is itself unverified (above), so exercise the OIDC path when validating signing.</li>
+<li><strong>Multi-arch crucible</strong> is deferred (arm64 ships via binaries; the image is single-arch by design for now).</li>
+<li><strong>Dependency updates</strong> are Go + Dockerfile focused; Renovate covers more ecosystems.</li>
+<li><strong>Pre-1.0:</strong> the config schema isn't frozen — expect breaking changes across versions, and regenerate the CI skeleton after upgrades.</li>
+<li><strong><code>manifest diff</code></strong> is declared but not yet implemented.</li>
+<li><strong>AI narration is plumbing-solid, output-modest:</strong> with small local models (the dogfood runs deepseek-r1:1.5b) the triage/recap text is entertainment-grade; the contracts (degrade-to-empty, dispatch-only) are the hardened part. Point <code>llms:</code> at a stronger backend for serious summaries.</li>
+<li><strong>Ansible host convergence is on main, unreleased</strong> — ships with the next release; converge idempotency is the playbook author's contract (SF provides the per-host gate pattern in the docs).</li>
+</ul>
+<p>Where the matrix shows StageFreight's real, hard-to-replicate value: <strong>crucible reproducibility</strong>, <strong>multi-registry retention</strong>, <strong>the perform/review/publish byte-transport trust model</strong>, <strong>governed toolchains</strong>, and <strong>rendering the CI file itself</strong> — these are the High-DIY-effort rows you'd otherwise build and maintain yourself.</p>
+<hr />
+<h2 id="maintaining-this-doc">Maintaining this doc<a class="headerlink" href="#maintaining-this-doc" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Coverage</strong> (rows) is complete as of v0.8 + the post-v0.8 main line — this pass added §14 Narration/Notifications/AI, the release-notes-stencil row, ansible host convergence + perform serialization (🚧 unreleased), and retired the stale <code>--help</code> caveat. When a feature lands, add its row.</li>
+<li><strong>Update discipline:</strong> coverage is judged against the SHIP LOG, not memory — before editing,
+  run <code>git log --pretty=%s $(git log -1 --format=%H -- docs/features.md)..HEAD | grep -E '^feat'</code>
+  (every feature since the matrix's own last edit) and evaluate every line against the rows.</li>
+<li><strong>Provenance</strong> (the "Since" lines) is being filled in. To pin a feature's introducing commit:
+  <code>git log --oneline --reverse -- &lt;path/to/feature&gt; | head -1</code>, or map to the release tag it first shipped in (<code>git tag --contains &lt;commit&gt;</code>).</li>
+<li>Keep the comparison columns <strong>fair</strong> — the alternatives are capable; the story is <em>declarative + integrated</em>, not <em>only-SF-can</em>.</li>
+<li>Mark anything not-yet-GA as 🚧 and add it to <a href="#honest-status">Honest status</a>. Overstating readiness burns trust the first time an adopter hits the gap.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../overview/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Directory">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Directory
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../getting-started/" class="md-footer__link md-footer__link--next" aria-label="Next: Getting Started">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Getting Started
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; PrPlanIT
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
