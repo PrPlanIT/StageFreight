@@ -58,12 +58,12 @@ func (m *Resolver) checkDockerfile(ctx context.Context, file lint.FileInfo) ([]s
 // e.g. "alpine:3.22" → "3.22", "golang:1.25-alpine3.22" → "3.22"
 func detectAlpineVersion(stages []supplychain.StageInfo) string {
 	for _, s := range stages {
-		_, tag := SplitImageTag(s.Image)
+		// Strip a digest pin so the tag is recoverable (image:tag@sha256:… → image:tag).
+		ref, _ := SplitImageDigest(s.Image)
+		image, tag := SplitImageTag(ref)
 		if tag == "" {
 			continue
 		}
-		// Direct alpine image
-		image, _ := SplitImageTag(s.Image)
 		ns, repo := SplitImageNamespace(image)
 		if (ns == "library" || ns == "") && repo == "alpine" {
 			dt := version.DecomposeTag(tag)

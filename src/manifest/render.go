@@ -279,8 +279,12 @@ func RenderVersions(data interface{}) (string, error) {
 	if len(refs) > 0 {
 		b.WriteString("Built from ")
 		for i, ref := range refs {
-			// Strip a leading `FROM ` prefix only.
+			// Strip a leading `FROM ` prefix, and a trailing `@sha256:…` digest pin
+			// so a digest-pinned base renders as `alpine:3.23.5`, not the raw digest.
 			display := strings.TrimPrefix(ref, "FROM ")
+			if at := strings.Index(display, "@sha256:"); at >= 0 {
+				display = display[:at]
+			}
 			if i > 0 {
 				b.WriteString(", ")
 			}

@@ -85,6 +85,26 @@ type Dependency struct {
 	// patch of the current minor instead of holding — rather than skipping the dep
 	// entirely. Empty means "use the natural target". Never set by discovery.
 	ResolvedTarget string
+
+	// ResolvedDigest is the registry manifest digest ("sha256:…") of the update
+	// target, resolved for a digest-pinned base image (FROM image:tag@sha256:…). The
+	// apply layer writes it alongside the bumped tag so the pin stays immutable AND
+	// current — Renovate pinDigests parity. Empty for non-digest-pinned deps.
+	ResolvedDigest string
+
+	// PinnedDigest is the digest currently written in the FROM line ("sha256:…"),
+	// captured by discovery. Compared against ResolvedDigest to detect a same-tag
+	// digest refresh (a CVE rebuild republished under the same version tag). Empty for
+	// non-digest-pinned deps.
+	PinnedDigest string
+}
+
+// NeedsDigestRefresh reports a digest-pinned image whose currently-pinned digest is
+// stale relative to the freshly-resolved digest for the SAME tag — a same-tag refresh
+// (an upstream rebuild under the same version). Both digests must be known and differ.
+// This is the Mode-2 counterpart to a version bump: an update with no tag change.
+func (d Dependency) NeedsDigestRefresh() bool {
+	return d.PinnedDigest != "" && d.ResolvedDigest != "" && d.PinnedDigest != d.ResolvedDigest
 }
 
 // UpdateTarget is the version autonomous remediation should advance to. A deps-layer

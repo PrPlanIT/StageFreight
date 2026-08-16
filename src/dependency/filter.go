@@ -159,8 +159,11 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// (review-domain, may need feature renames / API migration), never auto-applied.
 	// (A vuln-indirect is exempt: UpdateTarget derives from an empty Latest. A
 	// LockPending dep is exempt too: Current equals the target, but its lock has not been
-	// written yet, so it must reach apply to be materialized — not skipped as up to date.)
-	if !vulnIndirect && !dep.LockPending && dep.UpdateTarget() == dep.Current {
+	// written yet, so it must reach apply to be materialized — not skipped as up to date.
+	// A digest-pinned image with a STALE pinned digest is exempt for the same reason:
+	// the tag is already latest, but the digest must be refreshed to the current one —
+	// a same-tag rebuild — so it must reach apply.)
+	if !vulnIndirect && !dep.LockPending && !dep.NeedsDigestRefresh() && dep.UpdateTarget() == dep.Current {
 		if dep.MajorAvailable() {
 			return SkipMajorHeld, "major upgrade held — review (" + dep.Latest + " out of range)"
 		}
@@ -223,9 +226,14 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 func dockerImageSkipReason(dep supplychain.Dependency) (SkipCategory, string) {
 	name := dep.Name
 
-	// Digest-pinned images
+	// Digest-pinned images. A VERSIONED digest-pin (alpine:3.23.5@sha256:…) is
+	// updatable — discovery resolved a version line for it, so bump the tag and
+	// re-resolve the digest (Renovate pinDigests parity). Only a digest-pin with no
+	// resolvable version line stays excluded (it rides the digest-lock path).
 	if strings.Contains(name, "@sha256:") {
-		return SkipDockerConstraint, "digest-pinned image"
+		if dep.LatestEligible == "" && dep.Latest == "" {
+			return SkipDockerConstraint, "digest-pinned image"
+		}
 	}
 
 	// ARG-based dynamic base images
@@ -233,8 +241,13 @@ func dockerImageSkipReason(dep supplychain.Dependency) (SkipCategory, string) {
 		return SkipDockerConstraint, "ARG-based dynamic base image"
 	}
 
-	// Determine tag: split on last : after the last /
-	tag := extractTag(name)
+	// Determine tag: split on last : after the last /. Strip a digest pin first so
+	// the real tag is recovered (image:tag@sha256:… → image:tag).
+	ref := name
+	if at := strings.Index(ref, "@sha256:"); at >= 0 {
+		ref = ref[:at]
+	}
+	tag := extractTag(ref)
 	if tag == "" {
 		return SkipDockerConstraint, "untagged image"
 	}

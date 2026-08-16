@@ -152,13 +152,25 @@ func buildFromReplacement(dep supplychain.Dependency, origLine string) (string, 
 
 	token := m[2] // the image token
 
-	// Skip checks on the token (these should already be handled by FilterUpdateCandidates,
-	// but defense-in-depth)
-	if strings.Contains(token, "@sha256:") {
-		return origLine, "digest-pinned image"
-	}
 	if strings.ContainsAny(token, "$") {
 		return origLine, "ARG-based dynamic base image"
+	}
+
+	// Digest-pinned base (image:tag@sha256:…): bump the tag within the ref AND swap
+	// in the re-resolved digest (Renovate pinDigests parity). ResolvedDigest is set by
+	// discovery for the update target; when it's empty (registry miss) fall back to a
+	// tag-only bump, keeping the old digest rather than skipping.
+	if at := strings.Index(token, "@sha256:"); at >= 0 {
+		ref, oldDigest := token[:at], token[at+1:]
+		newRef := strings.Replace(ref, dep.Current, dep.UpdateTarget(), 1)
+		newDigest := oldDigest
+		if dep.ResolvedDigest != "" {
+			newDigest = dep.ResolvedDigest
+		}
+		if newRef == ref && newDigest == oldDigest {
+			return origLine, "current version not found in image token"
+		}
+		return m[1] + newRef + "@" + newDigest + m[3], ""
 	}
 
 	// Replace the current version tag with the eligible bump target.

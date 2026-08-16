@@ -48,7 +48,10 @@ func (m *Resolver) checkImages(ctx context.Context, file lint.FileInfo, stages [
 // resolveImage queries Docker Hub for available tags and computes
 // the version delta for a single base image.
 func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supplychain.StageInfo) *supplychain.Dependency {
-	image, tag := SplitImageTag(stage.Image)
+	// Strip a digest pin (image:tag@sha256:…) so the tag is parseable — the digest is
+	// re-resolved below for the update target (Renovate pinDigests parity).
+	ref, pinnedDigest := SplitImageDigest(stage.Image)
+	image, tag := SplitImageTag(ref)
 	if tag == "" {
 		tag = "latest"
 	}
@@ -137,6 +140,18 @@ func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supp
 	// update path, which selects from Latest/LatestEligible, not this list.
 	if repo == "golang" {
 		dep.AvailableVersions = tags
+	}
+
+	// Digest-pinned base (FROM image:tag@sha256:…): re-resolve the manifest digest for
+	// the update target so apply writes tag AND digest together. UpdateTarget() is the
+	// bumped tag when a newer in-line tag exists, else the current tag (a digest
+	// refresh for the same version — a CVE rebuild). Best-effort: a registry miss just
+	// leaves ResolvedDigest empty and apply falls back to a tag-only bump.
+	if pinnedDigest != "" {
+		dep.PinnedDigest = pinnedDigest
+		if d, err := m.FetchManifestDigest(ctx, image, dep.UpdateTarget()); err == nil {
+			dep.ResolvedDigest = d
+		}
 	}
 	return dep
 }
@@ -235,6 +250,16 @@ func suggestStableUpgrade(current version.DecomposedTag, tags []string) string {
 		return fmt.Sprintf("consider pinning to a versioned tag (e.g. %s)", bestTag.Raw)
 	}
 	return ""
+}
+
+// SplitImageDigest splits a digest-pinned reference into the ref without the digest
+// and the digest itself: "alpine:3.23.5@sha256:abc" → ("alpine:3.23.5", "sha256:abc").
+// A ref with no "@" returns (ref, "").
+func SplitImageDigest(ref string) (string, string) {
+	if idx := strings.Index(ref, "@"); idx >= 0 {
+		return ref[:idx], ref[idx+1:]
+	}
+	return ref, ""
 }
 
 // SplitImageTag splits "golang:1.25-alpine" into ("golang", "1.25-alpine").

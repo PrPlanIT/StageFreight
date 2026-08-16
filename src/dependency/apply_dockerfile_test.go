@@ -46,6 +46,63 @@ func TestBuildFromReplacement_BumpsToEligibleNotLatest(t *testing.T) {
 	}
 }
 
+// A digest-pinned base (image:tag@sha256:…) must bump BOTH the tag and the digest,
+// swapping in the ResolvedDigest discovery resolved for the update target
+// (Renovate pinDigests parity — update mode 1: version bump).
+func TestBuildFromReplacement_DigestPinnedBumpsTagAndDigest(t *testing.T) {
+	dep := supplychain.Dependency{
+		Ecosystem:      supplychain.EcosystemDockerImage,
+		Current:        "3.23.5",
+		LatestEligible: "3.23.6",
+		ResolvedDigest: "sha256:new",
+	}
+	got, skip := buildFromReplacement(dep, "FROM docker.io/library/alpine:3.23.5@sha256:old")
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	want := "FROM docker.io/library/alpine:3.23.6@sha256:new"
+	if got != want {
+		t.Errorf("replacement = %q, want %q", got, want)
+	}
+}
+
+// Same tag, new digest (an upstream CVE rebuild) — the apply layer swaps only the
+// digest (update mode 2: digest refresh).
+func TestBuildFromReplacement_DigestRefreshSameTag(t *testing.T) {
+	dep := supplychain.Dependency{
+		Ecosystem:      supplychain.EcosystemDockerImage,
+		Current:        "3.23.5",
+		LatestEligible: "3.23.5", // no tag bump
+		ResolvedDigest: "sha256:rebuilt",
+	}
+	got, skip := buildFromReplacement(dep, "FROM alpine:3.23.5@sha256:old")
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	want := "FROM alpine:3.23.5@sha256:rebuilt"
+	if got != want {
+		t.Errorf("replacement = %q, want %q", got, want)
+	}
+}
+
+// Registry miss → ResolvedDigest empty: bump the tag but keep the existing digest
+// rather than skipping the update entirely.
+func TestBuildFromReplacement_DigestPinnedFallbackKeepsDigest(t *testing.T) {
+	dep := supplychain.Dependency{
+		Ecosystem:      supplychain.EcosystemDockerImage,
+		Current:        "3.23.5",
+		LatestEligible: "3.23.6",
+	}
+	got, skip := buildFromReplacement(dep, "FROM alpine:3.23.5@sha256:old")
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	want := "FROM alpine:3.23.6@sha256:old"
+	if got != want {
+		t.Errorf("replacement = %q, want %q", got, want)
+	}
+}
+
 // When there is no compatibility model (LatestEligible empty — e.g. GitHub
 // release / ENV pins), UpdateTarget falls back to Latest, so behavior is
 // unchanged: the bump goes to Latest.
