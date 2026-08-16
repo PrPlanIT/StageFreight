@@ -118,9 +118,13 @@ dockerd mirrors Docker Hub only; BuildKit mirrors the other registries for build
 settings fall outside the stack:
 
 - **Job image.** The image named by a job's `image:` is pulled by the host Docker daemon, not
-  DinD. Mirror Docker Hub on the host once:
+  DinD — add the mirror to the host's `/etc/docker/daemon.json`, then restart Docker. Merge this
+  key into your existing file; `registry-mirrors` is a list, so if it's already present append to
+  it (Docker tries the entries in order, then falls back to Docker Hub):
+  ```json
+  { "registry-mirrors": ["https://docker.example.com"] }
+  ```
   ```bash
-  echo '{ "registry-mirrors": ["https://docker.example.com"] }' | sudo tee /etc/docker/daemon.json
   sudo systemctl restart docker
   ```
 - **Image references.** Reference images by upstream name (`docker.io/…`, `ghcr.io/…`), never the
