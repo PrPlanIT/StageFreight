@@ -114,3 +114,64 @@ func LayoutToRegistry(ctx context.Context, layoutDir, ref, wantDigest string, au
 
 	return Result{Ref: tag.String(), Digest: want.String()}, nil
 }
+
+// OCILabel returns the value of an OCI image label on the recorded artifact inside the
+// layout — the manifest whose digest equals wantDigest — or "" when the label is absent.
+// promote distributes a digest-preserved image WITHOUT re-stamping, so this is how
+// publish confirms the shipped image's provenance (org.opencontainers.image.revision)
+// names the source it was built from before it reaches a registry. For a multi-platform
+// entry it reads the first real platform image's config; the provenance labels
+// StandardLabels injects are identical across platforms.
+func OCILabel(layoutDir, wantDigest, key string) (string, error) {
+	p, err := layout.FromPath(layoutDir)
+	if err != nil {
+		return "", fmt.Errorf("promote: opening OCI layout %s: %w", layoutDir, err)
+	}
+	idx, err := p.ImageIndex()
+	if err != nil {
+		return "", fmt.Errorf("promote: reading layout index: %w", err)
+	}
+	want, err := v1.NewHash(wantDigest)
+	if err != nil {
+		return "", fmt.Errorf("promote: parsing recorded digest %q: %w", wantDigest, err)
+	}
+	img, err := imageForDigest(idx, want)
+	if err != nil {
+		return "", err
+	}
+	cf, err := img.ConfigFile()
+	if err != nil {
+		return "", fmt.Errorf("promote: reading image config for %s: %w", want, err)
+	}
+	if cf == nil || cf.Config.Labels == nil {
+		return "", nil
+	}
+	return cf.Config.Labels[key], nil
+}
+
+// imageForDigest resolves want to a concrete image: directly when it is an image
+// manifest, else by descending one level into a multi-platform sub-index and taking its
+// first real platform image (skipping attestation manifests, which carry the
+// unknown/unknown platform).
+func imageForDigest(idx v1.ImageIndex, want v1.Hash) (v1.Image, error) {
+	if img, err := idx.Image(want); err == nil {
+		return img, nil
+	}
+	subIdx, err := idx.ImageIndex(want)
+	if err != nil {
+		return nil, fmt.Errorf("promote: digest %s is neither an image nor an index in the layout", want)
+	}
+	sim, err := subIdx.IndexManifest()
+	if err != nil {
+		return nil, fmt.Errorf("promote: reading sub-index manifest for %s: %w", want, err)
+	}
+	for _, d := range sim.Manifests {
+		if d.Platform != nil && d.Platform.OS == "unknown" {
+			continue // attestation manifest, not a runnable image
+		}
+		if img, err := subIdx.Image(d.Digest); err == nil {
+			return img, nil
+		}
+	}
+	return nil, fmt.Errorf("promote: sub-index %s has no platform image entry", want)
+}

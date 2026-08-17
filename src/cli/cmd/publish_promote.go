@@ -80,6 +80,14 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 
 	var failures []string
 
+	// Provenance gate input: the commit the source under build resolves to — the value
+	// StandardLabels stamped into org.opencontainers.image.revision at build time. promote
+	// re-tags a digest-preserved image WITHOUT re-stamping, so a shipped image whose
+	// revision label disagrees with this was baked from the wrong version (the version.*
+	// orchestrator-stamp regression) and must not be distributed as-is. Empty (unversioned
+	// or detached build) disables the gate rather than guessing.
+	_, wantCommit := build.ResolveImageStamp(rootDir, appCfg)
+
 	// Post-distribution native scans, collected per (host,path) and fired only for
 	// tags that actually pushed. Publish owns post-distribution registry actions.
 	type scanKey struct{ host, path string }
@@ -114,6 +122,24 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 				verifySkip: vErr.Error(),
 			})
 			continue
+		}
+
+		// Provenance gate: the shipped image's revision label must name the source HEAD.
+		// Only a definite mismatch blocks (a missing label, or an undeterminable source
+		// commit, disables the check rather than fabricating a failure). A mismatch means
+		// the image carries someone else's provenance — refuse to distribute it and fail
+		// the run. A label-read hiccup is best-effort defense, not fatal: note it and push.
+		if wantCommit != "" {
+			rev, lErr := promote.OCILabel(layoutDir, string(a.Digest), build.LabelRevision)
+			switch {
+			case lErr != nil:
+				fmt.Fprintf(os.Stderr, "warning: provenance gate could not read %s for %s: %v\n", build.LabelRevision, a.Name, lErr)
+			case rev != "" && rev != wantCommit:
+				reason := fmt.Sprintf("%s %s does not match source HEAD %s — provenance mismatch, not distributed", build.LabelRevision, rev, wantCommit)
+				dists = append(dists, distArtifact{name: a.Name, digest: string(a.Digest), verifySkip: reason})
+				failures = append(failures, fmt.Sprintf("%s: %s", a.Name, reason))
+				continue
+			}
 		}
 
 		dist := distArtifact{name: a.Name, digest: string(a.Digest)}
