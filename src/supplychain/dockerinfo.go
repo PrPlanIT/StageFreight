@@ -3,8 +3,14 @@ package supplychain
 // DockerFreshnessInfo holds everything extracted from a Dockerfile
 // relevant to freshness checking.
 type DockerFreshnessInfo struct {
-	Stages      []StageInfo
-	EnvVars     map[string]EnvVar
+	Stages  []StageInfo
+	EnvVars map[string]EnvVar
+	// Args holds every ARG declaration with a default value (name → value+line),
+	// the resolution source for FROM references that interpolate a build arg
+	// (FROM alpine:${ALPINE_VERSION}). Unlike EnvVars — which retains only *_VERSION
+	// entries for tool cross-referencing — Args records all ARGs so any ${VAR} base
+	// image can be resolved to its concrete tag.
+	Args        map[string]EnvVar
 	PinnedTools []PinnedTool
 	ApkPackages []PackageRef
 	AptPackages []PackageRef

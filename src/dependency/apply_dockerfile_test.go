@@ -122,6 +122,85 @@ func TestBuildEnvReplacement_FallsBackToLatest(t *testing.T) {
 	}
 }
 
+// An ARG/ENV-anchored base image (FROM alpine:${ALPINE_VERSION}) carries the variable
+// as its Binding, so buildReplacement routes to the ENV-line updater — bumping the
+// `ARG VAR=…` value, not the FROM.
+func TestBuildReplacement_ArgAnchoredBumpsArgLine(t *testing.T) {
+	dep := supplychain.Dependency{
+		Ecosystem:      supplychain.EcosystemDockerImage,
+		Name:           "alpine:3.23.5",
+		Current:        "3.23.5",
+		LatestEligible: "3.23.6",
+		Binding:        "ALPINE_VERSION",
+	}
+	got, skip := buildReplacement(dep, "ARG ALPINE_VERSION=3.23.5")
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	if got != "ARG ALPINE_VERSION=3.23.6" {
+		t.Errorf("replacement = %q, want %q", got, "ARG ALPINE_VERSION=3.23.6")
+	}
+}
+
+// End-to-end: an ARG-anchored base image bumps the ARG declaration line and leaves the
+// interpolated FROM untouched.
+func TestApplyDockerfileUpdates_ArgAnchoredBump(t *testing.T) {
+	dir := t.TempDir()
+	dockerfile := filepath.Join(dir, "Dockerfile")
+	const body = "ARG ALPINE_VERSION=3.23.5\nFROM alpine:${ALPINE_VERSION}\nRUN echo hi\n"
+	if err := os.WriteFile(dockerfile, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dep := supplychain.Dependency{
+		Name:           "alpine:3.23.5",
+		Ecosystem:      supplychain.EcosystemDockerImage,
+		Current:        "3.23.5",
+		LatestEligible: "3.23.6",
+		File:           "Dockerfile",
+		Line:           1,
+		Binding:        "ALPINE_VERSION",
+	}
+
+	applied, skipped, _, err := applyDockerfileUpdates([]supplychain.Dependency{dep}, dir)
+	if err != nil {
+		t.Fatalf("applyDockerfileUpdates: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skips: %+v", skipped)
+	}
+	if len(applied) != 1 {
+		t.Fatalf("applied = %d, want 1", len(applied))
+	}
+
+	out, err := os.ReadFile(dockerfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ARG ALPINE_VERSION=3.23.6\nFROM alpine:${ALPINE_VERSION}\nRUN echo hi\n"
+	if string(out) != want {
+		t.Errorf("rewritten Dockerfile = %q, want %q (ARG bumped, FROM untouched)", string(out), want)
+	}
+}
+
+// An inline-default base (FROM alpine:${VAR:-3.23.5}) has no ARG anchor — its version
+// lives in the FROM token, so the FROM line is edited in place.
+func TestBuildFromReplacement_InlineDefaultBumpsInPlace(t *testing.T) {
+	dep := supplychain.Dependency{
+		Ecosystem:      supplychain.EcosystemDockerImage,
+		Name:           "alpine:3.23.5",
+		Current:        "3.23.5",
+		LatestEligible: "3.23.6",
+	}
+	got, skip := buildFromReplacement(dep, "FROM alpine:${ALPINE_VERSION:-3.23.5}")
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	if got != "FROM alpine:${ALPINE_VERSION:-3.23.6}" {
+		t.Errorf("replacement = %q, want %q", got, "FROM alpine:${ALPINE_VERSION:-3.23.6}")
+	}
+}
+
 // End-to-end: a FROM line bump on the same line+variant is written back, with
 // the hash guard satisfied and the variant preserved.
 func TestApplyDockerfileUpdates_FromLineBump(t *testing.T) {

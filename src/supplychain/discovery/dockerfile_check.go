@@ -21,7 +21,7 @@ func (m *Resolver) checkDockerfile(ctx context.Context, file lint.FileInfo) ([]s
 
 	// Base image freshness
 	if m.cfg.SourceEnabled(supplychain.EcosystemDockerImage) {
-		deps = append(deps, m.checkImages(ctx, file, dfInfo.Stages)...)
+		deps = append(deps, m.checkImages(ctx, file, dfInfo)...)
 	}
 
 	// Pinned tool versions (ENV *_VERSION + GitHub releases)
@@ -29,7 +29,7 @@ func (m *Resolver) checkDockerfile(ctx context.Context, file lint.FileInfo) ([]s
 
 	// Alpine APK packages
 	if m.cfg.SourceEnabled(supplychain.EcosystemAlpineAPK) && len(dfInfo.ApkPackages) > 0 {
-		alpineVer := detectAlpineVersion(dfInfo.Stages)
+		alpineVer := detectAlpineVersion(dfInfo)
 		if alpineVer != "" {
 			apkDeps := m.checkAPK(ctx, file, dfInfo.ApkPackages, alpineVer)
 			deps = append(deps, apkDeps...)
@@ -55,11 +55,17 @@ func (m *Resolver) checkDockerfile(ctx context.Context, file lint.FileInfo) ([]s
 }
 
 // detectAlpineVersion extracts the Alpine version from base images.
-// e.g. "alpine:3.22" → "3.22", "golang:1.25-alpine3.22" → "3.22"
-func detectAlpineVersion(stages []supplychain.StageInfo) string {
-	for _, s := range stages {
+// e.g. "alpine:3.22" → "3.22", "golang:1.25-alpine3.22" → "3.22". An interpolated base
+// (FROM alpine:${ALPINE_VERSION}) is resolved via the Dockerfile's ARG/ENV values first,
+// so apk resolution is not silently skipped when the version lives in an ARG.
+func detectAlpineVersion(info *supplychain.DockerFreshnessInfo) string {
+	for _, s := range info.Stages {
+		image := s.Image
+		if resolved, _, _, ok := resolveImageRef(image, info); ok {
+			image = resolved
+		}
 		// Strip a digest pin so the tag is recoverable (image:tag@sha256:… → image:tag).
-		ref, _ := SplitImageDigest(s.Image)
+		ref, _ := SplitImageDigest(image)
 		image, tag := SplitImageTag(ref)
 		if tag == "" {
 			continue

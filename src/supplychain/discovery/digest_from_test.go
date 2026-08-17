@@ -27,10 +27,12 @@ func TestSplitImageDigest(t *testing.T) {
 // A digest-pinned Alpine base must still resolve its version for base/apk detection —
 // SplitImageTag alone drops the tag on an "@"-containing ref, so the digest is stripped first.
 func TestDetectAlpineVersion_DigestPinned(t *testing.T) {
-	stages := []supplychain.StageInfo{
-		{Image: "docker.io/library/alpine:3.23.5@sha256:abc"},
+	info := &supplychain.DockerFreshnessInfo{
+		Stages: []supplychain.StageInfo{
+			{Image: "docker.io/library/alpine:3.23.5@sha256:abc"},
+		},
 	}
-	if got := detectAlpineVersion(stages); got != "3.23.5" {
+	if got := detectAlpineVersion(info); got != "3.23.5" {
 		t.Errorf("detectAlpineVersion = %q, want %q", got, "3.23.5")
 	}
 }

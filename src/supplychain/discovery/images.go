@@ -22,11 +22,12 @@ type dockerHubTagsResponse struct {
 // excessive API calls for images with thousands of tags.
 const maxTagPages = 10
 
-// checkImages resolves base image freshness for all FROM stages.
-func (m *Resolver) checkImages(ctx context.Context, file lint.FileInfo, stages []supplychain.StageInfo) []supplychain.Dependency {
+// checkImages resolves base image freshness for all FROM stages. info supplies the
+// ARG/ENV values used to resolve interpolated base images (FROM alpine:${ALPINE_VERSION}).
+func (m *Resolver) checkImages(ctx context.Context, file lint.FileInfo, info *supplychain.DockerFreshnessInfo) []supplychain.Dependency {
 	var deps []supplychain.Dependency
 
-	for _, stage := range stages {
+	for _, stage := range info.Stages {
 		// Skip scratch and build-stage references (no colon, no registry).
 		if stage.Image == "scratch" {
 			continue
@@ -36,7 +37,7 @@ func (m *Resolver) checkImages(ctx context.Context, file lint.FileInfo, stages [
 			continue
 		}
 
-		dep := m.resolveImage(ctx, file.Path, stage)
+		dep := m.resolveImage(ctx, file.Path, stage, info)
 		if dep != nil {
 			deps = append(deps, *dep)
 		}
@@ -47,10 +48,25 @@ func (m *Resolver) checkImages(ctx context.Context, file lint.FileInfo, stages [
 
 // resolveImage queries Docker Hub for available tags and computes
 // the version delta for a single base image.
-func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supplychain.StageInfo) *supplychain.Dependency {
+func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supplychain.StageInfo, info *supplychain.DockerFreshnessInfo) *supplychain.Dependency {
+	// Resolve an interpolated base image (FROM alpine:${ALPINE_VERSION}) to the concrete
+	// reference the build pulls, using the Dockerfile's ARG/ENV values. When the version
+	// comes from an ARG/ENV declaration, that line becomes the editable anchor (Binding),
+	// so an update bumps `ARG VAR=…` and leaves the FROM untouched. A reference with no
+	// resolvable value is skipped — the only legitimate reason to drop a base image.
+	effectiveRef := stage.Image
+	binding, bindingLine := "", 0
+	if strings.Contains(stage.Image, "$") {
+		resolved, b, l, ok := resolveImageRef(stage.Image, info)
+		if !ok {
+			return nil
+		}
+		effectiveRef, binding, bindingLine = resolved, b, l
+	}
+
 	// Strip a digest pin (image:tag@sha256:…) so the tag is parseable — the digest is
 	// re-resolved below for the update target (Renovate pinDigests parity).
-	ref, pinnedDigest := SplitImageDigest(stage.Image)
+	ref, pinnedDigest := SplitImageDigest(effectiveRef)
 	image, tag := SplitImageTag(ref)
 	if tag == "" {
 		tag = "latest"
@@ -58,12 +74,20 @@ func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supp
 
 	namespace, repo := SplitImageNamespace(image)
 
+	// Anchor the edit on the ARG/ENV line when the version is interpolated from one;
+	// otherwise the FROM line holds the version (a literal tag or an inline default).
+	anchorLine := stage.Line
+	if binding != "" {
+		anchorLine = bindingLine
+	}
+
 	dep := &supplychain.Dependency{
-		Name:      stage.Image,
+		Name:      effectiveRef,
 		Current:   tag,
 		Ecosystem: supplychain.EcosystemDockerImage,
 		File:      filePath,
-		Line:      stage.Line,
+		Line:      anchorLine,
+		Binding:   binding,
 	}
 
 	// Fetch tags — use custom registry if configured, else Docker Hub public API.

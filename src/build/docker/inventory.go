@@ -148,7 +148,7 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 				isFinal = fromIdx == len(fromStages)-1
 				fromIdx++
 			}
-			base, lineage := parseBaseImageVersions(line, stage, isFinal)
+			base, lineage := parseBaseImageVersions(line, stage, isFinal, varsMap)
 			result.BaseImages = append(result.BaseImages, base...)
 			result.Lineage = append(result.Lineage, lineage...)
 
@@ -325,13 +325,18 @@ var stageNameRe = regexp.MustCompile(`(?i)\bAS\s+(\S+)\s*$`)
 //
 //	base:    [golang 1.26.1]
 //	lineage: [alpine 3.23]
-func parseBaseImageVersions(line, stage string, final bool) (base []PackageInfo, lineage []PackageInfo) {
+//
+// vars supplies ARG/ENV defaults so an interpolated base (FROM alpine:${ALPINE_VERSION})
+// is inventoried as its concrete version (alpine 3.23.5), not the literal ${VAR}.
+func parseBaseImageVersions(line, stage string, final bool, vars map[string]ArgDecl) (base []PackageInfo, lineage []PackageInfo) {
 	m := baseImageRe.FindStringSubmatch(line)
 	if m == nil {
 		return nil, nil
 	}
 
-	image := m[1]
+	// Resolve ${VAR} / ${VAR:-default} / $VAR against ARG/ENV defaults so the recorded
+	// version and "Built from" ref reflect the concrete image the build pulls.
+	image := resolveArgVars(m[1], vars)
 	// Skip scratch, build stage references
 	if image == "scratch" || !strings.Contains(image, ":") {
 		return nil, nil
@@ -850,14 +855,26 @@ func guessBinaryName(url string) string {
 
 // ── ARG variable resolution ──────────────────────────────────────────────────
 
-var argVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+// argVarRe matches the three shell-style reference forms usable in a FROM/RUN token:
+//   ${VAR}   ${VAR:-default}   $VAR
+// Group 1/2 = braced name/inline-default; group 3 = bare name.
+var argVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
-// resolveArgVars replaces ${VAR} references with ARG defaults.
+// resolveArgVars replaces variable references with their ARG/ENV default, falling back
+// to an inline `:-default` when the variable is undeclared. An unresolvable reference is
+// left verbatim.
 func resolveArgVars(s string, args map[string]ArgDecl) string {
 	return argVarRe.ReplaceAllStringFunc(s, func(match string) string {
-		varName := argVarRe.FindStringSubmatch(match)[1]
-		if decl, ok := args[varName]; ok && decl.Default != "" {
+		m := argVarRe.FindStringSubmatch(match)
+		name := m[1]
+		if name == "" {
+			name = m[3] // bare $VAR form
+		}
+		if decl, ok := args[name]; ok && decl.Default != "" {
 			return decl.Default
+		}
+		if m[2] != "" {
+			return m[2] // inline default (${VAR:-default})
 		}
 		return match
 	})

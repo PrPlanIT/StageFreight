@@ -135,6 +135,13 @@ func applyDockerfileUpdates(deps []supplychain.Dependency, repoRoot string) ([]A
 func buildReplacement(dep supplychain.Dependency, origLine string) (string, string) {
 	switch dep.Ecosystem {
 	case supplychain.EcosystemDockerImage:
+		// A base image whose version is interpolated from an ARG/ENV (FROM …${VAR})
+		// carries the variable name as its Binding — the update lands on the
+		// `ARG VAR=…` / `ENV VAR=…` value line, leaving the FROM as-is. A literal or
+		// inline-default FROM has no Binding and is edited on the FROM line itself.
+		if dep.Binding != "" {
+			return buildEnvReplacement(dep, origLine)
+		}
 		return buildFromReplacement(dep, origLine)
 	case supplychain.EcosystemGitHubRelease:
 		return buildEnvReplacement(dep, origLine)
@@ -152,9 +159,12 @@ func buildFromReplacement(dep supplychain.Dependency, origLine string) (string, 
 
 	token := m[2] // the image token
 
-	if strings.ContainsAny(token, "$") {
-		return origLine, "ARG-based dynamic base image"
-	}
+	// A base image whose version is interpolated from an external ARG/ENV is anchored on
+	// that definition line and routed to buildEnvReplacement (via Binding) before reaching
+	// here, so it never appears as a FROM edit. A "$" that survives to this point is an
+	// inline default (FROM …${VAR:-3.23.5}) whose version is embedded in the token — the
+	// strings.Replace below bumps it in place; a token with no concrete current version
+	// produces a no-op replace, reported as "current version not found" below.
 
 	// Digest-pinned base (image:tag@sha256:…): bump the tag within the ref AND swap
 	// in the re-resolved digest (Renovate pinDigests parity). ResolvedDigest is set by

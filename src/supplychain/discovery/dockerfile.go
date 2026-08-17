@@ -15,6 +15,10 @@ var (
 	fromRe = regexp.MustCompile(`(?i)^FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?`)
 	// ARG KEY=VALUE
 	argRe = regexp.MustCompile(`(?i)^ARG\s+(\S+?)=(.+)`)
+	// Shell-style variable reference in a FROM image token:
+	//   ${VAR}   ${VAR:-default}   $VAR
+	// Group 1/2 = braced name/inline-default; group 3 = bare name.
+	varRefRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 	// GitHub release download patterns in wget/curl commands
 	githubReleaseRe = regexp.MustCompile(`github\.com/([^/]+)/([^/]+)/releases/download/`)
 	// apk add [options] pkg1[=ver] pkg2[=ver] ...
@@ -36,6 +40,7 @@ func parseDockerfileForFreshness(path string) (*supplychain.DockerFreshnessInfo,
 
 	info := &supplychain.DockerFreshnessInfo{
 		EnvVars: make(map[string]supplychain.EnvVar),
+		Args:    make(map[string]supplychain.EnvVar),
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -65,11 +70,13 @@ func parseDockerfileForFreshness(path string) (*supplychain.DockerFreshnessInfo,
 			return
 		}
 
-		// ARG (only for *_VERSION patterns)
+		// ARG — record every declaration in Args so a ${VAR} base image resolves,
+		// and additionally mirror *_VERSION entries into EnvVars for tool cross-referencing.
 		if m := argRe.FindStringSubmatch(line); m != nil {
 			name := m[1]
 			value := strings.TrimSpace(m[2])
 			value = strings.Trim(value, `"'`)
+			info.Args[name] = supplychain.EnvVar{Name: name, Value: value, Line: endLine}
 			if strings.HasSuffix(strings.ToUpper(name), "_VERSION") {
 				info.EnvVars[name] = supplychain.EnvVar{Name: name, Value: value, Line: endLine}
 			}
@@ -292,4 +299,57 @@ func crossRefTools(info *supplychain.DockerFreshnessInfo) []supplychain.PinnedTo
 	}
 
 	return tools
+}
+
+// resolveImageRef substitutes ${VAR} / ${VAR:-default} / $VAR references in a FROM
+// image token with values declared in the Dockerfile, giving the effective image the
+// build actually pulls. Each reference resolves to its ARG default, then its ENV
+// default, then an inline `:-default`. When a reference resolves through an ARG/ENV
+// definition, that line is the editable anchor: binding names the variable and line is
+// its declaration, so an update lands on `ARG VAR=…` rather than the FROM. A reference
+// satisfied only by an inline default leaves binding empty — its version lives in the
+// FROM token itself. ok is false only when a reference has no resolvable value at all
+// (the sole legitimate reason to skip an interpolated base image).
+func resolveImageRef(image string, info *supplychain.DockerFreshnessInfo) (resolved, binding string, line int, ok bool) {
+	if !strings.Contains(image, "$") {
+		return image, "", 0, true
+	}
+	unresolved := false
+	resolved = varRefRe.ReplaceAllStringFunc(image, func(match string) string {
+		m := varRefRe.FindStringSubmatch(match)
+		name := m[1]
+		if name == "" {
+			name = m[3] // bare $VAR form
+		}
+		if ev, found := lookupDockerVar(info, name); found {
+			// Record the first ARG/ENV-anchored variable as the editable anchor.
+			if binding == "" {
+				binding = name
+				line = ev.Line
+			}
+			return ev.Value
+		}
+		if m[2] != "" {
+			// Inline default (${VAR:-default}) — the version is embedded in the FROM.
+			return m[2]
+		}
+		unresolved = true
+		return match
+	})
+	if unresolved {
+		return image, "", 0, false
+	}
+	return resolved, binding, line, true
+}
+
+// lookupDockerVar resolves a Dockerfile variable to its declared value, preferring an
+// ARG default over an ENV default (a FROM interpolation is a build-time ARG substitution).
+func lookupDockerVar(info *supplychain.DockerFreshnessInfo, name string) (supplychain.EnvVar, bool) {
+	if ev, ok := info.Args[name]; ok {
+		return ev, true
+	}
+	if ev, ok := info.EnvVars[name]; ok {
+		return ev, true
+	}
+	return supplychain.EnvVar{}, false
 }
