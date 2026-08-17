@@ -77,17 +77,19 @@ func phaseNotApplicable(rootDir, phase, mode string) error {
 // renderAuditionBanner prints the full logo banner + code identity block. The
 // audition phase is the sole place the logo appears — it is the readiness/proving
 // phase at the head of the pipeline.
-func renderAuditionBanner() {
+func renderAuditionBanner(rootDir string, cfg *config.Config) {
 	color := output.UseColor()
-	output.Banner(os.Stdout, pipeline.IdentityInfo(), color)
+	output.Banner(os.Stdout, pipeline.IdentityInfoAt(rootDir, cfg), color)
 	output.ContextBlock(os.Stdout, pipeline.CIContextKV(), color)
 }
 
 // renderPhaseIdentity prints the slim one-line provenance stamp (version · commit
 // · branch) for a non-audition phase. Every job log carries its own identity so
-// it is self-describing when read in isolation, without repeating the logo.
-func renderPhaseIdentity() {
-	output.IdentityLine(os.Stdout, pipeline.IdentityInfo(), output.UseColor())
+// it is self-describing when read in isolation, without repeating the logo. The
+// version is resolved from the repo under build (rootDir+cfg), consistent with the
+// SHA beside it and the shipped image's labels.
+func renderPhaseIdentity(rootDir string, cfg *config.Config) {
+	output.IdentityLine(os.Stdout, pipeline.IdentityInfoAt(rootDir, cfg), output.UseColor())
 }
 
 // auditionPhaseRunner is the proving phase. Owns: CI freshness check,
@@ -100,7 +102,7 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 	ctx = provision.WithLedger(ctx)
 
 	// Full logo banner — audition is the only phase that shows it.
-	renderAuditionBanner()
+	renderAuditionBanner(resolveWorkspace(ciCtx), appCfg)
 
 	// ── CI freshness check ─────────────────────────────────────────────
 	// Verify the committed CI file matches what the current binary would
@@ -170,7 +172,7 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		}
 		// Reconcile has no build engine to stamp identity — render it here.
 		// (The build path's stamp comes from the engine via HeaderSlim.)
-		renderPhaseIdentity()
+		renderPhaseIdentity(resolveWorkspace(ciCtx), appCfg)
 		return reconcileRunner(ctx, appCfg, ciCtx, opts)
 	default:
 		// Gate on the audition CONTRACT — in-code and forge-agnostic (the same check runs in
@@ -185,7 +187,7 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 				// Check in like every other phase (identity + SF version), then render a
 				// neat FAIL block stating WHY the stage isn't running — instead of exiting
 				// mute. The non-zero exit still follows via silentExit (no double-print).
-				renderPhaseIdentity()
+				renderPhaseIdentity(resolveWorkspace(ciCtx), appCfg)
 				renderPhaseBlocked("Perform", time.Now(), gateErr.Error())
 				return silentExit(fmt.Errorf("perform: %w", gateErr))
 			}
@@ -217,7 +219,7 @@ func acceptedState(ciCtx *ci.CIContext) bool {
 
 // reviewPhaseRunner inspects perform output. Not applicable for gitops/governance.
 func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
-	renderPhaseIdentity()
+	renderPhaseIdentity(resolveWorkspace(ciCtx), appCfg)
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "review"); err != nil {
 		return err
@@ -233,7 +235,7 @@ func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIC
 // publishPhaseRunner is the sole phase authorized to distribute artifacts.
 // Not applicable for gitops/governance.
 func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
-	renderPhaseIdentity()
+	renderPhaseIdentity(resolveWorkspace(ciCtx), appCfg)
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "publish"); err != nil {
 		return err
@@ -340,7 +342,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 
 // narratePhaseRunner renders truth from prior phase state. Runs for all modes.
 func narratePhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
-	renderPhaseIdentity()
+	renderPhaseIdentity(resolveWorkspace(ciCtx), appCfg)
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "narrate"); err != nil {
 		return err

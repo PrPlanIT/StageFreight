@@ -49,9 +49,9 @@ func Run(rc *RunContext) error {
 	// banner. The perform lifecycle phase sets HeaderSlim so only a one-line
 	// provenance stamp prints here — the logo lives in audition.
 	if rc.Header == HeaderSlim {
-		output.IdentityLine(rc.Writer, pipeline.IdentityInfo(), rc.Color)
+		output.IdentityLine(rc.Writer, pipeline.IdentityInfoAt(rc.RootDir, rc.Config), rc.Color)
 	} else {
-		output.Banner(rc.Writer, pipeline.IdentityInfo(), rc.Color)
+		output.Banner(rc.Writer, pipeline.IdentityInfoAt(rc.RootDir, rc.Config), rc.Color)
 		output.ContextBlock(rc.Writer, pipeline.CIContextKV(), rc.Color)
 	}
 

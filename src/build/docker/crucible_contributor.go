@@ -14,7 +14,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
-	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
 func init() {
@@ -177,6 +176,13 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 	c.builderInfo = ResolveBuilderInfo(EnsureBuilderWithBackend(rc.Config.BuildCache.Builder, c.backend))
 	pc := &pipeline.PipelineContext{Ctx: ctx, RootDir: c.rootDir, Config: rc.Config, Writer: w, Color: color, Verbose: rc.Verbose}
 	cacheInfo := ResolveCacheInfo(pc)
+
+	// Provenance stamp for every pass's OCI labels: the version + commit of the SOURCE
+	// under build (identical to what feeds the binary's ldflags), NOT the orchestrator's
+	// own version.* globals — those name StageFreight itself and lag the source in
+	// self-hosted CI. Resolved once so candidate, self-proof, and the shipped artifact
+	// all carry the same, correct revision.
+	sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
 	if rc.Config.BuildCache.IsActive() {
 		versionInfo, _ := build.DetectVersion(c.rootDir, rc.Config)
 		cacheRepoID := resolveRepoIDFromContext(pc)
@@ -203,7 +209,7 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		pass1Plan.Steps[i].CacheTo = nil
 	}
 	build.InjectLabels(pass1Plan, build.StandardLabels(
-		build.NormalizeBuildPlan(pass1Plan), version.Version, version.Commit, "crucible-candidate", c.created))
+		build.NormalizeBuildPlan(pass1Plan), sfVer, sfCommit, "crucible-candidate", c.created))
 
 	_, pass1Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Build (pass 1: candidate)", pass1Plan, c.candidateTag)
@@ -229,7 +235,7 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		pass2Plan.Steps[i].CacheTo = nil
 	}
 	build.InjectLabels(pass2Plan, build.StandardLabels(
-		build.NormalizeBuildPlan(pass2Plan), version.Version, version.Commit, "crucible-verify", c.created))
+		build.NormalizeBuildPlan(pass2Plan), sfVer, sfCommit, "crucible-verify", c.created))
 
 	_, pass2Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Rebuild (pass 2: self-proof)", pass2Plan, c.verifyTag)
@@ -331,8 +337,13 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 				publishPlan.Steps[i].CacheTo = c.cacheTo
 			}
 		}
+		// Same source-of-truth stamp as the build passes: the shipped artifact's labels
+		// name the repo under build, not the orchestrator. Promotion (publish_promote.go)
+		// re-tags this image digest-preserved WITHOUT re-stamping, so these are the labels
+		// that reach the registry — they must be correct here.
+		sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
 		build.InjectLabels(publishPlan, build.StandardLabels(
-			build.NormalizeBuildPlan(publishPlan), version.Version, version.Commit, "crucible-verified", c.created))
+			build.NormalizeBuildPlan(publishPlan), sfVer, sfCommit, "crucible-verified", c.created))
 
 		loginFailed := false
 		if !transport && !rc.Local {

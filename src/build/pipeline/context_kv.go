@@ -3,6 +3,8 @@ package pipeline
 import (
 	"os"
 
+	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
@@ -37,6 +39,17 @@ func CIContextKV() []output.DomainKV {
 // consistent.
 func IdentityInfo() output.BannerInfo {
 	return output.NewBannerInfo(version.Version, identitySHA(), identityBranch())
+}
+
+// IdentityInfoAt is IdentityInfo resolved against the repo under build: the version
+// comes from build.ResolveImageStamp (the SAME source-derived stamp the OCI labels and
+// the compiled binary's ldflags carry), not the orchestrator's version.* global. This
+// keeps the banner version consistent with the SHA beside it and with the shipped
+// artifact's labels. Callers that hold the run's rootDir + config use this; the
+// context-free IdentityInfo remains for sites with neither (falling back to the global).
+func IdentityInfoAt(rootDir string, cfg *config.Config) output.BannerInfo {
+	v, _ := build.ResolveImageStamp(rootDir, cfg)
+	return output.NewBannerInfo(v, identitySHA(), identityBranch())
 }
 
 // identitySHA returns the short commit SHA from the CI environment, falling back

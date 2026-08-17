@@ -6,6 +6,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
+	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
 // VersionInfo is an alias for backward compatibility.
@@ -24,6 +25,23 @@ func DetectVersion(rootDir string, cfg *config.Config) (*gitver.VersionInfo, err
 		return nil, err
 	}
 	return gitver.DetectVersionWithOpts(rootDir, opts)
+}
+
+// ResolveImageStamp returns the version and short commit that identify the SOURCE being
+// built — the same VersionInfo (Version/SHA) that autoInjectBuildArgs feeds the compiled
+// binary's ldflags. It is the single source of truth for build provenance: OCI labels
+// (org.opencontainers.image.version/.revision) and the identity banner MUST resolve
+// through here, never through the version.* globals. Those globals are the ldflags stamp
+// of the RUNNING orchestrator binary, which describes StageFreight itself, not the repo
+// under build — so in self-hosted CI (and, silently, on every foreign build) they stamped
+// a stale ancestor as the artifact's revision. Falls back to the orchestrator stamp only
+// when the working tree yields no version (a detached CI build container with no repo, or
+// a repo with no versioning scheme), so an unversioned build is never left blank.
+func ResolveImageStamp(rootDir string, cfg *config.Config) (imageVersion, commit string) {
+	if v, err := DetectVersion(rootDir, cfg); err == nil && v != nil {
+		return v.Version, v.SHA
+	}
+	return version.Version, version.Commit
 }
 
 // HasVersionScheme reports whether the config declares a version derivation
