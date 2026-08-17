@@ -27,6 +27,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/retention"
 	"github.com/PrPlanIT/StageFreight/src/scribe"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
+	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/spf13/cobra"
 )
 
@@ -703,14 +704,31 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		// Check when conditions on the primary release target
 		if targetWhenMatches(*primaryRelease, currentTag, tagPatternMap, req.Config.Git.Branches) {
 			rollingTags := gitver.ResolveTags(primaryRelease.Aliases, versionInfo)
+			// Names resolved from an immutable (version/sha) alias template are identities,
+			// not rolling pointers: they are created if absent but NEVER delete+recreated,
+			// so the alias path cannot churn a version tag's object type and reseed a
+			// mirror divergence. Rolling aliases keep force-move (delete+recreate) semantics.
+			immutableNames := map[string]bool{}
+			for _, tmpl := range primaryRelease.Aliases {
+				if stagefreightsync.IsImmutableTagTemplate(tmpl) {
+					for _, n := range gitver.ResolveTags([]string{tmpl}, versionInfo) {
+						immutableNames[n] = true
+					}
+				}
+			}
 			for _, rt := range rollingTags {
 				if rt == tag || rt == "" {
 					continue
 				}
-				// Try create, fallback to delete+recreate on conflict
 				err := forgeClient.CreateTag(ctx, rt, tag)
 				if err != nil {
-					// Rolling tag may already exist — delete then recreate
+					if immutableNames[rt] {
+						// Immutable identity already present — leave it (idempotent),
+						// never delete+recreate.
+						report.Tags = append(report.Tags, actionResult{Name: rt, OK: true})
+						continue
+					}
+					// Rolling tag may already exist — delete then recreate (force-move).
 					_ = forgeClient.DeleteTag(ctx, rt)
 					err = forgeClient.CreateTag(ctx, rt, tag)
 					if err != nil {

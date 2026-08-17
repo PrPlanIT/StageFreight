@@ -207,13 +207,28 @@ func resolveReleasableCommit(repoDir, sha string) (effective, skippedTip string,
 	return tip, "", nil // no releasable ancestor within bound → tag the tip
 }
 
-// CreateAnnotatedTag creates an annotated git tag on a specific commit.
+// CreateAnnotatedTag creates an annotated git tag on a specific commit — idempotently.
+// A version tag is an immutable identity, so if the tag already exists and names the same
+// commit (whether it is currently lightweight or annotated), it is left AS-IS: republish
+// must not rewrite a lightweight tag into an annotated one, which changes the tag-object
+// hash and reseeds a mirror divergence against a forge that kept the lightweight form. A
+// tag that exists at a DIFFERENT commit is a real conflict and is refused rather than
+// silently moved. Annotated is the type used whenever a version tag is freshly cut.
 func CreateAnnotatedTag(repoDir, tag, targetSHA, message string) error {
 	repo, err := gitstate.OpenRepo(repoDir)
 	if err != nil {
 		return fmt.Errorf("opening repo: %w", err)
 	}
 	hash := plumbing.NewHash(targetSHA)
+
+	if existing, refErr := repo.Reference(plumbing.NewTagReferenceName(tag), false); refErr == nil {
+		if peelTagToCommit(repo, existing.Hash()) == hash {
+			return nil // already at the target commit — idempotent, leave its existing form
+		}
+		return fmt.Errorf("tag %s already exists at %s, not %s — refusing to move an immutable version tag",
+			tag, peelTagToCommit(repo, existing.Hash()), hash)
+	}
+
 	_, err = repo.CreateTag(tag, hash, &git.CreateTagOptions{
 		Tagger:  resolveTaggerSignature(repo),
 		Message: message,
@@ -222,6 +237,21 @@ func CreateAnnotatedTag(repoDir, tag, targetSHA, message string) error {
 		return fmt.Errorf("creating tag %s: %w", tag, err)
 	}
 	return nil
+}
+
+// peelTagToCommit resolves a tag ref hash to the commit it ultimately names: an annotated
+// tag object is followed to its target commit; a lightweight tag or a direct commit hash
+// resolves to itself. This lets the equality check above compare commits regardless of tag
+// type, so a lightweight and an annotated tag at the same commit read as equal.
+func peelTagToCommit(repo *git.Repository, h plumbing.Hash) plumbing.Hash {
+	tagObj, err := repo.TagObject(h)
+	if err != nil {
+		return h // lightweight tag or a plain commit — already a commit
+	}
+	if c, cErr := tagObj.Commit(); cErr == nil {
+		return c.Hash
+	}
+	return tagObj.Target
 }
 
 // PushTag pushes a tag to the given remote.
