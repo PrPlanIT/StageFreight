@@ -28,9 +28,14 @@ import (
 
 // FileResult is the outcome for one scribe files: region. Data only — the CLI renders it.
 type FileResult struct {
-	File    string
-	Status  string // "success" | "skipped"
-	Detail  string // "updated" | "would update" | "unchanged"
+	File   string
+	Region string // the scribe files: id (e.g. "readme.badges") — distinguishes regions that share one File
+	Status string // "success" | "skipped"
+	Detail string // "updated" | "would update" | "unchanged"
+	// Reason explains a skipped (unchanged) region so identical-path lines are legible:
+	// "content identical" (markers matched, no change) or "markers not found" (the span
+	// was never placed). Empty for an updated region.
+	Reason  string
 	Preview string // dry-run: the would-be file content ("" when unchanged or writing)
 }
 
@@ -351,8 +356,10 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 	if rErr != nil {
 		return FileResult{}, nil, fmt.Errorf("scribe: %w", rErr)
 	}
+	markersFound := true
 	if composed != "" && file.Between[0] != "" && file.Between[1] != "" {
 		updated, found := registry.ReplaceBetween(fileContent, file.Between[0], file.Between[1], composed)
+		markersFound = found
 		if found {
 			fileContent = updated
 		} else if verbose {
@@ -360,14 +367,22 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 		}
 	}
 
+	// An unchanged region is either "content identical" (the span matched, the composed
+	// bytes equal what's there) or "markers not found" (the span was never placed) — a
+	// meaningfully different, and otherwise silent, outcome.
+	unchangedReason := "content identical"
+	if !markersFound {
+		unchangedReason = "markers not found"
+	}
+
 	if dryRun {
 		if fileContent != original {
-			return FileResult{File: file.File, Status: "success", Detail: "would update", Preview: fileContent}, previews, nil
+			return FileResult{File: file.File, Region: file.ID, Status: "success", Detail: "would update", Preview: fileContent}, previews, nil
 		}
-		return FileResult{File: file.File, Status: "skipped", Detail: "unchanged"}, previews, nil
+		return FileResult{File: file.File, Region: file.ID, Status: "skipped", Detail: "unchanged", Reason: unchangedReason}, previews, nil
 	}
 	if fileContent == original {
-		return FileResult{File: file.File, Status: "skipped", Detail: "unchanged"}, previews, nil
+		return FileResult{File: file.File, Region: file.ID, Status: "skipped", Detail: "unchanged", Reason: unchangedReason}, previews, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return FileResult{}, nil, fmt.Errorf("scribe: creating directory for %s: %w", file.File, err)
@@ -375,7 +390,7 @@ func processFile(appCfg *config.Config, file config.FileDef, content map[string]
 	if err := os.WriteFile(path, []byte(fileContent), 0o644); err != nil {
 		return FileResult{}, nil, fmt.Errorf("scribe: writing %s: %w", file.File, err)
 	}
-	return FileResult{File: file.File, Status: "success", Detail: "updated"}, previews, nil
+	return FileResult{File: file.File, Region: file.ID, Status: "success", Detail: "updated"}, previews, nil
 }
 
 // resolveStencilMarkdown resolves ONE stencil to its markdown fragment, dispatching on

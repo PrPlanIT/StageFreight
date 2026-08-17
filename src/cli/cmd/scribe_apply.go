@@ -62,7 +62,17 @@ func RunScribe(appCfg *config.Config, rootDir string, dryRun bool, isVerbose boo
 	sec := output.NewSection(w, "Scribe", elapsed, color)
 	var changed, unchanged int
 	for _, fr := range res.Files {
-		output.RowStatus(sec, fr.File, fr.Detail, fr.Status, color)
+		// Label by region id too: several regions target one file (README badges,
+		// project, image, contents), so the path alone repeats indistinguishably.
+		label := fr.File
+		if fr.Region != "" {
+			label = fmt.Sprintf("%s · %s", fr.File, fr.Region)
+		}
+		detail := fr.Detail
+		if fr.Reason != "" {
+			detail = fmt.Sprintf("%s (%s)", fr.Detail, fr.Reason)
+		}
+		output.RowStatus(sec, label, detail, fr.Status, color)
 		switch fr.Detail {
 		case "updated", "would update":
 			changed++
