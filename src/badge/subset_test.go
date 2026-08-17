@@ -1,6 +1,7 @@
 package badge
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -63,6 +64,45 @@ func TestSubset_HeadTimestampsZeroed(t *testing.T) {
 		if ttf[j] != 0 {
 			t.Fatalf("head created/modified not zeroed at byte %d — subset font is NOT reproducible run-to-run", j)
 		}
+	}
+}
+
+// The subset font must be byte-identical regardless of the timestamps tdewolff stamps at
+// Write time. Zeroing created/modified alone was not enough: head.checksumAdjustment is a
+// whole-font checksum computed OVER those timestamps, so it fossilized the run-time clock
+// and differed every publish (the 2-byte diff that churned a no-op auto-commit). Perturbing
+// the head as a later publish's clock would, then re-normalizing, must reproduce the same
+// bytes — and the checksumAdjustment written must be valid.
+func TestNormalizeFontHead_TimestampIndependentAndValid(t *testing.T) {
+	m, err := LoadBuiltinFont("monofur", 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := m.FontData() // already normalized by subsetToCharset
+	headOff, ok := headTableOffset(base)
+	if !ok {
+		t.Fatal("no head table in subset font")
+	}
+
+	// Simulate a different publish: non-zero created/modified and the bogus
+	// checksumAdjustment tdewolff would leave under a different clock.
+	perturbed := append([]byte(nil), base...)
+	for j := headOff + 20; j < headOff+36; j++ {
+		perturbed[j] = 0x7F
+	}
+	binary.BigEndian.PutUint32(perturbed[headOff+8:headOff+12], 0xDEADBEEF)
+
+	got := normalizeFontHead(perturbed)
+	if !bytes.Equal(got, base) {
+		t.Fatal("normalizeFontHead is not timestamp-independent — badge SVGs will still churn a no-op commit")
+	}
+
+	// The checksumAdjustment it wrote must be VALID: zero the field, recompute, match.
+	adj := binary.BigEndian.Uint32(got[headOff+8 : headOff+12])
+	zeroed := append([]byte(nil), got...)
+	binary.BigEndian.PutUint32(zeroed[headOff+8:headOff+12], 0)
+	if want := ttfChecksumMagic - fontChecksum(zeroed); want != adj {
+		t.Errorf("checksumAdjustment invalid: got %08x want %08x", adj, want)
 	}
 }
 

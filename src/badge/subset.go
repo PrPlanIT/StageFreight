@@ -50,18 +50,47 @@ func subsetToCharset(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return zeroFontTimestamps(sub.Write()), nil
+	return normalizeFontHead(sub.Write()), nil
 }
 
-// zeroFontTimestamps zeros the head table's created/modified timestamps so the
-// subset font is byte-REPRODUCIBLE run to run. tdewolff/font stamps them with the
-// current time on Write, which otherwise makes every badge SVG differ every run —
-// churning a no-op commit onto every publish. The head checksum goes stale, but SVG
-// @font-face renderers don't validate it. On any parse failure it returns the bytes
-// untouched (a churny badge beats a broken one).
-func zeroFontTimestamps(ttf []byte) []byte {
-	if len(ttf) < 12 {
+// ttfChecksumMagic is the constant the TrueType head.checksumAdjustment is derived from:
+// checksumAdjustment = 0xB1B0AFBA − (whole-font checksum with this field treated as zero).
+const ttfChecksumMagic uint32 = 0xB1B0AFBA
+
+// normalizeFontHead makes the subset font byte-REPRODUCIBLE run to run. tdewolff/font
+// Write() leaves the head table carrying run-time state in TWO fields: the created/modified
+// timestamps (stamped with the current time) and checksumAdjustment (a whole-font checksum
+// computed over those timestamps — so it FOSSILIZES the run-time value even once the
+// timestamps themselves are zeroed). Zeroing the timestamps alone therefore still left
+// checksumAdjustment differing every publish, which is what churned a no-op commit onto
+// every run. Both are normalized here: the timestamps are zeroed, then checksumAdjustment
+// is recomputed over the final bytes, so it is deterministic AND valid. On any structural
+// problem the bytes are returned untouched (a churny badge beats a broken one).
+func normalizeFontHead(ttf []byte) []byte {
+	headOff, ok := headTableOffset(ttf)
+	if !ok {
 		return ttf
+	}
+	// head layout: … created (8 bytes @ +20), modified (8 bytes @ +28) — zero both.
+	if headOff+36 <= len(ttf) {
+		for j := headOff + 20; j < headOff+36; j++ {
+			ttf[j] = 0
+		}
+	}
+	// checksumAdjustment (4 bytes @ +8): zero it (per spec it counts as zero while the
+	// checksum is taken), sum the whole font, then write back 0xB1B0AFBA − sum.
+	if headOff+12 <= len(ttf) {
+		binary.BigEndian.PutUint32(ttf[headOff+8:headOff+12], 0)
+		binary.BigEndian.PutUint32(ttf[headOff+8:headOff+12], ttfChecksumMagic-fontChecksum(ttf))
+	}
+	return ttf
+}
+
+// headTableOffset returns the byte offset of the head table from the sfnt table directory,
+// and whether a head table large enough to carry checksumAdjustment + timestamps was found.
+func headTableOffset(ttf []byte) (int, bool) {
+	if len(ttf) < 12 {
+		return 0, false
 	}
 	numTables := int(binary.BigEndian.Uint16(ttf[4:6]))
 	for i := 0; i < numTables; i++ {
@@ -71,14 +100,28 @@ func zeroFontTimestamps(ttf []byte) []byte {
 		}
 		if string(ttf[rec:rec+4]) == "head" {
 			off := int(binary.BigEndian.Uint32(ttf[rec+8 : rec+12]))
-			// head layout: … created (8 bytes @ +20), modified (8 bytes @ +28).
 			if off >= 0 && off+36 <= len(ttf) {
-				for j := off + 20; j < off+36; j++ {
-					ttf[j] = 0
-				}
+				return off, true
 			}
-			break
+			return 0, false
 		}
 	}
-	return ttf
+	return 0, false
+}
+
+// fontChecksum is the TrueType table checksum over the whole font: the sum of its
+// big-endian uint32 words (a trailing partial word zero-padded), with uint32 overflow
+// wrapping. Used to derive head.checksumAdjustment.
+func fontChecksum(ttf []byte) uint32 {
+	var sum uint32
+	i := 0
+	for ; i+4 <= len(ttf); i += 4 {
+		sum += binary.BigEndian.Uint32(ttf[i : i+4])
+	}
+	if i < len(ttf) {
+		var last [4]byte
+		copy(last[:], ttf[i:])
+		sum += binary.BigEndian.Uint32(last[:])
+	}
+	return sum
 }
