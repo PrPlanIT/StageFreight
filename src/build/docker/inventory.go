@@ -349,6 +349,11 @@ func parseBaseImageVersions(line, stage string, final bool, vars map[string]ArgD
 
 	imageName := parts[0]
 	tag := parts[1]
+	// Drop a digest pin (image:tag@sha256:…) from the recorded version — the badge shows
+	// the tag (3.23.5), not the digest. The full ref, digest included, stays in sourceRef.
+	if at := strings.Index(tag, "@"); at >= 0 {
+		tag = tag[:at]
+	}
 	sourceRef := "FROM " + image
 
 	// Extract the primary image name (last path component)
