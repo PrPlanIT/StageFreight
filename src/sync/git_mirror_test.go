@@ -207,8 +207,13 @@ func TestMirrorPush_NoMutationOfWorktree(t *testing.T) {
 
 // pushSpecJoin runs buildPushRefSpecs and joins the refspecs for substring assertions.
 func pushSpecJoin(local, remote map[string]string, branches, tags *config.FacetSpec, ref RefContext) string {
+	return pushSpecJoinRolling(local, remote, branches, tags, ref, nil)
+}
+
+// pushSpecJoinRolling is pushSpecJoin with an explicit rolling-alias force set.
+func pushSpecJoinRolling(local, remote map[string]string, branches, tags *config.FacetSpec, ref RefContext, rolling map[string]bool) string {
 	var out []string
-	for _, r := range buildPushRefSpecs(local, remote, branches, tags, ref).specs {
+	for _, r := range buildPushRefSpecs(local, remote, branches, tags, ref, rolling, nil).specs {
 		out = append(out, r.String())
 	}
 	return strings.Join(out, " ")
@@ -335,6 +340,10 @@ func TestClassifyGoGitFailure(t *testing.T) {
 		{"could not resolve host: github.com", MirrorNetworkFailed},
 		{"connection refused", MirrorNetworkFailed},
 		{"repository not found", MirrorRemoteNotFound},
+		// go-git's "object not found" (an unpeeled/annotated-tag object miss) must NOT
+		// masquerade as remote_not_found — only "repository not found"/"404" do.
+		{"object not found", MirrorUnknown},
+		{"reference not found", MirrorUnknown},
 		{"failed to push some refs", MirrorPushRejected},
 		{"some other unknown error", MirrorUnknown},
 	}
@@ -473,7 +482,7 @@ func mirrorPushDirect(t *testing.T, worktreeDir, remoteDir string) *MirrorResult
 	// prune), force-overwrite divergence. Force lives per-refspec, so the push
 	// itself is Force:false (mirrors production MirrorPush).
 	exact := &config.FacetSpec{Scope: "all", Prune: true, Force: true, Match: "*"}
-	plan := buildPushRefSpecs(localRefs, remoteRefs, exact, exact, RefContext{})
+	plan := buildPushRefSpecs(localRefs, remoteRefs, exact, exact, RefContext{}, nil, ancestryChecker(bareRepo))
 
 	if len(plan.specs) == 0 {
 		return &MirrorResult{AccessoryID: "test-remote", Status: SyncSuccess}

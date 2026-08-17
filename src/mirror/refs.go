@@ -26,9 +26,23 @@ type RefUpdate struct {
 // means "mirror all" for create/update, but leaves prune a no-op (nothing is
 // attributable, so nothing is deleted).
 type RefOptions struct {
-	Prune   bool
-	Force   bool
-	InScope func(ref string) bool
+	Prune bool
+	Force bool
+	// ForceRef force-updates a SPECIFIC diverged ref even when Force is off — for a
+	// ref that is mutable BY DESIGN (a rolling tag alias like "latest" that advances
+	// each release and would otherwise perpetually diverge). Immutable refs are left to
+	// the default keep-divergent path. nil means "no per-ref force". Force (the blanket
+	// flag) still wins for every ref when set.
+	ForceRef func(ref string) bool
+	// IsAncestor reports whether the first commit is an ancestor of the second. It
+	// distinguishes a fast-forward (the mirror ref is behind the source) from a true
+	// divergence: a differing ref whose mirror commit is an ancestor of the source
+	// commit fast-forwards (a non-force Update), everything else keeps divergent. It
+	// must return false whenever either commit is not resolvable in local history — a
+	// mirror commit absent locally IS the divergence signal. nil ⇒ every differing ref
+	// is treated as diverged (the ancestry-blind behavior).
+	IsAncestor func(ancestor, descendant string) bool
+	InScope    func(ref string) bool
 }
 
 // RefPlan is the computed, side-effect-free reconciliation plan.
@@ -64,10 +78,16 @@ func PlanRefs(srcRefs, mirrorRefs map[string]string, opts RefOptions) RefPlan {
 			plan.Create = append(plan.Create, RefUpdate{Ref: name, SHA: src})
 		case cur == src:
 			plan.InSync++
-		case opts.Force:
+		case opts.Force || (opts.ForceRef != nil && opts.ForceRef(name)):
+			// Force classification wins over fast-forward: an opted-in ref overwrites
+			// regardless of ancestry.
 			plan.Update = append(plan.Update, RefUpdate{Ref: name, SHA: src, Force: true})
+		case opts.IsAncestor != nil && opts.IsAncestor(cur, src):
+			// The mirror ref is behind the source (its commit is an ancestor) — a plain
+			// fast-forward, not a divergence. A non-force Update; git advances it cleanly.
+			plan.Update = append(plan.Update, RefUpdate{Ref: name, SHA: src, Force: false})
 		default:
-			plan.Diverged = append(plan.Diverged, name) // keep-divergent
+			plan.Diverged = append(plan.Diverged, name) // true divergence — keep-divergent
 		}
 	}
 

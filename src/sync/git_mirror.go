@@ -54,7 +54,7 @@ func buildRemoteURL(repo config.ResolvedRepo) string {
 //   - Never mutates the user's working repo (temp bare clone only)
 //   - Credentials passed via go-git BasicAuth, never in URLs
 //   - No git binary required
-func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo, refCtx RefContext) (*MirrorResult, error) {
+func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo, refCtx RefContext, rollingAliases map[string]bool) (*MirrorResult, error) {
 	start := time.Now()
 	result := &MirrorResult{
 		AccessoryID: mirror.ID,
@@ -161,7 +161,7 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 		return result, nil
 	}
 
-	refPlan := buildPushRefSpecs(localRefs, remoteRefs, mirror.Sync.Branches, mirror.Sync.Tags, refCtx)
+	refPlan := buildPushRefSpecs(localRefs, remoteRefs, mirror.Sync.Branches, mirror.Sync.Tags, refCtx, rollingAliases, ancestryChecker(bareRepo))
 
 	if len(refPlan.specs) == 0 {
 		result.Status = SyncSuccess
@@ -185,14 +185,7 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 	if pushErr != nil && pushErr != git.NoErrAlreadyUpToDate {
 		result.Status = SyncFailed
 		result.Degraded = true
-		result.FailureReason = classifyGoGitFailure(pushErr)
-		// A non-fast-forward rejection here means a mirror ref diverged and the
-		// facet did not opt into force — keep-divergent working as intended.
-		msg := sanitizeError(pushErr)
-		if len(refPlan.diverged) > 0 {
-			msg = fmt.Sprintf("%s (diverged, kept: %s — set sync force to overwrite)", msg, strings.Join(refPlan.diverged, ", "))
-		}
-		result.Message = msg
+		result.FailureReason, result.Message = classifyPushFailure(pushErr, refPlan)
 		return result, nil
 	}
 
@@ -246,7 +239,12 @@ func resolveCloneAuth(originURL string) (transport.AuthMethod, error) {
 	return nil, nil
 }
 
-// collectLocalRefs enumerates heads and tags in the local bare repo.
+// collectLocalRefs enumerates heads and tags in the local bare repo, keyed to the
+// COMMIT each ref ultimately names. An annotated tag is peeled to its target commit so
+// its value can be compared against a lightweight tag (or an annotated tag on the mirror)
+// that names the same commit — an annotated tag's own object hash differs from the commit
+// hash, which otherwise reads as a false divergence. Peeling affects only the comparison
+// value; the refspec pushes the ref by name, so the annotated tag object still transfers.
 func collectLocalRefs(repo *git.Repository) (map[string]string, error) {
 	refs, err := repo.References()
 	if err != nil {
@@ -256,12 +254,50 @@ func collectLocalRefs(repo *git.Repository) (map[string]string, error) {
 	local := make(map[string]string)
 	err = refs.ForEach(func(ref *plumbing.Reference) error {
 		name := ref.Name().String()
-		if strings.HasPrefix(name, "refs/heads/") || strings.HasPrefix(name, "refs/tags/") {
+		switch {
+		case strings.HasPrefix(name, "refs/heads/"):
 			local[name] = ref.Hash().String()
+		case strings.HasPrefix(name, "refs/tags/"):
+			local[name] = peelToCommit(repo, ref.Hash())
 		}
 		return nil
 	})
 	return local, err
+}
+
+// ancestryChecker returns an IsAncestor closure over the local bare repo: it reports
+// whether ancestor is an ancestor of descendant using go-git commit history. It returns
+// false whenever either commit is not resolvable locally — a mirror commit absent from
+// local history is itself the divergence signal, so no extra fetch is needed.
+func ancestryChecker(repo *git.Repository) func(ancestor, descendant string) bool {
+	return func(ancestor, descendant string) bool {
+		aCommit, err := repo.CommitObject(plumbing.NewHash(ancestor))
+		if err != nil {
+			return false
+		}
+		dCommit, err := repo.CommitObject(plumbing.NewHash(descendant))
+		if err != nil {
+			return false
+		}
+		yes, err := aCommit.IsAncestor(dCommit)
+		return err == nil && yes
+	}
+}
+
+// peelToCommit resolves a ref hash to the commit it ultimately names: an annotated tag
+// object is followed to its target commit; a lightweight tag or a direct commit ref
+// resolves to itself. A tag pointing at a non-commit (or an unresolvable object) returns
+// the direct target/hash rather than failing — comparison degrades to the raw hash rather
+// than fabricating a match.
+func peelToCommit(repo *git.Repository, h plumbing.Hash) string {
+	tag, err := repo.TagObject(h)
+	if err != nil {
+		return h.String() // lightweight tag or plain commit ref — already a commit
+	}
+	if c, cErr := tag.Commit(); cErr == nil {
+		return c.Hash.String()
+	}
+	return tag.Target.String()
 }
 
 // listRemoteRefs queries the mirror remote for its current refs (name → SHA).
@@ -272,7 +308,11 @@ func listRemoteRefs(ctx context.Context, repo *git.Repository, auth transport.Au
 		return nil, err
 	}
 
-	remoteRefList, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	// AppendPeeled makes go-git surface the advertised peeled refs (refs/tags/x^{}) —
+	// the target commit of an annotated tag — alongside the tag ref itself. Without it
+	// an annotated tag advertises only its tag-object hash, which reads as a divergence
+	// against a lightweight tag (or a differently-typed tag) naming the same commit.
+	remoteRefList, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth, PeelingOption: git.AppendPeeled})
 	if errors.Is(err, transport.ErrEmptyRemoteRepository) {
 		// A freshly-created mirror has no refs yet — this is the bootstrap case,
 		// not a failure. Return an empty ref set so every local head + tag is
@@ -283,11 +323,29 @@ func listRemoteRefs(ctx context.Context, repo *git.Repository, auth transport.Au
 		return nil, err
 	}
 
+	// First pass: collect peeled commits by their base ref name (refs/tags/x^{} → refs/tags/x).
+	peeled := make(map[string]string)
+	for _, ref := range remoteRefList {
+		name := ref.Name().String()
+		if base, ok := strings.CutSuffix(name, "^{}"); ok {
+			peeled[base] = ref.Hash().String()
+		}
+	}
+
+	// Second pass: key each head/tag to its commit — the peeled commit when the ref is
+	// an annotated tag, else its own hash (a lightweight tag or a branch is already a commit).
 	refs := make(map[string]string)
 	for _, ref := range remoteRefList {
 		name := ref.Name().String()
+		if strings.HasSuffix(name, "^{}") {
+			continue // handled in the peeled pass
+		}
 		if strings.HasPrefix(name, "refs/heads/") || strings.HasPrefix(name, "refs/tags/") {
-			refs[name] = ref.Hash().String()
+			if commit, ok := peeled[name]; ok {
+				refs[name] = commit
+			} else {
+				refs[name] = ref.Hash().String()
+			}
 		}
 	}
 	return refs, nil
@@ -326,10 +384,12 @@ func (p *refPushPlan) merge(o refPushPlan) {
 //	force          → overwrite a DIVERGED mirror ref; default off = keep-divergent
 //	prune (exact)  → delete OUR mirror refs of that class absent from source, but
 //	                 ONLY within a declared match scope (foreign refs are sacred)
-func buildPushRefSpecs(local, remote map[string]string, branches, tags *config.FacetSpec, refCtx RefContext) refPushPlan {
+func buildPushRefSpecs(local, remote map[string]string, branches, tags *config.FacetSpec, refCtx RefContext, rollingAliases map[string]bool, isAncestor func(ancestor, descendant string) bool) refPushPlan {
 	var plan refPushPlan
-	plan.merge(facetRefSpecs("refs/heads/", local, remote, branches, refCtx.Branch))
-	plan.merge(facetRefSpecs("refs/tags/", local, remote, tags, refCtx.Tag))
+	// Rolling aliases are a tag concept — heads never force-per-ref (nil). Ancestry
+	// (fast-forward vs. true divergence) applies to both heads and tags.
+	plan.merge(facetRefSpecs("refs/heads/", local, remote, branches, refCtx.Branch, nil, isAncestor))
+	plan.merge(facetRefSpecs("refs/tags/", local, remote, tags, refCtx.Tag, rollingAliases, isAncestor))
 	return plan
 }
 
@@ -345,10 +405,19 @@ func buildPushRefSpecs(local, remote map[string]string, branches, tags *config.F
 //     With no match declared, a mirror-only ref is unattributable → foreign →
 //     never pruned (a contributor's branch on the public mirror is never deleted).
 //     gh-pages is always foreign — a deploy branch created on the mirror.
-func facetRefSpecs(prefix string, local, remote map[string]string, spec *config.FacetSpec, currentRef string) refPushPlan {
+func facetRefSpecs(prefix string, local, remote map[string]string, spec *config.FacetSpec, currentRef string, rollingAliases map[string]bool, isAncestor func(ancestor, descendant string) bool) refPushPlan {
 	var plan refPushPlan
 	if spec == nil {
 		return plan // facet not synced — leave this ref class untouched
+	}
+
+	// Rolling aliases (mutable by design, e.g. "latest") force-update even when the
+	// facet keeps divergence, so a rolling tag that advanced upstream is not reported as
+	// a perpetual divergence. Immutable version tags are absent from this set and keep
+	// the default keep-divergent behavior.
+	var forceRef func(string) bool
+	if len(rollingAliases) > 0 {
+		forceRef = func(short string) bool { return rollingAliases[short] }
 	}
 
 	// Source selection by SCOPE: which refs of this class we mirror at all.
@@ -390,9 +459,11 @@ func facetRefSpecs(prefix string, local, remote map[string]string, spec *config.
 	}
 
 	rp := mirror.PlanRefs(srcShort, mirShort, mirror.RefOptions{
-		Prune:   spec.Prune,
-		Force:   spec.Force,
-		InScope: inScope,
+		Prune:      spec.Prune,
+		Force:      spec.Force,
+		ForceRef:   forceRef,
+		IsAncestor: isAncestor,
+		InScope:    inScope,
 	})
 
 	emit := func(short string, force bool) {
@@ -406,8 +477,8 @@ func facetRefSpecs(prefix string, local, remote map[string]string, spec *config.
 	for _, u := range rp.Create {
 		emit(u.Ref, spec.Force)
 	}
-	for _, u := range rp.Update { // forced fast-forwards (present only when force)
-		emit(u.Ref, true)
+	for _, u := range rp.Update { // a forced overwrite (Force) or a non-force fast-forward
+		emit(u.Ref, u.Force)
 	}
 	for _, name := range rp.Diverged {
 		emit(name, false) // non-force: git fast-forwards or rejects, never clobbers
@@ -433,6 +504,19 @@ func facetMatches(spec *config.FacetSpec, short string) bool {
 	return err == nil && ok
 }
 
+// classifyPushFailure maps a push rejection to a failure reason and sanitized message. A
+// rejection with kept-divergent refs IS the divergence — classified directly from the
+// plan, so go-git's generic "object not found" wording never masquerades as another
+// reason. Any other rejection falls through to best-effort error classification.
+func classifyPushFailure(pushErr error, refPlan refPushPlan) (MirrorFailureReason, string) {
+	if len(refPlan.diverged) > 0 {
+		return MirrorDiverged, fmt.Sprintf(
+			"mirror refs diverged, kept: %s — set sync force to overwrite",
+			strings.Join(refPlan.diverged, ", "))
+	}
+	return classifyGoGitFailure(pushErr), sanitizeError(pushErr)
+}
+
 // classifyGoGitFailure performs best-effort classification of go-git errors.
 func classifyGoGitFailure(err error) MirrorFailureReason {
 	msg := strings.ToLower(err.Error())
@@ -456,7 +540,6 @@ func classifyGoGitFailure(err error) MirrorFailureReason {
 		return MirrorNetworkFailed
 
 	case strings.Contains(msg, "repository not found") ||
-		strings.Contains(msg, "not found") ||
 		strings.Contains(msg, "404"):
 		return MirrorRemoteNotFound
 

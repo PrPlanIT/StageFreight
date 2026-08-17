@@ -1312,6 +1312,13 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	ciCtx := ci.ResolveContext()
 	refCtx := stagefreightsync.RefContext{Branch: ciCtx.Branch, Tag: ciCtx.Tag}
 
+	// Rolling tag aliases (e.g. "latest") are mutable by design and force-update on the
+	// mirror; immutable version tags never force. Resolved once from config so the mirror
+	// push can tell them apart. Version detection is best-effort — a failure yields the
+	// literal (placeholder-free) rolling names, which is exactly the set that matters.
+	aliasVI, _ := build.DetectVersion(worktree, appCfg)
+	rollingAliases := stagefreightsync.RollingAliasTagSet(appCfg, aliasVI)
+
 	// Check if any mirror wants release sync — resolve primary releases once.
 	// primaryClient is hoisted: it's both the release lister AND the re-host
 	// source the reconciler streams binaries from.
@@ -1351,7 +1358,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		if m.Sync.SyncsGit() && readOnly {
 			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
 		} else if m.Sync.SyncsGit() {
-			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx)
+			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx, rollingAliases)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
 				hasDegraded = true

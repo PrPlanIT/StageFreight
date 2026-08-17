@@ -34,7 +34,12 @@ const (
 	MirrorNetworkFailed        MirrorFailureReason = "network_failed"
 	MirrorRemoteNotFound       MirrorFailureReason = "remote_not_found"
 	MirrorPushRejected         MirrorFailureReason = "push_rejected"
-	MirrorUnknown              MirrorFailureReason = "unknown"
+	// MirrorDiverged: the push was rejected because an in-scope mirror ref diverged
+	// (differs and the facet did not opt into force) — keep-divergent working as
+	// intended, not a transport or remote fault. Named explicitly so it is not
+	// substring-guessed from go-git's generic "object not found" wording.
+	MirrorDiverged MirrorFailureReason = "diverged"
+	MirrorUnknown  MirrorFailureReason = "unknown"
 )
 
 // MirrorResult reports the outcome of a git mirror push to one accessory.
