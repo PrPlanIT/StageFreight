@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
@@ -141,21 +142,63 @@ func IsBranchHeadFresh(ciCtx *CIContext) bool {
 		return true // can't check, fail open
 	}
 
-	headSHA := resolveRemoteHead(ciCtx.Branch)
-	if headSHA == "" {
-		diag.Warn("freshness: remote lookup failed (branch=%s), allowing execution", ciCtx.Branch)
-		return true // can't resolve, fail open
-	}
+	// Memoize per run: every mutating phase (publish, retention, pages…) calls this,
+	// but the remote branch HEAD does not change within a job. Compute the lookup — and
+	// emit the fail-open warning or the debug line — at most once. Keyed by branch+SHA so
+	// a context change (never expected mid-run) recomputes rather than returning stale.
+	return freshCache.memoize(ciCtx.Branch+"\x00"+ciCtx.SHA, func() bool {
+		headSHA := resolveRemoteHead(ciCtx.Branch)
+		if headSHA == "" {
+			diag.Warn("freshness: remote lookup failed (branch=%s), allowing execution", ciCtx.Branch)
+			return true // can't resolve, fail open
+		}
 
-	fresh := headSHA == ciCtx.SHA
-	diag.Debug(diag.Verbose(), "freshness: branch=%s local=%s remote=%s fresh=%t",
-		ciCtx.Branch, shortSHA(ciCtx.SHA), shortSHA(headSHA), fresh)
-	return fresh
+		fresh := headSHA == ciCtx.SHA
+		diag.Debug(diag.Verbose(), "freshness: branch=%s local=%s remote=%s fresh=%t",
+			ciCtx.Branch, shortSHA(ciCtx.SHA), shortSHA(headSHA), fresh)
+		return fresh
+	})
+}
+
+// freshnessCache memoizes the freshness decision for one process run. Every mutating
+// phase calls IsBranchHeadFresh; without this each repeats the remote lookup and re-logs
+// the same warning. Keyed by branch+SHA so a context change recomputes rather than
+// returning a stale answer.
+type freshnessCache struct {
+	mu     sync.Mutex
+	done   bool
+	key    string
+	result bool
+}
+
+var freshCache freshnessCache
+
+// memoize returns the cached freshness for key, computing (and caching) it once.
+func (c *freshnessCache) memoize(key string, compute func() bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.done && c.key == key {
+		return c.result
+	}
+	c.result = compute()
+	c.key = key
+	c.done = true
+	return c.result
+}
+
+// resetFreshnessCache clears the run-scoped memo. Test-only, so cases don't leak.
+func resetFreshnessCache() {
+	freshCache.mu.Lock()
+	defer freshCache.mu.Unlock()
+	freshCache.done = false
+	freshCache.key = ""
+	freshCache.result = false
 }
 
 // resolveRemoteHead returns the current HEAD SHA for a branch from the remote.
 // Best-effort — returns "" if the repo cannot be opened or the remote is unreachable.
-func resolveRemoteHead(branch string) string {
+// A package var so tests can substitute the network read.
+var resolveRemoteHead = func(branch string) string {
 	workspace := os.Getenv("SF_CI_WORKSPACE")
 	if workspace == "" {
 		return ""
