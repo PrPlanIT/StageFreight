@@ -55,7 +55,7 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 	}
 
 	// Mutation safety: never publish from a superseded pipeline.
-	if !ci.IsBranchHeadFresh(ciCtx) {
+	if !ci.IsBranchHeadFresh(ciCtx, appCfg) {
 		fmt.Fprintf(os.Stderr, "  package: skipped — pipeline SHA is not branch HEAD\n")
 		return nil
 	}

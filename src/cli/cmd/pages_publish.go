@@ -40,7 +40,7 @@ func pagesPublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 
 	// Mutation safety: a Pages deploy moves a rolling location (mutable) — never
 	// deploy from a superseded pipeline, which could roll docs backward.
-	if !ci.IsBranchHeadFresh(ciCtx) {
+	if !ci.IsBranchHeadFresh(ciCtx, appCfg) {
 		fmt.Fprintf(os.Stderr, "  pages: skipped — pipeline SHA is not branch HEAD\n")
 		return nil
 	}

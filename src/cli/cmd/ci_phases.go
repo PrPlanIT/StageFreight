@@ -274,7 +274,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		// freshness-safe immutable tags through while still blocking rolling
 		// moves; today we take the simple, safe path. Tag pipelines are immutable
 		// and exempt (ci.IsBranchHeadFresh returns true for tags).
-		if !ci.IsBranchHeadFresh(ciCtx) {
+		if !ci.IsBranchHeadFresh(ciCtx, appCfg) {
 			fmt.Fprintln(os.Stdout, "  publish: distribution skipped — pipeline SHA is not branch HEAD (a newer pipeline will ship)")
 		} else if n, untargeted, err := promoteArtifacts(ctx, appCfg, rootDir, os.Stdout); err != nil {
 			recordSubsystemOutcome(rootDir, cistate.SubsystemState{
@@ -309,7 +309,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		// mutate external distribution targets, and only here (post-push) is the
 		// final remote tag set known. Local-daemon retention stays in perform.
 		// Best-effort cleanup: a prune failure must not fail the pipeline.
-		if ci.IsBranchHeadFresh(ciCtx) {
+		if ci.IsBranchHeadFresh(ciCtx, appCfg) {
 			if err := pruneRemoteRegistries(ctx, appCfg, rootDir, os.Stdout); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: registry retention: %v\n", err)
 			}

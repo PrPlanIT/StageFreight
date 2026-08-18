@@ -10,6 +10,8 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/credentials"
 	sfxssh "github.com/PrPlanIT/StageFreight/src/ssh"
 )
 
@@ -93,50 +95,87 @@ func ResolveAuth(remoteURL string) (transport.AuthMethod, error) {
 	)
 }
 
-// ResolveHTTPAuth returns HTTP basic auth for an HTTPS remote, resolving a
-// credential from the environment so CI write-back (e.g. the deps auto-commit
-// push) authenticates instead of failing with "HTTP Basic: Access denied".
+// GitUsernameForProvider is the HTTP basic-auth username a forge provider expects when the
+// token is carried as the password. It is the single source of truth for this mapping,
+// shared by the transport resolver and the mirror push.
+func GitUsernameForProvider(provider string) string {
+	switch provider {
+	case "github":
+		return "x-access-token"
+	case "gitlab":
+		return "oauth2"
+	default:
+		// gitea, forgejo, and any self-hosted git server: the token authenticates as
+		// the "git" user, matching the mirror's long-standing resolveGitAuth default.
+		return "git"
+	}
+}
+
+// ResolveGitCredential resolves the credential for a git remote URL, HOST-BOUND. This is
+// the security boundary against credential confusion: the destination host must resolve to
+// a configured `forges:` entry, and THAT forge's declared credential is the ONLY one
+// eligible. A credential is never selected merely because its env var is set — so a GitHub
+// PAT can never become an auth attempt against a GitLab host, and vice-versa.
 //
-// Resolution order (first match wins):
-//  1. STAGEFREIGHT_GIT_USERNAME + STAGEFREIGHT_GIT_PASSWORD — explicit override.
-//  2. GITLAB_TOKEN — a Personal/Project Access Token (username "oauth2").
-//  3. GITHUB_TOKEN — username "x-access-token".
-//  4. GITEA_TOKEN / FORGEJO_TOKEN — the forge-native token each emitter exports on the
-//     job (username "git", matching the mirror's resolveGitAuth convention). Without
-//     these, a Gitea/Forgejo job's embedded HTTPS read/push resolved to anonymous and
-//     401'd on a private repo — the freshness gate fail-opened and the deps write-back
-//     push failed, even though a usable token was present under its native name.
-//  5. CI_JOB_TOKEN — GitLab's per-job token (username "gitlab-ci-token"). LAST
-//     resort: it is read-only for repository writes by default, so a push needs
-//     a write-scoped token from (1)/(2); the job token only authenticates reads.
-//
-// Returns (nil, nil) when nothing is set — preserving anonymous access to public
-// HTTPS repos. A nil return is not an error: SSH remotes never reach here, and an
-// unauthenticated push to a private remote fails loudly at push time.
-func ResolveHTTPAuth(_ string) (*githttp.BasicAuth, error) {
-	if pass := os.Getenv("STAGEFREIGHT_GIT_PASSWORD"); pass != "" {
-		user := os.Getenv("STAGEFREIGHT_GIT_USERNAME")
-		if user == "" {
-			user = "oauth2"
+// Resolution is strictly: URL host → configured forge (exact host match) → forge.credentials
+// → credential. SSH URLs delegate to ResolveAuth (the user's key env). For an HTTPS URL
+// whose host no configured forge owns — or when no config is threaded — the result is
+// anonymous (a true nil AuthMethod, never a typed-nil), i.e. FAIL-CLOSED: a token in the
+// environment is never transmitted to an unclaimed host.
+func ResolveGitCredential(remoteURL string, cfg *config.Config) (transport.AuthMethod, error) {
+	if isSSHURL(remoteURL) {
+		return ResolveAuth(remoteURL)
+	}
+	if cfg == nil {
+		return nil, nil // no forge graph to bind against — anonymous, fail-closed
+	}
+	forge := config.ForgeForURL(remoteURL, cfg.Forges, cfg.Vars)
+	if forge == nil {
+		return nil, nil // no configured forge owns this host — anonymous, fail-closed
+	}
+	ba := gitBasicAuthForForge(*forge, config.HostOf(remoteURL))
+	if ba == nil {
+		return nil, nil // return a TRUE nil, not an interface wrapping a nil *BasicAuth
+	}
+	return ba, nil
+}
+
+// gitBasicAuthForForge builds the HTTP basic auth for one forge, or nil when the forge has
+// no resolvable credential. destHost is the already-normalized destination host, used to
+// pin the GitLab CI job token to the CI server host.
+func gitBasicAuthForForge(forge config.ForgeConfig, destHost string) *githttp.BasicAuth {
+	creds := credentials.ResolvePrefix(forge.Credentials)
+	if creds.Secret == "" {
+		// CI_JOB_TOKEN is a HOST-BOUND last resort, ONLY for the configured GitLab forge
+		// whose host is the CI server host — never a generic fallback for github/gitea/
+		// forgejo/unknown hosts. It authenticates reads for the GitLab instance running
+		// this pipeline and nothing else.
+		if forge.Provider == "gitlab" {
+			if tok := gitlabCIJobToken(destHost); tok != "" {
+				return &githttp.BasicAuth{Username: "gitlab-ci-token", Password: tok}
+			}
 		}
-		return &githttp.BasicAuth{Username: user, Password: pass}, nil
+		return nil
 	}
-	if tok := os.Getenv("GITLAB_TOKEN"); tok != "" {
-		return &githttp.BasicAuth{Username: "oauth2", Password: tok}, nil
+	user := creds.User
+	if user == "" {
+		user = GitUsernameForProvider(forge.Provider)
 	}
-	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
-		return &githttp.BasicAuth{Username: "x-access-token", Password: tok}, nil
+	return &githttp.BasicAuth{Username: user, Password: creds.Secret}
+}
+
+// gitlabCIJobToken returns CI_JOB_TOKEN only when the destination host IS the GitLab CI
+// server host (CI_SERVER_HOST). This pins the job token to the one GitLab instance that
+// issued it; it is never offered to any other host.
+func gitlabCIJobToken(destHost string) string {
+	tok := os.Getenv("CI_JOB_TOKEN")
+	if tok == "" || destHost == "" {
+		return ""
 	}
-	if tok := os.Getenv("GITEA_TOKEN"); tok != "" {
-		return &githttp.BasicAuth{Username: "git", Password: tok}, nil
+	if serverHost := config.HostOf(os.Getenv("CI_SERVER_HOST")); serverHost != "" && serverHost == destHost {
+		return tok
 	}
-	if tok := os.Getenv("FORGEJO_TOKEN"); tok != "" {
-		return &githttp.BasicAuth{Username: "git", Password: tok}, nil
-	}
-	if tok := os.Getenv("CI_JOB_TOKEN"); tok != "" {
-		return &githttp.BasicAuth{Username: "gitlab-ci-token", Password: tok}, nil
-	}
-	return nil, nil
+	return ""
 }
 
 // TransportPreference expresses who owns the Git transport for a remote. It is the
@@ -165,60 +204,40 @@ type TransportDecision struct {
 
 // ResolveTransport decides who owns the Git transport for remoteURL. The question
 // is not "where are we running" but "was StageFreight explicitly entrusted with a
-// credential to act independently of the user's Git environment?" For an SSH
-// remote that credential is SSH_PRIVATE_KEY; for HTTPS it is one of the HTTP-token
-// envs ResolveHTTPAuth reads. Absent an explicit credential, the repository's own
-// Git is the transport authority (PreferSystemGit) — so credential helpers,
-// config-mapped keys, agents, certs, and enterprise auth all work, because Git
+// credential to act independently of the user's Git environment?" For an SSH remote
+// that credential is SSH_PRIVATE_KEY; for HTTPS it is the HOST-BOUND credential of the
+// configured forge that owns the URL's host (cfg). Absent an explicit credential, the
+// repository's own Git is the transport authority (PreferSystemGit) — so credential
+// helpers, config-mapped keys, agents, certs, and enterprise auth all work, because Git
 // (not StageFreight) handles them.
 //
-// Both conditions for system git live here so the decision is one model in one
-// place: a git binary must be available to delegate to, AND no credential was
-// injected. Selection never re-derives either half.
-func ResolveTransport(remoteURL string) (TransportDecision, error) {
-	if gitAvailable() && !injectedCredential(remoteURL) {
+// cfg carries the forge graph the credential is bound against; nil ⇒ no host-bound
+// credential is available, so a private HTTPS remote resolves anonymously (fail-closed).
+func ResolveTransport(remoteURL string, cfg *config.Config) (TransportDecision, error) {
+	if gitAvailable() && !injectedCredential(remoteURL, cfg) {
 		return TransportDecision{Preference: PreferSystemGit}, nil
 	}
-	// Embedded: StageFreight holds an explicit credential, or there is no git to
-	// delegate to. Resolve the credential go-git will carry.
-	auth, err := resolveEmbeddedAuth(remoteURL)
+	// Embedded: StageFreight holds an explicit host-bound credential, or there is no git
+	// to delegate to. Resolve the credential go-git will carry (host-bound, may be nil).
+	auth, err := ResolveGitCredential(remoteURL, cfg)
 	if err != nil {
 		return TransportDecision{}, err
 	}
 	return TransportDecision{Preference: RequireEmbeddedTransport, Auth: auth}, nil
 }
 
-// injectedCredential reports whether StageFreight has been explicitly handed a
-// credential to act as for remoteURL — an in-memory SSH key for an SSH remote, or
-// an HTTP token for an HTTPS remote. An SSH agent or on-disk key is NOT injected:
-// it belongs to the user's Git environment, which system git uses directly.
-func injectedCredential(remoteURL string) bool {
+// injectedCredential reports whether StageFreight has a HOST-BOUND credential to act as
+// for remoteURL — an in-memory SSH key for an SSH remote, or the configured owning forge's
+// credential for an HTTPS remote. An SSH agent or on-disk key is NOT injected: it belongs
+// to the user's Git environment, which system git uses directly. Deriving HTTP recognition
+// from ResolveGitCredential keeps the transport decision and the credential the embedded
+// transport will carry from ever drifting.
+func injectedCredential(remoteURL string, cfg *config.Config) bool {
 	if isSSHURL(remoteURL) {
 		return os.Getenv("SSH_PRIVATE_KEY") != ""
 	}
-	// HTTP recognition IS "did ResolveHTTPAuth find a usable credential?" — deriving it
-	// from the same resolver keeps the transport decision and the credential the embedded
-	// transport will carry from ever drifting (e.g. a forge token recognized by one and
-	// not the other, which is exactly what starved the freshness read).
-	auth, _ := ResolveHTTPAuth(remoteURL)
+	auth, _ := ResolveGitCredential(remoteURL, cfg)
 	return auth != nil
-}
-
-// resolveEmbeddedAuth resolves the credential the embedded (go-git) transport will
-// carry for remoteURL. Returns a nil auth (anonymous) for an HTTPS remote with no
-// token — valid for public repos.
-func resolveEmbeddedAuth(remoteURL string) (transport.AuthMethod, error) {
-	if isSSHURL(remoteURL) {
-		return ResolveAuth(remoteURL)
-	}
-	httpAuth, err := ResolveHTTPAuth(remoteURL)
-	if err != nil {
-		return nil, err
-	}
-	if httpAuth == nil {
-		return nil, nil
-	}
-	return httpAuth, nil
 }
 
 // sshUser extracts the SSH username from a remote URL.

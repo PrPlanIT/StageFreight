@@ -80,7 +80,7 @@ func runPlannerPush(rootDir, remote string, approved bool, out io.Writer) error 
 // runPlanned is the shared fetch → Plan → Render (always) → Execute (gated) flow behind
 // `push`, `push <remote> <branch>`, and `pull`; planFn selects the direction.
 func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn func(*commit.Engine, gitplan.Policy) (gitplan.Plan, error)) error {
-	session, err := gitstate.OpenSyncSession(rootDir)
+	session, err := gitstate.OpenSyncSession(rootDir, cfg)
 	if err != nil {
 		return fmt.Errorf("opening repository: %w", err)
 	}
@@ -132,7 +132,7 @@ func refspecPush(rootDir string) error {
 		Remote:  pushRemote,
 		Refspec: pushRefspec,
 	}
-	backend := &commit.GitBackend{RootDir: rootDir}
+	backend := &commit.GitBackend{RootDir: rootDir, Cfg: cfg}
 	result, err := backend.Push(opts)
 	if err != nil {
 		return err

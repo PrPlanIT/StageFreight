@@ -167,7 +167,7 @@ func commitOpts(name string) *git.CommitOptions {
 
 func openSession(t *testing.T, dir string) *gitstate.SyncSession {
 	t.Helper()
-	session, err := gitstate.OpenSyncSession(dir)
+	session, err := gitstate.OpenSyncSession(dir, nil)
 	if err != nil {
 		t.Fatalf("open sync session: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/workspace"
 )
@@ -19,6 +20,10 @@ import (
 // Push/sync is also handled via go-git through the Engine.
 type GitBackend struct {
 	RootDir string
+	// Cfg carries the forge graph so a push authenticates HOST-BOUND — only with the
+	// credential of the forge that owns the remote's host. nil ⇒ anonymous over HTTPS
+	// (system git still handles local auth), never a mismatched token.
+	Cfg *config.Config
 	// OnCommitLine is called for each output line during hook execution and sync
 	// transition events. stream: "stdout", "stderr", "hook_side_effect", "sync".
 	// If nil, output is captured but not forwarded.

@@ -97,7 +97,7 @@ func TestEngineExecute_Upload(t *testing.T) {
 	remote, local, _, commitFile := execScratch(t)
 	commitFile(local, "a", "a\n", "local a")
 
-	sess, err := gitstate.OpenSyncSession(local)
+	sess, err := gitstate.OpenSyncSession(local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestEngineExecute_DivergedGates(t *testing.T) {
 		t.Fatalf("divergent push: %v", err)
 	}
 
-	sess, err := gitstate.OpenSyncSession(local)
+	sess, err := gitstate.OpenSyncSession(local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

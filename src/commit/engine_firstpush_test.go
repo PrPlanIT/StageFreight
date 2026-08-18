@@ -47,7 +47,7 @@ func TestEngineExecute_FirstPushNoUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := gitstate.OpenSyncSession(local)
+	session, err := gitstate.OpenSyncSession(local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestEngineExecute_FirstPushNoUpstream(t *testing.T) {
 	}
 
 	// Upstream tracking is configured locally.
-	s2, err := gitstate.OpenSyncSession(local)
+	s2, err := gitstate.OpenSyncSession(local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

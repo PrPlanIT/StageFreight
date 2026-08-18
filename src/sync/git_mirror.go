@@ -21,18 +21,11 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/mirror"
 )
 
-// resolveGitAuth maps a provider and secret to the correct git transport
-// username/password pair. This is the ONLY place provider-specific username
-// rules live — do not duplicate elsewhere.
+// resolveGitAuth maps a provider and secret to the mirror push's git transport
+// username/password pair, using the shared provider→username mapping so the mirror push
+// and the host-bound transport resolver never diverge.
 func resolveGitAuth(provider, secret string) *githttp.BasicAuth {
-	switch provider {
-	case "github":
-		return &githttp.BasicAuth{Username: "x-access-token", Password: secret}
-	case "gitlab":
-		return &githttp.BasicAuth{Username: "oauth2", Password: secret}
-	default:
-		return &githttp.BasicAuth{Username: "git", Password: secret}
-	}
+	return &githttp.BasicAuth{Username: gitstate.GitUsernameForProvider(provider), Password: secret}
 }
 
 // buildRemoteURL constructs a plain HTTPS URL for the mirror remote.
@@ -54,7 +47,7 @@ func buildRemoteURL(repo config.ResolvedRepo) string {
 //   - Never mutates the user's working repo (temp bare clone only)
 //   - Credentials passed via go-git BasicAuth, never in URLs
 //   - No git binary required
-func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo, refCtx RefContext, rollingAliases map[string]bool) (*MirrorResult, error) {
+func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo, refCtx RefContext, rollingAliases map[string]bool, cfg *config.Config) (*MirrorResult, error) {
 	start := time.Now()
 	result := &MirrorResult{
 		AccessoryID: mirror.ID,
@@ -71,8 +64,9 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 		return result, nil
 	}
 
-	// Resolve origin auth (SSH for GitLab/local, may be nil for public repos)
-	originAuth, err := resolveCloneAuth(originURL)
+	// Resolve origin auth host-bound to the primary forge (SSH via key env; HTTPS via the
+	// configured origin forge's credential; nil/anonymous for a public origin).
+	originAuth, err := resolveCloneAuth(originURL, cfg)
 	if err != nil {
 		result.Status = SyncFailed
 		result.Degraded = true
@@ -229,14 +223,13 @@ func resolveOriginURL(_ context.Context, worktree string) (string, error) {
 	return u, nil
 }
 
-// resolveCloneAuth resolves auth for cloning from origin.
-// SSH URLs get SSH auth, HTTPS URLs get nil (public) or HTTP auth.
-func resolveCloneAuth(originURL string) (transport.AuthMethod, error) {
-	if gitstate.IsSSHURL(originURL) {
-		return gitstate.ResolveAuth(originURL)
-	}
-	// HTTPS origin — typically public (the primary forge), no auth needed.
-	return nil, nil
+// resolveCloneAuth resolves auth for cloning the PRIMARY origin. SSH URLs use the user's
+// key env; HTTPS URLs are HOST-BOUND to the configured forge that owns the origin host —
+// so a PRIVATE primary forge clones with ITS OWN credential, never the mirror target's
+// token (a mirror job holds both), and never anonymous-for-private (the clone-failure bug).
+// A public origin with no matching forge resolves to nil (anonymous) and still clones.
+func resolveCloneAuth(originURL string, cfg *config.Config) (transport.AuthMethod, error) {
+	return gitstate.ResolveGitCredential(originURL, cfg)
 }
 
 // collectLocalRefs enumerates heads and tags in the local bare repo, keyed to the

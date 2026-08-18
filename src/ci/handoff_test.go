@@ -1,6 +1,10 @@
 package ci
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
+)
 
 // stubRemoteHead swaps the network read for a counting stub, restoring it after the test.
 func stubRemoteHead(t *testing.T, fn func(branch string) string) *int {
@@ -8,7 +12,7 @@ func stubRemoteHead(t *testing.T, fn func(branch string) string) *int {
 	resetFreshnessCache()
 	orig := resolveRemoteHead
 	calls := 0
-	resolveRemoteHead = func(branch string) string {
+	resolveRemoteHead = func(branch string, _ *config.Config) string {
 		calls++
 		return fn(branch)
 	}
@@ -25,7 +29,7 @@ func TestIsBranchHeadFresh_MemoizesLookup(t *testing.T) {
 	calls := stubRemoteHead(t, func(string) string { return "abc123" })
 	ctx := &CIContext{Provider: "gitlab", Branch: "main", SHA: "abc123"}
 	for i := 0; i < 5; i++ {
-		if !IsBranchHeadFresh(ctx) {
+		if !IsBranchHeadFresh(ctx, nil) {
 			t.Fatalf("call %d: expected fresh (remote==local)", i)
 		}
 	}
@@ -40,7 +44,7 @@ func TestIsBranchHeadFresh_FailOpenMemoized(t *testing.T) {
 	calls := stubRemoteHead(t, func(string) string { return "" }) // unreachable remote
 	ctx := &CIContext{Provider: "gitlab", Branch: "main", SHA: "abc123"}
 	for i := 0; i < 4; i++ {
-		if !IsBranchHeadFresh(ctx) {
+		if !IsBranchHeadFresh(ctx, nil) {
 			t.Fatalf("call %d: unreachable remote must fail open (true)", i)
 		}
 	}
@@ -53,7 +57,7 @@ func TestIsBranchHeadFresh_FailOpenMemoized(t *testing.T) {
 func TestIsBranchHeadFresh_StaleWhenRemoteMoved(t *testing.T) {
 	stubRemoteHead(t, func(string) string { return "newhead" })
 	ctx := &CIContext{Provider: "gitlab", Branch: "main", SHA: "oldsha"}
-	if IsBranchHeadFresh(ctx) {
+	if IsBranchHeadFresh(ctx, nil) {
 		t.Error("remote HEAD moved past this pipeline's SHA — must be stale (false)")
 	}
 }
@@ -72,7 +76,7 @@ func TestIsBranchHeadFresh_ShortCircuitsWithoutLookup(t *testing.T) {
 		{"no sha", &CIContext{Provider: "gitlab", Branch: "main"}},
 	}
 	for _, c := range cases {
-		if !IsBranchHeadFresh(c.ctx) {
+		if !IsBranchHeadFresh(c.ctx, nil) {
 			t.Errorf("%s: expected fresh (short-circuit)", c.name)
 		}
 	}

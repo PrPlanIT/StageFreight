@@ -88,7 +88,7 @@ func TestEnginePlan_Integration(t *testing.T) {
 
 	// --- ahead: one local commit, no divergence → Upload (Automatic) ---
 	commitFile(local, "a", "a\n", "local a")
-	aheadSess, err := gitstate.OpenSyncSession(local)
+	aheadSess, err := gitstate.OpenSyncSession(local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestEnginePlan_Integration(t *testing.T) {
 	if err := otherRepo.Push(&git.PushOptions{RemoteName: "origin"}); err != nil {
 		t.Fatalf("divergent push: %v", err)
 	}
-	sess, err := gitstate.OpenSyncSession(local)
+	sess, err := gitstate.OpenSyncSession(local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,8 @@ import (
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // SyncSession is opened once per sync/push operation. State is resolved once at
@@ -30,7 +32,14 @@ type SyncSession struct {
 // session. The transport decision is centralized in ResolveTransport — and when it
 // selects system git, no go-git credential is resolved (so none can fail with the
 // wrong key), because Git owns authentication.
-func OpenSyncSession(rootDir string) (*SyncSession, error) {
+//
+// cfg carries the forge graph the embedded transport's credential is bound against, so
+// every network op on this session (Fetch/FastForward/Push/RemoteRefHash) authenticates
+// ONLY with the credential of the forge that owns the remote's host. Pass nil when no
+// forge config is in scope (e.g. a purely local run): the session then authenticates
+// anonymously over HTTPS (system git still handles local auth), never with a mismatched
+// token.
+func OpenSyncSession(rootDir string, cfg *config.Config) (*SyncSession, error) {
 	repo, err := OpenRepo(rootDir)
 	if err != nil {
 		return nil, fmt.Errorf("opening repo at %s: %w", rootDir, err)
@@ -56,7 +65,7 @@ func OpenSyncSession(rootDir string) (*SyncSession, error) {
 		return nil, fmt.Errorf("resolving remote URL for %s: %w", effectiveRemote, remoteErr)
 	}
 
-	dec, err := ResolveTransport(remoteURL)
+	dec, err := ResolveTransport(remoteURL, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("resolving transport for %s: %w", remoteURL, err)
 	}

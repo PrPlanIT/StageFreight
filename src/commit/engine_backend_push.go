@@ -15,7 +15,7 @@ import (
 // when behind, rebase-then-push when diverged). It is authorized to satisfy the Confirm
 // gate the converge plan places before a replay.
 func (g *GitBackend) pushViaPlanner(opts PushOptions) (*SyncResult, error) {
-	session, err := gitstate.OpenSyncSession(g.RootDir)
+	session, err := gitstate.OpenSyncSession(g.RootDir, g.Cfg)
 	if err != nil {
 		return nil, fmt.Errorf("opening sync session: %w", err)
 	}

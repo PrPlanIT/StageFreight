@@ -273,7 +273,7 @@ func runTag(cmd *cobra.Command, args []string) error {
 
 	// Push
 	if tagPush || cfg.Tag.Defaults.Push {
-		if err := release.PushTag(rootDir, "origin", plan.NextTag); err != nil {
+		if err := release.PushTag(rootDir, "origin", plan.NextTag, cfg); err != nil {
 			return err
 		}
 		fmt.Printf("  pushed %s to origin\n", plan.NextTag)

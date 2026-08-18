@@ -254,9 +254,10 @@ func peelTagToCommit(repo *git.Repository, h plumbing.Hash) plumbing.Hash {
 	return tagObj.Target
 }
 
-// PushTag pushes a tag to the given remote.
-func PushTag(repoDir, remote, tag string) error {
-	session, err := gitstate.OpenSyncSession(repoDir)
+// PushTag pushes a tag to the given remote. cfg binds the push credential HOST-BOUND to
+// the forge that owns the remote's host (nil ⇒ anonymous over HTTPS / system git locally).
+func PushTag(repoDir, remote, tag string, cfg *config.Config) error {
+	session, err := gitstate.OpenSyncSession(repoDir, cfg)
 	if err != nil {
 		return fmt.Errorf("opening sync session: %w", err)
 	}

@@ -160,7 +160,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 				fmt.Fprintf(os.Stderr, "commit: forge detection failed: %s\n", err)
 				fmt.Fprintf(os.Stderr, "commit: falling back to git push\n")
 			}
-			backend = &commit.GitBackend{RootDir: rootDir}
+			backend = &commit.GitBackend{RootDir: rootDir, Cfg: cfg}
 		} else {
 			backend = &commit.ForgeBackend{
 				RootDir:     rootDir,
@@ -169,7 +169,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 			}
 		}
 	default:
-		backend = &commit.GitBackend{RootDir: rootDir}
+		backend = &commit.GitBackend{RootDir: rootDir, Cfg: cfg}
 	}
 
 	// Wire hook output renderer for git backend

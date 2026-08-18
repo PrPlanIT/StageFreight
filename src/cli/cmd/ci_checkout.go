@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/spf13/cobra"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
@@ -61,7 +63,20 @@ func runCICheckout(cmd *cobra.Command, args []string) error {
 		ref = plumbing.NewBranchReferenceName(ciCtx.Branch)
 	}
 
-	auth, err := gitstate.ResolveHTTPAuth(ciCtx.RepoURL)
+	// Checkout runs BEFORE the repo (and its .stagefreight.yml forge graph) exists, so the
+	// credential is resolved host-bound from the CI context itself: a synthetic forge for
+	// the CI provider and the repo URL, whose credential prefix is the provider-native token
+	// the runner exports (GITHUB_TOKEN / GITLAB_TOKEN / GITEA_TOKEN / FORGEJO_TOKEN, or the
+	// GitLab CI job token). ResolveGitCredential binds it to the repo's host — the CI
+	// provider's own host — so a mirror job's OTHER forge token is never offered here.
+	bootstrapCfg := &config.Config{
+		Forges: []config.ForgeConfig{{
+			Provider:    ciCtx.Provider,
+			URL:         ciCtx.RepoURL,
+			Credentials: strings.ToUpper(ciCtx.Provider),
+		}},
+	}
+	auth, err := gitstate.ResolveGitCredential(ciCtx.RepoURL, bootstrapCfg)
 	if err != nil {
 		return fmt.Errorf("checkout: resolving auth: %w", err)
 	}

@@ -62,7 +62,7 @@ func HandoffDepth() int {
 //
 // When handoff is "continue", the decision is always HandoffNone.
 // When handoff is "fail" and depth >= 1, the decision is HandoffFail.
-func EvaluateHandoff(ciCtx *CIContext, handoff config.DependencyHandoff, commitSHA string) *HandoffResult {
+func EvaluateHandoff(ciCtx *CIContext, cfg *config.Config, handoff config.DependencyHandoff, commitSHA string) *HandoffResult {
 	depth := HandoffDepth()
 	result := &HandoffResult{
 		CommitSHA: commitSHA,
@@ -81,7 +81,7 @@ func EvaluateHandoff(ciCtx *CIContext, handoff config.DependencyHandoff, commitS
 
 	// Check staleness — applies regardless of depth
 	if ciCtx.Branch != "" && ciCtx.SHA != "" {
-		headSHA := resolveRemoteHead(ciCtx.Branch)
+		headSHA := resolveRemoteHead(ciCtx.Branch, cfg)
 		if headSHA != "" && headSHA != ciCtx.SHA {
 			result.Stale = true
 		}
@@ -131,7 +131,7 @@ func EvaluateHandoff(ciCtx *CIContext, handoff config.DependencyHandoff, commitS
 // Returns true when not in CI or when the branch cannot be resolved (fail-open
 // for local runs). Orthogonal to config.TargetEligibility (when:-routing):
 // eligibility asks "should this fire?", freshness asks "is it safe to mutate?".
-func IsBranchHeadFresh(ciCtx *CIContext) bool {
+func IsBranchHeadFresh(ciCtx *CIContext, cfg *config.Config) bool {
 	if !ciCtx.IsCI() {
 		return true // local runs are always "fresh"
 	}
@@ -147,7 +147,7 @@ func IsBranchHeadFresh(ciCtx *CIContext) bool {
 	// emit the fail-open warning or the debug line — at most once. Keyed by branch+SHA so
 	// a context change (never expected mid-run) recomputes rather than returning stale.
 	return freshCache.memoize(ciCtx.Branch+"\x00"+ciCtx.SHA, func() bool {
-		headSHA := resolveRemoteHead(ciCtx.Branch)
+		headSHA := resolveRemoteHead(ciCtx.Branch, cfg)
 		if headSHA == "" {
 			diag.Warn("freshness: remote lookup failed (branch=%s), allowing execution", ciCtx.Branch)
 			return true // can't resolve, fail open
@@ -197,13 +197,14 @@ func resetFreshnessCache() {
 
 // resolveRemoteHead returns the current HEAD SHA for a branch from the remote.
 // Best-effort — returns "" if the repo cannot be opened or the remote is unreachable.
-// A package var so tests can substitute the network read.
-var resolveRemoteHead = func(branch string) string {
+// A package var so tests can substitute the network read. cfg binds the freshness
+// ls-remote to the primary forge's credential (host-bound) instead of a global env token.
+var resolveRemoteHead = func(branch string, cfg *config.Config) string {
 	workspace := os.Getenv("SF_CI_WORKSPACE")
 	if workspace == "" {
 		return ""
 	}
-	session, err := gitstate.OpenSyncSession(workspace)
+	session, err := gitstate.OpenSyncSession(workspace, cfg)
 	if err != nil {
 		diag.Debug(diag.Verbose(), "freshness: could not open sync session at %s: %v", workspace, err)
 		return ""

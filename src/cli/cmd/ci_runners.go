@@ -583,7 +583,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 		// Evaluate handoff only in direct mode — MR mode uses merge requests instead
 		if botBranch == "" && commitResult != nil && !commitResult.NoOp && commitResult.Pushed {
-			handoff := ci.EvaluateHandoff(ciCtx, appCfg.Dependency.CI.Handoff, commitResult.SHA)
+			handoff := ci.EvaluateHandoff(ciCtx, appCfg, appCfg.Dependency.CI.Handoff, commitResult.SHA)
 			if msg := ci.FormatHandoffMessage(handoff); msg != "" {
 				fmt.Println(msg)
 			}
@@ -852,7 +852,7 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 		return nil
 	}
 
-	if !ci.IsBranchHeadFresh(ciCtx) {
+	if !ci.IsBranchHeadFresh(ciCtx, appCfg) {
 		fmt.Println("  scribe: skipping — pipeline SHA is not branch HEAD (newer pipeline will ship)")
 		return nil
 	}
@@ -1017,7 +1017,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		return nil
 	}
 
-	if !ci.IsBranchHeadFresh(ciCtx) {
+	if !ci.IsBranchHeadFresh(ciCtx, appCfg) {
 		renderReleaseSkip(ciCtx, releaseSkipNotHead, "pipeline SHA is not branch HEAD")
 		if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
 			st.RecordSubsystem(cistate.SubsystemState{
@@ -1358,7 +1358,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		if m.Sync.SyncsGit() && readOnly {
 			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
 		} else if m.Sync.SyncsGit() {
-			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx, rollingAliases)
+			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx, rollingAliases, appCfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
 				hasDegraded = true
@@ -1494,7 +1494,7 @@ func autoCommitViaPlanner(ctx context.Context, appCfg *config.Config, rootDir st
 			}
 			// Implicit forge (CI auto-detection) failed — fall back to git with warning.
 			fmt.Fprintf(os.Stderr, "warning: forge backend auto-detection failed, falling back to git: %v\n", fErr)
-			backend = &commit.GitBackend{RootDir: rootDir}
+			backend = &commit.GitBackend{RootDir: rootDir, Cfg: appCfg}
 		} else {
 			backend = &commit.ForgeBackend{
 				RootDir:     rootDir,
@@ -1503,7 +1503,7 @@ func autoCommitViaPlanner(ctx context.Context, appCfg *config.Config, rootDir st
 			}
 		}
 	} else {
-		backend = &commit.GitBackend{RootDir: rootDir}
+		backend = &commit.GitBackend{RootDir: rootDir, Cfg: appCfg}
 	}
 
 	result, err := backend.Execute(ctx, plan, appCfg.Commit.Conventional)
