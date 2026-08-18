@@ -11,11 +11,13 @@ func TestResolveHTTPAuth(t *testing.T) {
 	// All four env vars are cleared per-case via t.Setenv("", ...) so a value set
 	// in the real environment can't leak into the assertion.
 	const (
-		sfUser = "STAGEFREIGHT_GIT_USERNAME"
-		sfPass = "STAGEFREIGHT_GIT_PASSWORD"
-		glTok  = "GITLAB_TOKEN"
-		ghTok  = "GITHUB_TOKEN"
-		jobTok = "CI_JOB_TOKEN"
+		sfUser  = "STAGEFREIGHT_GIT_USERNAME"
+		sfPass  = "STAGEFREIGHT_GIT_PASSWORD"
+		glTok   = "GITLAB_TOKEN"
+		ghTok   = "GITHUB_TOKEN"
+		giteaTk = "GITEA_TOKEN"
+		fjTok   = "FORGEJO_TOKEN"
+		jobTok  = "CI_JOB_TOKEN"
 	)
 	cases := []struct {
 		name             string
@@ -28,13 +30,16 @@ func TestResolveHTTPAuth(t *testing.T) {
 		{"explicit pass only defaults user oauth2", map[string]string{sfPass: "s3cret"}, "oauth2", "s3cret", false},
 		{"gitlab token", map[string]string{glTok: "glpat-xxx"}, "oauth2", "glpat-xxx", false},
 		{"github token", map[string]string{ghTok: "ghp-xxx"}, "x-access-token", "ghp-xxx", false},
+		{"gitea token", map[string]string{giteaTk: "gta-xxx"}, "git", "gta-xxx", false},
+		{"forgejo token", map[string]string{fjTok: "fj-xxx"}, "git", "fj-xxx", false},
 		{"ci job token last resort", map[string]string{jobTok: "job-xxx"}, "gitlab-ci-token", "job-xxx", false},
 		{"explicit wins over gitlab+job", map[string]string{sfPass: "win", glTok: "glpat", jobTok: "job"}, "oauth2", "win", false},
 		{"gitlab wins over job", map[string]string{glTok: "glpat", jobTok: "job"}, "oauth2", "glpat", false},
+		{"gitea wins over job", map[string]string{giteaTk: "gta", jobTok: "job"}, "git", "gta", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			for _, k := range []string{sfUser, sfPass, glTok, ghTok, jobTok} {
+			for _, k := range []string{sfUser, sfPass, glTok, ghTok, giteaTk, fjTok, jobTok} {
 				t.Setenv(k, c.env[k])
 			}
 			got, err := ResolveHTTPAuth("https://gitlab.example.com/org/repo.git")

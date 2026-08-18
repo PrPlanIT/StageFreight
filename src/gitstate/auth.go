@@ -101,7 +101,12 @@ func ResolveAuth(remoteURL string) (transport.AuthMethod, error) {
 //  1. STAGEFREIGHT_GIT_USERNAME + STAGEFREIGHT_GIT_PASSWORD — explicit override.
 //  2. GITLAB_TOKEN — a Personal/Project Access Token (username "oauth2").
 //  3. GITHUB_TOKEN — username "x-access-token".
-//  4. CI_JOB_TOKEN — GitLab's per-job token (username "gitlab-ci-token"). LAST
+//  4. GITEA_TOKEN / FORGEJO_TOKEN — the forge-native token each emitter exports on the
+//     job (username "git", matching the mirror's resolveGitAuth convention). Without
+//     these, a Gitea/Forgejo job's embedded HTTPS read/push resolved to anonymous and
+//     401'd on a private repo — the freshness gate fail-opened and the deps write-back
+//     push failed, even though a usable token was present under its native name.
+//  5. CI_JOB_TOKEN — GitLab's per-job token (username "gitlab-ci-token"). LAST
 //     resort: it is read-only for repository writes by default, so a push needs
 //     a write-scoped token from (1)/(2); the job token only authenticates reads.
 //
@@ -121,6 +126,12 @@ func ResolveHTTPAuth(_ string) (*githttp.BasicAuth, error) {
 	}
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
 		return &githttp.BasicAuth{Username: "x-access-token", Password: tok}, nil
+	}
+	if tok := os.Getenv("GITEA_TOKEN"); tok != "" {
+		return &githttp.BasicAuth{Username: "git", Password: tok}, nil
+	}
+	if tok := os.Getenv("FORGEJO_TOKEN"); tok != "" {
+		return &githttp.BasicAuth{Username: "git", Password: tok}, nil
 	}
 	if tok := os.Getenv("CI_JOB_TOKEN"); tok != "" {
 		return &githttp.BasicAuth{Username: "gitlab-ci-token", Password: tok}, nil
@@ -185,10 +196,12 @@ func injectedCredential(remoteURL string) bool {
 	if isSSHURL(remoteURL) {
 		return os.Getenv("SSH_PRIVATE_KEY") != ""
 	}
-	return os.Getenv("STAGEFREIGHT_GIT_PASSWORD") != "" ||
-		os.Getenv("GITLAB_TOKEN") != "" ||
-		os.Getenv("GITHUB_TOKEN") != "" ||
-		os.Getenv("CI_JOB_TOKEN") != ""
+	// HTTP recognition IS "did ResolveHTTPAuth find a usable credential?" — deriving it
+	// from the same resolver keeps the transport decision and the credential the embedded
+	// transport will carry from ever drifting (e.g. a forge token recognized by one and
+	// not the other, which is exactly what starved the freshness read).
+	auth, _ := ResolveHTTPAuth(remoteURL)
+	return auth != nil
 }
 
 // resolveEmbeddedAuth resolves the credential the embedded (go-git) transport will
