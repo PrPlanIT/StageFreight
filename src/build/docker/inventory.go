@@ -58,13 +58,20 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		// Skip comments and empty lines
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		// A blank line ends any dangling continuation.
+		if trimmed == "" {
 			if continued != "" {
-				// continuation was interrupted by comment/blank — flush
 				lines = append(lines, continued)
 				continued = ""
 			}
+			continue
+		}
+		// A comment inside a "\"-continuation does NOT end it: Docker strips comments
+		// and joins the continuation across them. Skip the comment and keep
+		// accumulating, so a commented multi-line RUN (apk add \ … # note … pkg) stays
+		// one instruction and its packages are still extracted (previously the flush
+		// here orphaned every post-comment fragment from its RUN, yielding no packages).
+		if strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
