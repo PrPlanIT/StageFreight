@@ -27,6 +27,7 @@ type fakeRelease struct {
 	prerelease          bool
 	created             time.Time
 	assets              map[string]*fakeAsset
+	links               map[string]forge.ReleaseLink // external links (add-if-missing)
 }
 type fakeForge struct {
 	name     string
@@ -60,7 +61,7 @@ func (f *fakeForge) CreateRelease(_ context.Context, o forge.ReleaseOptions) (*f
 	f.seq++
 	id := fmt.Sprintf("%s-%d", f.name, f.seq)
 	f.rels[o.TagName] = &fakeRelease{id: id, tag: o.TagName, name: o.Name, body: o.Description,
-		prerelease: o.Type == forge.ReleaseTypePrerelease, assets: map[string]*fakeAsset{}}
+		prerelease: o.Type == forge.ReleaseTypePrerelease, assets: map[string]*fakeAsset{}, links: map[string]forge.ReleaseLink{}}
 	return &forge.Release{ID: id}, nil
 }
 func (f *fakeForge) DeleteRelease(_ context.Context, tag string) error {
@@ -73,6 +74,22 @@ func (f *fakeForge) UpdateReleaseNotes(_ context.Context, id, body string) error
 		return nil
 	}
 	return fmt.Errorf("no release %s", id)
+}
+// AddReleaseLink records an external link, add-if-missing (idempotent), mirroring the
+// GitHub leaf op. A DOWNLOAD would be a bug for a link, so the fake never fetches bytes.
+func (f *fakeForge) AddReleaseLink(_ context.Context, id string, link forge.ReleaseLink) error {
+	r := f.findByID(id)
+	if r == nil {
+		return fmt.Errorf("no release %s", id)
+	}
+	if r.links == nil {
+		r.links = map[string]forge.ReleaseLink{}
+	}
+	if _, present := r.links[link.Name]; present {
+		return nil // add-if-missing
+	}
+	r.links[link.Name] = link
+	return nil
 }
 func (f *fakeForge) UploadAsset(_ context.Context, id string, a forge.Asset) error {
 	r := f.findByID(id)

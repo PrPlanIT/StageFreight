@@ -1420,6 +1420,12 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			for _, e := range res.Errors {
 				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, e)
 			}
+			// Diagnostics are informational (unsupported source assets), NOT failures:
+			// disclosed here but they never mark the mirror degraded — the git mirror's
+			// success/failure is independent of release-projection asset/link outcomes.
+			for _, d := range res.Diagnostics {
+				fmt.Fprintf(os.Stderr, "  sync: %s: release note: %s\n", m.ID, d)
+			}
 			if len(res.SkippedForeign) > 0 {
 				fmt.Printf("  sync: %s: release — %d foreign release(s) left untouched\n", m.ID, len(res.SkippedForeign))
 			}

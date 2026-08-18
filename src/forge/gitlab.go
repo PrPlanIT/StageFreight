@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // GitLabForge implements the Forge interface for GitLab instances.
@@ -695,6 +697,7 @@ func (g *GitLabForge) ListReleaseAssets(ctx context.Context, releaseID string) (
 				Name           string `json:"name"`
 				URL            string `json:"url"`
 				DirectAssetURL string `json:"direct_asset_url"`
+				LinkType       string `json:"link_type"`
 			} `json:"links"`
 		} `json:"assets"`
 	}
@@ -703,11 +706,22 @@ func (g *GitLabForge) ListReleaseAssets(ctx context.Context, releaseID string) (
 	}
 	var out []ReleaseAsset
 	for _, l := range rel.Assets.Links {
-		dl := l.DirectAssetURL
-		if dl == "" {
-			dl = l.URL
+		a := ReleaseAsset{ID: fmt.Sprintf("%d", l.ID), Name: l.Name, LinkType: l.LinkType}
+		// A downloadable FILE is a direct asset hosted on THIS GitLab host (the
+		// direct_asset_url permalink under the project). Anything else — an image/registry
+		// reference (link_type "image"), or a URL whose host is not this forge — is an
+		// EXTERNAL link: re-created on the mirror as a link, never downloaded.
+		if l.DirectAssetURL != "" && l.LinkType != "image" &&
+			config.HostOf(l.DirectAssetURL) == config.HostOf(g.BaseURL) {
+			a.URL = l.DirectAssetURL
+		} else {
+			a.URL = l.URL
+			if a.URL == "" {
+				a.URL = l.DirectAssetURL
+			}
+			a.External = true
 		}
-		out = append(out, ReleaseAsset{ID: fmt.Sprintf("%d", l.ID), Name: l.Name, URL: dl})
+		out = append(out, a)
 	}
 	return out, nil
 }

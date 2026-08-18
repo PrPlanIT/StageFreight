@@ -287,15 +287,25 @@ type ReleaseInfo struct {
 	CreatedAt   time.Time
 }
 
-// ReleaseAsset is a FILE attached to a release (a binary/archive), as seen on
-// a forge. The mirror reconciler compares assets by Digest (preferred) or Size
-// (fallback) to converge only what drifted, and re-hosts by download+upload.
+// ReleaseAsset is one asset attached to a release, as seen on a forge. It is either a
+// downloadable FILE (a binary/archive re-hosted by download+upload) or an EXTERNAL link (a
+// registry/image reference re-created on the mirror as a link — never downloaded). The
+// mirror reconciler compares files by Digest (preferred) or Size (fallback) to converge
+// only what drifted.
 type ReleaseAsset struct {
 	ID     string // platform asset id (for delete/replace)
-	Name   string // filename
+	Name   string // filename or link name
 	Size   int64  // bytes — fallback comparison when Digest is unavailable
 	Digest string // content digest if the forge exposes one, else ""
-	URL    string // download URL (source side)
+	URL    string // for a file: the download URL; for an external link: the reference URL
+
+	// LinkType is the source link classification when known (GitLab: "image", "package",
+	// "runbook", "other"); "" for a native file blob (GitHub/Gitea).
+	LinkType string
+	// External marks a REFERENCE (a registry/image link, or a URL on a host other than the
+	// source forge) that must be re-created on the mirror as a link, NOT downloaded as a
+	// file. Derived by the source forge from link_type + host comparison (see gitlab.go).
+	External bool
 }
 
 // PublishPackageOptions configures a generic package file publish.

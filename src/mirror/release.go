@@ -29,6 +29,7 @@ type releaseForge interface {
 	CreateRelease(ctx context.Context, opts forge.ReleaseOptions) (*forge.Release, error)
 	DeleteRelease(ctx context.Context, tagName string) error
 	UploadAsset(ctx context.Context, releaseID string, asset forge.Asset) error
+	AddReleaseLink(ctx context.Context, releaseID string, link forge.ReleaseLink) error
 	ListReleaseAssets(ctx context.Context, releaseID string) ([]forge.ReleaseAsset, error)
 	DownloadReleaseAsset(ctx context.Context, asset forge.ReleaseAsset) (io.ReadCloser, error)
 	DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error
@@ -44,8 +45,19 @@ type DesiredRelease struct {
 	Name        string
 	Body        string
 	Prerelease  bool
-	Assets      []DesiredAsset
+	Assets      []DesiredAsset // downloadable files: download from source → upload to mirror
+	Links       []DesiredLink  // external references (registry/image): re-created as links
+	Diagnostics []string       // explicit notes about assets that could not be classified
 	Fingerprint string
+}
+
+// DesiredLink is an EXTERNAL reference (a registry/image link) the mirror release should
+// carry. Unlike a DesiredAsset it is NEVER downloaded — it is re-created on the mirror via
+// AddReleaseLink (on GitHub, appended to the release body).
+type DesiredLink struct {
+	Name     string
+	URL      string
+	LinkType string
 }
 
 // DesiredAsset is a file the release should carry. For MIRRORING, Source names
@@ -75,6 +87,10 @@ type Result struct {
 	InSync         int      // skipped via fingerprint fast-path
 	SkippedForeign []string // in-scope tag exists but is not ours — left untouched
 	Errors         []error
+	// Diagnostics are non-fatal notes surfaced separately from Errors — e.g. a source
+	// asset that is neither a downloadable file nor an external link, disclosed instead of
+	// silently 404-ing or being uploaded as a pretend-file.
+	Diagnostics []string
 }
 
 // ── provenance marker ────────────────────────────────────────────────────
@@ -126,7 +142,7 @@ func replaceManaged(existing, body, fp string) string {
 
 // fingerprint hashes the body + each asset's identity (digest, or name+size as a
 // fallback). Deterministic (assets sorted by name). Forge-independent.
-func fingerprint(body string, assets []DesiredAsset) string {
+func fingerprint(body string, assets []DesiredAsset, links []DesiredLink) string {
 	h := sha256.New()
 	h.Write([]byte(body))
 	sorted := append([]DesiredAsset{}, assets...)
@@ -137,6 +153,13 @@ func fingerprint(body string, assets []DesiredAsset) string {
 			id = fmt.Sprintf("size:%d", a.Size)
 		}
 		h.Write([]byte("\x00" + a.Name + "\x00" + id))
+	}
+	// External links participate in the fingerprint too, so a link added upstream (with no
+	// body change) still trips an update and gets re-created on the mirror.
+	sortedLinks := append([]DesiredLink{}, links...)
+	sort.Slice(sortedLinks, func(i, j int) bool { return sortedLinks[i].Name < sortedLinks[j].Name })
+	for _, l := range sortedLinks {
+		h.Write([]byte("\x01" + l.Name + "\x01" + l.URL))
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
@@ -166,9 +189,13 @@ func ReconcileReleases(ctx context.Context, src, dst releaseForge, desired []Des
 
 	for _, d := range desired {
 		desiredTags[d.Tag] = true
+		// Surface classification diagnostics (unsupported assets) regardless of whether the
+		// release is created, updated, or already in sync — they describe the SOURCE, not a
+		// convergence action, and must never be lost to the fingerprint fast-path.
+		res.Diagnostics = append(res.Diagnostics, d.Diagnostics...)
 		fp := d.Fingerprint
 		if fp == "" {
-			fp = fingerprint(d.Body, d.Assets)
+			fp = fingerprint(d.Body, d.Assets, d.Links)
 		}
 
 		m, exists := byTag[d.Tag]
@@ -231,7 +258,10 @@ func createOnMirror(ctx context.Context, src, dst releaseForge, d DesiredRelease
 	if err != nil {
 		return err
 	}
-	return reconcileAssets(ctx, src, dst, rel.ID, d.Assets)
+	if err := reconcileAssets(ctx, src, dst, rel.ID, d.Assets); err != nil {
+		return err
+	}
+	return reconcileLinks(ctx, dst, rel.ID, d.Links)
 }
 
 func updateOnMirror(ctx context.Context, src, dst releaseForge, d DesiredRelease, m forge.ReleaseInfo, fp string) error {
@@ -241,7 +271,23 @@ func updateOnMirror(ctx context.Context, src, dst releaseForge, d DesiredRelease
 			return err
 		}
 	}
-	return reconcileAssets(ctx, src, dst, m.ID, d.Assets)
+	if err := reconcileAssets(ctx, src, dst, m.ID, d.Assets); err != nil {
+		return err
+	}
+	return reconcileLinks(ctx, dst, m.ID, d.Links)
+}
+
+// reconcileLinks ensures every desired EXTERNAL link exists on the mirror release,
+// add-if-missing, via AddReleaseLink (on GitHub, appended to the release body). External
+// references are NEVER downloaded — this is the whole point of the file/link split. The
+// leaf op is idempotent, so re-running only adds what's absent.
+func reconcileLinks(ctx context.Context, dst releaseForge, releaseID string, links []DesiredLink) error {
+	for _, l := range links {
+		if err := dst.AddReleaseLink(ctx, releaseID, forge.ReleaseLink{Name: l.Name, URL: l.URL, LinkType: l.LinkType}); err != nil {
+			return fmt.Errorf("link %s: %w", l.Name, err)
+		}
+	}
+	return nil
 }
 
 // reconcileAssets converges the mirror release's file assets granularly: it

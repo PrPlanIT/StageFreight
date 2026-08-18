@@ -199,28 +199,41 @@ func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*
 	}, nil
 }
 
+// assetUploadURL builds the GitHub asset-upload URL. The asset name is query-ESCAPED so a
+// name with spaces or reserved characters (e.g. "quay v0.0.5") yields a valid URL, not a
+// literal space that the server rejects.
+func (g *GitHubForge) assetUploadURL(releaseID, name string) string {
+	return fmt.Sprintf("%s/repos/%s/%s/releases/%s/assets?name=%s",
+		g.uploadBaseURL(), g.Owner, g.Repo, releaseID, url.QueryEscape(name))
+}
+
+// newFileUploadRequest builds a POST whose body is the file at filePath and whose GetBody
+// REOPENS that file on demand. uploads.github.com redirects, so the (http2) transport must
+// replay the request — impossible once the body has been written unless GetBody can
+// reproduce it. ContentLength is the file size; the replay reads the same file, so it is
+// byte-exact.
+func newFileUploadRequest(ctx context.Context, uploadURL, filePath, mimeType string, size int64) (*http.Request, error) {
+	getBody := func() (io.ReadCloser, error) { return os.Open(filePath) }
+	body, err := getBody()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, body)
+	if err != nil {
+		body.Close()
+		return nil, err
+	}
+	req.GetBody = getBody
+	req.ContentLength = size
+	req.Header.Set("Content-Type", mimeType)
+	return req, nil
+}
+
 func (g *GitHubForge) UploadAsset(ctx context.Context, releaseID string, asset Asset) error {
-	f, err := os.Open(asset.FilePath)
+	stat, err := os.Stat(asset.FilePath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil {
-		return err
-	}
-
-	uploadURL := fmt.Sprintf("%s/repos/%s/%s/releases/%s/assets?name=%s",
-		g.uploadBaseURL(), g.Owner, g.Repo, releaseID, asset.Name)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, f)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+g.Token)
-	req.ContentLength = stat.Size()
-
 	mimeType := asset.MIMEType
 	if mimeType == "" {
 		mimeType = mime.TypeByExtension(filepath.Ext(asset.FilePath))
@@ -228,7 +241,12 @@ func (g *GitHubForge) UploadAsset(ctx context.Context, releaseID string, asset A
 			mimeType = "application/octet-stream"
 		}
 	}
-	req.Header.Set("Content-Type", mimeType)
+
+	req, err := newFileUploadRequest(ctx, g.assetUploadURL(releaseID, asset.Name), asset.FilePath, mimeType, stat.Size())
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+g.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -255,6 +273,12 @@ func (g *GitHubForge) AddReleaseLink(ctx context.Context, releaseID string, link
 
 	linkLine := fmt.Sprintf("- [%s](%s)", link.Name, link.URL)
 	body := rel.Body
+	// Add-if-missing: GitHub has no native release links, so links live as body lines.
+	// Skip when the exact line is already present, keeping reconcile idempotent (no
+	// duplicate appends on re-run).
+	if strings.Contains(body, linkLine) {
+		return nil
+	}
 	if !strings.Contains(body, "### Container Images") {
 		body += "\n\n### Container Images\n"
 	}
