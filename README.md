@@ -65,12 +65,12 @@ Git is the source of truth: the acts only enact **accepted** state — never a m
 
 #### Base Images
 <!-- sf:contents-base:start -->
-![alpine](https://img.shields.io/badge/alpine-3.24.1-0078D4?style=flat) ![golang](https://img.shields.io/badge/golang-1.26.6-0078D4?style=flat)
+[![alpine 3.24.1](https://img.shields.io/badge/alpine-3.24.1-0078D4?style=flat)](https://hub.docker.com/_/alpine) [![golang 1.26.6](https://img.shields.io/badge/golang-1.26.6-0078D4?style=flat)](https://hub.docker.com/_/golang)
 <!-- sf:contents-base:end -->
 
 #### Runtime Packages
 <!-- sf:contents-apk:start -->
-![chafa](https://img.shields.io/badge/chafa-555?style=flat) ![git](https://img.shields.io/badge/git-555?style=flat) ![tree](https://img.shields.io/badge/tree-555?style=flat)
+[![chafa](https://img.shields.io/badge/chafa-555?style=flat)](https://pkgs.alpinelinux.org/packages?name=chafa) [![git](https://img.shields.io/badge/git-555?style=flat)](https://pkgs.alpinelinux.org/packages?name=git) [![tree](https://img.shields.io/badge/tree-555?style=flat)](https://pkgs.alpinelinux.org/packages?name=tree)
 <!-- sf:contents-apk:end -->
 
 ---
