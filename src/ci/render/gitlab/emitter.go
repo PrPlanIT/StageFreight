@@ -50,7 +50,10 @@ func Emit(p model.Pipeline) ([]byte, error) {
 	// Loop-prevention lives here, not in a [skip ci] subject token. A narrate commit
 	// carries a `Generated-By: StageFreight` trailer; this rule declines to START a new
 	// branch pipeline for it — regenerating those assets would only re-emit the same
-	// commit (the loop). Tags split by intent: one matching a declared git.tags
+	// commit (the loop). The skip is gated to `$CI_PIPELINE_SOURCE == "push"`: the loop
+	// only exists on push, so a human clicking Run pipeline (source `web`) or an API
+	// trigger at a narrate HEAD still runs, instead of "Pipeline cannot be run" forcing a
+	// throwaway commit. Tags split by intent: one matching a declared git.tags
 	// release pattern spawns a pipeline (operator release intent — a release must
 	// build); every other tag is scribe bookkeeping state (latest, latest-dev,
 	// dev-<sha> — pointers to builds that already exist) and spawns nothing. With no
@@ -77,7 +80,7 @@ func Emit(p model.Pipeline) ([]byte, error) {
 	} else {
 		buf.WriteString("    - if: $CI_COMMIT_TAG\n")
 	}
-	buf.WriteString("    - if: '$CI_COMMIT_MESSAGE =~ /Generated-By: StageFreight/'\n")
+	buf.WriteString("    - if: '$CI_COMMIT_MESSAGE =~ /Generated-By: StageFreight/ && $CI_PIPELINE_SOURCE == \"push\"'\n")
 	buf.WriteString("      when: never\n")
 	// Dedup: a branch with an open merge request would otherwise spawn TWO
 	// pipelines for one commit (a branch pipeline AND an MR pipeline). Suppress
