@@ -16,6 +16,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/badge"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
@@ -132,6 +133,24 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		}
 	}
 
+	// Lazy Harbor info — internal registry (no shields.io coverage), fetched with
+	// the HARBOR credential and resolved into committed SVGs like {docker.*}.
+	var harborInfo *gitver.HarborInfo
+	needsHarbor := false
+	for _, v := range resolvedValues {
+		if strings.Contains(v, "{harbor.") {
+			needsHarbor = true
+			break
+		}
+	}
+	if needsHarbor {
+		base, project, repo, credPrefix := postbuild.HarborFromConfig(appCfg)
+		if base != "" && project != "" && repo != "" {
+			cred := credentials.ResolvePrefix(credPrefix)
+			harborInfo, _ = gitver.FetchHarborInfo(base, project, repo, cred.User, cred.Secret)
+		}
+	}
+
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
 	updated, unchanged := 0, 0
@@ -150,6 +169,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		}
 
 		value := gitver.ResolveDockerTemplates(resolvedValues[i], dockerInfo)
+		value = gitver.ResolveHarborTemplates(value, harborInfo)
 
 		// Guard against empty or unresolved template values producing broken badges. A
 		// remaining "{" means a template didn't resolve — UNLESS the source had a {{…}}

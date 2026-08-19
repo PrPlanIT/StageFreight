@@ -216,3 +216,28 @@ func DockerHubFromConfig(appCfg *config.Config) (string, string) {
 	}
 	return "", ""
 }
+
+// HarborFromConfig returns the Harbor coordinates (base URL, project, repo) and
+// the credential prefix for the first Harbor registry target, or zero-values if
+// none. Mirrors DockerHubFromConfig — the {harbor.*} badge tokens need these to
+// query the internal Harbor API (which shields.io cannot reach).
+func HarborFromConfig(appCfg *config.Config) (baseURL, project, repo, credPrefix string) {
+	for _, t := range appCfg.Targets {
+		if t.Kind != "registry" {
+			continue
+		}
+		resolved, err := config.ResolveRegistryForTarget(t, appCfg.Registries, appCfg.Vars)
+		if err != nil || resolved == nil {
+			continue
+		}
+		if resolved.Provider != "harbor" || resolved.Path == "" {
+			continue
+		}
+		parts := strings.SplitN(resolved.Path, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		return resolved.URL, parts[0], parts[1], resolved.Credentials
+	}
+	return "", "", "", ""
+}
