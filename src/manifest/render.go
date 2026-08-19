@@ -217,16 +217,23 @@ func RenderBadges(data interface{}) (string, error) {
 		}
 
 		encoded := shieldsEncode(name)
+		alt := name
 		var badge string
 		if version != "" && version != "null" {
+			alt = name + " " + version
 			encodedVer := shieldsEncode(version)
 			color := "0078D4" // blue = unpinned
 			if pinned {
 				color = "2ea043" // green = pinned
 			}
-			badge = fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s?style=flat)", name, encoded, encodedVer, color)
+			badge = fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s-%s?style=flat)", alt, encoded, encodedVer, color)
 		} else {
-			badge = fmt.Sprintf("![%s](https://img.shields.io/badge/%s-555?style=flat)", name, encoded)
+			badge = fmt.Sprintf("![%s](https://img.shields.io/badge/%s-555?style=flat)", alt, encoded)
+		}
+		// Link the badge to where the item comes from (registry / package page), so a
+		// hover shows the source and a click opens it. Unlinkable items stay bare.
+		if link := inventoryItemLink(item); link != "" {
+			badge = fmt.Sprintf("[%s](%s)", badge, link)
 		}
 		badges = append(badges, badge)
 	}
