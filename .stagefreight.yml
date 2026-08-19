@@ -217,14 +217,15 @@ publish:                                 # distribute artifacts to their destina
     archives: stagefreight-binaries
     when: { git_tags: [stable], events: [tag] }
 
-  # ── Dev binary release channel (GitLab): rolling latest-dev +
-  #    retained immutable dev-{sha8}, pruned like the docker dev images.
-  #    Dogfoods the binary release-channel feature. (GitHub mirror dev
-  #    projection deferred until mirror-side retention lands.)
+  # ── Dev binary release channel: rolling latest-dev + retained immutable
+  #    dev-{sha8}, pruned like the docker dev images. Dogfoods the binary
+  #    release-channel feature. Authored on BOTH the primary (gitlab) and the
+  #    github mirror via kind:release — retention now prunes dev-{sha8} on the
+  #    mirror too (release-target repos are retained), so it no longer accumulates.
   dev-release:
     kind: release
     notes: release-notes
-    repos: [primary]                 # canonical dev release on the primary forge (gitlab)
+    repos: [primary, github-mirror]  # dev release on gitlab AND github (mirror is git-only for refs)
     archives: stagefreight-binaries  # the same one recipe as primary-release (OR-list when:)
     tag: "dev-{sha:8}"
     aliases: ["latest-dev"]
@@ -244,9 +245,7 @@ publish:                                 # distribute artifacts to their destina
     project: stagefreight
     build: docs-site
     domain: stagefreight.prplanit.com
-    when:
-      - { git_tags: [stable], events: [tag] }
-      - { events: [push], branches: [main] }
+    when: { git_tags: [stable], events: [tag] }
 
   # ── Documentation site → GitHub Pages (dogfood, alongside Cloudflare) ──
   # Force-pushes the same docs-site tree to the gh-pages branch of the GitHub mirror,
@@ -259,9 +258,7 @@ publish:                                 # distribute artifacts to their destina
     project_id: "{var:github_org}/{var:github_repo}"
     credentials: GITHUB
     build: docs-site
-    when:
-      - { git_tags: [stable], events: [tag] }
-      - { events: [push], branches: [main] }
+    when: { git_tags: [stable], events: [tag] }
 
 build_cache:
   mode: hybrid
