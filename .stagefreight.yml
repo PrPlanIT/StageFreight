@@ -99,7 +99,7 @@ repos:
     project: "{var:github_org}/{var:github_repo}"
     roles: [mirror, publish-origin]
     sync:                        # facet × scope (see 📦); faithful git mirror (releases NOT synced —
-      branches: exact            # they're authored on github via the github-release publish target;
+      branches: exact            # they're authored on github via the release publish target;
       tags: exact                # a repo gets releases via sync XOR a kind:release target, never both)
 
 registries:
@@ -187,7 +187,7 @@ publish:                                 # distribute artifacts to their destina
   # ── Binary archives: linux amd64/arm64 + SHA256SUMS ──────────────
   # ONE archive recipe, fired on EITHER trigger (when: is an OR-list of condition
   # sets) — {version} differentiates stable (1.2.3) from dev (1.2.3-dev+sha). Feeds
-  # both primary-release (stable tag) and dev-release (main push).
+  # both release (stable tag) and dev-release (main push).
   stagefreight-binaries:
     kind: binary-archive
     build: stagefreight-bin
@@ -195,26 +195,21 @@ publish:                                 # distribute artifacts to their destina
     format: auto
     checksums: true
     when:
-      - { git_tags: [stable], events: [tag] }   # feeds primary-release
+      - { git_tags: [stable], events: [tag] }   # feeds release
       - { branches: [main], events: [push] }    # feeds dev-release
 
-  # ── Primary release (rolling git tag aliases + binaries) ─────────
-  primary-release:
+  # ── Stable release (gitlab + github) with rolling aliases + binaries ──
+  # One target authors the release on BOTH forges. The rolling alias tags
+  # (v{version}, latest) are created on the primary only; github receives those
+  # tags via the git sync (tags: exact) and the release object via its repos:
+  # entry — so the rolling tags are never double-managed.
+  release:
     kind: release
     notes: release-notes
     type: latest
-    repos: [primary]                 # canonical release on the primary forge (gitlab)
+    repos: [primary, github-mirror]
     archives: stagefreight-binaries
     aliases: ["v{version}", "latest"]
-    when: { git_tags: [stable], events: [tag] }
-
-  # ── GitHub release (authored on the mirror) with binaries ────────
-  github-release:
-    kind: release
-    notes: release-notes
-    type: latest
-    repos: [github-mirror]           # authored directly on github (was mirror: + sync_release:)
-    archives: stagefreight-binaries
     when: { git_tags: [stable], events: [tag] }
 
   # ── Dev binary release channel: rolling latest-dev + retained immutable
@@ -226,7 +221,7 @@ publish:                                 # distribute artifacts to their destina
     kind: release
     notes: release-notes
     repos: [primary, github-mirror]  # dev release on gitlab AND github (mirror is git-only for refs)
-    archives: stagefreight-binaries  # the same one recipe as primary-release (OR-list when:)
+    archives: stagefreight-binaries  # the same one recipe as release (OR-list when:)
     tag: "dev-{sha:8}"
     aliases: ["latest-dev"]
     type: prerelease
