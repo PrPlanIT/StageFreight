@@ -895,9 +895,20 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	// Extend mirror retention only when actually syncing and not in a read-only preview —
 	// a dry/preview run must never delete releases on a public mirror.
 	if !req.SkipSync && !req.ReadOnly {
+		// A mirror's releases are retained here whenever SF places releases on it: via
+		// sync.releases projection, OR by a kind:release target authoring directly to it
+		// (repos: [..., <mirror>]). Without the latter, a dev channel projected to a mirror
+		// through kind:release would accumulate unpruned there — the reason such projection
+		// was deferred until this covered it.
+		releaseTargetRepos := map[string]bool{}
+		for _, t := range pipeline.CollectTargetsByKind(req.Config, "release") {
+			for _, rid := range t.Repos {
+				releaseTargetRepos[rid] = true
+			}
+		}
 		if mirrors, mErr := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars); mErr == nil {
 			for _, m := range mirrors {
-				if !m.Sync.SyncsReleases() {
+				if !m.Sync.SyncsReleases() && !releaseTargetRepos[m.ID] {
 					continue
 				}
 				mc, cErr := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
