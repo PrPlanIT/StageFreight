@@ -177,7 +177,7 @@ func MessageSkipsCI(msg string) bool {
 // commit (Updated-By: StageFreight) DOES rebuild the image, so it stays releasable — the
 // exclusion is deliberately narrow to Generated-By, not any StageFreight-authored commit.
 func tipIsReleasable(msg string) bool {
-	return !MessageSkipsCI(msg) && !strings.Contains(msg, config.GeneratedByTrailer)
+	return !MessageSkipsCI(msg) && !config.MessageHasTrailer(msg, config.GeneratedByTrailer)
 }
 
 func resolveReleasableCommit(repoDir, sha string) (effective, skippedTip string, err error) {

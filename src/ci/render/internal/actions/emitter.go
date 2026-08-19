@@ -154,12 +154,16 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 	// `Generated-By: StageFreight` trailer; each job declines to run for it on a branch
 	// push, while tag pushes always run (a release must build) and a deps commit
 	// (`Updated-By`, no skip trailer) falls through and rebuilds. head_commit is only
-	// populated on push, so PRs / workflow_dispatch are unaffected (contains(null,…)=false).
+	// populated on push, so PRs / workflow_dispatch are unaffected (endsWith(null,…)=false).
+	// endsWith (not contains): Actions has no regex, but the trailer is always the last line
+	// of the message (commit.Plan.Message appends it last), so matching the END anchors it to
+	// the trailer — a commit whose prose merely mentions the trailer no longer self-skips, the
+	// same intent as GitLab's `(?m)^` anchor.
 	// WhenAlways jobs (GitLab when: always) AND the gate in, so they still skip a generated
 	// commit rather than firing via always() when the build jobs were themselves skipped.
 	// Double-quote the scalar: the trailer literal carries a colon (`Generated-By:
 	// StageFreight`), which an unquoted YAML value would misparse as a nested mapping.
-	const genGate = "github.ref_type == 'tag' || !contains(github.event.head_commit.message, 'Generated-By: StageFreight')"
+	const genGate = "github.ref_type == 'tag' || !endsWith(github.event.head_commit.message, 'Generated-By: StageFreight')"
 	if j.Policy.WhenAlways {
 		fmt.Fprintf(buf, "    if: \"${{ always() && (%s) }}\"\n", genGate)
 	} else {

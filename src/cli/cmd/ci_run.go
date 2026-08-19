@@ -125,7 +125,7 @@ func generatedCommitShouldSkip(isTag bool, headMessage string) bool {
 	if isTag {
 		return false
 	}
-	return strings.Contains(headMessage, config.GeneratedByTrailer)
+	return config.MessageHasTrailer(headMessage, config.GeneratedByTrailer)
 }
 
 // headCommitMessage returns the full HEAD commit message via go-git — no git binary, and

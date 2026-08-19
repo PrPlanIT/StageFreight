@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // Commit origins — the StageFreight path that authored a commit, and the git-native
 // provenance trailer each carries. Both are our own trailers (they read like Signed-off-by,
 // fire no forge CI-skip matcher, and are not forge-recognized so they trigger no avatar
@@ -28,6 +30,20 @@ const (
 	// does NOT skip on it, because the image must rebuild to ship the update.
 	UpdatedByTrailer = "Updated-By: StageFreight"
 )
+
+// MessageHasTrailer reports whether msg carries trailer as a whole line. A git trailer
+// sits on its own line (and is the last line for SF's own commits, per commit.Plan.Message),
+// so matching the full line — not a substring — prevents a commit whose PROSE merely mentions
+// the trailer (e.g. one describing this very skip rule) from being mistaken for a generated
+// commit. The CI-render layer anchors equivalently (GitLab `(?m)^…`, Actions `endsWith`).
+func MessageHasTrailer(msg, trailer string) bool {
+	for _, line := range strings.Split(msg, "\n") {
+		if strings.TrimRight(line, "\r") == trailer {
+			return true
+		}
+	}
+	return false
+}
 
 // OriginTrailer returns the provenance trailer for a StageFreight commit origin, or "" for
 // a manual/human commit (no trailer). The commit layer writes it; the CI-render layer keys
