@@ -178,6 +178,12 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 	engine.Snapshot = &supplychain.Snapshot{Dependencies: snapshotDeps}
 
+	// Fail-loud on a vulnerability-scan coverage gap: dependencies OSV could not be
+	// reached for are UNVERIFIED, never silently clean.
+	if unv := engine.Snapshot.UnverifiedVulns(); len(unv) > 0 {
+		fmt.Fprintf(os.Stderr, "  ⚠ lint: %d dependency(ies) could NOT be vuln-checked (OSV unreachable) — UNVERIFIED, not treated as clean\n", len(unv))
+	}
+
 	start := time.Now()
 	findings, modStats, runErr := engine.RunWithStats(ctx, files)
 

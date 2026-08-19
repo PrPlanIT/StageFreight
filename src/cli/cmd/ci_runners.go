@@ -318,6 +318,20 @@ func shortDigest(d string) string {
 
 // ── deps runner ──────────────────────────────────────────────────────────────
 // mapIgnores bridges config's DependencyIgnore (the .stagefreight.yml surface) to the
+// vulnUnverifiedNames renders up to max dependency names from an unverified-vuln set,
+// summarizing the remainder — for the fail-loud coverage-gap warning.
+func vulnUnverifiedNames(deps []supplychain.Dependency, max int) string {
+	names := make([]string, 0, max+1)
+	for i, d := range deps {
+		if i >= max {
+			names = append(names, fmt.Sprintf("+%d more", len(deps)-max))
+			break
+		}
+		names = append(names, d.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
 // dependency engine's VulnIgnore, keeping the engine free of a config-package dependency.
 func mapIgnores(in []config.DependencyIgnore) []dependency.VulnIgnore {
 	if len(in) == 0 {
@@ -376,6 +390,20 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	snapshot, err := discovery.Discover(ctx, withVersionLists(freshnessOpts, appCfg.Dependency.EffectiveMaxUpdate()), discoveryFiles)
 	if err != nil {
 		return fmt.Errorf("deps subsystem: resolving dependencies: %w", err)
+	}
+
+	// Fail-loud on a vulnerability-scan coverage gap. When OSV could not be reached for
+	// some dependencies (VulnScanError), they are UNVERIFIED — not clean. Surface that
+	// prominently and record it in the ledger so narration carries it, instead of letting
+	// an OSV outage disguise itself as "no vulnerabilities found".
+	if unv := snapshot.UnverifiedVulns(); len(unv) > 0 {
+		names := vulnUnverifiedNames(unv, 5)
+		fmt.Printf("  ⚠ deps: %d dependency(ies) could NOT be vuln-checked (OSV unreachable): %s — UNVERIFIED, not treated as clean\n", len(unv), names)
+		recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+			Name: "vuln-coverage", Attempted: true, Completed: true,
+			Outcome: "degraded",
+			Reason:  fmt.Sprintf("%d dependency(ies) unverified by OSV: %s", len(unv), names),
+		})
 	}
 
 	// Inspect → Classify → record into the audition contract. A Fatal finding (secret/conflict/

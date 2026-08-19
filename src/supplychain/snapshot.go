@@ -11,3 +11,17 @@ package supplychain
 type Snapshot struct {
 	Dependencies []Dependency
 }
+
+// UnverifiedVulns returns the dependencies whose OSV vulnerability scan could not
+// complete (VulnScanError set). A non-empty result is a security COVERAGE GAP: these
+// dependencies are NOT known-clean, and consumers must surface them loudly rather than
+// let an unreachable OSV silently pass the pipeline as green.
+func (s *Snapshot) UnverifiedVulns() []Dependency {
+	var out []Dependency
+	for _, d := range s.Dependencies {
+		if d.VulnScanError != "" {
+			out = append(out, d)
+		}
+	}
+	return out
+}

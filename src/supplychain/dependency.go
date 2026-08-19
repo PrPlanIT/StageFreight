@@ -59,6 +59,14 @@ type Dependency struct {
 	// Vulnerability info populated by the OSV correlation pass.
 	Vulnerabilities []VulnInfo // known CVEs affecting the current version
 
+	// VulnScanError records why OSV vulnerability correlation could NOT complete for
+	// this dependency — a batch-query or advisory-detail fetch that failed after
+	// retries. When set, the dependency is VULN-UNVERIFIED: its CVE status is unknown
+	// and must never be rendered as clean. This mirrors ResolutionError for freshness —
+	// StageFreight never claims a security verdict it failed to reach. The audition and
+	// lint layers surface a loud coverage-gap warning from it rather than swallowing it.
+	VulnScanError string
+
 	// Advisory is an optional informational message set by the resolver
 	// when a non-versioned or pre-release tag has stable releases available.
 	Advisory string
