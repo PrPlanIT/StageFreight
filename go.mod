@@ -1,6 +1,6 @@
 module github.com/PrPlanIT/StageFreight
 
-go 1.26.6
+go 1.26.7
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -17,7 +17,7 @@ require (
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.45.0
-	golang.org/x/net v0.57.0
+	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
