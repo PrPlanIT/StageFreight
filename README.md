@@ -17,7 +17,7 @@ A declarative lifecycle runtime that governs Git as the source of truth, enforci
 <!-- sf:image:start -->
 [![Docker](https://img.shields.io/badge/Docker-prplanit%2Fstagefreight-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/prplanit/stagefreight) [![pulls](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/pulls.svg)](https://hub.docker.com/r/prplanit/stagefreight)
 
-[![latest](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/release-latest.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest) ![updated](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/release-updated.svg) [![size](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/release-size.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=v0.8.0) [![latest-dev](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/dev-latest.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest-dev) ![updated](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/dev-updated.svg) [![size](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/dev-size.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest-dev)
+[![latest](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/release-latest.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest) ![updated](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/release-updated.svg) [![size](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/release-size.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=v0.9.0) [![latest-dev](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/dev-latest.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest-dev) ![updated](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/dev-updated.svg) [![size](https://raw.githubusercontent.com/PrPlanIT/StageFreight/main/.stagefreight/scribe/dev-size.svg)](https://hub.docker.com/r/prplanit/stagefreight/tags?name=latest-dev)
 <!-- sf:image:end -->
 
 ---
@@ -65,7 +65,7 @@ Git is the source of truth: the acts only enact **accepted** state — never a m
 
 #### Base Images
 <!-- sf:contents-base:start -->
-[![alpine 3.24.1](https://img.shields.io/badge/alpine-3.24.1-0078D4?style=flat)](https://hub.docker.com/_/alpine) [![golang 1.26.7](https://img.shields.io/badge/golang-1.26.7-0078D4?style=flat)](https://hub.docker.com/_/golang)
+[![alpine 3.24.1](https://img.shields.io/badge/alpine-3.24.1-0078D4?style=flat)](https://hub.docker.com/_/alpine) [![golang 1.26.6](https://img.shields.io/badge/golang-1.26.6-0078D4?style=flat)](https://hub.docker.com/_/golang)
 <!-- sf:contents-base:end -->
 
 #### Runtime Packages
