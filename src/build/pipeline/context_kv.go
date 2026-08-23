@@ -3,8 +3,6 @@ package pipeline
 import (
 	"os"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
@@ -31,44 +29,12 @@ func CIContextKV() []output.DomainKV {
 	return kv
 }
 
-// IdentityInfo builds the StageFreight identity (version + commit + branch) used
-// by both the full banner (audition / standalone commands) and the slim
-// per-phase identity line. SHA and branch come from the CI environment when
-// present, falling back to the build-time commit for local/standalone runs so
-// the identity is never blank. The single source keeps every phase's stamp
-// consistent.
+// IdentityInfo builds the StageFreight tool identity from the orchestrator binary's
+// OWN ldflags (version.Version already embeds the short build commit on dev builds).
+// This is SF-only data — it deliberately does NOT read the built repo's version or the
+// CI commit/branch. The repo's code identity (its commit + branch) is a separate concern
+// rendered by CIContextKV in the ── Code ── block beneath the banner/stamp: the
+// "StageFreight" line names the tool, the Code block names what it is operating on.
 func IdentityInfo() output.BannerInfo {
-	return output.NewBannerInfo(version.Version, identitySHA(), identityBranch())
-}
-
-// IdentityInfoAt is IdentityInfo resolved against the repo under build: the version
-// comes from build.ResolveImageStamp (the SAME source-derived stamp the OCI labels and
-// the compiled binary's ldflags carry), not the orchestrator's version.* global. This
-// keeps the banner version consistent with the SHA beside it and with the shipped
-// artifact's labels. Callers that hold the run's rootDir + config use this; the
-// context-free IdentityInfo remains for sites with neither (falling back to the global).
-func IdentityInfoAt(rootDir string, cfg *config.Config) output.BannerInfo {
-	v, _ := build.ResolveImageStamp(rootDir, cfg)
-	return output.NewBannerInfo(v, identitySHA(), identityBranch())
-}
-
-// identitySHA returns the short commit SHA from the CI environment, falling back
-// to the build-time injected commit when not running in CI.
-func identitySHA() string {
-	if sha := os.Getenv("CI_COMMIT_SHORT_SHA"); sha != "" {
-		return sha
-	}
-	if sha := os.Getenv("CI_COMMIT_SHA"); len(sha) >= 8 {
-		return sha[:8]
-	}
-	return version.Commit
-}
-
-// identityBranch returns the branch (or tag) from the CI environment, or empty
-// when neither is set (standalone/local runs).
-func identityBranch() string {
-	if branch := os.Getenv("CI_COMMIT_BRANCH"); branch != "" {
-		return branch
-	}
-	return os.Getenv("CI_COMMIT_TAG")
+	return output.NewBannerInfo(version.Version, "", "")
 }

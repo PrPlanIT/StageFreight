@@ -45,15 +45,17 @@ func Run(rc *RunContext) error {
 	start := time.Now()
 
 	// ── Identity (run-level, once) ──────────────────────────────
+	// The identity line/logo carries StageFreight's OWN version (tool identity);
+	// the ── Code ── block beneath it carries the built repo's commit + branch.
 	// Standalone runs (build binary, crucible docker build) get the full logo
-	// banner. The perform lifecycle phase sets HeaderSlim so only a one-line
-	// provenance stamp prints here — the logo lives in audition.
+	// banner. The perform lifecycle phase sets HeaderSlim so only the slim
+	// StageFreight stamp prints here — the logo lives in audition.
 	if rc.Header == HeaderSlim {
-		output.IdentityLine(rc.Writer, pipeline.IdentityInfoAt(rc.RootDir, rc.Config), rc.Color)
+		output.IdentityLine(rc.Writer, pipeline.IdentityInfo(), rc.Color)
 	} else {
-		output.Banner(rc.Writer, pipeline.IdentityInfoAt(rc.RootDir, rc.Config), rc.Color)
-		output.ContextBlock(rc.Writer, pipeline.CIContextKV(), rc.Color)
+		output.Banner(rc.Writer, pipeline.IdentityInfo(), rc.Color)
 	}
+	output.ContextBlock(rc.Writer, pipeline.CIContextKV(), rc.Color)
 
 	// Gather the active contributors first — the Executor strictness and every
 	// domain are driven by who actually runs, not by raw config.
