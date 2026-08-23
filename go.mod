@@ -13,7 +13,7 @@ require (
 	github.com/skeema/knownhosts v1.3.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/tdewolff/font v0.0.0-20260809175822-e00d3ed980cd
+	github.com/tdewolff/font v0.0.0-20260822205238-d0d2f004b117
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.45.0
@@ -119,7 +119,7 @@ require (
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/spf13/viper v1.19.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/tdewolff/parse/v2 v2.8.15 // indirect
+	github.com/tdewolff/parse/v2 v2.8.16 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/wasilibs/go-re2 v1.9.0 // indirect
