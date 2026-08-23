@@ -65,7 +65,7 @@ Git is the source of truth: the acts only enact **accepted** state — never a m
 
 #### Base Images
 <!-- sf:contents-base:start -->
-[![alpine 3.24.1](https://img.shields.io/badge/alpine-3.24.1-0078D4?style=flat)](https://hub.docker.com/_/alpine) [![golang 1.26.6](https://img.shields.io/badge/golang-1.26.6-0078D4?style=flat)](https://hub.docker.com/_/golang)
+[![alpine 3.24.1](https://img.shields.io/badge/alpine-3.24.1-0078D4?style=flat)](https://hub.docker.com/_/alpine) [![golang 1.26.7](https://img.shields.io/badge/golang-1.26.7-0078D4?style=flat)](https://hub.docker.com/_/golang)
 <!-- sf:contents-base:end -->
 
 #### Runtime Packages
