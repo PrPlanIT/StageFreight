@@ -459,6 +459,10 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	}
 	unreachablePolicy := req.Config.Security.UnreachablePolicy()
 
+	// Resolve human-asserted exceptions once (as of now): ExceptedIDs feeds every gate call
+	// below; the rest drives disclosure so no excusal is silent and lapsed ones surface.
+	exc := security.ResolveExceptions(result, toSecurityExceptions(req.Config.Security.Exceptions), time.Now())
+
 	// Resolve detail level from rules (CLI override > tag/branch rules > default)
 	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail)
 
@@ -572,7 +576,9 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		// Disclose vulnerabilities the gate excused as proven-unreachable, so a
 		// pass despite an at-threshold vuln is never silent.
 		if failOn != "off" && unreachablePolicy == "pass" {
-			if excused := security.CountAtOrAbove(result, failOn) - security.GatingCount(result, cs, failOn, unreachablePolicy); excused > 0 {
+			// nil exceptions here so this line reports the unreachable excusal ALONE;
+			// exceptions get their own disclosure below.
+			if excused := security.CountAtOrAbove(result, failOn) - security.GatingCount(result, cs, nil, failOn, unreachablePolicy); excused > 0 {
 				sec.Row("%-16s%d at or above %s excused — proven unreachable", "", excused, failOn)
 			}
 		}
@@ -584,6 +590,24 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		}
 		for _, line := range cs.DisclosureLines() {
 			sec.Row("%-16s%s", "", line)
+		}
+	}
+
+	// Security exceptions: excused findings still print (never hidden); lapsed exceptions
+	// surface loud (they gate again); standing/stale ones are noted — no excusal is silent.
+	if len(exc.Excepted)+len(exc.Expired)+len(exc.Unused) > 0 {
+		sec.Row("")
+		for _, ef := range exc.Excepted {
+			sec.Row("%-16s%s · %s excepted — %s", "exception", ef.Vuln.ID, strings.ToLower(ef.Vuln.Severity), ef.Reason)
+		}
+		if n := len(exc.Permanent); n > 0 {
+			sec.Row("%-16s%d standing exception(s), no expiry — reviewed as permanent", "", n)
+		}
+		for _, e := range exc.Expired {
+			sec.Row("%-16s⚠ exception for %s expired %s — now gating", "", e.ID, e.Expires.Format("2006-01-02"))
+		}
+		for _, e := range exc.Unused {
+			sec.Row("%-16s⚠ exception for %s matched no finding — remove if stale", "", e.ID)
 		}
 	}
 
@@ -636,7 +660,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// number (non-excused vulns at/above the threshold; 0 when the gate is off).
 	blocking := 0
 	if failOn != "off" {
-		blocking = security.GatingCount(result, cs, failOn, unreachablePolicy)
+		blocking = security.GatingCount(result, cs, exc.ExceptedIDs, failOn, unreachablePolicy)
 	}
 	sbomFact := "off"
 	if req.SBOM {
@@ -645,7 +669,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// The {vulns} row source: the gating vulns as compact one-liners, capped so
 	// state stays small (the producer bounds display further with limit:).
 	var blockingRows []string
-	for _, v := range security.GatingVulns(result, cs, failOn, unreachablePolicy) {
+	for _, v := range security.GatingVulns(result, cs, exc.ExceptedIDs, failOn, unreachablePolicy) {
 		if len(blockingRows) == 12 {
 			break
 		}
@@ -663,6 +687,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		"low":      strconv.Itoa(result.Low),
 		"total":    strconv.Itoa(result.Critical + result.High + result.Medium + result.Low),
 		"sbom":     sbomFact,
+		"excepted": strconv.Itoa(len(exc.Excepted)),
 	}
 	if len(blockingRows) > 0 {
 		secFacts["blocking_list"] = strings.Join(blockingRows, "\n")
@@ -674,11 +699,11 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	}
 
 	// Fail if any NON-EXCUSED vulnerability is at or above the configured severity
-	// threshold. failOn / unreachablePolicy were resolved once above; GatingCount
-	// excuses proven-unreachable vulns when the policy is "pass". Default failOn is
-	// "off" (informational), preserving today's opt-in gate.
+	// threshold. failOn / unreachablePolicy / exc were resolved once above; GatingCount
+	// excuses on-record exceptions (any policy) and proven-unreachable vulns (policy
+	// "pass"). Default failOn is "off" (informational), preserving today's opt-in gate.
 	if failOn != "off" {
-		if n := security.GatingCount(result, cs, failOn, unreachablePolicy); n > 0 {
+		if n := security.GatingCount(result, cs, exc.ExceptedIDs, failOn, unreachablePolicy); n > 0 {
 			word := "vulnerabilities"
 			if n == 1 {
 				word = "vulnerability"
@@ -709,6 +734,26 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	}
 
 	return nil
+}
+
+// toSecurityExceptions converts config exceptions to the security package's form, parsing
+// the YYYY-MM-DD expiry. Validation already rejected malformed dates; a parse failure here
+// degrades to no-expiry (permanent) rather than silently dropping the exception.
+func toSecurityExceptions(in []config.SecurityException) []security.Exception {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]security.Exception, 0, len(in))
+	for _, e := range in {
+		ex := security.Exception{ID: e.ID, Reason: e.Reason, Package: e.Package}
+		if s := strings.TrimSpace(e.Expires); s != "" {
+			if t, err := time.Parse("2006-01-02", s); err == nil {
+				ex.Expires = t
+			}
+		}
+		out = append(out, ex)
+	}
+	return out
 }
 
 // toVulnRows converts security.Vulnerability slice to output.VulnRow slice.

@@ -30,6 +30,24 @@ func (s ScannersConfig) GrypeEnabled() bool {
 	return *s.Grype
 }
 
+// SecurityException excuses one advisory from the fail_on gate on record. It never
+// removes the finding from the report — it only marks it as a reviewed accepted-risk /
+// not-applicable decision so it does not fail the build.
+type SecurityException struct {
+	// ID is the advisory this excepts (CVE / GHSA), matched case-insensitively. Required.
+	ID string `yaml:"id"`
+	// Reason is why the advisory is accepted or not applicable. Required — there is no
+	// anonymous excusal; the justification is the whole point of the record.
+	Reason string `yaml:"reason"`
+	// Expires optionally lapses the exception on a date (YYYY-MM-DD). Past its expiry the
+	// advisory gates again and the lapse is surfaced. Omit for a standing decision (an
+	// architectural fact), which is reported as a permanent exception.
+	Expires string `yaml:"expires,omitempty"`
+	// Package optionally scopes the exception to a single package name, so a later,
+	// unrelated advisory that reuses the same ID against a different package still gates.
+	Package string `yaml:"package,omitempty"`
+}
+
 // SecurityConfig holds security scanning configuration.
 type SecurityConfig struct {
 	Preset         string         `yaml:"preset,omitempty"`
@@ -52,6 +70,15 @@ type SecurityConfig struct {
 	// proven-unreachable verdict are affected; everything else is "unknown" and
 	// gates normally.
 	UnreachableVulns string `yaml:"unreachable_vulns,omitempty"`
+
+	// Exceptions are reviewed, on-record decisions to excuse specific advisories from the
+	// fail_on gate — the human counterpart to the reachability excusal above. An excepted
+	// finding STILL appears in the scan report (it is not hidden); the exception only stops
+	// it from FAILING the build. Each carries a mandatory reason and an optional expiry: an
+	// expired exception lapses (the advisory gates again and the lapse is surfaced), and one
+	// with no expiry is a standing decision (reported as such). This does nothing unless
+	// fail_on is set — with the gate off, everything is already informational.
+	Exceptions []SecurityException `yaml:"exceptions,omitempty"`
 
 	// ReleaseDetail is the default detail level for security info in release notes.
 	// Values: "none", "counts", "detailed", "full" (default: "counts").

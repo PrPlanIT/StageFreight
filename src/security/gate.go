@@ -26,28 +26,35 @@ func CountAtOrAbove(r *ScanResult, threshold string) int {
 }
 
 // GatingCount returns how many vulnerabilities are at or above the fail-on
-// threshold and NOT excused. A vulnerability is excused only when
-// unreachablePolicy is "pass" AND the cross-surface reconciliation proved it
-// unreachable. It starts from the authoritative severity counts and subtracts
-// the excused delta (computed from the complete, dedup'd vuln list that those
-// counts are derived from), so with policy "fail" or a nil cs it equals
-// CountAtOrAbove exactly — no behavior change on that path. failOn "off" → 0.
-func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachablePolicy string) int {
+// threshold and NOT excused. A vulnerability is excused when its ID is in
+// exceptedIDs (a human-asserted exception, any policy) OR unreachablePolicy is
+// "pass" AND the cross-surface reconciliation proved it unreachable. It starts
+// from the authoritative severity counts and subtracts the excused delta
+// (computed from the complete, dedup'd vuln list those counts derive from), so
+// with no exceptions and policy "fail"/nil cs it equals CountAtOrAbove exactly —
+// no behavior change on that path. failOn "off" → 0.
+func GatingCount(result *ScanResult, cs *CrossSurfaceResult, exceptedIDs map[string]bool, failOn, unreachablePolicy string) int {
 	base := CountAtOrAbove(result, failOn)
-	if base == 0 || unreachablePolicy != "pass" || cs == nil {
+	if base == 0 {
 		return base
 	}
 	minRank := severity.Rank(severity.Normalize(failOn))
 
-	// Advisory ids (and aliases) the cross-surface reconciliation proved unreachable.
+	// Excusal sources compose: human-asserted exceptions (any reachability policy) plus
+	// advisories the cross-surface reconciliation proved unreachable (policy "pass" only).
 	excusedIDs := map[string]bool{}
-	for _, v := range cs.Vulnerabilities {
-		if r, ok := reachabilityOf(v); !ok || r.State != evidence.ReachUnreachable {
-			continue
-		}
-		excusedIDs[v.ID] = true
-		for _, a := range v.Aliases {
-			excusedIDs[a] = true
+	for id := range exceptedIDs {
+		excusedIDs[id] = true
+	}
+	if unreachablePolicy == "pass" && cs != nil {
+		for _, v := range cs.Vulnerabilities {
+			if r, ok := reachabilityOf(v); !ok || r.State != evidence.ReachUnreachable {
+				continue
+			}
+			excusedIDs[v.ID] = true
+			for _, a := range v.Aliases {
+				excusedIDs[a] = true
+			}
 		}
 	}
 	if len(excusedIDs) == 0 {
@@ -67,16 +74,19 @@ func GatingCount(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachable
 }
 
 // GatingVulns returns the vulnerabilities GatingCount counts — at or above the
-// fail-on threshold and not excused as proven-unreachable — in scan-result order.
-// Nil when the gate is off. This is the ROW source for audience text ({vulns});
-// the counts stay authoritative for the gate itself.
-func GatingVulns(result *ScanResult, cs *CrossSurfaceResult, failOn, unreachablePolicy string) []Vulnerability {
+// fail-on threshold and not excused (by an exception or as proven-unreachable) —
+// in scan-result order. Nil when the gate is off. This is the ROW source for
+// audience text ({vulns}); the counts stay authoritative for the gate itself.
+func GatingVulns(result *ScanResult, cs *CrossSurfaceResult, exceptedIDs map[string]bool, failOn, unreachablePolicy string) []Vulnerability {
 	if failOn == "" || strings.EqualFold(strings.TrimSpace(failOn), "off") {
 		return nil
 	}
 	minRank := severity.Rank(severity.Normalize(failOn))
 
 	excusedIDs := map[string]bool{}
+	for id := range exceptedIDs {
+		excusedIDs[id] = true
+	}
 	if unreachablePolicy == "pass" && cs != nil {
 		for _, v := range cs.Vulnerabilities {
 			if r, ok := reachabilityOf(v); !ok || r.State != evidence.ReachUnreachable {

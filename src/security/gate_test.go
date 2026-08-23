@@ -33,7 +33,7 @@ func TestGatingCountExcusesUnreachable(t *testing.T) {
 		{"off", "pass", cs, 0},       // no gate
 	}
 	for _, c := range cases {
-		if got := GatingCount(result, c.csArg, c.threshold, c.policy); got != c.want {
+		if got := GatingCount(result, c.csArg, nil, c.threshold, c.policy); got != c.want {
 			t.Errorf("GatingCount(%s, %s) = %d, want %d", c.threshold, c.policy, got, c.want)
 		}
 	}

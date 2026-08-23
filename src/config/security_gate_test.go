@@ -1,6 +1,42 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// A security exception must carry an id + reason (no anonymous suppression), and a present
+// expiry must be a real date. Validate aggregates errors, so we assert the specific ones.
+func TestSecurityExceptionValidation(t *testing.T) {
+	// Valid exception → no exception-related error.
+	if _, err := Validate(&Config{Version: 1, Security: SecurityConfig{
+		FailOn:     "high",
+		Exceptions: []SecurityException{{ID: "CVE-2026-14456", Reason: "no QUIC listener", Expires: "2026-12-31"}},
+	}}); err != nil && strings.Contains(err.Error(), "security.exceptions") {
+		t.Errorf("valid exception should not error: %v", err)
+	}
+
+	// Missing reason + missing id + bad date → three specific errors.
+	_, err := Validate(&Config{Version: 1, Security: SecurityConfig{
+		Exceptions: []SecurityException{
+			{ID: "CVE-1"},                              // no reason
+			{Reason: "x"},                              // no id
+			{ID: "CVE-2", Reason: "x", Expires: "soon"}, // bad date
+		},
+	}})
+	if err == nil {
+		t.Fatal("expected validation errors for malformed exceptions")
+	}
+	for _, want := range []string{
+		"security.exceptions[0].reason",
+		"security.exceptions[1].id",
+		"security.exceptions[2].expires",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing error %q in: %v", want, err)
+		}
+	}
+}
 
 func TestEffectiveFailOn(t *testing.T) {
 	// explicit fail_on wins and is lowercased

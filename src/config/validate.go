@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
@@ -603,6 +604,22 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	if cfg.Security.OutputDir != "" {
 		if pathErrs := validateOutputPath(cfg.Security.OutputDir, "security.output"); len(pathErrs) > 0 {
 			errs = append(errs, pathErrs...)
+		}
+	}
+
+	// security.exceptions: each excusal is on record, so id + reason are mandatory (no
+	// anonymous suppression), and expires — when present — must be a real YYYY-MM-DD date.
+	for i, e := range cfg.Security.Exceptions {
+		if strings.TrimSpace(e.ID) == "" {
+			errs = append(errs, fmt.Sprintf("security.exceptions[%d].id: required (the advisory ID to except)", i))
+		}
+		if strings.TrimSpace(e.Reason) == "" {
+			errs = append(errs, fmt.Sprintf("security.exceptions[%d].reason: required (why the advisory is accepted / not applicable)", i))
+		}
+		if s := strings.TrimSpace(e.Expires); s != "" {
+			if _, err := time.Parse("2006-01-02", s); err != nil {
+				errs = append(errs, fmt.Sprintf("security.exceptions[%d].expires: %q is not a YYYY-MM-DD date", i, e.Expires))
+			}
 		}
 	}
 
