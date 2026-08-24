@@ -45,13 +45,15 @@ func runCIRun(cmd *cobra.Command, args []string) error {
 	// Resolve CI context from SF_CI_* env vars (with git fallbacks)
 	ciCtx := ci.ResolveContext()
 
-	// Loop-prevention backstop. The rendered CI rules (GitLab workflow:rules, Actions
-	// per-job gate) already decline to start a pipeline for a StageFreight-generated
-	// commit, but they read a forge variable — which on Azure is subject-only and cannot
-	// see a body trailer — and no rule exists for a local run. This guard reads the FULL
-	// HEAD message and self-skips uniformly, so a narrate commit never re-triggers a phase
-	// on any forge or locally. Tags and deps (Updated-By) commits fall through and build.
-	if generatedCommitShouldSkip(ciCtx.IsTag(), headCommitMessage(resolveWorkspace(ciCtx))) {
+	// Loop-prevention backstop for AUTOMATIC pushes. The rendered CI rules (GitLab
+	// workflow:rules, Actions per-job gate) already decline to start a pipeline for a
+	// StageFreight-generated commit, but they read a forge variable — which on Azure is
+	// subject-only and cannot see a body trailer — and no rule exists for a local run. This
+	// guard reads the FULL HEAD message and self-skips a push on a narrate commit on any
+	// forge or locally. It does NOT skip an intentional (web/api/schedule) trigger — a
+	// maintainer re-running against an updated engine image must run. Tags and deps
+	// (Updated-By) commits fall through and build.
+	if generatedCommitShouldSkip(ciCtx.Event, ciCtx.IsTag(), headCommitMessage(resolveWorkspace(ciCtx))) {
 		fmt.Printf("  %s: skipping — HEAD is a StageFreight-generated commit (%s); regenerating would only re-emit it\n", subsystem, config.GeneratedByTrailer)
 		return nil
 	}
@@ -117,13 +119,19 @@ func renderJobSummary(w *os.File, elapsed time.Duration) bool {
 }
 
 // generatedCommitShouldSkip reports whether a phase run must self-skip because HEAD is a
-// StageFreight-generated (narrate) commit. A narrate commit carries `Generated-By:
-// StageFreight`; regenerating its assets would only re-emit the same commit (the loop). A
-// tag always builds (explicit release intent) and a deps commit (`Updated-By`, no
-// Generated-By trailer) builds, since the image must rebuild to ship the update.
-func generatedCommitShouldSkip(isTag bool, headMessage string) bool {
+// StageFreight-generated (narrate) commit. The loop it prevents is push → scribe commit →
+// push → … so the skip applies ONLY to an automatic push. A maintainer's INTENTIONAL
+// trigger (web/api/schedule/manual, event != "push") must run even on a generated HEAD —
+// that is how you rebuild an image against an updated engine — and the scribe commit's own
+// push is already suppressed by skip_ci, so a push is the only event that can loop. A tag
+// always builds (explicit release intent); a deps commit (Updated-By, no Generated-By)
+// builds too, falling through the trailer check.
+func generatedCommitShouldSkip(event string, isTag bool, headMessage string) bool {
 	if isTag {
 		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(event), "push") {
+		return false // intentional trigger — honor the maintainer's explicit run
 	}
 	return config.MessageHasTrailer(headMessage, config.GeneratedByTrailer)
 }
