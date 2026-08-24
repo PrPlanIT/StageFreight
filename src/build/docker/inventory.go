@@ -22,6 +22,11 @@ type PackageInfo struct {
 	URL        string // download URL for binary installs
 	Stage      string // stage name from "AS <name>", empty for unnamed stages
 	Final      bool   // true if this is from the last FROM stage (the shipped image)
+
+	// VirtualGroup is the apk --virtual group a package was installed under (e.g.
+	// ".build-deps"), empty otherwise. Lets a later `apk del <group>` drop the whole set
+	// of build-only deps so they don't pollute the shipped-image inventory.
+	VirtualGroup string
 }
 
 // ArgDecl holds a parsed Dockerfile ARG with its default value.
@@ -139,6 +144,7 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 
 	// Extract FROM stages and RUN instructions
 	fromIdx := 0
+	var deletedApk []string // apk del targets (package or --virtual group names)
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
@@ -162,9 +168,28 @@ func ExtractInventory(dockerfilePath string) (*InventoryResult, error) {
 		case "RUN":
 			body := strings.TrimPrefix(line, fields[0])
 			body = strings.TrimSpace(body)
-			pkgs := extractRunPackages(body, varsMap)
+			pkgs, dels := extractRunPackages(body, varsMap)
 			result.Packages = append(result.Packages, pkgs...)
+			deletedApk = append(deletedApk, dels...)
 		}
+	}
+
+	// Drop apk packages removed by a later `apk del` — build-only deps installed under a
+	// --virtual group (or by name) and deleted in the same layer, so they never ship. Match
+	// the deleted target against each package's own name OR its virtual group.
+	if len(deletedApk) > 0 {
+		del := make(map[string]bool, len(deletedApk))
+		for _, d := range deletedApk {
+			del[d] = true
+		}
+		kept := result.Packages[:0]
+		for _, p := range result.Packages {
+			if p.Manager == "apk" && (del[p.Name] || (p.VirtualGroup != "" && del[p.VirtualGroup])) {
+				continue
+			}
+			kept = append(kept, p)
+		}
+		result.Packages = kept
 	}
 
 	// Deduplicate packages: keep the most informative entry per (manager, name).
@@ -447,10 +472,9 @@ func parseDistroFromSuffix(suffix string) []distroVersion {
 
 // ── RUN instruction parsing ──────────────────────────────────────────────────
 
-// extractRunPackages parses a RUN instruction body and extracts packages.
-func extractRunPackages(body string, args map[string]ArgDecl) []PackageInfo {
-	var results []PackageInfo
-
+// extractRunPackages parses a RUN instruction body and extracts packages plus any apk
+// deletion targets (`apk del <names>`), so ExtractInventory can drop build-only deps.
+func extractRunPackages(body string, args map[string]ArgDecl) (pkgs []PackageInfo, deleted []string) {
 	// Split on && ; | to get individual commands
 	commands := splitShellCommands(body)
 
@@ -460,16 +484,18 @@ func extractRunPackages(body string, args map[string]ArgDecl) []PackageInfo {
 			continue
 		}
 
+		deleted = append(deleted, extractApkDeletions(cmd)...)
+
 		// Try each extractor
 		for _, ext := range extractors {
-			if pkgs := ext.extract(cmd, args); len(pkgs) > 0 {
-				results = append(results, pkgs...)
+			if got := ext.extract(cmd, args); len(got) > 0 {
+				pkgs = append(pkgs, got...)
 				break // first match wins
 			}
 		}
 	}
 
-	return results
+	return pkgs, deleted
 }
 
 // splitShellCommands splits a shell command string on &&, ;, and |
@@ -518,7 +544,10 @@ var extractors = []extractor{
 
 // ── apk extractor ────────────────────────────────────────────────────────────
 
-var apkAddRe = regexp.MustCompile(`(?:^|\s)apk\s+add\b`)
+var (
+	apkAddRe = regexp.MustCompile(`(?:^|\s)apk\s+add\b`)
+	apkDelRe = regexp.MustCompile(`(?:^|\s)apk\s+del\b`)
+)
 
 func extractApk(cmd string, args map[string]ArgDecl) []PackageInfo {
 	if !apkAddRe.MatchString(cmd) {
@@ -528,7 +557,9 @@ func extractApk(cmd string, args map[string]ArgDecl) []PackageInfo {
 	var results []PackageInfo
 	tokens := strings.Fields(cmd)
 	pastAdd := false
-	for _, tok := range tokens {
+	virtual := "" // the --virtual group these packages belong to, if any
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
 		if tok == "add" {
 			pastAdd = true
 			continue
@@ -536,17 +567,57 @@ func extractApk(cmd string, args map[string]ArgDecl) []PackageInfo {
 		if !pastAdd {
 			continue
 		}
+		// --virtual <name> / -t <name>: the group NAME is not a package; remember it so
+		// the packages that follow can be dropped by a later `apk del <name>`.
+		if tok == "--virtual" || tok == "-t" {
+			if i+1 < len(tokens) {
+				virtual = tokens[i+1] // keep the leading '.' so `apk del .build-deps` matches
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(tok, "--virtual=") {
+			virtual = strings.TrimPrefix(tok, "--virtual=")
+			continue
+		}
 		if strings.HasPrefix(tok, "-") {
+			continue // other flags: --no-cache, --update, etc.
+		}
+		// Not concrete packages: a virtual group name (".build-deps" convention) or an
+		// unresolved variable reference ($PHPIZE_DEPS / ${VAR}) that expands to a set.
+		if strings.HasPrefix(tok, ".") || strings.HasPrefix(tok, "$") {
 			continue
 		}
 		results = append(results, PackageInfo{
-			Name:      tok,
-			Source:    "dockerfile",
-			SourceRef: "RUN " + strings.TrimSpace(cmd),
-			Manager:   "apk",
+			Name:         tok,
+			Source:       "dockerfile",
+			SourceRef:    "RUN " + strings.TrimSpace(cmd),
+			Manager:      "apk",
+			VirtualGroup: virtual,
 		})
 	}
 	return results
+}
+
+// extractApkDeletions returns the targets removed by an `apk del` — package names or
+// --virtual group names. These drop build-only deps installed then deleted in the layer.
+func extractApkDeletions(cmd string) []string {
+	if !apkDelRe.MatchString(cmd) {
+		return nil
+	}
+	var out []string
+	pastDel := false
+	for _, tok := range strings.Fields(cmd) {
+		if tok == "del" {
+			pastDel = true
+			continue
+		}
+		if !pastDel || strings.HasPrefix(tok, "-") {
+			continue
+		}
+		out = append(out, tok)
+	}
+	return out
 }
 
 // ── apt extractor ────────────────────────────────────────────────────────────
