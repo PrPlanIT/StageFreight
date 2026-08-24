@@ -36,59 +36,66 @@ const (
 // The "..." ellipsis is used ONLY for hard mid-token cuts (no word boundary
 // available). Word-boundary wraps are clean — no decoration.
 func WrapContent(line string, budget int) []string {
+	if budget < 8 {
+		budget = 8 // sane floor; below this, wrapping is meaningless
+	}
 	if VisualWidth(line) <= budget {
 		return []string{line}
 	}
 
 	indent := DetectValueIndent(line)
+	// A hanging indent must never starve the continuation budget. If aligning to
+	// the value column would leave less than half the width for content, abandon
+	// the hang — a readable hard-wrap beats one character per line. (The failure
+	// mode this guards: a huge, near-spaceless line — a whole `RUN` command dumped
+	// into an error box — whose false "value column" collapsed the cut budget to
+	// ~1, exploding into hundreds of "<indent> X..." rows.)
+	if indent > budget/2 {
+		indent = 0
+	}
 	indentStr := strings.Repeat(" ", indent)
+
+	// A single logical line may not explode into unbounded rows: past this it is
+	// truncated with an ellipsis. Bounds the blast radius of any pathological input.
+	const maxLines = 20
 
 	var result []string
 	remaining := []rune(line)
 	first := true
 
 	for len(remaining) > 0 {
-		var cutBudget int
-		var prefix string
-		if first {
-			cutBudget = budget
-		} else {
+		prefix := ""
+		cutBudget := budget
+		if !first {
 			prefix = indentStr
 			cutBudget = budget - indent
 		}
 
-		// Check whether the remainder fits on this line without cutting.
-		remWidth := runeSliceWidth(remaining)
-		fitBudget := cutBudget
-		if !first {
-			fitBudget = budget - indent
-		}
-		if remWidth <= fitBudget {
+		// Whole remainder fits — emit and stop.
+		if runeSliceWidth(remaining) <= cutBudget {
 			result = append(result, prefix+string(remaining))
 			break
 		}
 
-		// Try to find a word boundary.
-		cut := findWordBoundary(remaining, cutBudget)
-
-		if cut < 0 {
-			// No word boundary — hard cut with ellipsis.
-			hardCut := findHardCut(remaining, cutBudget-3) // reserve 3 for "..."
-			piece := remaining[:hardCut]
-			remaining = remaining[hardCut:]
-			result = append(result, prefix+string(piece)+"...")
-			if first {
-				first = false
-			}
-		} else {
-			// Clean word-boundary cut — no decoration.
-			piece := remaining[:cut]
-			remaining = []rune(strings.TrimLeft(string(remaining[cut:]), " "))
-			result = append(result, prefix+string(piece))
-			if first {
-				first = false
-			}
+		// Final allowed row: truncate the remainder rather than wrap further.
+		if len(result) >= maxLines-1 {
+			cut := findHardCut(remaining, cutBudget-1) // reserve 1 for the ellipsis
+			result = append(result, prefix+string(remaining[:cut])+"…")
+			break
 		}
+
+		if cut := findWordBoundary(remaining, cutBudget); cut >= 0 {
+			// Clean word-boundary cut — no decoration.
+			result = append(result, prefix+string(remaining[:cut]))
+			remaining = []rune(strings.TrimLeft(string(remaining[cut:]), " "))
+		} else {
+			// No word boundary — hard cut with ellipsis (budget guaranteed ≥ 4 by the
+			// indent clamp above, so this always makes real progress).
+			hardCut := findHardCut(remaining, cutBudget-3) // reserve 3 for "..."
+			result = append(result, prefix+string(remaining[:hardCut])+"...")
+			remaining = remaining[hardCut:]
+		}
+		first = false
 	}
 
 	return result

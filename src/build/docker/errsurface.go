@@ -66,7 +66,7 @@ func RenderBuildError(sec *output.Section, stderr string) {
 
 	if len(entries) > 0 {
 		for _, e := range entries {
-			sec.Row("  %s", formatError(e))
+			sec.Row("  %s", sanitizeErrLine(formatError(e)))
 		}
 
 		// Context tail — which Docker stage/step failed.
@@ -80,7 +80,7 @@ func RenderBuildError(sec *output.Section, stderr string) {
 			if trimmed == "" {
 				continue
 			}
-			sec.Row("  %s", trimmed)
+			sec.Row("  %s", sanitizeErrLine(trimmed))
 		}
 	} else {
 		// Fallback: no recognized error pattern. Show last 10 lines.
@@ -95,9 +95,56 @@ func RenderBuildError(sec *output.Section, stderr string) {
 			if trimmed == "" {
 				continue
 			}
-			sec.Row("  %s", trimmed)
+			sec.Row("  %s", sanitizeErrLine(trimmed))
 		}
 	}
+}
+
+// maxErrLineWidth caps how wide a single surfaced error line may be. A build
+// stderr line can be kilobytes (a whole `RUN` command echoed back); showing it
+// verbatim buries the real failure and stresses the wrapper. Beyond this it is
+// hard-truncated with an ellipsis.
+const maxErrLineWidth = 240
+
+// sanitizeErrLine makes a raw build-stderr line safe and useful to surface:
+// it collapses the command buildkit inlines in a process-failure line, then caps
+// the overall width. The actual failure (e.g. "curl: (22) ... 404") and the failing
+// step come through the other tail lines untouched.
+func sanitizeErrLine(line string) string {
+	return truncateRunes(elideProcessCommand(line), maxErrLineWidth)
+}
+
+// elideProcessCommand collapses the long inlined command in a buildkit
+// process-failure line — `process "<the entire RUN command>" did not complete
+// successfully` — to `process "…" did not complete successfully`. The command
+// already lives in the Dockerfile; echoing it (often 1–2 KB and near-spaceless)
+// is what buried the real error and wrecked wrapping.
+func elideProcessCommand(line string) string {
+	const startMarker = `process "`
+	i := strings.Index(line, startMarker)
+	if i < 0 {
+		return line
+	}
+	start := i + len(startMarker)
+	const endMarker = `" did not complete`
+	j := strings.Index(line[start:], endMarker)
+	if j < 0 {
+		return line // no clean close; the width cap in sanitizeErrLine still applies
+	}
+	end := start + j
+	if end-start <= 80 {
+		return line // short command — keep it
+	}
+	return line[:start] + "…" + line[end:]
+}
+
+// truncateRunes hard-truncates s to max visible runes, appending an ellipsis.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
 
 // formatError renders a structured error entry as a human-readable line.
