@@ -94,6 +94,25 @@ func ResolveRegistryForTarget(target TargetConfig, registries []RegistryConfig, 
 	}, nil
 }
 
+// ResolveRegistryByID resolves a registry from the graph by its config id alone, with
+// {var:} templates expanded in URL and default_path. It is the addressing primitive for
+// {registry.<id>...} template tokens: a registry is referenced only by the id it was given
+// in registries:, never by a provider-literal shorthand (which cannot distinguish two
+// registries of the same provider and picks one by luck). Returns nil for an unknown id.
+func ResolveRegistryByID(id string, registries []RegistryConfig, vars map[string]string) *ResolvedRegistry {
+	reg := FindRegistryByID(registries, id)
+	if reg == nil {
+		return nil
+	}
+	return &ResolvedRegistry{
+		ID:          reg.ID,
+		Provider:    reg.Provider,
+		URL:         resolveVarsInline(reg.URL, vars),
+		Path:        resolveVarsInline(reg.DefaultPath, vars),
+		Credentials: reg.Credentials,
+	}
+}
+
 // ResolveAllMirrors resolves all mirror repos against the forge graph.
 func ResolveAllMirrors(repos []RepoConfig, forges []ForgeConfig, vars map[string]string) ([]*ResolvedRepo, error) {
 	var mirrors []*ResolvedRepo

@@ -28,7 +28,11 @@ git state.
 | `{project.name}` | Repo name from the git remote |
 | `{project.url}` | Repo URL (SSH→HTTPS normalized) |
 | `{project.license}` | SPDX identifier from the `LICENSE` file |
-| `{docker.pulls}`, `{docker.stars}` | Docker Hub stats |
+| `{registry.<id>.pulls}`, `{registry.<id>.stars}` | Repo stats for the registry with config id `<id>` — pull/star counts, available only where the provider exposes them (Docker Hub) |
+| `{registry.<id>.tag.<tag>.size}`, `.updated`, `.digest` | Per-tag metadata for a tag in registry `<id>` (`size`/`size:raw`/`updated`/`digest`); read from the Docker Hub API, or the OCI manifest for any other provider (ghcr, harbor, quay, …) |
+
+Registry tokens address a registry by the **id** you gave it under `registries:` — there is no
+provider-literal shorthand, so which registry a token reads is always explicit (never inferred).
 
 ---
 

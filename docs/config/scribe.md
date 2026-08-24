@@ -82,7 +82,7 @@ side-by-side). Equivalent to a `body:` of space-joined `{id}` embeds:
 
 The stencil lives once under `stencils:` and is referenced by `{id}` — no `badge_ref`, no
 per-file re-declaration. Any `{…}` the stencil engine doesn't recognize falls through to the
-gitver template pass (`{base}`, `{env:X}`, `{project.*}`, `{docker.*}`, …), so version/env facts
+gitver template pass (`{base}`, `{env:X}`, `{project.*}`, `{registry.<id>.*}`, …), so version/env facts
 work directly in a `body:` too. A `link_base` on the file fixes relative links and derives the
 raw-content base for badge image sources.
 

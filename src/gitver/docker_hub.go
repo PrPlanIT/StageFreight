@@ -140,144 +140,29 @@ func FetchTagInfo(client *http.Client, namespace, repo string, tags []string) ma
 	return result
 }
 
-// ResolveDockerTemplates replaces {docker.*} templates with values from Docker Hub.
-// Returns s unchanged if info is nil or no {docker.} templates are present.
-func ResolveDockerTemplates(s string, info *DockerHubInfo) string {
-	if info == nil || !strings.Contains(s, "{docker.") {
-		return s
-	}
-
-	s = strings.ReplaceAll(s, "{docker.pulls:raw}", strconv.FormatInt(info.Pulls, 10))
-	s = strings.ReplaceAll(s, "{docker.pulls}", formatCount(info.Pulls))
-	s = strings.ReplaceAll(s, "{docker.stars}", strconv.Itoa(info.Stars))
-	s = strings.ReplaceAll(s, "{docker.size:raw}", strconv.FormatInt(info.Size, 10))
-	s = strings.ReplaceAll(s, "{docker.size}", formatBytes(info.Size))
-	s = strings.ReplaceAll(s, "{docker.latest}", shortDigest(info.Latest))
-
-	s = resolveTagTemplates(s, info.Tags)
-
-	return s
-}
-
-// tagSuffix maps a known placeholder suffix to its formatting function.
-type tagSuffix struct {
-	pattern string
-	format  func(TagInfo) string
-}
-
-// knownTagSuffixes lists recognized {docker.tag.TAG.FIELD} suffixes.
-// Order matters: longer/more-specific patterns first (size:raw before size).
-var knownTagSuffixes = []tagSuffix{
-	{".size:raw}", func(ti TagInfo) string { return strconv.FormatInt(ti.Size, 10) }},
-	{".size}", func(ti TagInfo) string { return formatBytes(ti.Size) }},
-	{".updated}", func(ti TagInfo) string {
+// FormatTagField renders a per-tag metadata field for a {registry.<id>.tag.<tag>.<field>}
+// token, from the provider-agnostic TagInfo the resolver assembles (Docker Hub API or OCI
+// manifest). Recognized fields: size (human), size:raw (bytes), updated (YYYY-MM-DD), digest
+// (short). Returns ("", false) for an unknown field so the caller leaves the token untouched.
+func FormatTagField(ti TagInfo, field string) (string, bool) {
+	switch field {
+	case "size":
+		return formatBytes(ti.Size), true
+	case "size:raw":
+		return strconv.FormatInt(ti.Size, 10), true
+	case "updated":
 		if ti.LastUpdated.IsZero() {
-			return ""
+			return "", true
 		}
-		return ti.LastUpdated.Format("2006-01-02")
-	}},
-	{".digest}", func(ti TagInfo) string { return shortDigest(ti.Digest) }},
+		return ti.LastUpdated.Format("2006-01-02"), true
+	case "digest":
+		return shortDigest(ti.Digest), true
+	}
+	return "", false
 }
 
-// resolveTagTemplates replaces {docker.tag.TAG.FIELD} patterns with per-tag values.
-// Truly suffix-anchored: finds closing } first, then tests the bounded content
-// against known suffixes from the right. Handles dots in tag names (e.g., v0.2.1).
-func resolveTagTemplates(s string, tags map[string]TagInfo) string {
-	if tags == nil {
-		return s
-	}
-
-	const prefix = "{docker.tag."
-
-	var out strings.Builder
-	for {
-		idx := strings.Index(s, prefix)
-		if idx == -1 {
-			out.WriteString(s)
-			break
-		}
-		out.WriteString(s[:idx])
-		rest := s[idx+len(prefix):]
-
-		// Find the closing brace — bounds this single placeholder
-		closeIdx := strings.Index(rest, "}")
-		if closeIdx == -1 {
-			// Unclosed placeholder — write literally and stop
-			out.WriteString(prefix)
-			out.WriteString(rest)
-			break
-		}
-
-		// inner is everything between "{docker.tag." and "}" (inclusive of "}")
-		inner := rest[:closeIdx+1]
-
-		matched := false
-		for _, sf := range knownTagSuffixes {
-			if strings.HasSuffix(inner, sf.pattern) {
-				tagName := inner[:len(inner)-len(sf.pattern)]
-				if tagName == "" {
-					continue
-				}
-				ti, ok := tags[tagName]
-				if ok {
-					out.WriteString(sf.format(ti))
-				}
-				// tag not found → empty string (no output)
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			// Known prefix but unrecognized suffix — write literally
-			out.WriteString(prefix)
-			out.WriteString(inner)
-		}
-		s = rest[closeIdx+1:]
-	}
-	return out.String()
-}
-
-// ExtractDockerTagNames scans strings for {docker.tag.TAGNAME.FIELD} patterns
-// and returns deduplicated tag names. Uses the same suffix-anchored parsing
-// as resolveTagTemplates.
-func ExtractDockerTagNames(values []string) []string {
-	const prefix = "{docker.tag."
-
-	seen := make(map[string]bool)
-	for _, v := range values {
-		s := v
-		for {
-			idx := strings.Index(s, prefix)
-			if idx == -1 {
-				break
-			}
-			rest := s[idx+len(prefix):]
-
-			closeIdx := strings.Index(rest, "}")
-			if closeIdx == -1 {
-				break
-			}
-
-			inner := rest[:closeIdx+1]
-			for _, sf := range knownTagSuffixes {
-				if strings.HasSuffix(inner, sf.pattern) {
-					tagName := inner[:len(inner)-len(sf.pattern)]
-					if tagName != "" {
-						seen[tagName] = true
-					}
-					break
-				}
-			}
-			s = rest[closeIdx+1:]
-		}
-	}
-
-	tags := make([]string, 0, len(seen))
-	for tag := range seen {
-		tags = append(tags, tag)
-	}
-	return tags
-}
+// FormatCount renders a repo-level count (pulls, …) for human display: 1247 → "1.2k".
+func FormatCount(n int64) string { return formatCount(n) }
 
 // formatCount formats a number for human display: 1247 → "1.2k", 1234567 → "1.2M".
 func formatCount(n int64) string {

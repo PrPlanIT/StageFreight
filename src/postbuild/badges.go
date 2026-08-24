@@ -5,9 +5,9 @@
 package postbuild
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,30 +81,9 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 		resolvedValues[i] = value
 	}
 
-	// Scan resolved values for {docker.tag.*} patterns to discover tag names
-	tagNames := gitver.ExtractDockerTagNames(resolvedValues)
-
-	// Lazy Docker Hub info — fetch repo-level + per-tag info if needed
-	var dockerInfo *gitver.DockerHubInfo
-	needsDocker := len(tagNames) > 0
-	if !needsDocker {
-		for _, v := range resolvedValues {
-			if strings.Contains(v, "{docker.") {
-				needsDocker = true
-				break
-			}
-		}
-	}
-	if needsDocker {
-		ns, repo := DockerHubFromConfig(appCfg)
-		if ns != "" && repo != "" {
-			dockerInfo, _ = gitver.FetchDockerHubInfo(ns, repo)
-			if dockerInfo != nil && len(tagNames) > 0 {
-				client := &http.Client{Timeout: 10 * time.Second}
-				dockerInfo.Tags = gitver.FetchTagInfo(client, ns, repo, tagNames)
-			}
-		}
-	}
+	// Resolve {registry.<id>...} tokens across all badge values: per-registry metadata
+	// fetched once each, dispatched by the registry's provider (Docker Hub API or OCI).
+	resolvedValues = ResolveRegistryTemplates(context.Background(), resolvedValues, appCfg)
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var generated int
@@ -121,7 +100,7 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 			itemEng = override
 		}
 
-		value := gitver.ResolveDockerTemplates(resolvedValues[i], dockerInfo)
+		value := resolvedValues[i]
 
 		// Guard against empty or unresolved template values producing broken badges. A
 		// remaining "{" means a template didn't resolve — UNLESS the source had a {{…}}
@@ -185,59 +164,4 @@ func CollectScribeBadgeItems(appCfg *config.Config) []config.StencilDef {
 		}
 	}
 	return items
-}
-
-// DockerHubFromConfig returns the namespace and repo for the first docker.io
-// registry target. Walks the identity graph via ResolveRegistryForTarget so
-// targets using `registry: <id>` references resolve correctly — legacy
-// inline `url: docker.io` + `path: ...` targets still work because the
-// resolver accepts both shapes.
-func DockerHubFromConfig(appCfg *config.Config) (string, string) {
-	for _, t := range appCfg.Targets {
-		if t.Kind != "registry" {
-			continue
-		}
-		resolved, err := config.ResolveRegistryForTarget(t, appCfg.Registries, appCfg.Vars)
-		if err != nil || resolved == nil {
-			continue
-		}
-		// Match Docker Hub by provider (preferred) or URL (legacy inline).
-		isDockerHub := resolved.Provider == "docker" ||
-			resolved.URL == "docker.io" ||
-			resolved.URL == "https://docker.io" ||
-			resolved.URL == "https://hub.docker.com"
-		if !isDockerHub || resolved.Path == "" {
-			continue
-		}
-		parts := strings.SplitN(resolved.Path, "/", 2)
-		if len(parts) == 2 {
-			return parts[0], parts[1]
-		}
-	}
-	return "", ""
-}
-
-// HarborFromConfig returns the Harbor coordinates (base URL, project, repo) and
-// the credential prefix for the first Harbor registry target, or zero-values if
-// none. Mirrors DockerHubFromConfig — the {harbor.*} badge tokens need these to
-// query the internal Harbor API (which shields.io cannot reach).
-func HarborFromConfig(appCfg *config.Config) (baseURL, project, repo, credPrefix string) {
-	for _, t := range appCfg.Targets {
-		if t.Kind != "registry" {
-			continue
-		}
-		resolved, err := config.ResolveRegistryForTarget(t, appCfg.Registries, appCfg.Vars)
-		if err != nil || resolved == nil {
-			continue
-		}
-		if resolved.Provider != "harbor" || resolved.Path == "" {
-			continue
-		}
-		parts := strings.SplitN(resolved.Path, "/", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		return resolved.URL, parts[0], parts[1], resolved.Credentials
-	}
-	return "", "", "", ""
 }

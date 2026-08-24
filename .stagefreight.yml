@@ -484,7 +484,7 @@ stencils:
     font_size: 11
   pulls:
     label: pulls
-    message: "{docker.pulls}"
+    message: "{registry.dockerhub.pulls}"
     color: "#1d63ed"
     link: "https://hub.docker.com/r/{var:org}/{var:repo}"
   release-latest:
@@ -494,11 +494,11 @@ stencils:
     link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
   release-updated:
     label: updated
-    message: "{docker.tag.v{base}.updated}"
+    message: "{registry.dockerhub.tag.v{base}.updated}"
     color: "#236144"
   release-size:
     label: size
-    message: "{docker.tag.v{base}.size}"
+    message: "{registry.dockerhub.tag.v{base}.size}"
     color: "#555"
     link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}"
   dev-latest:
@@ -508,11 +508,11 @@ stencils:
     link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
   dev-updated:
     label: updated
-    message: "{docker.tag.latest-dev.updated}"
+    message: "{registry.dockerhub.tag.latest-dev.updated}"
     color: "#236144"
   dev-size:
     label: size
-    message: "{docker.tag.latest-dev.size}"
+    message: "{registry.dockerhub.tag.latest-dev.size}"
     color: "#555"
     link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
 

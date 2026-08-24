@@ -5,8 +5,8 @@ package cmd
 // the CI narrate stage both call RunConfigBadges. There is no standalone badge command.
 import (
 	"bytes"
+	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +16,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/badge"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/credentials"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
@@ -108,48 +107,9 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		resolvedValues[i] = value
 	}
 
-	// Scan resolved values for {docker.tag.*} patterns to discover tag names
-	tagNames := gitver.ExtractDockerTagNames(resolvedValues)
-
-	// Lazy Docker Hub info — fetch repo-level + per-tag info if needed
-	var dockerInfo *gitver.DockerHubInfo
-	needsDocker := len(tagNames) > 0
-	if !needsDocker {
-		for _, v := range resolvedValues {
-			if strings.Contains(v, "{docker.") {
-				needsDocker = true
-				break
-			}
-		}
-	}
-	if needsDocker {
-		ns, repo := postbuild.DockerHubFromConfig(appCfg)
-		if ns != "" && repo != "" {
-			dockerInfo, _ = gitver.FetchDockerHubInfo(ns, repo)
-			if dockerInfo != nil && len(tagNames) > 0 {
-				client := &http.Client{Timeout: 10 * time.Second}
-				dockerInfo.Tags = gitver.FetchTagInfo(client, ns, repo, tagNames)
-			}
-		}
-	}
-
-	// Lazy Harbor info — internal registry (no shields.io coverage), fetched with
-	// the HARBOR credential and resolved into committed SVGs like {docker.*}.
-	var harborInfo *gitver.HarborInfo
-	needsHarbor := false
-	for _, v := range resolvedValues {
-		if strings.Contains(v, "{harbor.") {
-			needsHarbor = true
-			break
-		}
-	}
-	if needsHarbor {
-		base, project, repo, credPrefix := postbuild.HarborFromConfig(appCfg)
-		if base != "" && project != "" && repo != "" {
-			cred := credentials.ResolvePrefix(credPrefix)
-			harborInfo, _ = gitver.FetchHarborInfo(base, project, repo, cred.User, cred.Secret)
-		}
-	}
+	// Resolve {registry.<id>...} tokens across all badge values: per-registry metadata
+	// fetched once each, dispatched by the registry's provider (Docker Hub API or OCI).
+	resolvedValues = postbuild.ResolveRegistryTemplates(context.Background(), resolvedValues, appCfg)
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
@@ -168,8 +128,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 			itemEng = override
 		}
 
-		value := gitver.ResolveDockerTemplates(resolvedValues[i], dockerInfo)
-		value = gitver.ResolveHarborTemplates(value, harborInfo)
+		value := resolvedValues[i]
 
 		// Guard against empty or unresolved template values producing broken badges. A
 		// remaining "{" means a template didn't resolve — UNLESS the source had a {{…}}
