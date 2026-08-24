@@ -58,55 +58,65 @@ func subsetToCharset(data []byte) ([]byte, error) {
 const ttfChecksumMagic uint32 = 0xB1B0AFBA
 
 // normalizeFontHead makes the subset font byte-REPRODUCIBLE run to run. tdewolff/font
-// Write() leaves the head table carrying run-time state in TWO fields: the created/modified
-// timestamps (stamped with the current time) and checksumAdjustment (a whole-font checksum
-// computed over those timestamps — so it FOSSILIZES the run-time value even once the
-// timestamps themselves are zeroed). Zeroing the timestamps alone therefore still left
-// checksumAdjustment differing every publish, which is what churned a no-op commit onto
-// every run. Both are normalized here: the timestamps are zeroed, then checksumAdjustment
-// is recomputed over the final bytes, so it is deterministic AND valid. On any structural
-// problem the bytes are returned untouched (a churny badge beats a broken one).
+// Write() leaves run-time state in THREE places, all derived from the current clock:
+//   - head.created / head.modified — the timestamps themselves;
+//   - head.checksumAdjustment — a whole-font checksum taken over those timestamps;
+//   - the head table's checksum entry in the sfnt table directory — which Write() computed
+//     over that run-time checksumAdjustment, so it fossilizes the clock even once the head
+//     body is normalized, AND pollutes the whole-font sum that checksumAdjustment is built
+//     from (the directory is part of the font).
+//
+// Zeroing the timestamps, or even the timestamps plus checksumAdjustment, therefore still
+// left the directory entry (and hence checksumAdjustment) differing every publish — the
+// 2-byte diff that churned a no-op auto-commit onto every run. All three are normalized
+// here, in order: timestamps zeroed, checksumAdjustment zeroed, the directory entry
+// recomputed over the now-zeroed head (spec-correct: the head checksum is taken with
+// checksumAdjustment treated as 0), then checksumAdjustment recomputed over the final
+// whole-font bytes — deterministic AND valid. On any structural problem the bytes are
+// returned untouched (a churny badge beats a broken one).
 func normalizeFontHead(ttf []byte) []byte {
-	headOff, ok := headTableOffset(ttf)
+	rec, off, length, ok := headTable(ttf)
 	if !ok {
 		return ttf
 	}
-	// head layout: … created (8 bytes @ +20), modified (8 bytes @ +28) — zero both.
-	if headOff+36 <= len(ttf) {
-		for j := headOff + 20; j < headOff+36; j++ {
-			ttf[j] = 0
-		}
+	// Zero head.checksumAdjustment (4 bytes @ +8) and created/modified (16 bytes @ +20).
+	binary.BigEndian.PutUint32(ttf[off+8:off+12], 0)
+	for j := off + 20; j < off+36; j++ {
+		ttf[j] = 0
 	}
-	// checksumAdjustment (4 bytes @ +8): zero it (per spec it counts as zero while the
-	// checksum is taken), sum the whole font, then write back 0xB1B0AFBA − sum.
-	if headOff+12 <= len(ttf) {
-		binary.BigEndian.PutUint32(ttf[headOff+8:headOff+12], 0)
-		binary.BigEndian.PutUint32(ttf[headOff+8:headOff+12], ttfChecksumMagic-fontChecksum(ttf))
-	}
+	// Recompute the head table's directory checksum entry over the now-zeroed head body,
+	// so the directory carries no run-time state — this is the byte that churned.
+	binary.BigEndian.PutUint32(ttf[rec+4:rec+8], fontChecksum(ttf[off:off+length]))
+	// Recompute checksumAdjustment over the final whole-font bytes (its own field already 0):
+	// 0xB1B0AFBA − sum. Deterministic now that every byte, directory entry included, is.
+	binary.BigEndian.PutUint32(ttf[off+8:off+12], ttfChecksumMagic-fontChecksum(ttf))
 	return ttf
 }
 
-// headTableOffset returns the byte offset of the head table from the sfnt table directory,
-// and whether a head table large enough to carry checksumAdjustment + timestamps was found.
-func headTableOffset(ttf []byte) (int, bool) {
+// headTable locates the head table from the sfnt table directory, returning its directory
+// RECORD offset (rec — the 16-byte entry whose +4 field is the table checksum), its table
+// body offset (off) and length, and whether a head table large enough to carry
+// checksumAdjustment + timestamps (≥36 bytes) was found within bounds.
+func headTable(ttf []byte) (rec, off, length int, ok bool) {
 	if len(ttf) < 12 {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	numTables := int(binary.BigEndian.Uint16(ttf[4:6]))
 	for i := 0; i < numTables; i++ {
-		rec := 12 + i*16
-		if rec+16 > len(ttf) {
+		r := 12 + i*16
+		if r+16 > len(ttf) {
 			break
 		}
-		if string(ttf[rec:rec+4]) == "head" {
-			off := int(binary.BigEndian.Uint32(ttf[rec+8 : rec+12]))
-			if off >= 0 && off+36 <= len(ttf) {
-				return off, true
+		if string(ttf[r:r+4]) == "head" {
+			o := int(binary.BigEndian.Uint32(ttf[r+8 : r+12]))
+			l := int(binary.BigEndian.Uint32(ttf[r+12 : r+16]))
+			if o >= 0 && l >= 36 && o+l <= len(ttf) {
+				return r, o, l, true
 			}
-			return 0, false
+			return 0, 0, 0, false
 		}
 	}
-	return 0, false
+	return 0, 0, 0, false
 }
 
 // fontChecksum is the TrueType table checksum over the whole font: the sum of its

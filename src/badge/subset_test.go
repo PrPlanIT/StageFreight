@@ -67,34 +67,48 @@ func TestSubset_HeadTimestampsZeroed(t *testing.T) {
 	}
 }
 
-// The subset font must be byte-identical regardless of the timestamps tdewolff stamps at
-// Write time. Zeroing created/modified alone was not enough: head.checksumAdjustment is a
-// whole-font checksum computed OVER those timestamps, so it fossilized the run-time clock
-// and differed every publish (the 2-byte diff that churned a no-op auto-commit). Perturbing
-// the head as a later publish's clock would, then re-normalizing, must reproduce the same
-// bytes — and the checksumAdjustment written must be valid.
+// The subset font must be byte-identical regardless of the run-time state tdewolff stamps
+// at Write time. Zeroing created/modified alone was not enough, nor even zeroing them plus
+// head.checksumAdjustment: tdewolff ALSO writes the head table's checksum entry in the sfnt
+// directory over the run-time checksumAdjustment, so that entry fossilized the clock and
+// pulled checksumAdjustment along with it (the 2-byte diff that churned a no-op auto-commit).
+// Perturbing ALL THREE — timestamps, checksumAdjustment, AND the directory entry — as a
+// later publish's clock would, then re-normalizing, must reproduce the same bytes, and the
+// checksumAdjustment written must be valid.
 func TestNormalizeFontHead_TimestampIndependentAndValid(t *testing.T) {
 	m, err := LoadBuiltinFont("monofur", 11)
 	if err != nil {
 		t.Fatal(err)
 	}
 	base := m.FontData() // already normalized by subsetToCharset
-	headOff, ok := headTableOffset(base)
+	rec, headOff, _, ok := headTable(base)
 	if !ok {
 		t.Fatal("no head table in subset font")
 	}
 
-	// Simulate a different publish: non-zero created/modified and the bogus
-	// checksumAdjustment tdewolff would leave under a different clock.
+	// Simulate a different publish: non-zero created/modified, the bogus checksumAdjustment
+	// tdewolff would leave under a different clock, and the stale directory checksum entry
+	// it derives from that run-time checksumAdjustment.
 	perturbed := append([]byte(nil), base...)
 	for j := headOff + 20; j < headOff+36; j++ {
 		perturbed[j] = 0x7F
 	}
 	binary.BigEndian.PutUint32(perturbed[headOff+8:headOff+12], 0xDEADBEEF)
+	binary.BigEndian.PutUint32(perturbed[rec+4:rec+8], 0xCAFEF00D)
 
 	got := normalizeFontHead(perturbed)
 	if !bytes.Equal(got, base) {
-		t.Fatal("normalizeFontHead is not timestamp-independent — badge SVGs will still churn a no-op commit")
+		t.Fatal("normalizeFontHead is not run-time-independent — badge SVGs will still churn a no-op commit")
+	}
+
+	// The directory checksum entry it wrote must be the spec-correct head checksum, taken
+	// with checksumAdjustment treated as 0 (not over the final body, which now carries the
+	// real checksumAdjustment) — the deterministic byte that stops the churn.
+	_, off, length, _ := headTable(got)
+	headCAdjZeroed := append([]byte(nil), got[off:off+length]...)
+	binary.BigEndian.PutUint32(headCAdjZeroed[8:12], 0)
+	if entry := binary.BigEndian.Uint32(got[rec+4 : rec+8]); entry != fontChecksum(headCAdjZeroed) {
+		t.Errorf("head directory checksum entry not the spec-correct (cadj=0) value: got %08x", entry)
 	}
 
 	// The checksumAdjustment it wrote must be VALID: zero the field, recompute, match.
