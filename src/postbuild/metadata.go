@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
-	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
@@ -22,20 +21,10 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
-// MetadataHook pushes project identity (kind: metadata) to registries AND forge repos.
-func MetadataHook() pipeline.PostBuildHook {
-	return pipeline.PostBuildHook{
-		Name: "metadata",
-		Condition: func(pc *pipeline.PipelineContext) bool {
-			return len(pipeline.CollectTargetsByKind(pc.Config, "metadata")) > 0 && !pc.Local
-		},
-		Run: func(pc *pipeline.PipelineContext) (*pipeline.PhaseResult, error) {
-			targets := pipeline.CollectTargetsByKind(pc.Config, "metadata")
-			summary, _ := RunMetadataSection(pc.Ctx, pc.Writer, pc.Color, targets, pc.RootDir, pc.Config)
-			return &pipeline.PhaseResult{Name: "metadata", Status: "success", Summary: summary}, nil
-		},
-	}
-}
+// Project-identity sync (kind: metadata → registry overviews + forge repo descriptions) is
+// driven from the publish phase via metadataTargetsDue + RunMetadataSection. It is NOT a
+// post-build hook: a former MetadataHook was never registered, so the sync silently died
+// (e1f2189) until publish was wired to call it directly, guarded by TestMetadataTargetsDue.
 
 type metaRow struct{ dest, detail string }
 

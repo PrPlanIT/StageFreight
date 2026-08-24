@@ -15,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/postbuild"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 )
 
@@ -339,8 +340,31 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := scribeRunner(ctx, appCfg, ciCtx, opts); err != nil {
 		return err
 	}
+
+	// Sync project identity (kind: metadata) — registry overviews + forge repo
+	// descriptions/topics — for targets whose when: matches this event, using the README
+	// scribe just refreshed. This is the pipeline's only path to that sync; without it the
+	// metadata target is declared but never runs (the e1f2189 regression).
+	if due := metadataTargetsDue(appCfg); len(due) > 0 {
+		postbuild.RunMetadataSection(ctx, os.Stdout, output.UseColor(), due, rootDir, appCfg)
+	}
+
 	syncMirrors(ctx, appCfg)
 	return nil
+}
+
+// metadataTargetsDue selects the kind:metadata targets (registry overviews + forge repo
+// descriptions/topics) whose when: matches the current CI event. Extracted from the publish
+// runner so the wiring is unit-testable: the e1f2189 metadata migration left the sync
+// unwired and it went unnoticed for a month because nothing tested that publish reaches it.
+func metadataTargetsDue(cfg *config.Config) []config.TargetConfig {
+	var due []config.TargetConfig
+	for _, t := range pipeline.CollectTargetsByKind(cfg, "metadata") {
+		if config.TargetMatchesEnv(t, cfg) {
+			due = append(due, t)
+		}
+	}
+	return due
 }
 
 // narratePhaseRunner renders truth from prior phase state. Runs for all modes.
