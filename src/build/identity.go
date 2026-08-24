@@ -13,12 +13,30 @@ import (
 
 // Standard OCI label keys emitted by StageFreight on every build.
 const (
-	LabelCreated   = "org.opencontainers.image.created"
-	LabelRevision  = "org.opencontainers.image.revision"
-	LabelVersion   = "org.opencontainers.image.version"
-	LabelBuildMode = "org.stagefreight.build.mode"
-	LabelPlanHash  = "org.stagefreight.plan.sha256"
+	LabelCreated     = "org.opencontainers.image.created"
+	LabelRevision    = "org.opencontainers.image.revision"
+	LabelVersion     = "org.opencontainers.image.version"
+	LabelDescription = "org.opencontainers.image.description"
+	LabelBuildMode   = "org.stagefreight.build.mode"
+	LabelPlanHash    = "org.stagefreight.plan.sha256"
 )
+
+// WithDescription stamps org.opencontainers.image.description from the project's declared
+// description (project-metadata.description) into the label set. StageFreight OWNS this label
+// whenever the project declares a description: it is written every build (so it stays current,
+// not first-build-only) and — because a build --label overrides a Dockerfile LABEL of the same
+// key — it is authoritative over any baked-in value, giving one dependable source. When no
+// description is configured, the label is left untouched (a Dockerfile's own value, if any,
+// stands) — SF never invents one, so there is no surprise clobber.
+func WithDescription(labels map[string]string, description string) map[string]string {
+	if d := strings.TrimSpace(description); d != "" {
+		if labels == nil {
+			labels = map[string]string{}
+		}
+		labels[LabelDescription] = d
+	}
+	return labels
+}
 
 // StandardLabels returns the set of OCI labels that should be applied to
 // every image built by StageFreight, regardless of build mode.

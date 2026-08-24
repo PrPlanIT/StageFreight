@@ -37,6 +37,7 @@ type crucibleContributor struct {
 	candidateTag  string
 	verifyTag     string
 	created       string
+	description   string // project-metadata.description → OCI image.description label
 	pipelineStart time.Time
 	backend       *Backend
 	engine        build.Engine
@@ -94,8 +95,9 @@ func (c *crucibleContributor) Detect(rc *domains.RunContext) (domains.Contributi
 	c.runID = build.GenerateCrucibleRunID()
 	c.candidateTag = CrucibleTag("candidate", c.runID)
 	c.verifyTag = CrucibleTag("verify", c.runID)
-	if desc := postbuild.FirstProjectDescription(rc.Config); desc != "" {
-		gitver.SetProjectDescription(desc)
+	c.description = postbuild.FirstProjectDescription(rc.Config)
+	if c.description != "" {
+		gitver.SetProjectDescription(c.description)
 	}
 	c.created = time.Unix(c.pipelineStart.Unix(), 0).UTC().Format(time.RFC3339)
 
@@ -208,8 +210,8 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		pass1Plan.Steps[i].Registries = nil
 		pass1Plan.Steps[i].CacheTo = nil
 	}
-	build.InjectLabels(pass1Plan, build.StandardLabels(
-		build.NormalizeBuildPlan(pass1Plan), sfVer, sfCommit, "crucible-candidate", c.created))
+	build.InjectLabels(pass1Plan, build.WithDescription(build.StandardLabels(
+		build.NormalizeBuildPlan(pass1Plan), sfVer, sfCommit, "crucible-candidate", c.created), c.description))
 
 	_, pass1Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Build (pass 1: candidate)", pass1Plan, c.candidateTag)
@@ -234,8 +236,8 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		pass2Plan.Steps[i].Registries = nil
 		pass2Plan.Steps[i].CacheTo = nil
 	}
-	build.InjectLabels(pass2Plan, build.StandardLabels(
-		build.NormalizeBuildPlan(pass2Plan), sfVer, sfCommit, "crucible-verify", c.created))
+	build.InjectLabels(pass2Plan, build.WithDescription(build.StandardLabels(
+		build.NormalizeBuildPlan(pass2Plan), sfVer, sfCommit, "crucible-verify", c.created), c.description))
 
 	_, pass2Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Rebuild (pass 2: self-proof)", pass2Plan, c.verifyTag)
@@ -342,8 +344,8 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		// re-tags this image digest-preserved WITHOUT re-stamping, so these are the labels
 		// that reach the registry — they must be correct here.
 		sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
-		build.InjectLabels(publishPlan, build.StandardLabels(
-			build.NormalizeBuildPlan(publishPlan), sfVer, sfCommit, "crucible-verified", c.created))
+		build.InjectLabels(publishPlan, build.WithDescription(build.StandardLabels(
+			build.NormalizeBuildPlan(publishPlan), sfVer, sfCommit, "crucible-verified", c.created), c.description))
 
 		loginFailed := false
 		if !transport && !rc.Local {
