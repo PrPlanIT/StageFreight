@@ -49,12 +49,25 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 		}
 
 		if release.TagName != "" {
-			dep.Latest = strings.TrimPrefix(release.TagName, "v")
+			dep.Latest = versionFromTag(release.TagName)
 		}
 		deps = append(deps, dep)
 	}
 
 	return deps
+}
+
+// versionFromTag extracts the bare version from a GitHub release tag_name, matching
+// the v-stripped form of Current. It handles projects whose tags carry a name prefix
+// — kustomize releases as "kustomize/v5.8.1", not "v5.8.1" — by taking the segment
+// after the last "/" before dropping a leading "v". Without this, a prefixed tag flowed
+// through unchanged and the Dockerfile write-back prepended "v" to the whole thing,
+// producing "vkustomize/v5.8.1" and a 404 download.
+func versionFromTag(tag string) string {
+	if i := strings.LastIndex(tag, "/"); i >= 0 {
+		tag = tag[i+1:]
+	}
+	return strings.TrimPrefix(tag, "v")
 }
 
 // scanGitHubURLs reads a file looking for github.com/{owner}/{repo}/releases/download/
