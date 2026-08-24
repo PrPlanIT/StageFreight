@@ -6,19 +6,51 @@ import (
 	"strings"
 )
 
-// CIEvent derives the current CI event (push/tag/…) for when-matching. Tag
+// CIEvent derives the current CI event in the canonical when.events vocabulary. Tag
 // presence (CI_COMMIT_TAG / SF_CI_TAG) is the authoritative push-vs-tag signal:
 // GitLab reports CI_PIPELINE_SOURCE=push even for tag pushes, and the dev channel
-// synthesizes its tag locally (never exporting SF_CI_TAG), so a tag *string* is
-// not a reliable event signal. Explicit non-push/tag events are honored verbatim.
+// synthesizes its tag locally (never exporting SF_CI_TAG), so a tag *string* is not
+// a reliable event signal. Otherwise the raw forge source (SF_CI_EVENT) is mapped to
+// the canonical vocabulary via NormalizeEvent, so gates authored once (events:[manual])
+// match on every forge despite their differing raw names.
 func CIEvent() string {
 	if os.Getenv("SF_CI_TAG") != "" || os.Getenv("CI_COMMIT_TAG") != "" {
 		return "tag"
 	}
-	if e := os.Getenv("SF_CI_EVENT"); e != "" && e != "push" && e != "tag" {
-		return e
+	if e := os.Getenv("SF_CI_EVENT"); e != "" {
+		if n := NormalizeEvent(e); n != "" {
+			return n
+		}
 	}
 	return "push"
+}
+
+// NormalizeEvent maps a forge's raw pipeline-source string to the canonical
+// when.events vocabulary (see validEvents), so a config gate is written once in
+// portable terms and matches on every forge. The raw source is CI_PIPELINE_SOURCE
+// on GitLab, github.event_name on GitHub/Gitea/Forgejo, and Build.Reason on Azure —
+// and the single "manual re-run" concept has five different raw names across them
+// (web/api/trigger, workflow_dispatch, Manual), which all collapse to "manual". An
+// unrecognized source passes through lowercased (lenient: it still matches a
+// literally-named gate), and empty stays empty (the unknown-event lenience in
+// EventMatches then applies).
+func NormalizeEvent(raw string) string {
+	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
+	case "web", "api", "trigger", "manual", "workflow_dispatch":
+		return "manual" // human/automation re-ran this ref's pipeline (not a code push)
+	case "push", "individualci", "batchedci", "continuousintegration":
+		return "push"
+	case "schedule", "scheduled", "cron":
+		return "schedule"
+	case "merge_request":
+		return "merge_request"
+	case "pull_request", "pullrequest":
+		return "pull_request"
+	case "tag", "release":
+		return v
+	default:
+		return v
+	}
 }
 
 // CIBranch returns the current branch from the CI environment ("" if none).

@@ -53,17 +53,31 @@ func TestTargetEligibilityReasons(t *testing.T) {
 		t.Fatalf("push/main: want eligible with empty reason, got %+v", r)
 	}
 
-	// Ineligible: a manual web run. The reason must name both the run source and
-	// the event gate so narration is self-explaining.
-	r := TargetEligibility(dev, "web", "main", "", "", tagPol, brPol)
+	// Eligible: a manual "Run pipeline" on main stands in for a push — the rebuild
+	// button distributes exactly what a push would. The matcher sees the canonical
+	// "manual" (CIEvent normalizes web/api/trigger/workflow_dispatch at the boundary).
+	if r := TargetEligibility(dev, "manual", "main", "", "", tagPol, brPol); !r.Eligible {
+		t.Fatalf("manual run must be eligible for events:[push] (rebuild button), got %+v", r)
+	}
+	if !TargetMatches(dev, "manual", "main", "", "", tagPol, brPol) {
+		t.Errorf("TargetMatches must agree with TargetEligibility.Eligible (true) for manual/main")
+	}
+
+	// Eligible: a scheduled auto-release pipeline (dep bumps, fork rebases) also
+	// distributes like a push, so it satisfies events:[push].
+	if r := TargetEligibility(dev, "schedule", "main", "", "", tagPol, brPol); !r.Eligible {
+		t.Fatalf("schedule run must be eligible for events:[push] (auto-release), got %+v", r)
+	}
+
+	// Ineligible: a merge_request is a proposed change, not a mainline build — it must
+	// not auto-publish on a push gate. The reason must name both the run source and the
+	// event gate so narration is self-explaining.
+	r := TargetEligibility(dev, "merge_request", "main", "", "", tagPol, brPol)
 	if r.Eligible {
-		t.Fatalf("web run must be ineligible for events:[push]")
+		t.Fatalf("merge_request run must be ineligible for events:[push]")
 	}
-	if !strings.Contains(r.Reason, "web") || !strings.Contains(r.Reason, "events") {
+	if !strings.Contains(r.Reason, "merge_request") || !strings.Contains(r.Reason, "events") {
 		t.Errorf("event reason should name source and gate, got %q", r.Reason)
-	}
-	if TargetMatches(dev, "web", "main", "", "", tagPol, brPol) {
-		t.Errorf("TargetMatches must agree with TargetEligibility.Eligible (false)")
 	}
 
 	// Branch mismatch surfaces a branch reason.
