@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
 // ResolveTemplate expands template variables in a single string against
@@ -200,6 +201,11 @@ func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, 
 
 	// CI context templates
 	s = resolveCIContext(s)
+
+	// StageFreight's OWN version/commit (ldflags-injected, not the repo's version).
+	// Longer, more-specific tokens go before {version} so no substring collision.
+	s = strings.ReplaceAll(s, "{stagefreight.version}", version.Version)
+	s = strings.ReplaceAll(s, "{stagefreight.commit}", version.Commit)
 
 	// Simple replacements (unscoped — from the primary VersionInfo)
 	s = strings.ReplaceAll(s, "{version}", v.Version)

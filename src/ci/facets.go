@@ -57,7 +57,7 @@ var FacetRegistry = []FacetDef{
 		Name:      "gitops-reconcile",
 		Subsystem: "reconcile",
 		NeedsDinD: false,
-		Predicate: func(c *config.Config) bool { return c.GitOps.Cluster.Name != "" },
+		Predicate: func(c *config.Config) bool { return len(c.GitOps) > 0 },
 	},
 	{
 		Name:      "governance-reconcile",

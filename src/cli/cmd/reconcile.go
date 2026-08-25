@@ -196,8 +196,10 @@ func reconcileFacts(appCfg *config.Config, plan *runtime.LifecyclePlan, result *
 		"backend":   backend,
 		"units":     backendUnits(backend),
 	}
-	if cluster := strings.TrimSpace(appCfg.GitOps.Cluster.Name); cluster != "" {
-		facts["cluster"] = cluster
+	if pc, ok := appCfg.GitOps.Primary(); ok {
+		if cluster := strings.TrimSpace(pc.Name); cluster != "" {
+			facts["cluster"] = cluster
+		}
 	}
 	if declined > 0 {
 		facts["declined"] = strconv.Itoa(declined)

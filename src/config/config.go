@@ -117,8 +117,8 @@ type Config struct {
 	// Only valid in the control repo (lifecycle.mode: governance).
 	Governance GovernanceConfig `yaml:"governance"`
 
-	// GitOps defines configuration for the gitops lifecycle mode.
-	GitOps GitOpsConfig `yaml:"gitops"`
+	// GitOps defines the gitops lifecycle target clusters, keyed by cluster name.
+	GitOps OrderedClusters `yaml:"gitops,omitempty"`
 
 	// Ansible defines the ansible host-convergence subsystem. Presence-gated
 	// (any converge playbook activates it) and independent of lifecycle.mode.
@@ -304,7 +304,6 @@ func defaults() *Config {
 		Test:       DefaultTestConfig(),
 		Manifest:   DefaultManifestConfig(),
 		Release:    DefaultReleaseConfig(),
-		GitOps:     DefaultGitOpsConfig(),
 		Ansible:    DefaultAnsibleConfig(),
 		BuildCache: DefaultBuildCacheConfig(),
 		Docker:     DefaultDockerLifecycleConfig(),

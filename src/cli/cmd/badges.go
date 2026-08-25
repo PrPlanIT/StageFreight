@@ -111,6 +111,10 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	// fetched once each, dispatched by the registry's provider (Docker Hub API or OCI).
 	resolvedValues = postbuild.ResolveRegistryTemplates(context.Background(), resolvedValues, appCfg)
 
+	// Resolve {inventory.<cluster>.count} tokens: discover each referenced gitops
+	// cluster's live app inventory once.
+	resolvedValues = postbuild.ResolveInventoryTemplates(context.Background(), resolvedValues, appCfg, rootDir)
+
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
 	updated, unchanged := 0, 0

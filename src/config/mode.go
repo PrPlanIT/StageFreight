@@ -35,7 +35,7 @@ type LifecycleMode struct {
 
 var lifecycleModes = map[string]LifecycleMode{
 	ModeImage:      {Name: ModeImage, PhaseReconcile: false},
-	ModeGitops:     {Name: ModeGitops, PhaseReconcile: true, Backend: func(c *Config) string { return c.GitOps.Backend }},
+	ModeGitops:     {Name: ModeGitops, PhaseReconcile: true, Backend: func(c *Config) string { p, _ := c.GitOps.Primary(); return p.Backend }},
 	ModeDocker:     {Name: ModeDocker, PhaseReconcile: false, Backend: func(c *Config) string { return c.Docker.Backend }},
 	ModeGovernance: {Name: ModeGovernance, PhaseReconcile: true},
 }

@@ -1,6 +1,22 @@
 package gitver
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/PrPlanIT/StageFreight/src/version"
+)
+
+// TestResolveTemplate_StageFreightVersion pins that {stagefreight.version} resolves to
+// StageFreight's OWN tool version (version.Version) and is not clobbered by the repo's
+// {version} — the two are distinct facts sharing the leaf-pass.
+func TestResolveTemplate_StageFreightVersion(t *testing.T) {
+	v := &VersionInfo{Version: "0.6.1"}
+	got := ResolveTemplateWithDirAndVars("sf {stagefreight.version} repo {version}", v, "", nil)
+	want := "sf " + version.Version + " repo 0.6.1"
+	if got != want {
+		t.Errorf("ResolveTemplateWithDirAndVars = %q, want %q", got, want)
+	}
+}
 
 // TestResolveTags_ChannelPatterns guards the channel naming layer: the immutable
 // dev-tag pattern `dev-{sha:8}` resolves to a fixed 8-char short SHA, a rolling

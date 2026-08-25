@@ -85,6 +85,10 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 	// fetched once each, dispatched by the registry's provider (Docker Hub API or OCI).
 	resolvedValues = ResolveRegistryTemplates(context.Background(), resolvedValues, appCfg)
 
+	// Resolve {inventory.<cluster>.count} tokens: discover each referenced gitops
+	// cluster's live app inventory once.
+	resolvedValues = ResolveInventoryTemplates(context.Background(), resolvedValues, appCfg, rootDir)
+
 	// Pass 2: resolve docker templates and generate SVGs
 	var generated int
 	for i := range items {

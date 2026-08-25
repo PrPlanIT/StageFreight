@@ -41,11 +41,12 @@ func TestValidateLifecycle_InertBlocksNotGated(t *testing.T) {
 }
 
 func TestValidateLifecycle_DefaultedBackends_NoFalsePositive(t *testing.T) {
-	// Regression guard: defaults() seeds gitops.backend=flux/docker.backend=compose on
-	// every config; that must never be mistaken for an authored block.
+	// Regression guard: defaults() seeds docker.backend=compose on every config; that must
+	// never be mistaken for an authored block. (gitops no longer defaults a backend — it is
+	// per-cluster under gitops.<name>.backend, absent until a cluster is declared.)
 	cfg := baseCfg()
-	if cfg.GitOps.Backend == "" || cfg.Docker.Backend == "" {
-		t.Fatalf("precondition: defaults() should seed backends; got %q/%q", cfg.GitOps.Backend, cfg.Docker.Backend)
+	if cfg.Docker.Backend == "" {
+		t.Fatalf("precondition: defaults() should seed docker backend; got %q", cfg.Docker.Backend)
 	}
 	if errs := validateLifecycle(cfg); len(errs) != 0 {
 		t.Fatalf("defaulted backends must not error, got %v", errs)
@@ -73,7 +74,7 @@ func TestLifecycleTable_ReproducesLegacyPredicates(t *testing.T) {
 	// Backend (RunLifecycle) must be non-nil ONLY for gitops+docker, and resolve the same
 	// field the old switch read.
 	cfg := baseCfg()
-	cfg.GitOps.Backend = "flux"
+	cfg.GitOps = OrderedClusters{{Name: "dungeon", Backend: "flux"}}
 	cfg.Docker.Backend = "compose"
 	cases := map[string]string{ // mode → expected backend name ("" ⇒ Backend must be nil)
 		ModeImage: "", ModeGitops: "flux", ModeDocker: "compose", ModeGovernance: "",

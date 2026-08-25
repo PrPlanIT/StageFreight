@@ -44,7 +44,7 @@ func DeriveRequired(mode string, cfg *config.Config, rctx *RuntimeContext) []Cap
 	case config.ModeGitops:
 		required = append(required, CapReconcile)
 		required = append(required, CapImpactAnalysis)
-		if cfg.GitOps.Cluster.Name != "" {
+		if len(cfg.GitOps) > 0 {
 			required = append(required, CapClusterAuth)
 		}
 	case config.ModeDocker, "ansible":

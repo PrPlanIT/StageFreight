@@ -2095,7 +2095,7 @@ func recordSubsystemOutcome(rootDir string, s cistate.SubsystemState) {
 func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	start := time.Now()
 
-	hasGitOps := strings.TrimSpace(appCfg.GitOps.Cluster.Name) != ""
+	hasGitOps := len(appCfg.GitOps) > 0
 	hasGovernanceClusters := len(appCfg.Governance.Clusters) > 0
 	hasGovernanceSource := governanceSourceConfigured(appCfg, ciCtx)
 	hasAnsible := appCfg.Ansible.HasConvergePlaybooks()

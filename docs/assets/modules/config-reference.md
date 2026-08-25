@@ -942,16 +942,15 @@ governance:
 <a id="config-gitops" name="config-gitops"></a>
 ### gitops
 
-GitOps defines configuration for the gitops lifecycle mode.
+GitOps defines the gitops lifecycle target clusters, keyed by cluster name.
 
 ```yaml
 gitops:
-  preset: <string>
-  backend: <string>   # Backend selects the GitOps reconciliation backend (e.g. "flux", "argo"). · required
-  cluster:   # Cluster defines the target Kubernetes cluster. · required
-    name: <string>   # required
-    server: <string>   # required
-    exposure:   # required
+  <id>:   # entry key = the unique id
+    preset: <string>
+    backend: <string>   # Backend selects the GitOps reconciliation backend (e.g. "flux", "argo"). · required
+    endpoint: <string>   # Endpoint is the cluster API server URL (e.g. https://host:6443). · required
+    exposure:   # Exposure classifies endpoint reachability (rule-based). · required
       rules:   # required
         - level: <string>   # internet | intranet | cluster · required
           endpoints: [<string>]   # ip:port (highest precedence) · required
@@ -959,8 +958,8 @@ gitops:
           cidrs: [<string>]   # required
           ports: [...]   # AND with CIDRs (empty = any port) · required
           service_types: [<string>]   # ClusterIP | NodePort | LoadBalancer · required
-  oidc:   # OIDC defines authentication configuration for the cluster. · required
-    audience: <string>   # required
+    oidc:   # OIDC defines authentication configuration for the cluster. · required
+      audience: <string>   # required
 ```
 
 ---

@@ -508,10 +508,14 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 		}.Render(), nil
 
 	case "k8s-inventory":
+		var cluster config.ClusterConfig
+		if pc, ok := appCfg.GitOps.Primary(); ok {
+			cluster = pc.Connection()
+		}
 		return (&render.K8sInventoryModule{
 			CatalogPath:   def.CatalogPath,
 			RepoRoot:      rootDir,
-			ClusterConfig: appCfg.GitOps.Cluster,
+			ClusterConfig: cluster,
 		}).Render(), nil
 
 	case "props":

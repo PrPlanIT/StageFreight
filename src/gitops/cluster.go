@@ -80,7 +80,7 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 
 	// Build kubeconfig via kubectl.
 	if err := kubectlRun(kb, "config", "set-cluster", cfg.Name,
-		"--server="+cfg.Server,
+		"--server="+cfg.Endpoint,
 		"--certificate-authority="+caPath,
 	); err != nil {
 		return "", fmt.Errorf("kubectl set-cluster: %w", err)

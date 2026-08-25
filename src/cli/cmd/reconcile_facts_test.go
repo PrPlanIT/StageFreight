@@ -12,7 +12,7 @@ import (
 // data, per-action failure rows, and the derived outcome/reason.
 func TestReconcileFacts(t *testing.T) {
 	appCfg := &config.Config{}
-	appCfg.GitOps.Cluster.Name = "dungeon"
+	appCfg.GitOps = config.OrderedClusters{{Name: "dungeon"}}
 
 	plan := &runtime.LifecyclePlan{
 		Backend:  "flux",

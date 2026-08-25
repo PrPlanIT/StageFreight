@@ -30,9 +30,12 @@ git state.
 | `{project.license}` | SPDX identifier from the `LICENSE` file |
 | `{registry.<id>.pulls}`, `{registry.<id>.stars}` | Repo stats for the registry with config id `<id>` — pull/star counts, available only where the provider exposes them (Docker Hub) |
 | `{registry.<id>.tag.<tag>.size}`, `.updated`, `.digest` | Per-tag metadata for a tag in registry `<id>` (`size`/`size:raw`/`updated`/`digest`); read from the Docker Hub API, or the OCI manifest for any other provider (ghcr, harbor, quay, …) |
+| `{stagefreight.version}`, `{stagefreight.commit}` | StageFreight's OWN tool version / commit (ldflags-injected) — the engine managing the repo, not the repo's `{version}` |
+| `{inventory.<cluster>.count}` | Number of applications the k8s inventory discovers on the gitops cluster with name `<cluster>` (a `gitops:` map key); matches the k8s-inventory region's "Apps & Services (N)" heading. Resolves only where the cluster is reachable (else `n/a`) |
 
 Registry tokens address a registry by the **id** you gave it under `registries:` — there is no
 provider-literal shorthand, so which registry a token reads is always explicit (never inferred).
+Likewise `{inventory.<cluster>.count}` addresses a cluster by its `gitops:` name.
 
 ---
 

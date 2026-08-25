@@ -56,9 +56,9 @@ func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *ru
 	f.fluxBin = fluxResult.Path
 
 	// Cluster config validation (only if cluster is configured — local dev skips).
-	if cfg.GitOps.Cluster.Name != "" {
-		if cfg.GitOps.Cluster.Server == "" {
-			return fmt.Errorf("gitops.cluster.server is required when cluster.name is set")
+	if pc, ok := cfg.GitOps.Primary(); ok && pc.Name != "" {
+		if pc.Endpoint == "" {
+			return fmt.Errorf("gitops.%s.endpoint is required", pc.Name)
 		}
 	}
 
@@ -68,10 +68,11 @@ func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *ru
 // Prepare builds an isolated kubeconfig for the target cluster.
 // Skipped if no cluster config is present (local dev).
 func (f *FluxBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
-	if cfg.GitOps.Cluster.Name == "" {
+	pc, ok := cfg.GitOps.Primary()
+	if !ok || pc.Name == "" {
 		return nil // local dev — no cluster auth needed
 	}
-	method, err := BuildKubeconfig(ctx, cfg.GitOps.Cluster, rctx, cfg.Toolchains)
+	method, err := BuildKubeconfig(ctx, pc.Connection(), rctx, cfg.Toolchains)
 	f.authMethod = method
 	return err
 }
@@ -90,8 +91,10 @@ func (f *FluxBackend) Plan(ctx context.Context, cfg *config.Config, rctx *runtim
 	if f.authMethod != "" {
 		notes["auth"] = f.authMethod
 	}
-	if name := strings.TrimSpace(cfg.GitOps.Cluster.Name); name != "" {
-		notes["cluster"] = name
+	if pc, ok := cfg.GitOps.Primary(); ok {
+		if name := strings.TrimSpace(pc.Name); name != "" {
+			notes["cluster"] = name
+		}
 	}
 	// Cluster identity — best-effort (a query failure never fails the plan);
 	// answers "which cluster got reconciled" in the box.
