@@ -69,25 +69,12 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 	// Detect version for template resolution
 	vi, _ := build.DetectVersionLenient(rootDir, appCfg)
 
-	// Pass 1: resolve version templates for all badges, collect resolved values
+	// Resolve every badge's templated Value through the shared fact pipeline.
 	specs := make([]config.BadgeSpec, len(items))
-	resolvedValues := make([]string, len(items))
 	for i, item := range items {
 		specs[i] = item.ToBadgeSpec()
-		value := specs[i].Value
-		if vi != nil && value != "" {
-			value = gitver.ResolveTemplateWithDirAndVars(value, vi, rootDir, appCfg.Vars)
-		}
-		resolvedValues[i] = value
 	}
-
-	// Resolve {registry.<id>...} tokens across all badge values: per-registry metadata
-	// fetched once each, dispatched by the registry's provider (Docker Hub API or OCI).
-	resolvedValues = ResolveRegistryTemplates(context.Background(), resolvedValues, appCfg)
-
-	// Resolve {inventory.<cluster>.count} tokens: discover each referenced gitops
-	// cluster's live app inventory once.
-	resolvedValues = ResolveInventoryTemplates(context.Background(), resolvedValues, appCfg, rootDir)
+	resolvedValues := ResolveBadgeValues(context.Background(), specs, vi, rootDir, appCfg)
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var generated int
@@ -157,6 +144,33 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 
 	summary := fmt.Sprintf("%d generated", generated)
 	return summary, elapsed
+}
+
+// ResolveBadgeValues resolves each badge spec's templated Value through the full
+// fact pipeline, in dependency order — the single ordered resolution path shared by
+// both badge generators (the CI post-build hook RunBadgeSection and the CLI
+// RunConfigBadges used by `scribe apply` / narrate). New fact families join HERE,
+// not in each caller. The passes, in order:
+//
+//  1. gitver leaf pass, per value — version/vars/commit/project/date/… (a var value
+//     may itself carry a downstream token, which the leaf pass resolves recursively).
+//  2. {registry.<id>.*} — batch across all values, each registry fetched once.
+//  3. {inventory.<cluster>.count} — batch, each gitops cluster discovered once.
+//
+// The batch passes are ordered after the leaf pass and are offline no-ops when no
+// {registry.*}/{inventory.*} tokens are present.
+func ResolveBadgeValues(ctx context.Context, specs []config.BadgeSpec, vi *gitver.VersionInfo, rootDir string, cfg *config.Config) []string {
+	values := make([]string, len(specs))
+	for i, s := range specs {
+		v := s.Value
+		if vi != nil && v != "" {
+			v = gitver.ResolveTemplateWithDirAndVars(v, vi, rootDir, cfg.Vars)
+		}
+		values[i] = v
+	}
+	values = ResolveRegistryTemplates(ctx, values, cfg)
+	values = ResolveInventoryTemplates(ctx, values, cfg, rootDir)
+	return values
 }
 
 // CollectScribeBadgeItems returns all scribe content defs that generate a badge SVG.

@@ -95,25 +95,13 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		gitver.SetProjectDescription(desc)
 	}
 
-	// Pass 1: resolve version templates for all badges, collect resolved values
+	// Resolve every badge's templated Value through the shared fact pipeline
+	// (gitver leaf pass → registry → inventory, in dependency order).
 	specs := make([]config.BadgeSpec, len(items))
-	resolvedValues := make([]string, len(items))
 	for i, item := range items {
 		specs[i] = item.ToBadgeSpec()
-		value := specs[i].Value
-		if versionInfo != nil && value != "" {
-			value = gitver.ResolveTemplateWithDirAndVars(value, versionInfo, rootDir, appCfg.Vars)
-		}
-		resolvedValues[i] = value
 	}
-
-	// Resolve {registry.<id>...} tokens across all badge values: per-registry metadata
-	// fetched once each, dispatched by the registry's provider (Docker Hub API or OCI).
-	resolvedValues = postbuild.ResolveRegistryTemplates(context.Background(), resolvedValues, appCfg)
-
-	// Resolve {inventory.<cluster>.count} tokens: discover each referenced gitops
-	// cluster's live app inventory once.
-	resolvedValues = postbuild.ResolveInventoryTemplates(context.Background(), resolvedValues, appCfg, rootDir)
+	resolvedValues := postbuild.ResolveBadgeValues(context.Background(), specs, versionInfo, rootDir, appCfg)
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
