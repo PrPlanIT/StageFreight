@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/logo.png" width="220" alt="StageFreight">
+  <img src="src/assets/logo.png" height="180" alt="StageFreight">
 </p>
 
 # StageFreight
