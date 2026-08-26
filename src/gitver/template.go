@@ -74,7 +74,7 @@ import (
 //	  {project.url}        → repo URL (SSH remotes converted to HTTPS)
 //	  {project.license}    → SPDX identifier from LICENSE file
 //	  {project.language}   → auto-detected from lockfiles (go, rust, node, etc.)
-//	  {project.description} → from SetProjectDescription (config-sourced)
+//	  {project.description} → caller-injected via ResolveOptions (config-sourced)
 //
 //	Literals pass through as-is:
 //	  "latest"           → "latest"
@@ -162,9 +162,28 @@ func ResolveTemplateWithDir(tmpl string, v *VersionInfo, rootDir string) string 
 	return ResolveTemplateWithDirAndVars(tmpl, v, rootDir, nil)
 }
 
+// ResolveOptions carries per-call resolution inputs that aren't derivable from the
+// repo itself — currently the project description, which is config-sourced (metadata),
+// not git-derivable. It replaces the former package-global projectDescription: the
+// caller that HAS the description passes it explicitly, so resolution carries no
+// hidden cross-surface state.
+type ResolveOptions struct {
+	ProjectDescription string // resolves {project.description}; "" leaves it empty
+}
+
 // ResolveTemplateWithDirAndVars expands template variables with scoped version
-// support and user-defined {var:name} variables from config.
+// support and user-defined {var:name} variables from config. It injects no options
+// (so {project.description} resolves to empty); callers that hold a description use
+// ResolveTemplateWithOpts.
 func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, vars map[string]string) string {
+	return ResolveTemplateWithOpts(tmpl, v, rootDir, vars, ResolveOptions{})
+}
+
+// ResolveTemplateWithOpts is the full leaf-pass resolver: everything
+// ResolveTemplateWithDirAndVars does, plus caller-injected ResolveOptions. This is
+// the one site that threads config-sourced facts (the project description) into the
+// leaf pass without a package global.
+func ResolveTemplateWithOpts(tmpl string, v *VersionInfo, rootDir string, vars map[string]string, opts ResolveOptions) string {
 	if v == nil {
 		return tmpl
 	}
@@ -183,7 +202,7 @@ func ResolveTemplateWithDirAndVars(tmpl string, v *VersionInfo, rootDir string, 
 	if rootDir != "" {
 		s = resolveScopedVersions(s, rootDir)
 		s = resolveCommitDate(s, rootDir)
-		s = resolveProjectMeta(s, rootDir)
+		s = resolveProjectMeta(s, rootDir, opts.ProjectDescription)
 	}
 
 	// Resolve parameterized templates (they contain colons that
@@ -536,8 +555,9 @@ func headCommitTime(rootDir string) (time.Time, bool) {
 // resolveProjectMeta replaces {project.*} templates with auto-detected project metadata.
 // Name, URL, and language are detected from git and filesystem.
 // License is detected from LICENSE file content.
-// Description uses the value set by SetProjectDescription (typically from config).
-func resolveProjectMeta(s string, rootDir string) string {
+// Description is caller-injected (config-sourced) via ResolveOptions — "" leaves the
+// {project.description} token resolving to empty.
+func resolveProjectMeta(s string, rootDir string, description string) string {
 	if !strings.Contains(s, "{project.") {
 		return s
 	}
@@ -546,7 +566,7 @@ func resolveProjectMeta(s string, rootDir string) string {
 	s = strings.ReplaceAll(s, "{project.url}", pm.URL)
 	s = strings.ReplaceAll(s, "{project.license}", pm.License)
 	s = strings.ReplaceAll(s, "{project.language}", pm.Language)
-	s = strings.ReplaceAll(s, "{project.description}", projectDescription)
+	s = strings.ReplaceAll(s, "{project.description}", description)
 	return s
 }
 

@@ -160,11 +160,16 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 // The batch passes are ordered after the leaf pass and are offline no-ops when no
 // {registry.*}/{inventory.*} tokens are present.
 func ResolveBadgeValues(ctx context.Context, specs []config.BadgeSpec, vi *gitver.VersionInfo, rootDir string, cfg *config.Config) []string {
+	// {project.description} is config-sourced (metadata), not git-derivable — inject it
+	// explicitly so both badge generators resolve it identically. (It formerly rode a
+	// gitver package-global that only the CLI generator set, so the CI hook resolved it
+	// from whatever ambient state happened to be present.)
+	opts := gitver.ResolveOptions{ProjectDescription: FirstProjectDescription(cfg)}
 	values := make([]string, len(specs))
 	for i, s := range specs {
 		v := s.Value
 		if vi != nil && v != "" {
-			v = gitver.ResolveTemplateWithDirAndVars(v, vi, rootDir, cfg.Vars)
+			v = gitver.ResolveTemplateWithOpts(v, vi, rootDir, cfg.Vars, opts)
 		}
 		values[i] = v
 	}

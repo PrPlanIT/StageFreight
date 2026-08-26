@@ -16,7 +16,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/badge"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
@@ -88,11 +87,6 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 	versionInfo, err := build.DetectVersionLenient(rootDir, appCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  warning: version detection failed: %v\n", err)
-	}
-
-	// Inject project description from metadata targets
-	if desc := postbuild.FirstProjectDescription(appCfg); desc != "" {
-		gitver.SetProjectDescription(desc)
 	}
 
 	// Resolve every badge's templated Value through the shared fact pipeline

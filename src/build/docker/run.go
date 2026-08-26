@@ -8,9 +8,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
-	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
-	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
 
 // Run is the entry point for standalone `stagefreight docker build`: it routes
@@ -27,11 +25,6 @@ func Run(req Request) error {
 	}
 	if req.Stderr == nil {
 		req.Stderr = os.Stderr
-	}
-
-	// Inject project description for {project.description} templates
-	if desc := postbuild.FirstProjectDescription(req.Config); desc != "" {
-		gitver.SetProjectDescription(desc)
 	}
 
 	only := "image"

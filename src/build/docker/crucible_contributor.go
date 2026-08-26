@@ -11,7 +11,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/domains"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
@@ -96,9 +95,6 @@ func (c *crucibleContributor) Detect(rc *domains.RunContext) (domains.Contributi
 	c.candidateTag = CrucibleTag("candidate", c.runID)
 	c.verifyTag = CrucibleTag("verify", c.runID)
 	c.description = postbuild.FirstProjectDescription(rc.Config)
-	if c.description != "" {
-		gitver.SetProjectDescription(c.description)
-	}
 	c.created = time.Unix(c.pipelineStart.Unix(), 0).UTC().Format(time.RFC3339)
 
 	// Resolve the backend now; its facts (mode/passes/tags/backend) fold into the

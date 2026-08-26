@@ -16,15 +16,6 @@ type ProjectMeta struct {
 	Language string // auto-detected from lockfiles
 }
 
-// projectDescription is set by callers to provide {project.description} from config.
-var projectDescription string
-
-// SetProjectDescription sets the project description for {project.description} template resolution.
-// Call this before ResolveTemplateWithDir to inject config-sourced descriptions.
-func SetProjectDescription(desc string) {
-	projectDescription = desc
-}
-
 // DetectProject resolves project metadata from git remote, LICENSE file, and lockfiles.
 func DetectProject(rootDir string) *ProjectMeta {
 	pm := &ProjectMeta{}
