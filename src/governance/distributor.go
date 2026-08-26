@@ -54,7 +54,7 @@ func PlanDistribution(
 		seal := SealMeta{
 			SourceRepo: sourceIdentity,
 			SourceRef:  presetSource.Ref,
-			ClusterID:  cluster.ID,
+			ProfileID:  cluster.ID,
 		}
 
 		// Collect preset files referenced in the cluster config for cache distribution.

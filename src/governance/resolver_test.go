@@ -535,7 +535,7 @@ func TestRenderSealedConfig_Deterministic(t *testing.T) {
 	seal := SealMeta{
 		SourceRepo: "test",
 		SourceRef:  "v1",
-		ClusterID:  "test-cluster",
+		ProfileID:  "test-cluster",
 	}
 
 	a, err := RenderSealedConfig(seal, config)
@@ -555,7 +555,7 @@ func TestRenderSealedConfig_HasSeal(t *testing.T) {
 	seal := SealMeta{
 		SourceRepo: "https://gitlab.example.com/example-org/policy-repo",
 		SourceRef:  "v1.0.0",
-		ClusterID:  "docker-services",
+		ProfileID:  "docker-services",
 	}
 
 	out, err := RenderSealedConfig(seal, config)
@@ -575,7 +575,7 @@ func TestRenderSealedConfig_CanonicalOrder(t *testing.T) {
 		"targets":  []any{"a"},
 	}
 
-	seal := SealMeta{SourceRepo: "test", SourceRef: "v1", ClusterID: "test"}
+	seal := SealMeta{SourceRepo: "test", SourceRef: "v1", ProfileID: "test"}
 
 	out, err := RenderSealedConfig(seal, config)
 	requireNoError(t, err)

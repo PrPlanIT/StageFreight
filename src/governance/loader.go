@@ -39,7 +39,7 @@ func LoadGovernance(source GovernanceSource) (*GovernanceConfig, PresetLoader, e
 
 	// Parse governance config.
 	configPath := filepath.Join(checkoutDir, source.Path)
-	gov, err := parseClusters(configPath)
+	gov, err := parseProfiles(configPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parsing governance config: %w", err)
 	}
@@ -162,8 +162,8 @@ func resolveGovernanceAuth(repoURL string) (transport.AuthMethod, error) {
 	return nil, nil
 }
 
-// parseClusters reads and parses the governance clusters file.
-func parseClusters(path string) (*GovernanceConfig, error) {
+// parseProfiles reads and parses the governance clusters file.
+func parseProfiles(path string) (*GovernanceConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)

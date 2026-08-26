@@ -20,26 +20,26 @@ type LifecycleConfig struct {
 // Assets (CI skeletons, settings files, etc.) are declared inside each profile's
 // stagefreight config as assets: entries — no separate skeleton construct.
 type GovernanceConfig struct {
-	Profiles []GovernanceCluster `yaml:"profiles"`
+	Profiles []GovernanceProfile `yaml:"profiles"`
 }
 
-// GovernanceCluster assigns lifecycle doctrine to a group of repos.
-type GovernanceCluster struct {
-	ID           string                   `yaml:"id"`
-	Targets      GovernanceClusterTargets `yaml:"targets"`
-	StageFreight map[string]any           `yaml:"stagefreight"`
+// GovernanceProfile assigns lifecycle doctrine to a group of repos.
+type GovernanceProfile struct {
+	ID      string                   `yaml:"id"`
+	Targets GovernanceProfileTargets `yaml:"targets"`
+	Config  map[string]any           `yaml:"config"` // the profile's shared StageFreight config
 }
 
-// GovernanceClusterTargets identifies which repos belong to this cluster.
+// GovernanceProfileTargets identifies which repos belong to this cluster.
 // Supports flat repos list and/or grouped targets with per-group forge identity.
-type GovernanceClusterTargets struct {
+type GovernanceProfileTargets struct {
 	Repos       []string                 `yaml:"repos,omitempty"`
-	Groups      []GovernanceClusterGroup `yaml:"groups,omitempty"`
+	Groups      []GovernanceProfileGroup `yaml:"groups,omitempty"`
 	Credentials string                   `yaml:"credentials,omitempty"` // env var prefix for forge auth
 }
 
-// GovernanceClusterGroup is a cohort of repos on the same forge.
-type GovernanceClusterGroup struct {
+// GovernanceProfileGroup is a cohort of repos on the same forge.
+type GovernanceProfileGroup struct {
 	ID    string   `yaml:"id,omitempty"`
 	Repos []string `yaml:"repos"`
 }

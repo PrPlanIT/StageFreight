@@ -18,7 +18,7 @@ type PlanViewConfig struct {
 // PlanViewData holds everything needed to render a plan view.
 type PlanViewData struct {
 	Config   PlanViewConfig
-	Profiles []Cluster
+	Profiles []Profile
 	Plans    map[string]DistributionPlan // keyed by repo
 	Results  map[string]CommitResult     // keyed by repo (nil for dry-run)
 }
@@ -252,7 +252,7 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 }
 
 // groupRepos groups repos in a cluster by state + file signature.
-func groupRepos(cluster Cluster, data PlanViewData) []repoGroup {
+func groupRepos(cluster Profile, data PlanViewData) []repoGroup {
 	type groupKey struct {
 		state string
 		sig   string

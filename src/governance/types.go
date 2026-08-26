@@ -20,24 +20,24 @@ type GovernanceSource struct {
 
 // GovernanceConfig is the parsed governance config from the policy repo.
 type GovernanceConfig struct {
-	Profiles []Cluster `yaml:"profiles"`
+	Profiles []Profile `yaml:"profiles"`
 }
 
-// Cluster assigns lifecycle doctrine to a group of repos.
+// Profile assigns lifecycle doctrine to a group of repos.
 // The StageFreight block is normal StageFreight config — same grammar.
 // Assets (CI skeletons, settings files, etc.) are declared inside the
 // stagefreight config as assets: entries — no separate skeleton construct.
-type Cluster struct {
+type Profile struct {
 	ID      string         `yaml:"id"`
-	Targets ClusterTargets `yaml:"targets"`
-	Config  map[string]any `yaml:"stagefreight"` // raw StageFreight config
+	Targets ProfileTargets `yaml:"targets"`
+	Config  map[string]any `yaml:"config"` // the profile's shared StageFreight config
 }
 
-// ClusterTargets identifies which repos belong to this cluster.
+// ProfileTargets identifies which repos belong to this cluster.
 // Two forms:
 //   - Flat: targets.repos (string list, inherits governance sources.primary forge)
 //   - Grouped: targets.groups (each group declares its own forge source)
-type ClusterTargets struct {
+type ProfileTargets struct {
 	Repos       []string      `yaml:"repos,omitempty"`       // shorthand: flat list, inherited forge
 	Groups      []TargetGroup `yaml:"groups,omitempty"`      // explicit: per-group forge identity
 	Credentials string        `yaml:"credentials,omitempty"` // env var prefix for forge auth (e.g. "GITLAB_HOMELABHD" → GITLAB_HOMELABHD_TOKEN)
@@ -46,7 +46,7 @@ type ClusterTargets struct {
 // AllRepos flattens both forms into a unified list for iteration.
 // Flat repos get empty ForgeURL (inherit from governance sources.primary).
 // Group repos get the group's declared forge URL.
-func (ct ClusterTargets) AllRepos() []ResolvedRepo {
+func (ct ProfileTargets) AllRepos() []ResolvedRepo {
 	var result []ResolvedRepo
 	for _, repo := range ct.Repos {
 		result = append(result, ResolvedRepo{ID: repo})
@@ -65,7 +65,7 @@ func (ct ClusterTargets) AllRepos() []ResolvedRepo {
 
 // ValidateTargets checks that group forge URLs are base URLs only (no path).
 // Prevents ambiguity between forge base URL and full repo URL.
-func (ct ClusterTargets) ValidateTargets() error {
+func (ct ProfileTargets) ValidateTargets() error {
 	for _, g := range ct.Groups {
 		if g.Sources == nil || g.Sources.Primary.URL == "" {
 			continue

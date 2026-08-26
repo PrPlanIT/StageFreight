@@ -18,7 +18,7 @@ func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 	b.WriteString("# GENERATED / ENFORCED BY STAGEFREIGHT GOVERNANCE\n")
 	b.WriteString(fmt.Sprintf("# Source repo: %s\n", seal.SourceRepo))
 	b.WriteString(fmt.Sprintf("# Source ref: %s\n", seal.SourceRef))
-	b.WriteString(fmt.Sprintf("# Cluster: %s\n", seal.ClusterID))
+	b.WriteString(fmt.Sprintf("# Profile: %s\n", seal.ProfileID))
 	b.WriteString("# This .stagefreight.yml is governed, not purely local.\n")
 	b.WriteString("# To disable governance, detach from the control repo workflow.\n")
 	b.WriteString("# Manual changes may be overwritten by reconciliation.\n")
@@ -39,7 +39,7 @@ func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 type SealMeta struct {
 	SourceRepo string // e.g., "https://gitlab.prplanit.com/PrPlanIT/MaintenancePolicy"
 	SourceRef  string // e.g., "v1.0.0" or commit SHA
-	ClusterID  string // e.g., "docker-services"
+	ProfileID  string // e.g., "docker-services"
 }
 
 // RenderEffective returns config as YAML with canonical key ordering.
