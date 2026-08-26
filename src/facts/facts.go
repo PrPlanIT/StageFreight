@@ -45,9 +45,12 @@ type Context struct {
 	State  *cistate.State
 }
 
-// Resolver rewrites templated text, resolving the fact families it owns. Resolve must
-// be a pure function of (text, c): it may read c and perform idempotent live fetches
-// (cached on c), but must not mutate shared package state.
+// Resolver rewrites a SET of templated values, resolving the fact families it owns.
+// Operating on []string (rather than one string) is what lets batch resolvers —
+// registry/inventory, which fetch each remote once across all values — sit behind the
+// same interface as per-value resolvers, which simply map over the set. Resolve must
+// be a pure function of (values, c) modulo idempotent live fetches, returning a slice
+// the same length as its input, and must not mutate shared package state.
 type Resolver interface {
 	// Name identifies the resolver in diagnostics and ordering errors.
 	Name() string
@@ -58,8 +61,8 @@ type Resolver interface {
 	// family not provided by any registered resolver is treated as externally supplied
 	// and imposes no ordering constraint.
 	DependsOn() []string
-	// Resolve returns text with this resolver's families expanded.
-	Resolve(text string, c *Context) string
+	// Resolve returns values with this resolver's families expanded (same length).
+	Resolve(values []string, c *Context) []string
 }
 
 // Registry applies its Resolvers in dependency order.
@@ -77,12 +80,20 @@ func (r *Registry) Add(res Resolver) *Registry {
 	return r
 }
 
-// Resolve applies every resolver to text in dependency order and returns the result.
-func (r *Registry) Resolve(text string, c *Context) string {
+// Resolve applies every resolver to the value set in dependency order and returns the
+// fully-expanded set (same length as values).
+func (r *Registry) Resolve(values []string, c *Context) []string {
 	for _, res := range r.ordered() {
-		text = res.Resolve(text, c)
+		values = res.Resolve(values, c)
 	}
-	return text
+	return values
+}
+
+// ResolveOne is the single-value convenience: resolve one string through the registry.
+// Surfaces that render one body at a time (scribe) use this; batch surfaces (badges)
+// call Resolve with the whole set so fetch-once resolvers work across it.
+func (r *Registry) ResolveOne(value string, c *Context) string {
+	return r.Resolve([]string{value}, c)[0]
 }
 
 // ordered returns the resolvers in dependency order: every resolver appears after all

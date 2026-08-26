@@ -14,12 +14,16 @@ type recordingResolver struct {
 	log      *[]string
 }
 
-func (r recordingResolver) Name() string        { return r.name }
-func (r recordingResolver) Provides() []string   { return r.provides }
-func (r recordingResolver) DependsOn() []string  { return r.deps }
-func (r recordingResolver) Resolve(text string, _ *Context) string {
+func (r recordingResolver) Name() string       { return r.name }
+func (r recordingResolver) Provides() []string  { return r.provides }
+func (r recordingResolver) DependsOn() []string { return r.deps }
+func (r recordingResolver) Resolve(values []string, _ *Context) []string {
 	*r.log = append(*r.log, r.name)
-	return text + r.name
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = v + r.name
+	}
+	return out
 }
 
 // TestRegistry_TopologicalOrder verifies resolvers run after everything they depend
@@ -33,7 +37,7 @@ func TestRegistry_TopologicalOrder(t *testing.T) {
 		Add(recordingResolver{name: "b", provides: []string{"b"}, deps: []string{"a"}, log: &log}).
 		Add(recordingResolver{name: "a", provides: []string{"a"}, log: &log})
 
-	got := reg.Resolve("", nil)
+	got := reg.ResolveOne("", nil)
 
 	if want := "abc"; got != want {
 		t.Errorf("applied text = %q, want %q (dependency order a→b→c)", got, want)
@@ -50,7 +54,7 @@ func TestRegistry_UnknownDependencyIsExternal(t *testing.T) {
 	var log []string
 	reg := New().
 		Add(recordingResolver{name: "x", provides: []string{"x"}, deps: []string{"nowhere"}, log: &log})
-	_ = reg.Resolve("", nil)
+	_ = reg.ResolveOne("", nil)
 	if len(log) != 1 || log[0] != "x" {
 		t.Errorf("run log = %v, want [x] (unknown dep ignored, resolver still runs)", log)
 	}
@@ -63,7 +67,7 @@ func TestRegistry_IndependentKeepRegistrationOrder(t *testing.T) {
 	reg := New().
 		Add(recordingResolver{name: "1", provides: []string{"1"}, log: &log}).
 		Add(recordingResolver{name: "2", provides: []string{"2"}, log: &log})
-	_ = reg.Resolve("", nil)
+	_ = reg.ResolveOne("", nil)
 	if want := "1,2"; strings.Join(log, ",") != want {
 		t.Errorf("run order = %q, want %q", strings.Join(log, ","), want)
 	}
