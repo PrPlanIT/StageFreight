@@ -225,16 +225,18 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	// composition AND records provenance entries for every section (the entries feed
 	// LoadWithReport, so it never resolves a second time). Same loader the reporter uses.
 	absPath, _ := filepath.Abs(path)
-	// Governed satellites resolve presets from the committed, cache-authoritative
-	// .stagefreight/preset-cache — governance mirrors the policy repo's preset/ layout
-	// under it, so the same `preset: "preset/X.yml"` reference resolves there. When no
-	// cache is present (a non-governed repo, or the policy repo itself), fall back to the
-	// config's own directory, where presets live at preset/ in the source tree.
+	// Preset references resolve two ways. A LOCAL path reads from the working tree, or
+	// from the committed .stagefreight/preset-cache when present (a governed satellite —
+	// governance mirrors the policy repo's preset/ layout there). A SOURCED ref
+	// (<source>//<path>[@<ref>]) resolves through the source-tracking resolver: live fetch
+	// for tracked refs (cache fallback), cache-authoritative for pins — so the cache is
+	// the FALLBACK/pin store, not the mandatory read path.
+	cacheDir := filepath.Join(filepath.Dir(absPath), ".stagefreight", "preset-cache")
 	presetBase := filepath.Dir(absPath)
-	if cacheDir := filepath.Join(presetBase, ".stagefreight", "preset-cache"); dirExists(cacheDir) {
+	if dirExists(cacheDir) {
 		presetBase = cacheDir
 	}
-	loader := localPresetLoader{baseDir: presetBase}
+	loader := sourceAwareLoader{local: localPresetLoader{baseDir: presetBase}, cacheDir: cacheDir}
 	resolvedNode, entries, rerr := ResolvePresets(&rootNode, loader, "local", absPath, 0, nil)
 
 	// Decode the RESOLVED node only when presets actually composed something; a

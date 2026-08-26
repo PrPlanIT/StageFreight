@@ -5,7 +5,42 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/presetref"
 )
+
+// SourceFetcher is the injected remote-preset fetcher. It is nil by default — in that
+// state a sourced preset ref resolves from the preset-cache only (offline), erroring on
+// a miss. A network-capable entry point (the CLI) sets it at startup so tracked/pinned
+// refs fetch live. This is a set-once startup seam, not a per-call mutable global.
+var SourceFetcher presetref.Fetcher
+
+// sourceAwareLoader resolves preset references: a local path reads from the working tree
+// / preset-cache (the pre-existing behavior); a SOURCED ref (<source>//<path>[@<ref>])
+// resolves through the source-tracking resolver — live fetch for tracked refs with the
+// cache as fallback, cache-authoritative for pins. This is what reframes the committed
+// preset-cache from the mandatory read path (Deliverable 0) into the fallback/pin store.
+type sourceAwareLoader struct {
+	local    localPresetLoader
+	cacheDir string
+}
+
+func (l sourceAwareLoader) Load(path string) ([]byte, error) {
+	ref := presetref.Parse(path)
+	if ref.Kind == presetref.Local {
+		return l.local.Load(path)
+	}
+	r := presetref.Resolver{
+		Fetcher: SourceFetcher,
+		Cache:   presetref.NewFSCache(l.cacheDir),
+	}
+	if SourceFetcher == nil {
+		// No network-capable fetcher wired: resolve from the cache only (a pre-seeded
+		// pin or a previously-fetched tracked ref), erroring clearly on a miss.
+		r.Mode = presetref.FetchOffline
+	}
+	return r.Resolve(ref)
+}
 
 // SectionState is the resolved state of one config domain section.
 //
