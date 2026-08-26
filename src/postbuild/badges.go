@@ -17,6 +17,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/facts"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/output"
 )
@@ -160,22 +161,21 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 // The batch passes are ordered after the leaf pass and are offline no-ops when no
 // {registry.*}/{inventory.*} tokens are present.
 func ResolveBadgeValues(ctx context.Context, specs []config.BadgeSpec, vi *gitver.VersionInfo, rootDir string, cfg *config.Config) []string {
-	// {project.description} is config-sourced (metadata), not git-derivable — inject it
-	// explicitly so both badge generators resolve it identically. (It formerly rode a
-	// gitver package-global that only the CLI generator set, so the CI hook resolved it
-	// from whatever ambient state happened to be present.)
-	opts := gitver.ResolveOptions{ProjectDescription: FirstProjectDescription(cfg)}
 	values := make([]string, len(specs))
 	for i, s := range specs {
-		v := s.Value
-		if vi != nil && v != "" {
-			v = gitver.ResolveTemplateWithOpts(v, vi, rootDir, cfg.Vars, opts)
-		}
-		values[i] = v
+		values[i] = s.Value
 	}
-	values = ResolveRegistryTemplates(ctx, values, cfg)
-	values = ResolveInventoryTemplates(ctx, values, cfg, rootDir)
-	return values
+	// Resolve through the shared fact registry — gitver leaf → {registry.*} →
+	// {inventory.*}, in dependency order. {project.description} is config-sourced
+	// (metadata), injected via the Context rather than any package global.
+	return facts.BadgeRegistry().Resolve(values, &facts.Context{
+		Ctx:         ctx,
+		Version:     vi,
+		RootDir:     rootDir,
+		Vars:        cfg.Vars,
+		Description: FirstProjectDescription(cfg),
+		Config:      cfg,
+	})
 }
 
 // CollectScribeBadgeItems returns all scribe content defs that generate a badge SVG.

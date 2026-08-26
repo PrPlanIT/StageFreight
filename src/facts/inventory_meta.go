@@ -1,4 +1,4 @@
-package postbuild
+package facts
 
 import (
 	"context"
