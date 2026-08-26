@@ -18,9 +18,9 @@ type GovernanceSource struct {
 	LocalPath     string `yaml:"-"`              // if set, use local checkout instead of cloning
 }
 
-// GovernanceConfig is the parsed clusters.yml from the policy repo.
+// GovernanceConfig is the parsed governance config from the policy repo.
 type GovernanceConfig struct {
-	Clusters []Cluster `yaml:"clusters"`
+	Profiles []Cluster `yaml:"profiles"`
 }
 
 // Cluster assigns lifecycle doctrine to a group of repos.

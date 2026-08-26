@@ -18,7 +18,7 @@ type PlanViewConfig struct {
 // PlanViewData holds everything needed to render a plan view.
 type PlanViewData struct {
 	Config   PlanViewConfig
-	Clusters []Cluster
+	Profiles []Cluster
 	Plans    map[string]DistributionPlan // keyed by repo
 	Results  map[string]CommitResult     // keyed by repo (nil for dry-run)
 }
@@ -165,10 +165,10 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 	row(w, "%-13s%s", "ref", shortRef)
 
 	totalRepos := 0
-	for _, c := range data.Clusters {
+	for _, c := range data.Profiles {
 		totalRepos += len(c.Targets.AllRepos())
 	}
-	row(w, "%-13s%d", "clusters", len(data.Clusters))
+	row(w, "%-13s%d", "profiles", len(data.Profiles))
 	row(w, "%-13s%d", "repos", totalRepos)
 
 	separator(w)
@@ -177,7 +177,7 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 	var totalCounts fileCounts
 	var totalRepoCounts repoCounts
 
-	for _, cluster := range data.Clusters {
+	for _, cluster := range data.Profiles {
 		allRepos := cluster.Targets.AllRepos()
 		clusterFileCount := 0
 		for _, resolved := range allRepos {

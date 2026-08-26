@@ -93,12 +93,12 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 		return fmt.Errorf("loading governance: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "  clusters: %d\n", len(gov.Clusters))
+	fmt.Fprintf(os.Stderr, "  profiles: %d\n", len(gov.Profiles))
 	totalRepos := 0
-	for _, c := range gov.Clusters {
+	for _, c := range gov.Profiles {
 		n := len(c.Targets.AllRepos())
 		totalRepos += n
-		fmt.Fprintf(os.Stderr, "  cluster %q: %d repos\n", c.ID, n)
+		fmt.Fprintf(os.Stderr, "  profile %q: %d repos\n", c.ID, n)
 	}
 
 	// Phase 2: Plan distribution.
@@ -159,7 +159,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 				Ref:     source.Ref,
 				Verbose: opts.Verbose,
 			},
-			Clusters: gov.Clusters,
+			Profiles: gov.Profiles,
 			Plans:    planByRepo,
 		})
 		return nil
@@ -197,7 +197,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 			Ref:     source.Ref,
 			Verbose: opts.Verbose,
 		},
-		Clusters: gov.Clusters,
+		Profiles: gov.Profiles,
 		Plans:    planByRepo,
 		Results:  resultByRepo,
 	})

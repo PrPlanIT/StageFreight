@@ -15,12 +15,12 @@ type LifecycleConfig struct {
 	Mode string `yaml:"mode"`
 }
 
-// GovernanceConfig declares governance clusters for the control repo.
-// Only valid when lifecycle.mode is "governance".
-// Assets (CI skeletons, settings files, etc.) are declared inside each
-// cluster's stagefreight config as assets: entries — no separate skeleton construct.
+// GovernanceConfig declares governance profiles for the control repo. Presence of
+// profiles activates governance reconcile (presence-gated like ansible/gitops).
+// Assets (CI skeletons, settings files, etc.) are declared inside each profile's
+// stagefreight config as assets: entries — no separate skeleton construct.
 type GovernanceConfig struct {
-	Clusters []GovernanceCluster `yaml:"clusters"`
+	Profiles []GovernanceCluster `yaml:"profiles"`
 }
 
 // GovernanceCluster assigns lifecycle doctrine to a group of repos.

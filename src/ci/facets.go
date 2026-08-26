@@ -63,7 +63,7 @@ var FacetRegistry = []FacetDef{
 		Name:      "governance-reconcile",
 		Subsystem: "reconcile",
 		NeedsDinD: false,
-		Predicate: func(c *config.Config) bool { return len(c.Governance.Clusters) > 0 },
+		Predicate: func(c *config.Config) bool { return len(c.Governance.Profiles) > 0 },
 	},
 	{
 		Name:      "narrate",

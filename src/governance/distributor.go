@@ -37,7 +37,7 @@ func PlanDistribution(
 
 	var plans []DistributionPlan
 
-	for _, cluster := range gov.Clusters {
+	for _, cluster := range gov.Profiles {
 		if err := cluster.Targets.ValidateTargets(); err != nil {
 			return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
 		}

@@ -2096,7 +2096,7 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	start := time.Now()
 
 	hasGitOps := len(appCfg.GitOps) > 0
-	hasGovernanceClusters := len(appCfg.Governance.Clusters) > 0
+	hasGovernanceClusters := len(appCfg.Governance.Profiles) > 0
 	hasGovernanceSource := governanceSourceConfigured(appCfg, ciCtx)
 	hasAnsible := appCfg.Ansible.HasConvergePlaybooks()
 
