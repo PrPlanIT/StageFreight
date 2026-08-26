@@ -84,6 +84,13 @@ func (l localPresetLoader) Load(path string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(l.baseDir, path))
 }
 
+// dirExists reports whether path exists and is a directory. Used to detect a
+// governed satellite's .stagefreight/preset-cache so preset refs resolve from it.
+func dirExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
 // LoadWithReport loads config and returns a ConfigReport with real provenance.
 // It also returns the raw per-value merge entries so callers that want per-value
 // provenance (e.g. `config resolve --verbose`) render from the SAME resolution —
