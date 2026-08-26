@@ -17,6 +17,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/component"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/facts"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/llm"
 	"github.com/PrPlanIT/StageFreight/src/manifest"
@@ -198,7 +199,7 @@ func renderStencilBody(appCfg *config.Config, def config.StencilDef, linkBase, r
 		},
 	})
 	if vi != nil {
-		text = gitver.ResolveTemplateWithDirAndVars(text, vi, "", appCfg.Vars)
+		text = facts.ScribeRegistry().ResolveOne(text, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars})
 	}
 	return strings.TrimRight(collapseBlanks(text), "\n")
 }
@@ -429,7 +430,7 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 		}
 		link := gitver.ResolveVars(def.Link, appCfg.Vars)
 		if vi != nil {
-			link = gitver.ResolveTemplateWithDirAndVars(link, vi, rootDir, appCfg.Vars)
+			link = facts.ScribeRegistry().ResolveOne(link, &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars})
 		}
 		resolved := def
 		resolved.Link = link
@@ -455,7 +456,7 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 			label = shieldPath // raw-path form: fall back to the path as alt
 		}
 		if vi != nil {
-			label = gitver.ResolveTemplateWithDirAndVars(label, vi, "", appCfg.Vars)
+			label = facts.ScribeRegistry().ResolveOne(label, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars})
 		}
 		return render.ShieldModule{
 			Path:  shieldPath,

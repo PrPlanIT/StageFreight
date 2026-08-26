@@ -14,3 +14,12 @@ func BadgeRegistry() *Registry {
 		Add(RegistryResolver()).
 		Add(InventoryResolver())
 }
+
+// ScribeRegistry returns the registry for resolving narration/scribe text: the gitver
+// leaf pass only. Narration bodies deliberately do NOT resolve {registry.*}/{inventory.*}
+// — those are badge-only and would turn prose tokens into live network fetches — so
+// those resolvers are absent here. Identity families ({org.*} → {path.*} → {metadata.*})
+// register here too once they land, so narration resolves them just like badges do.
+func ScribeRegistry() *Registry {
+	return New().Add(GitverLeaf())
+}

@@ -3,6 +3,7 @@ package scribe
 import (
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/facts"
 	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/stencil"
 )
@@ -19,6 +20,6 @@ import (
 // file. Trimming restores the pre-refactor no-trailing-newline contract.
 func renderText(body string, env stencil.Env, vi *gitver.VersionInfo, rootDir string, vars map[string]string) string {
 	rendered := stencil.Expand(body, env)
-	rendered = gitver.ResolveTemplateWithDirAndVars(rendered, vi, rootDir, vars)
+	rendered = facts.ScribeRegistry().ResolveOne(rendered, &facts.Context{Version: vi, RootDir: rootDir, Vars: vars})
 	return strings.TrimRight(rendered, "\n")
 }
