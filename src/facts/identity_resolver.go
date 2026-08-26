@@ -18,7 +18,7 @@ type identityResolver struct{}
 func IdentityResolver() Resolver { return identityResolver{} }
 
 func (identityResolver) Name() string        { return "identity" }
-func (identityResolver) Provides() []string  { return []string{"org", "orgs", "metadata"} }
+func (identityResolver) Provides() []string  { return []string{"org", "orgs", "metadata", "path", "slug"} }
 func (identityResolver) DependsOn() []string { return nil }
 
 func (identityResolver) Resolve(values []string, c *Context) []string {
@@ -32,7 +32,8 @@ func (identityResolver) Resolve(values []string, c *Context) []string {
 	out := make([]string, len(values))
 	for i, v := range values {
 		s := v
-		if strings.Contains(s, "{org") || strings.Contains(s, "{metadata.") {
+		if strings.Contains(s, "{org") || strings.Contains(s, "{metadata.") ||
+			strings.Contains(s, "{path.") || strings.Contains(s, "{slug}") {
 			for tok, val := range subs {
 				if strings.Contains(s, tok) {
 					s = strings.ReplaceAll(s, tok, val)
@@ -76,7 +77,65 @@ func identitySubs(cfg *config.Config) map[string]string {
 	for k, v := range m.Labels {
 		subs["{metadata.labels."+k+"}"] = v
 	}
+
+	// {slug} + {path.<surface>} — coordinates. slug is the primary repo's name; a
+	// surface's path is its default_path resolved with the current org's {org.*} aliases
+	// and {repo} = names[surface] ?? slug. Forges and registries both carry default_path.
+	// Any {var:}/etc. left in a default_path is resolved by the later gitver leaf pass.
+	slug := currentSlug(cfg)
+	if slug != "" {
+		subs["{slug}"] = slug
+	}
+	for id, defaultPath := range surfacePaths(cfg) {
+		if defaultPath == "" {
+			continue
+		}
+		repo := m.Names[id]
+		if repo == "" {
+			repo = slug
+		}
+		p := defaultPath
+		for tok, val := range subs {
+			if tok == "{org}" || strings.HasPrefix(tok, "{org.") {
+				p = strings.ReplaceAll(p, tok, val)
+			}
+		}
+		p = strings.ReplaceAll(p, "{repo}", repo)
+		subs["{path."+id+"}"] = p
+	}
 	return subs
+}
+
+// currentSlug is the primary repo's name — the last path segment of its project path.
+// Coordinates default {repo} to this. (A templated primary project yields a templated
+// slug; the settled model anchors on a literal primary location.)
+func currentSlug(cfg *config.Config) string {
+	for _, r := range cfg.Repos {
+		if r.HasRole("primary") {
+			return lastSegment(r.Project)
+		}
+	}
+	return ""
+}
+
+func lastSegment(p string) string {
+	if i := strings.LastIndexByte(p, '/'); i >= 0 {
+		return p[i+1:]
+	}
+	return p
+}
+
+// surfacePaths maps every forge and registry id to its default_path template. Forge and
+// registry ids are required to be disjoint (validated), so a key never collides.
+func surfacePaths(cfg *config.Config) map[string]string {
+	out := make(map[string]string, len(cfg.Forges)+len(cfg.Registries))
+	for _, f := range cfg.Forges {
+		out[f.ID] = f.DefaultPath
+	}
+	for _, r := range cfg.Registries {
+		out[r.ID] = r.DefaultPath
+	}
+	return out
 }
 
 // addOrgSubs adds {<prefix>}, {<prefix>.lower}, {<prefix>.maintainer}, and one

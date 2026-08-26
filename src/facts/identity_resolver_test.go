@@ -63,6 +63,39 @@ func TestIdentityResolver_UnknownOrg(t *testing.T) {
 	}
 }
 
+// TestIdentityResolver_Coordinates covers {slug} + {path.<surface>}: the primary repo's
+// name as slug, and each forge/registry default_path resolved with the org aliases and
+// {repo} = names[surface] ?? slug (so a dockerhub name override changes only its path).
+func TestIdentityResolver_Coordinates(t *testing.T) {
+	cfg := &config.Config{
+		Orgs:     config.OrderedOrgs{{ID: "HomeLabHD", Aliases: map[string]string{"handle": "hlhd", "lower": "homelabhd"}}},
+		Metadata: config.MetadataConfig{Org: "HomeLabHD", Names: map[string]string{"dockerhub": "arkserver"}},
+		Repos: config.OrderedRepos{
+			{ID: "primary", Forge: "gitlab", Project: "HomeLabHD/ark-se-server", Roles: []string{"primary"}},
+		},
+		Forges: config.OrderedForges{
+			{ID: "gitlab", Provider: "gitlab", DefaultPath: "{org}/{repo}"},
+		},
+		Registries: config.OrderedRegistries{
+			{ID: "dockerhub", Provider: "docker", DefaultPath: "{org.handle}/{repo}"},
+			{ID: "ghcr", Provider: "ghcr", DefaultPath: "{org.lower}/{repo}"},
+		},
+	}
+	r := IdentityResolver()
+	c := &Context{Config: cfg}
+	cases := []struct{ in, want string }{
+		{"{slug}", "ark-se-server"},
+		{"{path.gitlab}", "HomeLabHD/ark-se-server"},
+		{"{path.dockerhub}", "hlhd/arkserver"},     // names override → arkserver
+		{"{path.ghcr}", "homelabhd/ark-se-server"}, // no override → slug
+	}
+	for _, tc := range cases {
+		if got := r.Resolve([]string{tc.in}, c)[0]; got != tc.want {
+			t.Errorf("Resolve(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestScribeRegistry_IdentityAndGitver verifies identity + gitver compose through the
 // registry: a metadata value can carry a gitver token that the leaf pass then resolves.
 func TestScribeRegistry_IdentityAndGitver(t *testing.T) {

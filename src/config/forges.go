@@ -5,10 +5,11 @@ import "fmt"
 // ForgeConfig declares a git host. Declared once, referenced by repos.
 // A forge is an identity — provider type, base URL, credentials.
 type ForgeConfig struct {
-	ID          string `yaml:"id"`                    // unique identifier (e.g., "prplanit-gitlab")
-	Provider    string `yaml:"provider"`              // gitlab, github, gitea
-	URL         string `yaml:"url"`                   // base URL (e.g., "https://gitlab.prplanit.com")
-	Credentials string `yaml:"credentials,omitempty"` // env var prefix for token resolution
+	ID          string `yaml:"id"`                     // unique identifier (e.g., "prplanit-gitlab")
+	Provider    string `yaml:"provider"`               // gitlab, github, gitea
+	URL         string `yaml:"url"`                    // base URL (e.g., "https://gitlab.prplanit.com")
+	Credentials string `yaml:"credentials,omitempty"`  // env var prefix for token resolution
+	DefaultPath string `yaml:"default_path,omitempty"` // default project path template (e.g. "{org}/{repo}"), for {path.<id>}
 }
 
 // RepoConfig declares a project on a forge. References forge by id.
