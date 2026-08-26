@@ -28,6 +28,7 @@ git state.
 | `{project.name}` | Repo name from the git remote |
 | `{project.url}` | Repo URL (SSH→HTTPS normalized) |
 | `{project.license}` | SPDX identifier from the `LICENSE` file |
+| `{project.module}` | Canonical module/package name from the build manifest (`go.mod` module path, `Cargo.toml` `[package]`/`pyproject.toml` `[project]` name, or `package.json` name) — the value a shared build preset embeds so one preset serves a whole bucket |
 | `{registry.<id>.pulls}`, `{registry.<id>.stars}` | Repo stats for the registry with config id `<id>` — pull/star counts, available only where the provider exposes them (Docker Hub) |
 | `{registry.<id>.tag.<tag>.size}`, `.updated`, `.digest` | Per-tag metadata for a tag in registry `<id>` (`size`/`size:raw`/`updated`/`digest`); read from the Docker Hub API, or the OCI manifest for any other provider (ghcr, harbor, quay, …) |
 | `{stagefreight.version}`, `{stagefreight.commit}` | StageFreight's OWN tool version / commit (ldflags-injected) — the engine managing the repo, not the repo's `{version}` |

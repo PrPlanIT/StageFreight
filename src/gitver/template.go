@@ -566,6 +566,7 @@ func resolveProjectMeta(s string, rootDir string, description string) string {
 	s = strings.ReplaceAll(s, "{project.url}", pm.URL)
 	s = strings.ReplaceAll(s, "{project.license}", pm.License)
 	s = strings.ReplaceAll(s, "{project.language}", pm.Language)
+	s = strings.ReplaceAll(s, "{project.module}", pm.Module)
 	s = strings.ReplaceAll(s, "{project.description}", description)
 	return s
 }

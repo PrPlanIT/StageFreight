@@ -1,6 +1,7 @@
 package gitver
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ type ProjectMeta struct {
 	URL      string // repo URL (git remote origin)
 	License  string // SPDX identifier from LICENSE file
 	Language string // auto-detected from lockfiles
+	Module   string // canonical module/package name, per the build manifest
 }
 
 // DetectProject resolves project metadata from git remote, LICENSE file, and lockfiles.
@@ -33,6 +35,9 @@ func DetectProject(rootDir string) *ProjectMeta {
 
 	// Language from lockfiles
 	pm.Language = detectLanguage(rootDir)
+
+	// Module/package name from the build manifest
+	pm.Module = detectModule(rootDir)
 
 	return pm
 }
@@ -133,6 +138,84 @@ func matchLicense(text string) string {
 }
 
 // detectLanguage identifies the primary programming language from lockfiles/manifests.
+// detectModule returns the project's canonical module/package name, dispatched by the
+// build manifest present in rootDir: go.mod's module path, Cargo.toml's [package] name,
+// package.json's name, or pyproject.toml's [project] name. This is the {project.module}
+// fact — the value a shared build preset embeds (e.g. a Go binary's ldflags version
+// path) so ONE preset serves a whole bucket of repos. Returns "" when no recognized
+// manifest is present. Dispatch order matches detectLanguage's indicator precedence.
+func detectModule(rootDir string) string {
+	if m := goModulePath(filepath.Join(rootDir, "go.mod")); m != "" {
+		return m
+	}
+	if m := tomlSectionName(filepath.Join(rootDir, "Cargo.toml"), "package"); m != "" {
+		return m
+	}
+	if m := jsonName(filepath.Join(rootDir, "package.json")); m != "" {
+		return m
+	}
+	if m := tomlSectionName(filepath.Join(rootDir, "pyproject.toml"), "project"); m != "" {
+		return m
+	}
+	return ""
+}
+
+// goModulePath reads the module path from a go.mod ("module <path>").
+func goModulePath(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
+// tomlSectionName reads `name = "..."` from the given [section] of a minimal TOML file
+// (Cargo.toml [package], pyproject.toml [project]). A hand parse — no TOML dependency —
+// sufficient for the single key we need; returns "" if the section or key is absent.
+func tomlSectionName(path, section string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	inSection := false
+	for _, line := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") {
+			inSection = t == "["+section+"]"
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(t, "name"); ok {
+			if rest = strings.TrimSpace(rest); strings.HasPrefix(rest, "=") {
+				return strings.Trim(strings.TrimSpace(strings.TrimPrefix(rest, "=")), `"'`)
+			}
+		}
+	}
+	return ""
+}
+
+// jsonName reads the top-level "name" from a package.json.
+func jsonName(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var pkg struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(data, &pkg) != nil {
+		return ""
+	}
+	return pkg.Name
+}
+
 func detectLanguage(rootDir string) string {
 	indicators := map[string]string{
 		"go.mod":            "go",
