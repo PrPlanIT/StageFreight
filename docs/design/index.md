@@ -31,3 +31,10 @@ The notes below explain the load-bearing mechanisms:
 - [Perform build contributors](perform-build-contributors.md) — how artifacts are produced.
 - [Content-store lifecycle](content-store-lifecycle.md) — carrying artifact bytes across phases.
 - [CI render](ci-render.md) — how a forge-neutral pipeline becomes native CI YAML.
+
+## Proposed models (design of record, not yet built)
+
+- [Identity model & governance](identity-model.md) — first-class `orgs`/`metadata`, location-anchored
+  identity, derived `{path.*}`/`{project.module}` facts, scoped descriptions, source-tracking presets,
+  and governance as an authority over shared facts. Status and candidate-invariant caveats are stated at
+  the top of that doc.

@@ -1,6 +1,6 @@
 # StageFreight — Hard Invariants
 
-These rules are non-negotiable. They exist because they were proven structurally, not because someone wrote them down. Every item here was enforced in code before it was written here.
+These rules are non-negotiable. They exist because they were proven structurally, not because someone wrote them down. Every item here should be enforced in code, not merely written down — see each item's **Enforcement**. (#1 is the one historical exception: documented ahead of its guard, and now being closed — its Enforcement note is honest about the gap.)
 
 If you are about to violate one of these, stop. Discuss it first.
 
@@ -20,9 +20,10 @@ If you are about to violate one of these, stop. Discuss it first.
 - Bypassing it produces a `Config` that has not had presets applied — execution diverges from what the operator declared
 - Split-brain config (report says one thing, execution does another) is the failure mode this prevents
 
-**Enforcement:**
-- `src/config/invariants_test.go` — fails CI if any file imports `config` and uses raw YAML decode
-- `loadResolved` carries a comment that names it as the only entry point
+**Enforcement — GAP (documented, not yet guarded):**
+- **No enforcing test exists.** The `src/config/invariants_test.go` this section long cited was never committed (no git history for that path), and there is no source-walking guard for it — unlike invariant #7's `TestNoDirectWhenAccessOutsideConfig`. `loadResolved` also does not actually carry an "only entry point" comment.
+- The invariant currently holds **by discipline only**: `Load` / `LoadWithWarnings` / `LoadWithReport` all funnel through `loadResolved`, and no raw `yaml.Unmarshal` / `yaml.NewDecoder` decodes into a `Config` outside `src/config/`.
+- Known constructions a strict walker must reconcile before this becomes real: `src/cli/cmd/ci_checkout.go` hand-builds a bootstrap `config.Config{}` (pre-resolve, at checkout — exempt or route through a builder); `src/governance/loader.go` decodes config-shaped policy YAML leniently. The intended fix is a walker mirroring #7's; until it lands, treat this as an aspiration, not a guarantee.
 
 ---
 
