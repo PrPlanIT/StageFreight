@@ -183,6 +183,15 @@ func ValidateIdentityGraph(forges []ForgeConfig, repos []RepoConfig, registries 
 		}
 	}
 
+	// Forge and registry ids share the {path.<id>} namespace, so they must be disjoint —
+	// otherwise a coordinate token can't name which surface it means (the identity model's
+	// disjoint-id invariant; see docs/design/identity-model.md).
+	for id := range registryIDs {
+		if forgeIDs[id] {
+			errs = append(errs, fmt.Sprintf("id %q is used by both a forge and a registry — ids must be disjoint so {path.%s} is unambiguous", id, id))
+		}
+	}
+
 	// No mixed models — if new identity graph is used, legacy sources must not be.
 	// (Enforced at call site in validate.go, not here.)
 
