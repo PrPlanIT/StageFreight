@@ -10,6 +10,7 @@ package facts
 // with declared dependencies so the topological order places them correctly.
 func BadgeRegistry() *Registry {
 	return New().
+		Add(IdentityResolver()).
 		Add(GitverLeaf()).
 		Add(RegistryResolver()).
 		Add(InventoryResolver())
@@ -21,5 +22,7 @@ func BadgeRegistry() *Registry {
 // those resolvers are absent here. Identity families ({org.*} → {path.*} → {metadata.*})
 // register here too once they land, so narration resolves them just like badges do.
 func ScribeRegistry() *Registry {
-	return New().Add(GitverLeaf())
+	return New().
+		Add(IdentityResolver()).
+		Add(GitverLeaf())
 }
