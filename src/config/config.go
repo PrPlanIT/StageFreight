@@ -123,8 +123,11 @@ type Config struct {
 	// Lifecycle defines the repository lifecycle mode (image, gitops, governance).
 	Lifecycle LifecycleConfig `yaml:"lifecycle"`
 
-	// Governance defines configuration for the governance lifecycle mode.
-	// Only valid in the control repo (lifecycle.mode: governance).
+	// Governance declares the control repo's governance profiles. It is
+	// PRESENCE-GATED, not mode-gated: the reconcile facet activates whenever
+	// governance.profiles is non-empty (like the ansible/gitops subsystems), so a
+	// control repo needs no lifecycle.mode: governance. A satellite instead carries
+	// governance.source (a pointer at its policy repo).
 	Governance GovernanceConfig `yaml:"governance"`
 
 	// GitOps defines the gitops lifecycle target clusters, keyed by cluster name.

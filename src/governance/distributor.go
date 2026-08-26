@@ -38,10 +38,6 @@ func PlanDistribution(
 	var plans []DistributionPlan
 
 	for _, cluster := range gov.Profiles {
-		if err := cluster.Targets.ValidateTargets(); err != nil {
-			return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
-		}
-
 		// Resolve vars preset if present — vars are resolved at governance time,
 		// not passed through as references. This produces concrete org-level vars.
 		baseConfig := deepCopyMap(cluster.Config)
@@ -74,13 +70,22 @@ func PlanDistribution(
 
 		// Per-repo: merge satellite-owned vars, render sealed config, plan files.
 		// Sealed content is per-repo because each satellite may have different local vars.
-		for _, resolved := range cluster.Targets.AllRepos() {
-			repo := resolved.ID
-			plan := DistributionPlan{Repo: repo, Credentials: cluster.Targets.Credentials}
+		for _, entry := range cluster.Repos {
+			repo := entry.At
+			plan := DistributionPlan{Repo: repo, Credentials: cluster.Credentials}
 
 			// Merge satellite-owned vars into governance vars.
 			// Governance keys are authoritative. Undeclared satellite keys are preserved.
 			repoConfig := deepCopyMap(baseConfig)
+			// A per-repo config override (a deviating catalog entry) merges over the base.
+			if entry.Config != nil {
+				mergeConfigOverride(repoConfig, entry.Config)
+			}
+			// A branded catalog entry governs identity: carry its metadata into the
+			// satellite config as the metadata: block (location-only entries leave it local).
+			if entry.Metadata != nil {
+				repoConfig["metadata"] = entry.Metadata
+			}
 			mergeSatelliteVars(repoConfig, forgeReader, repo)
 
 			sealedContent, err := RenderSealedConfig(seal, repoConfig)
@@ -145,6 +150,15 @@ func PlanDistribution(
 	}
 
 	return plans, nil
+}
+
+// mergeConfigOverride shallow-merges a catalog entry's per-repo config over the
+// profile's base config: each top-level section the entry declares replaces the base's
+// (the entry deviates for that section — e.g. a different forge via its own repos preset).
+func mergeConfigOverride(base, override map[string]any) {
+	for k, v := range override {
+		base[k] = v
+	}
 }
 
 // ForgeReader reads current file content from a remote repo.

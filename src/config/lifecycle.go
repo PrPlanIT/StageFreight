@@ -1,5 +1,11 @@
 package config
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
 // LifecycleConfig selects the repository lifecycle mode — the phase graph the
 // pipeline runs. Mode is the single most significant orchestration choice:
 // review and publish are image-only; the other modes mark them not_applicable.
@@ -20,26 +26,30 @@ type LifecycleConfig struct {
 // Assets (CI skeletons, settings files, etc.) are declared inside each profile's
 // stagefreight config as assets: entries — no separate skeleton construct.
 type GovernanceConfig struct {
-	Profiles []GovernanceProfile `yaml:"profiles"`
+	Profiles OrderedGovProfiles `yaml:"profiles"`
 }
 
-// GovernanceProfile assigns lifecycle doctrine to a group of repos.
+// OrderedGovProfiles is the governance.profiles: block — an id→profile map (key becomes
+// GovernanceProfile.ID). Config-side this is used only for the presence gate (len>0);
+// the governance package re-parses the same block richly for distribution.
+type OrderedGovProfiles []GovernanceProfile
+
+func (o *OrderedGovProfiles) UnmarshalYAML(n *yaml.Node) error {
+	v, err := decodeIDMap(n, func(p *GovernanceProfile, id string) { p.ID = id })
+	if err != nil {
+		return fmt.Errorf("profiles: %w", err)
+	}
+	*o = v
+	return nil
+}
+
+func (OrderedGovProfiles) isIDMap() {}
+
+// GovernanceProfile is one profile (config-side view). Repos and Config are raw maps —
+// config only checks presence; the governance package owns the rich catalog shape.
 type GovernanceProfile struct {
-	ID      string                   `yaml:"id"`
-	Targets GovernanceProfileTargets `yaml:"targets"`
-	Config  map[string]any           `yaml:"config"` // the profile's shared StageFreight config
-}
-
-// GovernanceProfileTargets identifies which repos belong to this cluster.
-// Supports flat repos list and/or grouped targets with per-group forge identity.
-type GovernanceProfileTargets struct {
-	Repos       []string                 `yaml:"repos,omitempty"`
-	Groups      []GovernanceProfileGroup `yaml:"groups,omitempty"`
-	Credentials string                   `yaml:"credentials,omitempty"` // env var prefix for forge auth
-}
-
-// GovernanceProfileGroup is a cohort of repos on the same forge.
-type GovernanceProfileGroup struct {
-	ID    string   `yaml:"id,omitempty"`
-	Repos []string `yaml:"repos"`
+	ID          string         `yaml:"-"`                      // from the profiles: map key
+	Repos       map[string]any `yaml:"repos,omitempty"`        // the location-anchored catalog (raw here)
+	Config      map[string]any `yaml:"config,omitempty"`       // the profile's shared StageFreight config
+	Credentials string         `yaml:"credentials,omitempty"`  // env var prefix for the write token
 }

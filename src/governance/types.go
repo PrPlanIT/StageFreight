@@ -6,6 +6,8 @@ package governance
 import (
 	"fmt"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // GovernanceSource declares where governance inputs come from.
@@ -20,93 +22,110 @@ type GovernanceSource struct {
 
 // GovernanceConfig is the parsed governance config from the policy repo.
 type GovernanceConfig struct {
-	Profiles []Profile `yaml:"profiles"`
+	Profiles ProfileList `yaml:"profiles"`
 }
 
-// Profile assigns lifecycle doctrine to a group of repos.
-// The StageFreight block is normal StageFreight config — same grammar.
-// Assets (CI skeletons, settings files, etc.) are declared inside the
-// stagefreight config as assets: entries — no separate skeleton construct.
-type Profile struct {
-	ID      string         `yaml:"id"`
-	Targets ProfileTargets `yaml:"targets"`
-	Config  map[string]any `yaml:"config"` // the profile's shared StageFreight config
-}
+// ProfileList is the profiles: block — an id→profile map (the map key becomes
+// Profile.ID). Governance decodes its own id-map (the config package's decodeIDMap is
+// unexported); document order is preserved.
+type ProfileList []Profile
 
-// ProfileTargets identifies which repos belong to this cluster.
-// Two forms:
-//   - Flat: targets.repos (string list, inherits governance sources.primary forge)
-//   - Grouped: targets.groups (each group declares its own forge source)
-type ProfileTargets struct {
-	Repos       []string      `yaml:"repos,omitempty"`       // shorthand: flat list, inherited forge
-	Groups      []TargetGroup `yaml:"groups,omitempty"`      // explicit: per-group forge identity
-	Credentials string        `yaml:"credentials,omitempty"` // env var prefix for forge auth (e.g. "GITLAB_HOMELABHD" → GITLAB_HOMELABHD_TOKEN)
-}
-
-// AllRepos flattens both forms into a unified list for iteration.
-// Flat repos get empty ForgeURL (inherit from governance sources.primary).
-// Group repos get the group's declared forge URL.
-func (ct ProfileTargets) AllRepos() []ResolvedRepo {
-	var result []ResolvedRepo
-	for _, repo := range ct.Repos {
-		result = append(result, ResolvedRepo{ID: repo})
+func (pl *ProfileList) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("profiles: must be an id → profile map")
 	}
-	for _, g := range ct.Groups {
-		forgeURL := ""
-		if g.Sources != nil {
-			forgeURL = g.Sources.Primary.URL
+	var out []Profile
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key := n.Content[i].Value
+		var p Profile
+		if err := n.Content[i+1].Decode(&p); err != nil {
+			return fmt.Errorf("profiles[%s]: %w", key, err)
 		}
-		for _, repo := range g.Repos {
-			result = append(result, ResolvedRepo{ID: repo, ForgeURL: forgeURL})
-		}
+		p.ID = key
+		out = append(out, p)
 	}
-	return result
-}
-
-// ValidateTargets checks that group forge URLs are base URLs only (no path).
-// Prevents ambiguity between forge base URL and full repo URL.
-func (ct ProfileTargets) ValidateTargets() error {
-	for _, g := range ct.Groups {
-		if g.Sources == nil || g.Sources.Primary.URL == "" {
-			continue
-		}
-		u := g.Sources.Primary.URL
-		// Strip scheme and check for path beyond host.
-		stripped := u
-		for _, prefix := range []string{"https://", "http://"} {
-			stripped = strings.TrimPrefix(stripped, prefix)
-		}
-		if idx := strings.Index(stripped, "/"); idx >= 0 {
-			remaining := stripped[idx:]
-			if remaining != "" && remaining != "/" {
-				return fmt.Errorf("group %q: sources.primary.url must be a forge base URL (e.g., https://github.com), not a full repo URL — got %q", g.ID, u)
-			}
-		}
-	}
+	*pl = out
 	return nil
 }
 
-// ResolvedRepo is a repo with its forge context resolved.
-type ResolvedRepo struct {
-	ID       string // "org/repo" project identifier on the resolved forge
-	ForgeURL string // forge base URL from group, or "" (inherit from governance sources.primary)
+// Profile assigns shared policy + branding to a group of repos (its catalog). Config is
+// normal StageFreight config; Repos is the location-anchored catalog. Assets are
+// declared inside Config as assets: entries — no separate skeleton construct.
+type Profile struct {
+	ID          string         `yaml:"-"`                     // from the profiles: map key
+	Repos       ProfileCatalog `yaml:"repos"`                 // the location-anchored catalog
+	Config      map[string]any `yaml:"config"`                // the profile's shared StageFreight config
+	Credentials string         `yaml:"credentials,omitempty"` // env var prefix for the write token
 }
 
-// TargetGroup is a cohort of repos on the same forge.
-type TargetGroup struct {
-	ID      string             `yaml:"id,omitempty"`
-	Sources *TargetGroupSource `yaml:"sources,omitempty"` // nil = inherit governance sources.primary
-	Repos   []string           `yaml:"repos"`             // project IDs on this forge
+// ProfileCatalog is a profile's repos: block — an id→entry map, each entry anchored on
+// a repo location.
+type ProfileCatalog []CatalogEntry
+
+func (pc *ProfileCatalog) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("repos: must be an id → entry map")
+	}
+	var out []CatalogEntry
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key := n.Content[i].Value
+		e := CatalogEntry{ID: key}
+		if err := e.decode(n.Content[i+1]); err != nil {
+			return fmt.Errorf("repos[%s]: %w", key, err)
+		}
+		out = append(out, e)
+	}
+	*pc = out
+	return nil
 }
 
-// TargetGroupSource declares forge identity using standard sources schema.
-type TargetGroupSource struct {
-	Primary TargetGroupPrimary `yaml:"primary"`
+// CatalogEntry is one governed repo: a location anchor plus optional governed branding
+// and an optional per-repo config override. A bare-string entry is location-only (CI
+// governed, identity self-authored); a map entry (at: + fields) governs identity too.
+type CatalogEntry struct {
+	ID       string         // the repos: map key (a label)
+	Forge    string         // forge id from a "<forge>:" location prefix, or "" (inherit)
+	At       string         // the repo project path ("<group>/<repo>")
+	Metadata map[string]any // governed branding (nil for a bare-string / location-only entry)
+	Config   map[string]any // optional per-repo config override
 }
 
-// TargetGroupPrimary holds the forge base URL for a target group.
-type TargetGroupPrimary struct {
-	URL string `yaml:"url"` // forge base URL (e.g., "https://github.com")
+func (e *CatalogEntry) decode(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		e.Forge, e.At = splitLocation(n.Value)
+		return nil
+	case yaml.MappingNode:
+		raw := map[string]any{}
+		if err := n.Decode(&raw); err != nil {
+			return err
+		}
+		at, _ := raw["at"].(string)
+		if at == "" {
+			return fmt.Errorf("a map entry must have `at` (the repo location)")
+		}
+		e.Forge, e.At = splitLocation(at)
+		delete(raw, "at")
+		if cfg, ok := raw["config"].(map[string]any); ok {
+			e.Config = cfg
+		}
+		delete(raw, "config")
+		if len(raw) > 0 {
+			e.Metadata = raw // everything else is governed branding
+		}
+		return nil
+	default:
+		return fmt.Errorf("entry must be a location string or a map with `at`")
+	}
+}
+
+// splitLocation splits "<forge>:<path>" into (forge, path); a bare location (no
+// forge-prefix colon before the first slash) returns ("", loc).
+func splitLocation(loc string) (forge, path string) {
+	if i := strings.IndexByte(loc, ':'); i > 0 && !strings.Contains(loc[:i], "/") {
+		return loc[:i], loc[i+1:]
+	}
+	return "", loc
 }
 
 // PresetRef is a reference to an external preset fragment.

@@ -166,7 +166,7 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 
 	totalRepos := 0
 	for _, c := range data.Profiles {
-		totalRepos += len(c.Targets.AllRepos())
+		totalRepos += len(c.Repos)
 	}
 	row(w, "%-13s%d", "profiles", len(data.Profiles))
 	row(w, "%-13s%d", "repos", totalRepos)
@@ -178,10 +178,10 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 	var totalRepoCounts repoCounts
 
 	for _, cluster := range data.Profiles {
-		allRepos := cluster.Targets.AllRepos()
+		allRepos := cluster.Repos
 		clusterFileCount := 0
 		for _, resolved := range allRepos {
-			if p, ok := data.Plans[resolved.ID]; ok {
+			if p, ok := data.Plans[resolved.At]; ok {
 				for _, f := range p.Files {
 					if f.Action != "unchanged" {
 						clusterFileCount++
@@ -261,8 +261,8 @@ func groupRepos(cluster Profile, data PlanViewData) []repoGroup {
 	keyOrder := []groupKey{}
 	groups := map[groupKey]*repoGroup{}
 
-	for _, resolved := range cluster.Targets.AllRepos() {
-		repo := resolved.ID
+	for _, resolved := range cluster.Repos {
+		repo := resolved.At
 		plan, ok := data.Plans[repo]
 		if !ok {
 			continue

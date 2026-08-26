@@ -96,7 +96,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	fmt.Fprintf(os.Stderr, "  profiles: %d\n", len(gov.Profiles))
 	totalRepos := 0
 	for _, c := range gov.Profiles {
-		n := len(c.Targets.AllRepos())
+		n := len(c.Repos)
 		totalRepos += n
 		fmt.Fprintf(os.Stderr, "  profile %q: %d repos\n", c.ID, n)
 	}
