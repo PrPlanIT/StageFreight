@@ -131,7 +131,7 @@ func (b *binaryContributor) Plan(rc *domains.RunContext) (domains.Contribution, 
 			continue // render slots already computed; plan only builds here
 		}
 		bc := *node.Build
-		cfg := toBuildConfig(bc, b.version)
+		cfg := toBuildConfig(bc, b.version, rc.RootDir)
 		// kind: command defaults its image to the ci.image (how SF runs its own CLI).
 		if cfg.Kind == "command" && cfg.Image == "" {
 			cfg.Image = rc.Config.CI.Image
@@ -649,7 +649,7 @@ func copyExecutable(src, dst string) error {
 	return out.Close()
 }
 
-func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfig {
+func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo, rootDir string) build.BuildConfig {
 	platforms := build.ParseTargets(b.Platforms)
 	if len(platforms) == 0 {
 		platforms = []build.Target{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
@@ -674,7 +674,7 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo) build.BuildConfi
 	}
 	return build.BuildConfig{
 		ID: b.ID, Kind: b.Kind, Platforms: platforms, BuildMode: b.BuildMode,
-		SelectTags: b.SelectTags, Version: v,
+		SelectTags: b.SelectTags, Version: v, RootDir: rootDir,
 		Builder: builder, Command: command, From: b.From,
 		Output: output, Args: b.Args, Env: b.Env, Compress: b.Compress,
 		Image: b.Image,

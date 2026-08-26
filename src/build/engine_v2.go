@@ -44,6 +44,10 @@ type BuildConfig struct {
 	// Version info for template resolution
 	Version *VersionInfo
 
+	// RootDir is the repo root, for filesystem-derived facts in arg templates
+	// (e.g. {project.module} reads the build manifest — go.mod / Cargo.toml / …).
+	RootDir string
+
 	// kind: docker fields
 	Dockerfile string
 	Context    string

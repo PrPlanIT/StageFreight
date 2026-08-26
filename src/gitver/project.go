@@ -138,6 +138,14 @@ func matchLicense(text string) string {
 }
 
 // detectLanguage identifies the primary programming language from lockfiles/manifests.
+// ProjectModule returns the project's canonical module/package name (the {project.module}
+// fact) from the build manifest in rootDir. Exported for callers that need only the module
+// without the full DetectProject (git remote / license / language) pass — e.g. resolving
+// {project.module} in build-arg templates.
+func ProjectModule(rootDir string) string {
+	return detectModule(rootDir)
+}
+
 // detectModule returns the project's canonical module/package name, dispatched by the
 // build manifest present in rootDir: go.mod's module path, Cargo.toml's [package] name,
 // package.json's name, or pyproject.toml's [project] name. This is the {project.module}

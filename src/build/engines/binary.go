@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -214,6 +215,12 @@ func resolveTemplateVars(s string, cfg build.BuildConfig) string {
 				s = strings.ReplaceAll(s, placeholder, sha)
 			}
 		}
+	}
+	// {project.module}: the repo's canonical module/package name from its build manifest,
+	// so a shared build preset can embed it (e.g. ldflags -X {project.module}/src/version…)
+	// and serve a whole bucket. Detected only when referenced (avoids a manifest read per arg).
+	if cfg.RootDir != "" && strings.Contains(s, "{project.module}") {
+		s = strings.ReplaceAll(s, "{project.module}", gitver.ProjectModule(cfg.RootDir))
 	}
 	s = strings.ReplaceAll(s, "{date}", time.Now().UTC().Format(time.RFC3339))
 	// {output} resolves to the build's declared output path so a command can name it once:
