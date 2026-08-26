@@ -131,6 +131,7 @@ type IDMap interface{ isIDMap() }
 func (OrderedForges) isIDMap()           {}
 func (OrderedRepos) isIDMap()            {}
 func (OrderedRegistries) isIDMap()       {}
+func (OrderedOrgs) isIDMap()             {}
 func (OrderedBuilds) isIDMap()           {}
 func (OrderedTestSuites) isIDMap()       {}
 func (OrderedSigningProfiles) isIDMap()  {}

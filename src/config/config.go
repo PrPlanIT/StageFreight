@@ -44,6 +44,11 @@ type Config struct {
 	// Registries declares OCI registry hosts as an id→registry map.
 	Registries OrderedRegistries `yaml:"registries,omitempty"`
 
+	// Orgs declares organization/owner identities as an id→org map (maintainer +
+	// aliases). Identity only — no forge, no credentials. Feeds {org.*} and, through
+	// surface default_paths, {path.*}. See docs/design/identity-model.md.
+	Orgs OrderedOrgs `yaml:"orgs,omitempty"`
+
 	// SigningSetup is the signing block. Its Profiles field holds the named trust
 	// profiles (generic primitives), referenced per-target by signing_profile: <id>.
 	// "Releases require hardware" is project policy (the target's selection), never
