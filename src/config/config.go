@@ -49,6 +49,11 @@ type Config struct {
 	// surface default_paths, {path.*}. See docs/design/identity-model.md.
 	Orgs OrderedOrgs `yaml:"orgs,omitempty"`
 
+	// Metadata is this repo's identity/branding — the one block every consumer reads
+	// (org ref, title, names, scoped description/readme, topics, license, …). Feeds
+	// {metadata.*}. See docs/design/identity-model.md.
+	Metadata MetadataConfig `yaml:"metadata,omitempty"`
+
 	// SigningSetup is the signing block. Its Profiles field holds the named trust
 	// profiles (generic primitives), referenced per-target by signing_profile: <id>.
 	// "Releases require hardware" is project policy (the target's selection), never

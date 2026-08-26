@@ -72,6 +72,7 @@ var allKnownSections = []sectionDef{
 	{name: "repos", kind: "structural"},
 	{name: "registries", kind: "structural"},
 	{name: "orgs", kind: "structural"},
+	{name: "metadata", kind: "structural"},
 	{name: "build_cache", kind: "structural"},
 	{name: "matchers", kind: "structural"},
 }
