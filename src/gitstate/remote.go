@@ -4,9 +4,33 @@ import (
 	"fmt"
 
 	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
+
+// RemoteRefExists reports whether ref exists as a branch and/or a tag on the remote at
+// url, via a go-git ls-remote (no clone, no shell-out — the git-ops invariant requires
+// go-git here). Used to classify a bare preset ref (branch → tracked, tag → pinned).
+func RemoteRefExists(url, ref string) (branch, tag bool, err error) {
+	rem := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "src", URLs: []string{url}})
+	refs, err := rem.List(&git.ListOptions{})
+	if err != nil {
+		return false, false, fmt.Errorf("ls-remote %s: %w", url, err)
+	}
+	head := plumbing.NewBranchReferenceName(ref)
+	tagName := plumbing.NewTagReferenceName(ref)
+	for _, r := range refs {
+		switch r.Name() {
+		case head:
+			branch = true
+		case tagName:
+			tag = true
+		}
+	}
+	return branch, tag, nil
+}
 
 // RemoteURL returns the URL for the given remote (typically "origin").
 func RemoteURL(repo *git.Repository, remoteName string) (string, error) {
