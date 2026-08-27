@@ -148,6 +148,22 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 			currentPath = pathPrefix + "." + key
 		}
 
+		// The governance section's payload (profiles[].config) is OPAQUE at load: its
+		// nested preset: refs resolve at DISTRIBUTION, per-satellite, with per-repo vars
+		// — not at the control repo's own load. Copy the whole subtree verbatim rather
+		// than recursing into it (which would prematurely resolve the satellite presets,
+		// leaving their per-repo {var:} unresolved here). (With the retired list-form
+		// clusters:, recursion skipped the sequence; the id-map profiles: is a mapping,
+		// so this explicit skip restores that opacity.)
+		if currentPath == "governance" {
+			mapSet(result, key, val)
+			entries = append(entries, MergeEntry{
+				Path: currentPath, Source: sourcePath, SourceRef: sourceRef,
+				Layer: depth, Operation: "set", Value: nodeToAny(val),
+			})
+			continue
+		}
+
 		if !isMapping(val) {
 			// Scalar or sequence — copy directly.
 			mapSet(result, key, val)
