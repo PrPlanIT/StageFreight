@@ -96,6 +96,25 @@ func TestIdentityResolver_Coordinates(t *testing.T) {
 	}
 }
 
+// TestCurrentSlug_TemplatedPrimaryFallsBack verifies a literal primary project yields its
+// last segment, while a TEMPLATED primary project ("{path.gitlab}") does NOT yield garbage
+// — it falls back (to the git-detected name in real runs; to empty here with no git dir).
+func TestCurrentSlug_TemplatedPrimaryFallsBack(t *testing.T) {
+	literal := &config.Config{Repos: config.OrderedRepos{
+		{ID: "primary", Project: "HomeLabHD/apt-cacher-ng", Roles: []string{"primary"}},
+	}}
+	if got := currentSlug(literal, ""); got != "apt-cacher-ng" {
+		t.Errorf("literal primary: slug = %q, want apt-cacher-ng", got)
+	}
+
+	templated := &config.Config{Repos: config.OrderedRepos{
+		{ID: "primary", Project: "{path.gitlab}", Roles: []string{"primary"}},
+	}}
+	if got := currentSlug(templated, ""); got != "" {
+		t.Errorf("templated primary (no git dir): slug = %q, want empty — not the raw template", got)
+	}
+}
+
 // TestScribeRegistry_IdentityAndGitver verifies identity + gitver compose through the
 // registry: a metadata value can carry a gitver token that the leaf pass then resolves.
 func TestScribeRegistry_IdentityAndGitver(t *testing.T) {

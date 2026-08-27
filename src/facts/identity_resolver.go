@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/gitver"
 )
 
 // identityResolver resolves the config-sourced identity families — {org.*},
@@ -25,7 +26,7 @@ func (identityResolver) Resolve(values []string, c *Context) []string {
 	if c == nil || c.Config == nil {
 		return values
 	}
-	subs := identitySubs(c.Config)
+	subs := identitySubs(c.Config, c.RootDir)
 	if len(subs) == 0 {
 		return values
 	}
@@ -49,7 +50,7 @@ func (identityResolver) Resolve(values []string, c *Context) []string {
 // are brace-delimited so none is a substring of another as a whole token (e.g. "{org}"
 // never matches inside "{org.lower}"), making ReplaceAll order-independent. Only tokens
 // the config can populate are added; a typo'd token has no entry and stays literal.
-func identitySubs(cfg *config.Config) map[string]string {
+func identitySubs(cfg *config.Config, rootDir string) map[string]string {
 	subs := map[string]string{}
 
 	// {org.*} — the current repo's org (metadata.org ref).
@@ -82,7 +83,7 @@ func identitySubs(cfg *config.Config) map[string]string {
 	// surface's path is its default_path resolved with the current org's {org.*} aliases
 	// and {repo} = names[surface] ?? slug. Forges and registries both carry default_path.
 	// Any {var:}/etc. left in a default_path is resolved by the later gitver leaf pass.
-	slug := currentSlug(cfg)
+	slug := currentSlug(cfg, rootDir)
 	if slug != "" {
 		subs["{slug}"] = slug
 	}
@@ -106,13 +107,20 @@ func identitySubs(cfg *config.Config) map[string]string {
 	return subs
 }
 
-// currentSlug is the primary repo's name — the last path segment of its project path.
-// Coordinates default {repo} to this. (A templated primary project yields a templated
-// slug; the settled model anchors on a literal primary location.)
-func currentSlug(cfg *config.Config) string {
+// currentSlug is the repo's name that coordinates default {repo} to. It prefers a
+// LITERAL primary repo location's last segment (the settled anchor). A templated primary
+// project (e.g. "{path.gitlab}") can't anchor the slug — its last segment is garbage and
+// deriving the slug from a {path.*} it would itself feed is circular — so that case (and
+// a missing primary) falls back to the git-detected repo name from the remote.
+func currentSlug(cfg *config.Config, rootDir string) string {
 	for _, r := range cfg.Repos {
-		if r.HasRole("primary") {
+		if r.HasRole("primary") && !strings.Contains(r.Project, "{") {
 			return lastSegment(r.Project)
+		}
+	}
+	if rootDir != "" {
+		if pm := gitver.DetectProject(rootDir); pm != nil && pm.Name != "" {
+			return pm.Name
 		}
 	}
 	return ""
