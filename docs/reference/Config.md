@@ -901,6 +901,7 @@ test:
       tests: [<string>]   # --test <name>
       release: false   # --release
       nextest: false   # cargo nextest run
+      markers: [<string>]   # ── Python (native `pytest` flag projections)…
 ```
 
 ---
@@ -1111,6 +1112,7 @@ build_cache:
     name: <string>   # Name is the buildx builder name. Default: "sf-builder".
     driver: <string>   # Driver is the buildx driver. Default: "docker-container".
     context: <string>   # Context is the Docker context name for the builder endpoint. Default: "sf-context".
+    memory: <string>   # Memory caps the builder container (e.g. "3g"), pinning memory-swap to the same value so the builder…
   local:   # Local configures the bounded local buildkit cache.
     path: <string>   # override local cache root (default: /stagefreight/cache/buildkit)
     retention:
