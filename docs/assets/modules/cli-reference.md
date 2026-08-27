@@ -37,6 +37,7 @@
         - [`inspect`](#cli-stagefreight-manifest-inspect) — Pretty-print manifest or specific sections
     - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
     - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+    - [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
     - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
     - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
     - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
@@ -107,6 +108,7 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`manifest`](#cli-stagefreight-manifest) — Generate and inspect build manifests
 - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
 - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+- [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
 - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
 - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
 - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
@@ -919,6 +921,37 @@ by this migration tool — it was an unversioned alpha that must be rewritten.
 |------|------|---------|-------------|
 | `-i, --in-place` | bool | — | overwrite the config file in place |
 | `-o, --output` | string | — | write migrated config to this path |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-prune" name="cli-stagefreight-prune"></a>
+### stagefreight prune
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight prune`
+
+Apply the SF disk lifecycle: rotate what StageFreight itself created — the cache
+root's subsystems (named policies + a backstop for the rest), toolchain versions
+beyond toolchains.retention, the repo's own published image generations, and the
+sf-builder's cache — under the declared retention grammar.
+
+Ownership is the invariant: StageFreight never guesses whether something belongs to
+someone else. Third-party artifacts are reclaimed ONLY via the operator's declared
+adoptions (build_cache.cleanup.prune.images.refs), and only under --host-cleanup.
+
+Dry-run by default: shows the plan with each item's ownership class. --confirm executes.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--cache` | string | — | SF cache mount root (default: resolved like `du`) |
+| `--confirm` | bool | — | execute the plan (default: dry-run) |
+| `--host-cleanup` | bool | — | authorize the declared host-cleanup policies for this invocation (build_cache.cleanup) |
+| `--target` | float64 | — | only act when disk used-fraction ≥ target (0 = always enforce policy) |
 
 _Plus the [global flags](#cli-global-flags)._
 

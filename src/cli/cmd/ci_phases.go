@@ -164,6 +164,13 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {
 		return err
 	}
+
+	// Disk GC — the always-on SF lifecycle, pressure-gated (a cheap statfs when the
+	// disk is healthy). Runs for EVERY mode: perform is the job with the cache mount +
+	// docker.sock, so it is where the runner's disk can be kept healthy. Reclaims ONLY
+	// SF-owned artifacts (namespace/provenance) plus operator-declared adoptions when
+	// build_cache.cleanup is enabled; never gates or fails the phase.
+	runDiskGC(ctx, appCfg)
 	switch {
 	case appCfg.Mode().PhaseReconcile:
 		// Reconcile binds to ACCEPTED state — a commit on the default branch, the

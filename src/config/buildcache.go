@@ -164,6 +164,15 @@ type PrunePolicy struct {
 type ImagePrunePolicy struct {
 	Dangling     AgePruneRule `yaml:"dangling,omitempty"`
 	Unreferenced AgePruneRule `yaml:"unreferenced,omitempty"`
+
+	// Refs is the operator's scoped ADOPTION list: third-party image streams
+	// (matched by the shared retention-grammar template syntax) that the operator
+	// explicitly grants a lifecycle — e.g. a CI base image pulled into the dind.
+	// Each entry carries its own retention rules (keep_last / max_age / …), the same
+	// RetentionRef grammar used everywhere retention appears. Nothing outside this
+	// list (or SF's own provenance) is ever image-pruned; this is an authorization,
+	// not a confidence judgment.
+	Refs []RetentionRef `yaml:"refs,omitempty"`
 }
 
 // BuildCachePrunePolicy defines build cache pruning rules.
