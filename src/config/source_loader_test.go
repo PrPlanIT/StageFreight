@@ -56,8 +56,8 @@ func TestResolveSource(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"gitlab:Org/Repo", "https://gl.example/Org/Repo"},
 		{"https://host/org/repo", "https://host/org/repo"},
-		{"git@host:org/repo", "git@host:org/repo"},   // scp-like, unknown id → passthrough
-		{"unknown:foo/bar", "unknown:foo/bar"},       // unknown forge id → passthrough
+		{"git@host:org/repo", "git@host:org/repo"}, // scp-like, unknown id → passthrough
+		{"unknown:foo/bar", "unknown:foo/bar"},     // unknown forge id → passthrough
 	}
 	for _, c := range cases {
 		if got := l.resolveSource(c.in); got != c.want {

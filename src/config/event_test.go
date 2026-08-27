@@ -51,17 +51,17 @@ func TestNormalizeEvent(t *testing.T) {
 	}{
 		// Manual re-run has five raw names across forges — all → "manual".
 		{"web", "manual"}, {"api", "manual"}, {"trigger", "manual"}, // GitLab
-		{"workflow_dispatch", "manual"},              // GitHub/Gitea/Forgejo
-		{"Manual", "manual"},                         // Azure (Build.Reason)
-		{"manual", "manual"},                         // already canonical
-		{"push", "push"},                             // GitLab/GitHub
+		{"workflow_dispatch", "manual"},                 // GitHub/Gitea/Forgejo
+		{"Manual", "manual"},                            // Azure (Build.Reason)
+		{"manual", "manual"},                            // already canonical
+		{"push", "push"},                                // GitLab/GitHub
 		{"IndividualCI", "push"}, {"BatchedCI", "push"}, // Azure
 		{"schedule", "schedule"}, {"Schedule", "schedule"}, // case-fold
-		{"merge_request", "merge_request"},  // GitLab
-		{"pull_request", "pull_request"},    // GitHub
-		{"PullRequest", "pull_request"},     // Azure
+		{"merge_request", "merge_request"}, // GitLab
+		{"pull_request", "pull_request"},   // GitHub
+		{"PullRequest", "pull_request"},    // Azure
 		{"tag", "tag"}, {"release", "release"},
-		{" Web ", "manual"},   // trimmed + folded
+		{" Web ", "manual"},      // trimmed + folded
 		{"external", "external"}, // unknown → passthrough lowercased (lenient)
 		{"", ""},                 // empty stays empty
 	}

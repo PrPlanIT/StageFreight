@@ -48,8 +48,8 @@ func (OrderedGovProfiles) isIDMap() {}
 // GovernanceProfile is one profile (config-side view). Repos and Config are raw maps —
 // config only checks presence; the governance package owns the rich catalog shape.
 type GovernanceProfile struct {
-	ID          string         `yaml:"-"`                      // from the profiles: map key
-	Repos       map[string]any `yaml:"repos,omitempty"`        // the location-anchored catalog (raw here)
-	Config      map[string]any `yaml:"config,omitempty"`       // the profile's shared StageFreight config
-	Credentials string         `yaml:"credentials,omitempty"`  // env var prefix for the write token
+	ID          string         `yaml:"-"`                     // from the profiles: map key
+	Repos       map[string]any `yaml:"repos,omitempty"`       // the location-anchored catalog (raw here)
+	Config      map[string]any `yaml:"config,omitempty"`      // the profile's shared StageFreight config
+	Credentials string         `yaml:"credentials,omitempty"` // env var prefix for the write token
 }

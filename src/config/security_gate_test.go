@@ -19,8 +19,8 @@ func TestSecurityExceptionValidation(t *testing.T) {
 	// Missing reason + missing id + bad date → three specific errors.
 	_, err := Validate(&Config{Version: 1, Security: SecurityConfig{
 		Exceptions: []SecurityException{
-			{ID: "CVE-1"},                              // no reason
-			{Reason: "x"},                              // no id
+			{ID: "CVE-1"}, // no reason
+			{Reason: "x"}, // no id
 			{ID: "CVE-2", Reason: "x", Expires: "soon"}, // bad date
 		},
 	}})
