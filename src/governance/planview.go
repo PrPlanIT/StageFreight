@@ -158,15 +158,17 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 		shortRef = shortRef[:8]
 	}
 
-	// Header.
+	// Header. Ordered destination → policy → scale: which forge is being written, what
+	// policy at what ref, and how much of the fleet it reaches. Mode is deliberately NOT
+	// a row — the title above already states it, and repeating it inside the box spends a
+	// line saying something the reader has just read.
 	modeLabel := data.Config.Mode
 	fmt.Fprintf(w, "\n    \033[2;36m── Governance Reconcile ──────────────────────── %s ──\033[0m\n", modeLabel)
-	row(w, "%-13s%s", "mode", modeLabel)
-	row(w, "%-13s%s", "source", data.Config.Source)
-	row(w, "%-13s%s", "ref", shortRef)
 	if data.Config.Forge != "" {
 		row(w, "%-13s%s", "forge", data.Config.Forge)
 	}
+	row(w, "%-13s%s", "source", data.Config.Source)
+	row(w, "%-13s%s", "ref", shortRef)
 
 	totalRepos := 0
 	for _, c := range data.Profiles {
