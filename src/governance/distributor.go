@@ -50,19 +50,12 @@ func PlanDistribution(
 			ProfileID:  cluster.ID,
 		}
 
-		// Collect preset files referenced in the cluster config for cache distribution.
-		presetPaths := collectPresetPaths(cluster.Config)
-		presetFiles := make(map[string][]byte)
-		for _, p := range presetPaths {
-			cachePath, err := sanitizePresetCachePath(p)
-			if err != nil {
-				return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
-			}
-			data, err := presetLoader.Load(p)
-			if err != nil {
-				return nil, fmt.Errorf("cluster %q: loading preset %q for cache: %w", cluster.ID, p, err)
-			}
-			presetFiles[cachePath] = data
+		// Collect preset files referenced in the profile config for cache distribution.
+		// A catalog entry's per-repo config: override is collected separately, per repo
+		// (below): its presets belong to that satellite alone, not to every member.
+		presetFiles, err := loadPresetCache(collectPresetPaths(cluster.Config), presetLoader, cluster.ID)
+		if err != nil {
+			return nil, err
 		}
 
 		// Per-repo: merge satellite-owned vars, render sealed config, plan files.
@@ -116,8 +109,29 @@ func PlanDistribution(
 				sealedContent,
 			))
 
+			// A deviating entry's own presets: distributed with the config that
+			// references them. Without this the satellite receives a config pointing at
+			// a preset that was never seeded, and fails at load — the entry's override
+			// lives outside cluster.Config, so the profile-level collection cannot see it.
+			repoPresetFiles := presetFiles
+			if entry.Config != nil {
+				overrideFiles, oerr := loadPresetCache(collectPresetPaths(entry.Config), presetLoader, cluster.ID)
+				if oerr != nil {
+					return nil, oerr
+				}
+				if len(overrideFiles) > 0 {
+					repoPresetFiles = make(map[string][]byte, len(presetFiles)+len(overrideFiles))
+					for k, v := range presetFiles {
+						repoPresetFiles[k] = v
+					}
+					for k, v := range overrideFiles {
+						repoPresetFiles[k] = v
+					}
+				}
+			}
+
 			// Preset cache files — 1:1 copies for runtime resolution.
-			for cachePath, cacheContent := range presetFiles {
+			for cachePath, cacheContent := range repoPresetFiles {
 				plan.Files = append(plan.Files, planFile(
 					forgeReader, repo,
 					cachePath,
@@ -166,6 +180,26 @@ func PlanDistribution(
 	}
 
 	return plans, nil
+}
+
+// loadPresetCache resolves preset reference paths into their cache-relative contents,
+// so a satellite can resolve them offline. Shared by the profile config and each
+// deviating entry's override — every place a preset reference can legitimately appear
+// must be seeded, or the satellite loads a config it cannot resolve.
+func loadPresetCache(paths []string, loader PresetLoader, clusterID string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(paths))
+	for _, p := range paths {
+		cachePath, err := sanitizePresetCachePath(p)
+		if err != nil {
+			return nil, fmt.Errorf("cluster %q: %w", clusterID, err)
+		}
+		data, err := loader.Load(p)
+		if err != nil {
+			return nil, fmt.Errorf("cluster %q: loading preset %q for cache: %w", clusterID, p, err)
+		}
+		out[cachePath] = data
+	}
+	return out, nil
 }
 
 // orgFromLocation derives the org id from a repo location — the immediate group segment

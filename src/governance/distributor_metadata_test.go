@@ -211,3 +211,61 @@ func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
 		}
 	}
 }
+
+// A deviating entry's per-repo config: override lives OUTSIDE cluster.Config, so the
+// profile-level preset collection cannot see it. Its presets must still be seeded, or
+// the satellite receives a config referencing a file that was never distributed and
+// dies at load: `loading preset "preset/test-python.yml": no such file or directory`.
+func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
+	loader := fakeLoader{
+		"preset/git.yml":         "git: { branches: { main: \"^main$\" } }",
+		"preset/test-python.yml": "test: { suites: { unit: { tool: python } } }",
+	}
+	gov := &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID: "p1",
+			Config: map[string]any{
+				"git": map[string]any{"preset": "preset/git.yml"},
+			},
+			Repos: ProfileCatalog{
+				{ID: "py", At: "Org/py-repo", Config: map[string]any{
+					"test": map[string]any{"preset": "preset/test-python.yml"},
+				}},
+				{ID: "plain", At: "Org/plain-repo"},
+			},
+		}},
+	}
+
+	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Ref: "deadbeef"}, "Org/policy")
+	requireNoError(t, err)
+
+	has := func(p DistributionPlan, path string) bool {
+		for _, f := range p.Files {
+			if f.Path == path {
+				return true
+			}
+		}
+		return false
+	}
+	byRepo := map[string]DistributionPlan{}
+	for _, p := range plans {
+		byRepo[p.Repo] = p
+	}
+
+	py := byRepo["Org/py-repo"]
+	if !has(py, ".stagefreight/preset-cache/preset/test-python.yml") {
+		t.Error("the deviating entry's own preset must be seeded into ITS cache")
+	}
+	if !has(py, ".stagefreight/preset-cache/preset/git.yml") {
+		t.Error("profile presets must still reach a deviating entry")
+	}
+
+	// The override is per-repo: another member must NOT receive it.
+	plain := byRepo["Org/plain-repo"]
+	if has(plain, ".stagefreight/preset-cache/preset/test-python.yml") {
+		t.Error("one repo's override preset must not be distributed to every member")
+	}
+	if !has(plain, ".stagefreight/preset-cache/preset/git.yml") {
+		t.Error("profile presets must reach every member")
+	}
+}
