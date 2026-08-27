@@ -101,3 +101,64 @@ func TestPlanDistribution_BrandedEntryDistributesMetadata(t *testing.T) {
 		t.Errorf("sealed config dropped the tiered description tail:\n%s", sealed)
 	}
 }
+
+// TestPlanDistribution_InjectsPerRepoVars proves the distributor supplies the per-repo
+// vars the shared presets consume ({var:repo}/{var:github_repo}/{var:license}) from the
+// catalog entry's location + branding, layered over the profile's per-surface org vars —
+// without them the satellite's normalization fails on unresolved {var:}.
+func TestPlanDistribution_InjectsPerRepoVars(t *testing.T) {
+	gov := &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID:          "rebaseable-fork-docker",
+			Credentials: "GITLAB_HOMELABHD",
+			Config: map[string]any{
+				"version": 1,
+				// Profile-level per-surface org vars (shared across the profile's repos).
+				"vars": map[string]any{"org": "prplanit", "github_org": "PrPlanIT", "gitlab_group": "HomeLabHD"},
+			},
+			Repos: ProfileCatalog{{
+				ID: "prometheus-eaton-ups-exporter",
+				At: "HomeLabHD/prometheus-eaton-ups-exporter",
+				Metadata: map[string]any{
+					"title":   "Eaton UPS Exporter",
+					"license": "MIT",
+				},
+			}},
+		}},
+	}
+
+	plans, err := PlanDistribution(gov, fakeLoader{}, nil, nil,
+		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef"},
+		"PrPlanIT/MaintenancePolicy")
+	requireNoError(t, err)
+
+	var sealed []byte
+	for _, f := range plans[0].Files {
+		if f.Path == ".stagefreight.yml" {
+			sealed = f.Content
+		}
+	}
+	var parsed struct {
+		Vars map[string]any `yaml:"vars"`
+	}
+	if err := yaml.Unmarshal(sealed, &parsed); err != nil {
+		t.Fatalf("sealed config invalid YAML: %v", err)
+	}
+	// Per-repo, derived from the entry: slug for repo/github_repo, license from branding.
+	if got := parsed.Vars["repo"]; got != "prometheus-eaton-ups-exporter" {
+		t.Errorf("vars.repo: want the slug, got %v", got)
+	}
+	if got := parsed.Vars["github_repo"]; got != "prometheus-eaton-ups-exporter" {
+		t.Errorf("vars.github_repo: want the slug, got %v", got)
+	}
+	if got := parsed.Vars["license"]; got != "MIT" {
+		t.Errorf("vars.license: want MIT (from branding), got %v", got)
+	}
+	// Profile-level per-surface org vars survive the merge.
+	if got := parsed.Vars["org"]; got != "prplanit" {
+		t.Errorf("vars.org: want prplanit (profile-level), got %v", got)
+	}
+	if got := parsed.Vars["gitlab_group"]; got != "HomeLabHD" {
+		t.Errorf("vars.gitlab_group: want HomeLabHD (profile-level), got %v", got)
+	}
+}

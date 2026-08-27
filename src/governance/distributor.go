@@ -93,6 +93,21 @@ func PlanDistribution(
 				}
 				repoConfig["metadata"] = entry.Metadata
 			}
+			// Inject the per-repo vars the shared presets consume ({var:repo},
+			// {var:github_repo}, {var:license}) — derived from the catalog entry's
+			// location + branding, so one preset set serves every repo with no per-repo
+			// var file. The profile's own vars: supplies the per-SURFACE org vars (gitlab
+			// group vs github org vs registry namespace diverge — the C7 case facts can't
+			// yet collapse), and these authoritative per-repo keys layer over it.
+			if slug := slugFromLocation(entry.At); slug != "" {
+				repoVars := map[string]string{"repo": slug, "github_repo": slug}
+				if entry.Metadata != nil {
+					if lic, ok := entry.Metadata["license"].(string); ok && lic != "" {
+						repoVars["license"] = lic
+					}
+				}
+				injectRepoVars(repoConfig, repoVars)
+			}
 			mergeSatelliteVars(repoConfig, forgeReader, repo)
 
 			sealedContent, err := RenderSealedConfig(seal, repoConfig)
@@ -172,6 +187,29 @@ func orgFromLocation(at string) string {
 		return group[j+1:]
 	}
 	return group
+}
+
+// slugFromLocation returns the repo slug — the final path segment of a location.
+// "HomeLabHD/prometheus-eaton-ups-exporter" → "prometheus-eaton-ups-exporter".
+func slugFromLocation(at string) string {
+	if i := strings.LastIndexByte(at, '/'); i >= 0 {
+		return at[i+1:]
+	}
+	return at
+}
+
+// injectRepoVars sets governance-derived vars into repoConfig["vars"], creating the map
+// if absent. These are per-repo facts the profile can't state, so they override any
+// profile-level value of the same key.
+func injectRepoVars(repoConfig map[string]any, kv map[string]string) {
+	vars, _ := repoConfig["vars"].(map[string]any)
+	if vars == nil {
+		vars = map[string]any{}
+		repoConfig["vars"] = vars
+	}
+	for k, v := range kv {
+		vars[k] = v
+	}
 }
 
 // mergeConfigOverride shallow-merges a catalog entry's per-repo config over the
