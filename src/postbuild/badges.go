@@ -92,26 +92,7 @@ func RunBadgeSection(w io.Writer, color bool, rootDir string, appCfg *config.Con
 			itemEng = override
 		}
 
-		value := resolvedValues[i]
-
-		// Guard against empty or unresolved template values producing broken badges. A
-		// remaining "{" means a template didn't resolve — UNLESS the source had a {{…}}
-		// literal, in which case the "{" is intentional (e.g. a "dev-{sha}" scheme).
-		if value == "" || (!strings.Contains(specs[i].Value, "{{") && strings.Contains(value, "{")) {
-			value = "n/a"
-		}
-
-		// Resolve color
-		badgeColor := spec.Color
-		if badgeColor == "" || badgeColor == "auto" {
-			badgeColor = badge.StatusColor(value)
-		}
-
-		svg := itemEng.Generate(badge.Badge{
-			Label: spec.Label,
-			Value: value,
-			Color: badgeColor,
-		})
+		svg, _ := RenderBadgeSVG(itemEng, spec, resolvedValues[i], "")
 
 		if mkErr := os.MkdirAll(filepath.Dir(spec.Output), 0o755); mkErr != nil {
 			continue
@@ -176,6 +157,28 @@ func ResolveBadgeValues(ctx context.Context, specs []config.BadgeSpec, vi *gitve
 		Description: FirstProjectDescription(cfg),
 		Config:      cfg,
 	})
+}
+
+// RenderBadgeSVG applies the empty/unresolved-value guard, resolves the badge's color,
+// and renders its SVG — the shared per-item generation both badge generators use (the CI
+// post-build hook and the CLI). They differ only in the auto-color source: the CI hook
+// colors from the resolved value (statusColorSource ""), the CLI from the pipeline status.
+//
+// Guard: a value with a leftover "{" means a template didn't resolve → "n/a", UNLESS the
+// spec used a {{…}} literal (then the "{" is intentional, e.g. a "dev-{sha}" scheme).
+func RenderBadgeSVG(eng *badge.Engine, spec config.BadgeSpec, value, statusColorSource string) (svg, color string) {
+	if value == "" || (!strings.Contains(spec.Value, "{{") && strings.Contains(value, "{")) {
+		value = "n/a"
+	}
+	color = spec.Color
+	if color == "" || color == "auto" {
+		src := statusColorSource
+		if src == "" {
+			src = value // CI hook: auto-color from the (guarded) value itself
+		}
+		color = badge.StatusColor(src)
+	}
+	return eng.Generate(badge.Badge{Label: spec.Label, Value: value, Color: color}), color
 }
 
 // CollectScribeBadgeItems returns all scribe content defs that generate a badge SVG.

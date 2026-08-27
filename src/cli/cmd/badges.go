@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/badge"
@@ -114,26 +113,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 			itemEng = override
 		}
 
-		value := resolvedValues[i]
-
-		// Guard against empty or unresolved template values producing broken badges. A
-		// remaining "{" means a template didn't resolve — UNLESS the source had a {{…}}
-		// literal, in which case the "{" is intentional (e.g. a "dev-{sha}" scheme).
-		if value == "" || (!strings.Contains(specs[i].Value, "{{") && strings.Contains(value, "{")) {
-			value = "n/a"
-		}
-
-		// Resolve color
-		badgeColor := spec.Color
-		if badgeColor == "" || badgeColor == "auto" {
-			badgeColor = badge.StatusColor(status)
-		}
-
-		svg := itemEng.Generate(badge.Badge{
-			Label: spec.Label,
-			Value: value,
-			Color: badgeColor,
-		})
+		svg, badgeColor := postbuild.RenderBadgeSVG(itemEng, spec, resolvedValues[i], status)
 
 		if err := os.MkdirAll(filepath.Dir(spec.Output), 0o755); err != nil {
 			return fmt.Errorf("creating badge directory for %s: %w", item.LabelOrID(), err)
