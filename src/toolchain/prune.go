@@ -22,13 +22,15 @@ type PruneCandidate struct {
 
 // PlanVersionRetention applies the DECLARED toolchains.retention policy (the full
 // grammar — keep_*, max_age, scoped refs:, protect:) to the installed versions under
-// installRoot. Per tool, the effective policy resolves via retention.Effective (a ref
-// matching the tool name overrides the default); a policy with no active rule for a
-// tool falls back to the engine default keep_last=2. pins (tool → constraint) are
-// always protected, as are versions matching policy.Protect (against "tool" or
-// "tool/version"). Shared by `toolchain prune` config-mode and the disk-GC lifecycle.
+// installRoot. THE single toolchain-retention model: `toolchain prune` and the disk-GC
+// lifecycle both plan through it. Per tool, the effective policy resolves via
+// retention.Effective (a ref matching the tool name overrides the default); a policy
+// with no active rule for a tool falls back to the engine default keep_last=2. pins
+// (tool → constraint) are always protected, as are versions matching policy.Protect
+// (against "tool" or "tool/version"). Versions with no readable metadata are SKIPPED
+// (unknown provenance → leave alone).
 func PlanVersionRetention(installRoot string, policy config.RetentionPolicy, pins map[string]string) ([]PruneCandidate, error) {
-	byTool, err := scanInstalledVersions(installRoot, "")
+	byTool, err := scanInstalledVersions(installRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +86,7 @@ type versionEntry struct {
 // scanInstalledVersions inventories installRoot's tool→versions, reading each
 // version's InstalledAt from its .metadata.json. Versions with no readable metadata
 // are SKIPPED (unknown provenance → leave alone).
-func scanInstalledVersions(installRoot, toolFilter string) (map[string][]versionEntry, error) {
+func scanInstalledVersions(installRoot string) (map[string][]versionEntry, error) {
 	byTool := make(map[string][]versionEntry)
 	entries, err := os.ReadDir(installRoot)
 	if err != nil {
@@ -95,9 +97,6 @@ func scanInstalledVersions(installRoot, toolFilter string) (map[string][]version
 			continue
 		}
 		toolName := toolDir.Name()
-		if toolFilter != "" && toolName != toolFilter {
-			continue
-		}
 		versions, err := os.ReadDir(filepath.Join(installRoot, toolName))
 		if err != nil {
 			continue
@@ -124,56 +123,4 @@ func scanInstalledVersions(installRoot, toolFilter string) (map[string][]version
 		}
 	}
 	return byTool, nil
-}
-
-// PlanVersionPrune applies keep-latest-N retention to the installed toolchain versions
-// under installRoot and returns the versions that fall out. Shared core of
-// `toolchain prune` and the disk-GC lifecycle. Safety:
-//   - a version equal to protected[tool] (the pinned/locked resolution) is never selected
-//   - the keep newest are ranked by Metadata.InstalledAt
-//   - olderThanDays > 0 additionally requires that age before selecting
-//   - versions with no readable metadata are SKIPPED (unknown → leave alone)
-func PlanVersionPrune(installRoot string, keep int, olderThanDays int, toolFilter string, protected map[string]string) ([]PruneCandidate, error) {
-	if keep < 1 {
-		keep = 1 // never plan a tool down to zero versions
-	}
-	byTool, err := scanInstalledVersions(installRoot, toolFilter)
-	if err != nil {
-		return nil, err // no toolchain cache — caller decides whether that matters
-	}
-
-	var out []PruneCandidate
-	now := time.Now()
-	for tool, versions := range byTool {
-		sort.Slice(versions, func(i, j int) bool {
-			return versions[i].InstalledAt.After(versions[j].InstalledAt)
-		})
-		pinnedVer := protected[tool]
-		for i, v := range versions {
-			if v.Version == pinnedVer {
-				continue
-			}
-			if i < keep {
-				continue
-			}
-			if olderThanDays > 0 && now.Sub(v.InstalledAt) < time.Duration(olderThanDays)*24*time.Hour {
-				continue
-			}
-			reason := "older version"
-			if olderThanDays > 0 {
-				reason = "older version past age threshold"
-			}
-			out = append(out, PruneCandidate{
-				Tool: v.Tool, Version: v.Version, Dir: v.Dir,
-				InstalledAt: v.InstalledAt, Reason: reason,
-			})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Tool != out[j].Tool {
-			return out[i].Tool < out[j].Tool
-		}
-		return out[i].Version < out[j].Version
-	})
-	return out, nil
 }

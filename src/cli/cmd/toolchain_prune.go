@@ -1,15 +1,12 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
-	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -23,159 +20,68 @@ var (
 var toolchainPruneCmd = &cobra.Command{
 	Use:   "prune",
 	Short: "Remove old toolchain versions from cache",
-	Long: `Remove old toolchain versions from writable cache roots.
+	Long: `Manually invoke the toolchain-retention lifecycle: the DECLARED
+toolchains.retention policy (keep_*, max_age, scoped refs:, protect:) plans which
+installed versions fall out; flags override the declared policy for this invocation.
 
 By default, shows what would be deleted (dry-run). Use --confirm to actually delete.
 
 Safety:
-  - Never prunes read-only cache roots
   - Never prunes the version currently pinned in .stagefreight.yml
-  - Keeps at least --keep-latest versions per tool`,
+  - Versions without provenance metadata are left alone`,
 	RunE: runToolchainPrune,
 }
 
 func init() {
-	toolchainPruneCmd.Flags().IntVar(&pruneOlderThan, "older-than", 0, "only prune versions installed more than N days ago")
-	toolchainPruneCmd.Flags().StringVar(&pruneTool, "tool", "", "filter to specific tool")
-	toolchainPruneCmd.Flags().IntVar(&pruneKeepN, "keep-latest", 1, "keep the N most recent versions per tool")
+	toolchainPruneCmd.Flags().IntVar(&pruneOlderThan, "older-than", 0, "override: also keep versions installed within the last N days (max_age)")
+	toolchainPruneCmd.Flags().StringVar(&pruneTool, "tool", "", "filter output to a specific tool")
+	toolchainPruneCmd.Flags().IntVar(&pruneKeepN, "keep-latest", 0, "override: keep the N most recent versions per tool (default: declared policy, engine default 2)")
 	toolchainPruneCmd.Flags().BoolVar(&pruneConfirm, "confirm", false, "actually delete (default is dry-run)")
 
 	toolchainCmd.AddCommand(toolchainPruneCmd)
-}
-
-type pruneCandidate struct {
-	Tool        string
-	Version     string
-	Dir         string
-	InstalledAt time.Time
-	Reason      string // why it's being pruned
 }
 
 func runToolchainPrune(_ *cobra.Command, _ []string) error {
 	rootDir, _ := os.Getwd()
 	installRoot := toolchain.InstallRoot(rootDir)
 
-	// Build protected set from config pins
-	protected := make(map[string]string) // tool → pinned version
+	// The declared policy, with per-invocation flag overrides.
+	var policy config.RetentionPolicy
+	pins := map[string]string{}
 	if cfg != nil {
+		policy = cfg.Toolchains.Retention
 		for tool, pin := range cfg.Toolchains.Want {
 			if pin.Constraint != "" {
-				protected[tool] = pin.Constraint
+				pins[tool] = pin.Constraint
 			}
 		}
 	}
-
-	// Collect all installed versions from writable root
-	type versionEntry struct {
-		Tool        string
-		Version     string
-		Dir         string
-		InstalledAt time.Time
+	if pruneKeepN > 0 {
+		policy.KeepLast = pruneKeepN
+	}
+	if pruneOlderThan > 0 {
+		policy.MaxAge = fmt.Sprintf("%dd", pruneOlderThan)
 	}
 
-	byTool := make(map[string][]versionEntry)
-
-	entries, err := os.ReadDir(installRoot)
+	candidates, err := toolchain.PlanVersionRetention(installRoot, policy, pins)
 	if err != nil {
 		fmt.Printf("No toolchain cache at %s\n", installRoot)
 		return nil
 	}
-
-	for _, toolDir := range entries {
-		if !toolDir.IsDir() {
-			continue
+	if pruneTool != "" {
+		filtered := candidates[:0]
+		for _, c := range candidates {
+			if c.Tool == pruneTool {
+				filtered = append(filtered, c)
+			}
 		}
-		toolName := toolDir.Name()
-		if pruneTool != "" && toolName != pruneTool {
-			continue
-		}
-
-		versions, err := os.ReadDir(filepath.Join(installRoot, toolName))
-		if err != nil {
-			continue
-		}
-		for _, verDir := range versions {
-			if !verDir.IsDir() || verDir.Name() == ".lock" {
-				continue
-			}
-			metaPath := filepath.Join(installRoot, toolName, verDir.Name(), ".metadata.json")
-			data, err := os.ReadFile(metaPath)
-			if err != nil {
-				continue
-			}
-			var meta toolchain.Metadata
-			if err := json.Unmarshal(data, &meta); err != nil {
-				continue
-			}
-
-			installedAt, _ := time.Parse(time.RFC3339, meta.InstalledAt)
-			byTool[toolName] = append(byTool[toolName], versionEntry{
-				Tool:        toolName,
-				Version:     verDir.Name(),
-				Dir:         filepath.Join(installRoot, toolName, verDir.Name()),
-				InstalledAt: installedAt,
-			})
-		}
-	}
-
-	// Apply retention rules per tool
-	var candidates []pruneCandidate
-	now := time.Now()
-
-	for tool, versions := range byTool {
-		// Sort newest first
-		sort.Slice(versions, func(i, j int) bool {
-			return versions[i].InstalledAt.After(versions[j].InstalledAt)
-		})
-
-		pinnedVer := protected[tool]
-
-		for i, v := range versions {
-			// Never prune pinned version
-			if v.Version == pinnedVer {
-				continue
-			}
-
-			// Keep latest N
-			if i < pruneKeepN {
-				continue
-			}
-
-			// Check age filter
-			if pruneOlderThan > 0 {
-				age := now.Sub(v.InstalledAt)
-				if age < time.Duration(pruneOlderThan)*24*time.Hour {
-					continue
-				}
-			}
-
-			reason := "older version"
-			if pruneOlderThan > 0 {
-				reason = fmt.Sprintf("older than %d days", pruneOlderThan)
-			}
-
-			candidates = append(candidates, pruneCandidate{
-				Tool:        v.Tool,
-				Version:     v.Version,
-				Dir:         v.Dir,
-				InstalledAt: v.InstalledAt,
-				Reason:      reason,
-			})
-		}
+		candidates = filtered
 	}
 
 	if len(candidates) == 0 {
 		fmt.Println("Nothing to prune.")
 		return nil
 	}
-
-	// Sort candidates for display
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].Tool != candidates[j].Tool {
-			return candidates[i].Tool < candidates[j].Tool
-		}
-		return candidates[i].Version < candidates[j].Version
-	})
 
 	if !pruneConfirm {
 		fmt.Println("Dry run — would delete:")
@@ -186,7 +92,6 @@ func runToolchainPrune(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Actually delete
 	deleted := 0
 	for _, c := range candidates {
 		if err := os.RemoveAll(c.Dir); err != nil {
@@ -197,6 +102,5 @@ func runToolchainPrune(_ *cobra.Command, _ []string) error {
 		deleted++
 	}
 	fmt.Printf("\n%d versions removed.\n", deleted)
-
 	return nil
 }
