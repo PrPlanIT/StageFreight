@@ -3,6 +3,7 @@ package commit
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,6 +91,18 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 		return nil, fmt.Errorf("reading worktree status: %w", err)
 	}
 	files := gitstate.StagedFiles(status)
+
+	// 2a. Prove the declared paths actually landed. Staging is silent about paths it
+	// drops (most often because an ancestor .gitignore excludes them — git cannot
+	// re-include a path whose PARENT directory is ignored, which voids the namespace
+	// allowlist planted above). Without this check the commit "succeeds" while the
+	// content it was created to publish is missing — e.g. scribe committing a README
+	// whose badge SVGs were never added, so every rendered badge 404s.
+	if plan.StageMode == StageExplicit {
+		if err := assertDeclaredPathsStaged(repo, g.RootDir, plan.Paths, files); err != nil {
+			return nil, err
+		}
+	}
 
 	// 3. No-op check
 	nothingToCommit := len(files) == 0
@@ -201,4 +214,75 @@ func BranchFromRefspec(refspec string) string {
 		return refspec[idx+len("refs/heads/"):]
 	}
 	return ""
+}
+
+// assertDeclaredPathsStaged verifies every explicitly declared path contributed to the
+// commit — either by staging a change, or by already being tracked and unchanged.
+//
+// A declared path that exists on disk with content, yet is neither staged nor tracked,
+// was DROPPED by staging. go-git (like git) applies ignore rules while walking a
+// declared directory and says nothing about what it skipped, so this is the only place
+// the loss is observable. Failing here converts a silent, corrupt success — a commit
+// that publishes references to files it never committed — into a loud, precise error.
+func assertDeclaredPathsStaged(repo *git.Repository, rootDir string, declared []string, staged []string) error {
+	if len(declared) == 0 {
+		return nil
+	}
+	idx, err := repo.Storer.Index()
+	if err != nil {
+		return fmt.Errorf("reading index: %w", err)
+	}
+	tracked := make(map[string]bool, len(idx.Entries))
+	for _, e := range idx.Entries {
+		tracked[filepath.ToSlash(e.Name)] = true
+	}
+	stagedSet := make(map[string]bool, len(staged))
+	for _, s := range staged {
+		stagedSet[filepath.ToSlash(s)] = true
+	}
+	covered := func(rel string) bool {
+		rel = filepath.ToSlash(rel)
+		if stagedSet[rel] || tracked[rel] {
+			return true
+		}
+		for s := range stagedSet {
+			if strings.HasPrefix(s, rel+"/") {
+				return true
+			}
+		}
+		for t := range tracked {
+			if strings.HasPrefix(t, rel+"/") {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, p := range declared {
+		rel := filepath.ToSlash(strings.TrimPrefix(filepath.Clean(p), "./"))
+		abs := filepath.Join(rootDir, filepath.FromSlash(rel))
+		info, statErr := os.Stat(abs)
+		if statErr != nil {
+			continue // declared but absent — nothing was produced, not a silent drop
+		}
+		if info.IsDir() && dirIsEmpty(abs) {
+			continue // nothing to contribute
+		}
+		if covered(rel) {
+			continue
+		}
+		return fmt.Errorf("commit: declared path %q exists but was not staged or tracked — "+
+			"staging dropped it, almost always because a .gitignore rule excludes it or an "+
+			"ancestor directory of it (git cannot re-include a path whose parent directory is "+
+			"ignored, which voids %s/.gitignore's durable allowlist). Committing would publish "+
+			"references to content that is not in the repository",
+			rel, workspace.NamespaceDir)
+	}
+	return nil
+}
+
+// dirIsEmpty reports whether dir contains no entries at all.
+func dirIsEmpty(dir string) bool {
+	ents, err := os.ReadDir(dir)
+	return err != nil || len(ents) == 0
 }
