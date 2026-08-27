@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -291,26 +292,83 @@ func pruneDeclaredImages(ctx context.Context, a Action, confirm bool) (items []s
 func pruneBuilder(ctx context.Context, a Action, confirm bool) (items []string, skipped string, err error) {
 	args := []string{"buildx", "prune", "--builder", a.Builder, "--force"}
 	if a.KeepStore != "" {
-		args = append(args, "--keep-storage", a.KeepStore)
+		// buildx renamed --keep-storage to --reserved-space; the old name still works
+		// but warns, and will eventually go. Ask the installed buildx which it speaks
+		// rather than guessing from a version number.
+		args = append(args, reservedSpaceFlag(ctx), a.KeepStore)
 	}
 	if a.Until != "" {
-		args = append(args, "--filter", "until="+a.Until)
+		// buildx parses `until` with Go's time.ParseDuration, which has NO day unit —
+		// StageFreight's own duration vocabulary does ("7d"), so it must be rendered
+		// into hours here. Passing "7d" straight through is a hard error.
+		if until := dockerDuration(a.Until); until != "" {
+			args = append(args, "--filter", "until="+until)
+		}
 	}
 	if !confirm {
 		return []string{"docker " + strings.Join(args, " ")}, "", nil
 	}
 	if out, rerr := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); rerr != nil {
-		return nil, "builder unavailable: " + strings.TrimSpace(string(out)), nil
+		reason := firstLine(string(out))
+		if strings.Contains(reason, "no builder") {
+			// Absence, not failure: this host simply doesn't run that builder.
+			return nil, "no " + a.Builder + " on this host", nil
+		}
+		return nil, "buildx prune failed: " + reason, nil
 	}
 	return []string{"pruned via builder API"}, "", nil
+}
+
+// dockerDuration renders a StageFreight duration ("7d", "72h") into the Go-native
+// form docker/buildx filters accept (no day unit). Returns "" for an unparseable
+// value so a malformed policy degrades to "no age filter" rather than a failed prune.
+func dockerDuration(s string) string {
+	d, err := config.ParseDuration(s)
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+}
+
+// reservedSpaceFlag returns the storage-cap flag the installed buildx accepts:
+// --reserved-space on current versions, --keep-storage on older ones.
+func reservedSpaceFlag(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, "docker", "buildx", "prune", "--help").CombinedOutput()
+	if err == nil && strings.Contains(string(out), "--reserved-space") {
+		return "--reserved-space"
+	}
+	return "--keep-storage"
+}
+
+// firstLine is the actionable head of a multi-line tool error — buildx prefixes
+// deprecation warnings before the real ERROR line, so prefer the latter when present.
+func firstLine(out string) string {
+	var first string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		if strings.HasPrefix(l, "ERROR:") {
+			return l
+		}
+		if first == "" {
+			first = l
+		}
+	}
+	return first
 }
 
 // pruneHostResidue runs the AUTHORIZED generic residue prunes (dangling layers,
 // exited containers) with the declared age window.
 func pruneHostResidue(ctx context.Context, a Action, confirm bool) (items []string, skipped string, err error) {
+	until := dockerDuration(a.Until) // docker has no day unit; SF's vocabulary does
+	if until == "" {
+		return nil, "unparseable age in cleanup policy: " + a.Until, nil
+	}
 	cmds := [][]string{
-		{"image", "prune", "--force", "--filter", "until=" + a.Until},
-		{"container", "prune", "--force", "--filter", "until=" + a.Until},
+		{"image", "prune", "--force", "--filter", "until=" + until},
+		{"container", "prune", "--force", "--filter", "until=" + until},
 	}
 	for _, c := range cmds {
 		items = append(items, "docker "+strings.Join(c, " "))
