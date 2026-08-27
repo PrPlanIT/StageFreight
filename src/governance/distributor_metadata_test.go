@@ -102,27 +102,29 @@ func TestPlanDistribution_BrandedEntryDistributesMetadata(t *testing.T) {
 	}
 }
 
-// TestPlanDistribution_InjectsPerRepoVars proves the distributor supplies the per-repo
-// vars the shared presets consume ({var:repo}/{var:github_repo}/{var:license}) from the
-// catalog entry's location + branding, layered over the profile's per-surface org vars —
-// without them the satellite's normalization fails on unresolved {var:}.
-func TestPlanDistribution_InjectsPerRepoVars(t *testing.T) {
+// TestPlanDistribution_ConcretizesRepos proves the vars→facts collapse's distribution
+// half: the catalog entry's AUTHORITATIVE location becomes the satellite's CONCRETE
+// repos section (no shared repos preset with var-holes, no slug circularity) — primary
+// on the source provider's forge at the entry location, plus a github mirror derived
+// from the org's github alias. metadata.org is always injected (a coordinate, not
+// branding), so the satellite resolves {org.*}/{path.*}/{slug} at its own load.
+func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 	gov := &GovernanceConfig{
 		Profiles: ProfileList{{
 			ID:          "rebaseable-fork-docker",
 			Credentials: "GITLAB_HOMELABHD",
 			Config: map[string]any{
 				"version": 1,
-				// Profile-level per-surface org vars (shared across the profile's repos).
-				"vars": map[string]any{"org": "prplanit", "github_org": "PrPlanIT", "gitlab_group": "HomeLabHD"},
+				"orgs": map[string]any{
+					"HomeLabHD": map[string]any{
+						"maintainer": "HomeLabHD <homelabhelp@gmail.com>",
+						"aliases":    map[string]any{"handle": "hlhd", "github": "PrPlanIT", "docker": "prplanit"},
+					},
+				},
 			},
 			Repos: ProfileCatalog{{
 				ID: "prometheus-eaton-ups-exporter",
 				At: "HomeLabHD/prometheus-eaton-ups-exporter",
-				Metadata: map[string]any{
-					"title":   "Eaton UPS Exporter",
-					"license": "MIT",
-				},
 			}},
 		}},
 	}
@@ -139,27 +141,35 @@ func TestPlanDistribution_InjectsPerRepoVars(t *testing.T) {
 		}
 	}
 	var parsed struct {
-		Vars map[string]any `yaml:"vars"`
+		Metadata map[string]any            `yaml:"metadata"`
+		Repos    map[string]map[string]any `yaml:"repos"`
 	}
 	if err := yaml.Unmarshal(sealed, &parsed); err != nil {
 		t.Fatalf("sealed config invalid YAML: %v", err)
 	}
-	// Per-repo, derived from the entry: slug for repo/github_repo, license from branding.
-	if got := parsed.Vars["repo"]; got != "prometheus-eaton-ups-exporter" {
-		t.Errorf("vars.repo: want the slug, got %v", got)
+
+	// Location-only entry STILL gets metadata.org — the coordinate every fact needs.
+	if got := parsed.Metadata["org"]; got != "HomeLabHD" {
+		t.Errorf("metadata.org: want HomeLabHD (derived), got %v", got)
 	}
-	if got := parsed.Vars["github_repo"]; got != "prometheus-eaton-ups-exporter" {
-		t.Errorf("vars.github_repo: want the slug, got %v", got)
+
+	primary := parsed.Repos["primary"]
+	if primary == nil {
+		t.Fatalf("sealed config must carry a concrete primary repo, got repos=%v", parsed.Repos)
 	}
-	if got := parsed.Vars["license"]; got != "MIT" {
-		t.Errorf("vars.license: want MIT (from branding), got %v", got)
+	if primary["project"] != "HomeLabHD/prometheus-eaton-ups-exporter" || primary["forge"] != "gitlab" {
+		t.Errorf("primary must be the entry location on the source forge, got %v", primary)
 	}
-	// Profile-level per-surface org vars survive the merge.
-	if got := parsed.Vars["org"]; got != "prplanit" {
-		t.Errorf("vars.org: want prplanit (profile-level), got %v", got)
+	if _, hasTemplate := primary["project"].(string); hasTemplate && strings.Contains(primary["project"].(string), "{") {
+		t.Errorf("primary project must be CONCRETE, got %v", primary["project"])
 	}
-	if got := parsed.Vars["gitlab_group"]; got != "HomeLabHD" {
-		t.Errorf("vars.gitlab_group: want HomeLabHD (profile-level), got %v", got)
+
+	mirror := parsed.Repos["github-mirror"]
+	if mirror == nil {
+		t.Fatalf("org with a github alias must yield a github mirror, got repos=%v", parsed.Repos)
+	}
+	if mirror["project"] != "PrPlanIT/prometheus-eaton-ups-exporter" || mirror["forge"] != "github" {
+		t.Errorf("mirror must derive from the github alias + slug, got %v", mirror)
 	}
 }
 

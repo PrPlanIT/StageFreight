@@ -38,10 +38,7 @@ func PlanDistribution(
 	var plans []DistributionPlan
 
 	for _, cluster := range gov.Profiles {
-		// Resolve vars preset if present — vars are resolved at governance time,
-		// not passed through as references. This produces concrete org-level vars.
 		baseConfig := deepCopyMap(cluster.Config)
-		resolveVarsPreset(baseConfig, presetLoader)
 
 		// Add preset_source so satellites know where to resolve section presets at runtime.
 		// Section presets (targets, badges, etc.) pass through as-is — addresses of truth.
@@ -82,32 +79,29 @@ func PlanDistribution(
 				mergeConfigOverride(repoConfig, entry.Config)
 			}
 			// A branded catalog entry governs identity: carry its metadata into the
-			// satellite config as the metadata: block (location-only entries leave it
-			// local). org derives from the entry's location so the satellite resolves
-			// {org.*}/{path.*} without re-declaring it.
-			if entry.Metadata != nil {
-				if _, ok := entry.Metadata["org"]; !ok {
-					if org := orgFromLocation(entry.At); org != "" {
-						entry.Metadata["org"] = org
-					}
-				}
-				repoConfig["metadata"] = entry.Metadata
+			// satellite config as the metadata: block. org ALWAYS derives from the
+			// entry's location (a location-only entry still gets metadata.org — that is
+			// a coordinate, not branding) so the satellite resolves {org.*}/{path.*}
+			// at its own load without re-declaring anything.
+			meta := entry.Metadata
+			if meta == nil {
+				meta = map[string]any{}
 			}
-			// Inject the per-repo vars the shared presets consume ({var:repo},
-			// {var:github_repo}, {var:license}) — derived from the catalog entry's
-			// location + branding, so one preset set serves every repo with no per-repo
-			// var file. The profile's own vars: supplies the per-SURFACE org vars (gitlab
-			// group vs github org vs registry namespace diverge — the C7 case facts can't
-			// yet collapse), and these authoritative per-repo keys layer over it.
-			if slug := slugFromLocation(entry.At); slug != "" {
-				repoVars := map[string]string{"repo": slug, "github_repo": slug}
-				if entry.Metadata != nil {
-					if lic, ok := entry.Metadata["license"].(string); ok && lic != "" {
-						repoVars["license"] = lic
-					}
+			if _, ok := meta["org"]; !ok {
+				if org := orgFromLocation(entry.At); org != "" {
+					meta["org"] = org
 				}
-				injectRepoVars(repoConfig, repoVars)
 			}
+			repoConfig["metadata"] = meta
+
+			// The catalog entry's location is AUTHORITATIVE, so the satellite's repos
+			// section is CONCRETIZED here — no shared repos preset with var-holes, no
+			// slug circularity. The primary forge id defaults to the governance
+			// source's provider; a mirror is emitted when the entry's org declares a
+			// forge-named alias (e.g. github: PrPlanIT → a github mirror at
+			// <alias>/<slug>). The default branch is read from the forge, never assumed.
+			repoConfig["repos"] = concretizeRepos(entry, cluster.Config, presetSource.Provider, forgeReader, repo)
+
 			mergeSatelliteVars(repoConfig, forgeReader, repo)
 
 			sealedContent, err := RenderSealedConfig(seal, repoConfig)
@@ -198,18 +192,60 @@ func slugFromLocation(at string) string {
 	return at
 }
 
-// injectRepoVars sets governance-derived vars into repoConfig["vars"], creating the map
-// if absent. These are per-repo facts the profile can't state, so they override any
-// profile-level value of the same key.
-func injectRepoVars(repoConfig map[string]any, kv map[string]string) {
-	vars, _ := repoConfig["vars"].(map[string]any)
-	if vars == nil {
-		vars = map[string]any{}
-		repoConfig["vars"] = vars
+// concretizeRepos builds the satellite's CONCRETE repos section from the catalog
+// entry's authoritative location: primary = the location on the entry's forge (default:
+// the governance source's provider), plus a mirror for each forge-named org alias
+// (alias key = forge id, alias value = that forge's org path). The default branch is
+// read from the forge when a reader is available; "main" otherwise.
+func concretizeRepos(entry CatalogEntry, clusterConfig map[string]any, sourceProvider string, reader ForgeReader, repo string) map[string]any {
+	forgeID := entry.Forge
+	if forgeID == "" {
+		forgeID = sourceProvider
 	}
-	for k, v := range kv {
-		vars[k] = v
+	branch := "main"
+	if reader != nil {
+		if b, err := reader.DefaultBranch(repo); err == nil && b != "" {
+			branch = b
+		}
 	}
+	repos := map[string]any{
+		"primary": map[string]any{
+			"forge":    forgeID,
+			"project":  entry.At,
+			"roles":    []any{"primary"},
+			"branches": map[string]any{"default": branch},
+			"worktree": ".",
+		},
+	}
+	slug := slugFromLocation(entry.At)
+	org := orgFromLocation(entry.At)
+	for alias, val := range orgAliases(clusterConfig, org) {
+		if alias != "github" || val == "" || slug == "" {
+			continue // mirrors exist for forge-named aliases; github is the one we run
+		}
+		repos[alias+"-mirror"] = map[string]any{
+			"forge":   alias,
+			"project": val + "/" + slug,
+			"roles":   []any{"mirror", "publish-origin"},
+			"sync":    map[string]any{"git": true, "releases": true},
+		}
+	}
+	return repos
+}
+
+// orgAliases reads an org's aliases out of the profile's raw config map
+// (config["orgs"][org]["aliases"]) — the same orgs block the satellite receives.
+func orgAliases(clusterConfig map[string]any, orgID string) map[string]string {
+	out := map[string]string{}
+	orgs, _ := clusterConfig["orgs"].(map[string]any)
+	org, _ := orgs[orgID].(map[string]any)
+	aliases, _ := org["aliases"].(map[string]any)
+	for k, v := range aliases {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
 }
 
 // mergeConfigOverride shallow-merges a catalog entry's per-repo config over the
@@ -225,6 +261,9 @@ func mergeConfigOverride(base, override map[string]any) {
 // Used to detect drift and determine create vs update actions.
 type ForgeReader interface {
 	GetFileContent(repo, path, ref string) ([]byte, error)
+	// DefaultBranch reports the repo's default branch — read from the forge so the
+	// concretized repos section never assumes it.
+	DefaultBranch(repo string) (string, error)
 }
 
 // planFile determines the action for a single file in a target repo.
@@ -274,40 +313,6 @@ func addPresetSource(config map[string]any, ps PresetSourceInfo) map[string]any 
 		"cache_policy": ps.CachePolicy,
 	}
 	return out
-}
-
-// resolveVarsPreset resolves a vars preset reference into concrete values.
-// If config["vars"] is a map with a "preset" key, loads the preset file,
-// parses its vars section, and replaces the reference with concrete values.
-// Vars presets are resolved at governance time — they are not passed through.
-func resolveVarsPreset(config map[string]any, loader PresetLoader) {
-	varsRaw, ok := config["vars"]
-	if !ok {
-		return
-	}
-	varsMap, ok := varsRaw.(map[string]any)
-	if !ok {
-		return
-	}
-	presetPath, ok := varsMap["preset"].(string)
-	if !ok || presetPath == "" {
-		return
-	}
-
-	data, err := loader.Load(presetPath)
-	if err != nil {
-		return // preset not found — leave vars as-is
-	}
-
-	var parsed struct {
-		Vars map[string]any `yaml:"vars"`
-	}
-	if yaml.Unmarshal(data, &parsed) != nil || parsed.Vars == nil {
-		return
-	}
-
-	// Replace the preset reference with resolved concrete values.
-	config["vars"] = parsed.Vars
 }
 
 // mergeSatelliteVars reads the satellite repo's existing .stagefreight.yml,

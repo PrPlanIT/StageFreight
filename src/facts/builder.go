@@ -6,11 +6,10 @@ package facts
 // order (leaf → registry → inventory) matches the pre-registry pipeline and, since
 // these families are independent, is fixed by registration order.
 //
-// Identity families ({org.*} → {path.*} → {metadata.*}) register here once they land,
-// with declared dependencies so the topological order places them correctly.
+// Identity families resolve at config NORMALIZATION (load time) — they are pure
+// functions of the config, so no runtime resolver exists for them.
 func BadgeRegistry() *Registry {
 	return New().
-		Add(IdentityResolver()).
 		Add(GitverLeaf()).
 		Add(RegistryResolver()).
 		Add(InventoryResolver())
@@ -19,10 +18,8 @@ func BadgeRegistry() *Registry {
 // ScribeRegistry returns the registry for resolving narration/scribe text: the gitver
 // leaf pass only. Narration bodies deliberately do NOT resolve {registry.*}/{inventory.*}
 // — those are badge-only and would turn prose tokens into live network fetches — so
-// those resolvers are absent here. Identity families ({org.*} → {path.*} → {metadata.*})
-// register here too once they land, so narration resolves them just like badges do.
+// those resolvers are absent here.
 func ScribeRegistry() *Registry {
 	return New().
-		Add(IdentityResolver()).
 		Add(GitverLeaf())
 }
