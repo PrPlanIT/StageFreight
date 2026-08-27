@@ -17,10 +17,10 @@ var (
 )
 
 var ciRenderCmd = &cobra.Command{
-	Use:       "render <forge>",
+	Use:       "render [forge]",
 	Short:     "Render forge-native CI pipeline from .stagefreight.yml",
 	ValidArgs: render.SupportedForges,
-	Args:      cobra.ExactArgs(1),
+	Args:      cobra.MaximumNArgs(1),
 	RunE:      runCIRender,
 }
 
@@ -38,7 +38,12 @@ pipeline document — it is not hand-maintained.
 Modes:
   --write   Write the rendered pipeline to the repo (e.g. .gitlab-ci.yml)
   --check   Verify the committed pipeline matches what would be rendered (exit 1 if stale)
-  (default) Print the rendered pipeline to stdout`, strings.Join(render.SupportedForges, ", "))
+  (default) Print the rendered pipeline to stdout
+
+The forge argument is optional when ci.forge: declares it — a repo has already
+said where its CI runs, and making it repeat that on every invocation invites the
+two to disagree. Passing one renders that forge only; with several declared and
+--write or --check, all of them are handled.`, strings.Join(render.SupportedForges, ", "))
 
 	ciRenderCmd.Flags().BoolVar(&ciRenderWrite, "write", false, "write rendered pipeline to repo")
 	ciRenderCmd.Flags().BoolVar(&ciRenderCheck, "check", false, "verify committed pipeline is up to date")
@@ -47,38 +52,66 @@ Modes:
 }
 
 func runCIRender(_ *cobra.Command, args []string) error {
-	forge := args[0]
+	forges, err := resolveRenderForges(args)
+	if err != nil {
+		return err
+	}
 
 	p, err := render.Plan(cfg)
 	if err != nil {
 		return err
 	}
 
-	rendered, err := render.Emit(forge, p)
-	if err != nil {
-		return err
+	// Printing to stdout is a single-document operation — concatenating several
+	// pipelines produces a file that is valid for no forge — so it requires one forge.
+	if !ciRenderCheck && !ciRenderWrite && len(forges) > 1 {
+		return fmt.Errorf("ci.forge declares %s: name one to print, or use --write/--check to handle all",
+			strings.Join(forges, ", "))
 	}
 
-	if ciRenderCheck {
-		if err := render.Check(".", forge, rendered); err != nil {
+	for _, forge := range forges {
+		rendered, err := render.Emit(forge, p)
+		if err != nil {
 			return err
 		}
 		target, _ := render.ForgeTarget(forge)
-		fmt.Fprintf(os.Stderr, "%s is up to date\n", target)
-		return nil
-	}
 
-	if ciRenderWrite {
-		target, _ := render.ForgeTarget(forge)
-		path := filepath.Join(".", target)
-		if err := os.WriteFile(path, rendered, 0644); err != nil {
-			return fmt.Errorf("writing %s: %w", target, err)
+		switch {
+		case ciRenderCheck:
+			if err := render.Check(".", forge, rendered); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "%s is up to date\n", target)
+		case ciRenderWrite:
+			path := filepath.Join(".", target)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return fmt.Errorf("creating directory for %s: %w", target, err)
+			}
+			if err := os.WriteFile(path, rendered, 0644); err != nil {
+				return fmt.Errorf("writing %s: %w", target, err)
+			}
+			fmt.Fprintf(os.Stderr, "wrote %s\n", target)
+		default:
+			if _, err := os.Stdout.Write(rendered); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintf(os.Stderr, "wrote %s\n", target)
-		return nil
 	}
+	return nil
+}
 
-	// Default: stdout
-	_, err = os.Stdout.Write(rendered)
-	return err
+// resolveRenderForges decides which forges to render: the argument when given,
+// otherwise what ci.forge: declares. An explicit argument wins so a one-off render
+// stays possible, and the absence of both is an error rather than a guess — rendering
+// a pipeline for a forge the repo never named is how a skeleton ends up committed for
+// a CI system that does not run it.
+func resolveRenderForges(args []string) ([]string, error) {
+	if len(args) == 1 {
+		return args[:1], nil
+	}
+	if cfg != nil && len(cfg.CI.Forge) > 0 {
+		return cfg.CI.Forge, nil
+	}
+	return nil, fmt.Errorf("no forge given and ci.forge: is not declared — pass one (%s) or declare ci.forge",
+		strings.Join(render.SupportedForges, ", "))
 }

@@ -83,26 +83,36 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "Governance source: %s @ %s\n", source.RepoURL, source.Ref)
-	fmt.Fprintf(os.Stderr, "Clusters path: %s\n", source.Path)
+	// Progress chatter is VERBOSE-only: every fact below (source, ref, forge, profile
+	// and repo counts) is a row in the structured view this command ends with, and
+	// printing it twice — unaligned, above the box — is the noise, not the signal.
+	// Under -v it stays, because a long reconcile against a slow forge is worth watching.
+	vlog := func(format string, args ...any) {
+		if opts.Verbose {
+			fmt.Fprintf(os.Stderr, format, args...)
+		}
+	}
+
+	vlog("Governance source: %s @ %s\n", source.RepoURL, source.Ref)
+	vlog("Clusters path: %s\n", source.Path)
 
 	// Phase 1: Load governance config + presets.
-	fmt.Fprintln(os.Stderr, "\nLoading governance config...")
+	vlog("\nLoading governance config...\n")
 	gov, presetLoader, err := governance.LoadGovernance(source)
 	if err != nil {
 		return fmt.Errorf("loading governance: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "  profiles: %d\n", len(gov.Profiles))
+	vlog("  profiles: %d\n", len(gov.Profiles))
 	totalRepos := 0
 	for _, c := range gov.Profiles {
 		n := len(c.Repos)
 		totalRepos += n
-		fmt.Fprintf(os.Stderr, "  profile %q: %d repos\n", c.ID, n)
+		vlog("  profile %q: %d repos\n", c.ID, n)
 	}
 
 	// Phase 2: Plan distribution.
-	fmt.Fprintf(os.Stderr, "\nPlanning distribution for %d repos...\n", totalRepos)
+	vlog("\nPlanning distribution for %d repos...\n", totalRepos)
 
 	_, _, sourceIdentity, parseErr := config.ParseForgeURL(source.RepoURL)
 	if parseErr != nil {
@@ -112,11 +122,12 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	// Resolve forge from sources.primary — standard StageFreight config resolution.
 	forgeProvider, forgeBaseURL, forgeCreds, err := resolveGovernanceForgeFromConfig(opts.Config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Forge: %v (drift detection disabled)\n", err)
+		fmt.Fprintf(os.Stderr, "  ⚠ forge unresolved: %v — drift detection disabled\n", err)
 	}
 
 	var adapter *forgeAdapter
 	var forgeReader governance.ForgeReader
+	var forgeSummary string
 	if forgeBaseURL != "" {
 		factory := &forge.BasicFactory{
 			ProviderName: forgeProvider,
@@ -125,7 +136,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 		}
 		adapter = &forgeAdapter{factory: factory, ctx: ctx}
 		forgeReader = adapter
-		fmt.Fprintf(os.Stderr, "Forge: %s @ %s (cred: %s_*)\n", forgeProvider, forgeBaseURL, forgeCreds)
+		forgeSummary = fmt.Sprintf("%s @ %s (cred: %s_*)", forgeProvider, forgeBaseURL, forgeCreds)
 	}
 
 	presetSource := governance.PresetSourceInfo{
@@ -157,6 +168,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 				Mode:    "dry-run",
 				Source:  sourceIdentity,
 				Ref:     source.Ref,
+				Forge:   forgeSummary,
 				Verbose: opts.Verbose,
 			},
 			Profiles: gov.Profiles,
@@ -179,7 +191,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	}
 	adapter.credOverrides = credOverrides
 
-	fmt.Fprintln(os.Stderr, "\nCommitting to satellite repos...")
+	vlog("\nCommitting to satellite repos...\n")
 	results, err := governance.CommitDistribution(plans, adapter, sourceIdentity, source.Ref, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nReconcile completed with errors\n")
@@ -195,6 +207,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 			Mode:    "apply",
 			Source:  sourceIdentity,
 			Ref:     source.Ref,
+			Forge:   forgeSummary,
 			Verbose: opts.Verbose,
 		},
 		Profiles: gov.Profiles,

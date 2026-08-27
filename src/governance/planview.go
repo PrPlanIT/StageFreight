@@ -12,6 +12,7 @@ type PlanViewConfig struct {
 	Mode    string // "dry-run" or "apply"
 	Source  string // e.g. "PrPlanIT/MaintenancePolicy"
 	Ref     string // e.g. "dba5d2a" or "v1.0.0"
+	Forge   string // where satellites are read/written, e.g. "gitlab @ https://gitlab.example (cred: GITLAB_*)"
 	Verbose bool   // expand preset-cache files individually
 }
 
@@ -163,6 +164,9 @@ func RenderPlanView(w io.Writer, data PlanViewData) {
 	row(w, "%-13s%s", "mode", modeLabel)
 	row(w, "%-13s%s", "source", data.Config.Source)
 	row(w, "%-13s%s", "ref", shortRef)
+	if data.Config.Forge != "" {
+		row(w, "%-13s%s", "forge", data.Config.Forge)
+	}
 
 	totalRepos := 0
 	for _, c := range data.Profiles {
