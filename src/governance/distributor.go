@@ -378,6 +378,19 @@ func collectPresetPaths(config map[string]any) []string {
 					paths = append(paths, p)
 				}
 			}
+			// presets: [a, b] — ordered composition on a keyed section. Each entry is a
+			// preset path that must be cached too, or a tracking satellite can't resolve
+			// the composed section (open ...preset-cache/<path>: no such file).
+			if list, ok := t["presets"].([]any); ok {
+				for _, item := range list {
+					if p, ok := item.(string); ok && p != "" {
+						if _, dup := seen[p]; !dup {
+							seen[p] = struct{}{}
+							paths = append(paths, p)
+						}
+					}
+				}
+			}
 			for _, v := range t {
 				walk(v)
 			}

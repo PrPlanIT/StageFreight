@@ -162,3 +162,42 @@ func TestPlanDistribution_InjectsPerRepoVars(t *testing.T) {
 		t.Errorf("vars.gitlab_group: want HomeLabHD (profile-level), got %v", got)
 	}
 }
+
+// TestPlanDistribution_CachesComposedPresets proves a `presets: [a, b]` composition has
+// BOTH files seeded into the satellite's preset-cache — else a tracking satellite fails to
+// resolve the composed section ("open .../preset-cache/<path>: no such file").
+func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
+	loader := fakeLoader{
+		"preset/stencils-core.yml":   "stencils: { license: { label: license } }",
+		"preset/stencils-docker.yml": "stencils: { docker: { render: shield } }",
+	}
+	gov := &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID: "p1",
+			Config: map[string]any{
+				"stencils": map[string]any{
+					"presets": []any{"preset/stencils-core.yml", "preset/stencils-docker.yml"},
+				},
+			},
+			Repos: ProfileCatalog{{ID: "r1", At: "Org/some-repo"}},
+		}},
+	}
+
+	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Ref: "deadbeef"}, "Org/policy")
+	requireNoError(t, err)
+
+	want := map[string]bool{
+		".stagefreight/preset-cache/preset/stencils-core.yml":   false,
+		".stagefreight/preset-cache/preset/stencils-docker.yml": false,
+	}
+	for _, f := range plans[0].Files {
+		if _, ok := want[f.Path]; ok {
+			want[f.Path] = true
+		}
+	}
+	for path, cached := range want {
+		if !cached {
+			t.Errorf("composed preset %q was not seeded into the preset-cache", path)
+		}
+	}
+}
