@@ -444,23 +444,31 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 		// Two forms: a raw shields.io path (escape hatch, `shield:`) or an inline
 		// composition from verbs (label/message/color/logo/logo_color) — SF builds the
 		// shields.io URL so configs stop hand-escaping %2F.
+		//
+		// The message/label/link resolve fact families ({path.<surface>}, {metadata.*},
+		// {stagefreight.version}, …) — a shield is as fact-driven as any badge, not just
+		// {var:}. Resolve the composition INPUTS through the registry first, then build
+		// the shields.io path so its %2F-escaping sees final values.
+		resolved := def
+		var ctx *facts.Context
+		if vi != nil {
+			ctx = &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars, Config: appCfg}
+			resolved.Message = facts.ScribeRegistry().ResolveOne(def.Message, ctx)
+			resolved.Label = facts.ScribeRegistry().ResolveOne(def.Label, ctx)
+		}
 		var shieldPath string
 		if def.Shield != "" {
 			shieldPath = gitver.ResolveVarsShields(def.Shield, appCfg.Vars)
 		} else {
-			shieldPath = composeShieldPath(def, appCfg.Vars)
+			shieldPath = composeShieldPath(resolved, appCfg.Vars)
 		}
 		link := gitver.ResolveVars(def.Link, appCfg.Vars)
-		label := def.LabelOrID()
-		if def.Label == "" && def.Shield != "" {
+		label := resolved.LabelOrID()
+		if resolved.Label == "" && def.Shield != "" {
 			label = shieldPath // raw-path form: fall back to the path as alt
 		}
 		if vi != nil {
-			// Both the label and the link resolve fact families ({path.<surface>},
-			// {metadata.*}, …) — the link no less than any badge's, so it goes through
-			// the same registry rather than the vars-only pass above.
-			label = facts.ScribeRegistry().ResolveOne(label, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars, Config: appCfg})
-			link = facts.ScribeRegistry().ResolveOne(link, &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars, Config: appCfg})
+			link = facts.ScribeRegistry().ResolveOne(link, ctx)
 		}
 		return render.ShieldModule{
 			Path:  shieldPath,

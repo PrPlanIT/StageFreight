@@ -32,6 +32,12 @@ stencils:
     message: source
     color: "#FC6D26"
     link: "https://gitlab.prplanit.com/{path.gitlab}"
+  ver:
+    render: shield
+    label: StageFreight
+    message: "{stagefreight.version}"
+    color: "#310937"
+    link: "https://stagefreight.prplanit.com"
 `
 	path := filepath.Join(dir, ".stagefreight.yml")
 	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
@@ -51,5 +57,15 @@ stencils:
 	}
 	if !strings.Contains(got, "gitlab.prplanit.com/PrPlanIT/MaintenancePolicy") {
 		t.Errorf("shield link did not resolve to the derived path:\n%s", got)
+	}
+
+	// The shield MESSAGE resolves fact families too (not just the vars pass): a
+	// {stagefreight.version} message must not survive verbatim into the shields.io path.
+	ver, err := resolveStencilMarkdown(appCfg, appCfg.StencilsByID()["ver"], "", "", &gitver.VersionInfo{}, dir)
+	if err != nil {
+		t.Fatalf("render ver: %v", err)
+	}
+	if strings.Contains(ver, "stagefreight.version") {
+		t.Errorf("shield message left {stagefreight.version} unresolved:\n%s", ver)
 	}
 }
