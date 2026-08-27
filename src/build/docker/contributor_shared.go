@@ -101,7 +101,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 			}
 			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			tgt := byEndpoint[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
-			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains, now)
+			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
@@ -111,7 +111,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 			}
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
 			evidence := sc.Evidence(now)
-			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains, digestRef, sc.Plan, sc.Env, sign.SignOptions{MultiArch: tgt.multiArch})
+			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Want, digestRef, sc.Plan, sc.Env, sign.SignOptions{MultiArch: tgt.multiArch})
 			if err != nil {
 				diag.Warn("image signing %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{
@@ -202,7 +202,7 @@ func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string
 			endpoint := host + "/" + tgt.Registry.Path
 			digestRef := endpoint + "@" + string(art.Digest)
 			st := byEndpoint[endpoint]
-			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains, now)
+			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
@@ -215,7 +215,7 @@ func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string
 			target := &artifact.OutcomeTarget{Kind: "registry", Host: tgt.Registry.Host, Path: tgt.Registry.Path}
 			evidence := sc.Evidence(now)
 			opts := sign.SignOptions{MultiArch: st.multiArch, PredicatePath: predPath, PredicateType: "slsaprovenance"}
-			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains, digestRef, sc.Plan, sc.Env, opts)
+			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Want, digestRef, sc.Plan, sc.Env, opts)
 			if err != nil {
 				diag.Warn("provenance attestation %s: %v", digestRef, err)
 				rc.RB.Record(artifactID, artifact.Outcome{

@@ -114,7 +114,7 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 		if sumsErr == nil {
 			outSig := filepath.Join(distDir, "SHA256SUMS."+signProfileID+".sig")
 			fmt.Printf("Signing SHA256SUMS (class %s)…\n", plan.TrustClass)
-			if err := cosign.SignBlob(cmd.Context(), rootDir, cfg.Toolchains, sumsPath, outSig, plan, env); err != nil {
+			if err := cosign.SignBlob(cmd.Context(), rootDir, cfg.Toolchains.Want, sumsPath, outSig, plan, env); err != nil {
 				return err
 			}
 			appendOutcome(results, artifact.NewArtifactID("checksums", "SHA256SUMS"), "SHA256SUMS", "checksums",
@@ -142,7 +142,7 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 		//    no drift surface (the digest is the content identity).
 		for _, im := range images {
 			fmt.Printf("Signing image %s (class %s)…\n", im.digestRef, plan.TrustClass)
-			if err := cosign.SignImage(cmd.Context(), rootDir, cfg.Toolchains, im.digestRef, plan, env, sign.SignOptions{}); err != nil {
+			if err := cosign.SignImage(cmd.Context(), rootDir, cfg.Toolchains.Want, im.digestRef, plan, env, sign.SignOptions{}); err != nil {
 				return err
 			}
 			appendOutcome(results, im.artifactID, im.name, "docker",
@@ -158,7 +158,7 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 			// ProvenanceAttestationOutcome (distinct from the signature above).
 			if predPath != "" {
 				ev := evidence()
-				if err := cosign.Attest(cmd.Context(), rootDir, cfg.Toolchains, im.digestRef, plan, env,
+				if err := cosign.Attest(cmd.Context(), rootDir, cfg.Toolchains.Want, im.digestRef, plan, env,
 					sign.SignOptions{PredicatePath: predPath, PredicateType: "slsaprovenance"}); err != nil {
 					return fmt.Errorf("attesting provenance onto %s: %w", im.digestRef, err)
 				}

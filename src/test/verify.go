@@ -25,6 +25,6 @@ func Verify(ctx context.Context, cfg *config.Config, rootDir string, w io.Writer
 	if len(suites) == 0 {
 		return true, nil, nil
 	}
-	res := RunRender(ctx, suites, rootDir, cfg.Toolchains, w, intent)
+	res := RunRender(ctx, suites, rootDir, cfg.Toolchains.Want, w, intent)
 	return !res.FailedNonAdvisory(), res, nil
 }

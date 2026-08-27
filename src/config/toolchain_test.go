@@ -38,7 +38,7 @@ func TestToolConstraintParse(t *testing.T) {
 // rejected. The config is pure intent — no digest to validate here.
 func TestToolConstraintValidate(t *testing.T) {
 	valid := func(c ToolConstraint) error {
-		cfg := &Config{Version: 1, Toolchains: ToolchainConfig{"trivy": c}}
+		cfg := &Config{Version: 1, Toolchains: ToolchainSection{Want: ToolchainConfig{"trivy": c}}}
 		_, err := Validate(cfg)
 		return err
 	}
@@ -56,36 +56,39 @@ func TestToolConstraintValidate(t *testing.T) {
 	}
 }
 
-// TestToolchains_FlatShape: the toolchains block IS the tool→constraint map; scalar and
-// {version: …} forms both resolve.
-func TestToolchains_FlatShape(t *testing.T) {
-	var tc ToolchainConfig
-	// exact scalar, wildcard scalar, and explicit {version:} — all still accepted.
-	if err := yaml.Unmarshal([]byte("trivy: 0.69.3\ngrype: \"0.110.x\"\ncosign: {version: 3.0.6}"), &tc); err != nil {
-		t.Fatalf("flat toolchains should decode, got %v", err)
+// TestToolchainSection_WrapperShape: the toolchains block is the want: map plus an
+// optional retention: policy; scalar and {version: …} tool forms both resolve.
+func TestToolchainSection_WrapperShape(t *testing.T) {
+	var s ToolchainSection
+	y := "want:\n  trivy: 0.69.3\n  grype: \"0.110.x\"\n  cosign: {version: 3.0.6}\nretention:\n  keep_last: 2"
+	if err := yaml.Unmarshal([]byte(y), &s); err != nil {
+		t.Fatalf("wrapper toolchains should decode, got %v", err)
 	}
-	if tc["trivy"].Constraint != "0.69.3" || tc["grype"].Constraint != "0.110.x" || tc["cosign"].Constraint != "3.0.6" {
-		t.Fatalf("exact/wildcard/map forms should all resolve, got %+v", tc)
+	if s.Want["trivy"].Constraint != "0.69.3" || s.Want["grype"].Constraint != "0.110.x" || s.Want["cosign"].Constraint != "3.0.6" {
+		t.Fatalf("exact/wildcard/map forms should all resolve, got %+v", s.Want)
+	}
+	if s.Retention.KeepLast != 2 {
+		t.Fatalf("retention.keep_last should decode, got %+v", s.Retention)
 	}
 	// The wildcard is a valid constraint (grammar unchanged by the reshape).
-	cfg := &Config{Version: 1, Toolchains: ToolchainConfig{"grype": {Constraint: "0.110.x"}}}
+	cfg := &Config{Version: 1, Toolchains: ToolchainSection{Want: ToolchainConfig{"grype": {Constraint: "0.110.x"}}}}
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("wildcard constraint must validate, got %v", err)
 	}
 }
 
-// TestToolchains_DesiredWrapperGone: the retired `desired:` wrapper no longer yields tools —
-// it parses `desired` as a single (bogus, version-less) tool, which validation then rejects.
-func TestToolchains_DesiredWrapperGone(t *testing.T) {
-	var tc ToolchainConfig
-	if err := yaml.Unmarshal([]byte("desired:\n  trivy: 0.69.3"), &tc); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+// TestToolchainSection_FlatShapeMigrationHint: the retired FLAT tool→constraint map
+// fails with a targeted hint that names the offending key and the want: destination —
+// never a bare unknown-field error.
+func TestToolchainSection_FlatShapeMigrationHint(t *testing.T) {
+	var s ToolchainSection
+	err := yaml.Unmarshal([]byte("trivy: 0.69.3\ngrype: 0.110.x"), &s)
+	if err == nil {
+		t.Fatal("flat toolchains must be rejected after the wrapper flag-day")
 	}
-	if _, ok := tc["trivy"]; ok {
-		t.Fatal("legacy desired: wrapper must NOT produce a trivy tool")
-	}
-	if tc["desired"].Constraint != "" {
-		t.Fatalf("wrapper should mis-parse as an empty 'desired' tool, got %+v", tc)
+	msg := err.Error()
+	if !strings.Contains(msg, "trivy") || !strings.Contains(msg, "toolchains.want") {
+		t.Errorf("error must name the offending key and the want: destination, got %v", err)
 	}
 }
 
@@ -94,9 +97,9 @@ func TestToolchains_DesiredWrapperGone(t *testing.T) {
 // tool name.
 func TestToolConstraintToolNameError(t *testing.T) {
 	var cfg struct {
-		Toolchains ToolchainConfig `yaml:"toolchains"`
+		Toolchains ToolchainSection `yaml:"toolchains"`
 	}
-	y := "toolchains:\n  helm:\n    version:\n      nested: bad"
+	y := "toolchains:\n  want:\n    helm:\n      version:\n        nested: bad"
 	err := yaml.Unmarshal([]byte(y), &cfg)
 	if err == nil || !strings.Contains(err.Error(), "helm") {
 		t.Errorf("error must name the tool 'helm', got %v", err)

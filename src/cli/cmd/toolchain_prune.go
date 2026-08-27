@@ -58,7 +58,7 @@ func runToolchainPrune(_ *cobra.Command, _ []string) error {
 	// Build protected set from config pins
 	protected := make(map[string]string) // tool → pinned version
 	if cfg != nil {
-		for tool, pin := range cfg.Toolchains {
+		for tool, pin := range cfg.Toolchains.Want {
 			if pin.Constraint != "" {
 				protected[tool] = pin.Constraint
 			}

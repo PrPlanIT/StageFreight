@@ -45,7 +45,7 @@ func (f *FluxBackend) Capabilities() []runtime.Capability {
 // Validate checks that the flux CLI is available and cluster config is complete.
 func (f *FluxBackend) Validate(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
 	// Resolve flux CLI via toolchain.
-	fluxVer, fluxPinned := toolchain.ResolveVersion(rctx.RepoRoot, "flux", "", cfg.Toolchains)
+	fluxVer, fluxPinned := toolchain.ResolveVersion(rctx.RepoRoot, "flux", "", cfg.Toolchains.Want)
 	fluxResult, err := provision.Resolve(ctx, rctx.RepoRoot, "flux", fluxVer, "Flux reconcile")
 	if err != nil {
 		if fluxPinned {
@@ -72,7 +72,7 @@ func (f *FluxBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *run
 	if !ok || pc.Name == "" {
 		return nil // local dev — no cluster auth needed
 	}
-	method, err := BuildKubeconfig(ctx, pc.Connection(), rctx, cfg.Toolchains)
+	method, err := BuildKubeconfig(ctx, pc.Connection(), rctx, cfg.Toolchains.Want)
 	f.authMethod = method
 	return err
 }

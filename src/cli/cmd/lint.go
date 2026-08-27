@@ -93,7 +93,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	engine.ToolchainDesired = cfg.Toolchains
+	engine.ToolchainDesired = cfg.Toolchains.Want
 	engine.Ansible = &cfg.Ansible
 
 	if verbose {
@@ -164,7 +164,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		freshnessOpts = mc.Options
 	}
 	resolver := discovery.NewResolver()
-	resolver.SetToolchainDesired(cfg.Toolchains)
+	resolver.SetToolchainDesired(cfg.Toolchains.Want)
 	if err := resolver.Configure(freshnessOpts); err != nil {
 		return fmt.Errorf("configuring dependency resolver: %w", err)
 	}

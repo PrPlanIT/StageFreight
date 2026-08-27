@@ -152,7 +152,7 @@ type Config struct {
 
 	// Toolchains defines operator control over external tool resolution.
 	// Version pins, future retention policy, future trust settings.
-	Toolchains ToolchainConfig `yaml:"toolchains,omitempty"`
+	Toolchains ToolchainSection `yaml:"toolchains,omitempty"`
 }
 
 // Load reads configuration from a YAML file.

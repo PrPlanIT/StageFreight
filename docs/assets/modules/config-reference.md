@@ -1187,9 +1187,19 @@ tagging:
 
 Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `toolchains` | `toolchains` | map[string]object | No | — | Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings. |
+```yaml
+toolchains:
+  want: {}   # Want is the tool→constraint map — the versions the operator WANTS (constraints, not necessarily…
+  retention:   # Retention governs how many resolved versions of each tool are RETAINED on the runner (keep_last…
+    keep_last: <int>   # keep the N most recent tags per series (0/-1/unset = ∞) · required
+    keep_daily: <int>   # keep one per day for the last N days · required
+    keep_weekly: <int>   # keep one per week for the last N weeks · required
+    keep_monthly: <int>   # keep one per month for the last N months · required
+    keep_yearly: <int>   # keep one per year for the last N years · required
+    keep_branches: <int>   # keep the N most-recent identity groups per template (bounds retired branches; 0/unset = ∞) · required
+    identity: [<string>]   # extra identity vars beyond the {branch}/{env} defaults — partition tags into independent series · required
+    protect: [<string>]   # tag patterns that are never deleted, an explicit override · required
+```
 
 ---
 

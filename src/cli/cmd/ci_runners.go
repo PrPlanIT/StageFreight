@@ -1812,7 +1812,7 @@ func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 // the pipeline moving).
 func runFluxValidation(ctx context.Context, appCfg *config.Config, rootDir string) error {
 	start := time.Now()
-	verdicts, meta, err := gitops.ValidateManifests(ctx, rootDir, appCfg.Toolchains)
+	verdicts, meta, err := gitops.ValidateManifests(ctx, rootDir, appCfg.Toolchains.Want)
 	if err != nil {
 		return fmt.Errorf("gitops validation: %w", err)
 	}

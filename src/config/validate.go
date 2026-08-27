@@ -756,7 +756,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// Semantic validation of the parsed constraint model (grammar only). The config is
 	// pure intent; the machine-maintained resolution + digest live in
 	// .stagefreight/toolchains.lock, so there is no sha256/resolved to validate here.
-	for name, c := range cfg.Toolchains {
+	for name, c := range cfg.Toolchains.Want {
 		tpath := fmt.Sprintf("toolchains.desired.%s", name)
 		constraint := strings.TrimSpace(c.Constraint)
 		if constraint == "" {

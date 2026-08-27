@@ -16,29 +16,75 @@ import (
 // constraint. Selection (which member of the candidate set to adopt) and
 // verification (SHA256 of the chosen artifact) live downstream.
 
-// ToolchainConfig is the toolchains: block — a tool→constraint map (tool name →
-// desired version constraint). Authoritative, not a hint: a constraint that fails to
-// resolve fails the run, no fallback. Top-level in .stagefreight.yml because toolchains
-// are execution substrate (security scanning, signing, linting, gitops), not CI-specific.
+// ToolchainSection is the toolchains: block — a wrapper pairing the tool→constraint
+// map (want:) with the versions' lifecycle policy (retention:), following the
+// keyed-map-plus-sibling-policy pattern (scribe: files+commit, governance: profiles).
+// The map moved under want: in the wrapper flag-day: retention is POLICY about the
+// installed versions, not a tool, so it must not live inside the tool namespace.
+type ToolchainSection struct {
+	// Want is the tool→constraint map — the versions the operator WANTS (constraints, not
+	// necessarily exact pins); the lock records what resolution GOT. Mirrors the internal
+	// ToolchainDesired vocabulary. Authoritative, not a hint: a constraint that
+	// fails to resolve fails the run, no fallback. Top-level in .stagefreight.yml
+	// because toolchains are execution substrate (security scanning, signing, linting,
+	// gitops), not CI-specific.
+	Want ToolchainConfig `yaml:"want,omitempty"`
+
+	// Retention governs how many resolved versions of each tool are RETAINED on the
+	// runner (keep_last newest per tool; unset = engine default 2). The pinned
+	// constraint's resolved version and the lock's resolution are always protected —
+	// retention rotates superseded residue, never declared intent.
+	Retention RetentionPolicy `yaml:"retention,omitempty"`
+}
+
+// ToolchainConfig is the want: map inside the toolchains section (tool name →
+// desired version constraint).
 type ToolchainConfig map[string]ToolConstraint
 
-// UnmarshalYAML decodes the tool→constraint mapping directly, naming the offending tool
-// on a parse error. The toolchains block IS the map — the retired `desired:` wrapper is
-// gone (a legacy `toolchains: { desired: … }` now parses `desired` as a tool with no
-// version and fails validation).
-func (c *ToolchainConfig) UnmarshalYAML(node *yaml.Node) error {
+// UnmarshalYAML decodes the toolchains section, detecting the retired FLAT shape
+// (tool→constraint at the top level, pre-wrapper) and naming the offending key with a
+// migration hint — never a bare unknown-field error.
+func (s *ToolchainSection) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == 0 {
 		return nil // no toolchains section
 	}
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("toolchains: must be a mapping of tool -> constraint")
+		return fmt.Errorf("toolchains: must be a mapping with want: (and optional retention:)")
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		switch key := node.Content[i].Value; key {
+		case "want":
+			if err := s.Want.UnmarshalYAML(node.Content[i+1]); err != nil {
+				return err
+			}
+		case "retention":
+			if err := node.Content[i+1].Decode(&s.Retention); err != nil {
+				return fmt.Errorf("toolchains.retention: %w", err)
+			}
+		default:
+			return fmt.Errorf("toolchains.%s: toolchains: was a flat tool→constraint map; nest the tool map under toolchains.want: (retention: is the only other key)", key)
+		}
+	}
+	return nil
+}
+
+// UnmarshalYAML decodes the tool→constraint mapping directly, naming the offending tool
+// on a parse error. The tools block IS the map — the retired `desired:` wrapper is
+// gone (a legacy `desired: …` key parses as a tool with no version and fails
+// validation).
+func (c *ToolchainConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == 0 {
+		return nil // no tools map
+	}
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("toolchains.want: must be a mapping of tool -> constraint")
 	}
 	out := make(ToolchainConfig, len(node.Content)/2)
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		name := node.Content[i].Value
 		tc, err := parseToolConstraint(node.Content[i+1])
 		if err != nil {
-			return fmt.Errorf("toolchains.%s: %w", name, err)
+			return fmt.Errorf("toolchains.want.%s: %w", name, err)
 		}
 		out[name] = tc
 	}
