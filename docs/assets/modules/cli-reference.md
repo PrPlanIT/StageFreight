@@ -1529,15 +1529,16 @@ _Plus the [global flags](#cli-global-flags)._
 
 **Usage:** `stagefreight toolchain prune`
 
-Remove old toolchain versions from writable cache roots.
+Manually invoke the toolchain-retention lifecycle: the DECLARED
+toolchains.retention policy (keep_*, max_age, scoped refs:, protect:) plans which
+installed versions fall out; flags override the declared policy for this invocation.
 
 By default, shows what would be deleted (dry-run). Use --confirm to actually delete.
 
 Safety:
 ```
-- Never prunes read-only cache roots
 - Never prunes the version currently pinned in .stagefreight.yml
-- Keeps at least --keep-latest versions per tool
+- Versions without provenance metadata are left alone
 ```
 
 **Flags:**
@@ -1545,9 +1546,9 @@ Safety:
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--confirm` | bool | — | actually delete (default is dry-run) |
-| `--keep-latest` | int | `1` | keep the N most recent versions per tool |
-| `--older-than` | int | — | only prune versions installed more than N days ago |
-| `--tool` | string | — | filter to specific tool |
+| `--keep-latest` | int | — | override: keep the N most recent versions per tool (default: declared policy, engine default 2) |
+| `--older-than` | int | — | override: also keep versions installed within the last N days (max_age) |
+| `--tool` | string | — | filter output to a specific tool |
 
 _Plus the [global flags](#cli-global-flags)._
 

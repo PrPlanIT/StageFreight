@@ -397,8 +397,17 @@ publish:
       keep_monthly: <int>   # keep one per month for the last N months · required
       keep_yearly: <int>   # keep one per year for the last N years · required
       keep_branches: <int>   # keep the N most-recent identity groups per template (bounds retired branches; 0/unset = ∞) · required
+      max_age: <string>   # keep items newer than this ("14d", "72h"); additive like keep_* — alone it means "only the recent… · required
       identity: [<string>]   # extra identity vars beyond the {branch}/{env} defaults — partition tags into independent series · required
       protect: [<string>]   # tag patterns that are never deleted, an explicit override · required
+      refs:   # scoped overrides: a different policy for items matching a pattern (first match wins; unset fields… · required
+        - match: <string>   # pattern (same syntax as protect/templates) · required
+          keep_last: <int>   # required
+          keep_daily: <int>   # required
+          keep_weekly: <int>   # required
+          keep_monthly: <int>   # required
+          keep_yearly: <int>   # required
+          max_age: <string>   # required
     when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
       - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
@@ -462,8 +471,17 @@ publish:
       keep_monthly: <int>   # keep one per month for the last N months · required
       keep_yearly: <int>   # keep one per year for the last N years · required
       keep_branches: <int>   # keep the N most-recent identity groups per template (bounds retired branches; 0/unset = ∞) · required
+      max_age: <string>   # keep items newer than this ("14d", "72h"); additive like keep_* — alone it means "only the recent… · required
       identity: [<string>]   # extra identity vars beyond the {branch}/{env} defaults — partition tags into independent series · required
       protect: [<string>]   # tag patterns that are never deleted, an explicit override · required
+      refs:   # scoped overrides: a different policy for items matching a pattern (first match wins; unset fields… · required
+        - match: <string>   # pattern (same syntax as protect/templates) · required
+          keep_last: <int>   # required
+          keep_daily: <int>   # required
+          keep_weekly: <int>   # required
+          keep_monthly: <int>   # required
+          keep_yearly: <int>   # required
+          max_age: <string>   # required
     when:   # When specifies routing conditions for this target: a single condition-set, or a list of them (OR…
       - branches: [<string>]   # Branches lists branch filters. Each entry is a policy name or "re:<regex>". Empty = no branch…
         git_tags: [<string>]   # GitTags lists git tag filters. Each entry is a policy name or "re:<regex>". Empty = no tag…
@@ -1120,6 +1138,14 @@ build_cache:
           older_than: <string>   # e.g. "72h"
         unreferenced:
           older_than: <string>   # e.g. "72h"
+        refs:   # Refs is the operator's scoped ADOPTION list: third-party image streams (matched by the shared…
+          - match: <string>   # pattern (same syntax as protect/templates) · required
+            keep_last: <int>   # required
+            keep_daily: <int>   # required
+            keep_weekly: <int>   # required
+            keep_monthly: <int>   # required
+            keep_yearly: <int>   # required
+            max_age: <string>   # required
       build_cache:
         older_than: <string>   # e.g. "72h"
         keep_storage: <string>   # e.g. "20GB"
@@ -1204,9 +1230,28 @@ tagging:
 
 Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings.
 
-| Name | YAML Key | Type | Required | Default | Description |
-|------|----------|------|----------|---------|-------------|
-| `toolchains` | `toolchains` | map[string]object | No | — | Toolchains defines operator control over external tool resolution. Version pins, future retention policy, future trust settings. |
+```yaml
+toolchains:
+  want: {}   # Want is the tool→constraint map — the versions the operator WANTS (constraints, not necessarily…
+  retention:   # Retention governs how many resolved versions of each tool are RETAINED on the runner (keep_last…
+    keep_last: <int>   # keep the N most recent tags per series (0/-1/unset = ∞) · required
+    keep_daily: <int>   # keep one per day for the last N days · required
+    keep_weekly: <int>   # keep one per week for the last N weeks · required
+    keep_monthly: <int>   # keep one per month for the last N months · required
+    keep_yearly: <int>   # keep one per year for the last N years · required
+    keep_branches: <int>   # keep the N most-recent identity groups per template (bounds retired branches; 0/unset = ∞) · required
+    max_age: <string>   # keep items newer than this ("14d", "72h"); additive like keep_* — alone it means "only the recent… · required
+    identity: [<string>]   # extra identity vars beyond the {branch}/{env} defaults — partition tags into independent series · required
+    protect: [<string>]   # tag patterns that are never deleted, an explicit override · required
+    refs:   # scoped overrides: a different policy for items matching a pattern (first match wins; unset fields… · required
+      - match: <string>   # pattern (same syntax as protect/templates) · required
+        keep_last: <int>   # required
+        keep_daily: <int>   # required
+        keep_weekly: <int>   # required
+        keep_monthly: <int>   # required
+        keep_yearly: <int>   # required
+        max_age: <string>   # required
+```
 
 ---
 

@@ -53,6 +53,7 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
         - [`inspect`](#cli-stagefreight-manifest-inspect) — Pretty-print manifest or specific sections
     - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
     - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+    - [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
     - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
     - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
     - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
@@ -123,6 +124,7 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`manifest`](#cli-stagefreight-manifest) — Generate and inspect build manifests
 - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
 - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+- [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
 - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
 - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
 - [`reconcile`](#cli-stagefreight-reconcile) — Reconcile infrastructure to declared state
@@ -940,6 +942,37 @@ _Plus the [global flags](#cli-global-flags)._
 
 ---
 
+<a id="cli-stagefreight-prune" name="cli-stagefreight-prune"></a>
+### stagefreight prune
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight prune`
+
+Apply the SF disk lifecycle: rotate what StageFreight itself created — the cache
+root's subsystems (named policies + a backstop for the rest), toolchain versions
+beyond toolchains.retention, the repo's own published image generations, and the
+sf-builder's cache — under the declared retention grammar.
+
+Ownership is the invariant: StageFreight never guesses whether something belongs to
+someone else. Third-party artifacts are reclaimed ONLY via the operator's declared
+adoptions (build_cache.cleanup.prune.images.refs), and only under --host-cleanup.
+
+Dry-run by default: shows the plan with each item's ownership class. --confirm executes.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--cache` | string | — | SF cache mount root (default: resolved like `du`) |
+| `--confirm` | bool | — | execute the plan (default: dry-run) |
+| `--host-cleanup` | bool | — | authorize the declared host-cleanup policies for this invocation (build_cache.cleanup) |
+| `--target` | float64 | — | only act when disk used-fraction ≥ target (0 = always enforce policy) |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
 <a id="cli-stagefreight-pull" name="cli-stagefreight-pull"></a>
 ### stagefreight pull
 
@@ -1512,15 +1545,16 @@ _Plus the [global flags](#cli-global-flags)._
 
 **Usage:** `stagefreight toolchain prune`
 
-Remove old toolchain versions from writable cache roots.
+Manually invoke the toolchain-retention lifecycle: the DECLARED
+toolchains.retention policy (keep_*, max_age, scoped refs:, protect:) plans which
+installed versions fall out; flags override the declared policy for this invocation.
 
 By default, shows what would be deleted (dry-run). Use --confirm to actually delete.
 
 Safety:
 ```
-- Never prunes read-only cache roots
 - Never prunes the version currently pinned in .stagefreight.yml
-- Keeps at least --keep-latest versions per tool
+- Versions without provenance metadata are left alone
 ```
 
 **Flags:**
@@ -1528,9 +1562,9 @@ Safety:
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--confirm` | bool | — | actually delete (default is dry-run) |
-| `--keep-latest` | int | `1` | keep the N most recent versions per tool |
-| `--older-than` | int | — | only prune versions installed more than N days ago |
-| `--tool` | string | — | filter to specific tool |
+| `--keep-latest` | int | — | override: keep the N most recent versions per tool (default: declared policy, engine default 2) |
+| `--older-than` | int | — | override: also keep versions installed within the last N days (max_age) |
+| `--tool` | string | — | filter output to a specific tool |
 
 _Plus the [global flags](#cli-global-flags)._
 
