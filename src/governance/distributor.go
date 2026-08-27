@@ -102,17 +102,14 @@ func PlanDistribution(
 				return nil, fmt.Errorf("cluster %q repo %q: rendering sealed config: %w", cluster.ID, repo, err)
 			}
 
-			// Sealed .stagefreight.yml — section presets preserved, vars resolved.
-			plan.Files = append(plan.Files, planFile(
-				forgeReader, repo,
-				".stagefreight.yml",
-				sealedContent,
-			))
-
 			// A deviating entry's own presets: distributed with the config that
 			// references them. Without this the satellite receives a config pointing at
 			// a preset that was never seeded, and fails at load — the entry's override
 			// lives outside cluster.Config, so the profile-level collection cannot see it.
+			//
+			// Resolved BEFORE the config is planned because the validation below loads
+			// the rendered config against this cache: a governed config references its
+			// presets by path, so verifying it without them proves nothing.
 			repoPresetFiles := presetFiles
 			if entry.Config != nil {
 				overrideFiles, oerr := loadPresetCache(collectPresetPaths(entry.Config), presetLoader, cluster.ID)
@@ -128,6 +125,37 @@ func PlanDistribution(
 						repoPresetFiles[k] = v
 					}
 				}
+			}
+
+			// Verify the render before planning it. A config that cannot load must not
+			// leave the control repo: distribution is fleet-wide and simultaneous, so an
+			// invalid render fails every governed repo at once, at audition, before
+			// anything runs. Better one failed reconcile than nine broken satellites.
+			satelliteCfg, err := loadSatelliteConfig(repo, sealedContent, repoPresetFiles)
+			if err != nil {
+				return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
+			}
+
+			// Sealed .stagefreight.yml — section presets preserved, vars resolved.
+			plan.Files = append(plan.Files, planFile(
+				forgeReader, repo,
+				".stagefreight.yml",
+				sealedContent,
+			))
+
+			// The CI file is DERIVED from the config just planned, so it ships with it.
+			// Distributing the config alone leaves the satellite self-inconsistent — its
+			// committed pipeline no longer matches its source — and audition rejects that
+			// as stale CI, which is a fleet-wide breakage nobody can fix without
+			// re-rendering every repo by hand. Rendered from satelliteCfg so it is the
+			// same config the satellite loads, never a re-derivation that could drift.
+			// Skipped entirely when no ci.forges is declared: see renderSatelliteCI.
+			ciFiles, err := renderSatelliteCI(repo, satelliteCfg)
+			if err != nil {
+				return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
+			}
+			for _, f := range ciFiles {
+				plan.Files = append(plan.Files, planFile(forgeReader, repo, f.Path, f.Content))
 			}
 
 			// Preset cache files — 1:1 copies for runtime resolution.

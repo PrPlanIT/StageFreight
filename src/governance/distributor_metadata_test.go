@@ -19,6 +19,16 @@ func TestPlanDistribution_BrandedEntryDistributesMetadata(t *testing.T) {
 			Credentials: "GITLAB_HOMELABHD",
 			Config: map[string]any{
 				"version": 1,
+				"forges": map[string]any{
+					"gitlab": map[string]any{
+						"provider": "gitlab",
+						"url":      "https://gitlab.prplanit.com",
+					},
+					"github": map[string]any{
+						"provider": "github",
+						"url":      "https://github.com",
+					},
+				},
 			},
 			Repos: ProfileCatalog{{
 				ID: "prometheus-eaton-ups-exporter",
@@ -115,6 +125,16 @@ func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 			Credentials: "GITLAB_HOMELABHD",
 			Config: map[string]any{
 				"version": 1,
+				"forges": map[string]any{
+					"gitlab": map[string]any{
+						"provider": "gitlab",
+						"url":      "https://gitlab.prplanit.com",
+					},
+					"github": map[string]any{
+						"provider": "github",
+						"url":      "https://github.com",
+					},
+				},
 				"orgs": map[string]any{
 					"HomeLabHD": map[string]any{
 						"maintainer": "HomeLabHD <homelabhelp@gmail.com>",
@@ -179,12 +199,18 @@ func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
 	loader := fakeLoader{
 		"preset/stencils-core.yml":   "stencils: { license: { label: license } }",
-		"preset/stencils-docker.yml": "stencils: { docker: { render: shield } }",
+		"preset/stencils-docker.yml": "stencils: { docker: { render: shield, message: docker } }",
 	}
 	gov := &GovernanceConfig{
 		Profiles: ProfileList{{
 			ID: "p1",
 			Config: map[string]any{
+				"forges": map[string]any{
+					"gitlab": map[string]any{
+						"provider": "gitlab",
+						"url":      "https://gitlab.prplanit.com",
+					},
+				},
 				"stencils": map[string]any{
 					"presets": []any{"preset/stencils-core.yml", "preset/stencils-docker.yml"},
 				},
@@ -193,7 +219,7 @@ func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
 		}},
 	}
 
-	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Ref: "deadbeef"}, "Org/policy")
+	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"}, "Org/policy")
 	requireNoError(t, err)
 
 	want := map[string]bool{
@@ -225,6 +251,12 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 		Profiles: ProfileList{{
 			ID: "p1",
 			Config: map[string]any{
+				"forges": map[string]any{
+					"gitlab": map[string]any{
+						"provider": "gitlab",
+						"url":      "https://gitlab.prplanit.com",
+					},
+				},
 				"git": map[string]any{"preset": "preset/git.yml"},
 			},
 			Repos: ProfileCatalog{
@@ -236,7 +268,7 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 		}},
 	}
 
-	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Ref: "deadbeef"}, "Org/policy")
+	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"}, "Org/policy")
 	requireNoError(t, err)
 
 	has := func(p DistributionPlan, path string) bool {
@@ -267,5 +299,217 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 	}
 	if !has(plain, ".stagefreight/preset-cache/preset/git.yml") {
 		t.Error("profile presets must reach every member")
+	}
+}
+
+// A render that cannot load must never leave the control repo. Distribution is
+// fleet-wide and simultaneous, so an invalid config fails EVERY governed repo at once,
+// at audition, before anything runs — the reconcile plan cannot see this, because it
+// reports which files change and not whether their contents load.
+//
+// This reproduces the real incident: a contents stencil naming a build the shared
+// preset does not declare (the preset defines one build under the generic id "image").
+func TestPlanDistribution_RejectsUnloadableRender(t *testing.T) {
+	gov := &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID:          "hlhd-docker",
+			Credentials: "GITLAB_HOMELABHD",
+			Config: map[string]any{
+				"version": 1,
+				"forges": map[string]any{
+					"gitlab": map[string]any{
+						"provider": "gitlab",
+						"url":      "https://gitlab.prplanit.com",
+					},
+					"github": map[string]any{
+						"provider": "github",
+						"url":      "https://github.com",
+					},
+				},
+				"builds": map[string]any{
+					"image": map[string]any{"kind": "docker"},
+				},
+			},
+			Repos: ProfileCatalog{{
+				ID: "ansible",
+				At: "HomeLabHD/ansible",
+				Config: map[string]any{
+					"stencils": map[string]any{
+						"contents-base": map[string]any{
+							"type":    "contents",
+							"build":   "ansible", // no such build — the preset declares "image"
+							"section": "inventories.versions",
+							"render":  "badges",
+						},
+					},
+				},
+			}},
+		}},
+	}
+
+	_, err := PlanDistribution(
+		gov, fakeLoader{}, nil, nil,
+		PresetSourceInfo{
+			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
+			ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef",
+		},
+		"PrPlanIT/MaintenancePolicy",
+	)
+	if err == nil {
+		t.Fatal("expected the reconcile to fail rather than distribute a config that cannot load")
+	}
+	// The operator must learn WHICH repo and WHAT is wrong without reading a satellite's
+	// pipeline log — that log is the failure mode this check exists to prevent.
+	if !strings.Contains(err.Error(), "HomeLabHD/ansible") {
+		t.Errorf("error must name the offending repo, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ansible") || !strings.Contains(err.Error(), "build") {
+		t.Errorf("error must surface the underlying validation failure, got: %v", err)
+	}
+}
+
+// The gate must not reject a VALID render — a false positive would block every
+// reconcile and be worse than the bug it guards.
+func TestPlanDistribution_AcceptsValidRender(t *testing.T) {
+	gov := &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID:          "hlhd-docker",
+			Credentials: "GITLAB_HOMELABHD",
+			Config: map[string]any{
+				"version": 1,
+				"forges": map[string]any{
+					"gitlab": map[string]any{
+						"provider": "gitlab",
+						"url":      "https://gitlab.prplanit.com",
+					},
+					"github": map[string]any{
+						"provider": "github",
+						"url":      "https://github.com",
+					},
+				},
+				"builds": map[string]any{
+					"image": map[string]any{"kind": "docker"},
+				},
+			},
+			Repos: ProfileCatalog{{
+				ID: "ansible",
+				At: "HomeLabHD/ansible",
+				Config: map[string]any{
+					"stencils": map[string]any{
+						"contents-base": map[string]any{
+							"type":    "contents",
+							"build":   "image",
+							"section": "inventories.versions",
+							"render":  "badges",
+						},
+					},
+				},
+			}},
+		}},
+	}
+
+	if _, err := PlanDistribution(
+		gov, fakeLoader{}, nil, nil,
+		PresetSourceInfo{
+			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
+			ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef",
+		},
+		"PrPlanIT/MaintenancePolicy",
+	); err != nil {
+		t.Fatalf("valid render must plan cleanly, got: %v", err)
+	}
+}
+
+// ciGovFixture builds a profile whose satellites declare the given ci.forges.
+func ciGovFixture(forges []any) *GovernanceConfig {
+	ci := map[string]any{"image": "img:latest"}
+	if forges != nil {
+		ci["forges"] = forges
+	}
+	return &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID:          "hlhd-docker",
+			Credentials: "GITLAB_HOMELABHD",
+			Config: map[string]any{
+				"version": 1,
+				"ci":      ci,
+				"forges": map[string]any{
+					"gitlab": map[string]any{"provider": "gitlab", "url": "https://gitlab.prplanit.com"},
+					"github": map[string]any{"provider": "github", "url": "https://github.com"},
+				},
+				"builds": map[string]any{"image": map[string]any{"kind": "docker"}},
+			},
+			Repos: ProfileCatalog{{ID: "ansible", At: "HomeLabHD/ansible"}},
+		}},
+	}
+}
+
+func planCIFixture(t *testing.T, gov *GovernanceConfig) (DistributionPlan, error) {
+	t.Helper()
+	plans, err := PlanDistribution(
+		gov, fakeLoader{}, nil, nil,
+		PresetSourceInfo{
+			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
+			ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef",
+		},
+		"PrPlanIT/MaintenancePolicy",
+	)
+	if err != nil {
+		return DistributionPlan{}, err
+	}
+	return plans[0], nil
+}
+
+func planHasPath(p DistributionPlan, path string) bool {
+	for _, f := range p.Files {
+		if f.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+// The CI file is DERIVED from .stagefreight.yml, so governance must ship both. Shipping
+// the config alone leaves the satellite self-inconsistent and audition rejects it as
+// "CI is stale" — a fleet-wide breakage nobody can clear without re-rendering by hand.
+func TestPlanDistribution_DistributesDeclaredCISkeleton(t *testing.T) {
+	plan, err := planCIFixture(t, ciGovFixture([]any{"gitlab"}))
+	requireNoError(t, err)
+	if !planHasPath(plan, ".gitlab-ci.yml") {
+		t.Fatalf("declared ci.forges must distribute the pipeline, got %v", plan.Files)
+	}
+}
+
+// A repo that has not said where its CI runs gets NOTHING. Inferring from the primary
+// forge would write a skeleton for a forge that may never run it — the mirror-CI case.
+func TestPlanDistribution_NoCIForgeDistributesNoSkeleton(t *testing.T) {
+	plan, err := planCIFixture(t, ciGovFixture(nil))
+	requireNoError(t, err)
+	for _, f := range plan.Files {
+		if strings.Contains(f.Path, "gitlab-ci") || strings.Contains(f.Path, "workflows") {
+			t.Fatalf("undeclared ci.forges must distribute no pipeline, got %q", f.Path)
+		}
+	}
+}
+
+// Several forges each write their own file, so declaring two is well-defined.
+func TestPlanDistribution_DistributesMultipleCISkeletons(t *testing.T) {
+	plan, err := planCIFixture(t, ciGovFixture([]any{"gitlab", "github"}))
+	requireNoError(t, err)
+	for _, want := range []string{".gitlab-ci.yml", ".github/workflows/stagefreight.yml"} {
+		if !planHasPath(plan, want) {
+			t.Errorf("expected %q among distributed files, got %v", want, plan.Files)
+		}
+	}
+}
+
+// An unsupported or repeated forge is a typo, and must fail the reconcile rather than
+// silently distributing one pipeline or overwriting a path twice.
+func TestPlanDistribution_RejectsBadCIForges(t *testing.T) {
+	if _, err := planCIFixture(t, ciGovFixture([]any{"bitbucket"})); err == nil {
+		t.Error("unsupported ci.forges entry must fail the reconcile")
+	}
+	if _, err := planCIFixture(t, ciGovFixture([]any{"gitlab", "gitlab"})); err == nil {
+		t.Error("duplicate ci.forges entry must fail the reconcile")
 	}
 }
