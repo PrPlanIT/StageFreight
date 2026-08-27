@@ -943,6 +943,7 @@ CI holds all pipeline-related configuration consumed by ci render.
 ```yaml
 ci:
   image: <string>   # Image is the container image for all pipeline jobs. Required — render refuses to emit without it. · required
+  forge: [<string>]   # Forge names the forge whose CI skeleton this repo runs on, and therefore which pipeline file…
   routing:   # Routing declares per-phase runner placement requirements. The renderer lowers labels to…
     default:
       labels: [<string>]
