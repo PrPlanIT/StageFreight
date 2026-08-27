@@ -28,6 +28,8 @@ type BuilderInfo struct {
 	BootstrapOK       bool
 	BootstrapDuration time.Duration
 	GCRules           []GCRule
+	MemoryLimit       string // cgroup cap applied to the builder ("" = uncapped)
+	MemoryNote        string // why no cap applies, when none does
 	RawOutput         string // fallback if parsing fails
 	ParseFailed       bool
 }
@@ -70,6 +72,10 @@ func EnsureBuilderWithBackend(cfg config.BuilderConfig, backend *Backend) Builde
 
 	if backend.IsBuildkit() {
 		info.Driver = "remote"
+		// An external buildkitd is not StageFreight's container to bound; its limits
+		// belong to whatever runs it. Say so rather than let the operator assume the
+		// builds on this runner are capped.
+		info.MemoryNote = "external buildkitd — cap must be set on that daemon"
 		result := ensureRemoteBuilder(name, backend.Endpoint, info)
 		if result.BootstrapOK {
 			return result
@@ -82,7 +88,7 @@ func EnsureBuilderWithBackend(cfg config.BuilderConfig, backend *Backend) Builde
 	info.Driver = driver
 
 	// DinD or local docker — use docker-container driver with context.
-	return ensureDockerContainerBuilder(name, driver, cfg.ContextName(), info)
+	return ensureDockerContainerBuilder(name, driver, cfg.ContextName(), BuilderMemoryLimit(cfg), info)
 }
 
 // ensureRemoteBuilder connects to an external buildkitd via the remote driver.
@@ -151,7 +157,7 @@ func ensureRemoteBuilder(name, endpoint string, info BuilderInfo) BuilderInfo {
 
 // ensureDockerContainerBuilder creates a builder using the docker-container driver.
 // Used when BUILDKIT_HOST is not set (DinD or local docker).
-func ensureDockerContainerBuilder(name, driver, ctxName string, info BuilderInfo) BuilderInfo {
+func ensureDockerContainerBuilder(name, driver, ctxName, memLimit string, info BuilderInfo) BuilderInfo {
 	dockerHost := os.Getenv("DOCKER_HOST")
 	certPath := os.Getenv("DOCKER_CERT_PATH")
 	if (dockerHost == "") != (certPath == "") {
@@ -190,6 +196,11 @@ func ensureDockerContainerBuilder(name, driver, ctxName string, info BuilderInfo
 	} else {
 		exec.Command("docker", "buildx", "rm", name).CombinedOutput()
 		createArgs := []string{"buildx", "create", "--name", name, "--driver", driver, "--use"}
+		// The cap lands here, at creation: `buildx build` has no resource flags —
+		// the memory is spent inside the builder container, so that is what must be
+		// bounded.
+		createArgs = append(createArgs, memoryDriverOpts(memLimit)...)
+		info.MemoryLimit = memLimit
 		if useContext {
 			createArgs = append(createArgs, ctxName)
 		}

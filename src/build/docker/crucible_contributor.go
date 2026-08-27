@@ -253,7 +253,7 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		fmt.Sprintf("%-9s crucible · 2-pass (candidate→verify) · platform linux/%s · backend %s",
 			"docker", runtime.GOARCH, c.backend.Kind),
 		fmt.Sprintf("%-9s builder %s (%s · buildkit %s)",
-			"docker", c.builderInfo.Name, c.builderInfo.Driver, c.builderInfo.BuildKit),
+			"docker", c.builderInfo.Name, c.builderInfo.Driver, c.builderInfo.BuildKit+builderMemorySuffix(c.builderInfo)),
 	}
 	if cacheInfo.Mode != "" && cacheInfo.Mode != "off" {
 		cacheRow := fmt.Sprintf("%-9s cache %s", "docker", cacheInfo.Mode)

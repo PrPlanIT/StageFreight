@@ -206,7 +206,7 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 	}
 
 	rows := []string{
-		fmt.Sprintf("%-9s builder %s (%s · buildkit %s)", "image", c.builderInfo.Name, c.builderInfo.Driver, c.builderInfo.BuildKit),
+		fmt.Sprintf("%-9s builder %s (%s · buildkit %s%s)", "image", c.builderInfo.Name, c.builderInfo.Driver, c.builderInfo.BuildKit, builderMemorySuffix(c.builderInfo)),
 	}
 	for _, step := range result.Steps {
 		state := "built (local)"

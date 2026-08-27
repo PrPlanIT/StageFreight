@@ -44,6 +44,13 @@ type BuilderConfig struct {
 
 	// Context is the Docker context name for the builder endpoint. Default: "sf-context".
 	Context string `yaml:"context,omitempty"`
+
+	// Memory caps the builder container (e.g. "3g"), pinning memory-swap to the same
+	// value so the builder cannot swap. Unset derives it from the runner: total RAM
+	// minus a reserve that keeps the host alive — a build must never be able to
+	// livelock its own machine. Only applies to a builder StageFreight creates
+	// (docker-container driver); an external buildkitd owns its own limits.
+	Memory string `yaml:"memory,omitempty"`
 }
 
 // BuilderName returns the builder name, defaulting to "sf-builder".
