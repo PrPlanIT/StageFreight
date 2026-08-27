@@ -9,6 +9,8 @@
 - [`forges`](#config-forges)
 - [`repos`](#config-repos)
 - [`registries`](#config-registries)
+- [`orgs`](#config-orgs)
+- [`metadata`](#config-metadata)
 - [`signing`](#config-signing)
 - [`git`](#config-git)
 - [`builds`](#config-builds)
@@ -117,6 +119,7 @@ forges:
     provider: <string>   # gitlab, github, gitea · one of: gitlab, github, gitea, forgejo, azuredevops · required
     url: <string>   # base URL (e.g., "https://gitlab.prplanit.com") · required
     credentials: <string>   # env var prefix for token resolution
+    default_path: <string>   # default project path template (e.g. "{org}/{repo}"), for {path.<id>}
 ```
 
 ---
@@ -186,6 +189,47 @@ registries:
 ---
 
 <!-- --8<-- [end:registries] -->
+<!-- --8<-- [start:orgs] -->
+<a id="config-orgs" name="config-orgs"></a>
+### orgs
+
+Orgs declares organization/owner identities as an id→org map (maintainer + aliases). Identity only — no forge, no credentials. Feeds {org.*} and, through surface default_paths, {path.*}. See docs/design/identity-model.md.
+
+```yaml
+orgs:
+  <id>:   # entry key = the unique id
+    maintainer: <string>   # Maintainer is the "Name <email>" contact for this org's repos.
+    aliases: {}   # Aliases is an OPEN map of name-forms used to build coordinates on different surfaces — e.g.…
+```
+
+---
+
+<!-- --8<-- [end:orgs] -->
+<!-- --8<-- [start:metadata] -->
+<a id="config-metadata" name="config-metadata"></a>
+### metadata
+
+Metadata is this repo's identity/branding — the one block every consumer reads (org ref, title, names, scoped description/readme, topics, license, …). Feeds {metadata.*}. See docs/design/identity-model.md.
+
+```yaml
+metadata:
+  org: <string>   # Org references an orgs: entry by id (the repo's owner). May be derived from the primary repo…
+  title: <string>   # Title is the human display name (e.g. "ARK Server"); defaults to the slug.
+  names: {}   # Names overrides the repo's PATH name per surface (default = slug), e.g. { dockerhub: arkserver…
+  description: {}   # Description is scoped: the default may be a tiered StringOrList (fit-picked across un-named…
+  readme: {}   # Readme is the source doc pushed to registry overviews / forge About, scoped: a default path or…
+  topics: [<string>]
+  license: <string>
+  category: <string>
+  website: <string>   # Website / DocsURL are optional and only for a genuinely SEPARATE site (product page / hosted docs)…
+  docs_url: <string>
+  icon: <string>
+  labels: {}   # Labels is the open forward-compat escape hatch (OCI-annotation style) for metadata the schema does…
+```
+
+---
+
+<!-- --8<-- [end:metadata] -->
 <!-- --8<-- [start:signing] -->
 <a id="config-signing" name="config-signing"></a>
 ### signing
@@ -920,19 +964,15 @@ lifecycle:
 <a id="config-governance" name="config-governance"></a>
 ### governance
 
-Governance defines configuration for the governance lifecycle mode. Only valid in the control repo (lifecycle.mode: governance).
+Governance declares the control repo's governance profiles. It is PRESENCE-GATED, not mode-gated: the reconcile facet activates whenever governance.profiles is non-empty (like the ansible/gitops subsystems), so a control repo needs no lifecycle.mode: governance. A satellite instead carries governance.source (a pointer at its policy repo).
 
 ```yaml
 governance:
-  clusters:   # required
-    - id: <string>   # required
-      targets:   # required
-        repos: [<string>]
-        groups:
-          - id: <string>
-            repos: [<string>]   # required
-        credentials: <string>   # env var prefix for forge auth
-      stagefreight: {}   # required
+  profiles:   # required
+    <id>:   # entry key = the unique id
+      repos: {}   # the location-anchored catalog (raw here)
+      config: {}   # the profile's shared StageFreight config
+      credentials: <string>   # env var prefix for the write token
 ```
 
 ---
