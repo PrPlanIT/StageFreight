@@ -901,16 +901,7 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	// Resolve BUILD_STATUS from pipeline state (badges render it). Missing = default failing.
 	if os.Getenv("BUILD_STATUS") == "" || os.Getenv("BUILD_STATUS") == "passing" {
 		if st, err := cistate.ReadState(rootDir); err == nil {
-			status := st.PipelineStatus()
-			// "unknown" = no subsystem recorded a status. But scribe only runs in
-			// publish, which is reached only after the pipeline cleared its gates
-			// (audition passed — perform is gated on it — and nothing hard-failed). A
-			// repo with no build/reconcile subsystem to record (e.g. a governance control
-			// repo) would otherwise render "unknown"; reaching here means passing.
-			if status == "unknown" {
-				status = "passing"
-			}
-			os.Setenv("BUILD_STATUS", status)
+			os.Setenv("BUILD_STATUS", st.PipelineStatus())
 		} else {
 			os.Setenv("BUILD_STATUS", "failing")
 		}
@@ -1756,41 +1747,62 @@ func sanitizeBranchPrefix(raw string) string {
 func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, _ ci.RunOptions) error {
 	rootDir := resolveWorkspace(ciCtx)
 
+	healthy := true
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("validate subsystem: substrate unhealthy")
-	}
-	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("validate subsystem: %w", err)
+		healthy = false
 	}
 
-	// GitOps manifest validation is the audition readiness proof for a Flux repo.
-	// It runs here directly — NOT as a lint module — for two reasons: its verdict
-	// is a phase artifact that perform consumes (skip-invalid reconcile), so there
-	// must be a single producer of a single verdict; and it must run independently
-	// of whether generic file-linting is configured. Content-gated (inert with no
-	// Flux resources).
-	valErr := runFluxValidation(ctx, appCfg, rootDir)
-
-	// Generic file-lint stays opt-in via lint.level. Thread the run ctx (carrying the
-	// tool ledger) into runLint via the command, the same cmd.SetContext convention
-	// reconcileRunner uses — so osv records and the lint Staged Tools box populates.
-	var lintErr error
-	if strings.TrimSpace(string(appCfg.Lint.Level)) != "" {
-		cmd := &cobra.Command{}
-		cmd.SetContext(ctx)
-		lintErr = runLint(cmd, []string{})
+	// Run the validation gates in precedence order (health → config → flux → lint →
+	// tests), short-circuiting on the first failure exactly as before, and capture the
+	// governing error. It is recorded as the audition contract below.
+	var err error
+	switch {
+	case !healthy:
+		err = fmt.Errorf("validate subsystem: substrate unhealthy")
+	default:
+		if cfgErr := runConfigPhase(rootDir); cfgErr != nil {
+			err = fmt.Errorf("validate subsystem: %w", cfgErr)
+		} else if valErr := runFluxValidation(ctx, appCfg, rootDir); valErr != nil {
+			// GitOps manifest validation is the audition readiness proof for a Flux repo.
+			// It runs here directly — NOT as a lint module — for two reasons: its verdict
+			// is a phase artifact that perform consumes (skip-invalid reconcile), so there
+			// must be a single producer of a single verdict; and it must run independently
+			// of whether generic file-linting is configured. Content-gated (inert with no
+			// Flux resources).
+			err = valErr
+		} else {
+			// Generic file-lint stays opt-in via lint.level. Thread the run ctx (carrying
+			// the tool ledger) into runLint via the command, the same cmd.SetContext
+			// convention reconcileRunner uses — so osv records and the lint Staged Tools
+			// box populates.
+			var lintErr error
+			if strings.TrimSpace(string(appCfg.Lint.Level)) != "" {
+				cmd := &cobra.Command{}
+				cmd.SetContext(ctx)
+				lintErr = runLint(cmd, []string{})
+			}
+			if lintErr != nil {
+				err = lintErr
+			} else {
+				// Correctness gate (after validation + lint). No-op for pure-manifest repos
+				// with no testable builds; runs the suites for gitops repos that carry code.
+				err = auditionTests(ctx, appCfg, rootDir)
+			}
+		}
 	}
 
-	if valErr != nil {
-		return valErr
-	}
-	if lintErr != nil {
-		return lintErr
-	}
-	// Correctness gate (after validation + lint). No-op for pure-manifest repos with
-	// no testable builds; runs the suites for gitops repos that also carry code.
-	testErr := auditionTests(ctx, appCfg, rootDir)
-	return testErr
+	// Record the audition contract so the pipeline badge (PipelineStatus) reflects the
+	// REAL validation outcome — passing when the gates cleared, failing when they did
+	// not. Governance/gitops audition otherwise records no counting subsystem, leaving
+	// PipelineStatus "unknown". Perform (reconcile mode) does not gate on this contract;
+	// here it is purely a badge/narrate signal. deriveAuditionContract is the canonical
+	// projector whose AllowFailure drives the badge.
+	recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{
+		RunnerHealthy: healthy,
+		Fatal:         healthy && err != nil,
+		TestsPassed:   err == nil,
+	}))
+	return err
 }
 
 // runFluxValidation validates the repository's Flux manifests, persists the
