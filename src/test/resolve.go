@@ -70,7 +70,7 @@ func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 		if builder == "" {
 			builder = "go"
 		}
-		if builder != "go" && builder != "rust" {
+		if builder != "go" && builder != "rust" && builder != "python" {
 			continue
 		}
 		base, dir, err := build.DefaultTestCommand(builder, b.From, rootDir)
@@ -126,8 +126,16 @@ func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
 		rs.Dir = dir
 		rs.Argv = rustArgv(s, hasFlag(base, "--workspace"))
 		return rs, nil
+	case config.TestToolPython:
+		_, dir, err := build.DefaultTestCommand("python", s.From, rootDir)
+		if err != nil {
+			return rs, fmt.Errorf("test suite %q: %w", s.ID, err)
+		}
+		rs.Dir = dir
+		rs.Argv = pytestArgv(s)
+		return rs, nil
 	default:
-		return rs, fmt.Errorf("test suite %q: unknown tool %q (supported: go, rust, script)", s.ID, s.Tool)
+		return rs, fmt.Errorf("test suite %q: unknown tool %q (supported: go, rust, python, script)", s.ID, s.Tool)
 	}
 }
 
@@ -182,6 +190,27 @@ func rustArgv(s config.TestSuite, workspaceFromManifest bool) []string {
 	for _, t := range s.Tests {
 		argv = append(argv, "--test", t)
 	}
+	argv = append(argv, s.Args...)
+	return argv
+}
+
+// pytestArgv builds `python -m pytest [-k expr] [-m marker]… [--cov] [paths] [args]`.
+// Selection reuses the shared vocabulary where the meaning is identical: Run is
+// pytest's -k keyword filter (the analogue of go's -run), Packages are the positional
+// test paths (pytest's own rootdir discovery is the ./... default when empty).
+// The --junitxml transport flag is NOT added here: the runner owns the report path.
+func pytestArgv(s config.TestSuite) []string {
+	argv := []string{"python", "-m", "pytest"}
+	if s.Run != "" {
+		argv = append(argv, "-k", s.Run)
+	}
+	for _, m := range s.Markers {
+		argv = append(argv, "-m", m)
+	}
+	if boolVal(s.Coverage) {
+		argv = append(argv, "--cov", "--cov-report=term")
+	}
+	argv = append(argv, s.Packages...)
 	argv = append(argv, s.Args...)
 	return argv
 }

@@ -884,6 +884,7 @@ test:
       tests: [<string>]   # --test <name>
       release: false   # --release
       nextest: false   # cargo nextest run
+      markers: [<string>]   # ── Python (native `pytest` flag projections)…
 ```
 
 ---

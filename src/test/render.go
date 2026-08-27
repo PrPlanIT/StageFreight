@@ -105,10 +105,7 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 //
 //	▸ unit — go test -race -cover ./... · gate: perform
 func suiteHeader(s ResolvedSuite) string {
-	verb := string(s.Tool) + " test"
-	if s.Tool == config.TestToolScript {
-		verb = "script"
-	}
+	verb := toolVerb(s.Tool)
 	head := "▸ " + s.ID + " — " + verb
 	if run := cmdShape(s); run != "" {
 		head += " " + run
@@ -116,11 +113,25 @@ func suiteHeader(s ResolvedSuite) string {
 	return head + " · gate: " + string(s.Gate)
 }
 
-// producesPackageRows reports whether a suite streams per-package/per-binary rows
-// (go and rust do; a script produces a single captured result), so we only print the
-// package/time/cov/description header where those columns actually apply.
+// toolVerb is the operator-facing name of what a suite runs: the tool's own command
+// ("go test", "cargo test"→rust, "pytest"), never an implementation token.
+func toolVerb(tool config.TestTool) string {
+	switch tool {
+	case config.TestToolScript:
+		return "script"
+	case config.TestToolPython:
+		return "pytest"
+	default:
+		return string(tool) + " test"
+	}
+}
+
+// producesPackageRows reports whether a suite streams per-unit rows (go per package,
+// rust per test binary, python per test module; a script produces a single captured
+// result), so we only print the package/time/cov/description header where those
+// columns actually apply.
 func producesPackageRows(tool config.TestTool) bool {
-	return tool == config.TestToolGo || tool == config.TestToolRust
+	return tool == config.TestToolGo || tool == config.TestToolRust || tool == config.TestToolPython
 }
 
 // renderPackageRow streams one package's result INTO the section as it finishes: a
@@ -185,7 +196,7 @@ func renderSuiteSummary(sec *output.Section, sr SuiteResult, color bool) {
 		// The suite failed but no package did — a command-level failure (exec,
 		// build, disk, OOM, timeout). Surface the reason instead of a bare ✗.
 		if sr.Err != nil {
-			sec.Row("  ✗ go test: %v", sr.Err)
+			sec.Row("  ✗ %s: %v", toolVerb(sr.Tool), sr.Err)
 		}
 		if line := firstErrLine(sr.Output); line != "" {
 			sec.Row("    %s", line)
@@ -227,8 +238,14 @@ func covStr(c float64) string {
 // subcommand — go [test] "-race ./...", rust [test] "--workspace", script the raw
 // command. It's what makes the suite line say what actually runs.
 func cmdShape(rs ResolvedSuite) string {
-	if len(rs.Argv) <= 2 {
+	// Skip the tool's own command words, which the header already names: `go test`
+	// and `cargo test` are two, `python -m pytest` is three.
+	skip := 2
+	if rs.Tool == config.TestToolPython {
+		skip = 3
+	}
+	if len(rs.Argv) <= skip {
 		return ""
 	}
-	return strings.Join(rs.Argv[2:], " ")
+	return strings.Join(rs.Argv[skip:], " ")
 }

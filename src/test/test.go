@@ -38,6 +38,8 @@ func resolveSuiteToolchain(ctx context.Context, rootDir string, s ResolvedSuite)
 		return provision.Resolve(ctx, rootDir, "go", toolchain.ResolveGoVersion(s.Dir, rootDir), "Go test toolchain")
 	case config.TestToolRust:
 		return provision.Resolve(ctx, rootDir, "rust", toolchain.ResolveRustVersion(s.Dir, rootDir), "Rust test toolchain")
+	case config.TestToolPython:
+		return provision.Resolve(ctx, rootDir, "python", "", "Python test toolchain")
 	default:
 		return toolchain.Result{}, nil
 	}
@@ -95,6 +97,9 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 		}
 		env = setEnv(env, "PATH", filepath.Dir(tool.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
 		return runRustSuite(ctx, sr, rootDir, s, argv, env, desired, onPkg)
+
+	case config.TestToolPython:
+		return runPythonSuite(ctx, sr, tool.Path, s, argv, onPkg)
 	}
 
 	// Generic exec (script escape hatch) — no per-unit projection, capture + record.
@@ -355,4 +360,79 @@ func setEnv(env []string, key, val string) []string {
 		}
 	}
 	return append(env, prefix+val)
+}
+
+// runPythonSuite runs a Python suite via pytest inside a content-addressed venv,
+// parsing the JUnit XML transport into per-module results.
+//
+// Unlike go/rust, the interpreter alone cannot run the suite: pytest and the project's
+// dependencies must be installed first (see pyvenv.go). That bootstrap is part of
+// running the suite, so its failure is the suite's failure — reported with the pip
+// output, never as an opaque exec error.
+func runPythonSuite(ctx context.Context, sr SuiteResult, pythonBin string, s ResolvedSuite, argv []string, onPkg func(PackageResult)) SuiteResult {
+	sr.CoverageMin, sr.Coverage = s.CoverageMin, -1
+
+	venvPy, err := ensurePyVenv(ctx, pythonBin, s.Dir, s.Coverage)
+	if err != nil {
+		return failSuite(sr, err)
+	}
+	argv[0] = venvPy
+
+	// The report is transport, not an artifact: a temp file consumed and discarded.
+	report, err := os.CreateTemp("", "sf-pytest-*.xml")
+	if err != nil {
+		return failSuite(sr, fmt.Errorf("creating junit report: %w", err))
+	}
+	report.Close()
+	defer os.Remove(report.Name())
+	argv = append(argv, "--junitxml="+report.Name())
+
+	env := toolchain.CleanEnv()
+	env = setEnv(env, "PATH", filepath.Dir(venvPy)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Deterministic output: no bytecode litter in the worktree, unbuffered streams so
+	// captured output is ordered.
+	env = setEnv(env, "PYTHONDONTWRITEBYTECODE", "1")
+	env = setEnv(env, "PYTHONUNBUFFERED", "1")
+
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = s.Dir
+	cmd.Env = env
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	runErr := cmd.Run()
+
+	sr.Duration = time.Since(start)
+	sr.Output = buf.String()
+	sr.Packages = parsePytestJUnit(report.Name(), onPkg)
+
+	if runErr != nil {
+		sr.Status = StatusFailed
+		sr.Err = runErr
+		if len(sr.Packages) == 0 {
+			// Collection error / import failure — nothing was reported, so keep the
+			// section honest about why, mirroring the cargo compile-error path.
+			fp := PackageResult{Rel: "pytest", Status: StatusFailed, Coverage: -1,
+				Failures: []TestFailure{{Name: "(collection/run)", Output: buf.String()}}}
+			sr.Packages = []PackageResult{fp}
+			if onPkg != nil {
+				onPkg(fp)
+			}
+		}
+	} else {
+		sr.Status = StatusPassed
+	}
+
+	// Coverage total + threshold gate, read from pytest-cov's terminal summary.
+	if s.Coverage {
+		if total, ok := parsePytestCoverage(buf.String()); ok {
+			sr.Coverage = total
+			if sr.CoverageMin > 0 && total < sr.CoverageMin && sr.Status != StatusFailed {
+				sr.Status = StatusFailed
+				sr.Err = fmt.Errorf("coverage %.1f%% below minimum %.1f%%", total, sr.CoverageMin)
+			}
+		}
+	}
+	return sr
 }

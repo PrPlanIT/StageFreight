@@ -22,15 +22,16 @@ const (
 )
 
 // TestTool is the test toolchain/dialect a suite uses — how its command is
-// constructed, NOT where it runs (it is not a CI "runner"). `go`/`rust` are
-// first-class typed (native-flag projection + builder-derived defaults); `script`
-// is the intentionally-less-structured raw escape hatch. Future: `pytest`,
+// constructed, NOT where it runs (it is not a CI "runner"). `go`/`rust`/`python`
+// are first-class typed (native-flag projection + builder-derived defaults);
+// `script` is the intentionally-less-structured raw escape hatch. Future:
 // `container`, `compose`.
 type TestTool string
 
 const (
 	TestToolGo     TestTool = "go"
 	TestToolRust   TestTool = "rust"
+	TestToolPython TestTool = "python"
 	TestToolScript TestTool = "script"
 )
 
@@ -64,6 +65,12 @@ type TestSuite struct {
 	Tests     []string `yaml:"tests,omitempty"`     // --test <name>
 	Release   *bool    `yaml:"release,omitempty"`   // --release
 	Nextest   *bool    `yaml:"nextest,omitempty"`   // cargo nextest run
+
+	// ── Python (native `pytest` flag projections) ───────────────────────────
+	// Selection reuses the shared fields whose meaning is identical across
+	// dialects: Packages → positional test paths, Run → -k <expr> (pytest's
+	// keyword filter, the analogue of go's -run), Coverage/CoverageMin → --cov.
+	Markers []string `yaml:"markers,omitempty"` // -m <marker>
 }
 
 // EffectiveGate returns the suite's gate, defaulting to perform (the strict,

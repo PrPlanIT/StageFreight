@@ -44,8 +44,21 @@ func DefaultTestCommand(builder, fromDir, rootDir string) (args []string, workdi
 			cmd = append(cmd, "--workspace")
 		}
 		return cmd, dir, nil
+	case "python":
+		// pytest is rooted at the project manifest (pyproject/requirements), the same
+		// way go roots at go.mod — it is where the venv and rootdir-relative test
+		// paths resolve from. The base command names no paths: pytest's own rootdir
+		// discovery is the equivalent of `./...`.
+		dir := findManifestRoot(start, rootDir, "pyproject.toml")
+		if dir == "" {
+			dir = findManifestRoot(start, rootDir, "requirements.txt")
+		}
+		if dir == "" {
+			dir = rootDir
+		}
+		return []string{"python", "-m", "pytest"}, dir, nil
 	default:
-		return nil, start, fmt.Errorf("no default test command for builder %q (supported: go, rust)", builder)
+		return nil, start, fmt.Errorf("no default test command for builder %q (supported: go, rust, python)", builder)
 	}
 }
 

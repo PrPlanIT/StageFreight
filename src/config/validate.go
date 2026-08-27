@@ -720,7 +720,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		testIDs[s.ID] = true
 
 		switch s.Tool {
-		case TestToolGo, TestToolRust:
+		case TestToolGo, TestToolRust, TestToolPython:
 			if s.Command != "" {
 				errs = append(errs, fmt.Sprintf("%s: tool %q does not take a command (use args for extra flags, or tool: script)", tpath, s.Tool))
 			}
@@ -729,9 +729,9 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				errs = append(errs, fmt.Sprintf("%s: tool script requires a command", tpath))
 			}
 		case "":
-			errs = append(errs, fmt.Sprintf("%s: tool is required (go, rust, or script)", tpath))
+			errs = append(errs, fmt.Sprintf("%s: tool is required (go, rust, python, or script)", tpath))
 		default:
-			errs = append(errs, fmt.Sprintf("%s: unknown tool %q (supported: go, rust, script)", tpath, s.Tool))
+			errs = append(errs, fmt.Sprintf("%s: unknown tool %q (supported: go, rust, python, script)", tpath, s.Tool))
 		}
 
 		switch s.Gate {
