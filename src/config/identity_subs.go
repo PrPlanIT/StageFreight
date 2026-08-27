@@ -52,6 +52,11 @@ func IdentitySubs(cfg *Config) map[string]string {
 	slug := SlugFromPrimary(cfg)
 	if slug != "" {
 		subs["{slug}"] = slug
+		// {slug.lower} mirrors {org.lower}: the same identity, folded for surfaces that
+		// cannot express case. OCI repository and package names are lowercase by spec,
+		// so a repo named `SteamCMD` needs this to address its own image — without it a
+		// legitimate repo name would be unaddressable.
+		subs["{slug.lower}"] = strings.ToLower(slug)
 	}
 	return subs
 }
@@ -85,7 +90,15 @@ func expandIdentity(cfg *Config) {
 
 	// Concretize default_paths in place, then expose them as {path.<id>}. Forge and
 	// registry ids are disjoint (validated), so keys never collide.
-	concretize := func(id, defaultPath string) string {
+	//
+	// lowerRepo folds the repo segment to lowercase for REGISTRY surfaces. This is not a
+	// preference: OCI repository names are lowercase by specification, so a repo the
+	// operator legitimately named `SteamCMD` yields `hlhd/SteamCMD` — a ref no registry
+	// will accept. A repo's name is the operator's choice and StageFreight must carry it
+	// to every surface, so the adaptation belongs HERE rather than as a rename demand or
+	// a metadata.names: override every mixed-case repo would otherwise have to author.
+	// Forges keep their case: forge paths are case-preserving and displayed as authored.
+	concretize := func(id, defaultPath string, lowerRepo bool) string {
 		if defaultPath == "" {
 			return defaultPath
 		}
@@ -100,18 +113,23 @@ func expandIdentity(cfg *Config) {
 			repo = slug
 		}
 		if repo != "" {
+			if lowerRepo {
+				// Applied after the names[] override too — an explicit per-surface name
+				// is still bound by what the registry can express.
+				repo = strings.ToLower(repo)
+			}
 			p = strings.ReplaceAll(p, "{repo}", repo)
 		}
 		return p
 	}
 	for i := range cfg.Forges {
-		cfg.Forges[i].DefaultPath = concretize(cfg.Forges[i].ID, cfg.Forges[i].DefaultPath)
+		cfg.Forges[i].DefaultPath = concretize(cfg.Forges[i].ID, cfg.Forges[i].DefaultPath, false)
 		if cfg.Forges[i].DefaultPath != "" && !strings.Contains(cfg.Forges[i].DefaultPath, "{") {
 			subs["{path."+cfg.Forges[i].ID+"}"] = cfg.Forges[i].DefaultPath
 		}
 	}
 	for i := range cfg.Registries {
-		cfg.Registries[i].DefaultPath = concretize(cfg.Registries[i].ID, cfg.Registries[i].DefaultPath)
+		cfg.Registries[i].DefaultPath = concretize(cfg.Registries[i].ID, cfg.Registries[i].DefaultPath, true)
 		if cfg.Registries[i].DefaultPath != "" && !strings.Contains(cfg.Registries[i].DefaultPath, "{") {
 			subs["{path."+cfg.Registries[i].ID+"}"] = cfg.Registries[i].DefaultPath
 		}
@@ -133,7 +151,7 @@ func expandIdentity(cfg *Config) {
 
 // identityFamilies are the token prefixes the identity pass owns; the normalization
 // assertion rejects any survivor outside the (opaque) governance payload.
-var identityFamilies = []string{"{org}", "{org.", "{orgs.", "{metadata.", "{path.", "{slug}"}
+var identityFamilies = []string{"{org}", "{org.", "{orgs.", "{metadata.", "{path.", "{slug}", "{slug."}
 
 func addOrgSubs(subs map[string]string, prefix string, org OrgConfig) {
 	subs["{"+prefix+"}"] = org.ID
