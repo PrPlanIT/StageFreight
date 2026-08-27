@@ -901,7 +901,16 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	// Resolve BUILD_STATUS from pipeline state (badges render it). Missing = default failing.
 	if os.Getenv("BUILD_STATUS") == "" || os.Getenv("BUILD_STATUS") == "passing" {
 		if st, err := cistate.ReadState(rootDir); err == nil {
-			os.Setenv("BUILD_STATUS", st.PipelineStatus())
+			status := st.PipelineStatus()
+			// "unknown" = no subsystem recorded a status. But scribe only runs in
+			// publish, which is reached only after the pipeline cleared its gates
+			// (audition passed — perform is gated on it — and nothing hard-failed). A
+			// repo with no build/reconcile subsystem to record (e.g. a governance control
+			// repo) would otherwise render "unknown"; reaching here means passing.
+			if status == "unknown" {
+				status = "passing"
+			}
+			os.Setenv("BUILD_STATUS", status)
 		} else {
 			os.Setenv("BUILD_STATUS", "failing")
 		}
