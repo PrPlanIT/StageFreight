@@ -199,7 +199,7 @@ func renderStencilBody(appCfg *config.Config, def config.StencilDef, linkBase, r
 		},
 	})
 	if vi != nil {
-		text = facts.ScribeRegistry().ResolveOne(text, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars})
+		text = facts.ScribeRegistry().ResolveOne(text, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars, Config: appCfg})
 	}
 	return strings.TrimRight(collapseBlanks(text), "\n")
 }
@@ -430,7 +430,7 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 		}
 		link := gitver.ResolveVars(def.Link, appCfg.Vars)
 		if vi != nil {
-			link = facts.ScribeRegistry().ResolveOne(link, &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars})
+			link = facts.ScribeRegistry().ResolveOne(link, &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars, Config: appCfg})
 		}
 		resolved := def
 		resolved.Link = link
@@ -456,7 +456,11 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 			label = shieldPath // raw-path form: fall back to the path as alt
 		}
 		if vi != nil {
-			label = facts.ScribeRegistry().ResolveOne(label, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars})
+			// Both the label and the link resolve fact families ({path.<surface>},
+			// {metadata.*}, …) — the link no less than any badge's, so it goes through
+			// the same registry rather than the vars-only pass above.
+			label = facts.ScribeRegistry().ResolveOne(label, &facts.Context{Version: vi, RootDir: "", Vars: appCfg.Vars, Config: appCfg})
+			link = facts.ScribeRegistry().ResolveOne(link, &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars, Config: appCfg})
 		}
 		return render.ShieldModule{
 			Path:  shieldPath,
