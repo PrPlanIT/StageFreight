@@ -178,9 +178,11 @@ func Apply(ctx context.Context, store Store, templates []string, policy config.R
 	}
 
 	// Whether any WITHIN-group (sequence) rule is active. keep_branches alone bounds
-	// group count but keeps everything ∞ within each surviving group.
+	// group count but keeps everything ∞ within each surviving group. max_age and
+	// scoped refs are sequence rules too.
 	seqActive := policy.KeepLast > 0 || policy.KeepDaily > 0 ||
-		policy.KeepWeekly > 0 || policy.KeepMonthly > 0 || policy.KeepYearly > 0
+		policy.KeepWeekly > 0 || policy.KeepMonthly > 0 || policy.KeepYearly > 0 ||
+		policy.MaxAge != "" || len(policy.Refs) > 0
 
 	// Prune the sequence within each surviving group.
 	for key, g := range groups {
@@ -198,7 +200,7 @@ func Apply(ctx context.Context, store Store, templates []string, policy config.R
 		sort.Slice(sorted, func(i, j int) bool {
 			return sorted[i].CreatedAt.After(sorted[j].CreatedAt)
 		})
-		keepSet := ApplyPolicies(sorted, policy)
+		keepSet := ApplyPoliciesScoped(sorted, policy)
 		for i, it := range sorted {
 			if keepSet[i] {
 				keep[it.Name] = true
@@ -242,6 +244,89 @@ func Apply(ctx context.Context, store Store, templates []string, policy config.R
 	return result, nil
 }
 
+// Effective resolves the policy governing one item name: the first refs: entry whose
+// pattern matches wins, with unset ref fields inheriting the default policy; no match
+// ⇒ the default itself. Protect/Identity/KeepBranches are policy-global (never
+// per-ref) and always carry over. This is THE resolution point for scoped retention —
+// every consumer of the grammar goes through it (directly or via Apply).
+func Effective(policy config.RetentionPolicy, name string) config.RetentionPolicy {
+	for _, ref := range policy.Refs {
+		if ref.Match == "" || !config.MatchPatterns(TemplatesToPatterns([]string{ref.Match}), name) {
+			continue
+		}
+		eff := policy
+		eff.Refs = nil // resolved — prevent re-scoping downstream
+		if ref.KeepLast > 0 {
+			eff.KeepLast = ref.KeepLast
+		}
+		if ref.KeepDaily > 0 {
+			eff.KeepDaily = ref.KeepDaily
+		}
+		if ref.KeepWeekly > 0 {
+			eff.KeepWeekly = ref.KeepWeekly
+		}
+		if ref.KeepMonthly > 0 {
+			eff.KeepMonthly = ref.KeepMonthly
+		}
+		if ref.KeepYearly > 0 {
+			eff.KeepYearly = ref.KeepYearly
+		}
+		if ref.MaxAge != "" {
+			eff.MaxAge = ref.MaxAge
+		}
+		return eff
+	}
+	eff := policy
+	eff.Refs = nil
+	return eff
+}
+
+// ApplyPoliciesScoped partitions candidates by their governing policy (refs: scoped
+// overrides via Effective) and evaluates each partition independently, so a
+// `{match: go, keep_last: 4}` counts its 4 within the go-matched items only.
+// candidates must be sorted newest-first. Falls through to ApplyPolicies when the
+// policy declares no refs.
+func ApplyPoliciesScoped(candidates []Item, policy config.RetentionPolicy) []bool {
+	if len(policy.Refs) == 0 {
+		return ApplyPolicies(candidates, policy)
+	}
+	keepSet := make([]bool, len(candidates))
+	type part struct {
+		policy  config.RetentionPolicy
+		items   []Item
+		indices []int
+	}
+	parts := map[string]*part{} // keyed by first-matching ref's Match ("" = default)
+	order := []string{}
+	for i, it := range candidates {
+		key := ""
+		for _, ref := range policy.Refs {
+			if ref.Match != "" && config.MatchPatterns(TemplatesToPatterns([]string{ref.Match}), it.Name) {
+				key = ref.Match
+				break
+			}
+		}
+		p := parts[key]
+		if p == nil {
+			p = &part{policy: Effective(policy, it.Name)}
+			parts[key] = p
+			order = append(order, key)
+		}
+		p.items = append(p.items, it)
+		p.indices = append(p.indices, i)
+	}
+	for _, key := range order {
+		p := parts[key]
+		sub := ApplyPolicies(p.items, p.policy) // items retain newest-first order within the partition
+		for j, keep := range sub {
+			if keep {
+				keepSet[p.indices[j]] = true
+			}
+		}
+	}
+	return keepSet
+}
+
 // ApplyPolicies evaluates all retention rules and returns a keep/prune decision
 // for each candidate. candidates must be sorted newest-first.
 // Policies are additive: an item is kept if ANY rule marks it.
@@ -252,6 +337,20 @@ func ApplyPolicies(candidates []Item, policy config.RetentionPolicy) []bool {
 	if policy.KeepLast > 0 {
 		for i := 0; i < len(candidates) && i < policy.KeepLast; i++ {
 			keepSet[i] = true
+		}
+	}
+
+	// max_age: keep everything newer than the window (additive, like keep_*).
+	// A malformed duration keeps nothing extra rather than silently keeping all —
+	// validation rejects bad values at load; this is defense in depth.
+	if policy.MaxAge != "" {
+		if d, err := config.ParseDuration(policy.MaxAge); err == nil {
+			cutoff := time.Now().Add(-d)
+			for i, c := range candidates {
+				if !c.CreatedAt.IsZero() && c.CreatedAt.After(cutoff) {
+					keepSet[i] = true
+				}
+			}
 		}
 	}
 
