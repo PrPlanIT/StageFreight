@@ -349,6 +349,22 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		postbuild.RunMetadataSection(ctx, os.Stdout, output.UseColor(), due, rootDir, appCfg)
 	}
 
+	// Governance catalog reconcile — committing each satellite's managed config to
+	// its forge is forge mutation, so the APPLY runs HERE (publish owns forge
+	// mutation), not in perform, which previewed the plan. Accepted-state only: enact
+	// the catalog solely from a commit on the default branch — a merge request /
+	// feature branch / tag is proposed intent (already auditioned), never enacted.
+	// No-op unless governance profiles are configured.
+	if len(appCfg.Governance.Profiles) > 0 {
+		if acceptedState(ciCtx) {
+			if err := governanceReconcile(ctx, appCfg, ciCtx, opts, true); err != nil {
+				return err
+			}
+		} else {
+			renderCISkip("Reconcile", time.Now(), "governance apply binds to accepted state — not_applicable off the default branch (merge request / feature branch / tag)")
+		}
+	}
+
 	syncMirrors(ctx, appCfg)
 	return nil
 }

@@ -2097,7 +2097,6 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 
 	hasGitOps := len(appCfg.GitOps) > 0
 	hasGovernanceClusters := len(appCfg.Governance.Profiles) > 0
-	hasGovernanceSource := governanceSourceConfigured(appCfg, ciCtx)
 	hasAnsible := appCfg.Ansible.HasConvergePlaybooks()
 
 	if !hasGitOps && !hasGovernanceClusters && !hasAnsible {
@@ -2134,26 +2133,39 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 		}
 	}
 
-	// Governance reconcile — requires clusters AND source resolvable.
-	// Not mutually exclusive with gitops — both can run.
-	// In CI, source is auto-resolved from CI context and apply is implicit.
+	// Governance catalog — committing each satellite's managed config to its forge
+	// is forge mutation, which publish owns (not perform). So perform only PREVIEWS
+	// the plan (safe, no writes); the APPLY runs in publishPhaseRunner's forge-
+	// mutation tail. Not mutually exclusive with gitops — both can run.
 	if hasGovernanceClusters {
-		if !hasGovernanceSource {
-			renderCISkip("Reconcile", start, "governance source not configured")
-		} else {
-			// CI implies --apply: the reconcile stage exists to apply.
-			if err := executeGovernanceReconcile(ctx, GovernanceReconcileOpts{
-				Apply:   true,
-				Config:  appCfg,
-				CICtx:   ciCtx,
-				Verbose: opts.Verbose,
-			}); err != nil {
-				return errors.Join(ansibleErr, err)
-			}
+		if err := governanceReconcile(ctx, appCfg, ciCtx, opts, false); err != nil {
+			return errors.Join(ansibleErr, err)
 		}
 	}
 
 	return ansibleErr
+}
+
+// governanceReconcile previews (apply=false) or applies (apply=true) the governance
+// catalog to its satellite repos. Committing the managed config to a satellite's forge
+// is forge mutation, so the APPLY is invoked from publish (which owns forge mutation),
+// while perform runs the PLAN for a safe, writeless preview. No-op unless governance
+// profiles are declared; renders a skip when the source can't be resolved.
+func governanceReconcile(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions, apply bool) error {
+	if len(appCfg.Governance.Profiles) == 0 {
+		return nil
+	}
+	if !governanceSourceConfigured(appCfg, ciCtx) {
+		renderCISkip("Reconcile", time.Now(), "governance source not configured")
+		return nil
+	}
+	return executeGovernanceReconcile(ctx, GovernanceReconcileOpts{
+		DryRun:  !apply,
+		Apply:   apply,
+		Config:  appCfg,
+		CICtx:   ciCtx,
+		Verbose: opts.Verbose,
+	})
 }
 
 // ── shared executor preflight ─────────────────────────────────────────────────
