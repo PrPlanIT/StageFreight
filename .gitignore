@@ -13,3 +13,4 @@ src/output/banner_art_gen.go
 # SHA256SUMS) is covered by .stagefreight/.gitignore. The bare /dist/ guard
 # remains for legacy/`--output-dir dist` local builds.
 /dist/
+/sf-new
