@@ -939,7 +939,9 @@ func guessBinaryName(url string) string {
 // ── ARG variable resolution ──────────────────────────────────────────────────
 
 // argVarRe matches the three shell-style reference forms usable in a FROM/RUN token:
-//   ${VAR}   ${VAR:-default}   $VAR
+//
+//	${VAR}   ${VAR:-default}   $VAR
+//
 // Group 1/2 = braced name/inline-default; group 3 = bare name.
 var argVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -100,13 +101,27 @@ func (e *imageEngine) Plan(ctx context.Context, cfgRaw interface{}, det *build.D
 // planDockerBuild creates a BuildStep for a single docker build entry,
 // resolving its registry targets from cfg.Targets.
 func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detection, versionInfo *gitver.VersionInfo, currentBranch, currentGitTag string) (*build.BuildStep, error) {
-	// Resolve Dockerfile path
+	// Resolve Dockerfile path. A single detected candidate is unambiguous and is
+	// adopted; SEVERAL is a choice only the operator can make, so it is an error
+	// rather than a silent lexical first-pick. Guessing here builds the wrong image
+	// and says nothing — weave-gitops silently built its dev stub (ADD bin build,
+	// expecting a binary the pipeline never produces) instead of its server image.
 	dockerfile := b.Dockerfile
-	if dockerfile == "" && len(det.Dockerfiles) > 0 {
-		dockerfile = det.Dockerfiles[0].Path
-	}
 	if dockerfile == "" {
-		return nil, fmt.Errorf("no Dockerfile found")
+		switch len(det.Dockerfiles) {
+		case 0:
+			return nil, fmt.Errorf("no Dockerfile found")
+		case 1:
+			dockerfile = det.Dockerfiles[0].Path
+		default:
+			names := make([]string, 0, len(det.Dockerfiles))
+			for _, d := range det.Dockerfiles {
+				names = append(names, d.Path)
+			}
+			return nil, fmt.Errorf("builds.%s: %d Dockerfiles found (%s) — set dockerfile: to choose one; "+
+				"StageFreight will not guess which image you meant to build",
+				b.ID, len(names), strings.Join(names, ", "))
+		}
 	}
 
 	// Resolve context
