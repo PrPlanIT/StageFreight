@@ -94,3 +94,28 @@ func TestPyVenvKey_ContentAddressed(t *testing.T) {
 		t.Error("coverage must partition the venv key")
 	}
 }
+
+// A project's test-only dependencies belong in its pyproject [test] extra — the
+// standard place — so the bootstrap installs `.[test]` rather than requiring a
+// parallel requirements file. Read with the real TOML parser, not pattern-matching.
+func TestTestExtraName(t *testing.T) {
+	write := func(body string) string {
+		d := t.TempDir()
+		if err := os.WriteFile(filepath.Join(d, "pyproject.toml"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if got := testExtraName(write("[project]\nname='x'\n[project.optional-dependencies]\ntest = [\"pytest-vcr\"]\n")); got != "test" {
+		t.Errorf("declared test extra = %q, want test", got)
+	}
+	if got := testExtraName(write("[project]\nname='x'\n[project.optional-dependencies]\ndev = [\"ruff\"]\n")); got != "dev" {
+		t.Errorf("dev extra = %q, want dev", got)
+	}
+	if got := testExtraName(write("[project]\nname='x'\n")); got != "" {
+		t.Errorf("no extras = %q, want empty", got)
+	}
+	if got := testExtraName(t.TempDir()); got != "" {
+		t.Errorf("no pyproject = %q, want empty", got)
+	}
+}

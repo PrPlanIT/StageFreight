@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -83,9 +85,15 @@ func ensurePyVenv(ctx context.Context, pythonBin, projectDir string, coverage bo
 	}
 	// A project declaring pyproject/setup.py is installed as a package so its own
 	// modules import the way the test suite expects (pytest's rootdir alone does not
-	// put the project on sys.path for a src-layout).
+	// put the project on sys.path for a src-layout). A declared test EXTRA is the
+	// standard place Python projects put their test-only dependencies, so it is
+	// installed with the package rather than requiring a parallel requirements file.
 	if hasAny(projectDir, "pyproject.toml", "setup.py", "setup.cfg") {
-		install = append(install, "-e", ".")
+		target := "."
+		if extra := testExtraName(projectDir); extra != "" {
+			target = ".[" + extra + "]"
+		}
+		install = append(install, "-e", target)
 	}
 	if out, err := runPy(ctx, projectDir, venvPy, install...); err != nil {
 		return "", fmt.Errorf("installing test dependencies: %w\n%s", err, out)
@@ -115,6 +123,31 @@ func pyVenvKey(pythonBin, projectDir string, coverage bool) (string, []string) {
 		found = append(found, p)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16], found
+}
+
+// testExtraName returns the project's test extra ("test" or "dev", first match) as
+// declared in pyproject.toml's [project.optional-dependencies], or "" when the project
+// declares none. Read with the real TOML parser — a project's dependency declaration
+// is not something to pattern-match at.
+func testExtraName(projectDir string) string {
+	data, err := os.ReadFile(filepath.Join(projectDir, "pyproject.toml"))
+	if err != nil {
+		return ""
+	}
+	var doc struct {
+		Project struct {
+			OptionalDependencies map[string][]string `toml:"optional-dependencies"`
+		} `toml:"project"`
+	}
+	if err := toml.Unmarshal(data, &doc); err != nil {
+		return ""
+	}
+	for _, name := range []string{"test", "tests", "dev"} {
+		if _, ok := doc.Project.OptionalDependencies[name]; ok {
+			return name
+		}
+	}
+	return ""
 }
 
 func hasAny(dir string, names ...string) bool {
