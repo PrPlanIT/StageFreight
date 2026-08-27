@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/PrPlanIT/StageFreight/src/presetref"
 )
 
@@ -23,6 +25,7 @@ var SourceFetcher presetref.Fetcher
 type sourceAwareLoader struct {
 	local    localPresetLoader
 	cacheDir string
+	forges   map[string]string // forge id → base URL, from the config being loaded
 }
 
 func (l sourceAwareLoader) Load(path string) ([]byte, error) {
@@ -30,6 +33,7 @@ func (l sourceAwareLoader) Load(path string) ([]byte, error) {
 	if ref.Kind == presetref.Local {
 		return l.local.Load(path)
 	}
+	ref.Source = l.resolveSource(ref.Source)
 	r := presetref.Resolver{
 		Fetcher: SourceFetcher,
 		Cache:   presetref.NewFSCache(l.cacheDir),
@@ -40,6 +44,58 @@ func (l sourceAwareLoader) Load(path string) ([]byte, error) {
 		r.Mode = presetref.FetchOffline
 	}
 	return r.Resolve(ref)
+}
+
+// resolveSource maps a forge-shorthand preset source ("<forgeid>:<group>/<repo>") to a
+// repo URL using the config's own forges: block. A URL (has a scheme) or an scp-like
+// remote passes through unchanged; an unknown shorthand also passes through, leaving the
+// fetcher to error clearly.
+func (l sourceAwareLoader) resolveSource(source string) string {
+	if strings.Contains(source, "://") {
+		return source // already a URL
+	}
+	id, rest, ok := strings.Cut(source, ":")
+	if !ok {
+		return source
+	}
+	if base, found := l.forges[id]; found {
+		return strings.TrimSuffix(base, "/") + "/" + rest
+	}
+	return source // unknown forge id, or scp-like (git@host:path) → leave for the fetcher
+}
+
+// forgeURLsFromNode extracts forge id → url from a config's raw YAML node, so a
+// forge-shorthand preset source can be resolved during load (before the struct decode).
+func forgeURLsFromNode(root *yaml.Node) map[string]string {
+	out := map[string]string{}
+	doc := root
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return out
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		if doc.Content[i].Value != "forges" {
+			continue
+		}
+		forges := doc.Content[i+1]
+		if forges.Kind != yaml.MappingNode {
+			return out
+		}
+		for j := 0; j+1 < len(forges.Content); j += 2 {
+			id, entry := forges.Content[j].Value, forges.Content[j+1]
+			if entry.Kind != yaml.MappingNode {
+				continue
+			}
+			for k := 0; k+1 < len(entry.Content); k += 2 {
+				if entry.Content[k].Value == "url" {
+					out[id] = entry.Content[k+1].Value
+				}
+			}
+		}
+	}
+	return out
 }
 
 // SectionState is the resolved state of one config domain section.

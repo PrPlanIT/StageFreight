@@ -236,7 +236,11 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	if dirExists(cacheDir) {
 		presetBase = cacheDir
 	}
-	loader := sourceAwareLoader{local: localPresetLoader{baseDir: presetBase}, cacheDir: cacheDir}
+	loader := sourceAwareLoader{
+		local:    localPresetLoader{baseDir: presetBase},
+		cacheDir: cacheDir,
+		forges:   forgeURLsFromNode(&rootNode),
+	}
 	resolvedNode, entries, rerr := ResolvePresets(&rootNode, loader, "local", absPath, 0, nil)
 
 	// Decode the RESOLVED node only when presets actually composed something; a

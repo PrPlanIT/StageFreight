@@ -47,3 +47,21 @@ func TestSourceAwareLoader(t *testing.T) {
 		t.Fatal("sourced ref with no fetcher and empty cache should error")
 	}
 }
+
+// TestResolveSource covers forge-shorthand → URL resolution from the config's forges: a
+// known forge id maps to its base URL; a URL, an scp-like remote, or an unknown id passes
+// through (the fetcher then errors clearly on the unresolvable ones).
+func TestResolveSource(t *testing.T) {
+	l := sourceAwareLoader{forges: map[string]string{"gitlab": "https://gl.example/"}}
+	cases := []struct{ in, want string }{
+		{"gitlab:Org/Repo", "https://gl.example/Org/Repo"},
+		{"https://host/org/repo", "https://host/org/repo"},
+		{"git@host:org/repo", "git@host:org/repo"},   // scp-like, unknown id → passthrough
+		{"unknown:foo/bar", "unknown:foo/bar"},       // unknown forge id → passthrough
+	}
+	for _, c := range cases {
+		if got := l.resolveSource(c.in); got != c.want {
+			t.Errorf("resolveSource(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
