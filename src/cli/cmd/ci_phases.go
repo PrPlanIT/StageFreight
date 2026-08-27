@@ -126,6 +126,16 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 		}
 	}
 
+	// Disk GC — the always-on SF lifecycle, here at the FRONT of the pipeline so the
+	// runner is healthy before anything can break on a full disk, and specifically
+	// BEFORE the executor preflight each mode runner performs: the executor is what
+	// marks the substrate unhealthy, so it must assess the post-reclaim state. Silent
+	// when the disk is healthy (the Executor panel below reports the space);
+	// pressure-gated to a statfs otherwise. Reclaims ONLY SF-owned artifacts, plus
+	// operator-declared adoptions when build_cache.cleanup authorizes them. Never
+	// gates or fails the phase.
+	runDiskGC(ctx, appCfg)
+
 	// The correctness gate (tests) runs INSIDE each mode runner — after lint, before
 	// any dependency mutation — so tests validate the COMMITTED tree first, and deps
 	// re-verifies its own mutation (see depsRunner). Covers image and gitops.
@@ -165,12 +175,6 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		return err
 	}
 
-	// Disk GC — the always-on SF lifecycle, pressure-gated (a cheap statfs when the
-	// disk is healthy). Runs for EVERY mode: perform is the job with the cache mount +
-	// docker.sock, so it is where the runner's disk can be kept healthy. Reclaims ONLY
-	// SF-owned artifacts (namespace/provenance) plus operator-declared adoptions when
-	// build_cache.cleanup is enabled; never gates or fails the phase.
-	runDiskGC(ctx, appCfg)
 	switch {
 	case appCfg.Mode().PhaseReconcile:
 		// Reconcile binds to ACCEPTED state — a commit on the default branch, the

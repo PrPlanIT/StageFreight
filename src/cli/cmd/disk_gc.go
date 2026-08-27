@@ -11,9 +11,12 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/prune"
 )
 
-// runDiskGC is the perform-phase disk-health pass: pressure-gated (over
-// prune.DefaultTarget it enforces the SF-owned lifecycle; under it, a one-line
-// healthy no-op). Best-effort by design — the GC must never fail or gate a build.
+// runDiskGC is the audition-phase disk-health pass, run BEFORE the executor
+// preflight: the executor is what marks the substrate unhealthy on a full disk, so
+// reclaiming first means it assesses the TRUE post-GC state instead of failing the run
+// on a problem this lifecycle exists to prevent. Pressure-gated and SILENT when the
+// disk is healthy — the Executor panel right after already reports free space, so a
+// box that says "nothing to do" is noise. Best-effort: never fails or gates a phase.
 func runDiskGC(ctx context.Context, appCfg *config.Config) {
 	root := paths.ResolveCacheRoot("")
 	if root == "" {
@@ -28,10 +31,7 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 		CacheRoot: root, Target: prune.DefaultTarget, HostCleanup: hostCleanup,
 	})
 	if len(actions) == 0 {
-		sec := output.NewSection(os.Stdout, "Disk GC", time.Since(start), color)
-		sec.Row("disk         %.0f%% used — healthy (target %.0f%%)", used*100, prune.DefaultTarget*100)
-		sec.Close()
-		return
+		return // healthy — say nothing; the Executor panel carries the disk facts
 	}
 
 	results := prune.Execute(ctx, actions, true)
