@@ -169,6 +169,7 @@ func ResolveTemplateWithDir(tmpl string, v *VersionInfo, rootDir string) string 
 // hidden cross-surface state.
 type ResolveOptions struct {
 	ProjectDescription string // resolves {project.description}; "" leaves it empty
+	ProjectLicense     string // overrides {project.license} (from metadata); "" → the LICENSE scan
 }
 
 // ResolveTemplateWithDirAndVars expands template variables with scoped version
@@ -202,7 +203,7 @@ func ResolveTemplateWithOpts(tmpl string, v *VersionInfo, rootDir string, vars m
 	if rootDir != "" {
 		s = resolveScopedVersions(s, rootDir)
 		s = resolveCommitDate(s, rootDir)
-		s = resolveProjectMeta(s, rootDir, opts.ProjectDescription)
+		s = resolveProjectMeta(s, rootDir, opts.ProjectDescription, opts.ProjectLicense)
 	}
 
 	// Resolve parameterized templates (they contain colons that
@@ -555,16 +556,21 @@ func headCommitTime(rootDir string) (time.Time, bool) {
 // resolveProjectMeta replaces {project.*} templates with auto-detected project metadata.
 // Name, URL, and language are detected from git and filesystem.
 // License is detected from LICENSE file content.
-// Description is caller-injected (config-sourced) via ResolveOptions — "" leaves the
-// {project.description} token resolving to empty.
-func resolveProjectMeta(s string, rootDir string, description string) string {
+// Description and license are caller-injected (config-sourced) via ResolveOptions.
+// description "" leaves {project.description} empty; license "" falls back to the
+// detected LICENSE-file identifier (metadata.license, when set, is authoritative).
+func resolveProjectMeta(s string, rootDir string, description, license string) string {
 	if !strings.Contains(s, "{project.") {
 		return s
 	}
 	pm := DetectProject(rootDir)
+	lic := license
+	if lic == "" {
+		lic = pm.License // no injected metadata license → the LICENSE-file scan
+	}
 	s = strings.ReplaceAll(s, "{project.name}", pm.Name)
 	s = strings.ReplaceAll(s, "{project.url}", pm.URL)
-	s = strings.ReplaceAll(s, "{project.license}", pm.License)
+	s = strings.ReplaceAll(s, "{project.license}", lic)
 	s = strings.ReplaceAll(s, "{project.language}", pm.Language)
 	s = strings.ReplaceAll(s, "{project.module}", pm.Module)
 	s = strings.ReplaceAll(s, "{project.description}", description)

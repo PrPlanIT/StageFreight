@@ -48,13 +48,35 @@ func RunMetadataSection(ctx context.Context, w io.Writer, color bool, targets []
 	var rows []metaRow
 
 	for _, t := range targets {
-		// Resolve description variants + website through {var:} templates once.
-		variants := make([]string, 0, len(t.Description))
-		for _, d := range t.Description {
+		// Source each identity field from the target when it sets it, else fall back to the
+		// first-class metadata: block (the settled single source). Resolve {var:} once.
+		m := appCfg.Metadata
+		descList := t.Description
+		if len(descList) == 0 {
+			descList = m.Description.Default
+		}
+		variants := make([]string, 0, len(descList))
+		for _, d := range descList {
 			variants = append(variants, gitver.ResolveVars(d, appCfg.Vars))
 		}
-		website := gitver.ResolveVars(t.Website, appCfg.Vars)
-		topics, topicWarnings := normalizeTopics(t.Topics)
+		websiteSrc := t.Website
+		if websiteSrc == "" {
+			websiteSrc = m.Website
+		}
+		website := gitver.ResolveVars(websiteSrc, appCfg.Vars)
+		topicsSrc := t.Topics
+		if len(topicsSrc) == 0 {
+			topicsSrc = m.Topics
+		}
+		topics, topicWarnings := normalizeTopics(topicsSrc)
+		readme := t.Readme
+		if readme == "" {
+			readme = m.Readme.Default
+		}
+		logo := t.Logo
+		if logo == "" {
+			logo = m.Icon
+		}
 
 		// ── registry destinations: short description (cap-fit) + long readme body ──
 		for _, rid := range t.Registry {
@@ -72,8 +94,8 @@ func RunMetadataSection(ctx context.Context, w io.Writer, color bool, targets []
 			}
 
 			var full, derivedShort string
-			if t.Readme != "" {
-				if content, perr := registry.PrepareReadmeFromFile(t.Readme, "", linkBase, rawBase, rootDir); perr == nil {
+			if readme != "" {
+				if content, perr := registry.PrepareReadmeFromFile(readme, "", linkBase, rawBase, rootDir); perr == nil {
 					full, derivedShort = content.Full, content.Short
 				}
 			}
@@ -130,10 +152,10 @@ func RunMetadataSection(ctx context.Context, w io.Writer, color bool, targets []
 			// Idempotent logo: only pass LogoPath when the file's hash differs from what we
 			// last uploaded to this destination.
 			logoPath, logoHash, logoKey := "", "", "logo:"+repoID
-			if t.Logo != "" {
-				abs := t.Logo
+			if logo != "" {
+				abs := logo
 				if !filepath.IsAbs(abs) {
-					abs = filepath.Join(rootDir, t.Logo)
+					abs = filepath.Join(rootDir, logo)
 				}
 				if h, herr := hashFile(abs); herr == nil {
 					logoHash = h
@@ -243,6 +265,11 @@ func normalizeTopics(raw []string) ([]string, []string) {
 // FirstProjectDescription returns the project description from the first metadata target —
 // for injecting into badges/build context.
 func FirstProjectDescription(cfg *config.Config) string {
+	// Prefer the first-class metadata: block (the settled single source of identity);
+	// fall back to a legacy inline kind:metadata target description for un-migrated configs.
+	if d := cfg.Metadata.Description.Default.First(); d != "" {
+		return d
+	}
 	for _, t := range cfg.Targets {
 		if t.Kind == "metadata" && t.Description.First() != "" {
 			return t.Description.First()

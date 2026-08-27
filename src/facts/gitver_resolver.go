@@ -33,6 +33,15 @@ func (gitverLeaf) Resolve(values []string, c *Context) []string {
 		return values // no version info → leaf pass is a no-op (matches gitver's own guard)
 	}
 	opts := gitver.ResolveOptions{ProjectDescription: c.Description}
+	if c.Config != nil {
+		// metadata.license is authoritative for {project.license} (over the LICENSE scan);
+		// and when no description was injected explicitly (e.g. the scribe surface),
+		// {project.description} falls back to the metadata block too.
+		opts.ProjectLicense = c.Config.Metadata.License
+		if opts.ProjectDescription == "" {
+			opts.ProjectDescription = c.Config.Metadata.Description.Default.First()
+		}
+	}
 	out := make([]string, len(values))
 	for i, v := range values {
 		out[i] = gitver.ResolveTemplateWithOpts(v, c.Version, c.RootDir, c.Vars, opts)
