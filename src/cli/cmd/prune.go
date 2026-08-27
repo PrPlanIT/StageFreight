@@ -55,6 +55,7 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 			return nil
 		}
 
+		freeBefore := prune.FreeBytes(root)
 		results := prune.Execute(cmd.Context(), actions, pruneDoConfirm)
 		mode := "dry-run"
 		if pruneDoConfirm {
@@ -88,11 +89,19 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 			}
 		}
 		sec.Separator()
-		verb := "would free"
 		if pruneDoConfirm {
-			verb = "freed"
+			// Ground truth: daemon-side prunes report no size, so the filesystem delta
+			// is the only honest measure of what a run actually reclaimed.
+			reclaimed := prune.FreeBytes(root) - freeBefore
+			if reclaimed < 0 {
+				reclaimed = 0
+			}
+			sec.Row("freed %s · disk %.0f%% → %.0f%% used", humanGCBytes(reclaimed), used*100, prune.UsedFraction(root)*100)
+		} else {
+			// A preview can only size what it can enumerate; daemon prunes are unsized
+			// until they run, so this floor is explicitly a floor.
+			sec.Row("would free ≥ %s from measurable evictions (daemon prunes unsized until run)", humanGCBytes(freed))
 		}
-		sec.Row("%s ≥ %s (dir-evictions measured; daemon prunes report separately)", verb, humanGCBytes(freed))
 		if !pruneDoConfirm {
 			sec.Row("dry-run — re-run with --confirm to execute")
 		}

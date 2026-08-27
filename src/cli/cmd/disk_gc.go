@@ -34,6 +34,7 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 		return // healthy — say nothing; the Executor panel carries the disk facts
 	}
 
+	freeBefore := prune.FreeBytes(root)
 	results := prune.Execute(ctx, actions, true)
 	sec := output.NewSection(os.Stdout, "Disk GC", time.Since(start), color)
 	sec.Row("disk         %.0f%% used ≥ target %.0f%% — enforcing SF-owned lifecycle", used*100, prune.DefaultTarget*100)
@@ -54,6 +55,14 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 		}
 	}
 	sec.Separator()
-	sec.Row("freed ≥ %s · now %.0f%% used", humanGCBytes(freed), prune.UsedFraction(root)*100)
+	// Report the filesystem delta, not the sum of per-action byte counts: the
+	// daemon-side prunes (images, builder cache) return no size, so summing what the
+	// dir-evictions measured under-reports the real reclaim by orders of magnitude —
+	// 83 MiB claimed for a run that moved the disk from 96% to 86%.
+	reclaimed := prune.FreeBytes(root) - freeBefore
+	if reclaimed < 0 {
+		reclaimed = 0 // concurrent writes outpaced the reclaim; do not report a negative
+	}
+	sec.Row("freed %s · disk %.0f%% → %.0f%% used", humanGCBytes(reclaimed), used*100, prune.UsedFraction(root)*100)
 	sec.Close()
 }
