@@ -199,32 +199,16 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 	}, nil
 }
 
-// resolveTemplateVars expands template variables in args and similar strings.
+// resolveTemplateVars expands template variables in build args, delegating to the shared
+// gitver leaf pass so a build preset gets the FULL fact set (version, {sha:N}, commit,
+// project incl. {project.module}, env, ci, …) rather than the former narrow subset. Only
+// two build-local tokens the leaf pass doesn't own are resolved first:
+//   - {output}: the build's declared output path (a command names it once).
+//   - {date}:   the build TIMESTAMP (RFC3339). This is deliberately RFC3339 — distinct
+//               from gitver's display {date} (YYYY-MM-DD) — because a binary's BuildDate
+//               wants a timestamp; resolving it here, before the leaf pass, keeps that.
 func resolveTemplateVars(s string, cfg build.BuildConfig) string {
-	if cfg.Version != nil {
-		s = strings.ReplaceAll(s, "{version}", cfg.Version.Version)
-		s = strings.ReplaceAll(s, "{sha}", cfg.Version.SHA)
-		// Support {sha:N} for truncated SHA
-		for n := 1; n <= 40; n++ {
-			placeholder := fmt.Sprintf("{sha:%d}", n)
-			if strings.Contains(s, placeholder) {
-				sha := cfg.Version.SHA
-				if len(sha) > n {
-					sha = sha[:n]
-				}
-				s = strings.ReplaceAll(s, placeholder, sha)
-			}
-		}
-	}
-	// {project.module}: the repo's canonical module/package name from its build manifest,
-	// so a shared build preset can embed it (e.g. ldflags -X {project.module}/src/version…)
-	// and serve a whole bucket. Detected only when referenced (avoids a manifest read per arg).
-	if cfg.RootDir != "" && strings.Contains(s, "{project.module}") {
-		s = strings.ReplaceAll(s, "{project.module}", gitver.ProjectModule(cfg.RootDir))
-	}
-	s = strings.ReplaceAll(s, "{date}", time.Now().UTC().Format(time.RFC3339))
-	// {output} resolves to the build's declared output path so a command can name it once:
-	//   outputs: [{ source: docs/modules }]  →  command: [..., --output-dir, "{output}"]
 	s = strings.ReplaceAll(s, "{output}", cfg.Output)
-	return s
+	s = strings.ReplaceAll(s, "{date}", time.Now().UTC().Format(time.RFC3339))
+	return gitver.ResolveTemplateWithDirAndVars(s, cfg.Version, cfg.RootDir, nil)
 }
