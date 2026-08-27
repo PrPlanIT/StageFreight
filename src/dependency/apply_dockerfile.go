@@ -29,6 +29,34 @@ func NormalizeSkipReason(reason string) string {
 	}
 }
 
+// corruptPinPrefix marks a skip reason that describes a pin the engine can neither use
+// nor repair. It is a distinct condition from an ordinary mismatch: the file is WRONG,
+// not merely unrecognized, and no future run will fix it.
+const corruptPinPrefix = "corrupt pin: "
+
+// versionHasPathSeparator reports whether a version-shaped value carries a "/".
+//
+// No version string contains one. Its presence means the value was written from an
+// un-normalized upstream release tag — monorepos tag component releases as
+// "kustomize/v5.8.1" or "api/v1.2.3" — which discovery is supposed to reduce to a bare
+// version (see versionFromTag). This is the last line of defence: if a mangled value
+// reaches the writer, refuse rather than commit it to someone's Dockerfile.
+//
+// The failure this prevents is silent and durable. Writing "vkustomize/v5.8.1" produces
+// a 404 download that only surfaces on the next build, and the pin can never self-heal:
+// on the following run Current parses to "kustomize/v5.8.1" while Latest resolves to
+// "5.8.1", they disagree, and the writer declines every subsequent update. One bad write
+// wedges the dependency permanently, so the write is the right place to stop it.
+func versionHasPathSeparator(v string) bool { return strings.Contains(v, "/") }
+
+// bareVersion is the repair suggestion for a mangled pin: the segment after the last "/".
+func bareVersion(v string) string {
+	if i := strings.LastIndex(v, "/"); i >= 0 {
+		return v[i+1:]
+	}
+	return v
+}
+
 // Dockerfile regexes: capture prefix/token/suffix groups for minimal diffs.
 var (
 	// FROM prefix(group1) image-token(group2) suffix(group3)
@@ -85,7 +113,14 @@ func applyDockerfileUpdates(deps []supplychain.Dependency, repoRoot string) ([]A
 
 		newLine, skip := buildReplacement(dep, origLine)
 		if skip != "" {
-			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: skip})
+			// A corrupt pin is not a mismatch the next run might resolve — it is a file
+			// that needs a human edit, and it must not be filed under the same category
+			// as the transient cases or it disappears into them.
+			cat := SkipSourceMismatch
+			if strings.HasPrefix(skip, corruptPinPrefix) {
+				cat = SkipCorruptPin
+			}
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: cat, Reason: skip})
 			continue
 		}
 		if newLine == origLine {
@@ -209,6 +244,13 @@ func buildEnvReplacement(dep supplychain.Dependency, origLine string) (string, s
 		}
 		// m[4]:m[5] is the value capture group
 		foundValue := origLine[m[4]:m[5]]
+		// The pin already in the file is itself mangled — report it as the distinct,
+		// unrecoverable condition it is, naming the repair, rather than letting it read
+		// as an ordinary mismatch that a later run might resolve. It never will.
+		if versionHasPathSeparator(foundValue) {
+			return origLine, fmt.Sprintf("%s%s=%s is not a version; set it to %q by hand",
+				corruptPinPrefix, dep.Binding, foundValue, bareVersion(foundValue))
+		}
 		// Normalize v-prefix: freshness strips "v" from Current/Latest,
 		// but the raw file may have it (e.g. "v0.32.0" vs "0.32.0").
 		normalizedFound := strings.TrimPrefix(foundValue, "v")
@@ -217,6 +259,10 @@ func buildEnvReplacement(dep supplychain.Dependency, origLine string) (string, s
 		}
 		// Preserve original prefix when writing replacement
 		target := dep.UpdateTarget()
+		if versionHasPathSeparator(target) {
+			return origLine, fmt.Sprintf("%sresolved target %q is not a version — refusing to write it",
+				corruptPinPrefix, target)
+		}
 		replacement := target
 		if strings.HasPrefix(foundValue, "v") && !strings.HasPrefix(target, "v") {
 			replacement = "v" + target
@@ -229,11 +275,19 @@ func buildEnvReplacement(dep supplychain.Dependency, origLine string) (string, s
 	if m == nil {
 		return origLine, "version not resolvable from source"
 	}
+	if versionHasPathSeparator(m[2]) {
+		return origLine, fmt.Sprintf("%s%s is not a version; set it to %q by hand",
+			corruptPinPrefix, m[2], bareVersion(m[2]))
+	}
 	normalizedFound := strings.TrimPrefix(m[2], "v")
 	if normalizedFound != dep.Current {
 		return origLine, "source value mismatch"
 	}
 	target := dep.UpdateTarget()
+	if versionHasPathSeparator(target) {
+		return origLine, fmt.Sprintf("%sresolved target %q is not a version — refusing to write it",
+			corruptPinPrefix, target)
+	}
 	replacement := target
 	if strings.HasPrefix(m[2], "v") && !strings.HasPrefix(target, "v") {
 		replacement = "v" + target

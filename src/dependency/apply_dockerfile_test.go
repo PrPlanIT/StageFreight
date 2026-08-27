@@ -3,6 +3,7 @@ package dependency
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -241,5 +242,54 @@ func TestApplyDockerfileUpdates_FromLineBump(t *testing.T) {
 	want := "FROM php:8.3.15-fpm-alpine\nRUN echo hi\n"
 	if string(out) != want {
 		t.Errorf("rewritten Dockerfile = %q, want %q", string(out), want)
+	}
+}
+
+// A pin already mangled by an earlier run must be reported as the distinct,
+// unrecoverable condition it is — naming the repair — not as an ordinary mismatch a
+// later run might clear. It never clears: Current and Latest permanently disagree.
+func TestBuildEnvReplacementReportsCorruptPin(t *testing.T) {
+	dep := supplychain.Dependency{
+		Current: "kustomize/v5.8.1", Latest: "5.8.1",
+		Ecosystem: supplychain.EcosystemGitHubRelease, Binding: "KUSTOMIZE_VERSION",
+	}
+	_, skip := buildEnvReplacement(dep, "ARG KUSTOMIZE_VERSION=vkustomize/v5.8.1")
+	if !strings.HasPrefix(skip, corruptPinPrefix) {
+		t.Fatalf("skip = %q, want the corrupt-pin condition", skip)
+	}
+	if !strings.Contains(skip, `"v5.8.1"`) {
+		t.Errorf("skip must name the repair value, got %q", skip)
+	}
+}
+
+// The writer is the last line of defence: a target carrying a path separator is refused
+// rather than committed to a Dockerfile, because one bad write wedges the pin forever.
+func TestBuildEnvReplacementRefusesMangledTarget(t *testing.T) {
+	dep := supplychain.Dependency{
+		Current: "5.8.0", Latest: "kustomize/v5.8.1",
+		Ecosystem: supplychain.EcosystemGitHubRelease, Binding: "KUSTOMIZE_VERSION",
+	}
+	line := "ARG KUSTOMIZE_VERSION=v5.8.0"
+	got, skip := buildEnvReplacement(dep, line)
+	if !strings.HasPrefix(skip, corruptPinPrefix) {
+		t.Fatalf("skip = %q, want refusal to write a mangled target", skip)
+	}
+	if got != line {
+		t.Errorf("line must be left untouched, got %q", got)
+	}
+}
+
+// A well-formed bump still applies — the guards must not block the normal path.
+func TestBuildEnvReplacementStillAppliesCleanBump(t *testing.T) {
+	dep := supplychain.Dependency{
+		Current: "5.8.0", Latest: "5.8.1",
+		Ecosystem: supplychain.EcosystemGitHubRelease, Binding: "KUSTOMIZE_VERSION",
+	}
+	got, skip := buildEnvReplacement(dep, "ARG KUSTOMIZE_VERSION=v5.8.0")
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	if got != "ARG KUSTOMIZE_VERSION=v5.8.1" {
+		t.Errorf("got %q, want the v-prefix preserved bump", got)
 	}
 }

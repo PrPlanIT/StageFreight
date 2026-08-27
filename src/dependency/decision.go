@@ -31,6 +31,7 @@ const (
 	// --- apply-layer decisions (apply_*.go) ---
 	SkipSourceUnresolvable SkipCategory = "source_unresolvable" // manifest line pattern not recognized
 	SkipSourceMismatch     SkipCategory = "source_mismatch"     // current value not found where expected
+	SkipCorruptPin         SkipCategory = "corrupt_pin"         // pinned value is not a version; needs a human edit
 	SkipNoChange           SkipCategory = "no_change"           // replacement produced no diff
 	SkipNoGoSource         SkipCategory = "no_go_source"        // content/tooling module, no Go source
 	SkipReplaceDirective   SkipCategory = "replace_directive"   // go.mod replace present
