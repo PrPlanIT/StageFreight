@@ -276,7 +276,7 @@ _Plus the [global flags](#cli-global-flags)._
 
 *↩ [`stagefreight ci`](#cli-stagefreight-ci)*
 
-**Usage:** `stagefreight ci render <forge>`
+**Usage:** `stagefreight ci render [forge]`
 
 Generate a forge-native CI pipeline file from StageFreight configuration.
 
@@ -291,6 +291,11 @@ Modes:
 --check   Verify the committed pipeline matches what would be rendered (exit 1 if stale)
 (default) Print the rendered pipeline to stdout
 ```
+
+The forge argument is optional when ci.forge: declares it — a repo has already
+said where its CI runs, and making it repeat that on every invocation invites the
+two to disagree. Passing one renders that forge only; with several declared and
+--write or --check, all of them are handled.
 
 **Flags:**
 
