@@ -70,11 +70,11 @@ func loadSatelliteConfig(repo string, sealed []byte, presetFiles map[string][]by
 // here keeps the two in lockstep by construction, which is the only way they stay in step
 // across a fleet nobody re-renders by hand.
 //
-// Returns nothing when the config declares no ci.forges: without that declaration there
+// Returns nothing when the config declares no ci.forge: without that declaration there
 // is nothing to render, and inferring one would write a skeleton for a forge that may
 // never run it.
 func renderSatelliteCI(repo string, cfg *config.Config) ([]satelliteCIFile, error) {
-	if len(cfg.CI.Forges) == 0 {
+	if len(cfg.CI.Forge) == 0 {
 		return nil, nil
 	}
 	plan, err := render.Plan(cfg)
@@ -84,21 +84,21 @@ func renderSatelliteCI(repo string, cfg *config.Config) ([]satelliteCIFile, erro
 
 	var out []satelliteCIFile
 	seen := map[string]bool{}
-	for _, raw := range cfg.CI.Forges {
+	for _, raw := range cfg.CI.Forge {
 		forge := strings.TrimSpace(raw)
 		if forge == "" {
-			return nil, fmt.Errorf("%s: ci.forges: empty entry (supported: %s)", repo, strings.Join(render.SupportedForges, ", "))
+			return nil, fmt.Errorf("%s: ci.forge: empty entry (supported: %s)", repo, strings.Join(render.SupportedForges, ", "))
 		}
 		// A repeated forge would render the same path twice and the second write would
 		// silently win. It is a typo, not an intent — name it.
 		if seen[forge] {
-			return nil, fmt.Errorf("%s: ci.forges: %q listed more than once", repo, forge)
+			return nil, fmt.Errorf("%s: ci.forge: %q listed more than once", repo, forge)
 		}
 		seen[forge] = true
 
 		target, err := render.ForgeTarget(forge)
 		if err != nil {
-			return nil, fmt.Errorf("%s: ci.forges: %w (supported: %s)", repo, err, strings.Join(render.SupportedForges, ", "))
+			return nil, fmt.Errorf("%s: ci.forge: %w (supported: %s)", repo, err, strings.Join(render.SupportedForges, ", "))
 		}
 		content, err := render.Emit(forge, plan)
 		if err != nil {

@@ -424,7 +424,7 @@ func TestPlanDistribution_AcceptsValidRender(t *testing.T) {
 func ciGovFixture(forges []any) *GovernanceConfig {
 	ci := map[string]any{"image": "img:latest"}
 	if forges != nil {
-		ci["forges"] = forges
+		ci["forge"] = forges
 	}
 	return &GovernanceConfig{
 		Profiles: ProfileList{{

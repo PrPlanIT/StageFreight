@@ -149,7 +149,7 @@ func PlanDistribution(
 			// as stale CI, which is a fleet-wide breakage nobody can fix without
 			// re-rendering every repo by hand. Rendered from satelliteCfg so it is the
 			// same config the satellite loads, never a re-derivation that could drift.
-			// Skipped entirely when no ci.forges is declared: see renderSatelliteCI.
+			// Skipped entirely when no ci.forge is declared: see renderSatelliteCI.
 			ciFiles, err := renderSatelliteCI(repo, satelliteCfg)
 			if err != nil {
 				return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
