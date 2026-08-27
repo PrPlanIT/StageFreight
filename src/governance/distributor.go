@@ -82,8 +82,15 @@ func PlanDistribution(
 				mergeConfigOverride(repoConfig, entry.Config)
 			}
 			// A branded catalog entry governs identity: carry its metadata into the
-			// satellite config as the metadata: block (location-only entries leave it local).
+			// satellite config as the metadata: block (location-only entries leave it
+			// local). org derives from the entry's location so the satellite resolves
+			// {org.*}/{path.*} without re-declaring it.
 			if entry.Metadata != nil {
+				if _, ok := entry.Metadata["org"]; !ok {
+					if org := orgFromLocation(entry.At); org != "" {
+						entry.Metadata["org"] = org
+					}
+				}
 				repoConfig["metadata"] = entry.Metadata
 			}
 			mergeSatelliteVars(repoConfig, forgeReader, repo)
@@ -150,6 +157,21 @@ func PlanDistribution(
 	}
 
 	return plans, nil
+}
+
+// orgFromLocation derives the org id from a repo location — the immediate group segment
+// (the part before the final /repo). "HomeLabHD/repo" → "HomeLabHD";
+// "PrPlanIT/HomeLabHD/repo" → "HomeLabHD"; a bare "repo" → "".
+func orgFromLocation(at string) string {
+	i := strings.LastIndexByte(at, '/')
+	if i <= 0 {
+		return ""
+	}
+	group := at[:i]
+	if j := strings.LastIndexByte(group, '/'); j >= 0 {
+		return group[j+1:]
+	}
+	return group
 }
 
 // mergeConfigOverride shallow-merges a catalog entry's per-repo config over the
