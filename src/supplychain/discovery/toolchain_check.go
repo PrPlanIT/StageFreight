@@ -97,7 +97,7 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 					out := make([]string, 0, len(rels))
 					for _, r := range rels {
 						if r.TagName != "" {
-							out = append(out, strings.TrimPrefix(r.TagName, "v"))
+							out = append(out, versionFromTag(r.TagName))
 						}
 					}
 					return out, nil
@@ -108,7 +108,7 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 				dep.SourceURL = url
 				var release githubReleaseLatest
 				if err := m.http.fetchJSON(ctx, url, &release, ep); err == nil && release.TagName != "" {
-					dep.Latest = strings.TrimPrefix(release.TagName, "v")
+					dep.Latest = versionFromTag(release.TagName)
 				}
 			}
 		case "k8s":
