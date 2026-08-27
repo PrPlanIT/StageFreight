@@ -77,18 +77,22 @@ func TestToolchainSection_WrapperShape(t *testing.T) {
 	}
 }
 
-// TestToolchainSection_FlatShapeMigrationHint: the retired FLAT tool→constraint map
-// fails with a targeted hint that names the offending key and the want: destination —
-// never a bare unknown-field error.
-func TestToolchainSection_FlatShapeMigrationHint(t *testing.T) {
+// TestToolchainSection_FlatShapeDualAccept: the retired FLAT tool→constraint map is
+// dual-accepted for the transition (the deployed image must be able to parse SOME
+// shape while the wrapper-aware image builds): it decodes into Want and is flagged
+// LegacyFlat. A wrapper mixing an unknown key still errors with the migration hint.
+func TestToolchainSection_FlatShapeDualAccept(t *testing.T) {
 	var s ToolchainSection
-	err := yaml.Unmarshal([]byte("trivy: 0.69.3\ngrype: 0.110.x"), &s)
-	if err == nil {
-		t.Fatal("flat toolchains must be rejected after the wrapper flag-day")
+	if err := yaml.Unmarshal([]byte("trivy: 0.69.3\ngrype: 0.110.x"), &s); err != nil {
+		t.Fatalf("flat toolchains must dual-accept during the transition, got %v", err)
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, "trivy") || !strings.Contains(msg, "toolchains.want") {
-		t.Errorf("error must name the offending key and the want: destination, got %v", err)
+	if s.Want["trivy"].Constraint != "0.69.3" || !s.LegacyFlat() {
+		t.Fatalf("flat shape must decode into Want and flag LegacyFlat, got %+v", s)
+	}
+	var w ToolchainSection
+	err := yaml.Unmarshal([]byte("want:\n  trivy: 0.69.3\nbogus: 1"), &w)
+	if err == nil || !strings.Contains(err.Error(), "toolchains.want") {
+		t.Errorf("wrapper with unknown key must error with the migration hint, got %v", err)
 	}
 }
 

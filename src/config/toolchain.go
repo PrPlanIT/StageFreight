@@ -35,21 +35,44 @@ type ToolchainSection struct {
 	// constraint's resolved version and the lock's resolution are always protected —
 	// retention rotates superseded residue, never declared intent.
 	Retention RetentionPolicy `yaml:"retention,omitempty"`
+
+	// legacyFlat records that the section was written in the retired flat shape
+	// (transition-only dual-accept; see UnmarshalYAML).
+	legacyFlat bool
 }
 
 // ToolchainConfig is the want: map inside the toolchains section (tool name →
 // desired version constraint).
 type ToolchainConfig map[string]ToolConstraint
 
-// UnmarshalYAML decodes the toolchains section, detecting the retired FLAT shape
-// (tool→constraint at the top level, pre-wrapper) and naming the offending key with a
-// migration hint — never a bare unknown-field error.
+// UnmarshalYAML decodes the toolchains section. The retired FLAT shape
+// (tool→constraint at the top level, pre-wrapper) is DUAL-ACCEPTED for the transition:
+// decoded into Want and flagged legacy, because the self-hosting bootstrap requires a
+// config shape the DEPLOYED image can parse while the new image builds (the old binary
+// cannot read want:). The strict migration-error replaces this once the fleet's
+// flag-day completes. Dispatch: a mapping using want:/retention: is the wrapper (any
+// other key alongside them errors with the migration hint); a mapping using neither is
+// the legacy flat map.
 func (s *ToolchainSection) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == 0 {
 		return nil // no toolchains section
 	}
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("toolchains: must be a mapping with want: (and optional retention:)")
+	}
+	wrapper := false
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if k := node.Content[i].Value; k == "want" || k == "retention" {
+			wrapper = true
+			break
+		}
+	}
+	if !wrapper && len(node.Content) > 0 {
+		if err := s.Want.UnmarshalYAML(node); err != nil {
+			return err
+		}
+		s.legacyFlat = true
+		return nil
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		switch key := node.Content[i].Value; key {
@@ -62,11 +85,15 @@ func (s *ToolchainSection) UnmarshalYAML(node *yaml.Node) error {
 				return fmt.Errorf("toolchains.retention: %w", err)
 			}
 		default:
-			return fmt.Errorf("toolchains.%s: toolchains: was a flat tool→constraint map; nest the tool map under toolchains.want: (retention: is the only other key)", key)
+			return fmt.Errorf("toolchains.%s: not a toolchains key; nest the tool map under toolchains.want: (retention: is the only other key)", key)
 		}
 	}
 	return nil
 }
+
+// LegacyFlat reports whether the section was declared in the retired flat shape (the
+// transition's deprecation signal; the flag-day removes flat acceptance entirely).
+func (s *ToolchainSection) LegacyFlat() bool { return s.legacyFlat }
 
 // UnmarshalYAML decodes the tool→constraint mapping directly, naming the offending tool
 // on a parse error. The tools block IS the map — the retired `desired:` wrapper is
