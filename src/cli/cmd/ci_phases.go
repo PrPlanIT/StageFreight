@@ -345,22 +345,10 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		}
 	}
 
-	// Forge mutation for ALL modes: render generated badges/docs and commit them
-	// (scribe is a published artifact), then the single terminal mirror sync that
-	// carries that commit — and any release reconciliation — to every mirror.
-	if err := scribeRunner(ctx, appCfg, ciCtx, opts); err != nil {
-		return err
-	}
-
-	// Sync project identity (kind: metadata) — registry overviews + forge repo
-	// descriptions/topics — for targets whose when: matches this event, using the README
-	// scribe just refreshed. This is the pipeline's only path to that sync; without it the
-	// metadata target is declared but never runs (the e1f2189 regression).
-	if due := metadataTargetsDue(appCfg); len(due) > 0 {
-		postbuild.RunMetadataSection(ctx, os.Stdout, output.UseColor(), due, rootDir, appCfg)
-	}
-
-	// Governance catalog reconcile — committing each satellite's managed config to
+	// Governance catalog reconcile — runs BEFORE scribe: it distributes config to the
+	// satellites and reads nothing scribe produces, so the reconcile (the consequential
+	// action) is reported before the cosmetic badge refresh rather than after it.
+	// committing each satellite's managed config to
 	// its forge is forge mutation, so the APPLY runs HERE (publish owns forge
 	// mutation), not in perform, which previewed the plan. Accepted-state only: enact
 	// the catalog solely from a commit on the default branch — a merge request /
@@ -374,6 +362,21 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		} else {
 			renderCISkip("Reconcile", time.Now(), "governance apply binds to accepted state — not_applicable off the default branch (merge request / feature branch / tag)")
 		}
+	}
+
+	// Forge mutation for ALL modes: render generated badges/docs and commit them
+	// (scribe is a published artifact), then the single terminal mirror sync that
+	// carries that commit — and any release reconciliation — to every mirror.
+	if err := scribeRunner(ctx, appCfg, ciCtx, opts); err != nil {
+		return err
+	}
+
+	// Sync project identity (kind: metadata) — registry overviews + forge repo
+	// descriptions/topics — for targets whose when: matches this event, using the README
+	// scribe just refreshed. This is the pipeline's only path to that sync; without it the
+	// metadata target is declared but never runs (the e1f2189 regression).
+	if due := metadataTargetsDue(appCfg); len(due) > 0 {
+		postbuild.RunMetadataSection(ctx, os.Stdout, output.UseColor(), due, rootDir, appCfg)
 	}
 
 	syncMirrors(ctx, appCfg)
