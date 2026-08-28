@@ -127,9 +127,19 @@ func buildCommitMessage(plan DistributionPlan, sourceIdentity, sourceRef string)
 		}
 	}
 
+	// The subject is STABLE. It carried the source ref, which made every reconcile
+	// commit unique, so a satellite's log became a wall of near-identical lines that no
+	// viewer could collapse and no reader could skim. The ref was redundant besides: the
+	// sealed .stagefreight.yml being committed states its own `# Source repo:` and
+	// `# Source ref:` in the header, so the provenance travels WITH the artifact rather
+	// than needing to be restated in the message describing it.
+	//
+	// Provenance still belongs in the body, where a trailer is greppable
+	// (`git log --grep`) without dominating the subject line.
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("chore: governance reconcile from %s %s\n\n", sourceIdentity, sourceRef))
+	b.WriteString("chore: governance reconcile\n\n")
 	b.WriteString(fmt.Sprintf("Files: %s\n", strings.Join(filePaths, ", ")))
+	b.WriteString(fmt.Sprintf("Source: %s@%s\n", sourceIdentity, shortRef(sourceRef)))
 
 	// Note drift if detected.
 	for _, f := range plan.Files {
@@ -157,4 +167,15 @@ func describePlan(plan DistributionPlan) string {
 		return "no changes"
 	}
 	return strings.Join(parts, ", ")
+}
+
+// shortRef abbreviates a commit SHA for the message body; a tag or branch name passes
+// through untouched, since truncating a name would corrupt it.
+func shortRef(ref string) string {
+	if len(ref) == 40 && strings.IndexFunc(ref, func(r rune) bool {
+		return !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f'))
+	}) < 0 {
+		return ref[:8]
+	}
+	return ref
 }
