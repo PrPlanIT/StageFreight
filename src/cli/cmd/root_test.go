@@ -27,14 +27,31 @@ func TestPersistentPreRun_ConfigFreeCommands(t *testing.T) {
 
 	pre := rootCmd.PersistentPreRunE
 
+	// Commands are ATTACHED to a root, as they are in production: the config-free gate
+	// is top-level-only, so a detached command is not a faithful fixture.
+	root := &cobra.Command{Use: "stagefreight"}
+	attach := func(parent *cobra.Command, name string) *cobra.Command {
+		c := &cobra.Command{Use: name}
+		parent.AddCommand(c)
+		return c
+	}
+
 	for _, name := range []string{"version", "update", "du"} {
-		if err := pre(&cobra.Command{Use: name}, nil); err != nil {
+		if err := pre(attach(root, name), nil); err != nil {
 			t.Errorf("%s: config-free command must not fail on a broken config, got: %v", name, err)
 		}
 	}
 
 	// A config-consuming command must still fail loudly on the broken config.
-	if err := pre(&cobra.Command{Use: "release"}, nil); err == nil {
+	if err := pre(attach(root, "release"), nil); err == nil {
 		t.Error("release: expected a config-load error on a broken config, got nil")
+	}
+
+	// A SUBCOMMAND sharing a config-free name must still load config: `dependency
+	// update` leafs to "update", and skipping it left cfg nil, so the command
+	// segfaulted on its first config read instead of reporting the broken file.
+	dep := attach(root, "dependency")
+	if err := pre(attach(dep, "update"), nil); err == nil {
+		t.Error("dependency update: must load config (it reads cfg.Dependency), got no error on a broken config")
 	}
 }

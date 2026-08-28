@@ -37,7 +37,14 @@ var rootCmd = &cobra.Command{
 		// parse is a bootstrap trap (a repo pinned to new syntax could never update the
 		// old binary that chokes on it). `du` is a host disk diagnostic and `version`
 		// prints build info; neither reads project config.
-		if configFreeCommands[cmd.Name()] {
+		// Matched on the TOP-LEVEL name only. cmd.Name() is the leaf, so a bare name
+		// match also catches subcommands that happen to share it: `dependency update`
+		// leafs to "update", was skipped as if it were the binary self-updater, and ran
+		// with a nil cfg — a segfault on the first cfg field it touched.
+		// Depth, not identity: naming rootCmd inside its own literal is an init cycle.
+		// A top-level command's parent is root, and root's parent is nil.
+		topLevel := cmd.Parent() != nil && cmd.Parent().Parent() == nil
+		if topLevel && configFreeCommands[cmd.Name()] {
 			return nil
 		}
 		var warnings []string
