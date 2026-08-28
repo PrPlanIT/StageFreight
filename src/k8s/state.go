@@ -40,6 +40,15 @@ type AppManifest struct {
 	EnrichmentMeta      map[string]EnrichMeta `json:"enrichment_meta,omitempty"`
 }
 
+// GraveyardAfter is how long an app must stay unseen before it is retired. Until this
+// elapses it sits in "missing": absent from the last sweep, but still believed to exist.
+//
+// It also covers a DEGRADED sweep. A discovery that silently missed workloads sends them
+// to "missing", and the next healthy sweep restores them long before the window closes,
+// so a bad run can no longer bury the estate — which is what the (currently inert)
+// discoveryComplete guard was reaching for.
+const GraveyardAfter = 24 * time.Hour
+
 // AppLifecycle tracks active/graveyard state transitions.
 type AppLifecycle struct {
 	State        string     `json:"state"` // active | graveyard
@@ -166,8 +175,16 @@ func ReconcileLifecycle(manifest *InventoryManifest, activeApps []AppRecord, dis
 				changed = true
 				manifest.Apps[key] = entry
 			case "missing":
-				// Already missing — could promote to graveyard after threshold.
-				// For now, stays missing until next run confirms absence.
+				// Graveyard only after sustained absence. The threshold is TIME, not a
+				// run count: discovery cadence is whatever the pipeline happened to do
+				// that day — dungeon has run three sweeps in half an hour and none for a
+				// stretch either side — so counting runs makes the buffer's strength
+				// depend on how busy the repo was. A workload restarting, a node
+				// draining, an image pulling or a failover all finish well inside the
+				// window; anything genuinely removed still retires within a day.
+				if entry.Lifecycle.MissingSince != nil && now.Sub(*entry.Lifecycle.MissingSince) < GraveyardAfter {
+					break // still within the grace window — stays missing
+				}
 				entry.Lifecycle.State = "graveyard"
 				changed = true
 				manifest.Apps[key] = entry

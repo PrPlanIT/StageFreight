@@ -39,15 +39,19 @@ func writeManifest(t *testing.T, root, cluster string, complete bool, states ...
 
 // Graveyard entries are apps the cluster no longer runs, kept so their disappearance is
 // auditable. Counting them would advertise an estate larger than the one that exists.
-func TestManifestAppCountCountsOnlyActive(t *testing.T) {
+//
+// "missing" DOES count: with graveyarding gated on sustained absence it means absent
+// from the last sweep but still believed to exist. Excluding it would make the badge
+// track which workloads answered during one pass, so a restart or drain would move it.
+func TestManifestAppCountIncludesMissingNotGraveyard(t *testing.T) {
 	root := t.TempDir()
-	writeManifest(t, root, "dungeon", true, "active", "active", "graveyard", "active")
+	writeManifest(t, root, "dungeon", true, "active", "missing", "graveyard", "active")
 	got, ok := manifestAppCount(root, "dungeon")
 	if !ok {
 		t.Fatal("a complete manifest must resolve")
 	}
 	if got != 3 {
-		t.Errorf("got %d, want 3 (graveyard excluded)", got)
+		t.Errorf("got %d, want 3 (2 active + 1 missing; graveyard excluded)", got)
 	}
 }
 

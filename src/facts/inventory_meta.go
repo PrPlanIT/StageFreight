@@ -167,9 +167,15 @@ func manifestAppCount(rootDir, cluster string) (int, bool) {
 	if err != nil || m == nil || !m.DiscoveryStatus.Complete {
 		return 0, false
 	}
+	// active AND missing. Once graveyarding waits for sustained absence, "missing" no
+	// longer means gone — it means absent from the last sweep but still believed to
+	// exist, which is part of the estate. Counting active alone would make the badge
+	// track which workloads happened to answer during one discovery pass, so a rolling
+	// restart or a drain would visibly move the number.
 	n := 0
 	for _, app := range m.Apps {
-		if app.Lifecycle.State == "active" {
+		switch app.Lifecycle.State {
+		case "active", "missing":
 			n++
 		}
 	}
