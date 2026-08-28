@@ -355,9 +355,23 @@ func latestCodenameTag(currentTag string, tags []string) (string, bool) {
 		if !ok || c.Distro != cur.Distro || c.Variant != cur.Variant {
 			continue
 		}
+		// Only a RELEASED suite is an upgrade target. An unreleased one (Debian
+		// testing) is a real tag and orders correctly, but proposing it proposes an
+		// unshipped OS — and since the freshness module rates a major as critical,
+		// it would block the pipeline on an upgrade nobody should take yet.
+		if !c.Stable {
+			continue
+		}
 		if c.Ordinal > bestOrdinal {
 			best, bestOrdinal = t, c.Ordinal
 		}
 	}
-	return best, best != ""
+	if best == "" {
+		// Already on the newest released suite. Report the CURRENT tag as latest so
+		// this resolves as "up to date" — falling through would leave Latest empty and
+		// report "unresolved (could not verify latest version)", which claims the check
+		// failed when it succeeded and found nothing newer.
+		return currentTag, true
+	}
+	return best, true
 }

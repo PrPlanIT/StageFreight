@@ -72,3 +72,25 @@ func TestDockerImageCodenameComparesAsMajor(t *testing.T) {
 		t.Errorf("same release must be a zero delta, got %+v", d)
 	}
 }
+
+// An unreleased suite must never be an upgrade TARGET. It is still recognized and
+// ordered — a repo already ON testing must decompose — but proposing a move onto it
+// proposes an unshipped OS, and the freshness module rates a major as CRITICAL, so the
+// suggestion would block pipelines on an upgrade nobody should take yet.
+func TestUnreleasedSuitesAreNotUpgradeTargets(t *testing.T) {
+	forky, ok := DecomposeCodename("forky-slim")
+	if !ok {
+		t.Fatal("forky must still be recognized so it can be parsed and ordered")
+	}
+	if forky.Stable {
+		t.Error("forky is Debian testing — it must not be marked stable")
+	}
+	trixie, _ := DecomposeCodename("trixie-slim")
+	if !trixie.Stable {
+		t.Error("trixie is the current Debian stable")
+	}
+	// Ordering is unaffected: forky IS newer, it simply is not offered.
+	if newer, _ := CompareCodenames("trixie-slim", "forky-slim"); !newer {
+		t.Error("ordering must still place forky after trixie")
+	}
+}

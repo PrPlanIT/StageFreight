@@ -23,33 +23,42 @@ import "strings"
 type distroRelease struct {
 	distro  string // "debian" | "ubuntu" — ordinals are not comparable across these
 	ordinal int
+	// stable marks a RELEASED suite. A codename that exists but has not shipped
+	// (Debian testing/unstable, an Ubuntu devel series) is recognized so it can still
+	// be parsed and ordered, but is never offered as an upgrade TARGET: proposing a
+	// move onto testing is proposing an unreleased OS, and under the freshness module
+	// a major update is CRITICAL, so it does not merely suggest — it blocks the
+	// pipeline on an upgrade nobody should take yet.
+	stable bool
 }
 
 var distroCodenames = map[string]distroRelease{
-	// Debian — ordinal is the release number.
-	"jessie":   {"debian", 8},
-	"stretch":  {"debian", 9},
-	"buster":   {"debian", 10},
-	"bullseye": {"debian", 11},
-	"bookworm": {"debian", 12},
-	"trixie":   {"debian", 13},
-	"forky":    {"debian", 14},
-	"duke":     {"debian", 15},
+	// Debian — ordinal is the release number. trixie is the current stable; forky is
+	// testing and duke is the one after, so neither is an upgrade target yet. Promote
+	// them here when Debian releases them.
+	"jessie":   {"debian", 8, true},
+	"stretch":  {"debian", 9, true},
+	"buster":   {"debian", 10, true},
+	"bullseye": {"debian", 11, true},
+	"bookworm": {"debian", 12, true},
+	"trixie":   {"debian", 13, true},
+	"forky":    {"debian", 14, false}, // testing
+	"duke":     {"debian", 15, false}, // not yet released
 
 	// Ubuntu — ordinal is YYMM, which orders LTS and interim releases together.
-	"trusty":    {"ubuntu", 1404},
-	"xenial":    {"ubuntu", 1604},
-	"bionic":    {"ubuntu", 1804},
-	"focal":     {"ubuntu", 2004},
-	"impish":    {"ubuntu", 2110},
-	"jammy":     {"ubuntu", 2204},
-	"kinetic":   {"ubuntu", 2210},
-	"lunar":     {"ubuntu", 2304},
-	"mantic":    {"ubuntu", 2310},
-	"noble":     {"ubuntu", 2404},
-	"oracular":  {"ubuntu", 2410},
-	"plucky":    {"ubuntu", 2504},
-	"questing":  {"ubuntu", 2510},
+	"trusty":   {"ubuntu", 1404, true},
+	"xenial":   {"ubuntu", 1604, true},
+	"bionic":   {"ubuntu", 1804, true},
+	"focal":    {"ubuntu", 2004, true},
+	"impish":   {"ubuntu", 2110, true},
+	"jammy":    {"ubuntu", 2204, true},
+	"kinetic":  {"ubuntu", 2210, true},
+	"lunar":    {"ubuntu", 2304, true},
+	"mantic":   {"ubuntu", 2310, true},
+	"noble":    {"ubuntu", 2404, true},
+	"oracular": {"ubuntu", 2410, true},
+	"plucky":   {"ubuntu", 2504, true},
+	"questing": {"ubuntu", 2510, true},
 }
 
 // DecomposedCodename is a distro tag split into the parts that order it: the release
@@ -60,6 +69,7 @@ type DecomposedCodename struct {
 	Distro   string // "debian"
 	Ordinal  int    // 13
 	Variant  string // "slim", or "" for a bare codename tag
+	Stable   bool   // false for a release that has not shipped (testing/devel)
 }
 
 // DecomposeCodename splits a distro base-image tag, reporting false when the leading
@@ -74,7 +84,10 @@ func DecomposeCodename(tag string) (DecomposedCodename, bool) {
 	if !ok {
 		return DecomposedCodename{}, false
 	}
-	return DecomposedCodename{Codename: name, Distro: rel.distro, Ordinal: rel.ordinal, Variant: variant}, true
+	return DecomposedCodename{
+		Codename: name, Distro: rel.distro, Ordinal: rel.ordinal,
+		Variant: variant, Stable: rel.stable,
+	}, true
 }
 
 // CompareCodenames reports whether latest is a newer release of the same distro and
