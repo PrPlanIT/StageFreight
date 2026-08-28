@@ -631,10 +631,33 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	// Residual-vulnerability gate (the module's Policy stage). After the
 	// remediation stage above patched what it could and committed the fixes, fail
-	// the build if any vulnerability at or above dependency.fail_on remains
+	// the build if any vulnerability at or above security.fail_on remains
 	// UNremediated — a held major, no fix available, or ignored. Default fail_on
 	// "off" → no gate, so this is zero-change until a project opts in.
-	if failOn := appCfg.Dependency.EffectiveFailOn(); failOn != "off" {
+	// Outdated gate: how far behind the project is, counting what policy deliberately
+	// did NOT apply (held majors, ceiling-exceeded, ecosystems with no writer). Runs
+	// before the vulnerability gate so an operator sees the distance from upstream even
+	// on a run that is about to fail for a residual advisory.
+	if at := appCfg.Dependency.Outdated.EffectiveAt(); at != "off" {
+		if behind := dependency.OutdatedAtOrAbove(snapshot.Dependencies, at); len(behind) > 0 {
+			for _, o := range behind {
+				fmt.Fprintf(os.Stderr, "  deps: outdated %s %s → %s (%s available, %s)\n",
+					o.Name, o.Current, o.Latest, o.Magnitude, o.Ecosystem)
+			}
+			if appCfg.Dependency.Outdated.EffectiveAction() == "error" {
+				word := "dependencies"
+				if len(behind) == 1 {
+					word = "dependency"
+				}
+				return fmt.Errorf("deps: %d %s at or above %s behind (dependency.outdated.action: error)", len(behind), word, at)
+			}
+		}
+	}
+
+	// Severity has ONE authority: security.fail_on. This gate is a dependency-stage
+	// action reading the security policy, not a second severity vocabulary that could
+	// disagree with it.
+	if failOn := appCfg.Security.EffectiveFailOn(); failOn != "off" {
 		// Evaluate each advisory's remediation state against declared policy, then gate
 		// on the residual set (state != remediated) — the SAME set as before, now
 		// carrying WHY (no-fix / blocked-by-policy / reachable-unapplied) in disclosure.

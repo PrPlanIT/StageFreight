@@ -39,13 +39,11 @@ type DependencyConfig struct {
 	// fail_on (the policy stage).
 	Remediate *bool `yaml:"remediate,omitempty"`
 
-	// FailOn is the vulnerability-severity threshold at or above which a RESIDUAL
-	// vulnerability — one still present after the remediation stage (a held major,
-	// no fix available, or ignored) — fails the build: "critical" | "high" |
-	// "medium" | "low" | "off". Vulnerability severity vocabulary (the shared
-	// severity scale), NOT lint's importance tiers. Empty defaults to "off":
-	// deps stays fix-forward and never hard-fails, exactly as today.
-	FailOn string `yaml:"fail_on,omitempty"`
+	// Outdated gates on how far a dependency has fallen behind — an update-MAGNITUDE
+	// policy, not a severity one. Vulnerability severity has exactly one authority,
+	// security.fail_on; duplicating that vocabulary here made two places disagree
+	// about the same question.
+	Outdated OutdatedGate `yaml:"outdated,omitempty"`
 
 	// Policy is the freshness SCOPE — which non-vulnerable dependencies to pursue:
 	// "all" (default — every dep to its latest eligible) or "security" (only
@@ -103,14 +101,37 @@ func (c DependencyConfig) RemediateEnabled() bool {
 	return true
 }
 
-// EffectiveFailOn resolves the residual-vulnerability gate threshold, defaulting
-// to "off" (deps never hard-fails today). Lowercased "critical" | "high" |
-// "medium" | "low" | "off".
-func (c DependencyConfig) EffectiveFailOn() string {
-	if v := strings.ToLower(strings.TrimSpace(c.FailOn)); v != "" {
+// OutdatedGate declares the update magnitude that trips the gate, and what tripping
+// it does. Split in two because the threshold and the response are independent
+// decisions: a fleet can surface every held major without any repo failing on it, then
+// tighten to error per repo once the noise is understood.
+type OutdatedGate struct {
+	// At is the smallest magnitude that trips the gate: "major" | "minor" | "patch",
+	// or "off". Empty defaults to "off" — no gate, so this is zero-change until a
+	// project opts in.
+	At string `yaml:"at,omitempty"`
+
+	// Action is what a tripped gate does: "warn" (default) or "error". Warn is the
+	// default deliberately: an available update is information, and a policy that
+	// breaks a build the day upstream publishes is one operators disable entirely.
+	Action string `yaml:"action,omitempty"`
+}
+
+// EffectiveAt resolves the magnitude threshold, defaulting to "off".
+func (g OutdatedGate) EffectiveAt() string {
+	if v := strings.ToLower(strings.TrimSpace(g.At)); v != "" {
 		return v
 	}
 	return "off"
+}
+
+// EffectiveAction resolves the response, defaulting to "warn" — reporting, never
+// failing, unless the operator asks for a hard gate.
+func (g OutdatedGate) EffectiveAction() string {
+	if v := strings.ToLower(strings.TrimSpace(g.Action)); v != "" {
+		return v
+	}
+	return "warn"
 }
 
 // DependencyIgnore suppresses a specific security advisory from remediation — an
