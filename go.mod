@@ -10,7 +10,7 @@ require (
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/sergi/go-diff v1.4.0
-	github.com/skeema/knownhosts v1.3.2
+	github.com/skeema/knownhosts v1.3.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/tdewolff/font v0.0.0-20260822205238-d0d2f004b117
