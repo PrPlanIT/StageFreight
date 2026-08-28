@@ -127,6 +127,11 @@ func LoadManifest(repoRoot, clusterName string) (*InventoryManifest, error) {
 func ReconcileLifecycle(manifest *InventoryManifest, activeApps []AppRecord, discoveryComplete bool, now time.Time) bool {
 	if !discoveryComplete {
 		// Partial discovery — do NOT mutate lifecycle. Prevents false graveyarding.
+		//
+		// No caller passes false today, and that is correct rather than an oversight:
+		// every listing that establishes app existence is fatal in Discover, so a
+		// degraded sweep aborts before reaching lifecycle. See the note at the call
+		// site — this guard exists for the day a workload phase is made non-fatal.
 		return false
 	}
 

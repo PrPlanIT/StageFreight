@@ -94,6 +94,20 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 	if repoRoot != "" && client.ClusterName != "" {
 		manifest, err := LoadManifest(repoRoot, client.ClusterName)
 		if err == nil {
+			// true is safe here, not merely convenient: every source of app EXISTENCE
+			// above is fatal. Deployments, StatefulSets and DaemonSets each return
+			// nil, err on a list failure, as does augmentServices, so this line is
+			// unreachable unless the sweep saw the whole cluster. A degraded sweep
+			// aborts before Phase 7 rather than arriving here with a short list and
+			// graveyarding what it failed to see.
+			//
+			// The one tolerated failure, augmentHTTPRoutes, affects exposure metadata
+			// and never whether an app appears in allActive.
+			//
+			// So the parameter is not inert — it guards a caller that does not exist
+			// yet. If a workload phase is ever made non-fatal the way augmentHTTPRoutes
+			// is, this literal becomes wrong silently, and completeness must then be
+			// derived from the sweep instead of asserted here.
 			changed := ReconcileLifecycle(manifest, allActive, true, observedAt)
 			if changed {
 				_ = SaveManifest(repoRoot, client.ClusterName, manifest)
