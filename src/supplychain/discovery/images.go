@@ -124,9 +124,22 @@ func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supp
 	// Decompose current tag and find latest in same suffix family.
 	current := version.DecomposeTag(tag)
 	if current.Version == nil {
-		// Non-versioned tag (e.g. "latest", "noble", "sha-...") — can't do
-		// semver comparison. Digest tracking handled by lockfile.go.
-		// Check for stable upgrade advisory.
+		// A distro base image is tagged by release codename, which carries a real
+		// ordering even though it cannot be parsed. Resolving it here is what turns
+		// "unresolved (could not verify latest version)" — indistinguishable from an
+		// unreachable registry — into the actual state: an OS release is available.
+		if latest, ok := latestCodenameTag(tag, tags); ok {
+			dep.Latest = latest
+			// LatestEligible pins to CURRENT: crossing an OS release replaces the whole
+			// package set beneath the image, so it is never an autonomous bump. Equal to
+			// Current, it makes UpdateTarget() == Current while Latest differs, which is
+			// exactly the held-for-review shape (MajorAvailable) the filter already
+			// understands — the update is reported, never applied.
+			dep.LatestEligible = tag
+			return dep
+		}
+		// Non-versioned tag (e.g. "latest", "sha-...") — can't do semver comparison.
+		// Digest tracking handled by lockfile.go. Check for stable upgrade advisory.
 		dep.Advisory = suggestStableUpgrade(current, tags)
 		return dep
 	}
@@ -325,4 +338,26 @@ func SplitImageNamespace(image string) (string, string) {
 		return parts[0], parts[1]
 	}
 	return parts[0], parts[1]
+}
+
+// latestCodenameTag finds the newest distro release among the registry's tags that
+// matches the current tag's distro and image variant. Returns false when the current
+// tag is not a codename, or when nothing newer is published — an image already on the
+// newest release must report no update, not its own tag.
+func latestCodenameTag(currentTag string, tags []string) (string, bool) {
+	cur, ok := version.DecomposeCodename(currentTag)
+	if !ok {
+		return "", false
+	}
+	best, bestOrdinal := "", cur.Ordinal
+	for _, t := range tags {
+		c, ok := version.DecomposeCodename(t)
+		if !ok || c.Distro != cur.Distro || c.Variant != cur.Variant {
+			continue
+		}
+		if c.Ordinal > bestOrdinal {
+			best, bestOrdinal = t, c.Ordinal
+		}
+	}
+	return best, best != ""
 }
