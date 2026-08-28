@@ -180,6 +180,18 @@ func buildReplacement(dep supplychain.Dependency, origLine string) (string, stri
 		return buildFromReplacement(dep, origLine)
 	case supplychain.EcosystemGitHubRelease:
 		return buildEnvReplacement(dep, origLine)
+	case supplychain.EcosystemDebianAPT, supplychain.EcosystemAlpineAPK:
+		// A distro package pinned through an ARG/ENV (pkg="${PKG_VERSION}") is edited on
+		// that declaration, exactly as a bound base image or pinned tool is. Without a
+		// binding the version sits literally on the install line, which may pin several
+		// packages at once, so the edit is targeted by name there.
+		if dep.Binding != "" {
+			return buildEnvReplacement(dep, origLine)
+		}
+		// Unbound: the version sits literally on a RUN line that may pin several
+		// packages and span continuations. Reported rather than edited, so an operator
+		// sees the available update instead of it being silently dropped.
+		return origLine, "version pinned inline on the install line; move it to an ARG to auto-update"
 	default:
 		return origLine, "unsupported ecosystem for Dockerfile edit"
 	}

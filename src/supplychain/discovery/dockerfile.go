@@ -123,7 +123,60 @@ func parseDockerfileForFreshness(path string) (*supplychain.DockerFreshnessInfo,
 	// Cross-reference ENV *_VERSION vars with GitHub URLs
 	info.PinnedTools = crossRefTools(info)
 
+	// Package pins are resolved AFTER the full scan: a RUN line may reference an ARG
+	// declared anywhere in the file, so resolving inline would depend on declaration
+	// order. Without this a pin written as pkg="${PKG_VERSION}" reaches the freshness
+	// check as the literal string "${PKG_VERSION}", matches no upstream version, and
+	// the package is silently untracked — the common shape for a version an operator
+	// wants in one place at the top of the Dockerfile.
+	resolvePackageVersions(info, info.AptPackages)
+	resolvePackageVersions(info, info.ApkPackages)
+	resolvePackageVersions(info, info.PipPackages)
+
 	return info, nil
+}
+
+// resolvePackageVersions substitutes ${VAR}/$VAR in package version pins from the
+// Dockerfile's own ARG/ENV declarations, recording the variable as the editable anchor.
+// A version that cannot be fully resolved is cleared rather than left as a template:
+// an unresolvable pin is not a version, and reporting it as one produces a bogus
+// "outdated" comparison against every real upstream version.
+func resolvePackageVersions(info *supplychain.DockerFreshnessInfo, pkgs []supplychain.PackageRef) {
+	for i := range pkgs {
+		v := pkgs[i].Version
+		if v == "" || !strings.Contains(v, "$") {
+			continue
+		}
+		var binding string
+		var bindingLine int
+		unresolved := false
+		resolved := varRefRe.ReplaceAllStringFunc(v, func(match string) string {
+			m := varRefRe.FindStringSubmatch(match)
+			name := m[1]
+			if name == "" {
+				name = m[3] // bare $VAR form
+			}
+			if ev, found := lookupDockerVar(info, name); found {
+				if binding == "" {
+					binding = name
+					bindingLine = ev.Line
+				}
+				return ev.Value
+			}
+			if m[2] != "" {
+				return m[2] // inline default ${VAR:-1.2.3}
+			}
+			unresolved = true
+			return match
+		})
+		if unresolved {
+			pkgs[i].Version = ""
+			continue
+		}
+		pkgs[i].Version = resolved
+		pkgs[i].Binding = binding
+		pkgs[i].BindingLine = bindingLine
+	}
 }
 
 // parseEnvLine handles both Docker ENV syntaxes:
@@ -259,7 +312,12 @@ func parsePackageList(raw string, versionSep string) []supplychain.PackageRef {
 		pr := supplychain.PackageRef{}
 		if idx := strings.Index(field, versionSep); idx >= 0 {
 			pr.Name = field[:idx]
-			pr.Version = field[idx+len(versionSep):]
+			// Quotes are shell syntax, not part of the version. A pin written
+			// pkg="${VER}" (quoted so the shell keeps a value containing spaces or
+			// globs intact) otherwise carries the quotes into the comparison, where
+			// "3.7.5-1" never equals the archive's 3.7.5-1 and the package reads as
+			// perpetually mismatched.
+			pr.Version = strings.Trim(field[idx+len(versionSep):], `"'`)
 		} else {
 			pr.Name = field
 		}
@@ -352,4 +410,13 @@ func lookupDockerVar(info *supplychain.DockerFreshnessInfo, name string) (supply
 		return ev, true
 	}
 	return supplychain.EnvVar{}, false
+}
+
+// pkgEditLine reports the line an update to this package must rewrite: the ARG/ENV
+// declaration when the version is bound to one, else the install line itself.
+func pkgEditLine(pkg supplychain.PackageRef) int {
+	if pkg.Binding != "" && pkg.BindingLine > 0 {
+		return pkg.BindingLine
+	}
+	return pkg.Line
 }

@@ -43,7 +43,11 @@ func (m *Resolver) checkAPT(ctx context.Context, file lint.FileInfo, pkgs []supp
 			Latest:    repoVer,
 			Ecosystem: supplychain.EcosystemDebianAPT,
 			File:      file.Path,
-			Line:      pkg.Line,
+			// A bound version lives in the ARG/ENV declaration, not the install
+			// line, so the edit is anchored there — the same contract the tool and
+			// FROM-interpolation paths use.
+			Line:      pkgEditLine(pkg),
+			Binding:   pkg.Binding,
 			SourceURL: url,
 		})
 	}

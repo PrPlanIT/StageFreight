@@ -45,6 +45,14 @@ type PinnedTool struct {
 // install line (apk/apt/pip).
 type PackageRef struct {
 	Name    string
-	Version string // empty if unpinned
+	Version string // empty if unpinned; resolved when it came from ${VAR}
 	Line    int
+
+	// Binding is the ARG/ENV name a ${VAR}-interpolated version resolved from, and
+	// BindingLine that declaration's line — the same editable-anchor contract
+	// PinnedTool and FROM interpolation use. An update to a bound package rewrites
+	// the ARG default rather than the install line, which is where the version
+	// actually lives. Empty when the version was written literally.
+	Binding     string
+	BindingLine int
 }

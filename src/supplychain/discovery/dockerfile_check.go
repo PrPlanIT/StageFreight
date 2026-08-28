@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"strings"
 	"context"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -108,9 +109,9 @@ func detectDebianDistro(stages []supplychain.StageInfo) (string, string) {
 
 		switch repo {
 		case "debian":
-			return "debian", tag
+			return "debian", suiteFromTag(tag)
 		case "ubuntu":
-			return "ubuntu", tag
+			return "ubuntu", suiteFromTag(tag)
 		}
 
 		// Check suffix for debian/ubuntu base
@@ -129,4 +130,18 @@ func detectDebianDistro(stages []supplychain.StageInfo) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+// suiteFromTag reduces a base-image tag to the archive suite its packages come from.
+// Debian and Ubuntu images publish variant tags — trixie-slim, bookworm-backports —
+// but the archive is indexed by the suite alone, so passing the raw tag builds a
+// dists/<tag>/ URL that 404s. The fetch then fails silently and every package in the
+// image goes untracked, which is indistinguishable from "nothing to update".
+//
+// Only the leading suite is kept; a bare tag passes through unchanged.
+func suiteFromTag(tag string) string {
+	if i := strings.IndexByte(tag, '-'); i > 0 {
+		return tag[:i]
+	}
+	return tag
 }
