@@ -122,3 +122,29 @@ func TestPresetFreeConfigUnchanged(t *testing.T) {
 		t.Fatalf("preset-free config altered: security.output = %q", cfg.Security.OutputDir)
 	}
 }
+
+// A local sibling that the preset does NOT declare must survive resolution. Overriding
+// a key the preset already has is the covered case; ADDING one is the shape a repo uses
+// to opt into a policy its shared preset says nothing about — dependency.outdated on a
+// repo whose dependency section comes from a fleet preset.
+func TestPresetLocalSiblingAddsAbsentKey(t *testing.T) {
+	path := writePresetFixture(t,
+		"version: 1\ndependency:\n  outdated:\n    at: major\n    action: error\n  preset: ./dep.yml\n",
+		"dep.yml", "dependency:\n  enabled: true\n  output: .stagefreight/deps\n")
+
+	cfg, _, err := LoadWithWarnings(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// The preset's own keys still apply.
+	if !cfg.Dependency.Enabled {
+		t.Error("preset key lost: dependency.enabled should be true")
+	}
+	// The local-only key must not be dropped.
+	if got := cfg.Dependency.Outdated.EffectiveAt(); got != "major" {
+		t.Errorf("local sibling absent from preset was DROPPED: outdated.at = %q, want major", got)
+	}
+	if got := cfg.Dependency.Outdated.EffectiveAction(); got != "error" {
+		t.Errorf("outdated.action = %q, want error", got)
+	}
+}
