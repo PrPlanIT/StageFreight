@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"net/url"
 	"context"
 	"fmt"
 	"os"
@@ -192,7 +193,13 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	adapter.credOverrides = credOverrides
 
 	vlog("\nCommitting to satellite repos...\n")
-	results, err := governance.CommitDistribution(plans, adapter, sourceIdentity, source.Ref, false)
+	// Host-qualified: "PrPlanIT/MaintenancePolicy" alone cannot tell a reader whether
+	// the policy came from the internal GitLab or from github.com.
+	sourceLabel := sourceIdentity
+	if u, uerr := url.Parse(source.RepoURL); uerr == nil && u.Host != "" {
+		sourceLabel = u.Host + "/" + sourceIdentity
+	}
+	results, err := governance.CommitDistribution(plans, adapter, sourceLabel, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nReconcile completed with errors\n")
 	}

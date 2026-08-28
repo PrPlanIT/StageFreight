@@ -3,6 +3,8 @@ package governance
 import (
 	"fmt"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // ForgeClient abstracts forge API for file commits.
@@ -29,12 +31,14 @@ type FileCommit struct {
 // Per-repo failure does NOT stop the run. Aggregates results.
 // Idempotent: skips repos where all files are unchanged.
 // Returns error if ANY repo failed.
-func CommitDistribution(plans []DistributionPlan, forge ForgeClient, sourceIdentity, sourceRef string, dryRun bool) ([]CommitResult, error) {
+// source is the host-qualified control-repo location that governs these plans, e.g.
+// "gitlab.prplanit.com/PrPlanIT/MaintenancePolicy".
+func CommitDistribution(plans []DistributionPlan, forge ForgeClient, source string, dryRun bool) ([]CommitResult, error) {
 	var results []CommitResult
 	var anyError bool
 
 	for _, plan := range plans {
-		result := commitRepo(plan, forge, sourceIdentity, sourceRef, dryRun)
+		result := commitRepo(plan, forge, source, dryRun)
 		results = append(results, result)
 		if result.Error != nil {
 			anyError = true
@@ -47,7 +51,7 @@ func CommitDistribution(plans []DistributionPlan, forge ForgeClient, sourceIdent
 	return results, nil
 }
 
-func commitRepo(plan DistributionPlan, forge ForgeClient, sourceIdentity, sourceRef string, dryRun bool) CommitResult {
+func commitRepo(plan DistributionPlan, forge ForgeClient, source string, dryRun bool) CommitResult {
 	result := CommitResult{Repo: plan.Repo}
 
 	// Check if anything needs writing.
@@ -103,7 +107,7 @@ func commitRepo(plan DistributionPlan, forge ForgeClient, sourceIdentity, source
 	}
 
 	// Build attributable commit message.
-	message := buildCommitMessage(plan, sourceIdentity, sourceRef)
+	message := buildCommitMessage(source)
 
 	sha, err := forge.CommitFiles(plan.Repo, branch, message, files)
 	if err != nil {
@@ -118,37 +122,28 @@ func commitRepo(plan DistributionPlan, forge ForgeClient, sourceIdentity, source
 	return result
 }
 
-// buildCommitMessage creates an attributable commit message.
-func buildCommitMessage(plan DistributionPlan, sourceIdentity, sourceRef string) string {
-	var filePaths []string
-	for _, f := range plan.Files {
-		if f.Action != "unchanged" {
-			filePaths = append(filePaths, f.Path)
-		}
-	}
-
-	// The subject is STABLE. It carried the source ref, which made every reconcile
-	// commit unique, so a satellite's log became a wall of near-identical lines that no
-	// viewer could collapse and no reader could skim. The ref was redundant besides: the
-	// sealed .stagefreight.yml being committed states its own `# Source repo:` and
-	// `# Source ref:` in the header, so the provenance travels WITH the artifact rather
-	// than needing to be restated in the message describing it.
-	//
-	// Provenance still belongs in the body, where a trailer is greppable
-	// (`git log --grep`) without dominating the subject line.
-	var b strings.Builder
-	b.WriteString("chore: governance reconcile\n\n")
-	b.WriteString(fmt.Sprintf("Files: %s\n", strings.Join(filePaths, ", ")))
-	b.WriteString(fmt.Sprintf("Source: %s@%s\n", sourceIdentity, shortRef(sourceRef)))
-
-	// Note drift if detected.
-	for _, f := range plan.Files {
-		if f.Drifted {
-			b.WriteString(fmt.Sprintf("Drift detected: %s (replaced)\n", f.Path))
-		}
-	}
-
-	return b.String()
+// buildCommitMessage returns the reconcile commit message: a subject naming WHERE the
+// policy came from, and nothing else.
+//
+// It previously also carried the source ref and the full list of written paths. Both
+// are things a commit already provides — it has a SHA, and it shows the files it
+// touched — and both varied per reconcile, so no two messages matched and release notes
+// rendered a row per reconcile instead of one collapsed entry. Drift was listed too,
+// which the diff shows anyway.
+//
+// The source keeps its HOST: a control repo path alone ("PrPlanIT/MaintenancePolicy")
+// reads identically whether the policy came from the internal GitLab or from
+// github.com, and which one governs a repo is exactly what this line exists to answer.
+// It is stable across reconciles, so it costs nothing in deduplication.
+//
+// The trailer is Governed-By, per the origin taxonomy in config/commit.go. NOT
+// Generated-By: that marks a generation with no build impact and the rendered CI skips
+// it, whereas a reconcile changes the config the satellite builds under and must build,
+// or the policy just distributed is never exercised. NOT Updated-By either: nothing
+// keys on it behaviourally, so its only value is legibility, and a reconcile sharing the
+// deps verb would make `git log --grep` unable to tell them apart.
+func buildCommitMessage(source string) string {
+	return fmt.Sprintf("chore: governance reconcile from %s\n\n%s\n", source, config.GovernedByTrailer)
 }
 
 // describePlan summarizes what a distribution plan will do.
@@ -167,15 +162,4 @@ func describePlan(plan DistributionPlan) string {
 		return "no changes"
 	}
 	return strings.Join(parts, ", ")
-}
-
-// shortRef abbreviates a commit SHA for the message body; a tag or branch name passes
-// through untouched, since truncating a name would corrupt it.
-func shortRef(ref string) string {
-	if len(ref) == 40 && strings.IndexFunc(ref, func(r rune) bool {
-		return !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f'))
-	}) < 0 {
-		return ref[:8]
-	}
-	return ref
 }

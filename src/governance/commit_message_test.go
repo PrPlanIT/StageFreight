@@ -3,47 +3,49 @@ package governance
 import (
 	"strings"
 	"testing"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
-func msg(ref string) string {
-	return buildCommitMessage(DistributionPlan{Files: []DistributedFile{
-		{Path: ".stagefreight.yml", Action: "replace"},
-	}}, "PrPlanIT/MaintenancePolicy", ref)
-}
-
-// The subject must be STABLE across reconciles. Carrying the source ref made every
-// commit unique, so a satellite's log became a wall of near-identical lines that no
-// viewer could collapse — and the ref is redundant, since the sealed file being
-// committed states its own source repo and ref in its header.
-func TestCommitSubjectIsStableAcrossReconciles(t *testing.T) {
-	a := strings.SplitN(msg("643a4fdc2e87ac974407c3864a42f957fa9c56e5"), "\n", 2)[0]
-	b := strings.SplitN(msg("2fcb480f6f7c686b6e35251e415249617752757b"), "\n", 2)[0]
-	if a != b {
-		t.Errorf("subject must not vary with the source ref:\n  %q\n  %q", a, b)
-	}
-	if strings.Contains(a, "643a4fdc") || len(a) > 60 {
-		t.Errorf("subject must carry no ref and stay skimmable, got %q", a)
+// Subject names WHERE the policy came from; the body is the provenance trailer. The
+// source ref and the list of written paths are gone — a commit already has a SHA and
+// already shows its files, and both varied per reconcile, so no two messages matched
+// and release notes rendered a row per reconcile instead of one collapsed entry.
+func TestReconcileMessageShape(t *testing.T) {
+	got := buildCommitMessage("gitlab.prplanit.com/PrPlanIT/MaintenancePolicy")
+	want := "chore: governance reconcile from gitlab.prplanit.com/PrPlanIT/MaintenancePolicy\n\nGoverned-By: StageFreight\n"
+	if got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
 	}
 }
 
-// Provenance is not lost — it moves to the body, where it stays greppable.
-func TestCommitBodyKeepsProvenance(t *testing.T) {
-	m := msg("643a4fdc2e87ac974407c3864a42f957fa9c56e5")
-	if !strings.Contains(m, "Source: PrPlanIT/MaintenancePolicy@643a4fdc") {
-		t.Errorf("body must record the source, got:\n%s", m)
+// THE load-bearing assertion: Generated-By makes the rendered CI skip the push
+// (/(?m)^Generated-By: StageFreight/ → when: never). A reconcile must BUILD, or the
+// satellite never runs under the policy just distributed to it.
+func TestReconcileTrailerDoesNotSuppressThePipeline(t *testing.T) {
+	m := buildCommitMessage("host/org/repo")
+	if config.MessageHasTrailer(m, config.GeneratedByTrailer) {
+		t.Fatalf("Generated-By would make the satellite skip its pipeline:\n%s", m)
+	}
+	if !config.MessageHasTrailer(m, config.GovernedByTrailer) {
+		t.Errorf("a reconcile must carry its own provenance trailer:\n%s", m)
+	}
+	// Distinct from deps, so `git log --grep` can separate a reconcile from a bump.
+	if config.MessageHasTrailer(m, config.UpdatedByTrailer) {
+		t.Errorf("a reconcile is not a dependency update:\n%s", m)
 	}
 }
 
-// A tag or branch ref is a NAME: truncating it would corrupt it.
-func TestShortRefOnlyAbbreviatesSHAs(t *testing.T) {
-	for ref, want := range map[string]string{
-		"643a4fdc2e87ac974407c3864a42f957fa9c56e5": "643a4fdc",
-		"v1.2.3": "v1.2.3",
-		"main":   "main",
-		"release-2026-08-28-candidate-build-final": "release-2026-08-28-candidate-build-final",
-	} {
-		if got := shortRef(ref); got != want {
-			t.Errorf("shortRef(%q) = %q, want %q", ref, got, want)
-		}
+// Identical across reconciles from one control repo, so they collapse — but different
+// hosts stay distinguishable, since a bare path cannot say which forge governs a repo.
+func TestReconcileMessageDedupesButKeepsHost(t *testing.T) {
+	if buildCommitMessage("h/o/r") != buildCommitMessage("h/o/r") {
+		t.Error("same source must give identical text")
+	}
+	if buildCommitMessage("gitlab.prplanit.com/PrPlanIT/MP") == buildCommitMessage("github.com/PrPlanIT/MP") {
+		t.Error("different hosts must remain distinguishable")
+	}
+	if strings.Count(buildCommitMessage("h/o/r"), "\n") != 3 {
+		t.Error("message must stay subject + blank + trailer")
 	}
 }

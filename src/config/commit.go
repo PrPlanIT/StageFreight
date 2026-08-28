@@ -12,14 +12,21 @@ import "strings"
 //	                                        impact → the CI rules SKIP its branch push.
 //	deps    → Updated-By: StageFreight      an update to existing dependencies; changes what
 //	                                        the image ships → it still BUILDS (rebuild + republish).
+//	govern  → Governed-By: StageFreight     policy distributed from a control repo; changes the
+//	                                        config the repo builds UNDER → it must BUILD, or the
+//	                                        satellite never runs under the policy just given to
+//	                                        it. Distinct from Updated-By so `git log --grep` can
+//	                                        separate a reconcile from a dependency bump; no
+//	                                        behaviour keys on either, both are provenance.
 //
 // A manual `stagefreight commit` or a human commit carries no trailer — SF-authorship is
 // already inferable from the commit author, and it builds by default. `Co-authored-by` is
 // deliberately NOT used: it's a forge-recognized attribution trailer, reserved for the day
 // StageFreight authors real code, not an automated docs/deps pass.
 const (
-	OriginNarrate = "narrate"
-	OriginDeps    = "deps"
+	OriginNarrate    = "narrate"
+	OriginDeps       = "deps"
+	OriginGovernance = "governance"
 )
 
 const (
@@ -29,6 +36,10 @@ const (
 	// UpdatedByTrailer marks a deps commit (updated dependencies); provenance only — the CI
 	// does NOT skip on it, because the image must rebuild to ship the update.
 	UpdatedByTrailer = "Updated-By: StageFreight"
+	// GovernedByTrailer marks a governance reconcile (policy distributed from a control
+	// repo); provenance only, and likewise NOT skipped — the satellite must build under the
+	// config it was just given.
+	GovernedByTrailer = "Governed-By: StageFreight"
 )
 
 // MessageHasTrailer reports whether msg carries trailer as a whole line. A git trailer
