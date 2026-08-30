@@ -16,13 +16,8 @@ import (
 	masterminds "github.com/Masterminds/semver/v3"
 )
 
-// npmRegistryResponse matches the npm registry abbreviated response.
-type npmRegistryResponse struct {
-	Version string `json:"version"`
-}
-
-// npmFullDoc is the full package document — fetched only when a cooldown is configured,
-// because it carries per-version publish times under "time".
+// npmFullDoc is the package document — dist-tags, the version list, and per-version
+// publish times (the last consulted only when a cooldown is configured).
 type npmFullDoc struct {
 	DistTags map[string]string          `json:"dist-tags"`
 	Time     map[string]string          `json:"time"` // version → RFC3339 (plus "created"/"modified")
@@ -51,31 +46,33 @@ func (m *Resolver) checkNpm(ctx context.Context, file lint.FileInfo) ([]supplych
 	lines := buildLineIndex(data)
 
 	var deps []supplychain.Dependency
-	for name, version := range pkg.Dependencies {
-		ver := stripNpmRange(version)
+	for name, spec := range pkg.Dependencies {
+		ver := stripNpmRange(spec)
 		if ver == "" {
 			continue
 		}
 		deps = append(deps, supplychain.Dependency{
-			Name:      name,
-			Current:   ver,
-			Ecosystem: supplychain.EcosystemNpm,
-			File:      file.Path,
-			Line:      findLineForJSON(lines, "dependencies", name),
+			Name:       name,
+			Current:    ver,
+			Constraint: spec, // declared range (operator included) — bounds the eligible upgrade
+			Ecosystem:  supplychain.EcosystemNpm,
+			File:       file.Path,
+			Line:       findLineForJSON(lines, "dependencies", name),
 		})
 	}
 
-	for name, version := range pkg.DevDependencies {
-		ver := stripNpmRange(version)
+	for name, spec := range pkg.DevDependencies {
+		ver := stripNpmRange(spec)
 		if ver == "" {
 			continue
 		}
 		deps = append(deps, supplychain.Dependency{
-			Name:      name,
-			Current:   ver,
-			Ecosystem: supplychain.EcosystemNpm,
-			File:      file.Path,
-			Line:      findLineForJSON(lines, "devDependencies", name),
+			Name:       name,
+			Current:    ver,
+			Constraint: spec,
+			Ecosystem:  supplychain.EcosystemNpm,
+			File:       file.Path,
+			Line:       findLineForJSON(lines, "devDependencies", name),
 		})
 	}
 
@@ -187,39 +184,40 @@ func (m *Resolver) resolveNpmPackage(ctx context.Context, dep *supplychain.Depen
 	ep := m.cfg.registryEndpoint(supplychain.EcosystemNpm)
 	baseURL := m.cfg.registryURL(supplychain.EcosystemNpm, "https://registry.npmjs.org")
 
-	// No cooldown → the abbreviated /latest endpoint is enough and cheap.
-	if m.cfg.minReleaseAge() <= 0 {
-		url := fmt.Sprintf("%s/%s/latest", strings.TrimRight(baseURL, "/"), dep.Name)
-		dep.SourceURL = url
-		var resp npmRegistryResponse
-		if err := m.http.fetchJSON(ctx, url, &resp, ep); err != nil {
-			return
-		}
-		if resp.Version != "" {
-			dep.Latest = resp.Version
-		}
-		return
-	}
-
-	// Cooldown active → fetch the full document (per-version publish times) and pick the
-	// newest stable version published before the cutoff.
+	// Fetch the package document: dist-tags + the full version list (and per-version
+	// publish times, consulted only under a cooldown). The version list is required to
+	// resolve the in-range eligible target and hold out-of-range majors for review.
 	url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), dep.Name)
 	dep.SourceURL = url
 	var doc npmFullDoc
 	if err := m.http.fetchJSON(ctx, url, &doc, ep); err != nil {
 		return
 	}
+
 	latest := doc.DistTags["latest"]
-	aged := agedLatestNpm(doc, m.clock().Add(-m.cfg.minReleaseAge()))
-	switch {
-	case aged != "":
-		dep.Latest = aged
-		if latest != "" && latest != aged {
-			dep.CooldownHeld = latest // a newer release exists but is still within the cooldown
+	if m.cfg.minReleaseAge() > 0 {
+		// Cooldown active → newest stable version published before the cutoff.
+		if aged := agedLatestNpm(doc, m.clock().Add(-m.cfg.minReleaseAge())); aged != "" {
+			dep.Latest = aged
+			if latest != "" && latest != aged {
+				dep.CooldownHeld = latest // a newer release exists but is still within the cooldown
+			}
+		} else if latest != "" {
+			dep.Latest = latest // nothing aged enough yet (brand-new package) — don't regress
 		}
-	case latest != "":
-		dep.Latest = latest // nothing aged enough yet (brand-new package) — don't regress
+	} else if latest != "" {
+		dep.Latest = latest
 	}
+
+	// In-range eligible target + version list, mirroring cargo.go: the newest version
+	// satisfying the DECLARED range. A higher out-of-range version is a
+	// constraint-expanding major, held for review — never auto-applied.
+	nums := make([]string, 0, len(doc.Versions))
+	for v := range doc.Versions {
+		nums = append(nums, v)
+	}
+	dep.LatestEligible = version.LatestSatisfying(dep.Constraint, nums)
+	dep.AvailableVersions = nums
 }
 
 // agedLatestNpm returns the highest STABLE version published at or before cutoff — the
