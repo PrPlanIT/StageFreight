@@ -833,20 +833,9 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			}
 		}
 
-		// Path 2: sync-driven mirrors (repos.<id>.sync.releases). Disjoint from Path 1
-		// by the XOR — a repo can't be both a release destination and a release-syncing
-		// mirror.
-		resolvedMirrors, _ := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars)
-		for _, m := range resolvedMirrors {
-			if !m.Sync.SyncsReleases() {
-				continue
-			}
-			if req.ReadOnly {
-				syncResults = append(syncResults, actionResult{Name: fmt.Sprintf("[read-only] mirror:%s: would project canonical release %s", m.ID, tag), OK: true})
-			} else {
-				syncResults = append(syncResults, projectToMirror(ctx, *m, tag, name, notes, req.Ref, req.Draft, relType)...)
-			}
-		}
+		// Sync-driven mirror releases (repos.<id>.sync.releases) are projected by the
+		// terminal syncMirrors — after the git mirror push places the tag, which a forge
+		// release requires. Projecting here, before that push, 422s on the missing tag.
 
 		if len(syncResults) > 0 {
 			syncElapsed := time.Since(syncStart)
@@ -868,89 +857,11 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		}
 	}
 
-	// ── Retention section (per active release target) ──
-	// Each non-remote release target matching THIS event prunes its OWN releases:
-	// a channel (Tag set) scopes candidates to its immutable dev-{sha} releases and
-	// prunes the git tag too (pruneTags), protecting rolling aliases; a stable
-	// target falls back to alias-pattern scope with tags kept. Per-target stores
-	// never share a candidate set, so one target's retention can't touch another's.
-	type retOutcome struct {
-		id  string
-		res *retention.Result
-		err error
-	}
-	var retOutcomes []retOutcome
+	// ── Retention section (primary) ──
 	retStart := time.Now()
-
-	// Forges whose releases these channels retain: the primary, plus every mirror with
-	// sync.releases. Dev/rolling releases are projected to those mirrors, so their
-	// retention must run there too — otherwise a release pruned on the primary orphans
-	// into a draft on the mirror (GitHub turns a release whose tag was deleted into a
-	// draft). Same policy, same patterns, same store; only the forge differs.
-	type retForge struct {
-		label string
-		f     forge.Forge
-	}
-	retForges := []retForge{{label: "primary", f: forgeClient}}
-	// Extend mirror retention only when actually syncing and not in a read-only preview —
-	// a dry/preview run must never delete releases on a public mirror.
-	if !req.SkipSync && !req.ReadOnly {
-		// A mirror's releases are retained here whenever SF places releases on it: via
-		// sync.releases projection, OR by a kind:release target authoring directly to it
-		// (repos: [..., <mirror>]). Without the latter, a dev channel projected to a mirror
-		// through kind:release would accumulate unpruned there — the reason such projection
-		// was deferred until this covered it.
-		releaseTargetRepos := map[string]bool{}
-		for _, t := range pipeline.CollectTargetsByKind(req.Config, "release") {
-			for _, rid := range t.Repos {
-				releaseTargetRepos[rid] = true
-			}
-		}
-		if mirrors, mErr := config.ResolveAllMirrors(req.Config.Repos, req.Config.Forges, req.Config.Vars); mErr == nil {
-			for _, m := range mirrors {
-				if !m.Sync.SyncsReleases() && !releaseTargetRepos[m.ID] {
-					continue
-				}
-				mc, cErr := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
-				if cErr != nil {
-					retOutcomes = append(retOutcomes, retOutcome{id: "mirror:" + m.ID, err: cErr})
-					continue
-				}
-				retForges = append(retForges, retForge{label: "mirror:" + m.ID, f: mc})
-			}
-		}
-	}
-
-	for _, t := range pipeline.CollectTargetsByKind(req.Config, "release") {
-		if !releaseTargetsPrimary(t, req.Config) || t.Retention == nil || !t.Retention.Active() {
-			continue
-		}
-		if !config.TargetMatchesEnv(t, req.Config) {
-			continue
-		}
-		var templates []string
-		if t.Tag != "" {
-			templates = []string{t.Tag}
-		} else if len(t.Aliases) > 0 {
-			templates = t.Aliases
-		}
-		pol := *t.Retention
-		// Rolling aliases are never pruned (Protect holds raw templates; the engine
-		// wildcards them once).
-		pol.Protect = append(append([]string{}, pol.Protect...), t.Aliases...)
-		// Apply the channel's retention identically on the primary and each mirror,
-		// scoped to this channel's own tag/alias patterns (never touches releases
-		// outside them, so no surprising deletions).
-		for _, rf := range retForges {
-			store := &forgeStore{forge: rf.f, pruneTags: t.Tag != ""}
-			res, err := retention.Apply(ctx, store, templates, pol)
-			id := t.ID
-			if rf.label != "primary" {
-				id = t.ID + " (" + rf.label + ")"
-			}
-			retOutcomes = append(retOutcomes, retOutcome{id: id, res: res, err: err})
-		}
-	}
+	// The release phase retains only the primary; mirror retention runs in the terminal
+	// syncMirrors, after its reconcile projects this run's release so the count converges.
+	retOutcomes := applyChannelRetention(ctx, req.Config, forgeClient)
 	if len(retOutcomes) > 0 {
 		output.SectionStart(w, "sf_retention", "Retention")
 		retSec := output.NewSection(w, "Retention", time.Since(retStart), color)
@@ -1378,35 +1289,42 @@ func refreshRollingRelease(ctx context.Context, fc forge.Forge, alias, ref, name
 }
 
 // newSyncForgeClientFromTarget creates a forge client for a remote release target.
-// projectToMirror projects a canonical release to a mirror destination.
-// Mirrors are first-class sources, not synthetic targets. Forge identity
-// comes directly from the mirror config.
-func projectToMirror(ctx context.Context, m config.ResolvedRepo, tag, name, notes, ref string, draft bool, relType forge.ReleaseType) []actionResult {
-	var results []actionResult
-	label := "mirror:" + m.ID
+// retOutcome is one release channel's retention result on one forge (primary or mirror).
+type retOutcome struct {
+	id  string
+	res *retention.Result
+	err error
+}
 
-	client, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
-	if err != nil {
-		results = append(results, actionResult{Name: label, Err: err})
-		fmt.Fprintf(os.Stderr, "warning: mirror projection to %s: %v\n", m.ID, err)
-		return results
+// applyChannelRetention prunes releases on f for every primary-targeting release channel
+// whose when: matches this event, each scoped to its own tag/alias patterns (rolling
+// aliases protected; dev channels prune their git tag too). It is the single retention
+// pass shared by the primary (release phase) and every release-syncing mirror (terminal
+// syncMirrors, run AFTER the reconcile projects this run's release so the count converges).
+func applyChannelRetention(ctx context.Context, cfg *config.Config, f forge.Forge) []retOutcome {
+	var out []retOutcome
+	for _, t := range pipeline.CollectTargetsByKind(cfg, "release") {
+		if !releaseTargetsPrimary(t, cfg) || t.Retention == nil || !t.Retention.Active() {
+			continue
+		}
+		if !config.TargetMatchesEnv(t, cfg) {
+			continue
+		}
+		var templates []string
+		if t.Tag != "" {
+			templates = []string{t.Tag}
+		} else if len(t.Aliases) > 0 {
+			templates = t.Aliases
+		}
+		pol := *t.Retention
+		// Rolling aliases are never pruned (Protect holds raw templates; the engine
+		// wildcards them once).
+		pol.Protect = append(append([]string{}, pol.Protect...), t.Aliases...)
+		store := &forgeStore{forge: f, pruneTags: t.Tag != ""}
+		res, err := retention.Apply(ctx, store, templates, pol)
+		out = append(out, retOutcome{id: t.ID, res: res, err: err})
 	}
-
-	rel, err := client.CreateRelease(ctx, forge.ReleaseOptions{
-		TagName:     tag,
-		Ref:         ref,
-		Name:        name,
-		Description: notes,
-		Draft:       draft,
-		Type:        relType,
-	})
-	if err != nil {
-		results = append(results, actionResult{Name: label, Err: err})
-		fmt.Fprintf(os.Stderr, "warning: release projection to %s: %v\n", m.ID, err)
-		return results
-	}
-	results = append(results, actionResult{Name: fmt.Sprintf("%s: %s", label, rel.URL), OK: true})
-	return results
+	return out
 }
 
 // projectAuthoredRelease authors a full release (notes + assets) on a non-primary

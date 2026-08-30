@@ -1494,6 +1494,27 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 				fmt.Printf("  sync: %s: release ✓ (in sync)\n", m.ID)
 			}
 		}
+
+		// 3. Retention (release-syncing mirrors): prune the mirror's dev/rolling releases
+		// to the channel policy AFTER the reconcile above has projected this run's release,
+		// so the mirror converges to the same count as the primary — the release phase
+		// retains only the primary, since at that point the mirror lacks this run's release.
+		// Skipped on read-only so a preview never deletes releases on a public mirror.
+		if m.Sync.SyncsReleases() && !readOnly {
+			mc, rErr := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
+			if rErr != nil {
+				fmt.Fprintf(os.Stderr, "  sync: %s: retention error: %v\n", m.ID, rErr)
+			} else {
+				for _, o := range applyChannelRetention(ctx, appCfg, mc) {
+					switch {
+					case o.err != nil:
+						fmt.Fprintf(os.Stderr, "  sync: %s: retention (%s): %v\n", m.ID, o.id, o.err)
+					case len(o.res.Deleted) > 0:
+						fmt.Printf("  sync: %s: retention %s kept=%d pruned=%d\n", m.ID, o.id, o.res.Kept, len(o.res.Deleted))
+					}
+				}
+			}
+		}
 	}
 
 	if hasDegraded {
