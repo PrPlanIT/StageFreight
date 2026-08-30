@@ -347,7 +347,18 @@ func pruneBuildkitd(ctx context.Context, addr string, a Action, confirm bool) (i
 	}
 	args := []string{"--addr", addr, "--tlscacert", ca, "--tlscert", cert, "--tlskey", key, "prune"}
 	if a.KeepStore != "" {
-		args = append(args, buildctlReservedFlag(ctx), a.KeepStore)
+		flag := buildctlReservedFlag(ctx)
+		val := a.KeepStore
+		if flag == "--keep-storage" {
+			// Legacy buildctl takes MEGABYTES as a bare number. A size string parses as
+			// that many MB, so "8GB" silently becomes 8 petabytes and prunes nothing.
+			n, perr := config.ParseSize(a.KeepStore)
+			if perr != nil {
+				return nil, "unparseable build_cache.local.retention.max_size: " + a.KeepStore, nil
+			}
+			val = strconv.FormatInt(n/(1<<20), 10)
+		}
+		args = append(args, flag, val)
 	}
 	if a.Until != "" {
 		// buildctl takes a duration directly rather than buildx's `--filter until=`.
