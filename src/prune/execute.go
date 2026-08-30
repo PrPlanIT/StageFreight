@@ -289,7 +289,16 @@ func pruneDeclaredImages(ctx context.Context, a Action, confirm bool) (items []s
 }
 
 // pruneBuilder reclaims the sf-builder's cache through its own API — never a volume rm.
+//
+// The buildx builder is created by the BUILD phase, but disk GC deliberately runs at
+// the front of the pipeline, so at this point that builder does not exist yet and
+// `buildx prune --builder` reports "no builder" on every host and in every mode. When
+// a standalone buildkitd is configured, address the daemon directly instead: the
+// builder is one way to reach the cache, not the cache itself.
 func pruneBuilder(ctx context.Context, a Action, confirm bool) (items []string, skipped string, err error) {
+	if addr := strings.TrimSpace(os.Getenv("BUILDKIT_HOST")); addr != "" {
+		return pruneBuildkitd(ctx, addr, a, confirm)
+	}
 	args := []string{"buildx", "prune", "--builder", a.Builder, "--force"}
 	if a.KeepStore != "" {
 		// buildx renamed --keep-storage to --reserved-space; the old name still works
@@ -317,6 +326,52 @@ func pruneBuilder(ctx context.Context, a Action, confirm bool) (items []string, 
 		return nil, "buildx prune failed: " + reason, nil
 	}
 	return []string{"pruned via builder API"}, "", nil
+}
+
+// pruneBuildkitd reclaims a standalone buildkitd's cache over its own API, using the
+// same endpoint and PKI the build path uses (BUILDKIT_HOST + BUILDKIT_CERT_PATH).
+func pruneBuildkitd(ctx context.Context, addr string, a Action, confirm bool) (items []string, skipped string, err error) {
+	certPath := os.Getenv("BUILDKIT_CERT_PATH")
+	if certPath == "" {
+		certPath = "/buildkit-certs"
+	}
+	ca := filepath.Join(certPath, "ca.pem")
+	cert := filepath.Join(certPath, "cert.pem")
+	key := filepath.Join(certPath, "key.pem")
+	// TLS is mandatory when BUILDKIT_HOST is set — mirrors the build path, which
+	// refuses to fall back to an insecure connection.
+	for _, f := range []string{ca, cert, key} {
+		if _, serr := os.Stat(f); serr != nil {
+			return nil, "buildkitd TLS certs missing at " + certPath, nil
+		}
+	}
+	args := []string{"--addr", addr, "--tlscacert", ca, "--tlscert", cert, "--tlskey", key, "prune"}
+	if a.KeepStore != "" {
+		args = append(args, buildctlReservedFlag(ctx), a.KeepStore)
+	}
+	if a.Until != "" {
+		// buildctl takes a duration directly rather than buildx's `--filter until=`.
+		if until := dockerDuration(a.Until); until != "" {
+			args = append(args, "--keep-duration", until)
+		}
+	}
+	if !confirm {
+		return []string{"buildctl " + strings.Join(args, " ")}, "", nil
+	}
+	if out, rerr := exec.CommandContext(ctx, "buildctl", args...).CombinedOutput(); rerr != nil {
+		return nil, "buildctl prune failed: " + firstLine(string(out)), nil
+	}
+	return []string{"pruned via buildkitd API"}, "", nil
+}
+
+// buildctlReservedFlag asks the installed buildctl which spelling it speaks, the same
+// way reservedSpaceFlag does for buildx.
+func buildctlReservedFlag(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, "buildctl", "prune", "--help").CombinedOutput()
+	if err == nil && strings.Contains(string(out), "--reserved-space") {
+		return "--reserved-space"
+	}
+	return "--keep-storage"
 }
 
 // dockerDuration renders a StageFreight duration ("7d", "72h") into the Go-native
