@@ -364,6 +364,11 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		}
 	}
 
+	// Before scribe, so a preset this run refreshed is recorded ahead of the documents
+	// generated from it. Runs for every mode: a satellite resolving its own presets is
+	// not specific to building an image.
+	republishRefreshedPresets(ctx, appCfg, ciCtx, rootDir)
+
 	// Forge mutation for ALL modes: render generated badges/docs and commit them
 	// (scribe is a published artifact), then the single terminal mirror sync that
 	// carries that commit — and any release reconciliation — to every mirror.
