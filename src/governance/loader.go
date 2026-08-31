@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	git "github.com/go-git/go-git/v5"
@@ -17,8 +16,8 @@ import (
 
 // LoadGovernance loads governance config and returns a preset loader.
 // When source.LocalPath is set (CI mode), uses the local checkout directly.
-// Otherwise, fetches the policy repo at the pinned ref.
-// Ref must be pinned (tag or commit SHA) unless AllowFloating is true.
+// Otherwise, fetches the policy repo at source.Ref — empty means its default branch,
+// since an unpinned source tracks and pinning is the operator's choice.
 func LoadGovernance(source GovernanceSource) (*GovernanceConfig, PresetLoader, error) {
 	var checkoutDir string
 
@@ -26,10 +25,6 @@ func LoadGovernance(source GovernanceSource) (*GovernanceConfig, PresetLoader, e
 		// CI mode — repo is already checked out at the correct ref.
 		checkoutDir = source.LocalPath
 	} else {
-		if err := ValidateRef(source.Ref, source.AllowFloating); err != nil {
-			return nil, nil, fmt.Errorf("governance source: %w", err)
-		}
-
 		var err error
 		checkoutDir, err = fetchRepo(source.RepoURL, source.Ref)
 		if err != nil {
@@ -50,37 +45,7 @@ func LoadGovernance(source GovernanceSource) (*GovernanceConfig, PresetLoader, e
 	return gov, loader, nil
 }
 
-// ValidateRef checks pinning rules.
-// Pinned tag or commit SHA: always allowed.
-// Branch ref: only if allowFloating is true.
-// Empty: hard error.
-func ValidateRef(ref string, allowFloating bool) error {
-	if ref == "" {
-		return fmt.Errorf("ref is required (pinned tag or commit SHA)")
-	}
-
-	// SHA pattern: 7-40 hex chars.
-	if isSHA.MatchString(ref) {
-		return nil
-	}
-
-	// Tag pattern: starts with v and has dots, or is a semver-ish string.
-	if isTag.MatchString(ref) {
-		return nil
-	}
-
-	// Anything else is treated as a branch.
-	if !allowFloating {
-		return fmt.Errorf("ref %q looks like a branch; pinned tag or commit SHA required (set allow_floating: true to override)", ref)
-	}
-
-	return nil
-}
-
-var (
-	isSHA = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
-	isTag = regexp.MustCompile(`^v?\d+\.\d+`)
-)
+var ()
 
 // fetchRepo clones the policy repo at the given ref into a temp directory.
 // Returns the checkout path. Caller should NOT clean up — immutable for the run.

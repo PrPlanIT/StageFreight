@@ -13,11 +13,10 @@ import (
 // GovernanceSource declares where governance inputs come from.
 // Declared in .stagefreight.yml under governance.source.
 type GovernanceSource struct {
-	RepoURL       string `yaml:"repo_url"`       // policy repo URL
-	Ref           string `yaml:"ref"`            // "" = default branch (tracked); a ref pins
-	Path          string `yaml:"path"`           // path to governance config within repo
-	AllowFloating bool   `yaml:"allow_floating"` // deprecated: tracking is the default, not a hazard
-	LocalPath     string `yaml:"-"`              // if set, use local checkout instead of cloning
+	RepoURL   string `yaml:"repo_url"` // policy repo URL
+	Ref       string `yaml:"ref"`      // "" = default branch (tracked); a ref pins
+	Path      string `yaml:"path"`     // path to governance config within repo
+	LocalPath string `yaml:"-"`        // if set, use local checkout instead of cloning
 }
 
 // GovernanceConfig is the parsed governance config from the policy repo.
