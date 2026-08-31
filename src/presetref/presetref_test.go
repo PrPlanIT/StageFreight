@@ -33,6 +33,24 @@ func TestParse(t *testing.T) {
 		// A short/non-hex name is NOT a sha → Named.
 		{"src//p.yml@dev", Named, "src", "p.yml", "dev"},        // too short for sha, not hex-only anyway
 		{"src//p.yml@feature", Named, "src", "p.yml", "feature"}, // 'feature' has non-hex letters
+
+		// A bare HTTP(S) URL IS the source: there is no repo/path boundary to find, so
+		// the whole URL is one source identity and nothing is split off as a path. A URL
+		// carries no revision semantics, so it is tracked — the current response is
+		// authoritative, with the retained response as fallback.
+		{"https://example.org/foo.yml", Tracked, "https://example.org/foo.yml", "", ""},
+		{"http://example.org/foo.yml", Tracked, "http://example.org/foo.yml", "", ""},
+		{"https://example.org/a/b/c/preset.yml", Tracked, "https://example.org/a/b/c/preset.yml", "", ""},
+
+		// '@' is legal in a URL (userinfo, and in query values). Splitting a ref off it
+		// would corrupt the source, and a URL has no ref to name in the first place.
+		{"https://user@example.org/foo.yml", Tracked, "https://user@example.org/foo.yml", "", ""},
+		{"https://example.org/foo.yml?v=1@2", Tracked, "https://example.org/foo.yml?v=1@2", "", ""},
+
+		// The git form over an explicit host keeps its separator semantics: the '//'
+		// still divides repo coordinates from the in-repo path, and @ref still applies.
+		{"https://gitlab.example.com/Org/Repo//preset/lint.yml", Tracked, "https://gitlab.example.com/Org/Repo", "preset/lint.yml", ""},
+		{"https://gitlab.example.com/Org/Repo//preset/lint.yml@refs/tags/v1", Pinned, "https://gitlab.example.com/Org/Repo", "preset/lint.yml", "refs/tags/v1"},
 	}
 	for _, c := range cases {
 		got := Parse(c.raw)

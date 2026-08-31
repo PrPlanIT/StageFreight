@@ -71,9 +71,17 @@ func splitSource(raw string) (src, rest string, sourced bool) {
 	return raw[:idx], raw[idx+len(sourceSep):], true
 }
 
+// isURL reports whether raw is an http(s) URL. Only these two schemes: another scheme
+// (ssh://, git://) addresses a repository, which reaches Parse through the separator
+// form and keeps its repo/path split.
+func isURL(raw string) bool {
+	return strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "http://")
+}
+
 // Parse classifies a preset reference. Forms:
 //
 //	preset/lint.yml                          → Local
+//	https://example.org/lint.yml             → Tracked (the URL is the whole source)
 //	gitlab:Org/Repo//preset/lint.yml         → Tracked (default branch)
 //	…//preset/lint.yml@main                  → Named (bare — resolved at fetch)
 //	…//preset/lint.yml@refs/heads/main       → Tracked
@@ -85,6 +93,16 @@ func Parse(raw string) Ref {
 
 	src, rest, sourced := splitSource(raw)
 	if !sourced {
+		// An http(s) URL with no separator: the URL IS the source. There is no repo/path
+		// boundary to divide, so it stays one identity and nothing is split off as a path
+		// — including a '@', which is legal in a URL and names no revision. A URL has no
+		// revision semantics at all, so it is Tracked: the current response is what the
+		// reference denotes, with the retained response as the fallback.
+		if isURL(raw) {
+			r.Kind = Tracked
+			r.Source = raw
+			return r
+		}
 		// No source separator → a local, in-repo path.
 		r.Kind = Local
 		r.Path = raw
