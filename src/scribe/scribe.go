@@ -453,8 +453,8 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 		var ctx *facts.Context
 		if vi != nil {
 			ctx = &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars, Config: appCfg}
-			resolved.Message = facts.ScribeRegistry().ResolveOne(def.Message, ctx)
-			resolved.Label = facts.ScribeRegistry().ResolveOne(def.Label, ctx)
+			resolved.Message = facts.BadgeRegistry().ResolveOne(def.Message, ctx)
+			resolved.Label = facts.BadgeRegistry().ResolveOne(def.Label, ctx)
 		}
 		var shieldPath string
 		if def.Shield != "" {
