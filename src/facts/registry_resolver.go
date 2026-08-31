@@ -11,9 +11,9 @@ type registryResolver struct{}
 // RegistryResolver returns the resolver for the {registry.*} family.
 func RegistryResolver() Resolver { return registryResolver{} }
 
-func (registryResolver) Name() string         { return "registry" }
-func (registryResolver) Provides() []string   { return []string{"registry"} }
-func (registryResolver) DependsOn() []string  { return nil }
+func (registryResolver) Name() string        { return "registry" }
+func (registryResolver) Provides() []string  { return []string{"registry"} }
+func (registryResolver) DependsOn() []string { return nil }
 func (registryResolver) Resolve(values []string, c *Context) []string {
 	if c == nil || c.Config == nil {
 		return values
@@ -29,9 +29,9 @@ type inventoryResolver struct{}
 // InventoryResolver returns the resolver for the {inventory.*} family.
 func InventoryResolver() Resolver { return inventoryResolver{} }
 
-func (inventoryResolver) Name() string         { return "inventory" }
-func (inventoryResolver) Provides() []string   { return []string{"inventory"} }
-func (inventoryResolver) DependsOn() []string  { return nil }
+func (inventoryResolver) Name() string        { return "inventory" }
+func (inventoryResolver) Provides() []string  { return []string{"inventory"} }
+func (inventoryResolver) DependsOn() []string { return nil }
 func (inventoryResolver) Resolve(values []string, c *Context) []string {
 	if c == nil || c.Config == nil {
 		return values

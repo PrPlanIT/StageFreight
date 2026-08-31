@@ -4,16 +4,16 @@ import "testing"
 
 func TestBaseImageWebURL(t *testing.T) {
 	cases := map[string]string{
-		"FROM docker.io/prplanit/static-site:v0.0.2":        "https://hub.docker.com/r/prplanit/static-site",
-		"FROM alpine:3.23.5":                                "https://hub.docker.com/_/alpine",
-		"FROM docker.io/library/nginx:1.27":                 "https://hub.docker.com/_/nginx",
-		"FROM ghcr.io/prplanit/static-site:v1":              "https://github.com/prplanit/static-site/pkgs/container/static-site",
-		"FROM quay.io/prometheus/node-exporter:v1.8":        "https://quay.io/repository/prometheus/node-exporter",
-		"FROM cr.pcfae.com/prplanit/thing:latest":           "", // private registry → no public link
-		"FROM --platform=linux/amd64 alpine:3.23":           "https://hub.docker.com/_/alpine",
-		"FROM golang:1.26-alpine AS build":                  "https://hub.docker.com/_/golang",
-		"FROM prplanit/static-site@sha256:abc":              "https://hub.docker.com/r/prplanit/static-site",
-		"FROM scratch":                                      "",
+		"FROM docker.io/prplanit/static-site:v0.0.2": "https://hub.docker.com/r/prplanit/static-site",
+		"FROM alpine:3.23.5":                         "https://hub.docker.com/_/alpine",
+		"FROM docker.io/library/nginx:1.27":          "https://hub.docker.com/_/nginx",
+		"FROM ghcr.io/prplanit/static-site:v1":       "https://github.com/prplanit/static-site/pkgs/container/static-site",
+		"FROM quay.io/prometheus/node-exporter:v1.8": "https://quay.io/repository/prometheus/node-exporter",
+		"FROM cr.pcfae.com/prplanit/thing:latest":    "", // private registry → no public link
+		"FROM --platform=linux/amd64 alpine:3.23":    "https://hub.docker.com/_/alpine",
+		"FROM golang:1.26-alpine AS build":           "https://hub.docker.com/_/golang",
+		"FROM prplanit/static-site@sha256:abc":       "https://hub.docker.com/r/prplanit/static-site",
+		"FROM scratch":                               "",
 	}
 	for ref, want := range cases {
 		if got := baseImageWebURL(ref); got != want {

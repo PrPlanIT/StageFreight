@@ -1,8 +1,8 @@
 package discovery
 
 import (
-	"strings"
 	"context"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"

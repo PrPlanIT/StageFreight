@@ -29,9 +29,9 @@ var autoUpdatableEcosystems = map[string]bool{
 	// interpolated from an ARG/ENV is rewritten on that declaration (apply_dockerfile.go),
 	// which is where such a version is actually maintained. A pin written literally on a
 	// multi-package install line is still reported rather than edited.
-	supplychain.EcosystemAlpineAPK:     true,
-	supplychain.EcosystemDebianAPT:     true,
-	supplychain.EcosystemPip:           true, // requirements.txt exact pins (apply_pip.go); Pipfile/poetry skipped there
+	supplychain.EcosystemAlpineAPK: true,
+	supplychain.EcosystemDebianAPT: true,
+	supplychain.EcosystemPip:       true, // requirements.txt exact pins (apply_pip.go); Pipfile/poetry skipped there
 }
 
 // FilterUpdateCandidates separates deps into actionable candidates and skipped.

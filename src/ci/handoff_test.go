@@ -70,7 +70,7 @@ func TestIsBranchHeadFresh_ShortCircuitsWithoutLookup(t *testing.T) {
 		name string
 		ctx  *CIContext
 	}{
-		{"local run", &CIContext{}},                                            // not CI
+		{"local run", &CIContext{}}, // not CI
 		{"tag build", &CIContext{Provider: "gitlab", Tag: "v1.2.3", SHA: "s"}}, // immutable
 		{"no branch", &CIContext{Provider: "gitlab", SHA: "s"}},
 		{"no sha", &CIContext{Provider: "gitlab", Branch: "main"}},

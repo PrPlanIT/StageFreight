@@ -44,10 +44,10 @@ func TestOCIManifestSizeAndPlatformPick(t *testing.T) {
 // ociHost strips scheme and trailing slash so config URLs of either shape yield a bare host.
 func TestOCIHost(t *testing.T) {
 	for in, want := range map[string]string{
-		"ghcr.io":                "ghcr.io",
-		"https://cr.pcfae.com/":  "cr.pcfae.com",
-		"http://localhost:5000":  "localhost:5000",
-		"  docker.io  ":          "docker.io",
+		"ghcr.io":               "ghcr.io",
+		"https://cr.pcfae.com/": "cr.pcfae.com",
+		"http://localhost:5000": "localhost:5000",
+		"  docker.io  ":         "docker.io",
 	} {
 		if got := ociHost(in); got != want {
 			t.Errorf("ociHost(%q) = %q, want %q", in, got, want)

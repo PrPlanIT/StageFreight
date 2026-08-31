@@ -205,8 +205,8 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 // two build-local tokens the leaf pass doesn't own are resolved first:
 //   - {output}: the build's declared output path (a command names it once).
 //   - {date}:   the build TIMESTAMP (RFC3339). This is deliberately RFC3339 — distinct
-//               from gitver's display {date} (YYYY-MM-DD) — because a binary's BuildDate
-//               wants a timestamp; resolving it here, before the leaf pass, keeps that.
+//     from gitver's display {date} (YYYY-MM-DD) — because a binary's BuildDate
+//     wants a timestamp; resolving it here, before the leaf pass, keeps that.
 func resolveTemplateVars(s string, cfg build.BuildConfig) string {
 	s = strings.ReplaceAll(s, "{output}", cfg.Output)
 	s = strings.ReplaceAll(s, "{date}", time.Now().UTC().Format(time.RFC3339))

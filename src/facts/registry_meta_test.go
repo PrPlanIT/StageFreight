@@ -21,10 +21,10 @@ func TestParseRegistryToken(t *testing.T) {
 		{"ghcr.tag.latest-dev.updated", "ghcr", "tag", "latest-dev", "updated"},
 		{"ghcr.tag.latest-dev.size", "ghcr", "tag", "latest-dev", "size"},
 		{"ghcr.tag.latest-dev.size:raw", "ghcr", "tag", "latest-dev", "size:raw"},
-		{"ghcr.tag.v1.18.4.size", "ghcr", "tag", "v1.18.4", "size"},       // dotted tag
-		{"ghcr.tag.v1.2.3.digest", "ghcr", "tag", "v1.2.3", "digest"},     // dotted tag
-		{"ghcr.tag.latest.bogus", "", "", "", ""},                         // unknown field → rejected
-		{"noDotHere", "", "", "", ""},                                     // no id boundary
+		{"ghcr.tag.v1.18.4.size", "ghcr", "tag", "v1.18.4", "size"},   // dotted tag
+		{"ghcr.tag.v1.2.3.digest", "ghcr", "tag", "v1.2.3", "digest"}, // dotted tag
+		{"ghcr.tag.latest.bogus", "", "", "", ""},                     // unknown field → rejected
+		{"noDotHere", "", "", "", ""},                                 // no id boundary
 	}
 	for _, c := range cases {
 		t.Run(c.inner, func(t *testing.T) {
@@ -72,9 +72,9 @@ func TestResolveRegistryTokens(t *testing.T) {
 		{"{registry.ghcr.tag.latest-dev.size}", "72.4 MB"},
 		{"{registry.ghcr.tag.latest-dev.updated}", "2026-08-24"},
 		{"v{registry.ghcr.tag.latest-dev.updated}!", "v2026-08-24!"},
-		{"{registry.ghcr.tag.missing.size}", ""},   // tag not fetched → empty
-		{"{registry.unknown.pulls}", ""},           // unknown id → empty
-		{"plain text", "plain text"},               // untouched
+		{"{registry.ghcr.tag.missing.size}", ""}, // tag not fetched → empty
+		{"{registry.unknown.pulls}", ""},         // unknown id → empty
+		{"plain text", "plain text"},             // untouched
 	}
 	for _, c := range cases {
 		if got := resolveRegistryTokens(c.in, infos); got != c.want {

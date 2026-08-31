@@ -75,6 +75,7 @@ func (f *fakeForge) UpdateReleaseNotes(_ context.Context, id, body string) error
 	}
 	return fmt.Errorf("no release %s", id)
 }
+
 // AddReleaseLink records an external link, add-if-missing (idempotent), mirroring the
 // GitHub leaf op. A DOWNLOAD would be a bug for a link, so the fake never fetches bytes.
 func (f *fakeForge) AddReleaseLink(_ context.Context, id string, link forge.ReleaseLink) error {

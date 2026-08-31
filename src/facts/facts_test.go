@@ -14,7 +14,7 @@ type recordingResolver struct {
 	log      *[]string
 }
 
-func (r recordingResolver) Name() string       { return r.name }
+func (r recordingResolver) Name() string        { return r.name }
 func (r recordingResolver) Provides() []string  { return r.provides }
 func (r recordingResolver) DependsOn() []string { return r.deps }
 func (r recordingResolver) Resolve(values []string, _ *Context) []string {

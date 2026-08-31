@@ -8,9 +8,9 @@ func TestParseInventoryToken(t *testing.T) {
 	cases := []struct{ inner, cluster, field string }{
 		{"dungeon.count", "dungeon", "count"},
 		{"ad.arbitorium.count", "ad.arbitorium", "count"},
-		{"dungeon.bogus", "", ""},  // unknown field
-		{"dungeon", "", ""},        // no field
-		{"count", "", ""},          // no cluster
+		{"dungeon.bogus", "", ""}, // unknown field
+		{"dungeon", "", ""},       // no field
+		{"count", "", ""},         // no cluster
 	}
 	for _, c := range cases {
 		cl, f := parseInventoryToken(c.inner)
