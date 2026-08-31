@@ -54,7 +54,7 @@ func loadSatelliteConfig(repo string, sealed []byte, presetFiles map[string][]by
 		return nil, fmt.Errorf("cannot verify rendered config for %s: %w", repo, err)
 	}
 
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.LoadOffline(cfgPath)
 	if err != nil {
 		return nil, fmt.Errorf("rendered config for %s would not load: %w\n"+
 			"  the satellite would fail at audition before running anything — fix the profile or the catalog entry and reconcile again", repo, err)

@@ -29,6 +29,8 @@ type sourceAwareLoader struct {
 	// outcomes accumulates how each sourced reference resolved, so a caller can report
 	// drift and republish what it refreshed. Pointer: the loader is passed by value.
 	outcomes *[]presetref.Outcome
+	// offline resolves sourced references from the retained cache only.
+	offline bool
 }
 
 func (l sourceAwareLoader) Load(path string) ([]byte, error) {
@@ -44,7 +46,7 @@ func (l sourceAwareLoader) Load(path string) ([]byte, error) {
 	if l.outcomes != nil {
 		r.Observe = func(o presetref.Outcome) { *l.outcomes = append(*l.outcomes, o) }
 	}
-	if SourceFetcher == nil {
+	if SourceFetcher == nil || l.offline {
 		// No network-capable fetcher wired: resolve from the cache only (a pre-seeded
 		// pin or a previously-fetched tracked ref), erroring clearly on a miss.
 		r.Mode = presetref.FetchOffline

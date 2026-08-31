@@ -162,6 +162,19 @@ func Load(path string) (*Config, error) {
 	return cfg, err
 }
 
+// LoadOffline loads a config resolving sourced presets from the retained cache only,
+// never the network.
+//
+// For verifying a render against the cache that ships WITH it — governance checking a
+// satellite's config before distributing it. Resolving live there would ask the wrong
+// question (does the source answer right now) instead of the one that matters (is what
+// we are about to hand over self-sufficient), and would fetch every reference once per
+// governed repo.
+func LoadOffline(path string) (*Config, error) {
+	cfg, _, _, err := loadResolvedMode(path, true)
+	return cfg, err
+}
+
 // nodeHasKey reports whether the document's top-level mapping has a key.
 func nodeHasKey(root *yaml.Node, key string) bool {
 	doc := root
@@ -223,6 +236,12 @@ func LoadWithWarnings(path string) (*Config, []string, error) {
 // cache-authoritative for a pin. The cache is the fallback/pin store, not the mandatory
 // read path.
 func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
+	return loadResolvedMode(path, false)
+}
+
+// loadResolvedMode is loadResolved with control over whether sourced references may be
+// fetched. Offline resolves them from the retained cache only.
+func loadResolvedMode(path string, offline bool) (*Config, []string, []MergeEntry, error) {
 	if path == "" {
 		path = defaultConfigFile
 	}
@@ -265,6 +284,7 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		cacheDir: cacheDir,
 		forges:   forgeURLsFromNode(&rootNode),
 		outcomes: &outcomes,
+		offline:  offline,
 	}
 	resolvedNode, entries, rerr := ResolvePresets(&rootNode, loader, "local", absPath, 0, nil)
 
