@@ -155,6 +155,20 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			buildIDs[b.ID] = true
 		}
 
+		// A secret names a file that gets mounted into the build. An absolute or
+		// escaping path would reach outside the repo, so refuse it at load rather than
+		// discovering at build time what got mounted.
+		for id, src := range b.Secrets {
+			switch {
+			case id == "":
+				errs = append(errs, fmt.Sprintf("%s: secret id is required", bpath))
+			case src == "":
+				errs = append(errs, fmt.Sprintf("%s: secret %q: path is required", bpath, id))
+			case filepath.IsAbs(src), strings.HasPrefix(filepath.Clean(src), ".."):
+				errs = append(errs, fmt.Sprintf("%s: secret %q: %q must be a path inside the repo", bpath, id, src))
+			}
+		}
+
 		if b.Kind == "" {
 			errs = append(errs, fmt.Sprintf("%s: kind is required", bpath))
 		} else if !validBuildKinds[b.Kind] {

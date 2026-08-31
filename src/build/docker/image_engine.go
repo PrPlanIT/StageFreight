@@ -250,6 +250,7 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 		Target:         b.Target,
 		Platforms:      platforms,
 		BuildArgs:      buildArgs,
+		Secrets:        b.Secrets,
 		Tags:           tags,
 		Output:         build.OutputImage,
 		Registries:     registries,

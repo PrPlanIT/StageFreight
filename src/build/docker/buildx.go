@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -323,6 +324,19 @@ func (bx *Buildx) buildArgs(step build.BuildStep) []string {
 	// Build args
 	for k, v := range step.BuildArgs {
 		args = append(args, "--build-arg", fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Secrets. Sorted so the command is reproducible: a map's order is not, and an
+	// argument list that shuffles between runs is a diff nobody can read.
+	if len(step.Secrets) > 0 {
+		ids := make([]string, 0, len(step.Secrets))
+		for id := range step.Secrets {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			args = append(args, "--secret", fmt.Sprintf("id=%s,src=%s", id, step.Secrets[id]))
+		}
 	}
 
 	// Labels

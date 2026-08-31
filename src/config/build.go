@@ -161,6 +161,13 @@ type BuildConfig struct {
 	// BuildArgs are key-value pairs passed as --build-arg. Supports templates.
 	BuildArgs map[string]string `yaml:"build_args,omitempty"`
 
+	// Secrets are id → in-repo file path, passed as --secret id=<id>,src=<path>.
+	// A build arg is baked into the image and readable from its history; a secret is
+	// mounted for one RUN and leaves nothing behind. Use it for a credential, and for
+	// an input a Dockerfile expects this way — upstream frappe_docker takes its app
+	// list as a secret rather than a build arg, for instance.
+	Secrets map[string]string `yaml:"secrets,omitempty"`
+
 	// Cache holds build cache settings.
 	Cache CacheConfig `yaml:"cache,omitempty"`
 

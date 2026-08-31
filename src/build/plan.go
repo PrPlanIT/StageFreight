@@ -18,13 +18,15 @@ type BuildPlan struct {
 
 // BuildStep is a single build invocation.
 type BuildStep struct {
-	Name           string
-	Dockerfile     string
-	Context        string
-	ContextDigest  string // content hash of the Dockerfile + build context (see HashBuildContext); folds source content into the build identity so a code change is not invisible to NormalizeBuildPlan
-	Target         string
-	Platforms      []string
-	BuildArgs      map[string]string
+	Name          string
+	Dockerfile    string
+	Context       string
+	ContextDigest string // content hash of the Dockerfile + build context (see HashBuildContext); folds source content into the build identity so a code change is not invisible to NormalizeBuildPlan
+	Target        string
+	Platforms     []string
+	BuildArgs     map[string]string
+	// Secrets are id → in-repo path, mounted for a RUN and left out of the image.
+	Secrets        map[string]string
 	Labels         map[string]string // OCI labels injected via --label
 	Tags           []string
 	Output         OutputMode
