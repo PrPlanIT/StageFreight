@@ -65,8 +65,9 @@ type Outcome struct {
 	Unchanged bool // the source points at what was retained; nothing transferred
 }
 
-// revisionSuffix keys the recorded revision beside its content.
-const revisionSuffix = ".revision"
+// RevisionSuffix keys the recorded revision beside its content, so a distributor can
+// seed it and a resolver can find it.
+const RevisionSuffix = ".revision"
 
 // DefaultMaxFallbackAge is how long a retained copy may stand in for an unreachable
 // source before resolution stops accepting it. Unbounded is not a safe default: it is
@@ -117,7 +118,7 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// and a pin cheap enough to verify every run.
 	if rev, ok := r.Fetcher.(Revisioner); ok && had {
 		if cur, rerr := rev.Revision(ref.Source, ref.Ref); rerr == nil && cur != "" {
-			if prev, ok := r.Cache.Read(key + revisionSuffix); ok && string(prev) == cur {
+			if prev, ok := r.Cache.Read(key + RevisionSuffix); ok && string(prev) == cur {
 				r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Unchanged: true})
 				return retained, nil
 			}
@@ -157,7 +158,7 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	_ = r.Cache.Write(key, fetched)
 	if rev, ok := r.Fetcher.(Revisioner); ok {
 		if cur, rerr := rev.Revision(ref.Source, ref.Ref); rerr == nil && cur != "" {
-			_ = r.Cache.Write(key+revisionSuffix, []byte(cur))
+			_ = r.Cache.Write(key+RevisionSuffix, []byte(cur))
 		}
 	}
 	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs})
