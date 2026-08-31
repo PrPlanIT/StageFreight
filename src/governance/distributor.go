@@ -16,11 +16,10 @@ import (
 // PresetSourceInfo holds the forge coordinates for preset resolution.
 // Injected into satellite .stagefreight.yml so repos can resolve presets independently.
 type PresetSourceInfo struct {
-	Provider    string // "gitlab", "github", "gitea"
-	ForgeURL    string // HTTPS base URL (e.g., "https://gitlab.prplanit.com")
-	ProjectID   string // "org/repo" or "org/group/repo"
-	Ref         string // pinned ref
-	CachePolicy string // "authoritative" or "advisory"
+	Provider  string // "gitlab", "github", "gitea"
+	ForgeURL  string // HTTPS base URL (e.g., "https://gitlab.prplanit.com")
+	ProjectID string // "org/repo" or "org/group/repo"
+	Ref       string // "" = the source default branch (tracked); a ref pins
 }
 
 // AssetFetcher fetches a file from a repo at a specific ref.
@@ -40,9 +39,11 @@ func PlanDistribution(
 	for _, cluster := range gov.Profiles {
 		baseConfig := deepCopyMap(cluster.Config)
 
-		// Add preset_source so satellites know where to resolve section presets at runtime.
-		// Section presets (targets, badges, etc.) pass through as-is — addresses of truth.
-		baseConfig = addPresetSource(baseConfig, presetSource)
+		// Qualify unqualified preset references so the satellite resolves them from the
+		// source each run, rather than reading whichever copy it was last handed. A
+		// reference that already names its own source passes through untouched.
+		govSource := NewPresetQualifier(presetSource)
+		govSource.QualifyConfig(baseConfig)
 
 		seal := SealMeta{
 			SourceRepo: sourceIdentity,
@@ -53,7 +54,7 @@ func PlanDistribution(
 		// Collect preset files referenced in the profile config for cache distribution.
 		// A catalog entry's per-repo config: override is collected separately, per repo
 		// (below): its presets belong to that satellite alone, not to every member.
-		presetFiles, err := loadPresetCache(collectPresetPaths(cluster.Config), presetLoader, cluster.ID)
+		presetFiles, err := loadPresetCache(collectPresetPaths(cluster.Config), presetLoader, cluster.ID, govSource)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +70,12 @@ func PlanDistribution(
 			repoConfig := deepCopyMap(baseConfig)
 			// A per-repo config override (a deviating catalog entry) merges over the base.
 			if entry.Config != nil {
-				mergeConfigOverride(repoConfig, entry.Config)
+				// Qualified on a copy: the entry's own map is shared across the catalog,
+				// and its preset paths are still needed unqualified to read the files
+				// out of the control repo below.
+				override := deepCopyMap(entry.Config)
+				govSource.QualifyConfig(override)
+				mergeConfigOverride(repoConfig, override)
 			}
 			// A branded catalog entry governs identity: carry its metadata into the
 			// satellite config as the metadata: block. org ALWAYS derives from the
@@ -112,7 +118,7 @@ func PlanDistribution(
 			// presets by path, so verifying it without them proves nothing.
 			repoPresetFiles := presetFiles
 			if entry.Config != nil {
-				overrideFiles, oerr := loadPresetCache(collectPresetPaths(entry.Config), presetLoader, cluster.ID)
+				overrideFiles, oerr := loadPresetCache(collectPresetPaths(entry.Config), presetLoader, cluster.ID, govSource)
 				if oerr != nil {
 					return nil, oerr
 				}
@@ -214,10 +220,15 @@ func PlanDistribution(
 // so a satellite can resolve them offline. Shared by the profile config and each
 // deviating entry's override — every place a preset reference can legitimately appear
 // must be seeded, or the satellite loads a config it cannot resolve.
-func loadPresetCache(paths []string, loader PresetLoader, clusterID string) (map[string][]byte, error) {
+func loadPresetCache(paths []string, loader PresetLoader, clusterID string, src PresetQualifier) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(paths))
 	for _, p := range paths {
-		cachePath, err := sanitizePresetCachePath(p)
+		// The file is read from the control repo by its LOCAL path, but retained under
+		// the key the satellite's resolver will ask for — CacheKey of the qualified
+		// reference. Storing it by local path instead would miss on every lookup, and a
+		// miss is not cosmetic: the retained copy IS the fallback when the source is
+		// unreachable.
+		cachePath, err := sanitizePresetCachePath(retentionKey(src.Qualify(p)))
 		if err != nil {
 			return nil, fmt.Errorf("cluster %q: %w", clusterID, err)
 		}
@@ -358,23 +369,6 @@ func planFile(reader ForgeReader, repo, path string, newContent []byte) Distribu
 	f.Drifted = true
 
 	return f
-}
-
-// addPresetSource injects a preset_source block into the config so satellites
-// know where to resolve presets at runtime independently of governance.
-func addPresetSource(config map[string]any, ps PresetSourceInfo) map[string]any {
-	out := make(map[string]any, len(config)+1)
-	for k, v := range config {
-		out[k] = v
-	}
-	out["preset_source"] = map[string]any{
-		"provider":     ps.Provider,
-		"repo_url":     ps.ForgeURL,
-		"project_id":   ps.ProjectID,
-		"ref":          ps.Ref,
-		"cache_policy": ps.CachePolicy,
-	}
-	return out
 }
 
 // mergeSatelliteVars reads the satellite repo's existing .stagefreight.yml,

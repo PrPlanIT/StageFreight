@@ -222,9 +222,10 @@ func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
 	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"}, "Org/policy")
 	requireNoError(t, err)
 
+	src := NewPresetQualifier(PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"})
 	want := map[string]bool{
-		".stagefreight/preset-cache/preset/stencils-core.yml":   false,
-		".stagefreight/preset-cache/preset/stencils-docker.yml": false,
+		cachePathFor(src, "preset/stencils-core.yml"):   false,
+		cachePathFor(src, "preset/stencils-docker.yml"): false,
 	}
 	for _, f := range plans[0].Files {
 		if _, ok := want[f.Path]; ok {
@@ -284,20 +285,21 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 		byRepo[p.Repo] = p
 	}
 
+	src2 := NewPresetQualifier(PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"})
 	py := byRepo["Org/py-repo"]
-	if !has(py, ".stagefreight/preset-cache/preset/test-python.yml") {
+	if !has(py, cachePathFor(src2, "preset/test-python.yml")) {
 		t.Error("the deviating entry's own preset must be seeded into ITS cache")
 	}
-	if !has(py, ".stagefreight/preset-cache/preset/git.yml") {
+	if !has(py, cachePathFor(src2, "preset/git.yml")) {
 		t.Error("profile presets must still reach a deviating entry")
 	}
 
 	// The override is per-repo: another member must NOT receive it.
 	plain := byRepo["Org/plain-repo"]
-	if has(plain, ".stagefreight/preset-cache/preset/test-python.yml") {
+	if has(plain, cachePathFor(src2, "preset/test-python.yml")) {
 		t.Error("one repo's override preset must not be distributed to every member")
 	}
-	if !has(plain, ".stagefreight/preset-cache/preset/git.yml") {
+	if !has(plain, cachePathFor(src2, "preset/git.yml")) {
 		t.Error("profile presets must reach every member")
 	}
 }
@@ -512,4 +514,15 @@ func TestPlanDistribution_RejectsBadCIForges(t *testing.T) {
 	if _, err := planCIFixture(t, ciGovFixture([]any{"gitlab", "gitlab"})); err == nil {
 		t.Error("duplicate ci.forges entry must fail the reconcile")
 	}
+}
+
+// cachePathFor derives where a preset is retained for a given governance source — the
+// key the satellite's resolver will ask for. Asserting a literal path here would only
+// re-state the layout; what matters is that retention and lookup agree.
+func cachePathFor(src PresetQualifier, localPath string) string {
+	p, err := sanitizePresetCachePath(retentionKey(src.Qualify(localPath)))
+	if err != nil {
+		panic(err)
+	}
+	return p
 }

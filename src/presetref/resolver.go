@@ -120,7 +120,14 @@ func (r Resolver) warnf(format string, args ...any) {
 // relative path. A pinned ref's key includes its immutable ref; a tracked ref's key is
 // stable across runs so a re-fetch overwrites the same entry.
 func CacheKey(ref Ref) string {
-	return sanitizeKey(ref.Source + "@" + ref.Ref + "/" + ref.Path)
+	// The ref is part of the identity only when there is one: an unpinned reference
+	// tracks the default branch, and rendering its absence as a separator leaves a
+	// stray "-" in every retained path.
+	key := ref.Source
+	if ref.Ref != "" {
+		key += "@" + ref.Ref
+	}
+	return sanitizeKey(key + "/" + ref.Path)
 }
 
 func sanitizeKey(s string) string {

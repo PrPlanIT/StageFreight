@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"net/url"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -141,11 +141,10 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	}
 
 	presetSource := governance.PresetSourceInfo{
-		Provider:    forgeProvider,
-		ForgeURL:    forgeBaseURL,
-		ProjectID:   sourceIdentity,
-		Ref:         source.Ref,
-		CachePolicy: "authoritative",
+		Provider:  forgeProvider,
+		ForgeURL:  forgeBaseURL,
+		ProjectID: sourceIdentity,
+		Ref:       source.Ref,
 	}
 
 	plans, err := governance.PlanDistribution(
@@ -265,9 +264,9 @@ func resolveGovernanceSourceFromOpts(opts GovernanceReconcileOpts) (governance.G
 	if source.RepoURL == "" {
 		return source, fmt.Errorf("governance source required: set sources.primary.url in .stagefreight.yml")
 	}
-	if source.Ref == "" {
-		return source, fmt.Errorf("governance ref required: use --ref (pinned tag or commit SHA)")
-	}
+	// No ref is the DEFAULT, not an omission: an unpinned source tracks its default
+	// branch, so satellites see policy changes on their next run. Pinning is the
+	// operator's opt-out from that, expressed by naming a ref.
 
 	return source, nil
 }
