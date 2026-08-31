@@ -125,7 +125,7 @@ This alone kills asymmetry #1's footgun.
 Only mode-specific blocks with a **non-defaulted** sentinel are gated. Every shared block (`ci`,
 `vars`, `git`, `forges`/`repos`/`registries`/`signing`, `commit`/`tagging`/`release`/`glossary`,
 `scribe`, `lint`/`test`/`security`/`dependency`, `toolchains`, `manifest`, `build_cache`,
-`defaults`, `preset_source`, `version`) is never gated.
+`defaults`, `version`) is never gated.
 
 | block | sentinel | defaulted? | legal only in | gate now? |
 |---|---|---|---|---|
