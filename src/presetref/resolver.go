@@ -68,6 +68,12 @@ type Outcome struct {
 // revisionSuffix keys the recorded revision beside its content.
 const revisionSuffix = ".revision"
 
+// DefaultMaxFallbackAge is how long a retained copy may stand in for an unreachable
+// source before resolution stops accepting it. Unbounded is not a safe default: it is
+// how a source that quietly stops answering leaves everyone frozen on old content. A
+// week absorbs a long outage while still surfacing one that is not going to end.
+const DefaultMaxFallbackAge = 7 * 24 * time.Hour
+
 type Resolver struct {
 	Fetcher Fetcher
 	Cache   Cache

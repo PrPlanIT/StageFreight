@@ -39,10 +39,7 @@ func (l sourceAwareLoader) Load(path string) ([]byte, error) {
 		return l.local.Load(path)
 	}
 	ref.Source = l.resolveSource(ref.Source)
-	r := presetref.Resolver{
-		Fetcher: SourceFetcher,
-		Cache:   presetref.NewFSCache(l.cacheDir),
-	}
+	r := l.resolver()
 	if l.outcomes != nil {
 		r.Observe = func(o presetref.Outcome) { *l.outcomes = append(*l.outcomes, o) }
 	}
@@ -58,6 +55,15 @@ func (l sourceAwareLoader) Load(path string) ([]byte, error) {
 // repo URL using the config's own forges: block. A URL (has a scheme) or an scp-like
 // remote passes through unchanged; an unknown shorthand also passes through, leaving the
 // fetcher to error clearly.
+// resolver is the resolver this loader resolves sourced references with.
+func (l sourceAwareLoader) resolver() presetref.Resolver {
+	return presetref.Resolver{
+		Fetcher:        SourceFetcher,
+		Cache:          presetref.NewFSCache(l.cacheDir),
+		MaxFallbackAge: presetref.DefaultMaxFallbackAge,
+	}
+}
+
 func (l sourceAwareLoader) resolveSource(source string) string {
 	if strings.Contains(source, "://") {
 		return source // already a URL

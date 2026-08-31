@@ -130,5 +130,9 @@ func loadPresetContent(ref string, loader PresetLoader) ([]byte, error) {
 	if PresetMaterializeCache != "" {
 		cache = presetref.NewFSCache(PresetMaterializeCache)
 	}
-	return presetref.Resolver{Fetcher: PresetSourceFetcher, Cache: cache}.Resolve(r)
+	return presetref.Resolver{
+		Fetcher:        PresetSourceFetcher,
+		Cache:          cache,
+		MaxFallbackAge: presetref.DefaultMaxFallbackAge,
+	}.Resolve(r)
 }

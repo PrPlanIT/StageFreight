@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"path/filepath"
 	"context"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
@@ -105,6 +105,10 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	if wd, werr := os.Getwd(); werr == nil {
 		governance.PresetMaterializeCache = filepath.Join(wd, ".stagefreight", "preset-cache")
 	}
+
+	// One checkout per repo+ref is reused across every preset read; drop them when the
+	// reconcile is done rather than leaving them for process exit.
+	defer governance.ReleaseCheckouts()
 
 	gov, presetLoader, err := governance.LoadGovernance(source)
 	if err != nil {
