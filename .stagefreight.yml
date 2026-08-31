@@ -79,16 +79,20 @@ forges:
     provider: gitlab
     url: "https://gitlab.prplanit.com"
     credentials: GITLAB
+    # {path.gitlab}/{path.github} resolve from these, so the shared stencils link at
+    # this repo instead of rendering their tokens literally.
+    default_path: "{org}/{repo}"
 
   github:
     provider: github
     url: "https://github.com"
     credentials: GITHUB
+    default_path: "{org.github}/{repo}"
 
 repos:
   primary:
     forge: gitlab
-    project: "{var:gitlab_group}/{var:repo}"
+    project: "PrPlanIT/StageFreight"
     roles: [primary]
     branches:
       default: main
@@ -96,7 +100,7 @@ repos:
 
   github-mirror:
     forge: github
-    project: "{var:github_org}/{var:github_repo}"
+    project: "PrPlanIT/StageFreight"
     roles: [mirror, publish-origin]
     sync:                        # facet × scope (see 📦); faithful git mirror (releases NOT synced —
       branches: exact            # they're authored on github via the release publish target;
@@ -107,13 +111,13 @@ registries:
     provider: docker
     url: docker.io
     credentials: DOCKER
-    default_path: "{var:org}/{var:repo}"
+    default_path: "{org.docker}/{repo}"
 
   harbor:
     provider: harbor
     url: cr.pcfae.com
     credentials: HARBOR
-    default_path: "{var:org}/{var:repo}"
+    default_path: "{org.docker}/{repo}"
 
   # GitHub Container Registry. Path must be lowercase; {var:org}/{var:repo}
   # (prplanit/stagefreight) resolves under the PrPlanIT GitHub org.
@@ -122,7 +126,7 @@ registries:
     provider: ghcr
     url: ghcr.io
     credentials: GHCR
-    default_path: "{var:org}/{var:repo}"
+    default_path: "{org.ghcr}/{repo}"
 
 publish:                                 # distribute artifacts to their destinations (was targets:); id→target map
   # ── Stable releases → all registries (fans via registry: list) ───
@@ -401,7 +405,7 @@ scribe:
       file: "README.md"
       between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
       inline: true
-      items: [build, license, release, updated, donate, sponsor]
+      items: [release, build, go-version, go-reference, last-commit, stagefreight]
 
     readme.project:
       file: "README.md"
@@ -413,7 +417,7 @@ scribe:
     readme.image:
       file: "README.md"
       between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
-      items: [docker, pulls, br, release-latest, release-updated, release-size, dev-latest, dev-updated, dev-size]
+      items: [ghcr, docker, pulls, harbor, br, release-latest, release-updated, release-size, dev-latest, dev-updated, dev-size]
 
     readme.contents.base:
       file: "README.md"
@@ -453,7 +457,52 @@ scribe:
     # real build input.) Broader X-StageFreight-Generated-keyed policy is TODO.
     skip_ci: true
 
+# Identity for the fact-based stencils below: {path.ghcr}, {path.github},
+# {slug.lower} and {stagefreight.version} resolve from here.
+orgs:
+  PrPlanIT:
+    maintainer: "PrPlanIT <precisionplanit@gmail.com>"
+    aliases:
+      handle: prplanit
+      github: PrPlanIT
+      docker: prplanit
+      ghcr: prplanit
+
+metadata:
+  org: PrPlanIT
+  title: "StageFreight"
+  license: BSD-3-Clause
+  category: ci
+
 stencils:
+  # StageFreight is not in the MaintenancePolicy catalog on purpose: the tool that
+  # applies governance must not need governance to build, or a bad policy push would
+  # leave nothing able to fix it. The cost is that these are copies of
+  # preset/stencils-*.yml and drift is paid for by hand — keep them identical.
+  ghcr:
+    render: shield
+    label: GHCR
+    message: '{path.ghcr}'
+    color: '#181717'
+    logo: github
+    logo_color: white
+    link: https://github.com/{path.github}/pkgs/container/{slug.lower}
+  harbor:
+    render: shield
+    label: Harbor
+    message: '{path.harbor}'
+    color: '#60b932'
+    link: https://cr.pcfae.com/harbor/projects
+  stagefreight:
+    render: shield
+    label: StageFreight
+    message: '{stagefreight.version}'
+    color: '#310937'
+    logo: readthedocs
+    logo_color: white
+    link: https://stagefreight.prplanit.com
+  go-version:
+    type: go-version
   # The shared audience-text library: define each renderable once (id → SOURCE
   # type × RENDER render). Inline defs (no type) render a badge (default) or a
   # shield (render: shield); named producers (props/contents/include) render
