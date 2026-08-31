@@ -13,6 +13,34 @@ type PresetLoader interface {
 	Load(path string) ([]byte, error)
 }
 
+// PolicyPresetLoader is an optional PresetLoader capability: resolve a reference under
+// the mismatch policy declared beside it. A loader without it resolves under the
+// default, which is to stop.
+type PolicyPresetLoader interface {
+	LoadWithPolicy(path, onMismatch string) ([]byte, error)
+}
+
+// loadPreset resolves a reference under the policy declared beside it, when the loader
+// can honour one.
+func loadPreset(loader PresetLoader, path, onMismatch string) ([]byte, error) {
+	if onMismatch == "" {
+		return loader.Load(path)
+	}
+	if pl, ok := loader.(PolicyPresetLoader); ok {
+		return pl.LoadWithPolicy(path, onMismatch)
+	}
+	return loader.Load(path)
+}
+
+// extractMismatchPolicy returns the on_mismatch sibling of a preset reference, if any.
+func extractMismatchPolicy(section *yaml.Node) string {
+	v, ok := mapGet(section, "on_mismatch")
+	if !ok || v.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return v.Value
+}
+
 // MergeTrace records how each config value was resolved.
 type MergeTrace struct {
 	Entries []MergeEntry
@@ -222,7 +250,7 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 		}
 		seen[presetPath] = true
 
-		presetContent, err := loader.Load(presetPath)
+		presetContent, err := loadPreset(loader, presetPath, extractMismatchPolicy(section))
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: loading preset %q: %w", key, presetPath, err)
 		}
@@ -236,7 +264,7 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 
 		// Preset value is a scalar/sequence (e.g. targets: [...]) — use directly.
 		if !isMapping(presetValue) {
-			localOverrides := withoutKey(section, "preset")
+			localOverrides := withoutKey(withoutKey(section, "preset"), "on_mismatch")
 			if len(mapKeys(localOverrides)) > 0 {
 				mapSet(result, key, localOverrides)
 			} else {
@@ -268,7 +296,7 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 				return nil, nil, fmt.Errorf("%s: resolving nested preset %q in %q: %w", key, innerPresetPath, presetPath, err)
 			}
 			innerSection, _ := mapGet(resolvedInner, topKey)
-			currentOverrides := withoutKey(presetValue, "preset")
+			currentOverrides := withoutKey(withoutKey(presetValue, "preset"), "on_mismatch")
 			resolvedPreset = DeepMerge(innerSection, currentOverrides)
 			presetEntries = innerEntries
 		} else {
@@ -284,7 +312,7 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 		entries = append(entries, presetEntries...)
 
 		// Local siblings (everything except preset:) override the preset.
-		localOverrides := withoutKey(section, "preset")
+		localOverrides := withoutKey(withoutKey(section, "preset"), "on_mismatch")
 		merged := DeepMerge(resolvedPreset, localOverrides)
 
 		for _, localKey := range mapKeys(localOverrides) {
@@ -420,7 +448,7 @@ func resolvePresetMap(presets []string, sectionPath string, section *yaml.Node, 
 
 	// Inline entries: the section's own keys (except the preset directives).
 	for _, k := range mapKeys(section) {
-		if k == "preset" || k == "presets" {
+		if k == "preset" || k == "presets" || k == "on_mismatch" {
 			continue
 		}
 		v, _ := mapGet(section, k)

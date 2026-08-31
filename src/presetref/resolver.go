@@ -52,6 +52,35 @@ const (
 
 // Resolver resolves a SOURCED preset Ref (Tracked/Pinned/Named) to its content, applying
 // the source-tracking policy. Local refs are out of scope — the local loader handles them.
+// MismatchPolicy decides what happens when a PINNED reference's source no longer serves
+// what was retained. Only a pin can mismatch: it asserts a revision is immutable, and
+// that assertion is what the source can contradict. A tracked reference asserts nothing,
+// so a change there is simply the new value.
+//
+// There is no universally right answer, which is why it is the operator's: one shop sees
+// a moved pin as tampering and wants everything to stop; another trusts the source and
+// wants the newer content; a third wants what it already had, plus a warning.
+type MismatchPolicy string
+
+const (
+	// MismatchFail stops. The default, because it is the only option that does not
+	// choose for an operator who has not said which side they trust.
+	MismatchFail MismatchPolicy = "fail"
+	// MismatchSource adopts what the source serves.
+	MismatchSource MismatchPolicy = "source"
+	// MismatchRetained keeps what was retained.
+	MismatchRetained MismatchPolicy = "retained"
+)
+
+// Valid reports whether p is a policy the resolver understands.
+func (p MismatchPolicy) Valid() bool {
+	switch p {
+	case "", MismatchFail, MismatchSource, MismatchRetained:
+		return true
+	}
+	return false
+}
+
 // Outcome records how one reference resolved. A tracked source changing is the
 // behaviour the operator selected by not pinning, so this exists to make the change
 // visible and auditable — not to flag it as suspect.
@@ -86,6 +115,9 @@ type Resolver struct {
 	// every consumer silently frozen on old content — the failure this whole mechanism
 	// exists to remove, arriving by a different route.
 	MaxFallbackAge time.Duration
+	// OnMismatch decides what a pinned reference does when its source disagrees with
+	// what was retained. Empty means MismatchFail.
+	OnMismatch MismatchPolicy
 	// Warnf, if set, reports a non-fatal condition (e.g. a stale-cache fallback).
 	Warnf func(format string, args ...any)
 }
@@ -147,20 +179,27 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 		// A pinned reference names a revision that is supposed to be immutable. If the
 		// source now serves something else, the assumption is broken — a moved tag,
 		// rewritten history, or a substituted host — and the retained copy is the
-		// evidence. Report it rather than silently choosing a side.
+		// evidence. Which side to believe is the operator's call, not this function's.
 		r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true})
-		return nil, &PinViolation{Ref: ref, Retained: retained, Fetched: fetched}
+		switch r.OnMismatch {
+		case MismatchSource:
+			r.warnf("pinned preset %q: the source no longer serves what was retained; taking the source", ref.Raw)
+			_ = r.Cache.Write(key, fetched)
+			r.writeRevision(ref, key)
+			return fetched, nil
+		case MismatchRetained:
+			r.warnf("pinned preset %q: the source no longer serves what was retained; keeping the retained copy", ref.Raw)
+			return retained, nil
+		default: // MismatchFail
+			return nil, &PinViolation{Ref: ref, Retained: retained, Fetched: fetched}
+		}
 	}
 
 	// Compare before overwriting: once the retained copy is replaced, the fact that the
 	// source moved is unrecoverable, and that fact is what a satellite reports and
 	// republishes.
 	_ = r.Cache.Write(key, fetched)
-	if rev, ok := r.Fetcher.(Revisioner); ok {
-		if cur, rerr := rev.Revision(ref.Source, ref.Ref); rerr == nil && cur != "" {
-			_ = r.Cache.Write(key+RevisionSuffix, []byte(cur))
-		}
-	}
+	r.writeRevision(ref, key)
 	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs})
 	return fetched, nil
 }
@@ -186,6 +225,17 @@ func (r Resolver) retainedAge(key string) (time.Duration, bool) {
 		return ac.Age(key)
 	}
 	return 0, false
+}
+
+// writeRevision records what the source pointed at, beside the content just retained.
+func (r Resolver) writeRevision(ref Ref, key string) {
+	rev, ok := r.Fetcher.(Revisioner)
+	if !ok {
+		return
+	}
+	if cur, err := rev.Revision(ref.Source, ref.Ref); err == nil && cur != "" {
+		_ = r.Cache.Write(key+RevisionSuffix, []byte(cur))
+	}
 }
 
 func (r Resolver) observe(o Outcome) {

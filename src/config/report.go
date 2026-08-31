@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,13 +34,27 @@ type sourceAwareLoader struct {
 	offline bool
 }
 
+// LoadWithPolicy resolves under the mismatch policy declared beside the reference.
+func (l sourceAwareLoader) LoadWithPolicy(path, onMismatch string) ([]byte, error) {
+	p := presetref.MismatchPolicy(onMismatch)
+	if !p.Valid() {
+		return nil, fmt.Errorf("on_mismatch %q: want fail, source or retained", onMismatch)
+	}
+	return l.load(path, p)
+}
+
 func (l sourceAwareLoader) Load(path string) ([]byte, error) {
+	return l.load(path, "")
+}
+
+func (l sourceAwareLoader) load(path string, onMismatch presetref.MismatchPolicy) ([]byte, error) {
 	ref := presetref.Parse(path)
 	if ref.Kind == presetref.Local {
 		return l.local.Load(path)
 	}
 	ref.Source = l.resolveSource(ref.Source)
 	r := l.resolver()
+	r.OnMismatch = onMismatch
 	if l.outcomes != nil {
 		r.Observe = func(o presetref.Outcome) { *l.outcomes = append(*l.outcomes, o) }
 	}
