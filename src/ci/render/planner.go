@@ -36,7 +36,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Name:     "audition",
 				Stage:    "audition",
 				Commands: []string{"stagefreight ci run audition"},
-				Source:   model.SourceSpec{FullClone: true},
+				Source:   model.SourceSpec{FullClone: true, Submodules: cfg.Git.Submodules},
 				Artifacts: model.ArtifactSpec{
 					Paths:    []string{paths.Root + "/"},
 					ExpireIn: "1 week",
@@ -51,7 +51,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Name:     "perform",
 				Stage:    "perform",
 				Commands: []string{"stagefreight ci run perform"},
-				Source:   model.SourceSpec{FullClone: true},
+				Source:   model.SourceSpec{FullClone: true, Submodules: cfg.Git.Submodules},
 				Artifacts: model.ArtifactSpec{
 					// perform's .stagefreight/ carries the content store
 					// (objects/ = the built OCI layouts) that publish resolves and
@@ -101,7 +101,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Stage:    "publish",
 				Needs:    []string{"perform", "review"},
 				Commands: []string{"stagefreight ci run publish"},
-				Source:   model.SourceSpec{FullClone: true},
+				Source:   model.SourceSpec{FullClone: true, Submodules: cfg.Git.Submodules},
 				Artifacts: model.ArtifactSpec{
 					// publish forwards its own subsystem fragments (subsystems/
 					// publish.json — the recorded tags/registries facts) the same way
@@ -126,7 +126,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Needs:    []string{"perform", "review", "publish"},
 				Commands: []string{"stagefreight ci run narrate"},
 				// FullClone: the changelog facts walk tag history.
-				Source: model.SourceSpec{FullClone: true},
+				Source: model.SourceSpec{FullClone: true, Submodules: cfg.Git.Submodules},
 				Policy: model.PolicySpec{AllowFailure: true, WhenAlways: true},
 			},
 		},

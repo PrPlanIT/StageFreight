@@ -158,11 +158,16 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 	}
 
 	// variables (git depth + transport)
-	hasVars := j.Source.FullClone || j.Capabilities.Docker
+	hasVars := j.Source.FullClone || j.Source.Submodules || j.Capabilities.Docker
 	if hasVars {
 		buf.WriteString("  variables:\n")
 		if j.Source.FullClone {
 			buf.WriteString("    GIT_DEPTH: 0\n")
+		}
+		if j.Source.Submodules {
+			// recursive, not normal: a submodule with its own submodules is still a
+			// missing directory to the build that needs it.
+			buf.WriteString("    GIT_SUBMODULE_STRATEGY: recursive\n")
 		}
 		if j.Capabilities.Docker {
 			buf.WriteString("    <<: *transport\n")

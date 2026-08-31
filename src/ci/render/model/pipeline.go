@@ -106,6 +106,9 @@ type SourceSpec struct {
 	// FullClone requests an unshallow clone (git depth 0).
 	// False means the forge's default shallow clone behavior.
 	FullClone bool
+
+	// Submodules requests a recursive submodule checkout.
+	Submodules bool
 }
 
 // ArtifactSpec describes what a job produces.

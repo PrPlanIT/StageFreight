@@ -280,6 +280,7 @@ Git is the git: cluster and the single source for ref interpretation: named bran
 ```yaml
 git:
   branches: {}   # Branches maps a matcher name to a regex.
+  submodules: false   # Submodules requests that CI check out submodules. A pipeline that clones without them leaves the…
   tags:   # Tags maps a tag-source name to its pattern.
     <id>:   # entry key = the unique id
       pattern: <string>   # Pattern is the regex that identifies tags belonging to this source. e.g., "^v?\\d+\\.\\d+\\.\\d+$" · required

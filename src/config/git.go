@@ -13,6 +13,11 @@ import (
 type GitConfig struct {
 	// Branches maps a matcher name to a regex.
 	Branches map[string]string `yaml:"branches,omitempty"`
+
+	// Submodules requests that CI check out submodules. A pipeline that clones without
+	// them leaves the submodule directory empty, and the build fails on a missing file
+	// rather than on anything to do with the checkout — so this is declared, not guessed.
+	Submodules bool `yaml:"submodules,omitempty"`
 	// Tags maps a tag-source name to its pattern.
 	Tags OrderedTagSources `yaml:"tags,omitempty"`
 	// Versioning holds the derivation rules that consume the patterns above.
