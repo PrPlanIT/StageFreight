@@ -23,6 +23,10 @@ import (
 // governance pipeline delays policy rather than freezing it.
 //
 // A pinned reference never reaches this: it is not fetched, so it cannot drift.
+// presetRefreshCommit is the commit step, injectable so what this decides to commit can
+// be asserted without driving git.
+var presetRefreshCommit = autoCommitViaPlanner
+
 func republishRefreshedPresets(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, rootDir string) {
 	drifted := appCfg.DriftedPresets()
 	if len(drifted) == 0 {
@@ -60,7 +64,7 @@ func republishRefreshedPresets(ctx context.Context, appCfg *config.Config, ciCtx
 	}
 
 	push := true
-	if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
+	if _, err := presetRefreshCommit(ctx, appCfg, rootDir, commit.PlannerOptions{
 		Type:    "chore",
 		Scope:   "presets",
 		Message: "refresh tracked presets from their sources",

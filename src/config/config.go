@@ -192,6 +192,11 @@ func nodeHasKey(root *yaml.Node, key string) bool {
 	return false
 }
 
+// SetPresetOutcomes records how sourced references resolved. The loader sets this on
+// the config it builds; exported so a caller that resolves presets itself can hand the
+// result on, and so the behaviour that depends on it is reachable from a test.
+func (c *Config) SetPresetOutcomes(o []presetref.Outcome) { c.presetOutcomes = o }
+
 // PresetOutcomes reports how each sourced preset reference resolved on this load.
 // Empty when every reference was local, or when nothing was sourced.
 func (c *Config) PresetOutcomes() []presetref.Outcome { return c.presetOutcomes }
