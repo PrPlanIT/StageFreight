@@ -4,10 +4,25 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Fetcher does the actual remote I/O for a preset source; the Resolver stays pure policy
 // over it, so the tracked/pinned/fallback logic is testable without a network.
+// Revisioner is an optional Fetcher capability: report what the source currently points
+// at, without transferring content. A fetcher that cannot answer cheaply omits it and
+// every resolve fetches in full.
+type Revisioner interface {
+	Revision(source, ref string) (string, error)
+}
+
+// AgedCache is an optional Cache capability: how long ago an entry was retained. Without
+// it a fallback cannot be bounded, because there is no way to tell a copy retained five
+// minutes ago from one retained five months ago.
+type AgedCache interface {
+	Age(key string) (time.Duration, bool)
+}
+
 type Fetcher interface {
 	// Fetch returns the file at path from source at ref (ref "" = the default branch).
 	Fetch(source, ref, path string) ([]byte, error)
@@ -41,13 +56,17 @@ const (
 // behaviour the operator selected by not pinning, so this exists to make the change
 // visible and auditable — not to flag it as suspect.
 type Outcome struct {
-	Ref      Ref
-	Kind     Kind
-	Fetched  bool // reached the source on this run
-	Drifted  bool // what the source served differs from what was retained
-	Fallback bool // source unreachable; the retained copy was served instead
-	Violated bool // pinned, and the source no longer serves what was retained
+	Ref       Ref
+	Kind      Kind
+	Fetched   bool // reached the source on this run
+	Drifted   bool // what the source served differs from what was retained
+	Fallback  bool // source unreachable; the retained copy was served instead
+	Violated  bool // pinned, and the source no longer serves what was retained
+	Unchanged bool // the source points at what was retained; nothing transferred
 }
+
+// revisionSuffix keys the recorded revision beside its content.
+const revisionSuffix = ".revision"
 
 type Resolver struct {
 	Fetcher Fetcher
@@ -55,6 +74,11 @@ type Resolver struct {
 	Mode    FetchMode
 	// Observe, if set, receives one Outcome per resolved reference.
 	Observe func(Outcome)
+	// MaxFallbackAge bounds how long a retained copy may stand in for an unreachable
+	// source. Zero is unbounded. Without a bound, a source that stays unreachable leaves
+	// every consumer silently frozen on old content — the failure this whole mechanism
+	// exists to remove, arriving by a different route.
+	MaxFallbackAge time.Duration
 	// Warnf, if set, reports a non-fatal condition (e.g. a stale-cache fallback).
 	Warnf func(format string, args ...any)
 }
@@ -81,11 +105,28 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 		return nil, fmt.Errorf("preset %q not in cache and offline", ref.Raw)
 	}
 
+	// Ask what the source points at before transferring anything. When it matches what
+	// was retained, the content cannot have changed, so there is nothing to fetch and
+	// nothing to reconcile — this is what makes tracking cheap enough to do every run,
+	// and a pin cheap enough to verify every run.
+	if rev, ok := r.Fetcher.(Revisioner); ok && had {
+		if cur, rerr := rev.Revision(ref.Source, ref.Ref); rerr == nil && cur != "" {
+			if prev, ok := r.Cache.Read(key + revisionSuffix); ok && string(prev) == cur {
+				r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Unchanged: true})
+				return retained, nil
+			}
+		}
+	}
+
 	fetched, err := r.Fetcher.Fetch(ref.Source, ref.Ref, ref.Path)
 	if err != nil {
 		// Fall back to the retained copy whatever the kind: an unreachable source is
 		// not evidence that anything changed.
 		if had {
+			if age, aerr := r.retainedAge(key); aerr && r.MaxFallbackAge > 0 && age > r.MaxFallbackAge {
+				return nil, fmt.Errorf("preset %q: source unreachable (%v) and the retained copy is %s old, past the %s bound — "+
+					"a fallback that never expires is a freeze nobody declared", ref.Raw, err, age.Round(time.Hour), r.MaxFallbackAge)
+			}
 			r.warnf("preset %q: fetch failed (%v); using retained copy", ref.Raw, err)
 			r.observe(Outcome{Ref: ref, Kind: kind, Fallback: true})
 			return retained, nil
@@ -108,6 +149,11 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// source moved is unrecoverable, and that fact is what a satellite reports and
 	// republishes.
 	_ = r.Cache.Write(key, fetched)
+	if rev, ok := r.Fetcher.(Revisioner); ok {
+		if cur, rerr := rev.Revision(ref.Source, ref.Ref); rerr == nil && cur != "" {
+			_ = r.Cache.Write(key+revisionSuffix, []byte(cur))
+		}
+	}
 	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs})
 	return fetched, nil
 }
@@ -125,6 +171,14 @@ func (e *PinViolation) Error() string {
 	return fmt.Sprintf("pinned preset %q: the source no longer serves what was retained "+
 		"(%d bytes retained, %d fetched) — the pinned revision moved, or the source was substituted",
 		e.Ref.Raw, len(e.Retained), len(e.Fetched))
+}
+
+// retainedAge reports the age of a retained entry when the cache can tell.
+func (r Resolver) retainedAge(key string) (time.Duration, bool) {
+	if ac, ok := r.Cache.(AgedCache); ok {
+		return ac.Age(key)
+	}
+	return 0, false
 }
 
 func (r Resolver) observe(o Outcome) {

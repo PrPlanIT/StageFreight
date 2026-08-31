@@ -24,7 +24,7 @@ func basicAuth(t *testing.T, auth interface{}) *githttp.BasicAuth {
 // forge that owns the destination; a foreign token is never transmitted.
 func TestResolveGitCredential_HostBoundNoLeak(t *testing.T) {
 	clearGitCredEnv(t)
-	t.Setenv("GL_TOKEN", "gitlab-secret")                     // the origin (GitLab) forge's cred
+	t.Setenv("GL_TOKEN", "gitlab-secret")                      // the origin (GitLab) forge's cred
 	t.Setenv("GITHUB_TOKEN", "github-write-pat-MUST-NOT-LEAK") // the mirror target's cred, also present
 	cfg := cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://gitlab.example.com", Credentials: "GL"})
 

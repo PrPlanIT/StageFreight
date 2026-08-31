@@ -3,6 +3,7 @@ package presetref
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // FSCache is a filesystem-backed Cache rooted at a directory — typically a repo's
@@ -39,3 +40,12 @@ type NoCache struct{}
 
 func (NoCache) Read(string) ([]byte, bool) { return nil, false }
 func (NoCache) Write(string, []byte) error { return nil }
+
+// Age reports how long ago the entry was retained, from its mtime.
+func (c FSCache) Age(key string) (time.Duration, bool) {
+	fi, err := os.Stat(filepath.Join(c.Root, filepath.FromSlash(key)))
+	if err != nil {
+		return 0, false
+	}
+	return time.Since(fi.ModTime()), true
+}

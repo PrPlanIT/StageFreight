@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -152,14 +153,10 @@ func FetchFile(repoURL, ref, path string) ([]byte, error) {
 		ref = "HEAD"
 	}
 
-	checkoutDir, err := fetchRepo(repoURL, ref)
+	checkoutDir, err := checkout(repoURL, ref)
 	if err != nil {
-		checkoutDir, err = fetchBySHA(repoURL, ref)
-		if err != nil {
-			return nil, fmt.Errorf("fetching %s@%s: %w", repoURL, ref, err)
-		}
+		return nil, err
 	}
-	defer os.RemoveAll(checkoutDir)
 
 	filePath := filepath.Join(checkoutDir, path)
 	data, err := os.ReadFile(filePath)
@@ -191,4 +188,53 @@ func (l *filePresetLoader) Load(path string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// checkouts memoizes a checkout per (repo, ref) for the life of the process.
+//
+// A repo is the unit of transfer; a preset is not. Cloning per FILE meant a profile
+// naming seventeen presets from one policy repo cloned that repo seventeen times, and
+// the cost scaled with how finely the policy was split — penalising exactly the
+// composition the preset system exists to encourage.
+var checkouts struct {
+	sync.Mutex
+	dirs map[string]string
+}
+
+func checkout(repoURL, ref string) (string, error) {
+	key := repoURL + "@" + ref
+
+	checkouts.Lock()
+	defer checkouts.Unlock()
+	if dir, ok := checkouts.dirs[key]; ok {
+		return dir, nil
+	}
+
+	dir, err := fetchRepoFn(repoURL, ref)
+	if err != nil {
+		dir, err = fetchBySHA(repoURL, ref)
+		if err != nil {
+			return "", fmt.Errorf("fetching %s@%s: %w", repoURL, ref, err)
+		}
+	}
+	if checkouts.dirs == nil {
+		checkouts.dirs = map[string]string{}
+	}
+	checkouts.dirs[key] = dir
+	return dir, nil
+}
+
+// fetchRepoFn is the clone step, injectable so the reuse guarantee can be tested
+// without a network.
+var fetchRepoFn = fetchRepo
+
+// ReleaseCheckouts removes every memoized checkout. A long-lived process should call it
+// when it is done resolving; a CLI run may simply exit.
+func ReleaseCheckouts() {
+	checkouts.Lock()
+	defer checkouts.Unlock()
+	for k, dir := range checkouts.dirs {
+		_ = os.RemoveAll(dir)
+		delete(checkouts.dirs, k)
+	}
 }
