@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,20 +59,22 @@ func TestPresetLocalSiblingOverrides(t *testing.T) {
 	}
 }
 
-// TestPresetSourceDecodes guards governed-config loadability: governance injects a
-// top-level preset_source: block; under KnownFields(true) it must be a known field
-// (decode), not a rejected unknown one.
-func TestPresetSourceDecodes(t *testing.T) {
+// A stale preset_source: block must fail with a migration hint, not an unknown-field
+// error: every governed satellite carries one until it is reconciled, so this is the
+// message an operator meets first.
+func TestPresetSourceIsRejectedWithGuidance(t *testing.T) {
 	path := writePresetFixture(t,
 		"version: 1\npreset_source:\n  provider: gitlab\n  ref: abc123\n  cache_policy: authoritative\n",
 		"", "")
 
-	cfg, _, err := LoadWithWarnings(path)
-	if err != nil {
-		t.Fatalf("governed config with preset_source failed to load: %v", err)
+	_, _, err := LoadWithWarnings(path)
+	if err == nil {
+		t.Fatal("a config carrying preset_source must not load")
 	}
-	if cfg.PresetSource == nil || cfg.PresetSource.Ref != "abc123" {
-		t.Fatalf("preset_source not decoded: %+v", cfg.PresetSource)
+	for _, want := range []string{"preset_source", "reconcile"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
 	}
 }
 

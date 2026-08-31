@@ -26,6 +26,9 @@ type sourceAwareLoader struct {
 	local    localPresetLoader
 	cacheDir string
 	forges   map[string]string // forge id → base URL, from the config being loaded
+	// outcomes accumulates how each sourced reference resolved, so a caller can report
+	// drift and republish what it refreshed. Pointer: the loader is passed by value.
+	outcomes *[]presetref.Outcome
 }
 
 func (l sourceAwareLoader) Load(path string) ([]byte, error) {
@@ -37,6 +40,9 @@ func (l sourceAwareLoader) Load(path string) ([]byte, error) {
 	r := presetref.Resolver{
 		Fetcher: SourceFetcher,
 		Cache:   presetref.NewFSCache(l.cacheDir),
+	}
+	if l.outcomes != nil {
+		r.Observe = func(o presetref.Outcome) { *l.outcomes = append(*l.outcomes, o) }
 	}
 	if SourceFetcher == nil {
 		// No network-capable fetcher wired: resolve from the cache only (a pre-seeded

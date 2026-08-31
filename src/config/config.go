@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/presetref"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,13 +28,10 @@ type Config struct {
 	// section entirely — it exists for users to define &anchors.
 	Defaults yaml.Node `yaml:"defaults,omitempty"`
 
-	// PresetSource is governance-distribution metadata: where a satellite's presets
-	// were frozen from (forge coords + pinned ref + cache policy). Written by
-	// `governance reconcile`; IGNORED at runtime today — the committed
-	// .stagefreight/preset-cache is authoritative — but declared so a governed config
-	// decodes under KnownFields(true). Consumed only if/when runtime pinned-external
-	// resolution is built.
-	PresetSource *PresetSource `yaml:"preset_source,omitempty"`
+	// presetOutcomes records how each sourced preset reference resolved on this load
+	// — reached, drifted from what was retained, or served from the retained copy
+	// because the source was unreachable. Not config: an observation of this run.
+	presetOutcomes []presetref.Outcome
 
 	// Forges declares git hosts as an id→forge map (provider, URL, credentials).
 	Forges OrderedForges `yaml:"forges,omitempty"`
@@ -164,15 +162,38 @@ func Load(path string) (*Config, error) {
 	return cfg, err
 }
 
-// PresetSource is governance-distribution metadata recording where a satellite's
-// presets were frozen from — see the Config.PresetSource field. Present so a governed
-// config decodes under KnownFields(true); ignored at runtime today.
-type PresetSource struct {
-	Provider    string `yaml:"provider,omitempty"`
-	RepoURL     string `yaml:"repo_url,omitempty"`
-	ProjectID   string `yaml:"project_id,omitempty"`
-	Ref         string `yaml:"ref,omitempty"`
-	CachePolicy string `yaml:"cache_policy,omitempty"`
+// nodeHasKey reports whether the document's top-level mapping has a key.
+func nodeHasKey(root *yaml.Node, key string) bool {
+	doc := root
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		if doc.Content[i].Value == key {
+			return true
+		}
+	}
+	return false
+}
+
+// PresetOutcomes reports how each sourced preset reference resolved on this load.
+// Empty when every reference was local, or when nothing was sourced.
+func (c *Config) PresetOutcomes() []presetref.Outcome { return c.presetOutcomes }
+
+// DriftedPresets returns the references whose source served content differing from what
+// was retained — what a satellite reports, and republishes when it refreshed them
+// itself because governance had not.
+func (c *Config) DriftedPresets() []presetref.Outcome {
+	var out []presetref.Outcome
+	for _, o := range c.presetOutcomes {
+		if o.Drifted {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 // LoadWithWarnings reads configuration from a YAML file and returns validation
@@ -196,9 +217,11 @@ func LoadWithWarnings(path string) (*Config, []string, error) {
 // siblings override; maps deep-merge, scalars/lists replaced; presets: compose
 // dedup-by-id), cycle/path-traversal guards, and provenance. Using the same
 // localPresetLoader the reporter uses makes runtime resolve IDENTICALLY to the report
-// (the split-brain repair). Presets load from the LOCAL committed cache
-// (.stagefreight/preset-cache, cache-authoritative, no live fetch at build); the
-// external policy repo is consulted only at governance distribution, which writes it.
+// (the split-brain repair). A LOCAL preset path reads from the working tree or the
+// committed .stagefreight/preset-cache; a SOURCED reference resolves through the
+// source-tracking resolver — live for a tracked ref with the retained copy as fallback,
+// cache-authoritative for a pin. The cache is the fallback/pin store, not the mandatory
+// read path.
 func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	if path == "" {
 		path = defaultConfigFile
@@ -236,10 +259,12 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 	if dirExists(cacheDir) {
 		presetBase = cacheDir
 	}
+	var outcomes []presetref.Outcome
 	loader := sourceAwareLoader{
 		local:    localPresetLoader{baseDir: presetBase},
 		cacheDir: cacheDir,
 		forges:   forgeURLsFromNode(&rootNode),
+		outcomes: &outcomes,
 	}
 	resolvedNode, entries, rerr := ResolvePresets(&rootNode, loader, "local", absPath, 0, nil)
 
@@ -261,6 +286,15 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		decodeData = reenc
 	} else if rerr != nil {
 		entries = nil // resolver hiccup on a preset-free config: no usable provenance
+	}
+
+	// preset_source was governance metadata that nothing read: it recorded a pinned ref
+	// and a cache policy while the satellite resolved every preset from its vendored
+	// copy regardless. Provenance now lives on each reference, so the block is gone
+	// rather than corrected — say so, instead of reporting an unknown field.
+	if nodeHasKey(&rootNode, "preset_source") {
+		return nil, nil, entries, fmt.Errorf("%s: preset_source: was governance metadata that nothing read; "+
+			"provenance now lives on each preset reference (source//path[@ref]) — reconcile from the policy repo to regenerate this config", path)
 	}
 
 	cfg := defaults()
@@ -290,6 +324,7 @@ func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
 		return nil, warnings, entries, fmt.Errorf("normalizing %s: %w", path, err)
 	}
 
+	cfg.presetOutcomes = outcomes
 	return cfg, warnings, entries, nil
 }
 
