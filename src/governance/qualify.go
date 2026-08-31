@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"fmt"
 	"path"
 	"strings"
 
@@ -92,4 +93,32 @@ func retentionKey(ref string) string {
 		return r.Path
 	}
 	return presetref.CacheKey(r)
+}
+
+// isLocalRef reports whether a preset reference is an in-repo path, i.e. something the
+// control repo can read and seed.
+func isLocalRef(ref string) bool {
+	return presetref.Parse(ref).Kind == presetref.Local
+}
+
+// PresetSourceFetcher retrieves a preset from a source outside the control repo. Set by
+// a network-capable entry point (the CLI), left nil in tests and offline runs.
+var PresetSourceFetcher presetref.Fetcher
+
+// loadPresetContent obtains a preset for seeding into a satellite's cache.
+//
+// Governance materializes EVERY reference it distributes, not only the ones it owns. A
+// satellite that receives a config naming https://policies.example.org/security.yml and
+// no retained copy of it has no fallback the first time that host is unreachable — and
+// providing that fallback is the reason governance seeds a cache at all. So a local path
+// is read from the control repo, and anything else is fetched from its own source.
+func loadPresetContent(ref string, loader PresetLoader) ([]byte, error) {
+	r := presetref.Parse(ref)
+	if r.Kind == presetref.Local {
+		return loader.Load(ref)
+	}
+	if PresetSourceFetcher == nil {
+		return nil, fmt.Errorf("no network fetcher wired to materialize %q", ref)
+	}
+	return presetref.Resolver{Fetcher: PresetSourceFetcher, Cache: presetref.NoCache{}}.Resolve(r)
 }

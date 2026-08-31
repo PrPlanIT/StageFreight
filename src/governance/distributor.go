@@ -232,7 +232,7 @@ func loadPresetCache(paths []string, loader PresetLoader, clusterID string, src 
 		if err != nil {
 			return nil, fmt.Errorf("cluster %q: %w", clusterID, err)
 		}
-		data, err := loader.Load(p)
+		data, err := loadPresetContent(p, loader)
 		if err != nil {
 			return nil, fmt.Errorf("cluster %q: loading preset %q for cache: %w", clusterID, p, err)
 		}

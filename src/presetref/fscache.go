@@ -31,3 +31,11 @@ func (c FSCache) Write(key string, content []byte) error {
 	}
 	return os.WriteFile(p, content, 0o644)
 }
+
+// NoCache retains nothing. For a caller that fetches in order to write the content
+// somewhere else — governance materializing a preset into a satellite's cache — where a
+// second copy in the control repo would serve no one.
+type NoCache struct{}
+
+func (NoCache) Read(string) ([]byte, bool) { return nil, false }
+func (NoCache) Write(string, []byte) error { return nil }

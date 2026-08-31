@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/governance"
 	"github.com/PrPlanIT/StageFreight/src/presetfetch"
 )
 
@@ -13,7 +14,12 @@ import (
 // source. Only the CLI (a network-capable entry point) does this; other contexts leave
 // SourceFetcher nil and resolve sourced refs from the preset-cache only.
 func init() {
-	config.SourceFetcher = presetfetch.New(resolvePresetSource)
+	f := presetfetch.New(resolvePresetSource)
+	config.SourceFetcher = f
+	// The same fetcher for governance: distributing a config that names a foreign
+	// source without also seeding that source's content leaves the satellite with no
+	// fallback the first time the host is unreachable.
+	governance.PresetSourceFetcher = f
 }
 
 // resolvePresetSource maps a preset ref's <source> to a clonable repo URL. Forge-shorthand
