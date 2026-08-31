@@ -1,6 +1,7 @@
 package presetref
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -36,10 +37,23 @@ const (
 
 // Resolver resolves a SOURCED preset Ref (Tracked/Pinned/Named) to its content, applying
 // the source-tracking policy. Local refs are out of scope — the local loader handles them.
+// Outcome records how one reference resolved. A tracked source changing is the
+// behaviour the operator selected by not pinning, so this exists to make the change
+// visible and auditable — not to flag it as suspect.
+type Outcome struct {
+	Ref      Ref
+	Kind     Kind
+	Fetched  bool // reached the source on this run
+	Drifted  bool // what the source served differs from what was retained
+	Fallback bool // source unreachable; the retained copy was served instead
+}
+
 type Resolver struct {
 	Fetcher Fetcher
 	Cache   Cache
 	Mode    FetchMode
+	// Observe, if set, receives one Outcome per resolved reference.
+	Observe func(Outcome)
 	// Warnf, if set, reports a non-fatal condition (e.g. a stale-cache fallback).
 	Warnf func(format string, args ...any)
 }
@@ -74,14 +88,26 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// Fetch live; on failure fall back to the retained (stale) cache with a warning.
 	c, err := r.Fetcher.Fetch(ref.Source, ref.Ref, ref.Path)
 	if err == nil {
+		// Compare before overwriting: once the retained copy is replaced, the fact that
+		// the source moved is unrecoverable, and that fact is what a satellite reports
+		// and republishes.
+		prev, had := r.Cache.Read(key)
 		_ = r.Cache.Write(key, c)
+		r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: had && !bytes.Equal(prev, c)})
 		return c, nil
 	}
 	if cached, ok := r.Cache.Read(key); ok {
 		r.warnf("tracked preset %q: live fetch failed (%v); using retained cache", ref.Raw, err)
+		r.observe(Outcome{Ref: ref, Kind: kind, Fallback: true})
 		return cached, nil
 	}
 	return nil, fmt.Errorf("tracked preset %q: fetch failed and no cache fallback: %w", ref.Raw, err)
+}
+
+func (r Resolver) observe(o Outcome) {
+	if r.Observe != nil {
+		r.Observe(o)
+	}
 }
 
 // resolveKind resolves a Named ref to Tracked/Pinned via the source. A classify failure
