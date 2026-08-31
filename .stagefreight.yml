@@ -401,19 +401,19 @@ scribe:
   # files: one placement region per marked span. A region's body embeds stencils
   # by {id} (items: is sugar for a body).
   files:
+    readme.project:
+      file: "README.md"
+      between: ["<!-- sf:project:start -->", "<!-- sf:project:end -->"]
+      inline: true
+      items: [repo-gh, repo-gl, license, issues, prs, contributors, donate, sponsor]
+
     readme.badges:
       file: "README.md"
       between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
       inline: true
       items: [release, build, go-version, go-reference, last-commit, stagefreight]
 
-    readme.project:
-      file: "README.md"
-      between: ["<!-- sf:project:start -->", "<!-- sf:project:end -->"]
-      inline: true
-      items: [github, gitlab, go-report, go-reference, last-commit, issues-open, prs-open, contributors]
-
-    # Multi-row (breaks): Row 1 = docker + pulls, Row 2 = release + dev tags.
+    # Multi-row (br): Row 1 = the registries, Row 2 = the release + dev tags.
     readme.image:
       file: "README.md"
       between: ["<!-- sf:image:start -->", "<!-- sf:image:end -->"]
@@ -475,113 +475,100 @@ metadata:
   category: ci
 
 stencils:
-  # StageFreight is not in the MaintenancePolicy catalog on purpose: the tool that
-  # applies governance must not need governance to build, or a bad policy push would
-  # leave nothing able to fix it. The cost is that these are copies of
-  # preset/stencils-*.yml and drift is paid for by hand — keep them identical.
-  ghcr:
-    render: shield
-    label: GHCR
-    message: '{path.ghcr}'
-    color: '#181717'
-    logo: github
-    logo_color: white
-    link: https://github.com/{path.github}/pkgs/container/{slug.lower}
-  harbor:
-    render: shield
-    label: Harbor
-    message: '{path.harbor}'
-    color: '#60b932'
-    link: https://cr.pcfae.com/harbor/projects
-  stagefreight:
-    render: shield
-    label: StageFreight
-    message: '{stagefreight.version}'
-    color: '#310937'
-    logo: readthedocs
-    logo_color: white
-    link: https://stagefreight.prplanit.com
-  go-version:
-    type: go-version
-  # The shared audience-text library: define each renderable once (id → SOURCE
-  # type × RENDER render). Inline defs (no type) render a badge (default) or a
-  # shield (render: shield); named producers (props/contents/include) render
-  # through the matching module. Embed as {id} in a scribe files body, narrate,
-  # or a release body.
+  # Copies of MaintenancePolicy preset/stencils-*.yml. StageFreight is not in the
+  # catalog on purpose: the tool that applies governance must not need governance to
+  # build, or a bad policy push would leave nothing able to fix it. The cost is that
+  # these are copies and drift is paid for by hand — keep them identical.
+  #
+  # The shared audience-text library: define each renderable once (id → SOURCE type ×
+  # RENDER render). Inline defs (no type) render a badge (default) or a shield
+  # (render: shield); named producers (props/contents/include) render through the
+  # matching module. Embed as {id} in a scribe files body, narrate, or a release body.
+
   # ── generated badges (SVG rendered from build metadata) ──
-  build:
-    label: build
-    message: "{env:BUILD_STATUS}"
-    color: auto
-    font: monofur
-    link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
-  license:
-    label: license
-    message: "{project.license}"
-    color: "#310937"
-    font: monofur
-    link: LICENSE
   release:
     label: release
     message: "v{base}"
     color: "#74ecbe"
     font: dejavu-sans
     font_size: 11
-    link: "https://github.com/{var:github_org}/{var:github_repo}/releases"
-  updated:
-    label: updated
-    message: "{commit.date}"
-    color: "#236144"
-    font: dejavu-sans
-    font_size: 11
+    link: "https://github.com/{path.github}/releases"
+  build:
+    label: build
+    message: "{env:BUILD_STATUS}"
+    color: auto
+    font: monofur
+    link: "https://gitlab.prplanit.com/{path.gitlab}/-/pipelines"
+  license:
+    label: license
+    message: "{metadata.license}"
+    color: "#310937"
+    font: monofur
+    link: LICENSE
   pulls:
     label: pulls
     message: "{registry.dockerhub.pulls}"
     color: "#1d63ed"
-    link: "https://hub.docker.com/r/{var:org}/{var:repo}"
+    link: "https://hub.docker.com/r/{path.dockerhub}"
   release-latest:
     label: latest
     message: "v{base}"
     color: "#74ecbe"
-    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest"
+    font: dejavu-sans
+    font_size: 11
+    link: "https://github.com/{path.github}/pkgs/container/{slug.lower}"
   release-updated:
     label: updated
-    message: "{registry.dockerhub.tag.v{base}.updated}"
+    message: "{registry.ghcr.tag.v{base}.updated}"
     color: "#236144"
+    font: dejavu-sans
+    font_size: 11
   release-size:
     label: size
-    message: "{registry.dockerhub.tag.v{base}.size}"
+    message: "{registry.ghcr.tag.v{base}.size}"
     color: "#555"
-    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=v{base}"
+    font: dejavu-sans
+    font_size: 11
+    link: "https://github.com/{path.github}/pkgs/container/{slug.lower}"
   dev-latest:
     label: latest-dev
-    message: "dev-{{sha}}"
+    message: "dev-{sha:8}"
     color: "#3b82f6"
-    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
+    font: dejavu-sans
+    font_size: 11
+    link: "https://github.com/{path.github}/pkgs/container/{slug.lower}"
   dev-updated:
     label: updated
-    message: "{registry.dockerhub.tag.latest-dev.updated}"
+    message: "{registry.ghcr.tag.latest-dev.updated}"
     color: "#236144"
+    font: dejavu-sans
+    font_size: 11
   dev-size:
     label: size
-    message: "{registry.dockerhub.tag.latest-dev.size}"
+    message: "{registry.ghcr.tag.latest-dev.size}"
     color: "#555"
-    link: "https://hub.docker.com/r/{var:org}/{var:repo}/tags?name=latest-dev"
+    font: dejavu-sans
+    font_size: 11
+    link: "https://github.com/{path.github}/pkgs/container/{slug.lower}"
 
   # ── inline shields (shields.io draws from the composed verbs; no %2F juggling) ──
+  repo-gh: { render: shield, label: GitHub, message: mirror, color: "#181717", logo: github, link: "https://github.com/{path.github}" }
+  repo-gl: { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab, link: "https://gitlab.prplanit.com/{path.gitlab}" }
   donate:  { render: shield, message: donate,  color: "#FF5E5B", logo: ko-fi,          logo_color: white, link: "https://ko-fi.com/T6T41IT163" }
-  sponsor: { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logo_color: white, link: "https://github.com/sponsors/{var:github_org}" }
-  github:  { render: shield, label: GitHub, message: source, color: "#181717", logo: github, link: "https://github.com/{var:github_org}/{var:github_repo}" }
-  gitlab:  { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab, link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}" }
-  docker:  { render: shield, label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, logo_color: white, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
+  sponsor: { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logo_color: white, link: "https://github.com/sponsors/{org.github}" }
+  ghcr:    { render: shield, label: GHCR,   message: "{path.ghcr}",      color: "#181717", logo: github, logo_color: white, link: "https://github.com/{path.github}/pkgs/container/{slug.lower}" }
+  docker:  { render: shield, label: Docker, message: "{path.dockerhub}", color: "#2496ED", logo: docker, logo_color: white, link: "https://hub.docker.com/r/{path.dockerhub}" }
+  harbor:  { render: shield, label: Harbor, message: "{path.harbor}",    color: "#60b932", link: "https://cr.pcfae.com/harbor/projects" }
+  stagefreight: { render: shield, label: StageFreight, message: "{stagefreight.version}", color: "#310937", logo: readthedocs, logo_color: white, link: "https://stagefreight.prplanit.com" }
 
   # ── named producers · repo/module resolve from repos: publish-origin (github-mirror); no params ──
-  go-report:    { type: goreportcard }
+  go-version:   { type: go-version }
   go-reference: { type: go-reference }
   last-commit:  { type: github-last-commit }
-  issues-open:  { type: github-issues-open }
-  prs-open:     { type: github-prs-open }
+  issues:       { type: github-issues-open }
+  prs:          { type: github-prs-open }
   contributors: { type: github-contributors }
+
 
   # ── build-contents (rendered from a build's manifest inventory) ──
   contents-base:
