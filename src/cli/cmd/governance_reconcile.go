@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"path/filepath"
 	"context"
 	"fmt"
 	"net/url"
@@ -99,6 +100,12 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 
 	// Phase 1: Load governance config + presets.
 	vlog("\nLoading governance config...\n")
+	// Retain what materialization fetches in the control repo's own cache, so every
+	// source must be reachable the first time but not on every reconcile.
+	if wd, werr := os.Getwd(); werr == nil {
+		governance.PresetMaterializeCache = filepath.Join(wd, ".stagefreight", "preset-cache")
+	}
+
 	gov, presetLoader, err := governance.LoadGovernance(source)
 	if err != nil {
 		return fmt.Errorf("loading governance: %w", err)

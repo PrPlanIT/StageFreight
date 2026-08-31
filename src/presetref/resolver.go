@@ -46,6 +46,7 @@ type Outcome struct {
 	Fetched  bool // reached the source on this run
 	Drifted  bool // what the source served differs from what was retained
 	Fallback bool // source unreachable; the retained copy was served instead
+	Violated bool // pinned, and the source no longer serves what was retained
 }
 
 type Resolver struct {
@@ -66,42 +67,64 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	}
 	kind := r.resolveKind(ref)
 	key := CacheKey(ref)
+	retained, had := r.Cache.Read(key)
 
-	if kind == Pinned {
-		// Immutable: the cache is authoritative — use it when present, else fetch once.
-		if c, ok := r.Cache.Read(key); ok {
-			return c, nil
-		}
-		if r.Mode == FetchOffline {
-			return nil, fmt.Errorf("pinned preset %q not in cache and offline", ref.Raw)
-		}
-		return r.fetchAndCache(ref, key)
-	}
-
-	// Tracked (or a Named ref that degraded to tracked).
+	// Resolution is ONE operation for every kind: obtain what the source serves, and
+	// reconcile it against what was retained. Only the policy on a mismatch differs.
+	// Serving a pin from cache without asking the source would make the pin
+	// unverifiable — precisely the check an operator pins in order to get.
 	if r.Mode == FetchOffline {
-		if c, ok := r.Cache.Read(key); ok {
-			return c, nil
+		if had {
+			r.observe(Outcome{Ref: ref, Kind: kind, Fallback: true})
+			return retained, nil
 		}
-		return nil, fmt.Errorf("tracked preset %q not in cache and offline", ref.Raw)
+		return nil, fmt.Errorf("preset %q not in cache and offline", ref.Raw)
 	}
-	// Fetch live; on failure fall back to the retained (stale) cache with a warning.
-	c, err := r.Fetcher.Fetch(ref.Source, ref.Ref, ref.Path)
-	if err == nil {
-		// Compare before overwriting: once the retained copy is replaced, the fact that
-		// the source moved is unrecoverable, and that fact is what a satellite reports
-		// and republishes.
-		prev, had := r.Cache.Read(key)
-		_ = r.Cache.Write(key, c)
-		r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: had && !bytes.Equal(prev, c)})
-		return c, nil
+
+	fetched, err := r.Fetcher.Fetch(ref.Source, ref.Ref, ref.Path)
+	if err != nil {
+		// Fall back to the retained copy whatever the kind: an unreachable source is
+		// not evidence that anything changed.
+		if had {
+			r.warnf("preset %q: fetch failed (%v); using retained copy", ref.Raw, err)
+			r.observe(Outcome{Ref: ref, Kind: kind, Fallback: true})
+			return retained, nil
+		}
+		return nil, fmt.Errorf("preset %q: fetch failed and nothing retained: %w", ref.Raw, err)
 	}
-	if cached, ok := r.Cache.Read(key); ok {
-		r.warnf("tracked preset %q: live fetch failed (%v); using retained cache", ref.Raw, err)
-		r.observe(Outcome{Ref: ref, Kind: kind, Fallback: true})
-		return cached, nil
+
+	differs := had && !bytes.Equal(retained, fetched)
+
+	if kind == Pinned && differs {
+		// A pinned reference names a revision that is supposed to be immutable. If the
+		// source now serves something else, the assumption is broken — a moved tag,
+		// rewritten history, or a substituted host — and the retained copy is the
+		// evidence. Report it rather than silently choosing a side.
+		r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true})
+		return nil, &PinViolation{Ref: ref, Retained: retained, Fetched: fetched}
 	}
-	return nil, fmt.Errorf("tracked preset %q: fetch failed and no cache fallback: %w", ref.Raw, err)
+
+	// Compare before overwriting: once the retained copy is replaced, the fact that the
+	// source moved is unrecoverable, and that fact is what a satellite reports and
+	// republishes.
+	_ = r.Cache.Write(key, fetched)
+	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs})
+	return fetched, nil
+}
+
+// PinViolation reports a pinned reference whose source no longer serves what was
+// retained. Returned as an error so the default is to stop; a caller that would rather
+// warn can recognize it and continue with Retained.
+type PinViolation struct {
+	Ref      Ref
+	Retained []byte
+	Fetched  []byte
+}
+
+func (e *PinViolation) Error() string {
+	return fmt.Sprintf("pinned preset %q: the source no longer serves what was retained "+
+		"(%d bytes retained, %d fetched) — the pinned revision moved, or the source was substituted",
+		e.Ref.Raw, len(e.Retained), len(e.Fetched))
 }
 
 func (r Resolver) observe(o Outcome) {
@@ -125,15 +148,6 @@ func (r Resolver) resolveKind(ref Ref) Kind {
 	}
 	r.warnf("preset %q: could not classify ref %q as branch/tag; treating as tracked", ref.Raw, ref.Ref)
 	return Tracked
-}
-
-func (r Resolver) fetchAndCache(ref Ref, key string) ([]byte, error) {
-	c, err := r.Fetcher.Fetch(ref.Source, ref.Ref, ref.Path)
-	if err != nil {
-		return nil, fmt.Errorf("pinned preset %q: fetch failed: %w", ref.Raw, err)
-	}
-	_ = r.Cache.Write(key, c)
-	return c, nil
 }
 
 func (r Resolver) warnf(format string, args ...any) {

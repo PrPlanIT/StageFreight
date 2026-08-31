@@ -19,8 +19,8 @@ func TestFSCache_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestFSCache_ResolverIntegration wires the real FSCache into the Resolver: a pinned ref
-// fetched once is served from the cache on the next resolve without re-fetching.
+// TestFSCache_ResolverIntegration wires the real FSCache into the Resolver: a pin is
+// re-checked against its source on every resolve, and agreeing content resolves clean.
 func TestFSCache_ResolverIntegration(t *testing.T) {
 	f := &fakeFetcher{content: []byte("v1")}
 	c := NewFSCache(t.TempDir())
@@ -33,7 +33,7 @@ func TestFSCache_ResolverIntegration(t *testing.T) {
 	if got, err := r.Resolve(ref); err != nil || string(got) != "v1" {
 		t.Fatalf("second resolve = %q, %v", got, err)
 	}
-	if f.fetches != 1 {
-		t.Errorf("pinned ref fetched %d times; want 1 (second served from FSCache)", f.fetches)
+	if f.fetches != 2 {
+		t.Errorf("pin checked %d times; want 2 — a pin unverified is a pin unenforced", f.fetches)
 	}
 }

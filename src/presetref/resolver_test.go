@@ -78,19 +78,57 @@ func TestResolve_TrackedFailsWhenFetchErrorsAndNoCache(t *testing.T) {
 	}
 }
 
-func TestResolve_PinnedCacheAuthoritative(t *testing.T) {
-	ref := Parse("src//p.yml@refs/tags/v1.0") // Pinned
-	f := &fakeFetcher{content: []byte("should-not-fetch")}
-	cache := mapCache{CacheKey(ref): []byte("cached")}
-	r := Resolver{Fetcher: f, Cache: cache}
+// A pin is a claim that a revision is immutable. Serving it from cache without asking
+// the source would make that claim unverifiable — the check the operator pinned to get.
+func TestResolve_PinnedIsVerifiedAgainstItsSource(t *testing.T) {
+	ref := Parse("src//p.yml@refs/tags/v1.0")
 
-	got, err := r.Resolve(ref)
-	if err != nil || string(got) != "cached" {
-		t.Fatalf("got %q, %v; want cached", got, err)
-	}
-	if f.fetches != 0 {
-		t.Errorf("pinned ref in cache must not fetch; fetches = %d", f.fetches)
-	}
+	t.Run("source still serves what was retained", func(t *testing.T) {
+		f := &fakeFetcher{content: []byte("v1")}
+		r := Resolver{Fetcher: f, Cache: mapCache{CacheKey(ref): []byte("v1")}}
+		got, err := r.Resolve(ref)
+		if err != nil || string(got) != "v1" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+		if f.fetches != 1 {
+			t.Errorf("a pin must be checked against its source; fetches = %d", f.fetches)
+		}
+	})
+
+	t.Run("moved pin is a violation, not a silent choice", func(t *testing.T) {
+		var got Outcome
+		r := Resolver{
+			Fetcher: &fakeFetcher{content: []byte("substituted")},
+			Cache:   mapCache{CacheKey(ref): []byte("v1")},
+			Observe: func(o Outcome) { got = o },
+		}
+		body, err := r.Resolve(ref)
+		var v *PinViolation
+		if !errors.As(err, &v) {
+			t.Fatalf("err = %v, want a PinViolation", err)
+		}
+		if body != nil {
+			t.Error("a violated pin must not resolve to either side")
+		}
+		if !got.Violated {
+			t.Errorf("outcome = %+v, want Violated", got)
+		}
+		// The retained copy is the evidence, so it must survive for comparison.
+		if string(v.Retained) != "v1" || string(v.Fetched) != "substituted" {
+			t.Errorf("violation lost the evidence: %+v", v)
+		}
+	})
+
+	t.Run("unreachable source falls back, it is not evidence of a change", func(t *testing.T) {
+		r := Resolver{
+			Fetcher: &fakeFetcher{fetchErr: errors.New("host down")},
+			Cache:   mapCache{CacheKey(ref): []byte("v1")},
+		}
+		got, err := r.Resolve(ref)
+		if err != nil || string(got) != "v1" {
+			t.Fatalf("got %q, %v; want the retained copy", got, err)
+		}
+	})
 }
 
 func TestResolve_PinnedFetchesOnceWhenAbsent(t *testing.T) {
@@ -108,13 +146,13 @@ func TestResolve_PinnedFetchesOnceWhenAbsent(t *testing.T) {
 
 func TestResolve_NamedClassifiesViaSource(t *testing.T) {
 	ref := Parse("src//p.yml@release") // Named
-	// Classify → Pinned means it should be cache-authoritative.
-	f := &fakeFetcher{content: []byte("x"), classify: Pinned}
+	// Classify → Pinned means it is verified against the source like any other pin.
+	f := &fakeFetcher{content: []byte("cached-pinned"), classify: Pinned}
 	cache := mapCache{CacheKey(ref): []byte("cached-pinned")}
 	r := Resolver{Fetcher: f, Cache: cache}
 	got, _ := r.Resolve(ref)
-	if string(got) != "cached-pinned" || f.fetches != 0 {
-		t.Errorf("Named→Pinned should serve cache without fetch; got %q fetches=%d", got, f.fetches)
+	if string(got) != "cached-pinned" || f.fetches == 0 {
+		t.Errorf("Named→Pinned must still be checked against its source; got %q fetches=%d", got, f.fetches)
 	}
 
 	// Classify → Tracked means it should fetch live.

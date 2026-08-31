@@ -105,6 +105,12 @@ func isLocalRef(ref string) bool {
 // a network-capable entry point (the CLI), left nil in tests and offline runs.
 var PresetSourceFetcher presetref.Fetcher
 
+// PresetMaterializeCache is where the control repo retains what it fetched while
+// materializing. Every source must be reachable the first time, but not every time:
+// with this, a pin is fetched once and a tracked source falls back to the last copy
+// that resolved rather than failing the reconcile. Empty retains nothing.
+var PresetMaterializeCache string
+
 // loadPresetContent obtains a preset for seeding into a satellite's cache.
 //
 // Governance materializes EVERY reference it distributes, not only the ones it owns. A
@@ -120,5 +126,9 @@ func loadPresetContent(ref string, loader PresetLoader) ([]byte, error) {
 	if PresetSourceFetcher == nil {
 		return nil, fmt.Errorf("no network fetcher wired to materialize %q", ref)
 	}
-	return presetref.Resolver{Fetcher: PresetSourceFetcher, Cache: presetref.NoCache{}}.Resolve(r)
+	var cache presetref.Cache = presetref.NoCache{}
+	if PresetMaterializeCache != "" {
+		cache = presetref.NewFSCache(PresetMaterializeCache)
+	}
+	return presetref.Resolver{Fetcher: PresetSourceFetcher, Cache: cache}.Resolve(r)
 }
