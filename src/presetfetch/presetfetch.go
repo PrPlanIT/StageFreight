@@ -14,10 +14,42 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/presetref"
 )
 
-// New returns a git-backed presetref.Fetcher. resolveSource maps a preset ref's
-// <source> (a URL, or a forge shorthand like "gitlab:Org/Repo") to a clonable repo URL.
+// New returns a presetref.Fetcher covering both source families. resolveSource maps a
+// preset ref's <source> (a URL, or a forge shorthand like "gitlab:Org/Repo") to a
+// clonable repo URL; it is used only for the git family.
 func New(resolveSource func(source string) (string, error)) presetref.Fetcher {
-	return &gitFetcher{resolve: resolveSource, refExists: gitstate.RemoteRefExists}
+	return &dispatchFetcher{
+		git:  &gitFetcher{resolve: resolveSource, refExists: gitstate.RemoteRefExists},
+		http: newHTTPFetcher(),
+	}
+}
+
+// dispatchFetcher routes a source to the family that can retrieve it.
+//
+// Scheme alone does not decide it: a git source is often an https URL too
+// ("https://gitlab.example.com/Org/Repo"). What separates them is that a bare URL IS
+// the whole reference, so Parse leaves its path empty, while a git reference always
+// names a path within the repo.
+type dispatchFetcher struct {
+	git  presetref.Fetcher
+	http presetref.Fetcher
+}
+
+func (d *dispatchFetcher) pick(source, path string) presetref.Fetcher {
+	if path == "" && presetref.IsURL(source) {
+		return d.http
+	}
+	return d.git
+}
+
+func (d *dispatchFetcher) Fetch(source, ref, path string) ([]byte, error) {
+	return d.pick(source, path).Fetch(source, ref, path)
+}
+
+// Classify is only ever called for a bare Named ref, which a URL cannot carry — but
+// route it consistently so the two families can never disagree about a source.
+func (d *dispatchFetcher) Classify(source, ref string) (presetref.Kind, error) {
+	return d.pick(source, "").Classify(source, ref)
 }
 
 type gitFetcher struct {

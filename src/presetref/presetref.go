@@ -71,10 +71,11 @@ func splitSource(raw string) (src, rest string, sourced bool) {
 	return raw[:idx], raw[idx+len(sourceSep):], true
 }
 
-// isURL reports whether raw is an http(s) URL. Only these two schemes: another scheme
+// IsURL reports whether raw is an http(s) URL. Only these two schemes: another scheme
 // (ssh://, git://) addresses a repository, which reaches Parse through the separator
-// form and keeps its repo/path split.
-func isURL(raw string) bool {
+// form and keeps its repo/path split. Exported so the fetch layer routes on the same
+// predicate the parser classified with, rather than a second copy that can drift.
+func IsURL(raw string) bool {
 	return strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "http://")
 }
 
@@ -98,7 +99,7 @@ func Parse(raw string) Ref {
 		// — including a '@', which is legal in a URL and names no revision. A URL has no
 		// revision semantics at all, so it is Tracked: the current response is what the
 		// reference denotes, with the retained response as the fallback.
-		if isURL(raw) {
+		if IsURL(raw) {
 			r.Kind = Tracked
 			r.Source = raw
 			return r

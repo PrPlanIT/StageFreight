@@ -10,10 +10,10 @@ import (
 // both) → Tracked; a tag-only name → Pinned; neither → error.
 func TestClassify(t *testing.T) {
 	cases := []struct {
-		name           string
-		branch, tag    bool
-		want           presetref.Kind
-		wantErr        bool
+		name        string
+		branch, tag bool
+		want        presetref.Kind
+		wantErr     bool
 	}{
 		{"branch", true, false, presetref.Tracked, false},
 		{"tag-only", false, true, presetref.Pinned, false},

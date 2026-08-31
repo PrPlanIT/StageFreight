@@ -31,7 +31,7 @@ func TestParse(t *testing.T) {
 		{"src//p.yml@0123456789abcdef0123456789abcdef01234567", Pinned, "src", "p.yml", "0123456789abcdef0123456789abcdef01234567"},
 
 		// A short/non-hex name is NOT a sha → Named.
-		{"src//p.yml@dev", Named, "src", "p.yml", "dev"},        // too short for sha, not hex-only anyway
+		{"src//p.yml@dev", Named, "src", "p.yml", "dev"},         // too short for sha, not hex-only anyway
 		{"src//p.yml@feature", Named, "src", "p.yml", "feature"}, // 'feature' has non-hex letters
 
 		// A bare HTTP(S) URL IS the source: there is no repo/path boundary to find, so
