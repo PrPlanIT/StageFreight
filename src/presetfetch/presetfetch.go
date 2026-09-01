@@ -46,10 +46,11 @@ func (d *dispatchFetcher) Fetch(source, ref, path string) ([]byte, error) {
 	return d.pick(source, path).Fetch(source, ref, path)
 }
 
-// Classify is only ever called for a bare Named ref, which a URL cannot carry — but
-// route it consistently so the two families can never disagree about a source.
-func (d *dispatchFetcher) Classify(source, ref string) (presetref.Kind, error) {
-	return d.pick(source, "").Classify(source, ref)
+// Classify routes on the same (source, path) pair as Fetch. Routing on the source alone
+// would send every https-addressed GIT repo to the URL family, which answers Tracked for
+// everything — so a bare tag could never pin.
+func (d *dispatchFetcher) Classify(source, ref, path string) (presetref.Kind, error) {
+	return d.pick(source, path).Classify(source, ref, path)
 }
 
 type gitFetcher struct {
@@ -68,7 +69,7 @@ func (g *gitFetcher) Fetch(source, ref, path string) ([]byte, error) {
 // Classify resolves a bare ref by asking the source which namespace it lives in. A
 // branch (or a name that is both) → Tracked (tracking is the default); a name that is
 // ONLY a tag → Pinned (honoring "a bare tag pins"); neither → an error.
-func (g *gitFetcher) Classify(source, ref string) (presetref.Kind, error) {
+func (g *gitFetcher) Classify(source, ref, _ string) (presetref.Kind, error) {
 	url, err := g.resolve(source)
 	if err != nil {
 		return presetref.Named, fmt.Errorf("resolving preset source %q: %w", source, err)
@@ -90,7 +91,7 @@ func (g *gitFetcher) Classify(source, ref string) (presetref.Kind, error) {
 // Revision reports the object id the source's ref points at, via ls-remote — no content
 // transferred. Unchanged id means unchanged content, so the resolver can skip the fetch
 // entirely, and a moved tag is visible without cloning to find out.
-func (g *gitFetcher) Revision(source, ref string) (string, error) {
+func (g *gitFetcher) Revision(source, ref, _ string) (string, error) {
 	url, err := g.resolve(source)
 	if err != nil {
 		return "", fmt.Errorf("resolving preset source %q: %w", source, err)
@@ -98,10 +99,12 @@ func (g *gitFetcher) Revision(source, ref string) (string, error) {
 	return gitstate.RemoteRefRevision(url, ref)
 }
 
-// Revision routes like Fetch: only the family that can answer for this source does.
-func (d *dispatchFetcher) Revision(source, ref string) (string, error) {
-	if rv, ok := d.pick(source, "").(presetref.Revisioner); ok {
-		return rv.Revision(source, ref)
+// Revision routes like Fetch, on (source, path). Dropping the path here sent a git
+// source to the URL family, whose HEAD against the repo page returns a validator that
+// changes on its own — so every run saw drift, refetched, and rewrote the record.
+func (d *dispatchFetcher) Revision(source, ref, path string) (string, error) {
+	if rv, ok := d.pick(source, path).(presetref.Revisioner); ok {
+		return rv.Revision(source, ref, path)
 	}
 	return "", nil
 }

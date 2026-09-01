@@ -7,8 +7,8 @@ type stubFetch struct {
 	err  error
 }
 
-func (s stubFetch) Fetch(_, _, _ string) ([]byte, error) { return s.body, s.err }
-func (s stubFetch) Classify(_, _ string) (Kind, error)   { return Tracked, nil }
+func (s stubFetch) Fetch(_, _, _ string) ([]byte, error)  { return s.body, s.err }
+func (s stubFetch) Classify(_, _, _ string) (Kind, error) { return Tracked, nil }
 
 type memCache map[string][]byte
 

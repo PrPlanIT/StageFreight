@@ -13,7 +13,7 @@ import (
 // at, without transferring content. A fetcher that cannot answer cheaply omits it and
 // every resolve fetches in full.
 type Revisioner interface {
-	Revision(source, ref string) (string, error)
+	Revision(source, ref, path string) (string, error)
 }
 
 // AgedCache is an optional Cache capability: how long ago an entry was retained. Without
@@ -27,8 +27,9 @@ type Fetcher interface {
 	// Fetch returns the file at path from source at ref (ref "" = the default branch).
 	Fetch(source, ref, path string) ([]byte, error)
 	// Classify resolves a BARE Named ref against the source: a tag → Pinned, a branch →
-	// Tracked. Called only for Named refs.
-	Classify(source, ref string) (Kind, error)
+	// Tracked. Called only for Named refs. Takes the path for the same reason Fetch does:
+	// it is what distinguishes a repository source from a bare document URL.
+	Classify(source, ref, path string) (Kind, error)
 }
 
 // Cache is the retention store for fetched presets — the fallback for tracked refs and
@@ -148,12 +149,21 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// was retained, the content cannot have changed, so there is nothing to fetch and
 	// nothing to reconcile — this is what makes tracking cheap enough to do every run,
 	// and a pin cheap enough to verify every run.
-	if rev, ok := r.Fetcher.(Revisioner); ok && had {
-		if cur, rerr := rev.Revision(ref.Source, ref.Ref); rerr == nil && cur != "" {
-			if prev, ok := r.Cache.Read(key + RevisionSuffix); ok && string(prev) == cur {
-				r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Unchanged: true})
-				return retained, nil
-			}
+	//
+	// Asked ONCE, and recorded with whatever this run retains. Re-asking after the fetch
+	// would record a revision the source moved to in between, describing content that was
+	// never retained — and the next run, comparing equal, would serve a stale copy as
+	// current.
+	srcRev := ""
+	if rev, ok := r.Fetcher.(Revisioner); ok {
+		if cur, rerr := rev.Revision(ref.Source, ref.Ref, ref.Path); rerr == nil {
+			srcRev = cur
+		}
+	}
+	if srcRev != "" && had {
+		if prev, ok := r.Cache.Read(key + RevisionSuffix); ok && string(prev) == srcRev {
+			r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Unchanged: true})
+			return retained, nil
 		}
 	}
 
@@ -185,7 +195,7 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 		case MismatchSource:
 			r.warnf("pinned preset %q: the source no longer serves what was retained; taking the source", ref.Raw)
 			_ = r.Cache.Write(key, fetched)
-			r.writeRevision(ref, key)
+			r.writeRevision(key, srcRev)
 			return fetched, nil
 		case MismatchRetained:
 			r.warnf("pinned preset %q: the source no longer serves what was retained; keeping the retained copy", ref.Raw)
@@ -199,7 +209,7 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// source moved is unrecoverable, and that fact is what a satellite reports and
 	// republishes.
 	_ = r.Cache.Write(key, fetched)
-	r.writeRevision(ref, key)
+	r.writeRevision(key, srcRev)
 	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs})
 	return fetched, nil
 }
@@ -228,14 +238,12 @@ func (r Resolver) retainedAge(key string) (time.Duration, bool) {
 }
 
 // writeRevision records what the source pointed at, beside the content just retained.
-func (r Resolver) writeRevision(ref Ref, key string) {
-	rev, ok := r.Fetcher.(Revisioner)
-	if !ok {
+// The value is the one read before the fetch, so it describes what was actually stored.
+func (r Resolver) writeRevision(key, rev string) {
+	if rev == "" {
 		return
 	}
-	if cur, err := rev.Revision(ref.Source, ref.Ref); err == nil && cur != "" {
-		_ = r.Cache.Write(key+RevisionSuffix, []byte(cur))
-	}
+	_ = r.Cache.Write(key+RevisionSuffix, []byte(rev))
 }
 
 func (r Resolver) observe(o Outcome) {
@@ -254,7 +262,7 @@ func (r Resolver) resolveKind(ref Ref) Kind {
 	if r.Mode == FetchOffline {
 		return Tracked // can't classify offline; the tracked cache-only path handles it
 	}
-	if k, err := r.Fetcher.Classify(ref.Source, ref.Ref); err == nil {
+	if k, err := r.Fetcher.Classify(ref.Source, ref.Ref, ref.Path); err == nil {
 		return k
 	}
 	r.warnf("preset %q: could not classify ref %q as branch/tag; treating as tracked", ref.Raw, ref.Ref)

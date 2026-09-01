@@ -98,4 +98,4 @@ func (demoFetcher) Fetch(source, ref, path string) ([]byte, error) {
 	}
 	return []byte("version: 1\n"), nil
 }
-func (demoFetcher) Classify(_, _ string) (presetref.Kind, error) { return presetref.Tracked, nil }
+func (demoFetcher) Classify(_, _, _ string) (presetref.Kind, error) { return presetref.Tracked, nil }

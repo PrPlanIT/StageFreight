@@ -11,7 +11,7 @@ import (
 type fakeSrcFetcher struct{ content []byte }
 
 func (f fakeSrcFetcher) Fetch(source, ref, path string) ([]byte, error) { return f.content, nil }
-func (f fakeSrcFetcher) Classify(source, ref string) (presetref.Kind, error) {
+func (f fakeSrcFetcher) Classify(source, ref, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
 

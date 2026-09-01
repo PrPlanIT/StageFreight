@@ -21,8 +21,8 @@ func (f *revFetcher) Fetch(_, _, _ string) ([]byte, error) {
 	}
 	return f.body, nil
 }
-func (f *revFetcher) Classify(_, _ string) (Kind, error) { return Tracked, nil }
-func (f *revFetcher) Revision(_, _ string) (string, error) {
+func (f *revFetcher) Classify(_, _, _ string) (Kind, error) { return Tracked, nil }
+func (f *revFetcher) Revision(_, _, _ string) (string, error) {
 	f.revCalls++
 	return f.rev, nil
 }

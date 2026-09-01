@@ -12,8 +12,10 @@ type revStubFetcher struct{ rev string }
 func (r revStubFetcher) Fetch(_, _, _ string) ([]byte, error) {
 	return []byte("lint:\n  level: full\n"), nil
 }
-func (r revStubFetcher) Classify(_, _ string) (presetref.Kind, error) { return presetref.Tracked, nil }
-func (r revStubFetcher) Revision(_, _ string) (string, error)         { return r.rev, nil }
+func (r revStubFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
+	return presetref.Tracked, nil
+}
+func (r revStubFetcher) Revision(_, _, _ string) (string, error) { return r.rev, nil }
 
 // CI clones fresh every job, so a revision recorded only at runtime is gone by the next
 // one — the satellite would re-transfer every source just to learn nothing changed.

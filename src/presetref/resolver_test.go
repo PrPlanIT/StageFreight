@@ -21,7 +21,7 @@ func (f *fakeFetcher) Fetch(source, ref, path string) ([]byte, error) {
 	}
 	return f.content, nil
 }
-func (f *fakeFetcher) Classify(source, ref string) (Kind, error) {
+func (f *fakeFetcher) Classify(source, ref, _ string) (Kind, error) {
 	if f.classErr != nil {
 		return Named, f.classErr
 	}

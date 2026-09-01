@@ -71,7 +71,7 @@ func TestHTTPFetcherFetch(t *testing.T) {
 
 // A URL carries no revision, so it is always tracked.
 func TestHTTPFetcherClassify(t *testing.T) {
-	k, err := newHTTPFetcher().Classify("https://example.org/x.yml", "main")
+	k, err := newHTTPFetcher().Classify("https://example.org/x.yml", "main", "")
 	if err != nil || k != presetref.Tracked {
 		t.Fatalf("Classify = (%v, %v), want (tracked, nil)", k, err)
 	}
@@ -99,7 +99,7 @@ func TestDispatchRoutesOnReferenceShape(t *testing.T) {
 type stubFetcher string
 
 func (s stubFetcher) Fetch(_, _, _ string) ([]byte, error) { return []byte(s), nil }
-func (s stubFetcher) Classify(_, _ string) (presetref.Kind, error) {
+func (s stubFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
 
@@ -133,7 +133,7 @@ func TestHTTPFetcherRevision(t *testing.T) {
 	// An ETag is the strong validator, so it wins over Last-Modified when both are
 	// offered — a weak one would report changes that did not happen.
 	t.Run("prefers the strong validator", func(t *testing.T) {
-		got, err := f.Revision(srv.URL+"/etag.yml", "")
+		got, err := f.Revision(srv.URL+"/etag.yml", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,7 +145,7 @@ func TestHTTPFetcherRevision(t *testing.T) {
 	// The check must not download the document — that is the entire saving.
 	t.Run("does not transfer the document", func(t *testing.T) {
 		lastMethod = ""
-		if _, err := f.Revision(srv.URL+"/etag.yml", ""); err != nil {
+		if _, err := f.Revision(srv.URL+"/etag.yml", "", ""); err != nil {
 			t.Fatal(err)
 		}
 		if lastMethod != http.MethodHead {
@@ -154,7 +154,7 @@ func TestHTTPFetcherRevision(t *testing.T) {
 	})
 
 	t.Run("falls back to Last-Modified", func(t *testing.T) {
-		got, err := f.Revision(srv.URL+"/lastmod.yml", "")
+		got, err := f.Revision(srv.URL+"/lastmod.yml", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,7 +166,7 @@ func TestHTTPFetcherRevision(t *testing.T) {
 	// No validator means the resolver must transfer and compare. Returning something
 	// invented here would let a changed document be served as unchanged forever.
 	t.Run("no validator yields no revision", func(t *testing.T) {
-		got, err := f.Revision(srv.URL+"/bare.yml", "")
+		got, err := f.Revision(srv.URL+"/bare.yml", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,13 +176,13 @@ func TestHTTPFetcherRevision(t *testing.T) {
 	})
 
 	t.Run("non-2xx is an error, not an empty revision", func(t *testing.T) {
-		if _, err := f.Revision(srv.URL+"/gone.yml", ""); err == nil {
+		if _, err := f.Revision(srv.URL+"/gone.yml", "", ""); err == nil {
 			t.Fatal("want an error naming the status")
 		}
 	})
 
 	t.Run("unreachable host errors", func(t *testing.T) {
-		if _, err := f.Revision("http://127.0.0.1:1/x.yml", ""); err == nil {
+		if _, err := f.Revision("http://127.0.0.1:1/x.yml", "", ""); err == nil {
 			t.Fatal("want an error for an unreachable host")
 		}
 	})

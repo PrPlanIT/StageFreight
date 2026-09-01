@@ -68,7 +68,7 @@ func (h *httpFetcher) Fetch(source, _, _ string) ([]byte, error) {
 // semantics: the reference denotes whatever the URL currently serves, with the retained
 // response as the fallback. Operators wanting immutability address a revision-bearing
 // source instead.
-func (h *httpFetcher) Classify(_, _ string) (presetref.Kind, error) {
+func (h *httpFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
 
@@ -76,7 +76,7 @@ func (h *httpFetcher) Classify(_, _ string) (presetref.Kind, error) {
 // ETag is the strong answer; Last-Modified the weak one. A server offering neither
 // returns "" and the caller fetches, which is correct rather than merely conservative:
 // with no validator, "unchanged" is not something we can claim.
-func (h *httpFetcher) Revision(source, _ string) (string, error) {
+func (h *httpFetcher) Revision(source, _, _ string) (string, error) {
 	req, err := http.NewRequest(http.MethodHead, source, nil)
 	if err != nil {
 		return "", err

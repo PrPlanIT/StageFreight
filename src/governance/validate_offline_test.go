@@ -17,7 +17,9 @@ func (c countingFetcher) Fetch(_, _, path string) ([]byte, error) {
 	}
 	return []byte("version: 1\n"), nil
 }
-func (c countingFetcher) Classify(_, _ string) (presetref.Kind, error) { return presetref.Tracked, nil }
+func (c countingFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
+	return presetref.Tracked, nil
+}
 
 // Validating a render must resolve from the cache being distributed WITH it, not from
 // the network: the question is whether what we hand over is self-sufficient. Fetching

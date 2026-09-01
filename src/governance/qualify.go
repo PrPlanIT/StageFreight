@@ -149,7 +149,7 @@ func materializedRevision(ref string) string {
 	if !ok {
 		return ""
 	}
-	rev, err := rv.Revision(r.Source, r.Ref)
+	rev, err := rv.Revision(r.Source, r.Ref, r.Path)
 	if err != nil {
 		return ""
 	}
