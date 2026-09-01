@@ -8,11 +8,10 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/presetref"
 )
 
-// PresetQualifier is the reference a satellite resolves unqualified presets against.
-// Ref empty means the source's default branch, which is the tracking default.
+// PresetQualifier is the source a satellite resolves unqualified presets against. It
+// carries no revision: qualification supplies provenance, never a pin.
 type PresetQualifier struct {
 	Repo string // clonable source, e.g. "https://gitlab.example.com/Org/Policy"
-	Ref  string // "" = default branch (tracked); a branch tracks; a tag/sha pins
 }
 
 // Qualify turns an unqualified preset path into a reference that names where it comes
@@ -30,11 +29,13 @@ func (g PresetQualifier) Qualify(raw string) string {
 	if presetref.Parse(raw).Kind != presetref.Local {
 		return raw // already sourced — not ours to redirect
 	}
-	out := g.Repo + "//" + strings.TrimPrefix(path.Clean(raw), "./")
-	if g.Ref != "" {
-		out += "@" + g.Ref
-	}
-	return out
+	// Source only, never a revision: governance supplies the provenance a bare path
+	// lacks, and an unpinned reference tracks the source's default branch — fetched
+	// live each run, with the retained copy as the fallback. Stamping the policy
+	// repo's current commit here would pin every satellite to the instant it was
+	// reconciled, making the operator's opt-out the default and freezing the fleet
+	// against a source it is supposed to follow.
+	return g.Repo + "//" + strings.TrimPrefix(path.Clean(raw), "./")
 }
 
 // NewPresetQualifier builds the qualifier for a distribution. When the source's
@@ -47,7 +48,6 @@ func NewPresetQualifier(ps PresetSourceInfo) PresetQualifier {
 	}
 	return PresetQualifier{
 		Repo: strings.TrimSuffix(ps.ForgeURL, "/") + "/" + strings.Trim(ps.ProjectID, "/"),
-		Ref:  ps.Ref,
 	}
 }
 
