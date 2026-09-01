@@ -334,14 +334,7 @@ func vulnUnverifiedNames(deps []supplychain.Dependency, max int) string {
 
 // dependency engine's VulnIgnore, keeping the engine free of a config-package dependency.
 func mapIgnores(in []config.DependencyIgnore) []dependency.VulnIgnore {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]dependency.VulnIgnore, 0, len(in))
-	for _, ig := range in {
-		out = append(out, dependency.VulnIgnore{ID: ig.ID, Reason: ig.Reason, Until: ig.Until})
-	}
-	return out
+	return lint.VulnIgnoresFrom(in)
 }
 
 func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {

@@ -1,6 +1,10 @@
 package dependency
 
-import "io"
+import (
+	"io"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
+)
 
 // UpdateConfig holds configuration for the dependency update command.
 type UpdateConfig struct {
@@ -19,8 +23,6 @@ type UpdateConfig struct {
 
 // VulnIgnore is a single accepted-risk advisory suppression. Mirrors config's
 // DependencyIgnore (mapped by the CLI) so the dependency engine stays config-agnostic.
-type VulnIgnore struct {
-	ID     string
-	Reason string
-	Until  string // YYYY-MM-DD; empty = no expiry
-}
+// VulnIgnore is the shared advisory-exception record. Aliased rather than redefined so
+// dependency and lint cannot drift on what "ignored" or "expired" means.
+type VulnIgnore = supplychain.VulnIgnore

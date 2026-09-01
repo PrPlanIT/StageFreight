@@ -38,6 +38,10 @@ type vulnModule struct {
 	desired  map[string]config.ToolConstraint
 	snapshot *supplychain.Snapshot
 
+	// ignores are the operator's declared advisory exceptions, applied to
+	// observations before they become findings.
+	ignores []supplychain.VulnIgnore
+
 	// osv-scanner binary, resolved once across the run. resolveErr is set only
 	// when a PINNED version fails to resolve — a hard-fail of the gate.
 	once       sync.Once
@@ -140,6 +144,7 @@ func (m *vulnModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lin
 		}
 		allObs = append(allObs, obs...)
 	}
+	allObs = m.dropIgnored(allObs)
 
 	// Enrich with reachability (govulncheck) when there is a Go advisory to
 	// potentially downgrade — Assess folds a proven-unreachable vuln to Info.
@@ -289,6 +294,39 @@ func setEnvVar(env []string, key, val string) []string {
 		}
 	}
 	return append(env, prefix+val)
+}
+
+// SetVulnIgnores records the operator's declared advisory exceptions.
+func (m *vulnModule) SetVulnIgnores(ignores []supplychain.VulnIgnore) { m.ignores = ignores }
+
+// dropIgnored removes observations the operator has explicitly and currently accepted.
+//
+// Applied to OBSERVATIONS rather than to rendered findings: an advisory is matched by its
+// id or any alias, and only the observation still carries them — by the time it is a
+// finding the ids live in prose, where matching would be guesswork. Dropping here also
+// keeps an accepted advisory out of the reachability analysis it would otherwise pay for.
+func (m *vulnModule) dropIgnored(obs []analysis.AdvisoryObservation) []analysis.AdvisoryObservation {
+	active := supplychain.ActiveIgnores(m.ignores, time.Now())
+	if len(active) == 0 {
+		return obs
+	}
+	kept := obs[:0:0]
+	for _, o := range obs {
+		if active[strings.ToUpper(strings.TrimSpace(o.VulnID))] {
+			continue
+		}
+		aliased := false
+		for _, a := range o.Aliases {
+			if active[strings.ToUpper(strings.TrimSpace(a))] {
+				aliased = true
+				break
+			}
+		}
+		if !aliased {
+			kept = append(kept, o)
+		}
+	}
+	return kept
 }
 
 // observe collects this file's advisory observations from both sources.

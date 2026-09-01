@@ -43,6 +43,34 @@ type AnsibleAwareModule interface {
 	SetAnsibleConfig(cfg config.AnsibleConfig)
 }
 
+// VulnIgnoreAwareModule is implemented by modules that report advisories and must
+// honour the operator's declared exceptions. The engine calls SetVulnIgnores after
+// construction. Mirrors AnsibleAwareModule.
+//
+// The exceptions live in the dependency subsystem because that is where an operator
+// declares which advisories this repo carries and why. They have to reach lint too: lint
+// is what BLOCKS the build, so an exception the gate cannot see is not an exception at
+// all — it leaves a finding demanding a fix that was already consciously declined.
+type VulnIgnoreAwareModule interface {
+	Module
+	SetVulnIgnores(ignores []supplychain.VulnIgnore)
+}
+
+// VulnIgnoresFrom converts declared config exceptions into the shared record. It lives
+// here because lint already depends on both packages, keeping config unaware of
+// supplychain — and it is the single conversion, so the dependency subsystem and the
+// lint gate cannot end up reading the same YAML differently.
+func VulnIgnoresFrom(in []config.DependencyIgnore) []supplychain.VulnIgnore {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]supplychain.VulnIgnore, 0, len(in))
+	for _, ig := range in {
+		out = append(out, supplychain.VulnIgnore{ID: ig.ID, Reason: ig.Reason, Until: ig.Until})
+	}
+	return out
+}
+
 // SnapshotAwareModule is implemented by modules that can consume a
 // pre-resolved supplychain.Snapshot instead of resolving dependencies
 // themselves. The engine calls SetSnapshot after construction, before Run(),

@@ -95,6 +95,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 	engine.ToolchainDesired = cfg.Toolchains.Want
 	engine.Ansible = &cfg.Ansible
+	engine.VulnIgnores = lint.VulnIgnoresFrom(cfg.Dependency.Ignore)
 
 	if verbose {
 		names := make([]string, len(engine.Modules))

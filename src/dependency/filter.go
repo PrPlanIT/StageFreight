@@ -83,20 +83,7 @@ func ceilingRetarget(dep supplychain.Dependency, maxUpdate string) string {
 // never silently drop a real finding. A dependency whose every advisory is ignored is
 // left with zero vulnerabilities and thus falls out of security-policy scope.
 func ApplyIgnores(deps []supplychain.Dependency, ignores []VulnIgnore, now time.Time) []supplychain.Dependency {
-	active := make(map[string]bool, len(ignores))
-	for _, ig := range ignores {
-		id := strings.ToUpper(strings.TrimSpace(ig.ID))
-		if id == "" {
-			continue
-		}
-		if u := strings.TrimSpace(ig.Until); u != "" {
-			t, err := time.Parse("2006-01-02", u)
-			if err != nil || !now.Before(t) {
-				continue // malformed or lapsed → does not suppress
-			}
-		}
-		active[id] = true
-	}
+	active := supplychain.ActiveIgnores(ignores, now)
 	if len(active) == 0 {
 		return deps
 	}

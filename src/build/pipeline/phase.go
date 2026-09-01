@@ -354,6 +354,9 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 		return "", nil, err
 	}
 	lintEngine.Snapshot = snapshot
+	// The gate must see the operator's declared exceptions: this is the run that blocks
+	// the build, so an advisory accepted in config has to stop blocking here.
+	lintEngine.VulnIgnores = lint.VulnIgnoresFrom(appCfg.Dependency.Ignore)
 
 	files, err := lintEngine.CollectFiles()
 	if err != nil {

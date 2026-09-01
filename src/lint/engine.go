@@ -33,6 +33,11 @@ type Engine struct {
 	// declared play library). nil means "not configured" — the module no-ops.
 	Ansible *config.AnsibleConfig
 
+	// VulnIgnores carries the operator's declared advisory exceptions (from the
+	// dependency subsystem) to VulnIgnoreAwareModule implementations. Empty means no
+	// exception is declared and every advisory reports.
+	VulnIgnores []supplychain.VulnIgnore
+
 	// Snapshot is an optional, pre-resolved supply-chain Snapshot produced
 	// once (via discovery.Discover) and shared by the caller across
 	// consumers — e.g. the audition pipeline threads the same Snapshot into
@@ -207,6 +212,15 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		for _, m := range e.Modules {
 			if aa, ok := m.(AnsibleAwareModule); ok {
 				aa.SetAnsibleConfig(*e.Ansible)
+			}
+		}
+	}
+
+	// Propagate declared advisory exceptions to modules that report advisories.
+	if len(e.VulnIgnores) > 0 {
+		for _, m := range e.Modules {
+			if va, ok := m.(VulnIgnoreAwareModule); ok {
+				va.SetVulnIgnores(e.VulnIgnores)
 			}
 		}
 	}
