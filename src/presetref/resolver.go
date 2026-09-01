@@ -93,6 +93,14 @@ type Outcome struct {
 	Fallback  bool // source unreachable; the retained copy was served instead
 	Violated  bool // pinned, and the source no longer serves what was retained
 	Unchanged bool // the source points at what was retained; nothing transferred
+	// Refreshed reports that THIS run wrote the retained copy — replacing one that
+	// differed, or creating one governance never seeded. It is what a satellite
+	// republishes: a retained copy the run produced but never committed leaves the
+	// working tree dirty, which is a failure, not a diagnostic. Distinct from Drifted,
+	// which answers whether the content changed: a first retention changes nothing and
+	// still has to be carried back, and an adopted pin mismatch is a write the operator
+	// asked for.
+	Refreshed bool
 }
 
 // RevisionSuffix keys the recorded revision beside its content, so a distributor can
@@ -190,17 +198,19 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 		// source now serves something else, the assumption is broken — a moved tag,
 		// rewritten history, or a substituted host — and the retained copy is the
 		// evidence. Which side to believe is the operator's call, not this function's.
-		r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true})
 		switch r.OnMismatch {
 		case MismatchSource:
 			r.warnf("pinned preset %q: the source no longer serves what was retained; taking the source", ref.Raw)
 			_ = r.Cache.Write(key, fetched)
 			r.writeRevision(key, srcRev)
+			r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true, Drifted: true, Refreshed: true})
 			return fetched, nil
 		case MismatchRetained:
 			r.warnf("pinned preset %q: the source no longer serves what was retained; keeping the retained copy", ref.Raw)
+			r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true})
 			return retained, nil
 		default: // MismatchFail
+			r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true})
 			return nil, &PinViolation{Ref: ref, Retained: retained, Fetched: fetched}
 		}
 	}
@@ -210,7 +220,7 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// republishes.
 	_ = r.Cache.Write(key, fetched)
 	r.writeRevision(key, srcRev)
-	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs})
+	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs, Refreshed: true})
 	return fetched, nil
 }
 

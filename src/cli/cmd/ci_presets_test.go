@@ -44,8 +44,14 @@ func repoWithCache(t *testing.T) string {
 func cfgWith(refs ...string) *config.Config {
 	outs := make([]presetref.Outcome, 0, len(refs))
 	for _, r := range refs {
-		outs = append(outs, presetref.Outcome{Ref: presetref.Parse(r), Fetched: true, Drifted: true})
+		outs = append(outs, presetref.Outcome{Ref: presetref.Parse(r), Fetched: true, Drifted: true, Refreshed: true})
 	}
+	c := &config.Config{}
+	c.SetPresetOutcomes(outs)
+	return c
+}
+
+func cfgWithOutcomes(outs ...presetref.Outcome) *config.Config {
 	c := &config.Config{}
 	c.SetPresetOutcomes(outs)
 	return c
@@ -72,6 +78,42 @@ func TestRepublishRefreshedPresets(t *testing.T) {
 		republishRefreshedPresets(ctx, cfgWith("https://a.example/x.yml"), ciCtx, t.TempDir())
 		if len(*calls) != 0 {
 			t.Fatalf("committed without a retained cache: %+v", *calls)
+		}
+	})
+
+	// What gets carried back is what this run RETAINED, not what differed. A reference
+	// governance never seeded is written without differing from anything; leaving it
+	// uncommitted is what dirties the tree and aborts the dependency stage.
+	t.Run("a first retention is carried back though nothing drifted", func(t *testing.T) {
+		calls := recordCommit(t)
+		republishRefreshedPresets(ctx, cfgWithOutcomes(presetref.Outcome{
+			Ref: presetref.Parse("https://a.example/x.yml"), Fetched: true, Refreshed: true,
+		}), ciCtx, repoWithCache(t))
+		if len(*calls) != 1 {
+			t.Fatalf("calls = %d, want 1", len(*calls))
+		}
+	})
+
+	// A pin that stopped matching writes nothing unless the operator chose to adopt the
+	// source — so failing or keeping the retained copy must commit nothing, and adopting
+	// must commit, because that run replaced what the repo holds.
+	t.Run("a pin mismatch is carried back only when the source was adopted", func(t *testing.T) {
+		ref := presetref.Parse("gitlab:Org/Repo//preset/x.yml@refs/tags/v1")
+
+		calls := recordCommit(t)
+		republishRefreshedPresets(ctx, cfgWithOutcomes(presetref.Outcome{
+			Ref: ref, Fetched: true, Violated: true,
+		}), ciCtx, repoWithCache(t))
+		if len(*calls) != 0 {
+			t.Fatalf("committed a pin mismatch that wrote nothing: %+v", *calls)
+		}
+
+		calls = recordCommit(t)
+		republishRefreshedPresets(ctx, cfgWithOutcomes(presetref.Outcome{
+			Ref: ref, Fetched: true, Violated: true, Drifted: true, Refreshed: true,
+		}), ciCtx, repoWithCache(t))
+		if len(*calls) != 1 {
+			t.Fatalf("adopted pin not carried back: calls = %d, want 1", len(*calls))
 		}
 	})
 

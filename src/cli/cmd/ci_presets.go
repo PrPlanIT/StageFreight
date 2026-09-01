@@ -22,24 +22,28 @@ import (
 // resolution that no longer matches what the run actually used — and it means a broken
 // governance pipeline delays policy rather than freezing it.
 //
-// A pinned reference never reaches this: it is not fetched, so it cannot drift.
+// The set is what this run RETAINED, not what differed: a reference governance never
+// seeded is written without differing from anything, and a pinned reference whose
+// mismatch the operator chose to resolve from the source is a write they asked for. A
+// pin left to fail or to keep its retained copy writes nothing and so appears here only
+// when the operator opted into adopting the source.
 // presetRefreshCommit is the commit step, injectable so what this decides to commit can
 // be asserted without driving git.
 var presetRefreshCommit = autoCommitViaPlanner
 
 func republishRefreshedPresets(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, rootDir string) {
-	drifted := appCfg.DriftedPresets()
-	if len(drifted) == 0 {
+	refreshed := appCfg.RefreshedPresets()
+	if len(refreshed) == 0 {
 		return
 	}
 
-	refs := make([]string, 0, len(drifted))
-	for _, o := range drifted {
+	refs := make([]string, 0, len(refreshed))
+	for _, o := range refreshed {
 		refs = append(refs, o.Ref.Raw)
 	}
 	sort.Strings(refs)
 
-	fmt.Fprintf(os.Stdout, "  presets: %d tracked reference(s) moved since the retained copy:\n", len(refs))
+	fmt.Fprintf(os.Stdout, "  presets: %d reference(s) retained by this run:\n", len(refs))
 	for _, r := range refs {
 		fmt.Fprintf(os.Stdout, "    · %s\n", r)
 	}
@@ -58,7 +62,7 @@ func republishRefreshedPresets(ctx context.Context, appCfg *config.Config, ciCtx
 	}
 
 	body := "The governance distribution did not carry these; this run resolved them from\n" +
-		"their sources and is recording what it actually used.\n\nRefreshed:\n"
+		"their sources and is recording what it actually used.\n\nRetained:\n"
 	for _, r := range refs {
 		body += "  - " + r + "\n"
 	}

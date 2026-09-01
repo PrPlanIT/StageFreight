@@ -2,6 +2,7 @@ package governance
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
@@ -134,6 +135,9 @@ func loadPresetContent(ref string, loader PresetLoader) ([]byte, error) {
 		Fetcher:        PresetSourceFetcher,
 		Cache:          cache,
 		MaxFallbackAge: presetref.DefaultMaxFallbackAge,
+		Warnf: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "  warn: "+format+"\n", args...)
+		},
 	}.Resolve(r)
 }
 

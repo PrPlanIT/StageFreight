@@ -76,6 +76,13 @@ func (l sourceAwareLoader) resolver() presetref.Resolver {
 		Fetcher:        SourceFetcher,
 		Cache:          presetref.NewFSCache(l.cacheDir),
 		MaxFallbackAge: presetref.DefaultMaxFallbackAge,
+		// Serving a retained copy because the source could not be reached, or because a
+		// pin stopped matching, is a decision the run made on the operator's behalf.
+		// Unreported it is indistinguishable from a clean resolve, and a fleet can sit
+		// on stale policy for weeks without a sign.
+		Warnf: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "  warn: "+format+"\n", args...)
+		},
 	}
 }
 

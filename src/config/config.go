@@ -202,12 +202,26 @@ func (c *Config) SetPresetOutcomes(o []presetref.Outcome) { c.presetOutcomes = o
 func (c *Config) PresetOutcomes() []presetref.Outcome { return c.presetOutcomes }
 
 // DriftedPresets returns the references whose source served content differing from what
-// was retained — what a satellite reports, and republishes when it refreshed them
-// itself because governance had not.
+// was retained. This is the REPORTING view: it answers whether policy content changed.
 func (c *Config) DriftedPresets() []presetref.Outcome {
 	var out []presetref.Outcome
 	for _, o := range c.presetOutcomes {
 		if o.Drifted {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// RefreshedPresets returns the references whose retained copy THIS run wrote — the set a
+// satellite must carry back. Not the same question as DriftedPresets: a copy governance
+// never seeded is written without differing from anything, and a pin mismatch the
+// operator chose to resolve from the source is a write they asked for. Either way the
+// run produced a retained copy, and one that is never committed leaves the tree dirty.
+func (c *Config) RefreshedPresets() []presetref.Outcome {
+	var out []presetref.Outcome
+	for _, o := range c.presetOutcomes {
+		if o.Refreshed {
 			out = append(out, o)
 		}
 	}
