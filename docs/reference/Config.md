@@ -592,6 +592,7 @@ security:
     - tag: <string>   # Tag is a pattern matched against the git tag (CI_COMMIT_TAG). Only evaluated when a tag is present.…
       branch: <string>   # Branch is a pattern matched against the git branch (CI_COMMIT_BRANCH). Prefix with ! to negate.
       detail: <string>   # Detail is the detail level to use when this rule matches. Values: "none", "counts", "detailed"… · required
+  release_detail_max_rows: <int>   # ReleaseDetailMaxRows bounds how many vulnerability rows the "full" detail level writes into release…
   cache:   # Cache controls persistent vulnerability DB caching per scanner. Each tool's max_size triggers…
     trivy:
       max_size: <string>   # e.g. "500MB" — full-clear when exceeded
@@ -919,9 +920,6 @@ release:
   preset: <string>
   enabled: false   # required
   required: false   # failure is hard pipeline fail (default: false)
-  security_summary: false   # SecuritySummary attaches the security summary to the release. The summary's location is… · required
-  registry_links: false   # required
-  catalog_links: false   # required
   render:   # Render controls release rendering (default DefaultReleasePresentation; a partial render: block…
     max_entries: <int>   # required
     group_by_type: false   # required
