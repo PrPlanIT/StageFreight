@@ -209,6 +209,8 @@ publish:                                 # distribute artifacts to their destina
   # entry — so the rolling tags are never double-managed.
   release:
     kind: release
+    security_summary: true
+    registry_links: true
     notes: release-notes
     type: latest
     repos: [primary, github-mirror]
@@ -223,6 +225,8 @@ publish:                                 # distribute artifacts to their destina
   #    mirror too (release-target repos are retained), so it no longer accumulates.
   dev-release:
     kind: release
+    security_summary: true
+    registry_links: true
     notes: release-notes
     repos: [primary, github-mirror]  # dev release on gitlab AND github (mirror is git-only for refs)
     archives: stagefreight-binaries  # the same one recipe as release (OR-list when:)
@@ -363,8 +367,6 @@ notifications:
 
 release:
   enabled: true
-  security_summary: true
-  registry_links: true
 
 security:
   enabled: true
