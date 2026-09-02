@@ -15,7 +15,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/tdewolff/font v0.0.0-20260822205238-d0d2f004b117
 	github.com/zricethezav/gitleaks/v8 v8.30.1
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.22.0
