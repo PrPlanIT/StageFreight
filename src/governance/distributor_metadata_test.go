@@ -55,7 +55,6 @@ func TestPlanDistribution_BrandedEntryDistributesMetadata(t *testing.T) {
 			Provider:  "gitlab",
 			ForgeURL:  "https://gitlab.prplanit.com",
 			ProjectID: "PrPlanIT/MaintenancePolicy",
-			Ref:       "deadbeef",
 		},
 		"PrPlanIT/MaintenancePolicy",
 	)
@@ -150,7 +149,7 @@ func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 	}
 
 	plans, err := PlanDistribution(gov, fakeLoader{}, nil, nil,
-		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef"},
+		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
 		"PrPlanIT/MaintenancePolicy")
 	requireNoError(t, err)
 
@@ -219,10 +218,10 @@ func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
 		}},
 	}
 
-	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"}, "Org/policy")
+	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab"}, "Org/policy")
 	requireNoError(t, err)
 
-	src := NewPresetQualifier(PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"})
+	src := NewPresetQualifier(PresetSourceInfo{Provider: "gitlab"})
 	want := map[string]bool{
 		cachePathFor(src, "preset/stencils-core.yml"):   false,
 		cachePathFor(src, "preset/stencils-docker.yml"): false,
@@ -269,7 +268,7 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 		}},
 	}
 
-	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"}, "Org/policy")
+	plans, err := PlanDistribution(gov, loader, nil, nil, PresetSourceInfo{Provider: "gitlab"}, "Org/policy")
 	requireNoError(t, err)
 
 	has := func(p DistributionPlan, path string) bool {
@@ -285,7 +284,7 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 		byRepo[p.Repo] = p
 	}
 
-	src2 := NewPresetQualifier(PresetSourceInfo{Provider: "gitlab", Ref: "deadbeef"})
+	src2 := NewPresetQualifier(PresetSourceInfo{Provider: "gitlab"})
 	py := byRepo["Org/py-repo"]
 	if !has(py, cachePathFor(src2, "preset/test-python.yml")) {
 		t.Error("the deviating entry's own preset must be seeded into ITS cache")
@@ -353,7 +352,7 @@ func TestPlanDistribution_RejectsUnloadableRender(t *testing.T) {
 		gov, fakeLoader{}, nil, nil,
 		PresetSourceInfo{
 			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
-			ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef",
+			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",
 	)
@@ -414,7 +413,7 @@ func TestPlanDistribution_AcceptsValidRender(t *testing.T) {
 		gov, fakeLoader{}, nil, nil,
 		PresetSourceInfo{
 			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
-			ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef",
+			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",
 	); err != nil {
@@ -452,7 +451,7 @@ func planCIFixture(t *testing.T, gov *GovernanceConfig) (DistributionPlan, error
 		gov, fakeLoader{}, nil, nil,
 		PresetSourceInfo{
 			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
-			ProjectID: "PrPlanIT/MaintenancePolicy", Ref: "deadbeef",
+			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",
 	)

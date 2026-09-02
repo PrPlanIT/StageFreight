@@ -21,7 +21,6 @@ type PresetSourceInfo struct {
 	Provider  string // "gitlab", "github", "gitea"
 	ForgeURL  string // HTTPS base URL (e.g., "https://gitlab.prplanit.com")
 	ProjectID string // "org/repo" or "org/group/repo"
-	Ref       string // "" = the source default branch (tracked); a ref pins
 }
 
 // AssetFetcher fetches a file from a repo at a specific ref.

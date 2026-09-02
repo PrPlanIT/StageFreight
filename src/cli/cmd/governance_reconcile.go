@@ -155,7 +155,6 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 		Provider:  forgeProvider,
 		ForgeURL:  forgeBaseURL,
 		ProjectID: sourceIdentity,
-		Ref:       source.Ref,
 	}
 
 	plans, err := governance.PlanDistribution(
