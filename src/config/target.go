@@ -129,6 +129,31 @@ type TargetConfig struct {
 	// Named "aliases" to avoid collision with Tags (image tags) and git_tags (policy filters).
 	Aliases []string `yaml:"aliases,omitempty"`
 
+	// SecuritySummary attaches the security summary to this release; the summary's
+	// location is security.output, so this is a yes/no toggle rather than a path.
+	// RegistryLinks and CatalogLinks attach the published image and catalog links.
+	//
+	// Per target, with Notes and Limits, because all four describe what a release
+	// CONTAINS, and each channel publishes a different document: a dev release cut on
+	// every push and a stable one carry different evidence. Unset omits the content.
+	SecuritySummary bool `yaml:"security_summary,omitempty"`
+	RegistryLinks   bool `yaml:"registry_links,omitempty"`
+	CatalogLinks    bool `yaml:"catalog_links,omitempty"`
+
+	// Limits bound the release-note facts that grow with the repo, in characters
+	// (kind: release). Keyed by fact name — changes, changelog — because the body is
+	// composed from facts by a stencil, so there is no fixed set of sections to name:
+	// a stencil may omit a fact, reorder them, or use one twice.
+	//
+	// Per target because verbosity is a property of the channel, not the project: a dev
+	// release cut on every push wants a terse changelog where a stable one wants the
+	// whole thing. Unset uses the engine default; 0 is unbounded.
+	//
+	// A bound stops between entries and never inside one, and states the remainder as a
+	// count — every forge caps a release body, and an over-long one is rejected outright
+	// rather than trimmed.
+	Limits map[string]int `yaml:"limits,omitempty"`
+
 	// Tag is the immutable identity pattern for a release channel (kind: release).
 	// Distinct from Aliases (rolling): Tag names one immutable release per build, e.g.
 	// "dev-{sha:8}". Resolved against version info like Aliases ({version}, {sha:8}, ...).
@@ -314,4 +339,19 @@ var validEvents = map[string]bool{
 	"manual":        true,
 	"pull_request":  true,
 	"merge_request": true,
+}
+
+// Release-note fact bounds, in characters, when a target declares none.
+const (
+	DefaultChangesLimit   = 20000
+	DefaultChangelogLimit = 40000
+)
+
+// FactLimit returns the character bound for a release-note fact on this target,
+// falling back to the engine default when the target declares none.
+func (t TargetConfig) FactLimit(fact string, def int) int {
+	if v, ok := t.Limits[fact]; ok {
+		return v
+	}
+	return def
 }

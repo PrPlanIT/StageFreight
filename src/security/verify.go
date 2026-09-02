@@ -324,8 +324,11 @@ func ExtractRegistry(ref string) string {
 }
 
 func truncDigest(d string) string {
-	if len(d) > 19 {
-		return d[:19] + "..."
+	// Rune-counted like every other shortening here. A digest is hex today, but the
+	// function takes a string and a byte slice would break the moment one is not.
+	r := []rune(d)
+	if len(r) > 19 {
+		return string(r[:19]) + "..."
 	}
 	return d
 }

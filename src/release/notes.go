@@ -88,22 +88,27 @@ type BinaryRow struct {
 
 // NotesInput holds all data needed to render release notes.
 type NotesInput struct {
-	RepoDir      string                      // git repository directory
-	FromRef      string                      // start ref (empty = auto-detect previous tag)
-	ToRef        string                      // end ref (default: HEAD)
-	TagPatterns  []string                    // regex patterns for release tags (from versioning.tag_sources)
-	Config       *config.Config              // config for auto-detect version (nil = skip auto-detect)
-	SecurityTile string                      // one-line status (e.g., "🛡️ ✅ **Passed** — no vulnerabilities")
-	SecurityBody string                      // full section: status line + optional <details> CVE block
-	TagMessage   string                      // annotated tag message (optional, auto-detected if empty)
-	ProjectName  string                      // project name (auto-detected if empty)
-	Version      string                      // version string (auto-detected if empty)
-	SHA          string                      // short commit hash (auto-detected if empty)
-	IsPrerelease bool                        // true if version has prerelease suffix
-	ReleaseType  string                      // resolved semantic type label (latest/prerelease/stable); overrides IsPrerelease for the "Release type:" line
-	Images       []ImageRow                  // resolved registry image rows for availability table
-	Downloads    []BinaryRow                 // binary/archive artifacts for downloads table
-	Verify       *trustdisclosure.Disclosure // signing/verification disclosure (nil = nothing signed)
+	RepoDir      string         // git repository directory
+	FromRef      string         // start ref (empty = auto-detect previous tag)
+	ToRef        string         // end ref (default: HEAD)
+	TagPatterns  []string       // regex patterns for release tags (from versioning.tag_sources)
+	Config       *config.Config // config for auto-detect version (nil = skip auto-detect)
+	SecurityTile string         // one-line status (e.g., "🛡️ ✅ **Passed** — no vulnerabilities")
+	// ChangesLimit and ChangelogLimit bound the sections built from commit lists, in
+	// characters; 0 is unbounded. Bounding here is what keeps a composed body inside
+	// every forge's release-body cap without any forge knowing about it.
+	ChangesLimit   int
+	ChangelogLimit int
+	SecurityBody   string                      // full section: status line + optional <details> CVE block
+	TagMessage     string                      // annotated tag message (optional, auto-detected if empty)
+	ProjectName    string                      // project name (auto-detected if empty)
+	Version        string                      // version string (auto-detected if empty)
+	SHA            string                      // short commit hash (auto-detected if empty)
+	IsPrerelease   bool                        // true if version has prerelease suffix
+	ReleaseType    string                      // resolved semantic type label (latest/prerelease/stable); overrides IsPrerelease for the "Release type:" line
+	Images         []ImageRow                  // resolved registry image rows for availability table
+	Downloads      []BinaryRow                 // binary/archive artifacts for downloads table
+	Verify         *trustdisclosure.Disclosure // signing/verification disclosure (nil = nothing signed)
 
 	// NotesBody is the release-notes stencil body composing this document —
 	// resolved by the caller from the release target's notes: reference.
@@ -687,9 +692,9 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 		"release.downloads":    sectionDownloads(input),
 		"release.verification": sectionVerification(input),
 		"release.highlights":   sectionHighlights(input),
-		"release.changes":      sectionChanges(categories),
+		"release.changes":      sectionChanges(categories, input.ChangesLimit),
 		"release.security":     sectionSecurity(input),
-		"release.changelog":    sectionChangelog(allCommits),
+		"release.changelog":    sectionChangelog(allCommits, input.ChangelogLimit),
 	}
 
 	body := input.NotesBody
@@ -915,12 +920,15 @@ func sectionHighlights(input NotesInput) string {
 
 // sectionChanges renders Notable Changes (H2 wrapper, H4 categories),
 // deduplicating commits within each category by summary+scope+author.
-func sectionChanges(categories []CommitCategory) string {
+// maxChars bounds the section; 0 is unbounded. The budget is spent across categories in
+// order and checked between entries, so a category is cut short rather than a line.
+func sectionChanges(categories []CommitCategory, maxChars int) string {
 	if len(categories) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("## Notable Changes\n\n")
+	omitted := 0
 	for _, cat := range categories {
 		b.WriteString(fmt.Sprintf("#### %s\n", cat.Title))
 		type dedupKey struct{ scope, summary, author string }
@@ -952,9 +960,20 @@ func sectionChanges(categories []CommitCategory) string {
 			if e.count > 1 {
 				countSuffix = fmt.Sprintf(" ×%d", e.count)
 			}
-			b.WriteString(fmt.Sprintf("- %s%s%s%s\n", scope, e.key.summary, author, countSuffix))
+			line := fmt.Sprintf("- %s%s%s%s\n", scope, e.key.summary, author, countSuffix)
+			// Counted in entries throughout: these are deduplicated, so counting raw
+			// commits for a skipped category would report a larger number than the
+			// section would ever have shown.
+			if maxChars > 0 && b.Len()+len(line) > maxChars {
+				omitted++
+				continue
+			}
+			b.WriteString(line)
 		}
 		b.WriteString("\n")
+	}
+	if omitted > 0 {
+		b.WriteString(fmt.Sprintf("... and %d more changes\n\n", omitted))
 	}
 	return b.String()
 }
@@ -969,17 +988,28 @@ func sectionSecurity(input NotesInput) string {
 
 // sectionChangelog renders the full-changelog entry lines — the looping content
 // only; the collapsible wrapper is the body's authored markdown.
-func sectionChangelog(allCommits []Commit) string {
+// maxChars bounds the section; 0 is unbounded. The bound is applied between entries and
+// never inside one, so what a reader sees is a shorter list rather than a severed line.
+func sectionChangelog(allCommits []Commit, maxChars int) string {
 	if len(allCommits) == 0 {
 		return "No changes found.\n"
 	}
 	var b strings.Builder
-	for _, c := range allCommits {
+	omitted := 0
+	for i, c := range allCommits {
 		author := ""
 		if c.Author != "" {
 			author = fmt.Sprintf(" (%s)", c.Author)
 		}
-		b.WriteString(fmt.Sprintf("- [`%s`] %s%s\n", c.Hash, c.Summary, author))
+		line := fmt.Sprintf("- [`%s`] %s%s\n", c.Hash, c.Summary, author)
+		if maxChars > 0 && b.Len() > 0 && b.Len()+len(line) > maxChars {
+			omitted = len(allCommits) - i
+			break
+		}
+		b.WriteString(line)
+	}
+	if omitted > 0 {
+		b.WriteString(fmt.Sprintf("\n... and %d more commits\n", omitted))
 	}
 	return b.String()
 }

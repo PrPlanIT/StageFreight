@@ -88,6 +88,16 @@ type SecurityConfig struct {
 	// Uses the standard Condition primitive for tag/branch matching with ! negation.
 	ReleaseDetailRules []DetailRule `yaml:"release_detail_rules"`
 
+	// ReleaseDetailMaxRows bounds how many vulnerability rows the "full" detail level
+	// writes into release notes; the rest are reported as a count. Unset = 100.
+	//
+	// "full" means complete within reason, not unbounded: a large image can carry
+	// thousands of advisories, and every forge caps a release body — GitHub at 125k
+	// characters, and it rejects an over-long body outright rather than trimming it. The
+	// rows are written worst-first, so a bound keeps what a reader acts on and drops the
+	// tail they scroll past. 0 disables the bound and restores the old behaviour.
+	ReleaseDetailMaxRows *int `yaml:"release_detail_max_rows,omitempty"`
+
 	// Cache controls persistent vulnerability DB caching per scanner.
 	// Each tool's max_size triggers full-clear when exceeded (opaque DBs, no granular eviction).
 	// Empty/omitted per tool = no StageFreight-managed persistence for that tool.

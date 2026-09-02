@@ -467,7 +467,11 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail)
 
 	// Build and write summary
-	_, summaryBody := security.BuildSummary(result, detail)
+	maxRows := 100
+	if m := req.Config.Security.ReleaseDetailMaxRows; m != nil {
+		maxRows = *m
+	}
+	_, summaryBody := security.BuildSummary(result, detail, maxRows)
 	var summaryPath string
 	if summaryBody != "" {
 		summaryPath = scanCfg.OutputDir + "/summary.md"

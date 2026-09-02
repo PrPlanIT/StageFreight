@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
@@ -336,7 +337,9 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 //   - body: full section content (status line + optional <details> block with CVE data)
 //
 // Detail levels: "none", "counts", "detailed", "full".
-func BuildSummary(result *ScanResult, detail string) (tile, body string) {
+//
+// maxRows bounds the "full" level's vulnerability table; 0 means unbounded.
+func BuildSummary(result *ScanResult, detail string, maxRows int) (tile, body string) {
 	if result.Status == "skipped" || detail == "none" {
 		return "", ""
 	}
@@ -345,7 +348,7 @@ func BuildSummary(result *ScanResult, detail string) (tile, body string) {
 
 	switch detail {
 	case "full":
-		body = buildFullBody(result, tile)
+		body = buildFullBody(result, tile, maxRows)
 	case "detailed":
 		body = buildDetailedBody(result, tile)
 	default: // "counts" or unrecognized
@@ -454,10 +457,7 @@ func buildDetailedBody(result *ScanResult, tile string) string {
 				b.WriteString(fmt.Sprintf("- ... and %d more (see full report in release assets)\n", remaining))
 				break
 			}
-			desc := v.Description
-			if len(desc) > 80 {
-				desc = desc[:77] + "..."
-			}
+			desc := clip(v.Description, 200)
 			b.WriteString(fmt.Sprintf("- **%s** — %s (%s)\n", mdText(v.ID), mdText(desc), mdText(v.Package)))
 			shown++
 		}
@@ -467,7 +467,7 @@ func buildDetailedBody(result *ScanResult, tile string) string {
 	return b.String()
 }
 
-func buildFullBody(result *ScanResult, tile string) string {
+func buildFullBody(result *ScanResult, tile string, maxRows int) string {
 	var b strings.Builder
 	b.WriteString(tile)
 	b.WriteString("\n")
@@ -482,17 +482,23 @@ func buildFullBody(result *ScanResult, tile string) string {
 	b.WriteString("| Severity | CVE | Package | Installed | Fixed | Description |\n")
 	b.WriteString("|---|---|---|---|---|---|\n")
 
+	// Worst-first, so a bound keeps what a reader acts on and drops the tail. Every forge
+	// caps a release body and rejects an over-long one outright, so an unbounded table on
+	// a large image costs the whole release rather than the rows past the limit.
+	written, omitted := 0, 0
 	for _, sev := range []string{"CRITICAL", "HIGH", "MEDIUM", "LOW"} {
 		vulns := filterBySeverity(result.Vulnerabilities, sev)
 		for _, v := range vulns {
+			if maxRows > 0 && written >= maxRows {
+				omitted++
+				continue
+			}
+			written++
 			sevDisplay := titleCase(sev)
 			if sev == "CRITICAL" {
 				sevDisplay = "**Critical**"
 			}
-			desc := v.Description
-			if len(desc) > 60 {
-				desc = desc[:57] + "..."
-			}
+			desc := clip(v.Description, 200)
 			fixedIn := v.FixedIn
 			if fixedIn == "" {
 				fixedIn = "—"
@@ -500,6 +506,10 @@ func buildFullBody(result *ScanResult, tile string) string {
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
 				sevDisplay, mdText(v.ID), mdText(v.Package), mdText(v.Installed), mdText(fixedIn), mdText(desc)))
 		}
+	}
+
+	if omitted > 0 {
+		b.WriteString(fmt.Sprintf("\n... and %d more of lower severity (see full report in release assets)\n", omitted))
 	}
 
 	b.WriteString("\n</details>\n")
@@ -722,10 +732,7 @@ func parseTrivyVulnerabilities(jsonPath string, result *ScanResult) error {
 			// Use Title if available, fall back to truncated Description
 			desc := v.Title
 			if desc == "" && v.Description != "" {
-				desc = v.Description
-				if len(desc) > 100 {
-					desc = desc[:97] + "..."
-				}
+				desc = clip(v.Description, 200)
 			}
 
 			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
@@ -806,9 +813,7 @@ func parseGrypeVulnerabilities(jsonPath string) ([]Vulnerability, error) {
 		if desc == "" && len(m.RelatedVulnerabilities) > 0 {
 			desc = m.RelatedVulnerabilities[0].Description
 		}
-		if len(desc) > 100 {
-			desc = desc[:97] + "..."
-		}
+		desc = clip(desc, 200)
 
 		vulns = append(vulns, Vulnerability{
 			ID:          m.Vulnerability.ID,
@@ -941,4 +946,62 @@ func buildEngineVersion() string {
 		parts = append(parts, "Grype "+v)
 	}
 	return strings.Join(parts, " + ")
+}
+
+// clip shortens s to at most max characters, preferring to end on a complete thought.
+//
+// Counted in RUNES, not bytes: advisory text carries non-ASCII routinely — curly quotes,
+// dashes, names — and a byte slice lands mid-rune, emitting an invalid sequence that
+// renders as a replacement character exactly at the cut.
+//
+// Where it breaks is then chosen in tiers, because a fragment ending mid-word is a teaser
+// rather than information — the reader must go and find the real text either way:
+//
+//  1. the last sentence end, when one is far enough in to leave something worth reading
+//  2. otherwise the last word boundary
+//  3. otherwise the rune cut
+//
+// A sentence end is taken when it retains half the budget. Rounding back further trades
+// readable text for tidiness, and a clause that trails off still carries information — the
+// objection was to fragments that say nothing, not to every incomplete sentence. A word
+// break needs half as well, being the lesser improvement over a rune cut. A run-on with no sentence end degrades to a word break rather
+// than a stub, and the ellipsis is always added — the reader is told it was shortened
+// regardless of how cleanly it broke.
+func clip(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	cut := string(r[:max-3])
+
+	if i := lastSentenceEnd(cut); i > len(cut)/2 {
+		cut = cut[:i]
+	} else if i := strings.LastIndexAny(cut, " \t\n"); i > len(cut)/2 {
+		cut = cut[:i]
+	}
+	return strings.TrimRight(cut, " \t\n,;:.") + "..."
+}
+
+// lastSentenceEnd reports the index just past the final sentence-ending punctuation in s,
+// or -1. A sentence end is [.!?] followed by whitespace and then an upper-case letter.
+//
+// That shape is what separates a real sentence break from the dots advisory text is full
+// of: a version ("prior to 2.1.4. Fixed in…") ends a sentence and is matched, an
+// abbreviation ("e.g. the") is followed by lower case and is not, and a module path
+// ("golang.org/x/net") has no whitespace and is not.
+func lastSentenceEnd(s string) int {
+	r := []rune(s)
+	for i := len(r) - 3; i >= 0; i-- {
+		if r[i] != '.' && r[i] != '!' && r[i] != '?' {
+			continue
+		}
+		if !unicode.IsSpace(r[i+1]) || !unicode.IsUpper(r[i+2]) {
+			continue
+		}
+		return len(string(r[:i+1]))
+	}
+	return -1
 }

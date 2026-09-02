@@ -113,7 +113,7 @@ type releaseReport struct {
 // configured to attach it (release.security_summary: true), else "". The location is
 // security.output — release.security_summary is a yes/no toggle, not a path.
 func securitySummaryDir(cfg *config.Config) string {
-	if cfg.Release.SecuritySummary {
+	if t := activeReleaseTarget(cfg); t != nil && t.SecuritySummary {
 		return cfg.Security.OutputDir
 	}
 	return ""
@@ -132,13 +132,17 @@ func runReleaseCreate(cmd *cobra.Command, args []string) error {
 	if !cmd.Flags().Changed("security-summary") {
 		secSummary = securitySummaryDir(cfg)
 	}
+	// The target being published decides what its own release carries; an explicit flag
+	// still overrides it.
 	regLinks := rcRegistryLinks
-	if !cmd.Flags().Changed("registry-links") {
-		regLinks = cfg.Release.RegistryLinks
-	}
 	catLinks := rcCatalogLinks
-	if !cmd.Flags().Changed("catalog-links") {
-		catLinks = cfg.Release.CatalogLinks
+	if t := activeReleaseTarget(cfg); t != nil {
+		if !cmd.Flags().Changed("registry-links") {
+			regLinks = t.RegistryLinks
+		}
+		if !cmd.Flags().Changed("catalog-links") {
+			catLinks = t.CatalogLinks
+		}
 	}
 
 	return RunReleaseCreate(ReleaseCreateRequest{
@@ -522,19 +526,21 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			isPrerelease = true
 		}
 		input := release.NotesInput{
-			RepoDir:      rootDir,
-			ToRef:        toRef,
-			TagPatterns:  tagPatterns,
-			SecurityTile: secTile,
-			SecurityBody: secBody,
-			ProjectName:  detectProjectName(rootDir),
-			Version:      versionInfo.Version,
-			SHA:          sha,
-			IsPrerelease: isPrerelease,
-			ReleaseType:  releaseTypeLabel(relType),
-			Images:       imageRows,
-			Downloads:    downloadRows,
-			Verify:       verify,
+			RepoDir:        rootDir,
+			ToRef:          toRef,
+			TagPatterns:    tagPatterns,
+			SecurityTile:   secTile,
+			SecurityBody:   secBody,
+			ChangesLimit:   releaseFactLimit(req.Config, "changes", config.DefaultChangesLimit),
+			ChangelogLimit: releaseFactLimit(req.Config, "changelog", config.DefaultChangelogLimit),
+			ProjectName:    detectProjectName(rootDir),
+			Version:        versionInfo.Version,
+			SHA:            sha,
+			IsPrerelease:   isPrerelease,
+			ReleaseType:    releaseTypeLabel(relType),
+			Images:         imageRows,
+			Downloads:      downloadRows,
+			Verify:         verify,
 		}
 		// The active release target's notes: reference selects the body stencil
 		// (validated: declared, type text). Body embeds beyond the release
@@ -1521,4 +1527,14 @@ func providerFromHost(host string) string {
 		return "quay"
 	}
 	return "generic"
+}
+
+// releaseFactLimit resolves a release-note fact's bound from the target being published,
+// falling back to the engine default. Per target because the channel decides how verbose
+// its notes are: a dev release cut on every push and a stable one are different documents.
+func releaseFactLimit(cfg *config.Config, fact string, def int) int {
+	if t := activeReleaseTarget(cfg); t != nil {
+		return t.FactLimit(fact, def)
+	}
+	return def
 }

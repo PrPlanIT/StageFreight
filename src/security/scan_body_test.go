@@ -24,7 +24,7 @@ func TestBuildBodies_NeutralizeScannerText(t *testing.T) {
 	}
 
 	for name, body := range map[string]string{
-		"full":     buildFullBody(result, "tile"),
+		"full":     buildFullBody(result, "tile", 0),
 		"detailed": buildDetailedBody(result, "tile"),
 	} {
 		if strings.Contains(body, "<script>") {

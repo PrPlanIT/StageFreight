@@ -1137,8 +1137,8 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 		Tag:             tag,
 		Ref:             ciCtx.SHA, // mint a synthesized channel tag at the build commit
 		SecuritySummary: securitySummaryDir(appCfg),
-		RegistryLinks:   appCfg.Release.RegistryLinks,
-		CatalogLinks:    appCfg.Release.CatalogLinks,
+		RegistryLinks:   relTargetLinks(appCfg, "registry"),
+		CatalogLinks:    relTargetLinks(appCfg, "catalog"),
 		ReadOnly:        releaseReadOnly,
 		Writer:          os.Stdout,
 		Verbose:         opts.Verbose,
@@ -2495,4 +2495,17 @@ func ciSkipResult(reason string) string {
 	default:
 		return "skipped"
 	}
+}
+
+// relTargetLinks reports whether the release target being published attaches the named
+// link set. Per target because the links describe what that release contains.
+func relTargetLinks(cfg *config.Config, kind string) bool {
+	t := activeReleaseTarget(cfg)
+	if t == nil {
+		return false
+	}
+	if kind == "catalog" {
+		return t.CatalogLinks
+	}
+	return t.RegistryLinks
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/spf13/cobra"
 )
@@ -59,6 +60,10 @@ func runReleaseNotes(cmd *cobra.Command, args []string) error {
 		ToRef:       rnTo,
 		TagPatterns: tagPatterns,
 		Config:      cfg,
+		// The same bounds the release itself composes under: previewing notes that are
+		// not the notes is worse than not previewing them.
+		ChangesLimit:   releaseFactLimit(cfg, "changes", config.DefaultChangesLimit),
+		ChangelogLimit: releaseFactLimit(cfg, "changelog", config.DefaultChangelogLimit),
 	}
 	// Tier from the active release target's declared `prerelease` (the dev-channel signal),
 	// consistent with `release create`. GenerateNotes' auto-detect fallback additionally
