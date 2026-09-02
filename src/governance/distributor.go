@@ -49,7 +49,6 @@ func PlanDistribution(
 
 		seal := SealMeta{
 			SourceRepo: sourceIdentity,
-			SourceRef:  presetSource.Ref,
 			ProfileID:  cluster.ID,
 		}
 

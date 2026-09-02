@@ -10,6 +10,12 @@ import (
 // RenderSealedConfig produces a sealed .stagefreight.yml for a satellite repo.
 // The seal is a human-facing warning header with provenance — not governance state.
 // Uses canonical key ordering for deterministic, diff-stable output.
+//
+// It names WHERE the config came from and never which revision produced it. A control
+// repo's commit changes on every push, including its own generated commits, so stamping
+// it here made every satellite's file differ on every run: 27 repos rewritten, committed,
+// pushed and rebuilt to record a value nobody declared. Diff-stability is the property
+// this whole function is built for, and a revision in the header defeats it.
 func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 	var b strings.Builder
 
@@ -17,7 +23,6 @@ func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 	b.WriteString("# ------------------------------------------------------------------------------\n")
 	b.WriteString("# GENERATED / ENFORCED BY STAGEFREIGHT GOVERNANCE\n")
 	b.WriteString(fmt.Sprintf("# Source repo: %s\n", seal.SourceRepo))
-	b.WriteString(fmt.Sprintf("# Source ref: %s\n", seal.SourceRef))
 	b.WriteString(fmt.Sprintf("# Profile: %s\n", seal.ProfileID))
 	b.WriteString("# This .stagefreight.yml is governed, not purely local.\n")
 	b.WriteString("# To disable governance, detach from the control repo workflow.\n")
@@ -38,7 +43,6 @@ func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 // SealMeta holds provenance info for the generated header.
 type SealMeta struct {
 	SourceRepo string // e.g., "https://gitlab.prplanit.com/PrPlanIT/MaintenancePolicy"
-	SourceRef  string // e.g., "v1.0.0" or commit SHA
 	ProfileID  string // e.g., "docker-services"
 }
 

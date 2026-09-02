@@ -534,7 +534,6 @@ func TestRenderSealedConfig_Deterministic(t *testing.T) {
 
 	seal := SealMeta{
 		SourceRepo: "test",
-		SourceRef:  "v1",
 		ProfileID:  "test-cluster",
 	}
 
@@ -554,7 +553,6 @@ func TestRenderSealedConfig_HasSeal(t *testing.T) {
 
 	seal := SealMeta{
 		SourceRepo: "https://gitlab.example.com/example-org/policy-repo",
-		SourceRef:  "v1.0.0",
 		ProfileID:  "docker-services",
 	}
 
@@ -564,7 +562,7 @@ func TestRenderSealedConfig_HasSeal(t *testing.T) {
 	s := string(out)
 	requireTrue(t, indexOf(s, "GENERATED / ENFORCED BY STAGEFREIGHT GOVERNANCE") >= 0, "seal header missing")
 	requireTrue(t, indexOf(s, "policy-repo") >= 0, "source repo missing from seal")
-	requireTrue(t, indexOf(s, "v1.0.0") >= 0, "source ref missing from seal")
+	requireTrue(t, indexOf(s, "v1.0.0") < 0, "seal must not record a revision — it changes every push and rewrites every satellite")
 	requireTrue(t, indexOf(s, "docker-services") >= 0, "cluster ID missing from seal")
 }
 
@@ -575,7 +573,7 @@ func TestRenderSealedConfig_CanonicalOrder(t *testing.T) {
 		"targets":  []any{"a"},
 	}
 
-	seal := SealMeta{SourceRepo: "test", SourceRef: "v1", ProfileID: "test"}
+	seal := SealMeta{SourceRepo: "test", ProfileID: "test"}
 
 	out, err := RenderSealedConfig(seal, config)
 	requireNoError(t, err)
