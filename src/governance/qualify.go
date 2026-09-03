@@ -140,22 +140,3 @@ func loadPresetContent(ref string, loader PresetLoader) ([]byte, error) {
 		},
 	}.Resolve(r)
 }
-
-// materializedRevision reports what a source currently points at, for retention beside
-// the content. Empty when the source cannot answer cheaply or is local — the satellite
-// then falls back to transferring, which is correct rather than merely safe.
-func materializedRevision(ref string) string {
-	r := presetref.Parse(ref)
-	if r.Kind == presetref.Local || PresetSourceFetcher == nil {
-		return ""
-	}
-	rv, ok := PresetSourceFetcher.(presetref.Revisioner)
-	if !ok {
-		return ""
-	}
-	rev, err := rv.Revision(r.Source, r.Ref, r.Path)
-	if err != nil {
-		return ""
-	}
-	return rev
-}

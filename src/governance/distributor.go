@@ -7,8 +7,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/PrPlanIT/StageFreight/src/presetref"
-
 	"gopkg.in/yaml.v3"
 )
 
@@ -237,15 +235,6 @@ func loadPresetCache(paths []string, loader PresetLoader, clusterID string, src 
 			return nil, fmt.Errorf("cluster %q: loading preset %q for cache: %w", clusterID, p, err)
 		}
 		out[cachePath] = data
-		// Retain what the source pointed at, beside the content. CI clones fresh every
-		// job, so a revision recorded only at runtime is gone by the next one and the
-		// satellite re-transfers every source to learn nothing changed. Seeding it is
-		// what makes the cheap re-check work anywhere but a developer's laptop.
-		if rev := materializedRevision(src.Qualify(p)); rev != "" {
-			if rp, rerr := sanitizePresetCachePath(retentionKey(src.Qualify(p)) + presetref.RevisionSuffix); rerr == nil {
-				out[rp] = []byte(rev)
-			}
-		}
 	}
 	return out, nil
 }

@@ -71,27 +71,3 @@ func (h *httpFetcher) Fetch(source, _, _ string) ([]byte, error) {
 func (h *httpFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
-
-// Revision asks the server whether the document changed, without downloading it. An
-// ETag is the strong answer; Last-Modified the weak one. A server offering neither
-// returns "" and the caller fetches, which is correct rather than merely conservative:
-// with no validator, "unchanged" is not something we can claim.
-func (h *httpFetcher) Revision(source, _, _ string) (string, error) {
-	req, err := http.NewRequest(http.MethodHead, source, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", fmt.Errorf("HEAD %s: HTTP %d", source, resp.StatusCode)
-	}
-	if tag := resp.Header.Get("ETag"); tag != "" {
-		return tag, nil
-	}
-	return resp.Header.Get("Last-Modified"), nil
-}

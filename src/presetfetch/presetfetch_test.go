@@ -57,19 +57,11 @@ func (r recordFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
 
-func (r recordFetcher) Revision(_, _, _ string) (string, error) {
-	*r.seen = append(*r.seen, r.name+":revision")
-	return "", nil
-}
-
 // A git repo is very often addressed by an https URL, so the scheme cannot decide the
 // family — only the path can: a bare document URL IS the whole reference and carries
 // none, while a repository reference always names a file inside it. Every entry point
-// must route on that same pair. Revision and Classify once dropped the path and routed
-// on the source alone, which sent https-addressed GIT repos to the URL family: its HEAD
-// against the repo's web page returns a validator that changes by itself, so every run
-// saw drift, refetched, and rewrote the retained record.
-func TestRevisionAndClassifyRouteOnPathNotScheme(t *testing.T) {
+// must route on that same pair.
+func TestClassifyRoutesOnPathNotScheme(t *testing.T) {
 	for _, c := range []struct {
 		name, source, path, want string
 	}{
@@ -82,14 +74,11 @@ func TestRevisionAndClassifyRouteOnPathNotScheme(t *testing.T) {
 			git:  recordFetcher{name: "git", seen: &seen},
 			http: recordFetcher{name: "http", seen: &seen},
 		}
-		if _, err := d.Revision(c.source, "", c.path); err != nil {
-			t.Fatalf("%s: %v", c.name, err)
-		}
 		if _, err := d.Classify(c.source, "", c.path); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		want := []string{c.want + ":revision", c.want + ":classify"}
-		if len(seen) != 2 || seen[0] != want[0] || seen[1] != want[1] {
+		want := []string{c.want + ":classify"}
+		if len(seen) != 1 || seen[0] != want[0] {
 			t.Errorf("%s: routed %v, want %v", c.name, seen, want)
 		}
 	}

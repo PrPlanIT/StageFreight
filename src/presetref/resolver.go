@@ -7,15 +7,6 @@ import (
 	"time"
 )
 
-// Fetcher does the actual remote I/O for a preset source; the Resolver stays pure policy
-// over it, so the tracked/pinned/fallback logic is testable without a network.
-// Revisioner is an optional Fetcher capability: report what the source currently points
-// at, without transferring content. A fetcher that cannot answer cheaply omits it and
-// every resolve fetches in full.
-type Revisioner interface {
-	Revision(source, ref, path string) (string, error)
-}
-
 // AgedCache is an optional Cache capability: how long ago an entry was retained. Without
 // it a fallback cannot be bounded, because there is no way to tell a copy retained five
 // minutes ago from one retained five months ago.
@@ -23,6 +14,8 @@ type AgedCache interface {
 	Age(key string) (time.Duration, bool)
 }
 
+// Fetcher does the actual remote I/O for a preset source; the Resolver stays pure policy
+// over it, so the tracked/pinned/fallback logic is testable without a network.
 type Fetcher interface {
 	// Fetch returns the file at path from source at ref (ref "" = the default branch).
 	Fetch(source, ref, path string) ([]byte, error)
@@ -92,7 +85,7 @@ type Outcome struct {
 	Drifted   bool // what the source served differs from what was retained
 	Fallback  bool // source unreachable; the retained copy was served instead
 	Violated  bool // pinned, and the source no longer serves what was retained
-	Unchanged bool // the source points at what was retained; nothing transferred
+	Unchanged bool // the source serves what was retained; nothing written
 	// Refreshed reports that THIS run wrote the retained copy — replacing one that
 	// differed, or creating one governance never seeded. It is what a satellite
 	// republishes: a retained copy the run produced but never committed leaves the
@@ -102,10 +95,6 @@ type Outcome struct {
 	// asked for.
 	Refreshed bool
 }
-
-// RevisionSuffix keys the recorded revision beside its content, so a distributor can
-// seed it and a resolver can find it.
-const RevisionSuffix = ".revision"
 
 // DefaultMaxFallbackAge is how long a retained copy may stand in for an unreachable
 // source before resolution stops accepting it. Unbounded is not a safe default: it is
@@ -153,28 +142,6 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 		return nil, fmt.Errorf("preset %q not in cache and offline", ref.Raw)
 	}
 
-	// Ask what the source points at before transferring anything. When it matches what
-	// was retained, the content cannot have changed, so there is nothing to fetch and
-	// nothing to reconcile — this is what makes tracking cheap enough to do every run,
-	// and a pin cheap enough to verify every run.
-	//
-	// Asked ONCE, and recorded with whatever this run retains. Re-asking after the fetch
-	// would record a revision the source moved to in between, describing content that was
-	// never retained — and the next run, comparing equal, would serve a stale copy as
-	// current.
-	srcRev := ""
-	if rev, ok := r.Fetcher.(Revisioner); ok {
-		if cur, rerr := rev.Revision(ref.Source, ref.Ref, ref.Path); rerr == nil {
-			srcRev = cur
-		}
-	}
-	if srcRev != "" && had {
-		if prev, ok := r.Cache.Read(key + RevisionSuffix); ok && string(prev) == srcRev {
-			r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Unchanged: true})
-			return retained, nil
-		}
-	}
-
 	fetched, err := r.Fetcher.Fetch(ref.Source, ref.Ref, ref.Path)
 	if err != nil {
 		// Fall back to the retained copy whatever the kind: an unreachable source is
@@ -202,7 +169,6 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 		case MismatchSource:
 			r.warnf("pinned preset %q: the source no longer serves what was retained; taking the source", ref.Raw)
 			_ = r.Cache.Write(key, fetched)
-			r.writeRevision(key, srcRev)
 			r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Violated: true, Drifted: true, Refreshed: true})
 			return fetched, nil
 		case MismatchRetained:
@@ -218,8 +184,13 @@ func (r Resolver) Resolve(ref Ref) ([]byte, error) {
 	// Compare before overwriting: once the retained copy is replaced, the fact that the
 	// source moved is unrecoverable, and that fact is what a satellite reports and
 	// republishes.
+	// A source serving what is already retained leaves nothing to record. Writing it back
+	// anyway is what turns a no-op run into a commit in every satellite that carries it.
+	if had && !differs {
+		r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Unchanged: true})
+		return fetched, nil
+	}
 	_ = r.Cache.Write(key, fetched)
-	r.writeRevision(key, srcRev)
 	r.observe(Outcome{Ref: ref, Kind: kind, Fetched: true, Drifted: differs, Refreshed: true})
 	return fetched, nil
 }
@@ -245,15 +216,6 @@ func (r Resolver) retainedAge(key string) (time.Duration, bool) {
 		return ac.Age(key)
 	}
 	return 0, false
-}
-
-// writeRevision records what the source pointed at, beside the content just retained.
-// The value is the one read before the fetch, so it describes what was actually stored.
-func (r Resolver) writeRevision(key, rev string) {
-	if rev == "" {
-		return
-	}
-	_ = r.Cache.Write(key+RevisionSuffix, []byte(rev))
 }
 
 func (r Resolver) observe(o Outcome) {

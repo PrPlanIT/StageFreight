@@ -14,7 +14,7 @@ func TestMismatchPolicy(t *testing.T) {
 		var got Outcome
 		c := mapCache{CacheKey(ref): []byte("retained")}
 		return Resolver{
-			Fetcher:    &revFetcher{body: []byte("moved"), rev: "zzz"},
+			Fetcher:    &revFetcher{body: []byte("moved")},
 			Cache:      c,
 			OnMismatch: p,
 			Observe:    func(o Outcome) { got = o },
@@ -80,7 +80,7 @@ func TestMismatchPolicy(t *testing.T) {
 	t.Run("policy does not touch a tracked reference", func(t *testing.T) {
 		tref := Parse("src//p.yml@refs/heads/main")
 		r := Resolver{
-			Fetcher:    &revFetcher{body: []byte("newer"), rev: "zzz"},
+			Fetcher:    &revFetcher{body: []byte("newer")},
 			Cache:      mapCache{CacheKey(tref): []byte("older")},
 			OnMismatch: MismatchFail,
 		}

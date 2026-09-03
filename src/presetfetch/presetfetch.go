@@ -87,24 +87,3 @@ func (g *gitFetcher) Classify(source, ref, _ string) (presetref.Kind, error) {
 		return presetref.Named, fmt.Errorf("ref %q not found as a branch or tag on %s", ref, url)
 	}
 }
-
-// Revision reports the object id the source's ref points at, via ls-remote — no content
-// transferred. Unchanged id means unchanged content, so the resolver can skip the fetch
-// entirely, and a moved tag is visible without cloning to find out.
-func (g *gitFetcher) Revision(source, ref, _ string) (string, error) {
-	url, err := g.resolve(source)
-	if err != nil {
-		return "", fmt.Errorf("resolving preset source %q: %w", source, err)
-	}
-	return gitstate.RemoteRefRevision(url, ref)
-}
-
-// Revision routes like Fetch, on (source, path). Dropping the path here sent a git
-// source to the URL family, whose HEAD against the repo page returns a validator that
-// changes on its own — so every run saw drift, refetched, and rewrote the record.
-func (d *dispatchFetcher) Revision(source, ref, path string) (string, error) {
-	if rv, ok := d.pick(source, path).(presetref.Revisioner); ok {
-		return rv.Revision(source, ref, path)
-	}
-	return "", nil
-}

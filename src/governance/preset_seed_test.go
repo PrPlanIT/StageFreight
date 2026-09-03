@@ -7,22 +7,22 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/presetref"
 )
 
-type revStubFetcher struct{ rev string }
+type presetStubFetcher struct{}
 
-func (r revStubFetcher) Fetch(_, _, _ string) ([]byte, error) {
+func (presetStubFetcher) Fetch(_, _, _ string) ([]byte, error) {
 	return []byte("lint:\n  level: full\n"), nil
 }
-func (r revStubFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
+func (presetStubFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
-func (r revStubFetcher) Revision(_, _, _ string) (string, error) { return r.rev, nil }
 
-// CI clones fresh every job, so a revision recorded only at runtime is gone by the next
-// one — the satellite would re-transfer every source just to learn nothing changed.
-// Seeding it beside the content is what makes the cheap re-check work off a laptop.
-func TestDistributionSeedsRevisionBesideContent(t *testing.T) {
+// A satellite needs the foreign source's content to resolve offline, and nothing beside
+// it. What the source points at tracks the source, not the content: seeding it writes a
+// new value into every satellite whenever the policy repo moves, so runs that changed no
+// preset still commit everywhere.
+func TestDistributionSeedsContentOnly(t *testing.T) {
 	prev := PresetSourceFetcher
-	PresetSourceFetcher = revStubFetcher{rev: "abc123"}
+	PresetSourceFetcher = presetStubFetcher{}
 	defer func() { PresetSourceFetcher = prev }()
 
 	gov := &GovernanceConfig{Profiles: ProfileList{{
@@ -41,14 +41,10 @@ func TestDistributionSeedsRevisionBesideContent(t *testing.T) {
 		t.Fatalf("PlanDistribution: %v", err)
 	}
 
-	var content, revision bool
+	var content bool
 	for _, f := range plans[0].Files {
-		if strings.HasSuffix(f.Path, presetref.RevisionSuffix) {
-			revision = true
-			if string(f.Content) != "abc123" {
-				t.Errorf("seeded revision = %q, want the source's", f.Content)
-			}
-			continue
+		if strings.HasSuffix(f.Path, ".revision") {
+			t.Errorf("seeded %q beside the content: it moves with the source, so every run rewrites every satellite", f.Path)
 		}
 		if strings.Contains(f.Path, "policies.example.org") {
 			content = true
@@ -56,8 +52,5 @@ func TestDistributionSeedsRevisionBesideContent(t *testing.T) {
 	}
 	if !content {
 		t.Error("foreign source content was not seeded")
-	}
-	if !revision {
-		t.Error("no revision seeded — the satellite would re-transfer to learn nothing changed")
 	}
 }
