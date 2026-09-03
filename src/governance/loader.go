@@ -58,6 +58,27 @@ func fetchRepo(repoURL, ref string) (string, error) {
 		return "", fmt.Errorf("resolving auth for %s: %w", repoURL, err)
 	}
 
+	// An unpinned reference means the source's default branch, which is what a remote's
+	// HEAD names. Cloning without a ReferenceName checks that out; asking for a branch or
+	// tag spelled "HEAD" matches nothing a server serves.
+	if ref == "" || ref == "HEAD" {
+		tmpDir, mkErr := os.MkdirTemp("", "sf-governance-*")
+		if mkErr != nil {
+			return "", fmt.Errorf("creating temp dir: %w", mkErr)
+		}
+		_, cloneErr := git.PlainClone(tmpDir, false, &git.CloneOptions{
+			URL:          repoURL,
+			Auth:         auth,
+			Depth:        1,
+			SingleBranch: true,
+		})
+		if cloneErr == nil {
+			return tmpDir, nil
+		}
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("cloning %s at its default branch: %w", repoURL, cloneErr)
+	}
+
 	for _, refName := range []plumbing.ReferenceName{
 		plumbing.NewTagReferenceName(ref),
 		plumbing.NewBranchReferenceName(ref),
