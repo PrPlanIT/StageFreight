@@ -1,0 +1,64 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Internal Team Tool
+#
+# Who: A team building internal tooling that never leaves the org. Private
+#      registry only, no public push, no public docs sync.
+# What: Builds to a single private registry on every branch push. Branch
+#       tags for feature branch testing, semver tags on release. Security
+#       scanning enabled.
+# Build: Single Dockerfile, single platform, single registry.
+# Why: Not everything is public. Internal tools need the same build
+#      reproducibility without the multi-registry overhead.
+
+version: 1
+
+policies:
+  branches:
+    all: ".*"
+
+builds:
+  expense-tracker:
+    kind: docker
+    platforms: [linux/amd64]
+
+targets:
+  # All branches push to the private registry — no public exposure
+  internal-registry:
+    kind: registry
+    build: expense-tracker
+    url: registry.prplanit.com
+    path: internal/expense-tracker
+    tags: ["{version}", "{branch}-{sha:.7}", "{branch}-latest"]
+    when: { branches: [all], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   secret_findings: alert
+#
+# dev:
+#   target: dev
+#   env:
+#     DATABASE_URL: postgres://dev:dev@db:5432/expenses_dev
+#     OIDC_ISSUER: http://localhost:9000
+#     OIDC_CLIENT_ID: dev-client
+#     OIDC_CLIENT_SECRET: dev-secret
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: expenses_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#   ports: ["3000:3000"]
+#   test:
+#     startup: { timeout: 20s, depends_on: [db] }
+#     healthchecks:
+#       - { name: http, type: http, url: "http://localhost:3000/health", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "npx prisma migrate deploy" }
+#       - { name: tests, run: "npm test" }

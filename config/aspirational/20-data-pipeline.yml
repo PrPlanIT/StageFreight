@@ -1,0 +1,79 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Data Pipeline / ETL
+#
+# Who: Data engineering teams building pipelines — Spark jobs, Airflow DAGs,
+#      dbt models, custom ETL scripts.
+# What: Builds the pipeline executor image, pushes to a private registry on
+#       every branch with version and branch-sha tags. Creates release notes.
+#       Security scanning catches vulnerable Python/Java dependencies.
+# Build: Dockerfile with heavy Python/Java/Scala dependencies, single platform.
+# Why: Pipeline images change frequently and need branch-level builds so
+#      data engineers can test changes before merging.
+
+version: 1
+
+policies:
+  branches:
+    all: ".*"
+
+builds:
+  sales-pipeline:
+    kind: docker
+    platforms: [linux/amd64]
+
+targets:
+  private-registry:
+    kind: registry
+    build: sales-pipeline
+    url: registry.prplanit.com
+    path: data/sales-pipeline
+    tags: ["{version}", "{branch}-{sha:.7}"]
+    when: { branches: [all], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   audit_deps: true
+#
+# dev:
+#   env:
+#     POSTGRES_SOURCE_URL: postgres://dev:dev@source-db:5432/source_dev
+#     POSTGRES_WAREHOUSE_URL: postgres://dev:dev@warehouse-db:5432/warehouse_dev
+#     S3_ENDPOINT: http://minio:9000
+#     S3_BUCKET: pipeline-staging
+#     S3_ACCESS_KEY: minioadmin
+#     S3_SECRET_KEY: minioadmin
+#     SPARK_MASTER: local[2]
+#   services:
+#     source-db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: source_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     warehouse-db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: warehouse_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     minio:
+#       image: docker.io/minio/minio:latest
+#       env: { MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin }
+#       ports: [9000]
+#       healthcheck: { test: "mc ready local", interval: 5s }
+#   test:
+#     startup: { timeout: 60s, depends_on: [source-db, warehouse-db, minio] }
+#     healthchecks:
+#       - { name: source-db, type: tcp, host: source-db, port: 5432, timeout: 5s }
+#       - { name: warehouse-db, type: tcp, host: warehouse-db, port: 5432, timeout: 5s }
+#       - { name: s3, type: http, url: "http://minio:9000/minio/health/live", expect_status: 200 }
+#     sanity:
+#       - { name: seed-source, run: "python scripts/seed_test_data.py" }
+#       - { name: run-pipeline, run: "python -m pipeline.main --dry-run" }
+#       - { name: validate-output, run: "python scripts/validate_warehouse.py" }
+#       - { name: unit-tests, run: "pytest tests/ -x -v" }
+#       - { name: dbt-test, run: "dbt test --target dev" }
+#     teardown: always

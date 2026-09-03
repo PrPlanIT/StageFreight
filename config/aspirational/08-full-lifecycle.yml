@@ -1,0 +1,168 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Full Lifecycle (Business/Public Project)
+#
+# Who: A business shipping a public-facing application. Multiple registries,
+#      full security and lint, README sync. Every implemented v1 feature
+#      turned on.
+# What: The "everything" manifest. Multi-platform image pushed to Docker Hub,
+#       GHCR, Quay, and a private registry. Rolling semver tags. README sync
+#       to Docker Hub. Full lint suite. Security scanning with SBOM. Release
+#       with rolling git tag aliases.
+# Build: Three-platform image (amd64, arm64, arm/v7) for maximum reach.
+# Why: Shows the full implemented surface area of the v1 manifest.
+
+version: 1
+
+vars:
+  org: prplanit
+  app: invoiceninja
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+  branches:
+    main: "^main$"
+    all: ".*"
+
+builds:
+  invoiceninja:
+    kind: docker
+    platforms: [linux/amd64, linux/arm64, linux/arm/v7]
+
+targets:
+  # ── Docker Hub ───────────────────────────────────────────────
+  dockerhub:
+    kind: registry
+    build: invoiceninja
+    url: docker.io
+    provider: docker
+    path: "{var:org}/{var:app}"
+    tags: ["{version}", "{major}.{minor}", "{major}", latest]
+    when: { branches: [main], events: [push] }
+    credentials: DOCKER
+
+  # ── GHCR ─────────────────────────────────────────────────────
+  ghcr:
+    kind: registry
+    build: invoiceninja
+    url: ghcr.io
+    path: sofmeright/{var:app}
+    tags: ["{version}", latest]
+    when: { branches: [main], events: [push] }
+    credentials: GHCR
+
+  # ── Quay.io ─────────────────────────────────────────────────
+  quay:
+    kind: registry
+    build: invoiceninja
+    url: quay.io
+    path: "{var:org}/{var:app}"
+    tags: ["{version}", latest]
+    when: { branches: [main], events: [push] }
+    credentials: QUAY
+
+  # ── Private registry — all branches ──────────────────────────
+  private:
+    kind: registry
+    build: invoiceninja
+    url: registry.prplanit.com
+    path: "apps/{var:app}"
+    tags: ["{version}", "{branch}-{sha:.7}", "{branch}-latest"]
+    when: { branches: [all], events: [push] }
+    credentials: PRIVATE_REG
+    retention:
+      keep_last: 10
+      protect: ["{branch}-latest"]
+
+  # ── Project identity sync ────────────────────────────────────
+  project-meta:
+    kind: metadata
+    registry: [dockerhub]
+    when: { branches: [main], events: [push, tag] }
+    description:
+      - "Self-hosted invoicing — multi-platform image with full security scanning"
+      - "Self-hosted invoicing container image"
+    readme: README.md
+
+  # ── Release ──────────────────────────────────────────────────
+  primary-release:
+    kind: release
+    aliases: ["{version}", "{major}.{minor}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+lint:
+  level: changed
+  modules:
+    secrets: { enabled: true }
+    unicode: { enabled: true }
+    tabs: { enabled: true }
+    filesize: { enabled: true }
+    conflicts: { enabled: true }
+  exclude:
+    - "vendor/**"
+    - "public/assets/**"
+
+security:
+  enabled: true
+  sbom: true
+  fail_on_critical: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# rebuild:
+#   schedule: weekly
+#   on_base_update: true
+#   notify: true
+#
+# docs:
+#   readme_inputs: true
+#   readme_sync: [dockerhub, ghcr]
+#
+# security:
+#   audit_deps: true
+#   secret_findings: alert
+#   codebase_audit: true
+#   codebase_audit_threshold: warning
+#
+# license:
+#   compliance: true
+#   headers: true
+#   spdx: true
+#
+# templates:
+#   golden_files: true
+#   gitignore: true
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   target: dev
+#   env:
+#     APP_URL: http://localhost:8080
+#     DB_HOST: db
+#     DB_DATABASE: invoiceninja_dev
+#     DB_USERNAME: dev
+#     DB_PASSWORD: dev
+#     REDIS_HOST: cache
+#     MAIL_MAILER: log
+#   services:
+#     db:
+#       image: docker.io/library/mariadb:11
+#       env: { MYSQL_ROOT_PASSWORD: dev, MYSQL_DATABASE: invoiceninja_dev, MYSQL_USER: dev, MYSQL_PASSWORD: dev }
+#       healthcheck: { test: "mariadb-admin ping -h localhost", interval: 5s }
+#     cache:
+#       image: docker.io/library/redis:7-alpine
+#   ports: ["8080:8080"]
+#   volumes:
+#     - ./public:/app/public
+#   test:
+#     startup: { timeout: 45s, depends_on: [db, cache] }
+#     healthchecks:
+#       - { name: http, type: http, url: "http://localhost:8080/health", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "php artisan migrate --force" }
+#       - { name: seed, run: "php artisan db:seed --class=TestSeeder" }
+#       - { name: api-smoke, run: "curl -sf http://localhost:8080/api/v1/ping | jq -e '.ok'" }
+#       - { name: tests, run: "php artisan test --stop-on-failure" }
+#
+# yolo: false
