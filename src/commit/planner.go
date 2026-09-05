@@ -19,7 +19,8 @@ type PlannerOptions struct {
 	SkipCI   *bool    // nil = use config default (manual --skip-ci → [skip ci] token)
 	Origin   string   // config.OriginNarrate / OriginDeps for automated commits; "" otherwise
 	Push     *bool    // nil = use config default
-	Paths    []string // from --add flags
+	AddPaths []string // --add: stage on top of the index
+	Paths    []string // `-- <paths>`: bound the commit to these
 	All      bool
 	SignOff  bool
 	Remote   string
@@ -66,11 +67,15 @@ func BuildPlan(opts PlannerOptions, cfg config.CommitConfig, registry *TypeRegis
 	breaking := opts.Breaking || forceBang
 
 	// 5. Determine StageMode
+	// Named paths bound the commit; --add only adds to it. Given both, the bound is
+	// their union.
 	var stageMode StageMode
 	switch {
 	case opts.All:
 		stageMode = StageAll
 	case len(opts.Paths) > 0:
+		stageMode = StageScoped
+	case len(opts.AddPaths) > 0:
 		stageMode = StageExplicit
 	default:
 		stageMode = StageStaged
@@ -78,9 +83,9 @@ func BuildPlan(opts PlannerOptions, cfg config.CommitConfig, registry *TypeRegis
 
 	// 6. Normalize paths
 	var normalizedPaths []string
-	if stageMode == StageExplicit {
+	if stageMode == StageExplicit || stageMode == StageScoped {
 		seen := make(map[string]bool)
-		for _, p := range opts.Paths {
+		for _, p := range append(append([]string{}, opts.AddPaths...), opts.Paths...) {
 			expanded, err := expandPath(p, rootDir)
 			if err != nil {
 				return nil, err

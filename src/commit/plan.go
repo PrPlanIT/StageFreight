@@ -10,7 +10,8 @@ import (
 type StageMode string
 
 const (
-	StageExplicit StageMode = "explicit" // --add paths
+	StageExplicit StageMode = "explicit" // --add paths: stage these in addition to the index
+	StageScoped   StageMode = "scoped"   // `-- paths`: commit these; refuse anything else staged
 	StageAll      StageMode = "all"      // --all (git add -A)
 	StageStaged   StageMode = "staged"   // default: commit whatever is already staged
 )

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,7 +72,7 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 
 	// 1. Stage files
 	switch plan.StageMode {
-	case StageExplicit:
+	case StageExplicit, StageScoped:
 		for _, p := range plan.Paths {
 			if _, err := wt.Add(p); err != nil {
 				return nil, fmt.Errorf("staging %s: %w", p, err)
@@ -98,8 +99,15 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 	// allowlist planted above). Without this check the commit "succeeds" while the
 	// content it was created to publish is missing — e.g. scribe committing a README
 	// whose badge SVGs were never added, so every rendered badge 404s.
-	if plan.StageMode == StageExplicit {
+	if plan.StageMode == StageExplicit || plan.StageMode == StageScoped {
 		if err := assertDeclaredPathsStaged(repo, g.RootDir, plan.Paths, files); err != nil {
+			return nil, err
+		}
+	}
+
+	// 2b. A scoped commit contains only the paths it named.
+	if plan.StageMode == StageScoped {
+		if err := assertNoUndeclaredStaged(plan.Paths, files); err != nil {
 			return nil, err
 		}
 	}
@@ -285,4 +293,48 @@ func assertDeclaredPathsStaged(repo *git.Repository, rootDir string, declared []
 func dirIsEmpty(dir string) bool {
 	ents, err := os.ReadDir(dir)
 	return err != nil || len(ents) == 0
+}
+
+// assertNoUndeclaredStaged fails when the index holds staged paths outside the declared
+// set, naming them. A declared directory covers everything beneath it.
+func assertNoUndeclaredStaged(declared []string, staged []string) error {
+	declaredSet := make(map[string]bool, len(declared))
+	for _, d := range declared {
+		declaredSet[filepath.ToSlash(d)] = true
+	}
+	covered := func(rel string) bool {
+		rel = filepath.ToSlash(rel)
+		if declaredSet[rel] {
+			return true
+		}
+		for d := range declaredSet {
+			if strings.HasPrefix(rel, d+"/") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// StageFreight plants and stages its own namespace ignore file on every commit, so it
+	// is never something the caller failed to name.
+	planted := filepath.ToSlash(filepath.Join(workspace.NamespaceDir, ".gitignore"))
+
+	var undeclared []string
+	for _, s := range staged {
+		if filepath.ToSlash(s) == planted {
+			continue
+		}
+		if !covered(s) {
+			undeclared = append(undeclared, filepath.ToSlash(s))
+		}
+	}
+	if len(undeclared) == 0 {
+		return nil
+	}
+	sort.Strings(undeclared)
+	return fmt.Errorf(
+		"refusing to commit %d staged path(s) this commit did not name: %s\n"+
+			"`-- <paths>` bounds the commit to what it lists. To include them say so with --add, "+
+			"or unstage them (git restore --staged <path>)",
+		len(undeclared), strings.Join(undeclared, ", "))
 }

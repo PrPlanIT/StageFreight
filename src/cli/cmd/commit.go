@@ -37,8 +37,10 @@ var commitCmd = &cobra.Command{
 	Long: `Create a git commit with conventional commit formatting.
 
 Summary can be provided as a positional argument or via --message.
-Paths can be provided as positional args (after summary or after --),
-via --add flags, --all, or from the existing staging area.
+Naming paths (as positional args or after --) bounds the commit to them: anything
+else left staged is refused rather than swept in under this message. --add stages
+paths on top of whatever is already staged, --all stages everything, and with none
+of these the commit takes the staging area as it stands.
 
 In CI environments, the push refspec is auto-detected from CI_COMMIT_REF_NAME
 or CI_COMMIT_BRANCH. Use --refspec for explicit control.
@@ -94,7 +96,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		summary = args[0]
 		pathArgs = args[1:]
 	}
-	commitAdd = append(commitAdd, pathArgs...)
+	// Kept apart: --add adds to the index, naming paths bounds the commit to them.
 
 	rootDir, err := os.Getwd()
 	if err != nil {
@@ -116,7 +118,8 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		Scope:   commitScope,
 		Message: summary,
 		Body:    commitBody,
-		Paths:   commitAdd,
+		AddPaths: commitAdd,
+		Paths:    pathArgs,
 		All:     commitAll,
 		SignOff: commitSignOff,
 		Remote:  commitRemote,

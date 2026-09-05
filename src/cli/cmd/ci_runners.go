@@ -963,7 +963,7 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
 				Type:    appCfg.Scribe.Commit.Type,
 				Message: appCfg.Scribe.Commit.Message,
-				Paths:   appCfg.Scribe.Commit.Add,
+				AddPaths: appCfg.Scribe.Commit.Add,
 				// OriginNarrate is the internal commit-origin marker for loop
 				// prevention; kept stable so existing auto-commits are still
 				// recognized even though this work is now a publish action.
