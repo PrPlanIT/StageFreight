@@ -2,6 +2,7 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -75,6 +77,12 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 	case StageExplicit, StageScoped:
 		for _, p := range plan.Paths {
 			if _, err := wt.Add(p); err != nil {
+				// Nothing left to stage because the path is gone from both the worktree
+				// and the index — its deletion is already staged, which is what a rename
+				// leaves behind on the source side. Naming it is a no-op, not an error.
+				if errors.Is(err, index.ErrEntryNotFound) {
+					continue
+				}
 				return nil, fmt.Errorf("staging %s: %w", p, err)
 			}
 		}

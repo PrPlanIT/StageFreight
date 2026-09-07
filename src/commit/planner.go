@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
@@ -84,9 +87,21 @@ func BuildPlan(opts PlannerOptions, cfg config.CommitConfig, registry *TypeRegis
 	// 6. Normalize paths
 	var normalizedPaths []string
 	if stageMode == StageExplicit || stageMode == StageScoped {
+		// Reading the index and HEAD tree is only worth it once a path turns out to be
+		// absent from the worktree, which is the uncommon case.
+		var known map[string]bool
+		var knownLoaded bool
+		tracked := func(rel string) bool {
+			if !knownLoaded {
+				known = pathsKnownToGit(rootDir)
+				knownLoaded = true
+			}
+			return coversKnownPath(known, rel)
+		}
+
 		seen := make(map[string]bool)
 		for _, p := range append(append([]string{}, opts.AddPaths...), opts.Paths...) {
-			expanded, err := expandPath(p, rootDir)
+			expanded, err := expandPath(p, rootDir, tracked)
 			if err != nil {
 				return nil, err
 			}
@@ -213,9 +228,11 @@ func parseConventionalPrefix(msg string, registry *TypeRegistry) (string, string
 	return prefix, scope, rest, bang, true
 }
 
-// expandPath resolves a single --add path: handles globs, verifies existence,
-// and returns repo-relative paths.
-func expandPath(p, rootDir string) ([]string, error) {
+// expandPath resolves a single named path: handles globs, resolves it against the
+// worktree, and returns repo-relative paths. A path absent from the worktree is still
+// valid when git tracks it — naming a deletion is how it gets committed — so tracked
+// decides those rather than the filesystem alone.
+func expandPath(p, rootDir string, tracked func(rel string) bool) ([]string, error) {
 	// Reject paths that escape the repo
 	if filepath.IsAbs(p) {
 		abs := filepath.Clean(p)
@@ -223,9 +240,10 @@ func expandPath(p, rootDir string) ([]string, error) {
 		if err != nil || strings.HasPrefix(rel, "..") {
 			return nil, fmt.Errorf("path %q is outside the repository", p)
 		}
-		// Check existence
 		if _, err := os.Stat(abs); err != nil {
-			return nil, fmt.Errorf("path %q does not exist", p)
+			if !pathTracked(tracked, rel) {
+				return nil, unknownPathError(p)
+			}
 		}
 		return []string{rel}, nil
 	}
@@ -254,11 +272,74 @@ func expandPath(p, rootDir string) ([]string, error) {
 		return results, nil
 	}
 
-	// Not a glob — check if file/dir exists
+	// Not a glob — resolve against the worktree, then against what git tracks.
 	absPath := filepath.Join(rootDir, p)
 	if _, err := os.Stat(absPath); err != nil {
-		return nil, fmt.Errorf("path %q does not exist", p)
+		if !pathTracked(tracked, p) {
+			return nil, unknownPathError(p)
+		}
 	}
 
 	return []string{p}, nil
+}
+
+// unknownPathError reports a named path that is neither in the worktree nor tracked, so
+// there is nothing it could contribute to a commit.
+func unknownPathError(p string) error {
+	return fmt.Errorf("path %q is not in the worktree and is not tracked by git, "+
+		"so there is nothing to commit for it", p)
+}
+
+// pathTracked normalizes rel before asking, so callers may pass either form.
+func pathTracked(tracked func(string) bool, rel string) bool {
+	if tracked == nil {
+		return false
+	}
+	return tracked(normalizeRel(rel))
+}
+
+func normalizeRel(p string) string {
+	return filepath.ToSlash(strings.TrimPrefix(filepath.Clean(p), "./"))
+}
+
+// pathsKnownToGit returns every path git already knows: index entries plus the HEAD tree.
+// The HEAD tree matters on its own — a rename stages the source side as a deletion, which
+// removes it from the index while it is still perfectly nameable.
+func pathsKnownToGit(rootDir string) map[string]bool {
+	repo, err := git.PlainOpen(rootDir)
+	if err != nil {
+		return nil
+	}
+	known := make(map[string]bool)
+	if idx, err := repo.Storer.Index(); err == nil {
+		for _, e := range idx.Entries {
+			known[filepath.ToSlash(e.Name)] = true
+		}
+	}
+	if head, err := repo.Head(); err == nil {
+		if commit, err := repo.CommitObject(head.Hash()); err == nil {
+			if tree, err := commit.Tree(); err == nil {
+				_ = tree.Files().ForEach(func(f *object.File) error {
+					known[filepath.ToSlash(f.Name)] = true
+					return nil
+				})
+			}
+		}
+	}
+	return known
+}
+
+// coversKnownPath reports whether rel names something git knows — the path itself, or a
+// directory holding one.
+func coversKnownPath(known map[string]bool, rel string) bool {
+	if known[rel] {
+		return true
+	}
+	prefix := rel + "/"
+	for k := range known {
+		if strings.HasPrefix(k, prefix) {
+			return true
+		}
+	}
+	return false
 }
