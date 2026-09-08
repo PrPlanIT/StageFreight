@@ -288,3 +288,63 @@ func TestCommit_ScopedRejectsUnknownPath(t *testing.T) {
 		t.Errorf("error must name the offending path, got: %v", err)
 	}
 }
+
+// Naming a deleted directory must commit the removal of everything that was under it.
+// go-git's Add matches index entries by exact name and a directory is never an entry, so
+// without help the commit succeeds having staged nothing — the silent drop this package
+// exists to prevent.
+func TestCommit_ScopedCommitsADeletedDirectory(t *testing.T) {
+	dir, repo, write := seedRepo(t)
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("pkg/a.txt", "a\n")
+	write("pkg/nested/b.txt", "b\n")
+	if _, err := wt.Add("pkg"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Commit("add pkg", &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@example.com", When: time.Now()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "pkg")); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := BuildPlan(PlannerOptions{
+		Type: "chore", Message: "drop the package", Paths: []string{"pkg"},
+	}, config.CommitConfig{}, defaultTestRegistry(t), dir)
+	if err != nil {
+		t.Fatalf("planning a deleted directory was rejected: %v", err)
+	}
+
+	backend := &GitBackend{RootDir: dir}
+	res, err := backend.Execute(t.Context(), plan, true)
+	if err != nil {
+		t.Fatalf("committing a deleted directory failed: %v", err)
+	}
+	for _, want := range []string{"pkg/a.txt", "pkg/nested/b.txt"} {
+		if !contains(res.Files, want) {
+			t.Errorf("committed %v, want it to include the deletion of %s", res.Files, want)
+		}
+	}
+
+	// And the tree must actually be free of them afterwards.
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := c.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tree.File("pkg/a.txt"); err == nil {
+		t.Error("pkg/a.txt is still in the committed tree")
+	}
+}

@@ -77,10 +77,15 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 	case StageExplicit, StageScoped:
 		for _, p := range plan.Paths {
 			if _, err := wt.Add(p); err != nil {
-				// Nothing left to stage because the path is gone from both the worktree
-				// and the index — its deletion is already staged, which is what a rename
-				// leaves behind on the source side. Naming it is a no-op, not an error.
 				if errors.Is(err, index.ErrEntryNotFound) {
+					// The path is absent from the worktree and Add found no index entry
+					// under that exact name. Either it names a deleted DIRECTORY, whose
+					// children are what the index actually holds, or its deletion is
+					// already staged — a rename's source side. Try the children before
+					// concluding there is nothing to do.
+					if _, derr := stageDeletedChildren(repo, wt, p); derr != nil {
+						return nil, derr
+					}
 					continue
 				}
 				return nil, fmt.Errorf("staging %s: %w", p, err)
@@ -295,6 +300,43 @@ func assertDeclaredPathsStaged(repo *git.Repository, rootDir string, declared []
 			rel, workspace.NamespaceDir)
 	}
 	return nil
+}
+
+// stageDeletedChildren stages the removal of every tracked path beneath dir, returning
+// how many it staged.
+//
+// go-git resolves Add on a path missing from the worktree by removing that exact name
+// from the index. A directory never appears in the index — only the files under it do —
+// so naming a deleted directory matches nothing and reports ErrEntryNotFound while its
+// children stay staged as present. A scoped commit then succeeds having published none
+// of the deletions it named, which is the silent-drop failure this package exists to
+// prevent.
+func stageDeletedChildren(repo *git.Repository, wt *git.Worktree, dir string) (int, error) {
+	idx, err := repo.Storer.Index()
+	if err != nil {
+		return 0, fmt.Errorf("reading index: %w", err)
+	}
+	prefix := filepath.ToSlash(strings.TrimSuffix(filepath.ToSlash(filepath.Clean(dir)), "/")) + "/"
+
+	// Collect first: Add rewrites the index, so iterating it while mutating is unsound.
+	var names []string
+	for _, e := range idx.Entries {
+		if strings.HasPrefix(filepath.ToSlash(e.Name), prefix) {
+			names = append(names, e.Name)
+		}
+	}
+
+	staged := 0
+	for _, name := range names {
+		if _, err := wt.Add(name); err != nil {
+			if errors.Is(err, index.ErrEntryNotFound) {
+				continue
+			}
+			return staged, fmt.Errorf("staging deletion of %s: %w", name, err)
+		}
+		staged++
+	}
+	return staged, nil
 }
 
 // dirIsEmpty reports whether dir contains no entries at all.
