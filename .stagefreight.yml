@@ -473,7 +473,7 @@ orgs:
 metadata:
   org: PrPlanIT
   title: "StageFreight"
-  license: BSD-3-Clause
+  license: AGPL-3.0-only
   category: ci
 
 stencils:
