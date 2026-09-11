@@ -532,9 +532,12 @@ stencils:
     font: dejavu-sans
     font_size: 11
     link: "https://github.com/{path.github}/pkgs/container/{slug.lower}"
+  # An escaped literal, not the resolved sha: the badge exists to say the dev tag is a thing
+  # and how it is spelled. Resolving it would rewrite this committed SVG on every dev build
+  # for a value nobody reads out of the repo — the tag itself is where you look it up.
   dev-latest:
     label: latest-dev
-    message: "dev-{sha:8}"
+    message: "dev-{{sha}}"
     color: "#3b82f6"
     font: dejavu-sans
     font_size: 11
