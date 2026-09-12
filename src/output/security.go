@@ -52,37 +52,44 @@ func ScanAuditRows(sec *Section, audit ScanAudit) {
 	}
 }
 
-// SectionVulns renders the "Vulnerabilities (N)" block with severity-prioritized truncation.
-// budget: max rows to display (15 for detailed, 30 for full).
-// CRITICAL and HIGH always shown regardless of budget (up to AbsoluteMax).
+// SectionVulns renders the "Vulnerabilities" block as one entry per advisory (CVE).
+// Packages that share a CVE collapse into the AFFECTED column, so a description is shown
+// once, not once per package. Columns read AFFECTED (what is installed) → PATCHED (the
+// advisory's remediation) — "what's here → what gets me out". The two are placed on one
+// line only when the whole group shares a single (installed, fixed); otherwise packages
+// split to their own lines so installed and fixed never drift apart. Severity-prioritized
+// truncation is preserved, now counted in advisories. budget = max advisories to display.
 func SectionVulns(sec *Section, vulns []VulnRow, color bool, budget int, ux SecurityUX) {
 	if len(vulns) == 0 {
 		return
 	}
 
-	sorted := sortVulns(vulns)
+	advs := buildAdvisories(vulns)
+	crit, high, med, low := advisorySeverityCounts(advs)
 
 	sec.Row("")
-	sec.Row("%s", bold(color, fmt.Sprintf("Vulnerabilities (%d)", len(sorted))))
+	sec.Row("%s", bold(color, fmt.Sprintf(
+		"Vulnerabilities  %d findings · %d advisories · %d crit · %d high · %d med · %d low",
+		len(vulns), len(advs), crit, high, med, low)))
+	sec.Row("")
 
-	// Overwhelm short-circuit (before budget walk).
-	if len(sorted) > OverwhelmThreshold {
+	// Overwhelm short-circuit (huge advisory counts).
+	if len(advs) > OverwhelmThreshold {
 		show := 20
-		if show > len(sorted) {
-			show = len(sorted)
+		if show > len(advs) {
+			show = len(advs)
 		}
 		for i := 0; i < show; i++ {
-			renderVulnRow(sec, sorted[i], color)
+			renderAdvisory(sec, advs[i], color)
 		}
-		remaining := len(sorted) - show
+		remaining := len(advs) - show
 
-		// Fully disabled — single compact line.
 		if len(ux.OverwhelmMessage) == 0 && ux.OverwhelmLink == "" {
-			sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more (see security-scan.json)", remaining), color))
+			sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more advisories (see security-scan.json)", remaining), color))
 			return
 		}
 
-		sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more", remaining), color))
+		sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more advisories", remaining), color))
 		for _, line := range ux.OverwhelmMessage {
 			sec.Row("%s", Dimmed("    "+line, color))
 		}
@@ -93,37 +100,35 @@ func SectionVulns(sec *Section, vulns []VulnRow, color bool, budget int, ux Secu
 		return
 	}
 
-	// Normal path: severity-prioritized budget walk.
+	// Severity-prioritized budget walk (CRIT/HIGH advisories always shown, up to AbsoluteMax).
 	emitted := 0
 	hitAbsMax := false
 
-	for _, v := range sorted {
+	for _, a := range advs {
 		if emitted >= AbsoluteMax {
 			hitAbsMax = true
 			break
 		}
 
-		r := severity.Order(severity.Normalize(v.Severity))
+		r := severity.Order(severity.Normalize(a.severity))
 		if r <= 1 {
-			// CRIT/HIGH always shown (until AbsoluteMax).
-			renderVulnRow(sec, v, color)
+			renderAdvisory(sec, a, color)
 			emitted++
 			continue
 		}
 
-		// MED/LOW/UNK only while under budget.
 		if emitted < budget {
-			renderVulnRow(sec, v, color)
+			renderAdvisory(sec, a, color)
 			emitted++
 		}
 	}
 
-	if emitted < len(sorted) {
-		remaining := len(sorted) - emitted
+	if emitted < len(advs) {
+		remaining := len(advs) - emitted
 		if hitAbsMax {
-			sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more (hit max output %d; see security-scan.json)", remaining, AbsoluteMax), color))
+			sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more advisories (hit max output %d; see security-scan.json)", remaining, AbsoluteMax), color))
 		} else {
-			sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more (see security-scan.json)", remaining), color))
+			sec.Row("%s", Dimmed(fmt.Sprintf("  … and %d more advisories (see security-scan.json)", remaining), color))
 		}
 	}
 }
@@ -179,53 +184,170 @@ func bold(color bool, s string) string {
 	return colorBold + s + colorReset
 }
 
-func sortVulns(vulns []VulnRow) []VulnRow {
-	out := make([]VulnRow, len(vulns))
-	copy(out, vulns)
+// advisoryPkg is one affected package + its installed/fixed versions, deduped within a CVE.
+type advisoryPkg struct {
+	name      string
+	installed string
+	fixed     string
+}
 
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
+// advisoryView is the per-CVE aggregation for display: the advisory identity + the set of
+// affected packages that share it. The description (title) is held once per advisory.
+type advisoryView struct {
+	id       string
+	severity string
+	title    string
+	pkgs     []advisoryPkg
+}
 
-		ra, rb := severity.Order(severity.Normalize(a.Severity)), severity.Order(severity.Normalize(b.Severity))
+// affectedColWidth is the padding target for the AFFECTED cell so PATCHED aligns for the
+// common case; a longer AFFECTED simply pushes PATCHED right on that one row.
+const affectedColWidth = 46
+
+// buildAdvisories groups findings by CVE into per-advisory views: it keeps the highest
+// severity seen, the longest description as the one-line title, and the deduped set of
+// affected packages (name+installed+fixed). Advisories sort by severity then ID; packages
+// within an advisory sort by name. This is presentation-only aggregation — no version is
+// invented, and installed/fixed stay bound to their package (see renderAdvisory).
+func buildAdvisories(vulns []VulnRow) []advisoryView {
+	order := make([]string, 0)
+	byID := make(map[string]*advisoryView)
+
+	for _, v := range vulns {
+		id := strings.TrimSpace(v.ID)
+		a, ok := byID[id]
+		if !ok {
+			a = &advisoryView{id: id, severity: v.Severity}
+			byID[id] = a
+			order = append(order, id)
+		}
+		if severity.Order(severity.Normalize(v.Severity)) < severity.Order(severity.Normalize(a.severity)) {
+			a.severity = v.Severity
+		}
+		if t := strings.TrimSpace(v.Title); len(t) > len(a.title) {
+			a.title = t
+		}
+		pk := advisoryPkg{
+			name:      strings.TrimSpace(v.Package),
+			installed: strings.TrimSpace(v.Installed),
+			fixed:     strings.TrimSpace(v.FixedIn),
+		}
+		dup := false
+		for _, e := range a.pkgs {
+			if e == pk {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			a.pkgs = append(a.pkgs, pk)
+		}
+	}
+
+	advs := make([]advisoryView, 0, len(order))
+	for _, id := range order {
+		a := byID[id]
+		sort.SliceStable(a.pkgs, func(i, j int) bool { return a.pkgs[i].name < a.pkgs[j].name })
+		advs = append(advs, *a)
+	}
+	sort.SliceStable(advs, func(i, j int) bool {
+		ra, rb := severity.Order(severity.Normalize(advs[i].severity)), severity.Order(severity.Normalize(advs[j].severity))
 		if ra != rb {
 			return ra < rb // ascending rank = descending severity
 		}
-		if a.ID != b.ID {
-			return a.ID < b.ID
-		}
-		return a.Package < b.Package
+		return advs[i].id < advs[j].id
 	})
-
-	return out
+	return advs
 }
 
-func renderVulnRow(sec *Section, v VulnRow, color bool) {
-	id := strings.TrimSpace(v.ID)
-	pkg := strings.TrimSpace(v.Package)
-	tag := VulnSeverityTag(v.Severity, color)
+func advisorySeverityCounts(advs []advisoryView) (crit, high, med, low int) {
+	for _, a := range advs {
+		switch severity.Normalize(a.severity) {
+		case "CRITICAL":
+			crit++
+		case "HIGH":
+			high++
+		case "MEDIUM":
+			med++
+		case "LOW":
+			low++
+		}
+	}
+	return
+}
 
-	sec.Row("  %-14s  %-4s  %s", id, tag, pkg)
+// uniformPkgs reports whether every affected package shares one (installed, fixed) — the
+// only case where AFFECTED and PATCHED may collapse onto a single line without implying a
+// version relationship that the evidence doesn't support.
+func uniformPkgs(pkgs []advisoryPkg) bool {
+	if len(pkgs) <= 1 {
+		return true
+	}
+	for _, p := range pkgs[1:] {
+		if p.installed != pkgs[0].installed || p.fixed != pkgs[0].fixed {
+			return false
+		}
+	}
+	return true
+}
 
-	installed := strings.TrimSpace(v.Installed)
-	fixed := strings.TrimSpace(v.FixedIn)
-	title := strings.TrimSpace(v.Title)
-
+// patchedLabel renders the PATCHED cell from a single package's advisory fix: "→ <ver>",
+// or a dimmed "(no fix)" when the advisory reports none. It is never an aggregate.
+func patchedLabel(fixed string, color bool) string {
+	fixed = strings.TrimSpace(fixed)
 	if fixed == "" {
-		if title != "" {
-			sec.Row("    %s → %s  %s", installed, Dimmed("(no fix)", color), title)
+		return Dimmed("(no fix)", color)
+	}
+	return "→ " + fixed
+}
+
+// renderAdvisory prints one advisory: the SEV + CVE identity, its affected package(s) with
+// installed version(s) under AFFECTED, the advisory fix under PATCHED, then one description
+// line. When all packages share (installed, fixed) they collapse to a single AFFECTED →
+// PATCHED line; when they differ, each package gets its own line so installed and fixed
+// stay together and truthful. A trailing blank line separates advisories.
+func renderAdvisory(sec *Section, a advisoryView, color bool) {
+	tag := VulnSeverityTag(a.severity, color) // 4 visible chars
+	cve := strings.TrimSpace(a.id)
+
+	// Column where AFFECTED begins: "  " + tag(4) + "  " + cve(%-15s) + "  ".
+	const affectedIndent = 25
+
+	if uniformPkgs(a.pkgs) {
+		names := make([]string, len(a.pkgs))
+		for i, p := range a.pkgs {
+			names[i] = p.name
+		}
+		affected := strings.Join(names, ", ")
+		fixed := ""
+		if len(a.pkgs) > 0 {
+			if a.pkgs[0].installed != "" {
+				affected += " · " + a.pkgs[0].installed
+			}
+			fixed = a.pkgs[0].fixed
+		}
+		patched := patchedLabel(fixed, color)
+		if len(affected) > affectedColWidth {
+			// AFFECTED overflows its column — keep PATCHED honest (aligned under AFFECTED
+			// on its own line) rather than ragged-right or truncating package names.
+			sec.Row("  %s  %-15s  %s", tag, cve, affected)
+			sec.Row("%s%s", strings.Repeat(" ", affectedIndent), patched)
 		} else {
-			sec.Row("    %s → %s", installed, Dimmed("(no fix)", color))
+			sec.Row("  %s  %-15s  %-*s  %s", tag, cve, affectedColWidth, affected, patched)
 		}
 	} else {
-		if title != "" {
-			sec.Row("    %s → %s  %s", installed, fixed, title)
-		} else {
-			sec.Row("    %s → %s", installed, fixed)
+		sec.Row("  %s  %s", tag, cve)
+		for _, p := range a.pkgs {
+			aff := p.name
+			if p.installed != "" {
+				aff += " · " + p.installed
+			}
+			sec.Row("        %-*s  %s", affectedColWidth, aff, patchedLabel(p.fixed, color))
 		}
 	}
 
-	// URL line only for CRIT/HIGH to save vertical space.
-	if severity.Order(severity.Normalize(v.Severity)) <= 1 && id != "" {
-		sec.Row("%s", Dimmed("    "+VulnURL(id), color))
+	if a.title != "" {
+		sec.RowIndented(8, true, color, "%s", a.title)
 	}
+	sec.Row("")
 }

@@ -38,6 +38,26 @@ func (s *Section) Row(format string, args ...any) {
 	}
 }
 
+// RowIndented writes a content line hung at `indent` columns: the text wraps to the
+// remaining width and every wrapped line — first and continuations alike — carries the
+// same indent, so multi-line values (e.g. a wrapped advisory description) stay in a clean
+// block instead of the continuation falling back to the gutter. When dim is set, each
+// wrapped segment is dimmed independently, so an ANSI colour never bleeds across a wrap.
+func (s *Section) RowIndented(indent int, dim, color bool, format string, args ...any) {
+	line := fmt.Sprintf(format, args...)
+	pad := strings.Repeat(" ", indent)
+	budget := termutil.ContentWidth(s.w) - indent
+	if budget < 8 {
+		budget = 8
+	}
+	for _, seg := range layout.WrapContent(line, budget) {
+		if dim {
+			seg = Dimmed(seg, color)
+		}
+		fmt.Fprintf(s.w, "    │ %s%s\n", pad, seg)
+	}
+}
+
 // Separator writes a mid-section divider.
 func (s *Section) Separator() {
 	fmt.Fprintf(s.w, "    ├%s\n", strings.Repeat("─", sectionWidth))
