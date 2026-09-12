@@ -36,6 +36,17 @@ const (
 // The "..." ellipsis is used ONLY for hard mid-token cuts (no word boundary
 // available). Word-boundary wraps are clean — no decoration.
 func WrapContent(line string, budget int) []string {
+	// A wrapped segment is, by contract, one visual line. Control characters in
+	// the source — most commonly a newline embedded in carried text like a CVE
+	// description that ships its own line breaks — would otherwise survive into a
+	// returned segment and, once a caller prefixes each segment with a frame
+	// gutter ("    │ "), the bytes after the newline land ungutered and shatter
+	// the box. Neutralize them to spaces up front so it is structurally
+	// impossible for content to break a frame; ANSI escapes are preserved (color
+	// sequences are zero-width and handled below) and regular spaces are kept so
+	// column padding from format strings survives.
+	line = neutralizeControl(line)
+
 	if budget < 8 {
 		budget = 8 // sane floor; below this, wrapping is meaningless
 	}
@@ -99,6 +110,31 @@ func WrapContent(line string, budget int) []string {
 	}
 
 	return result
+}
+
+// neutralizeControl replaces frame-breaking control characters with a single
+// space, so a string can never carry an embedded line break (or tab / carriage
+// return / other C0 control / DEL) into a framed, wrapped segment. Regular
+// spaces are left untouched so column padding survives, and ANSI escape (ESC,
+// 0x1b) is preserved because color sequences are zero-width and unwrapped
+// downstream. The common case (no control chars) allocates nothing.
+func neutralizeControl(s string) string {
+	if !strings.ContainsFunc(s, isFrameBreaking) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if isFrameBreaking(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// isFrameBreaking reports whether r is a control character that would break a
+// single-line frame if emitted verbatim. ESC (0x1b) is excluded so ANSI color
+// sequences pass through intact.
+func isFrameBreaking(r rune) bool {
+	return (r < 0x20 && r != 0x1b) || r == 0x7f
 }
 
 // VisualWidth returns the visible column width of s.

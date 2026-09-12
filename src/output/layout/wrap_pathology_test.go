@@ -45,3 +45,30 @@ func TestWrapContent_TinyBudgetBounded(t *testing.T) {
 		t.Fatalf("tiny-budget wrap produced %d lines; want 1..20", len(out))
 	}
 }
+
+// Frame integrity: no returned segment may contain a control character, so a
+// caller prefixing each segment with a frame gutter can never emit an ungutered
+// continuation. Regression for carried text (e.g. a CVE description) whose own
+// embedded newlines shattered the box. Covers BOTH the short-line early-return
+// path and the wrapped path, and confirms ANSI escapes survive.
+func TestWrapContent_NeutralizesFrameBreakingControls(t *testing.T) {
+	cases := map[string]string{
+		"short (early return)": "curl 8.21 → 8.22\nsecond line\twith tab",
+		"long (wrapped)":       "A flaw in libcurl SASL negotiation\r\nallows an incomplete handshake\nsequence " + strings.Repeat("to be misinterpreted ", 12),
+		"del + vertical tab":   "before\x7fafter\x0bmore",
+	}
+	for name, in := range cases {
+		for _, seg := range WrapContent(in, 60) {
+			if strings.ContainsFunc(seg, func(r rune) bool { return (r < 0x20 && r != 0x1b) || r == 0x7f }) {
+				t.Errorf("%s: segment carries a frame-breaking control char: %q", name, seg)
+			}
+		}
+	}
+
+	// ANSI color escapes must pass through untouched (zero-width, handled by wrap).
+	colored := "\033[31mred\033[0m normal text"
+	got := WrapContent(colored, 60)
+	if len(got) != 1 || got[0] != colored {
+		t.Errorf("ANSI escape not preserved: got %q, want %q", got, colored)
+	}
+}
