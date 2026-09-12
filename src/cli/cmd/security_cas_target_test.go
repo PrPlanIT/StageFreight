@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,7 +76,7 @@ func TestResolveCASTarget_PicksVerifiedLayout(t *testing.T) {
 	layoutDir, digest := writeValidLayout(t, []byte("manifest-bytes-for-app"))
 	writeOutputsWithPersistence(t, root, digest, layoutDir)
 
-	target, dir, ok := resolveCASTarget(root, io.Discard)
+	target, dir, ok, _ := resolveCASTarget(root)
 	if !ok {
 		t.Fatal("resolveCASTarget did not resolve a verified persisted layout")
 	}
@@ -106,9 +105,14 @@ func TestResolveCASTarget_TamperedLayoutFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, ok := resolveCASTarget(root, io.Discard)
+	_, _, ok, notes := resolveCASTarget(root)
 	if ok {
 		t.Fatal("resolveCASTarget trusted a tampered layout — must fall back, never scan unverified bytes")
+	}
+	// The verification failure must surface as a returned note (rendered as a
+	// structured ⚠ row by the caller), not be silently dropped.
+	if len(notes) == 0 {
+		t.Fatal("tampered-layout fallback returned no diagnostic note — the integrity failure would be invisible")
 	}
 }
 
@@ -134,7 +138,7 @@ func TestResolveCASTarget_NoHandleFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, ok := resolveCASTarget(root, io.Discard); ok {
+	if _, _, ok, _ := resolveCASTarget(root); ok {
 		t.Fatal("resolveCASTarget resolved without a persistence handle — should fall back")
 	}
 }

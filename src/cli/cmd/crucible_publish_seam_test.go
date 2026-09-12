@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -89,7 +88,7 @@ func TestCruciblePublishSeam_HandleReachesPromotion(t *testing.T) {
 
 	// And resolveCASTarget (review) resolves the same handle, proving review and
 	// publish agree on what the crucible retained.
-	if _, dir, ok := resolveCASTarget(root, io.Discard); !ok || dir != a.Persistence.OCILayout.Path {
+	if _, dir, ok, _ := resolveCASTarget(root); !ok || dir != a.Persistence.OCILayout.Path {
 		t.Fatalf("review could not resolve the crucible-retained layout: ok=%v dir=%q", ok, dir)
 	}
 }

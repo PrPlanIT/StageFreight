@@ -85,11 +85,12 @@ func init() {
 // nothing to resolve this way (no store active, no handle, or verification
 // fails), so the caller falls back to the legacy publication-derived path
 // without changing existing behavior.
-func resolveCASTarget(rootDir string, w io.Writer) (security.ScanTarget, string, bool) {
+func resolveCASTarget(rootDir string) (security.ScanTarget, string, bool, []string) {
 	outputs, err := artifact.ReadOutputsManifest(rootDir)
 	if err != nil {
-		return security.ScanTarget{}, "", false
+		return security.ScanTarget{}, "", false, nil
 	}
+	var notes []string
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
 			continue
@@ -104,10 +105,13 @@ func resolveCASTarget(rootDir string, w io.Writer) (security.ScanTarget, string,
 		// Re-hash the carried bytes before trusting them. A handle that cannot
 		// be verified is treated as absent — never scanned on faith.
 		if err := cas.VerifyLayoutAt(layoutDir, cas.Digest(a.Digest)); err != nil {
-			fmt.Fprintf(w, "  security: content-store layout for %s failed verification, falling back: %v\n", a.Name, err)
+			// Rare integrity-failure diagnostic, returned for the caller to render as a
+			// structured ⚠ row rather than a raw preamble. The scanned artifact + digest
+			// are already shown by the section's source/selection/digest rows, so there
+			// is no per-scan preamble line here — it only duplicated the frame.
+			notes = append(notes, fmt.Sprintf("content-store layout for %s failed re-hash verification — pulled fresh instead (%v)", a.Name, err))
 			continue
 		}
-		fmt.Fprintf(w, "  security: scanning content-store artifact %s @ %s (carried from perform, re-hash verified)\n", a.Name, a.Digest)
 		return security.ScanTarget{
 			Ref:             string(a.Digest),
 			Digest:          string(a.Digest),
@@ -120,9 +124,9 @@ func resolveCASTarget(rootDir string, w io.Writer) (security.ScanTarget, string,
 			// enforces that provenance so a stale/foreign carried artifact fails
 			// closed instead of being scanned on faith.
 			ExpectedCommit: outputs.Commit,
-		}, layoutDir, true
+		}, layoutDir, true, notes
 	}
-	return security.ScanTarget{}, "", false
+	return security.ScanTarget{}, "", false, notes
 }
 
 // casCommitMismatch reports whether a content-store scan target belongs to a
@@ -345,8 +349,11 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// existing behavior exactly.
 	var target security.ScanTarget
 	var ociLayoutDir string
+	var casNotes []string
 	if req.Image == "" {
-		if t, dir, ok := resolveCASTarget(req.RootDir, w); ok {
+		t, dir, ok, notes := resolveCASTarget(req.RootDir)
+		casNotes = notes
+		if ok {
 			target, ociLayoutDir = t, dir
 		}
 	}
@@ -511,6 +518,9 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	sec.Row("%-16s%s", "source", target.Source)
 	sec.Row("%-16s%s", "selection", target.SelectionReason)
 	sec.Row("%-16s%s", "stability", stabilityLabel(target.Stability))
+	for _, note := range casNotes {
+		sec.Row("%-16s⚠ %s", "", note)
+	}
 	if result.CacheMode != "" {
 		cacheDetail := result.CacheMode
 		if len(result.CacheCleared) > 0 {

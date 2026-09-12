@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,7 +39,7 @@ func TestResolveCASTarget_CarriesExpectedCommit(t *testing.T) {
 	layoutDir, digest := writeValidLayout(t, []byte("bytes-for-commit-test"))
 	writeOutputsWithCommit(t, root, "deadbeefcafe1234", digest, layoutDir)
 
-	target, _, ok := resolveCASTarget(root, io.Discard)
+	target, _, ok, _ := resolveCASTarget(root)
 	if !ok {
 		t.Fatal("resolveCASTarget did not resolve a verified layout")
 	}
