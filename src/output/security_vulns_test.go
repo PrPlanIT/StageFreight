@@ -66,6 +66,20 @@ func TestSectionVulns_SplitsDivergentVersions(t *testing.T) {
 	}
 }
 
+// A scanner-disagreement finding renders PATCHED as "source-specific", never a guessed
+// version — the invariant that aggregation must not state a stronger claim than the evidence.
+func TestSectionVulns_ScannerConflictRendersSourceSpecific(t *testing.T) {
+	out := renderVulns(t, []VulnRow{
+		{ID: "CVE-2026-13608", Severity: "MEDIUM", Package: "curl", Installed: "8.21.0-r0", FixedIn: "8.22.0-r0", FixedConflict: true, Title: "conflict"},
+	})
+	if !strings.Contains(out, "source-specific") {
+		t.Errorf("conflicting fix must render source-specific:\n%s", out)
+	}
+	if strings.Contains(out, "→ 8.22.0-r0") {
+		t.Errorf("must NOT present one scanner's version as the fix when sources disagree:\n%s", out)
+	}
+}
+
 // A clean single-fix advisory renders "→ <ver>" and severity-sorts CRITICAL above MEDIUM.
 func TestSectionVulns_FixAndSeveritySort(t *testing.T) {
 	out := renderVulns(t, []VulnRow{

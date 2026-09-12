@@ -775,12 +775,13 @@ func toVulnRows(vulns []security.Vulnerability) []output.VulnRow {
 	rows := make([]output.VulnRow, len(vulns))
 	for i, v := range vulns {
 		rows[i] = output.VulnRow{
-			ID:        v.ID,
-			Severity:  v.Severity,
-			Package:   v.Package,
-			Installed: v.Installed,
-			FixedIn:   v.FixedIn,
-			Title:     v.Description,
+			ID:            v.ID,
+			Severity:      v.Severity,
+			Package:       v.Package,
+			Installed:     v.Installed,
+			FixedIn:       v.FixedIn,
+			Title:         v.Description,
+			FixedConflict: v.FixedInConflict,
 		}
 	}
 	return rows

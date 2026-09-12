@@ -27,6 +27,10 @@ type VulnRow struct {
 	Installed string // "0.28.0"
 	FixedIn   string // "0.31.0" (empty = no fix)
 	Title     string // one-line description
+
+	// FixedConflict marks that scanners disagree on the fix for this (CVE, package):
+	// PATCHED renders as "source-specific" rather than a single version.
+	FixedConflict bool
 }
 
 // ScanAudit holds metadata for the audit block at the top of the section.
@@ -189,6 +193,7 @@ type advisoryPkg struct {
 	name      string
 	installed string
 	fixed     string
+	conflict  bool // scanners disagree on the fix → PATCHED is "source-specific"
 }
 
 // advisoryView is the per-CVE aggregation for display: the advisory identity + the set of
@@ -231,6 +236,7 @@ func buildAdvisories(vulns []VulnRow) []advisoryView {
 			name:      strings.TrimSpace(v.Package),
 			installed: strings.TrimSpace(v.Installed),
 			fixed:     strings.TrimSpace(v.FixedIn),
+			conflict:  v.FixedConflict,
 		}
 		dup := false
 		for _, e := range a.pkgs {
@@ -284,7 +290,7 @@ func uniformPkgs(pkgs []advisoryPkg) bool {
 		return true
 	}
 	for _, p := range pkgs[1:] {
-		if p.installed != pkgs[0].installed || p.fixed != pkgs[0].fixed {
+		if p.installed != pkgs[0].installed || p.fixed != pkgs[0].fixed || p.conflict != pkgs[0].conflict {
 			return false
 		}
 	}
@@ -292,8 +298,13 @@ func uniformPkgs(pkgs []advisoryPkg) bool {
 }
 
 // patchedLabel renders the PATCHED cell from a single package's advisory fix: "→ <ver>",
-// or a dimmed "(no fix)" when the advisory reports none. It is never an aggregate.
-func patchedLabel(fixed string, color bool) string {
+// a dimmed "(no fix)" when the advisory reports none, or a dimmed "source-specific" when
+// scanners disagree on the fix (the conflict is preserved, not resolved by guesswork; the
+// per-source detail lives in security-scan.json). It is never an aggregate.
+func patchedLabel(fixed string, conflict, color bool) string {
+	if conflict {
+		return Dimmed("source-specific", color)
+	}
 	fixed = strings.TrimSpace(fixed)
 	if fixed == "" {
 		return Dimmed("(no fix)", color)
@@ -320,13 +331,15 @@ func renderAdvisory(sec *Section, a advisoryView, color bool) {
 		}
 		affected := strings.Join(names, ", ")
 		fixed := ""
+		conflict := false
 		if len(a.pkgs) > 0 {
 			if a.pkgs[0].installed != "" {
 				affected += " · " + a.pkgs[0].installed
 			}
 			fixed = a.pkgs[0].fixed
+			conflict = a.pkgs[0].conflict
 		}
-		patched := patchedLabel(fixed, color)
+		patched := patchedLabel(fixed, conflict, color)
 		if len(affected) > affectedColWidth {
 			// AFFECTED overflows its column — keep PATCHED honest (aligned under AFFECTED
 			// on its own line) rather than ragged-right or truncating package names.
@@ -342,7 +355,7 @@ func renderAdvisory(sec *Section, a advisoryView, color bool) {
 			if p.installed != "" {
 				aff += " · " + p.installed
 			}
-			sec.Row("        %-*s  %s", affectedColWidth, aff, patchedLabel(p.fixed, color))
+			sec.Row("        %-*s  %s", affectedColWidth, aff, patchedLabel(p.fixed, p.conflict, color))
 		}
 	}
 

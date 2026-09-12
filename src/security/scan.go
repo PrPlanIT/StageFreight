@@ -51,6 +51,13 @@ type Vulnerability struct {
 	FixedIn     string // version that fixes the vuln
 	Description string // one-line description
 	Source      string // scanner provenance: "trivy" or "grype"
+
+	// FixedInConflict is set when scanners report DIFFERENT non-empty fix versions for
+	// this same (ID, Package): the remediation claim is source-specific and must not be
+	// reduced to a single canonical version. FixedInBySource records each source's fix so
+	// the ambiguity is preserved (rendered as "source-specific"; detail kept here + JSON).
+	FixedInConflict bool              `json:"fixed_in_conflict,omitempty"`
+	FixedInBySource map[string]string `json:"fixed_in_by_source,omitempty"`
 }
 
 // RefStability classifies how stable/immutable a reference is.
@@ -842,8 +849,26 @@ func deduplicateVulnerabilities(vulns []Vulnerability) []Vulnerability {
 		k := key{v.ID, v.Package}
 		if idx, ok := seen[k]; ok {
 			existing := result[idx]
-			if v.FixedIn != "" && existing.FixedIn == "" {
+			switch {
+			case v.FixedIn != "" && existing.FixedIn == "":
 				result[idx].FixedIn = v.FixedIn
+			case v.FixedIn != "" && existing.FixedIn != "" && v.FixedIn != existing.FixedIn:
+				// Two scanners claim DIFFERENT fixes for the same (ID, Package). These are
+				// competing advisory claims from different databases, not one canonical
+				// version — do not pick a winner. Preserve both per source so it renders
+				// as "source-specific" rather than silently presenting one as the fix.
+				result[idx].FixedInConflict = true
+				if result[idx].FixedInBySource == nil {
+					result[idx].FixedInBySource = map[string]string{}
+					for _, s := range strings.Split(existing.Source, "+") {
+						if s = strings.TrimSpace(s); s != "" {
+							result[idx].FixedInBySource[s] = existing.FixedIn
+						}
+					}
+				}
+				if v.Source != "" {
+					result[idx].FixedInBySource[v.Source] = v.FixedIn
+				}
 			}
 			if len(v.Description) > len(existing.Description) {
 				result[idx].Description = v.Description
