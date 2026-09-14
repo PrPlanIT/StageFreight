@@ -13,7 +13,7 @@ require (
 	github.com/skeema/knownhosts v1.3.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/tdewolff/font v0.0.0-20260822205238-d0d2f004b117
+	github.com/tdewolff/font v0.0.0-20260913163313-54f98bb59ee6
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
