@@ -1,0 +1,122 @@
+/* StageFreight brand theme — greens sampled from src/assets/logo.png.
+   Deep forest green (#286034) for chrome, bright leaf green (#7cc24e) for accents. */
+
+:root {
+  --sf-green-deep:  #286034;  /* logo outline / shading */
+  --sf-green:       #2e7d34;  /* primary chrome */
+  --sf-green-light: #7cc24e;  /* logo body (bright leaf) */
+  --sf-green-lm:    #4f9d55;  /* mid */
+  --sf-cream:       #e0eda6;  /* logo tusk highlight */
+}
+
+/* ── Light scheme ─────────────────────────────────────────────────── */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        var(--sf-green);
+  --md-primary-fg-color--light: var(--sf-green-lm);
+  --md-primary-fg-color--dark:  var(--sf-green-deep);
+  --md-accent-fg-color:         #3f9142;   /* legible link-hover on white */
+
+  --md-typeset-a-color:         var(--sf-green);
+}
+
+/* ── Dark (slate) scheme ──────────────────────────────────────────── */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        var(--sf-green-deep);
+  --md-primary-fg-color--light: var(--sf-green-lm);
+  --md-primary-fg-color--dark:  #12331a;
+  --md-accent-fg-color:         var(--sf-green-light);
+
+  --md-typeset-a-color:         #8ecb58;   /* brighter green for links on dark */
+}
+
+/* Code annotation dots + admonition/link flourishes inherit the accent, so the
+   goreleaser-style numbered callouts pick up the brand green automatically. */
+
+/* Home hero / section headings get a subtle brand underline. */
+.md-typeset h1,
+.md-typeset h2 {
+  color: var(--md-default-fg-color);
+}
+.md-typeset h2 {
+  border-bottom: .05rem solid color-mix(in srgb, var(--sf-green) 35%, transparent);
+  padding-bottom: .2rem;
+}
+
+/* Header logo: give the transparent PNG a touch of breathing room. */
+.md-header__button.md-logo img {
+  height: 1.9rem;
+  width: auto;
+}
+
+/* ── Landing splash (full-bleed hero) ─────────────────────────────────
+   Rendered by overrides/home.html in place of the nav tab bar. Full width,
+   brand-green gradient; the page markdown (feature grid) sits below it. */
+.sf-splash {
+  background: linear-gradient(155deg,
+    var(--sf-green-deep) 0%, var(--sf-green) 55%, var(--sf-green-lm) 100%);
+  color: #fff;
+  padding: 3.6rem 1rem 3.2rem;
+  text-align: center;
+}
+.sf-splash__inner { max-width: 44rem; margin: 0 auto; }
+.sf-splash__logo {
+  width: 148px; height: auto;
+  filter: drop-shadow(0 .15rem .5rem rgba(0,0,0,.25));
+}
+.md-typeset .sf-splash__title {
+  color: #fff; font-weight: 800; font-size: 2.8rem;
+  line-height: 1.1; margin: .45rem 0 .15rem; border: 0;
+}
+.sf-splash__tagline {
+  font-size: 1.16rem; font-style: italic; opacity: .95; margin: 0 0 1rem;
+}
+.sf-splash__lead {
+  font-size: .9rem; line-height: 1.6; opacity: .92;
+  max-width: 38rem; margin: 0 auto 1.5rem;
+}
+.sf-splash__lead code {
+  background: rgba(255,255,255,.16); color: #fff;
+}
+.sf-splash__cta .md-button {
+  margin: .35rem .3rem 0; color: #fff; border-color: rgba(255,255,255,.65);
+}
+.sf-splash__cta .md-button:hover {
+  background: rgba(255,255,255,.16); border-color: #fff;
+}
+.sf-splash__cta .md-button--primary {
+  background: #fff; color: var(--sf-green-deep); border-color: #fff;
+}
+.sf-splash__cta .md-button--primary:hover {
+  background: color-mix(in srgb, #fff 88%, var(--sf-green-light));
+  color: var(--sf-green-deep);
+}
+/* Live registry badges under the splash CTAs (Docker pulls, image size, GHCR). */
+.sf-splash__badges {
+  display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
+  gap: .5rem; margin-top: 1.5rem;
+}
+.sf-splash__badges a { display: inline-flex; line-height: 0; }
+.sf-splash__badges img { height: 1.35rem; width: auto; }
+
+/* Feature grid sits directly under the splash — widen it and add breathing room. */
+.md-typeset .sf-features { margin-top: 2rem; }
+.md-main__inner:has(.sf-features) { margin-top: 0; }
+
+/* Feature grid: brand-tinted card borders, hover lift. */
+.md-typeset .sf-features.grid.cards > ul > li,
+.md-typeset .sf-features.grid > .card {
+  border-color: color-mix(in srgb, var(--sf-green) 30%, transparent);
+  transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.md-typeset .sf-features.grid.cards > ul > li:hover {
+  border-color: var(--sf-green);
+  box-shadow: 0 .2rem .6rem color-mix(in srgb, var(--sf-green) 22%, transparent);
+  transform: translateY(-2px);
+}
+
+/* Closing call-to-action strip under the feature grid. */
+.sf-hero-foot {
+  text-align: center;
+  margin: 2.5rem auto 1rem;
+  font-size: 1.05rem;
+}

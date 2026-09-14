@@ -1,0 +1,21 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Minimal
+#
+# Who: Solo dev, hobby project, just wants to build and push.
+# What: Builds a single Docker image and pushes it to one registry.
+# Build: Auto-detected Dockerfile, single platform.
+# Why: The smallest useful manifest — 10 lines, one image out the door.
+
+version: 1
+
+builds:
+  app:
+    kind: docker
+
+targets:
+  dockerhub:
+    kind: registry
+    build: app
+    url: docker.io
+    path: sofmeright/my-app
+    tags: ["{version}", latest]

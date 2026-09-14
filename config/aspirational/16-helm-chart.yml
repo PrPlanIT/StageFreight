@@ -1,0 +1,45 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Helm Chart / Infrastructure-as-Code
+#
+# Who: Teams publishing Helm charts, Terraform modules, Kustomize overlays,
+#      or any IaC that gets versioned and distributed.
+# What: Release notes on any git tag and security scanning of the repo.
+#       No container build — the chart/module is the artifact.
+# Build: None (container-wise).
+# Why: IaC repos need release notes and security scanning of embedded
+#      dependencies. Chart testing and publishing are future features.
+
+version: 1
+
+targets:
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   audit_deps: true
+#
+# license:
+#   compliance: true
+#
+# templates:
+#   golden_files: true
+#   gitignore: true
+#
+# docs:
+#   readme_inputs: true
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   test:
+#     sanity:
+#       - { name: lint, run: "helm lint charts/my-chart" }
+#       - { name: template, run: "helm template my-chart charts/my-chart --values tests/values-test.yaml" }
+#       - { name: kubeval, run: "helm template my-chart charts/my-chart | kubeval --strict" }
+#       - { name: package, run: "helm package charts/my-chart --destination dist/" }

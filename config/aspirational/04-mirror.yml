@@ -1,0 +1,22 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Mirror Declaration
+#
+# Who: Any repo that is a read-only mirror of a source-of-truth elsewhere.
+#      GitHub mirrors of GitLab repos, public mirrors of private repos, etc.
+# What: Placeholder manifest. Currently serves as documentation — the presence
+#       of this file signals "this repo is managed by StageFreight" even though
+#       the mirror_of directive is not yet implemented. When the daemon lands,
+#       this will tell StageFreight to never open MRs here, never push code
+#       here, and never treat this as a source.
+# Build: None — mirrors don't build, the source does.
+# Why: Reserves a manifest slot so the repo isn't treated as unmanaged when
+#      the daemon starts scanning. The daemon config (24) defines the actual
+#      push rules on the source side.
+
+version: 1
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# mirror_of: gitlab.prplanit.com/precisionplanit/my-project
+#
+# docs:
+#   readme_sync: [dockerhub]
