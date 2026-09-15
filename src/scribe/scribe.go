@@ -455,10 +455,15 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 			ctx = &facts.Context{Version: vi, RootDir: rootDir, Vars: appCfg.Vars, Config: appCfg}
 			resolved.Message = facts.BadgeRegistry().ResolveOne(def.Message, ctx)
 			resolved.Label = facts.BadgeRegistry().ResolveOne(def.Label, ctx)
+			// The raw-path form resolves facts too. Without this a shared preset cannot
+			// name the repository a live endpoint is about ({path.dockerhub}), so the
+			// only way to render a value like a pull count is to bake it into a committed
+			// SVG that then changes on every pipeline.
+			resolved.Shield = facts.BadgeRegistry().ResolveOne(def.Shield, ctx)
 		}
 		var shieldPath string
 		if def.Shield != "" {
-			shieldPath = gitver.ResolveVarsShields(def.Shield, appCfg.Vars)
+			shieldPath = gitver.ResolveVarsShields(resolved.Shield, appCfg.Vars)
 		} else {
 			shieldPath = composeShieldPath(resolved, appCfg.Vars)
 		}
