@@ -16,6 +16,7 @@ start tracking there.
 ### Priority
 
 - [ ] [Distro package version tracking](#freshness-p0-distro-package-version-tracking) — detect stale pinned apt/apk/yum packages in Dockerfiles (CRITICAL GAP)
+- [ ] [Fix CI cancellation race](../ci-cancellation-race.md) — narrate's badge commit auto-cancels in-flight pipelines; builds vanish with no failure reported
 - [ ] [Fix Bitnami rNN rebuild suffix bug](#freshness-known-bugs) — `normalizeFamily` produces `debian-r` not `debian`
 - [ ] [Fix isHexHash uppercase detection](#freshness-known-bugs) — only matches lowercase `[a-f0-9]`
 - [ ] [Fix release depth / precision mismatch](#freshness-known-bugs) — `redis:7` incorrectly matches `7.4.2`
