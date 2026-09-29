@@ -176,6 +176,8 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 
 	result.Duration = time.Since(start)
 
+	applyPlanCounts(result, refPlan)
+
 	if pushErr != nil && pushErr != git.NoErrAlreadyUpToDate {
 		result.Status = SyncFailed
 		result.Degraded = true
@@ -507,38 +509,17 @@ func classifyPushFailure(pushErr error, refPlan refPushPlan) (MirrorFailureReaso
 			"mirror refs diverged, kept: %s — set sync force to overwrite",
 			strings.Join(refPlan.diverged, ", "))
 	}
-	msg := sanitizeError(pushErr)
-	// go-git's opaque sentinels (notably plumbing.ErrObjectNotFound, whose text is the
-	// bare "object not found" with no hash or ref in it) name nothing a human can act
-	// on. Attach what the push was actually asked to do, so the failure is diagnosable
-	// from the job log instead of needing a local reproduction.
-	if reason := classifyGoGitFailure(pushErr); reason == MirrorUnknown {
-		return reason, msg + refPlanDetail(refPlan)
-	}
-	return classifyGoGitFailure(pushErr), msg
+	return classifyGoGitFailure(pushErr), sanitizeError(pushErr)
 }
 
-// refPlanDetail renders the push plan for an unclassifiable failure: how many refspecs
-// were attempted and a bounded sample, plus the prune/foreign counts. Bounded so a repo
-// with hundreds of refs does not flood the log.
-func refPlanDetail(plan refPushPlan) string {
-	if len(plan.specs) == 0 {
-		return ""
-	}
-	const sample = 8
-	shown := make([]string, 0, sample)
-	for i, sp := range plan.specs {
-		if i == sample {
-			break
-		}
-		shown = append(shown, sp.String())
-	}
-	more := ""
-	if len(plan.specs) > sample {
-		more = fmt.Sprintf(" (+%d more)", len(plan.specs)-sample)
-	}
-	return fmt.Sprintf(" — while pushing %d refspec(s): %s%s; %d pruned, %d foreign kept",
-		len(plan.specs), strings.Join(shown, ", "), more, len(plan.pruned), len(plan.foreign))
+// applyPlanCounts records the push plan on the result as counts. go-git's opaque
+// sentinels (notably plumbing.ErrObjectNotFound, whose text is the bare "object not
+// found" — no hash, no ref) name nothing actionable, so the plan is what makes such a
+// failure diagnosable. Counts only: a refspec LIST grows with the repo.
+func applyPlanCounts(result *MirrorResult, plan refPushPlan) {
+	result.Refspecs = len(plan.specs)
+	result.Pruned = len(plan.pruned)
+	result.Foreign = len(plan.foreign)
 }
 
 // classifyGoGitFailure performs best-effort classification of go-git errors.

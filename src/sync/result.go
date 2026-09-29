@@ -50,6 +50,13 @@ type MirrorResult struct {
 	Degraded      bool // true when mirror failed — accessory is diverged
 	FailureReason MirrorFailureReason
 	Message       string // sanitized human-readable message (never contains credentials)
+
+	// The push plan, as counts. Structured so the reporter renders fixed-width
+	// fields — a plan rendered as a list of refspecs grows with the repo and
+	// turns one scannable line into hundreds of characters.
+	Refspecs int // refspecs the push attempted
+	Pruned   int // remote-only refs the plan deletes
+	Foreign  int // remote refs outside the ownership boundary, left alone
 }
 
 // ReleaseResult reports the outcome of release projection to one accessory.

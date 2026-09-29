@@ -961,8 +961,8 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 			fmt.Fprintf(os.Stderr, "  scribe commit: read-only (%s)\n", rfResult.Reason)
 		default: // matched or ignore
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
-				Type:    appCfg.Scribe.Commit.Type,
-				Message: appCfg.Scribe.Commit.Message,
+				Type:     appCfg.Scribe.Commit.Type,
+				Message:  appCfg.Scribe.Commit.Message,
 				AddPaths: appCfg.Scribe.Commit.Add,
 				// OriginNarrate is the internal commit-origin marker for loop
 				// prevention; kept stable so existing auto-commits are still
@@ -1346,9 +1346,14 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	rootDir, _ := os.Getwd()
 
 	// Resolve mirrors from identity graph.
+	syncStart := time.Now()
+	var reports []syncMirrorReport
+
 	mirrors, err := config.ResolveAllMirrors(appCfg.Repos, appCfg.Forges, appCfg.Vars)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  sync: warning: could not resolve mirrors: %v\n", err)
+		rep := syncMirrorReport{id: "(resolve)"}
+		rep.add("failed", "mirrors", "could not resolve: %v", err)
+		renderSyncSection(os.Stdout, []syncMirrorReport{rep}, time.Since(syncStart), true)
 		return
 	}
 	if len(mirrors) == 0 {
@@ -1381,6 +1386,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			break
 		}
 	}
+	primaryWarn := ""
 	if hasReleaseSyncMirror {
 		primaryURL := config.PrimaryURL(appCfg)
 		if primaryURL != "" {
@@ -1392,10 +1398,10 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 				if listErr == nil {
 					primaryReleases = rels
 				} else {
-					fmt.Fprintf(os.Stderr, "  sync: warning: could not list primary releases: %v\n", listErr)
+					primaryWarn = fmt.Sprintf("could not list primary releases: %v", listErr)
 				}
 			} else {
-				fmt.Fprintf(os.Stderr, "  sync: warning: could not create primary forge client: %v\n", clientErr)
+				primaryWarn = fmt.Sprintf("could not create primary forge client: %v", clientErr)
 			}
 		}
 	}
@@ -1403,6 +1409,10 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	hasDegraded := false
 
 	for _, m := range mirrors {
+		rep := syncMirrorReport{id: m.ID}
+		if primaryWarn != "" {
+			rep.add("warning", "primary", "%s", primaryWarn)
+		}
 
 		// 1. Git mirror (if enabled)
 		//
@@ -1414,23 +1424,21 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		// at a tag the mirror does not yet have needs that tag pushed first, which
 		// fails as its own collected error rather than taking the whole facet down.
 		// Updating or adopting a release at a tag the mirror already has is unaffected.
-		gitDegraded := false
 		if m.Sync.SyncsGit() && readOnly {
-			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
+			rep.add("skipped", "refs", "read-only — would mirror push")
 		} else if m.Sync.SyncsGit() {
 			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx, rollingAliases, appCfg)
 			switch {
 			case err != nil:
-				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
-				hasDegraded, gitDegraded = true, true
+				rep.add("failed", "refs", "%v", err)
+				hasDegraded = true
 			case result.Status == stagefreightsync.SyncSuccess:
-				fmt.Printf("  sync: %s: mirror ✓ (%s)\n", m.ID, result.Duration.Truncate(100*time.Millisecond))
+				rep.add("success", "refs", "pushed in %s", result.Duration.Truncate(100*time.Millisecond))
+				rep.note("%-10s %s", "plan", planDetail(result.Refspecs, result.Pruned, result.Foreign))
 			default:
-				fmt.Fprintf(os.Stderr, "  sync: %s: mirror DEGRADED — %s: %s\n", m.ID, result.FailureReason, result.Message)
-				hasDegraded, gitDegraded = true, true
-			}
-			if gitDegraded && m.Sync.SyncsReleases() {
-				fmt.Fprintf(os.Stderr, "  sync: %s: continuing to releases — the ref push and the release API are independent\n", m.ID)
+				rep.add("warning", "refs", "DEGRADED — %s: %s", result.FailureReason, result.Message)
+				rep.note("%-10s %s", "plan", planDetail(result.Refspecs, result.Pruned, result.Foreign))
+				hasDegraded = true
 			}
 		}
 
@@ -1444,7 +1452,8 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 
 			mirrorClient, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, err)
+				rep.add("failed", "releases", "%v", err)
+				reports = append(reports, rep)
 				continue
 			}
 
@@ -1455,20 +1464,34 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			// foreign or one-off release is never created-over or deleted.
 			desiredRels, err := mirror.DesiredFromReleases(ctx, primaryClient, desired)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release desired-set error: %v\n", m.ID, err)
+				rep.add("failed", "releases", "desired set: %v", err)
+				reports = append(reports, rep)
 				continue
 			}
 			// Recover prerelease across the mirror: the primary forge (GitLab) has
 			// no native prerelease field, so r.Prerelease is always false — infer
 			// from the tag/notes as the notes-only path did.
+			//
+			// Resolve each tag to its COMMIT from the local worktree and carry it as
+			// Ref. A forge creating a release at a tag it does not yet hold will
+			// create that tag, and with no ref it anchors to the mirror's default
+			// branch HEAD — a release silently pointing at the wrong commit. Naming
+			// the commit makes a release correct even when the ref push has not
+			// landed it, rather than depending on push order.
 			for i := range desiredRels {
 				if !desiredRels[i].Prerelease {
 					desiredRels[i].Prerelease = resolveMirrorPrerelease(appCfg, desiredRels[i].Tag, desiredRels[i].Body)
 				}
+				if desiredRels[i].Ref == "" {
+					if sha, rErr := resolveTagCommit(worktree, desiredRels[i].Tag); rErr == nil {
+						desiredRels[i].Ref = sha
+					}
+				}
 			}
 
 			if readOnly {
-				fmt.Printf("  sync: %s: [read-only] would converge %d release(s) (prune=%v)\n", m.ID, len(desiredRels), spec.Prune)
+				rep.add("skipped", "releases", "read-only — would converge %d release(s) (prune=%v)", len(desiredRels), spec.Prune)
+				reports = append(reports, rep)
 				continue
 			}
 
@@ -1477,34 +1500,27 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 				PreserveAdopted: adoptionPreserver(rootDir, m.ID, os.Stdout),
 			})
 			if relErr != nil {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, relErr)
+				rep.add("failed", "releases", "%v", relErr)
+				reports = append(reports, rep)
 				continue
 			}
 			for _, e := range res.Errors {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, e)
+				rep.add("failed", "releases", "%v", e)
 			}
 			// Diagnostics are informational (unsupported source assets), NOT failures:
 			// disclosed here but they never mark the mirror degraded — the git mirror's
 			// success/failure is independent of release-projection asset/link outcomes.
 			for _, d := range res.Diagnostics {
-				fmt.Fprintf(os.Stderr, "  sync: %s: release note: %s\n", m.ID, d)
-			}
-			if len(res.Adopted) > 0 {
-				fmt.Printf("  sync: %s: release — %d previously unmanaged release(s) adopted: %s\n",
-					m.ID, len(res.Adopted), strings.Join(res.Adopted, ", "))
+				rep.add("warning", "releases", "%s", d)
 			}
 
-			created := len(res.Created) + len(res.Updated) + len(res.Adopted)
-			pruned := len(res.Pruned)
-			switch {
-			case created > 0 && pruned > 0:
-				fmt.Printf("  sync: %s: release ✓ (%d projected, %d pruned)\n", m.ID, created, pruned)
-			case created > 0:
-				fmt.Printf("  sync: %s: release ✓ (%d projected)\n", m.ID, created)
-			case pruned > 0:
-				fmt.Printf("  sync: %s: release ✓ (%d pruned)\n", m.ID, pruned)
-			default:
-				fmt.Printf("  sync: %s: release ✓ (in sync)\n", m.ID)
+			// Disjoint buckets that sum to the desired set: a reader must be able to
+			// add these up. An aggregate that re-counts a bucket already shown (e.g.
+			// "projected" folding in adopted) makes the row impossible to reconcile.
+			rep.add("success", "releases", "%d created · %d updated · %d adopted · %d in sync · %d pruned",
+				len(res.Created), len(res.Updated), len(res.Adopted), res.InSync, len(res.Pruned))
+			if len(res.Adopted) > 0 {
+				rep.note("%-10s %s", "adopted", capList(res.Adopted))
 			}
 		}
 
@@ -1516,23 +1532,23 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		if m.Sync.SyncsReleases() && !readOnly {
 			mc, rErr := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 			if rErr != nil {
-				fmt.Fprintf(os.Stderr, "  sync: %s: retention error: %v\n", m.ID, rErr)
+				rep.add("failed", "retention", "%v", rErr)
 			} else {
 				for _, o := range applyChannelRetention(ctx, appCfg, mc) {
 					switch {
 					case o.err != nil:
-						fmt.Fprintf(os.Stderr, "  sync: %s: retention (%s): %v\n", m.ID, o.id, o.err)
+						rep.add("failed", "retention", "%s: %v", o.id, o.err)
 					case len(o.res.Deleted) > 0:
-						fmt.Printf("  sync: %s: retention %s kept=%d pruned=%d\n", m.ID, o.id, o.res.Kept, len(o.res.Deleted))
+						rep.add("success", "retention", "%s  %d kept · %d pruned", o.id, o.res.Kept, len(o.res.Deleted))
 					}
 				}
 			}
 		}
+
+		reports = append(reports, rep)
 	}
 
-	if hasDegraded {
-		fmt.Fprintf(os.Stderr, "\n  ⚠ DEGRADED REPLICATION: one or more mirrors failed\n")
-	}
+	renderSyncSection(os.Stdout, reports, time.Since(syncStart), hasDegraded)
 }
 
 // LegacySyncOverlapsMirror returns true if a legacy sync target's provider

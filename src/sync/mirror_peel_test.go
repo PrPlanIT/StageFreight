@@ -319,29 +319,3 @@ func containsStr(xs []string, want string) bool {
 	}
 	return false
 }
-
-// An unclassifiable push failure must name what the push was attempting. go-git's
-// plumbing.ErrObjectNotFound renders as the bare string "object not found" — no hash,
-// no ref — so without the plan attached the job log says nothing actionable.
-func TestClassifyPushFailure_OpaqueErrorCarriesPlan(t *testing.T) {
-	plan := refPushPlan{
-		specs:   []gitconfig.RefSpec{"refs/heads/main:refs/heads/main", "refs/tags/v1.0.0:refs/tags/v1.0.0"},
-		pruned:  []string{"refs/tags/gone"},
-		foreign: []string{"refs/heads/contrib"},
-	}
-	reason, msg := classifyPushFailure(errors.New("object not found"), plan)
-	if reason != MirrorUnknown {
-		t.Fatalf("expected unknown, got %v", reason)
-	}
-	for _, want := range []string{"object not found", "2 refspec(s)", "refs/heads/main", "1 pruned", "1 foreign kept"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("message missing %q: %s", want, msg)
-		}
-	}
-
-	// A CLASSIFIED failure already names its cause — no plan noise appended.
-	_, authMsg := classifyPushFailure(errors.New("authentication required"), plan)
-	if strings.Contains(authMsg, "refspec(s)") {
-		t.Errorf("classified failure should not carry the plan dump: %s", authMsg)
-	}
-}
