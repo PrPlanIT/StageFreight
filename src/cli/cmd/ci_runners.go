@@ -1405,22 +1405,32 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	for _, m := range mirrors {
 
 		// 1. Git mirror (if enabled)
+		//
+		// A git-facet failure does NOT skip the releases facet below. They are
+		// independent transports — refs go over the git protocol, releases over the
+		// forge's REST API with their own client — and coupling them meant one broken
+		// ref push silently suppressed release convergence with no output saying so.
+		// The only real dependency is directional and per-release: CREATING a release
+		// at a tag the mirror does not yet have needs that tag pushed first, which
+		// fails as its own collected error rather than taking the whole facet down.
+		// Updating or adopting a release at a tag the mirror already has is unaffected.
+		gitDegraded := false
 		if m.Sync.SyncsGit() && readOnly {
 			fmt.Printf("  sync: %s: [read-only] would mirror push\n", m.ID)
 		} else if m.Sync.SyncsGit() {
 			result, err := stagefreightsync.MirrorPush(ctx, worktree, *m, refCtx, rollingAliases, appCfg)
-			if err != nil {
+			switch {
+			case err != nil:
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror error: %v\n", m.ID, err)
-				hasDegraded = true
-				continue // skip artifact sync for this mirror
-			}
-
-			if result.Status == stagefreightsync.SyncSuccess {
+				hasDegraded, gitDegraded = true, true
+			case result.Status == stagefreightsync.SyncSuccess:
 				fmt.Printf("  sync: %s: mirror ✓ (%s)\n", m.ID, result.Duration.Truncate(100*time.Millisecond))
-			} else {
+			default:
 				fmt.Fprintf(os.Stderr, "  sync: %s: mirror DEGRADED — %s: %s\n", m.ID, result.FailureReason, result.Message)
-				hasDegraded = true
-				continue
+				hasDegraded, gitDegraded = true, true
+			}
+			if gitDegraded && m.Sync.SyncsReleases() {
+				fmt.Fprintf(os.Stderr, "  sync: %s: continuing to releases — the ref push and the release API are independent\n", m.ID)
 			}
 		}
 
