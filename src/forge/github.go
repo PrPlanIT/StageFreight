@@ -160,17 +160,11 @@ func (g *GitHubForge) doJSON(ctx context.Context, method, url string, body inter
 	return nil
 }
 
-func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*Release, error) {
-	payload := map[string]interface{}{
-		"tag_name": opts.TagName,
-		"name":     opts.Name,
-		"body":     opts.Description,
-		"draft":    opts.Draft,
-	}
-	// Lower the semantic release type to GitHub's two native fields. make_latest is a
-	// string enum ("true"/"false"/"legacy"); we only send it to force or forbid Latest.
-	// Auto leaves it unset so GitHub applies its own default (legacy behavior preserved).
-	switch opts.Type {
+// lowerReleaseType writes the semantic release type into GitHub's two native fields.
+// make_latest is a string enum ("true"/"false"/"legacy"); we only send it to force or
+// forbid Latest. Auto leaves it unset so GitHub applies its own default.
+func lowerReleaseType(payload map[string]interface{}, t ReleaseType) {
+	switch t {
 	case ReleaseTypePrerelease:
 		payload["prerelease"] = true
 	case ReleaseTypeLatest:
@@ -179,6 +173,16 @@ func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*
 	default: // ReleaseTypeAuto
 		payload["prerelease"] = false
 	}
+}
+
+func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*Release, error) {
+	payload := map[string]interface{}{
+		"tag_name": opts.TagName,
+		"name":     opts.Name,
+		"body":     opts.Description,
+		"draft":    opts.Draft,
+	}
+	lowerReleaseType(payload, opts.Type)
 	if opts.Ref != "" {
 		payload["target_commitish"] = opts.Ref
 	}
@@ -700,6 +704,8 @@ func (g *GitHubForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID
 	return g.doJSON(ctx, "DELETE", g.apiURL("/releases/assets/"+assetID), nil, nil)
 }
 
-func (g *GitHubForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
-	return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), map[string]any{"body": body}, nil)
+func (g *GitHubForge) UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error {
+	payload := map[string]interface{}{"name": meta.Name, "body": meta.Description}
+	lowerReleaseType(payload, meta.Type)
+	return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), payload, nil)
 }

@@ -1470,11 +1470,12 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			for _, d := range res.Diagnostics {
 				fmt.Fprintf(os.Stderr, "  sync: %s: release note: %s\n", m.ID, d)
 			}
-			if len(res.SkippedForeign) > 0 {
-				fmt.Printf("  sync: %s: release — %d foreign release(s) left untouched\n", m.ID, len(res.SkippedForeign))
+			if len(res.Adopted) > 0 {
+				fmt.Printf("  sync: %s: release — %d previously unmanaged release(s) adopted: %s\n",
+					m.ID, len(res.Adopted), strings.Join(res.Adopted, ", "))
 			}
 
-			created := len(res.Created) + len(res.Updated)
+			created := len(res.Created) + len(res.Updated) + len(res.Adopted)
 			pruned := len(res.Pruned)
 			switch {
 			case created > 0 && pruned > 0:

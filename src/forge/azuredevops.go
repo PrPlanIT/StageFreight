@@ -338,6 +338,6 @@ func (a *AzureDevOpsForge) DownloadReleaseAsset(ctx context.Context, asset Relea
 func (a *AzureDevOpsForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
 	return ErrNotSupported
 }
-func (a *AzureDevOpsForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+func (a *AzureDevOpsForge) UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error {
 	return ErrNotSupported
 }

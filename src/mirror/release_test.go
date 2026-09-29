@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,9 +69,10 @@ func (f *fakeForge) DeleteRelease(_ context.Context, tag string) error {
 	delete(f.rels, tag)
 	return nil
 }
-func (f *fakeForge) UpdateReleaseNotes(_ context.Context, id, body string) error {
+func (f *fakeForge) UpdateRelease(_ context.Context, id string, meta forge.ReleaseMeta) error {
 	if r := f.findByID(id); r != nil {
-		r.body = body
+		r.name, r.body = meta.Name, meta.Description
+		r.prerelease = meta.Type == forge.ReleaseTypePrerelease
 		return nil
 	}
 	return fmt.Errorf("no release %s", id)
@@ -232,23 +234,37 @@ func TestReconcile_GranularAssetDrift(t *testing.T) {
 	}
 }
 
-// Foreign untouched: a human-authored mirror release (no marker) with a desired
-// tag is NEVER modified — and NEVER pruned.
-func TestReconcile_ForeignUntouched(t *testing.T) {
+// Adoption: an unmarked release sitting on a tag config DECLARES ours is brought
+// under management rather than skipped forever. This is the bug that let a release
+// created outside the mirror path (no marker) go stale permanently — the mirror
+// reported success while never touching it again.
+func TestReconcile_AdoptsUnmarkedInScope(t *testing.T) {
 	src, dst := newFake("src"), newFake("dst")
-	// human made this on the mirror directly — no SF marker
-	dst.CreateRelease(context.Background(), forge.ReleaseOptions{TagName: "v1.0.0", Name: "human", Description: "HAND-WRITTEN"})
+	// created on the mirror by some other path — no SF marker
+	dst.CreateRelease(context.Background(), forge.ReleaseOptions{TagName: "v1.0.0", Name: "stale", Description: "OLD BODY"})
 	d := srcRelease(src, "v1.0.0", "sf notes", map[string][]byte{"a": []byte("A")})
 
 	res := reconcile(t, src, dst, []DesiredRelease{d}, Options{Prune: true})
-	if len(res.SkippedForeign) != 1 {
-		t.Fatalf("expected foreign skip, got %+v", res)
+	if len(res.Adopted) != 1 || res.Adopted[0] != "v1.0.0" {
+		t.Fatalf("expected adoption, got %+v", res)
 	}
-	if dst.rels["v1.0.0"].body != "HAND-WRITTEN" {
-		t.Fatal("clobbered a human release")
+	if len(res.Updated) != 0 {
+		t.Fatalf("adoption must not be reported as a plain update: %+v", res)
 	}
-	if len(dst.rels["v1.0.0"].assets) != 0 {
-		t.Fatal("uploaded into a foreign release")
+	got := dst.rels["v1.0.0"]
+	if !strings.Contains(got.body, "sf notes") {
+		t.Fatalf("adopted release not converged: %q", got.body)
+	}
+	if _, ours := readMarker(got.body); !ours {
+		t.Fatal("adopted release left unmarked — it would be re-adopted every run")
+	}
+	if len(got.assets) != 1 {
+		t.Fatalf("assets not re-hosted into the adopted release: %d", len(got.assets))
+	}
+	// Second pass must be a no-op: adoption is idempotent, not a permanent churn loop.
+	res2 := reconcile(t, src, dst, []DesiredRelease{d}, Options{Prune: true})
+	if len(res2.Adopted) != 0 || res2.InSync != 1 {
+		t.Fatalf("re-adopted on second pass, expected in-sync: %+v", res2)
 	}
 }
 

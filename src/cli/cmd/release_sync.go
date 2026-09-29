@@ -146,10 +146,11 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 		for _, tag := range res.Pruned {
 			sec.Row("  %s %s (pruned)", output.StatusIcon("success", color), tag)
 		}
-		// Foreign releases (no SF marker — a one-off or another dev's) are left
-		// exactly as-is. Surfaced so a human can see what SF declined to manage.
-		for _, tag := range res.SkippedForeign {
-			sec.Row("  %s %s (foreign — left untouched)", output.StatusIcon("skipped", color), tag)
+		// An in-scope tag that already held an unmarked release — brought under
+		// management. Called out separately from an update because it is the one
+		// moment SF replaces content it did not write.
+		for _, tag := range res.Adopted {
+			sec.Row("  %s %s → %s/%s (adopted — was unmanaged)", output.StatusIcon("success", color), tag, m.Provider, m.Project)
 		}
 		for _, e := range res.Errors {
 			sec.Row("  %s %v", output.StatusIcon("failed", color), e)
@@ -157,8 +158,8 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 		if res.InSync > 0 {
 			sec.Row("  %s %d already in sync", output.StatusIcon("success", color), res.InSync)
 		}
-		totalCreated += len(res.Created) + len(res.Updated) + len(res.Pruned)
-		totalSkipped += res.InSync + len(res.SkippedForeign)
+		totalCreated += len(res.Created) + len(res.Updated) + len(res.Pruned) + len(res.Adopted)
+		totalSkipped += res.InSync
 		totalFailed += len(res.Errors)
 	}
 

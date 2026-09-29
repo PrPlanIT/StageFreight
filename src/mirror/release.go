@@ -33,7 +33,7 @@ type releaseForge interface {
 	ListReleaseAssets(ctx context.Context, releaseID string) ([]forge.ReleaseAsset, error)
 	DownloadReleaseAsset(ctx context.Context, asset forge.ReleaseAsset) (io.ReadCloser, error)
 	DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error
-	UpdateReleaseNotes(ctx context.Context, releaseID, body string) error
+	UpdateRelease(ctx context.Context, releaseID string, meta forge.ReleaseMeta) error
 }
 
 // DesiredRelease is one release the mirror should hold. Body is verbatim from
@@ -81,12 +81,12 @@ type Options struct {
 
 // Result reports what the reconcile did (all counts/lists are mirror-side).
 type Result struct {
-	Created        []string
-	Updated        []string
-	Pruned         []string
-	InSync         int      // skipped via fingerprint fast-path
-	SkippedForeign []string // in-scope tag exists but is not ours — left untouched
-	Errors         []error
+	Created  []string
+	Updated  []string
+	Pruned   []string
+	InSync   int      // skipped via fingerprint fast-path
+	Adopted  []string // in-scope tag existed unmarked — converged and marked as ours
+	Errors   []error
 	// Diagnostics are non-fatal notes surfaced separately from Errors — e.g. a source
 	// asset that is neither a downloadable file nor an external link, disclosed instead of
 	// silently 404-ing or being uploaded as a pretend-file.
@@ -95,8 +95,14 @@ type Result struct {
 
 // ── provenance marker ────────────────────────────────────────────────────
 // SF wraps the content it owns in a marked block; the start marker carries the
-// content fingerprint. Presence of the marker = "this release is ours". Human
-// prose OUTSIDE the block is preserved across updates.
+// content fingerprint. The marker is EVIDENCE of what we last wrote — never the
+// authority to write. Authority is the declared tag scope: a tag in the desired
+// set is one config says is ours, so an unmarked release sitting there is ADOPTED
+// (converged and marked), not skipped. Treating the marker as authority is what
+// froze a release created outside this path — it could never be updated again.
+// Ownership still stops at the scope boundary: a tag outside the desired set is
+// neither updated nor pruned. Human prose OUTSIDE the block is preserved across
+// updates once the release is marked.
 
 const markerPrefix = "<!-- sf:mirror fp="
 const markerOpenEnd = " -->"
@@ -140,10 +146,14 @@ func replaceManaged(existing, body, fp string) string {
 	return before + wrapManaged(body, fp) + after
 }
 
-// fingerprint hashes the body + each asset's identity (digest, or name+size as a
-// fallback). Deterministic (assets sorted by name). Forge-independent.
-func fingerprint(body string, assets []DesiredAsset, links []DesiredLink) string {
+// fingerprint hashes everything the reconciler converges — name, channel, body and
+// each asset's identity (digest, or name+size as a fallback) — so drift in ANY of
+// them trips an update. A fingerprint narrower than the converged surface is a
+// fast-path that reports in-sync while the mirror is wrong. Deterministic (assets
+// sorted by name). Forge-independent.
+func fingerprint(name string, prerelease bool, body string, assets []DesiredAsset, links []DesiredLink) string {
 	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%t\x00", name, prerelease)
 	h.Write([]byte(body))
 	sorted := append([]DesiredAsset{}, assets...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
@@ -195,7 +205,7 @@ func ReconcileReleases(ctx context.Context, src, dst releaseForge, desired []Des
 		res.Diagnostics = append(res.Diagnostics, d.Diagnostics...)
 		fp := d.Fingerprint
 		if fp == "" {
-			fp = fingerprint(d.Body, d.Assets, d.Links)
+			fp = fingerprint(d.Name, d.Prerelease, d.Body, d.Assets, d.Links)
 		}
 
 		m, exists := byTag[d.Tag]
@@ -208,20 +218,21 @@ func ReconcileReleases(ctx context.Context, src, dst releaseForge, desired []Des
 			continue
 		}
 
-		// Exists — provenance gate: never touch a release we didn't place.
+		// Exists, and the tag is in the desired set — so config declares it ours.
+		// The marker only says whether we have written here before: it selects the
+		// fast-path and distinguishes an update from an adoption. It never grants or
+		// withholds permission.
 		stored, ours := readMarker(m.Description)
-		if !ours {
-			res.SkippedForeign = append(res.SkippedForeign, d.Tag)
-			continue
-		}
-		if stored == fp {
+		if ours && stored == fp {
 			res.InSync++ // fingerprint fast-path: already converged
 			continue
 		}
 		if err := updateOnMirror(ctx, src, dst, d, m, fp); err != nil {
 			res.Errors = append(res.Errors, fmt.Errorf("update %s: %w", d.Tag, err))
-		} else {
+		} else if ours {
 			res.Updated = append(res.Updated, d.Tag)
+		} else {
+			res.Adopted = append(res.Adopted, d.Tag)
 		}
 	}
 
@@ -264,10 +275,15 @@ func createOnMirror(ctx context.Context, src, dst releaseForge, d DesiredRelease
 	return reconcileLinks(ctx, dst, rel.ID, d.Links)
 }
 
+// updateOnMirror converges the release's whole mutable surface — name, channel and
+// notes — not just the notes. Leaving name/channel out meant a release that flipped
+// prerelease→latest upstream stayed wrong on the mirror forever, with the pass
+// reporting success.
 func updateOnMirror(ctx context.Context, src, dst releaseForge, d DesiredRelease, m forge.ReleaseInfo, fp string) error {
 	newBody := replaceManaged(m.Description, d.Body, fp)
-	if newBody != m.Description {
-		if err := dst.UpdateReleaseNotes(ctx, m.ID, newBody); err != nil {
+	if newBody != m.Description || d.Name != m.Name || d.Prerelease != m.Prerelease {
+		meta := forge.ReleaseMeta{Name: d.Name, Description: newBody, Type: relType(d.Prerelease)}
+		if err := dst.UpdateRelease(ctx, m.ID, meta); err != nil {
 			return err
 		}
 	}

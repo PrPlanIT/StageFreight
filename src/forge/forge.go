@@ -148,9 +148,19 @@ type Forge interface {
 	// platform asset id — used to replace a drifted asset before re-uploading.
 	DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error
 
-	// UpdateReleaseNotes replaces a release's body (markdown) — used to converge
-	// notes and the provenance/fingerprint marker.
-	UpdateReleaseNotes(ctx context.Context, releaseID, body string) error
+	// UpdateRelease converges an existing release's mutable metadata — name, body
+	// (markdown) and semantic type. Identity (tag, ref) is never touched: that is
+	// what the release IS, not what it says. Fields left zero are still sent, so a
+	// caller converging a release supplies the whole intended state, not a delta.
+	UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error
+}
+
+// ReleaseMeta is the mutable half of a release — everything a reconciler may
+// converge without changing which commit the release names.
+type ReleaseMeta struct {
+	Name        string
+	Description string      // markdown body (release notes)
+	Type        ReleaseType // semantic intent; each forge lowers it to native flags
 }
 
 // Factory creates Forge instances for target repos.

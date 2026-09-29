@@ -540,6 +540,6 @@ func (g *GiteaForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAsse
 func (g *GiteaForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
 	return ErrNotSupported
 }
-func (g *GiteaForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+func (g *GiteaForge) UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error {
 	return ErrNotSupported
 }

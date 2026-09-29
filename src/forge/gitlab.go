@@ -749,7 +749,10 @@ func (g *GitLabForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID
 		g.apiURL(fmt.Sprintf("/releases/%s/assets/links/%s", url.PathEscape(releaseID), assetID)), nil, nil)
 }
 
-func (g *GitLabForge) UpdateReleaseNotes(ctx context.Context, releaseID, body string) error {
+// UpdateRelease converges name and description. GitLab Releases carry no native
+// prerelease/latest flag, so meta.Type has nothing to lower onto — the channel is
+// expressed by the tag itself.
+func (g *GitLabForge) UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error {
 	return g.doJSON(ctx, "PUT", g.apiURL("/releases/"+url.PathEscape(releaseID)),
-		map[string]any{"description": body}, nil)
+		map[string]any{"name": meta.Name, "description": meta.Description}, nil)
 }
