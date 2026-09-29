@@ -1339,6 +1339,12 @@ func syncMirrors(ctx context.Context, appCfg *config.Config) {
 }
 
 func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bool) {
+	// Adoption artifacts land under the workspace namespace in the project dir — the
+	// only location a CI job can collect, and one the namespace .gitignore denies by
+	// default. An unresolvable cwd leaves it empty, which the preserver handles by
+	// falling back to the job log.
+	rootDir, _ := os.Getwd()
+
 	// Resolve mirrors from identity graph.
 	mirrors, err := config.ResolveAllMirrors(appCfg.Repos, appCfg.Forges, appCfg.Vars)
 	if err != nil {
@@ -1456,7 +1462,10 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 				continue
 			}
 
-			res, relErr := mirror.ReconcileReleases(ctx, primaryClient, mirrorClient, desiredRels, mirror.Options{Prune: spec.Prune})
+			res, relErr := mirror.ReconcileReleases(ctx, primaryClient, mirrorClient, desiredRels, mirror.Options{
+				Prune:           spec.Prune,
+				PreserveAdopted: adoptionPreserver(rootDir, m.ID, os.Stdout),
+			})
 			if relErr != nil {
 				fmt.Fprintf(os.Stderr, "  sync: %s: release error: %v\n", m.ID, relErr)
 				continue

@@ -131,7 +131,10 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		res, err := mirror.ReconcileReleases(ctx, primaryClient, mirrorClient, desired, mirror.Options{Prune: prune})
+		res, err := mirror.ReconcileReleases(ctx, primaryClient, mirrorClient, desired, mirror.Options{
+			Prune:           prune,
+			PreserveAdopted: adoptionPreserver(rootDir, m.ID, w),
+		})
 		if err != nil {
 			sec.Row("%s mirror:%s — %v", output.StatusIcon("failed", color), m.ID, err)
 			totalFailed++

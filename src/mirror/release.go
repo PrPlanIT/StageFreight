@@ -77,6 +77,14 @@ type DesiredAsset struct {
 type Options struct {
 	Prune   bool
 	InScope func(tag string) bool
+
+	// PreserveAdopted is called with the mirror's CURRENT release, once, immediately
+	// before an unmarked in-scope release is overwritten by adoption. Adoption is the
+	// only step that replaces content SF did not write, so it is also the only one that
+	// can lose something — this is the hook that makes it recoverable. Returning an
+	// error ABORTS that adoption: what cannot be preserved is not destroyed. Nil skips
+	// preservation entirely (the caller accepts the loss).
+	PreserveAdopted func(tag string, prior forge.ReleaseInfo) error
 }
 
 // Result reports what the reconcile did (all counts/lists are mirror-side).
@@ -226,6 +234,13 @@ func ReconcileReleases(ctx context.Context, src, dst releaseForge, desired []Des
 		if ours && stored == fp {
 			res.InSync++ // fingerprint fast-path: already converged
 			continue
+		}
+		if !ours && opts.PreserveAdopted != nil {
+			if err := opts.PreserveAdopted(d.Tag, m); err != nil {
+				// Fail closed: an adoption we cannot make recoverable is not performed.
+				res.Errors = append(res.Errors, fmt.Errorf("adopt %s: refusing to overwrite unmanaged release, could not preserve it: %w", d.Tag, err))
+				continue
+			}
 		}
 		if err := updateOnMirror(ctx, src, dst, d, m, fp); err != nil {
 			res.Errors = append(res.Errors, fmt.Errorf("update %s: %w", d.Tag, err))

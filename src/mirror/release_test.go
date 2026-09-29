@@ -407,3 +407,51 @@ func TestReconcile_SameTagRepushPropagates(t *testing.T) {
 		t.Fatalf("asset not replaced: %q", got.assets["sf"].data)
 	}
 }
+
+// Adoption is the only step that overwrites content SF did not write, so it must be
+// recoverable: the prior release is handed to PreserveAdopted BEFORE the overwrite,
+// and if preservation fails the adoption does not happen at all. What cannot be
+// preserved is not destroyed.
+func TestReconcile_AdoptionPreservesPriorRelease(t *testing.T) {
+	src, dst := newFake("src"), newFake("dst")
+	dst.CreateRelease(context.Background(), forge.ReleaseOptions{
+		TagName: "v1.0.0", Name: "hand-written", Description: "IRREPLACEABLE PROSE"})
+	d := srcRelease(src, "v1.0.0", "sf notes", map[string][]byte{"a": []byte("A")})
+
+	// ── preservation fails → adoption is refused, mirror untouched ──
+	// (called directly: the reconcile helper fails the test on any collected error,
+	// and a collected error is precisely what this case asserts.)
+	res, err := ReconcileReleases(context.Background(), src, dst, []DesiredRelease{d}, Options{
+		PreserveAdopted: func(string, forge.ReleaseInfo) error { return fmt.Errorf("disk full") },
+	})
+	if err != nil {
+		t.Fatalf("reconcile aborted: %v", err)
+	}
+	if len(res.Adopted) != 0 {
+		t.Fatalf("adopted despite failed preservation: %+v", res)
+	}
+	if len(res.Errors) != 1 {
+		t.Fatalf("expected one refusal error, got %+v", res.Errors)
+	}
+	if got := dst.rels["v1.0.0"].body; got != "IRREPLACEABLE PROSE" {
+		t.Fatalf("destroyed an unpreservable release: %q", got)
+	}
+
+	// ── preservation succeeds → adoption proceeds, and the hook saw the PRIOR state ──
+	var seenTag, seenName, seenBody string
+	res = reconcile(t, src, dst, []DesiredRelease{d}, Options{
+		PreserveAdopted: func(tag string, prior forge.ReleaseInfo) error {
+			seenTag, seenName, seenBody = tag, prior.Name, prior.Description
+			return nil
+		},
+	})
+	if len(res.Adopted) != 1 {
+		t.Fatalf("expected adoption once preservation succeeded: %+v", res)
+	}
+	if seenTag != "v1.0.0" || seenName != "hand-written" || seenBody != "IRREPLACEABLE PROSE" {
+		t.Fatalf("hook did not receive the prior release: tag=%q name=%q body=%q", seenTag, seenName, seenBody)
+	}
+	if !strings.Contains(dst.rels["v1.0.0"].body, "sf notes") {
+		t.Fatal("adoption did not converge after preservation")
+	}
+}
