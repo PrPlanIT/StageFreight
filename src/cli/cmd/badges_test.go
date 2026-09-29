@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
 
 // TestHasConfiguredBadges gates the narrate badges producer: a project with no badges
@@ -87,5 +88,55 @@ func TestPruneOrphanBadgesRefusesEmptyWrittenSet(t *testing.T) {
 	}
 	if _, err := os.Stat(p); err != nil {
 		t.Errorf("build.svg was removed on an empty run: %v", err)
+	}
+}
+
+// {env:BUILD_STATUS} and {env:BUILD_DATE} only exist inside the pipeline. Running
+// scribe apply anywhere else resolves them to nothing, and writing that would turn a
+// "passing" badge into "n/a" — silently, and committed by the next docs commit. The
+// unresolved value must not displace one that was resolved where it could be.
+func TestUnresolvedValueDoesNotOverwriteExistingBadge(t *testing.T) {
+	spec := config.BadgeSpec{Value: "{env:BUILD_STATUS}"}
+	if !postbuild.ValueUnresolved(spec, "{env:BUILD_STATUS}") {
+		t.Error("an unsubstituted token should read as unresolved")
+	}
+	if !postbuild.ValueUnresolved(spec, "") {
+		t.Error("an empty value should read as unresolved")
+	}
+	if postbuild.ValueUnresolved(spec, "passing") {
+		t.Error("a real value should not read as unresolved")
+	}
+	// A {{…}} literal keeps its braces on purpose — the dev-{sha} scheme names a tag
+	// rather than resolving one, so it is a value, not a failure.
+	lit := config.BadgeSpec{Value: "dev-{{sha}}"}
+	if postbuild.ValueUnresolved(lit, "dev-{sha}") {
+		t.Error("an intentional {{…}} literal must not read as unresolved")
+	}
+}
+
+// A held badge is still a badge this config declares, so pruning must not treat it as
+// an orphan. Holding and pruning together would otherwise delete exactly the artifact
+// the hold was protecting.
+func TestHeldBadgeSurvivesPruning(t *testing.T) {
+	dir := t.TempDir()
+	held := filepath.Join(dir, "build.svg")
+	if err := os.WriteFile(held, []byte("<svg>passing</svg>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(dir, "gone.svg")
+	if err := os.WriteFile(orphan, []byte("<svg/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// held paths are included in the written set by the generator
+	pruned, err := pruneOrphanBadges([]string{held})
+	if err != nil {
+		t.Fatalf("pruneOrphanBadges: %v", err)
+	}
+	if len(pruned) != 1 || pruned[0] != orphan {
+		t.Fatalf("pruned = %v, want [%s]", pruned, orphan)
+	}
+	b, err := os.ReadFile(held)
+	if err != nil || string(b) != "<svg>passing</svg>" {
+		t.Fatalf("held badge was not preserved: %v %q", err, string(b))
 	}
 }

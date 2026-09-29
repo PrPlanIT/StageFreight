@@ -159,6 +159,18 @@ func ResolveBadgeValues(ctx context.Context, specs []config.BadgeSpec, vi *gitve
 	})
 }
 
+// ValueUnresolved reports whether a resolved badge value is really a failure to
+// resolve: empty, or still carrying a "{" from a template that found no fact. A
+// {{…}} literal in the spec is exempt, because there the brace is the point (the
+// "dev-{sha}" scheme names a tag rather than resolving one).
+//
+// Exported so writers can distinguish "this badge says n/a" from "this badge could
+// not be computed here" — the second is not a value worth persisting over one that
+// was.
+func ValueUnresolved(spec config.BadgeSpec, value string) bool {
+	return value == "" || (!strings.Contains(spec.Value, "{{") && strings.Contains(value, "{"))
+}
+
 // RenderBadgeSVG applies the empty/unresolved-value guard, resolves the badge's color,
 // and renders its SVG — the shared per-item generation both badge generators use (the CI
 // post-build hook and the CLI). They differ only in the auto-color source: the CI hook
@@ -167,7 +179,7 @@ func ResolveBadgeValues(ctx context.Context, specs []config.BadgeSpec, vi *gitve
 // Guard: a value with a leftover "{" means a template didn't resolve → "n/a", UNLESS the
 // spec used a {{…}} literal (then the "{" is intentional, e.g. a "dev-{sha}" scheme).
 func RenderBadgeSVG(eng *badge.Engine, spec config.BadgeSpec, value, statusColorSource string) (svg, color string) {
-	if value == "" || (!strings.Contains(spec.Value, "{{") && strings.Contains(value, "{")) {
+	if ValueUnresolved(spec, value) {
 		value = "n/a"
 	}
 	color = spec.Color

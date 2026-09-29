@@ -98,7 +98,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
-	var written []string
+	var written, held []string
 	updated, unchanged := 0, 0
 
 	for i, item := range items {
@@ -118,6 +118,22 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 
 		if err := os.MkdirAll(filepath.Dir(spec.Output), 0o755); err != nil {
 			return fmt.Errorf("creating badge directory for %s: %w", item.LabelOrID(), err)
+		}
+
+		// A fact that could not be resolved here must not overwrite one that was
+		// resolved somewhere it could be. {env:BUILD_STATUS} and friends only exist
+		// inside the pipeline, so running this command anywhere else would otherwise
+		// rewrite a "passing" badge to "n/a" — silently, and committed by the next
+		// docs commit. Hold the existing artifact instead and say so.
+		//
+		// Only when one already exists: a badge that has never been generated still
+		// gets its n/a, because a missing file is a broken image in every README.
+		if postbuild.ValueUnresolved(spec, resolvedValues[i]) {
+			if _, statErr := os.Stat(spec.Output); statErr == nil {
+				written = append(written, spec.Output)
+				held = append(held, spec.Output)
+				continue
+			}
 		}
 		// Write only when the content actually changed — an unchanged badge must
 		// not rewrite the file, or it churns a no-op commit. (Reproducible output,
@@ -185,6 +201,10 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 			state = output.StatusIcon("success", useColor) // ✓ updated
 		}
 		sec.Row("%s %-16s%-24s %-8s %.0fpt  %s", state, r.Name, r.Out, r.Font, r.Size, r.Color)
+	}
+	for _, p := range held {
+		sec.Row("%s %-16s%-24s unresolved here — kept the existing badge",
+			output.StatusIcon("skipped", useColor), "held", p)
 	}
 	for _, p := range pruned {
 		sec.Row("%s %-16s%-24s orphaned — no stencil declares it",
