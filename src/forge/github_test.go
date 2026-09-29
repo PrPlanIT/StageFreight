@@ -126,3 +126,74 @@ func TestGitHubDeleteRelease_PublishedFastPath(t *testing.T) {
 		t.Errorf("deleted path = %q, want /releases/42", deletedPath)
 	}
 }
+
+// Re-publishing a tag must update the release that already exists, not fail. GitHub
+// answers a POST for an existing tag with 422 already_exists, and the caller turned
+// that into a hard error — so a re-pushed release never refreshed its notes, never
+// uploaded its assets, and never moved Latest. That is how a repo keeps showing an
+// old version as Latest while newer releases sit below it.
+func TestGitHubCreateRelease_UpdatesExistingOnConflict(t *testing.T) {
+	var patched string
+	var patchBody map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/releases"):
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"resource":"Release","code":"already_exists","field":"tag_name"}]}`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/releases/tags/"):
+			_, _ = w.Write([]byte(`{"id":4242,"html_url":"https://github.com/o/r/releases/tag/v1.2.3"}`))
+		case r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/releases/"):
+			patched = r.URL.Path
+			_ = json.NewDecoder(r.Body).Decode(&patchBody)
+			_, _ = w.Write([]byte(`{"id":4242,"html_url":"https://github.com/o/r/releases/tag/v1.2.3"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	g := &GitHubForge{BaseURL: srv.URL, Token: "t", Owner: "o", Repo: "r"}
+	rel, err := g.CreateRelease(context.Background(), ReleaseOptions{
+		TagName: "v1.2.3", Name: "v1.2.3", Description: "refreshed notes",
+		Type: ReleaseTypeLatest, Ref: "abc123",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelease on existing tag: %v — a re-push must update, not fail", err)
+	}
+	if rel == nil || rel.ID != "4242" {
+		t.Fatalf("release = %+v, want the existing release id 4242", rel)
+	}
+	if !strings.HasSuffix(patched, "/releases/4242") {
+		t.Fatalf("patched path = %q, want /releases/4242", patched)
+	}
+	if patchBody["body"] != "refreshed notes" {
+		t.Errorf("notes were not refreshed: body = %v", patchBody["body"])
+	}
+	if patchBody["make_latest"] != "true" {
+		t.Errorf("make_latest = %v, want \"true\" — Latest must move to the re-published release", patchBody["make_latest"])
+	}
+	// tag_name and target_commitish are immutable on an existing release; sending them
+	// is at best ignored and at worst rejected.
+	if _, ok := patchBody["tag_name"]; ok {
+		t.Error("update payload carried tag_name; it must not be re-sent")
+	}
+	if _, ok := patchBody["target_commitish"]; ok {
+		t.Error("update payload carried target_commitish; it must not be re-sent")
+	}
+}
+
+// A 422 that is not an already-exists conflict must still fail. Swallowing every
+// validation error would hide real misconfiguration behind a lookup that then 404s.
+func TestGitHubCreateRelease_OtherValidationErrorStillFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"resource":"Release","code":"invalid","field":"tag_name"}]}`))
+	}))
+	defer srv.Close()
+
+	g := &GitHubForge{BaseURL: srv.URL, Token: "t", Owner: "o", Repo: "r"}
+	if _, err := g.CreateRelease(context.Background(), ReleaseOptions{TagName: "bad tag"}); err == nil {
+		t.Fatal("CreateRelease returned nil error for a non-conflict 422")
+	}
+}

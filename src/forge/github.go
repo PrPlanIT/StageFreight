@@ -190,6 +190,14 @@ func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*
 
 	err := g.doJSON(ctx, "POST", g.apiURL("/releases"), payload, &resp)
 	if err != nil {
+		// A tag that already has a release is a re-publish, not a failure. GitHub
+		// answers 422 already_exists; the release is then updated in place so the
+		// notes refresh, the assets upload against it, and Latest moves. Returning
+		// the error instead left the old release untouched and the new one absent,
+		// which is how a repo goes on showing a superseded version as Latest.
+		if isReleaseExistsConflict(err) {
+			return g.updateReleaseByTag(ctx, opts.TagName, payload)
+		}
 		return nil, err
 	}
 
@@ -197,6 +205,55 @@ func (g *GitHubForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*
 		ID:  fmt.Sprintf("%d", resp.ID),
 		URL: resp.HTMLURL,
 	}, nil
+}
+
+// isReleaseExistsConflict reports whether an error is GitHub refusing to create a
+// second release for a tag that already has one. Narrow on purpose: any other 422 is
+// a real validation failure (a malformed tag, a missing commitish) and must surface,
+// because the lookup that follows would only 404 and bury it.
+func isReleaseExistsConflict(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	return strings.Contains(apiErr.Body, "already_exists")
+}
+
+// updateReleaseByTag resolves the release already published for a tag and patches it
+// with this run's payload.
+//
+// tag_name and target_commitish are dropped: both are fixed once a release exists, and
+// re-sending them is at best ignored and at worst rejected. Everything that describes
+// the release rather than identifies it — name, body, draft, prerelease, make_latest —
+// is what a re-publish is for.
+func (g *GitHubForge) updateReleaseByTag(ctx context.Context, tag string, payload map[string]interface{}) (*Release, error) {
+	var existing struct {
+		ID      int    `json:"id"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/releases/tags/"+tag), nil, &existing); err != nil {
+		return nil, fmt.Errorf("release %s exists but could not be read back: %w", tag, err)
+	}
+
+	update := make(map[string]interface{}, len(payload))
+	for k, v := range payload {
+		if k == "tag_name" || k == "target_commitish" {
+			continue
+		}
+		update[k] = v
+	}
+
+	var resp struct {
+		ID      int    `json:"id"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := g.doJSON(ctx, "PATCH", g.apiURL(fmt.Sprintf("/releases/%d", existing.ID)), update, &resp); err != nil {
+		return nil, fmt.Errorf("updating existing release %s: %w", tag, err)
+	}
+	if resp.ID == 0 {
+		resp.ID, resp.HTMLURL = existing.ID, existing.HTMLURL
+	}
+	return &Release{ID: fmt.Sprintf("%d", resp.ID), URL: resp.HTMLURL}, nil
 }
 
 // assetUploadURL builds the GitHub asset-upload URL. The asset name is query-ESCAPED so a
