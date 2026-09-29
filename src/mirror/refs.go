@@ -20,6 +20,12 @@ type RefUpdate struct {
 	SHA    string // target commit (empty for a delete)
 	Force  bool   // overwrite a diverged ref (only set when Force is enabled)
 	Delete bool   // remove the ref on the mirror
+
+	// Verified marks an update PROVEN to be a fast-forward by ancestry over peeled
+	// commits. The executor may assert it instead of asking the transport to
+	// re-derive the same answer from unpeeled ref hashes — which it cannot do for
+	// an annotated tag, whose ref hash names a tag object rather than a commit.
+	Verified bool
 }
 
 // RefOptions tunes ref reconciliation. InScope is the ownership boundary; nil
@@ -84,8 +90,9 @@ func PlanRefs(srcRefs, mirrorRefs map[string]string, opts RefOptions) RefPlan {
 			plan.Update = append(plan.Update, RefUpdate{Ref: name, SHA: src, Force: true})
 		case opts.IsAncestor != nil && opts.IsAncestor(cur, src):
 			// The mirror ref is behind the source (its commit is an ancestor) — a plain
-			// fast-forward, not a divergence. A non-force Update; git advances it cleanly.
-			plan.Update = append(plan.Update, RefUpdate{Ref: name, SHA: src, Force: false})
+			// fast-forward, not a divergence. Verified: we PROVED this over peeled
+			// commits, so the executor may assert it rather than re-derive it.
+			plan.Update = append(plan.Update, RefUpdate{Ref: name, SHA: src, Verified: true})
 		default:
 			plan.Diverged = append(plan.Diverged, name) // true divergence — keep-divergent
 		}

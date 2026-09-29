@@ -162,8 +162,8 @@ func TestBuildPushRefSpecs_RollingAliasForced(t *testing.T) {
 	if strings.Contains(joined, "+refs/tags/v1.0.0") {
 		t.Errorf("immutable v1.0.0 must NOT be forced; specs=%q", joined)
 	}
-	if !strings.Contains(joined, "refs/tags/v1.0.0:refs/tags/v1.0.0") {
-		t.Errorf("immutable v1.0.0 should still push non-force (keep-divergent); specs=%q", joined)
+	if strings.Contains(joined, "refs/tags/v1.0.0") {
+		t.Errorf("immutable v1.0.0 diverged — it must be withheld, not pushed; specs=%q", joined)
 	}
 	for _, d := range plan.diverged {
 		if d == "refs/tags/latest" {
@@ -272,8 +272,12 @@ func TestMirror_FastForwardMainIsUpdateNotDiverged(t *testing.T) {
 		joined = append(joined, s.String())
 	}
 	all := strings.Join(joined, " ")
-	if !strings.Contains(all, "refs/heads/main:refs/heads/main") || strings.Contains(all, "+refs/heads/main") {
-		t.Errorf("fast-forward main must push non-force; specs=%q", all)
+	// A fast-forward we PROVED by ancestry over peeled commits is pushed forced: the
+	// classification is already ours, and a non-force refspec would make go-git
+	// re-derive it from unpeeled ref hashes — impossible for an annotated tag, whose
+	// ref hash names a tag object, and fatal to the entire push.
+	if !strings.Contains(all, "+refs/heads/main:refs/heads/main") {
+		t.Errorf("a verified fast-forward must push forced; specs=%q", all)
 	}
 }
 

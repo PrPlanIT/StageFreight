@@ -185,6 +185,16 @@ func MirrorPush(ctx context.Context, worktree string, mirror config.ResolvedRepo
 		return result, nil
 	}
 
+	// Divergence is degradation even though the push itself succeeded: the refs that
+	// could replicate did, and the ones that would have been clobbered were withheld.
+	if len(refPlan.diverged) > 0 {
+		result.Status = SyncFailed
+		result.Degraded = true
+		result.FailureReason = MirrorDiverged
+		result.Message = fmt.Sprintf("%d ref(s) diverged, kept — set sync force to overwrite", len(refPlan.diverged))
+		return result, nil
+	}
+
 	result.Status = SyncSuccess
 	result.Message = refPlanSummary(fmt.Sprintf("mirror push to %s succeeded", mirror.ID), refPlan)
 	return result, nil
@@ -472,11 +482,25 @@ func facetRefSpecs(prefix string, local, remote map[string]string, spec *config.
 	for _, u := range rp.Create {
 		emit(u.Ref, spec.Force)
 	}
-	for _, u := range rp.Update { // a forced overwrite (Force) or a non-force fast-forward
-		emit(u.Ref, u.Force)
+	// A VERIFIED update is emitted forced. PlanRefs proved it a fast-forward by ancestry
+	// over PEELED commits, so forcing is identical in effect — and it skips go-git's own
+	// re-check, which a non-force refspec triggers whenever the remote ref exists:
+	// checkFastForwardUpdate → isFastForward → object.GetCommit(ref hash). An ANNOTATED
+	// tag's ref hash names a TAG OBJECT, not a commit, so that lookup returns the bare
+	// plumbing.ErrObjectNotFound and the ENTIRE push dies — on every annotated tag in the
+	// repo, not merely a drifted one. Our check peels; go-git's does not.
+	//
+	// An UNVERIFIED update (no ancestry checker available) still goes non-force, so the
+	// receiving end decides when we could not.
+	for _, u := range rp.Update {
+		emit(u.Ref, u.Force || u.Verified)
 	}
+	// A diverged ref is NOT sent. Previously it went as a plain refspec so the remote
+	// would reject it — but that decision is already ours, made correctly above, and
+	// handing it to the remote both duplicates the judgement and (for an annotated tag)
+	// poisons the entire push. Keeping it back lets every other ref replicate while the
+	// divergence is still surfaced and still marks the mirror degraded.
 	for _, name := range rp.Diverged {
-		emit(name, false) // non-force: git fast-forwards or rejects, never clobbers
 		plan.diverged = append(plan.diverged, prefix+name)
 	}
 	for _, u := range rp.Prune {

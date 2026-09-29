@@ -254,15 +254,26 @@ func TestBuildPushRefSpecs_ExactWithoutMatchPrunesNothing(t *testing.T) {
 }
 
 // TestBuildPushRefSpecs_KeepDivergentByDefault is the other new safety guard: a
-// diverged mirror ref is pushed WITHOUT force by default (git rejects a true
-// non-fast-forward), and force-overwritten only when the facet opts in.
+// diverged mirror ref is NOT PUSHED AT ALL by default, and force-overwritten only
+// when the facet opts in.
+//
+// It used to be sent as a non-force refspec so the receiving end would reject it.
+// That handed a decision we had already made to the transport, and go-git cannot
+// make it for an annotated tag — its fast-forward check resolves the ref hash as a
+// commit, which for a tag object fails and aborts the WHOLE push. Withholding is
+// strictly more conservative: nothing is clobbered, every other ref still
+// replicates, and the divergence is surfaced on the plan.
 func TestBuildPushRefSpecs_KeepDivergentByDefault(t *testing.T) {
 	local := map[string]string{"refs/heads/main": "new"}
 	remote := map[string]string{"refs/heads/main": "diverged"}
 
 	keep := pushSpecJoin(local, remote, &config.FacetSpec{Scope: "all"}, nil, RefContext{})
-	if !strings.Contains(keep, "refs/heads/main:refs/heads/main") || strings.Contains(keep, "+refs/heads/main") {
-		t.Fatalf("default must push non-force (keep-divergent); specs=%v", keep)
+	if strings.Contains(keep, "refs/heads/main") {
+		t.Fatalf("a diverged ref must not be pushed at all; specs=%v", keep)
+	}
+	plan := buildPushRefSpecs(local, remote, &config.FacetSpec{Scope: "all"}, nil, RefContext{}, nil, nil)
+	if len(plan.diverged) != 1 || plan.diverged[0] != "refs/heads/main" {
+		t.Fatalf("divergence must still be surfaced on the plan; diverged=%v", plan.diverged)
 	}
 	force := pushSpecJoin(local, remote, &config.FacetSpec{Scope: "all", Force: true}, nil, RefContext{})
 	if !strings.Contains(force, "+refs/heads/main:refs/heads/main") {
@@ -280,8 +291,10 @@ func TestBuildPushRefSpecs_AllIsAddOnly(t *testing.T) {
 	if strings.Contains(joined, ":refs/heads/stale") {
 		t.Fatalf("scope:all must not prune; specs=%v", joined)
 	}
-	if !strings.Contains(joined, "refs/heads/main:refs/heads/main") {
-		t.Fatalf("main (behind on the mirror) should be pushed; specs=%v", joined)
+	// main differs and no ancestry checker is supplied, so it is unjudgeable and
+	// therefore diverged — withheld, not pushed. scope:all is add-only either way.
+	if strings.Contains(joined, "refs/heads/main") {
+		t.Fatalf("an unjudgeable differing ref must be withheld, not pushed; specs=%v", joined)
 	}
 }
 
