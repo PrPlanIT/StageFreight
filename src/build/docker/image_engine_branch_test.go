@@ -49,3 +49,63 @@ func TestResolveBranch_HonorsCIEnvOverUnknown(t *testing.T) {
 		}
 	})
 }
+
+// TestAutoInjectBuildArgs_Branch covers the BRANCH stamp: a real branch on branch
+// builds, the primary repo's default branch as a fallback for tag/detached builds
+// (where no branch exists), never fabricated, and never clobbering an explicit value.
+func TestAutoInjectBuildArgs_Branch(t *testing.T) {
+	const df = "gitops-server.dockerfile"
+	det := &build.Detection{Dockerfiles: []build.DockerfileInfo{
+		{Path: df, Args: []string{"VERSION", "COMMIT", "BUILD_DATE", "BRANCH"}},
+	}}
+	v := &build.VersionInfo{Version: "1.2.3", SHA: "abc1234"}
+
+	t.Run("real CI branch is injected", func(t *testing.T) {
+		t.Setenv("SF_CI_BRANCH", "")
+		t.Setenv("CI_COMMIT_BRANCH", "main")
+		t.Setenv("GITHUB_REF_NAME", "")
+		got := autoInjectBuildArgs(map[string]string{}, det, v, df, "trunk")
+		if got["BRANCH"] != "main" {
+			t.Errorf("BRANCH = %q, want main (real branch, not the default fallback)", got["BRANCH"])
+		}
+	})
+
+	t.Run("tag/detached build falls back to the default branch", func(t *testing.T) {
+		t.Setenv("SF_CI_BRANCH", "")
+		t.Setenv("CI_COMMIT_BRANCH", "") // tag pipeline: no branch set
+		t.Setenv("GITHUB_REF_NAME", "")
+		got := autoInjectBuildArgs(map[string]string{}, det, v, df, "main")
+		if got["BRANCH"] != "main" {
+			t.Errorf("BRANCH = %q, want main (default-branch fallback for a tag build)", got["BRANCH"])
+		}
+	})
+
+	t.Run("never fabricated when neither a branch nor a default is known", func(t *testing.T) {
+		t.Setenv("SF_CI_BRANCH", "")
+		t.Setenv("CI_COMMIT_BRANCH", "")
+		t.Setenv("GITHUB_REF_NAME", "")
+		got := autoInjectBuildArgs(map[string]string{}, det, v, df, "")
+		if _, ok := got["BRANCH"]; ok {
+			t.Errorf("BRANCH must not be injected when unknown, got %q", got["BRANCH"])
+		}
+	})
+
+	t.Run("explicit build-arg override is not clobbered", func(t *testing.T) {
+		t.Setenv("CI_COMMIT_BRANCH", "main")
+		got := autoInjectBuildArgs(map[string]string{"BRANCH": "custom"}, det, v, df, "main")
+		if got["BRANCH"] != "custom" {
+			t.Errorf("explicit BRANCH must win, got %q", got["BRANCH"])
+		}
+	})
+
+	t.Run("not injected when the Dockerfile omits ARG BRANCH", func(t *testing.T) {
+		t.Setenv("CI_COMMIT_BRANCH", "main")
+		detNoArg := &build.Detection{Dockerfiles: []build.DockerfileInfo{
+			{Path: df, Args: []string{"VERSION"}},
+		}}
+		got := autoInjectBuildArgs(map[string]string{}, detNoArg, v, df, "main")
+		if _, ok := got["BRANCH"]; ok {
+			t.Error("BRANCH must not be injected when the Dockerfile does not declare ARG BRANCH")
+		}
+	})
+}

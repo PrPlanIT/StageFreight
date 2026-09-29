@@ -238,7 +238,7 @@ func planDockerBuild(b config.BuildConfig, cfg *config.Config, det *build.Detect
 	for k, v := range buildArgs {
 		buildArgs[k] = gitver.ResolveVars(v, cfg.Vars)
 	}
-	buildArgs = autoInjectBuildArgs(buildArgs, det, versionInfo, dockerfile)
+	buildArgs = autoInjectBuildArgs(buildArgs, det, versionInfo, dockerfile, config.PrimaryDefaultBranch(cfg))
 
 	step := &build.BuildStep{
 		Name:       b.ID,
@@ -309,9 +309,13 @@ func resolveRepoID(det *build.Detection, v *build.VersionInfo) string {
 	return "unknown"
 }
 
-// autoInjectBuildArgs adds VERSION, COMMIT, and BUILD_DATE build args when the
-// Dockerfile declares matching ARGs and no explicit override is set.
-func autoInjectBuildArgs(existing map[string]string, det *build.Detection, v *build.VersionInfo, dockerfilePath string) map[string]string {
+// autoInjectBuildArgs adds VERSION, COMMIT, BUILD_DATE, and BRANCH build args when the
+// Dockerfile declares matching ARGs and no explicit override is set. BRANCH resolves to
+// the real branch (via resolveBranch), falling back to the primary repo's default branch
+// for tag / detached-HEAD builds where no branch exists — never fabricated when neither
+// is known. The fallback lives here (stamp only), NOT in resolveBranch, so target
+// eligibility is unaffected (a tag build must not match branch-gated targets).
+func autoInjectBuildArgs(existing map[string]string, det *build.Detection, v *build.VersionInfo, dockerfilePath, defaultBranch string) map[string]string {
 	if v == nil {
 		return existing
 	}
@@ -351,6 +355,18 @@ func autoInjectBuildArgs(existing map[string]string, det *build.Detection, v *bu
 				existing["BUILD_DATE"] = pinned
 			} else {
 				existing["BUILD_DATE"] = time.Now().UTC().Format(time.RFC3339)
+			}
+		}
+	}
+	if argSet["BRANCH"] {
+		if _, ok := existing["BRANCH"]; !ok {
+			br := resolveBranch(det, v)
+			if br == "" {
+				br = defaultBranch
+			}
+			// Never fabricate: only inject when a real or default branch is known.
+			if br != "" {
+				existing["BRANCH"] = br
 			}
 		}
 	}
