@@ -90,6 +90,7 @@ func init() {
 	releaseCreateCmd.Flags().BoolVar(&rcRegistryLinks, "registry-links", true, "add registry image links to release")
 	releaseCreateCmd.Flags().BoolVar(&rcCatalogLinks, "catalog-links", true, "add GitLab Catalog link to release")
 	releaseCreateCmd.Flags().BoolVar(&rcSkipSync, "skip-sync", false, "skip syncing to other forges")
+	releaseCreateCmd.Flags().BoolVar(&releaseForceAlias, "force-alias", false, "move a rolling alias even if it already points at a newer build (deliberate rollback)")
 
 	releaseCmd.AddCommand(releaseCreateCmd)
 }
@@ -99,6 +100,10 @@ type actionResult struct {
 	Name string
 	OK   bool
 	Err  error
+	// Held marks an action deliberately NOT performed — neither a success nor a
+	// failure. A rolling alias withheld because it already points at a newer build
+	// is the case: the publish is correct, the alias simply did not move.
+	Held bool
 }
 
 // releaseReport collects all release action outcomes for rendering.
@@ -750,7 +755,25 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				// /-/releases/latest-dev/downloads/... Stable targets (no Tag) keep
 				// rolling-tag-only behavior, unchanged.
 				if primaryRelease.Tag != "" {
-					if err := refreshRollingRelease(ctx, forgeClient, rt, req.Ref, rt, notes, relType, allAssets); err != nil {
+					// A rolling alias may only ADVANCE. Re-publishing an older commit's
+					// build must not drag the channel pointer backwards — that is a silent
+					// downgrade for anyone pulling it.
+					aliasVersion := ""
+					if versionInfo != nil {
+						aliasVersion = versionInfo.Version
+					}
+					if !releaseForceAlias && aliasVersion != "" {
+						if incumbent, hold := aliasHolds(ctx, forgeClient, rt, aliasVersion); hold {
+							report.Tags = append(report.Tags, actionResult{
+								Name: rt + " (release)", Held: true, Err: heldAliasReason(incumbent)})
+							continue
+						}
+					}
+					aliasNotes := notes
+					if aliasVersion != "" {
+						aliasNotes = aliasMarker(aliasVersion) + "\n" + notes
+					}
+					if err := refreshRollingRelease(ctx, forgeClient, rt, req.Ref, rt, aliasNotes, relType, allAssets); err != nil {
 						report.Tags = append(report.Tags, actionResult{Name: rt + " (release)", Err: err})
 						fmt.Fprintf(os.Stderr, "warning: rolling release %s: %v\n", rt, err)
 					}
@@ -1060,23 +1083,35 @@ func targetWhenMatches(t config.TargetConfig, currentTag string, tagPatterns map
 // renderCheckpoint renders a checkpoint line with pass/fail count, expanding failures.
 func renderCheckpoint(sec *output.Section, color bool, label string, results []actionResult) {
 	total := len(results)
-	ok := 0
+	ok, held := 0, 0
 	var failed []actionResult
 	for _, r := range results {
-		if r.OK {
+		switch {
+		case r.OK:
 			ok++
-		} else {
+		case r.Held:
+			held++
+			failed = append(failed, r) // reported with its reason, not counted as a failure
+		default:
 			failed = append(failed, r)
 		}
 	}
 
+	// Held is neither success nor failure: the action was deliberately not performed.
 	status := "success"
-	if ok != total {
+	switch {
+	case ok+held != total:
 		status = "failed"
+	case held > 0:
+		status = "skipped"
 	}
 	icon := output.StatusIcon(status, color)
 
-	sec.Row("%s %-7s %d/%d", icon, label+":", ok, total)
+	if held > 0 {
+		sec.Row("%s %-7s %d/%d  (%d held)", icon, label+":", ok, total, held)
+	} else {
+		sec.Row("%s %-7s %d/%d", icon, label+":", ok, total)
+	}
 
 	for _, r := range failed {
 		msg := "unknown error"
@@ -1088,9 +1123,12 @@ func renderCheckpoint(sec *output.Section, color bool, label string, results []a
 }
 
 // hasActionFailures returns true if any result has a failure.
+// hasActionFailures reports a genuine failure. A HELD action is excluded: the publish
+// did exactly what it should, so a withheld rolling alias must not mark the release
+// partial — otherwise the correct behaviour reads as a fault.
 func hasActionFailures(results []actionResult) bool {
 	for _, r := range results {
-		if !r.OK {
+		if !r.OK && !r.Held {
 			return true
 		}
 	}
