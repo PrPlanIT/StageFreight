@@ -24,10 +24,13 @@ var releaseSyncCmd = &cobra.Command{
 the primary forge's releases — carrying the notes AND re-hosting the attached
 binaries, not just tag+notes shells.
 
-Provenance-bounded and idempotent: an unchanged release is a no-op, a drifted
-asset is replaced on its own, and a release SF did not place (a one-off, or one
-another dev cut on the mirror) is left untouched. Pruning, when the facet opts in,
-removes only SF-placed releases the primary no longer has.
+Scope-bounded and idempotent: an unchanged release is a no-op and a drifted asset
+is replaced on its own. Ownership is the DECLARED TAG SCOPE, not what SF happens
+to have written before — a release sitting on a tag this config declares is
+adopted and converged (reported as "adopted"), so one created by any other path
+still converges instead of staying frozen. A tag outside the declared scope is
+never updated and never pruned. Pruning, when the facet opts in, removes only
+SF-placed releases the primary no longer has.
 
 Use --dry-run to preview the desired set without mutating any mirror.`,
 	RunE: runReleaseSync,
