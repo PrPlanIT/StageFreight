@@ -98,6 +98,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 
 	// Pass 2: resolve docker templates and generate SVGs
 	var rows []badgeRow
+	var written []string
 	updated, unchanged := 0, 0
 
 	for i, item := range items {
@@ -143,6 +144,7 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		if size == 0 {
 			size = 11
 		}
+		written = append(written, spec.Output)
 		rows = append(rows, badgeRow{
 			Name:    item.LabelOrID(),
 			Out:     spec.Output,
@@ -151,6 +153,17 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 			Color:   badgeColor,
 			Changed: changed,
 		})
+	}
+
+	// Remove generated badges no stencil claims any more. A filtered run (--names)
+	// only ever writes a subset, so pruning there would delete every badge it was
+	// not asked about.
+	var pruned []string
+	if len(names) == 0 {
+		var pErr error
+		if pruned, pErr = pruneOrphanBadges(written); pErr != nil {
+			fmt.Fprintf(os.Stderr, "  warning: pruning orphaned badges: %v\n", pErr)
+		}
 	}
 
 	// Sort rows for stable output
@@ -173,11 +186,71 @@ func generateConfigBadgesImpl(eng *badge.Engine, appCfg *config.Config, rootDir 
 		}
 		sec.Row("%s %-16s%-24s %-8s %.0fpt  %s", state, r.Name, r.Out, r.Font, r.Size, r.Color)
 	}
+	for _, p := range pruned {
+		sec.Row("%s %-16s%-24s orphaned — no stencil declares it",
+			output.StatusIcon("warning", useColor), "pruned", p)
+	}
 	sec.Separator()
-	sec.Row("%d updated, %d unchanged", updated, unchanged)
+	if len(pruned) > 0 {
+		sec.Row("%d updated, %d unchanged, %d pruned", updated, unchanged, len(pruned))
+	} else {
+		sec.Row("%d updated, %d unchanged", updated, unchanged)
+	}
 	sec.Close()
 
 	return nil
+}
+
+// pruneOrphanBadges deletes generated .svg files that sit in a directory scribe just
+// wrote to but that no current stencil produced.
+//
+// Badge output is otherwise append-only: removing a stencil stops the file being
+// regenerated but never removes it, so the artifact freezes at whatever it last
+// rendered and outlives the config that made it. That is how nine repos ended up
+// serving an `updated` badge reading "n/a" months after the stencil was replaced by
+// release-updated/dev-updated — no pipeline could have fixed it, because nothing
+// claimed the file.
+//
+// Deliberately narrow. Only directories this run wrote into are considered, only
+// .svg files are removed, and an empty written set prunes nothing — a failed or
+// filtered run must never be read as "no badges belong here".
+func pruneOrphanBadges(written []string) ([]string, error) {
+	if len(written) == 0 {
+		return nil, nil
+	}
+	keep := make(map[string]bool, len(written))
+	dirs := make(map[string]bool)
+	for _, w := range written {
+		abs, err := filepath.Abs(w)
+		if err != nil {
+			return nil, err
+		}
+		keep[abs] = true
+		dirs[filepath.Dir(abs)] = true
+	}
+
+	var pruned []string
+	for dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return pruned, err
+		}
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".svg" {
+				continue
+			}
+			full := filepath.Join(dir, e.Name())
+			if keep[full] {
+				continue
+			}
+			if err := os.Remove(full); err != nil {
+				return pruned, err
+			}
+			pruned = append(pruned, full)
+		}
+	}
+	sort.Strings(pruned)
+	return pruned, nil
 }
 
 // buildItemEngine creates a badge engine for a BadgeSpec with font overrides.
