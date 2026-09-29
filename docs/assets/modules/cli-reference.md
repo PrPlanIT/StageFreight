@@ -1088,6 +1088,7 @@ unless --skip-sync is set.
 | `--asset` | stringSlice | — | files to attach to release (repeatable) |
 | `--catalog-links` | bool | `true` | add GitLab Catalog link to release |
 | `--draft` | bool | — | create as draft release |
+| `--force-alias` | bool | — | move a rolling alias even if it already points at a newer build (deliberate rollback) |
 | `--name` | string | — | release name (default: tag) |
 | `--notes` | string | — | path to release notes markdown file |
 | `--prerelease` | bool | — | mark as prerelease |
