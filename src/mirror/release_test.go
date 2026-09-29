@@ -367,3 +367,43 @@ func TestBuildDesired_RetentionDrivesMirror(t *testing.T) {
 		}
 	}
 }
+
+// Delete-and-repush of the SAME tag must propagate. Re-cutting a tag is a normal,
+// intentional act: the release is recreated on the primary with new content under
+// the identical tag, and every declared sync target must converge on it — whatever
+// the mirror currently holds there, marked or not. This is the end-to-end shape of
+// "once it exists on the primary it propagates everywhere we declared sync to".
+func TestReconcile_SameTagRepushPropagates(t *testing.T) {
+	src, dst := newFake("src"), newFake("dst")
+
+	// First cut, mirrored normally.
+	d1 := srcRelease(src, "v1.0.0", "first notes", map[string][]byte{"sf": []byte("BUILD-1")})
+	d1.Name, d1.Prerelease = "v1.0.0", true
+	if res := reconcile(t, src, dst, []DesiredRelease{d1}, Options{}); len(res.Created) != 1 {
+		t.Fatalf("first cut not mirrored: %+v", res)
+	}
+
+	// Tag deleted and re-pushed on the primary: same tag, new body, new binary, and
+	// promoted from prerelease to latest.
+	delete(src.rels, "v1.0.0")
+	d2 := srcRelease(src, "v1.0.0", "recut notes", map[string][]byte{"sf": []byte("BUILD-2")})
+	d2.Name, d2.Prerelease = "v1.0.0 recut", false
+
+	res := reconcile(t, src, dst, []DesiredRelease{d2}, Options{})
+	if len(res.Updated) != 1 || res.InSync != 0 {
+		t.Fatalf("re-cut did not propagate: %+v", res)
+	}
+	got := dst.rels["v1.0.0"]
+	if !strings.Contains(got.body, "recut notes") {
+		t.Fatalf("notes not propagated: %q", got.body)
+	}
+	if got.name != "v1.0.0 recut" {
+		t.Fatalf("name not propagated: %q", got.name)
+	}
+	if got.prerelease {
+		t.Fatal("channel not propagated: mirror still says prerelease after promotion to latest")
+	}
+	if string(got.assets["sf"].data) != "BUILD-2" {
+		t.Fatalf("asset not replaced: %q", got.assets["sf"].data)
+	}
+}
