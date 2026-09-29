@@ -25,6 +25,7 @@ type fakeAsset struct {
 }
 type fakeRelease struct {
 	id, tag, name, body string
+	ref                 string
 	prerelease          bool
 	created             time.Time
 	assets              map[string]*fakeAsset
@@ -61,7 +62,7 @@ func (f *fakeForge) ListReleases(context.Context) ([]forge.ReleaseInfo, error) {
 func (f *fakeForge) CreateRelease(_ context.Context, o forge.ReleaseOptions) (*forge.Release, error) {
 	f.seq++
 	id := fmt.Sprintf("%s-%d", f.name, f.seq)
-	f.rels[o.TagName] = &fakeRelease{id: id, tag: o.TagName, name: o.Name, body: o.Description,
+	f.rels[o.TagName] = &fakeRelease{id: id, tag: o.TagName, name: o.Name, body: o.Description, ref: o.Ref,
 		prerelease: o.Type == forge.ReleaseTypePrerelease, assets: map[string]*fakeAsset{}, links: map[string]forge.ReleaseLink{}}
 	return &forge.Release{ID: id}, nil
 }
@@ -453,5 +454,24 @@ func TestReconcile_AdoptionPreservesPriorRelease(t *testing.T) {
 	}
 	if !strings.Contains(dst.rels["v1.0.0"].body, "sf notes") {
 		t.Fatal("adoption did not converge after preservation")
+	}
+}
+
+// A release created on a mirror must NAME the commit it belongs to. A forge asked to
+// create a release at a tag it does not hold will create that tag, and with no ref it
+// anchors to the mirror's own default-branch HEAD — a release silently pointing at the
+// wrong commit. This is what lets a tag produce a correct release on a mirror even when
+// the ref push has not landed it.
+func TestReconcile_CreateCarriesTheCommit(t *testing.T) {
+	src, dst := newFake("src"), newFake("dst")
+	d := srcRelease(src, "v2.0.0", "notes", nil)
+	d.Ref = "cafebabecafebabecafebabecafebabecafebabe"
+
+	res := reconcile(t, src, dst, []DesiredRelease{d}, Options{})
+	if len(res.Created) != 1 {
+		t.Fatalf("expected creation: %+v", res)
+	}
+	if got := dst.rels["v2.0.0"].ref; got != d.Ref {
+		t.Fatalf("release not anchored to its commit: ref=%q want %q", got, d.Ref)
 	}
 }

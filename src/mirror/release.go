@@ -89,12 +89,12 @@ type Options struct {
 
 // Result reports what the reconcile did (all counts/lists are mirror-side).
 type Result struct {
-	Created  []string
-	Updated  []string
-	Pruned   []string
-	InSync   int      // skipped via fingerprint fast-path
-	Adopted  []string // in-scope tag existed unmarked — converged and marked as ours
-	Errors   []error
+	Created []string
+	Updated []string
+	Pruned  []string
+	InSync  int      // skipped via fingerprint fast-path
+	Adopted []string // in-scope tag existed unmarked — converged and marked as ours
+	Errors  []error
 	// Diagnostics are non-fatal notes surfaced separately from Errors — e.g. a source
 	// asset that is neither a downloadable file nor an external link, disclosed instead of
 	// silently 404-ing or being uploaded as a pretend-file.
