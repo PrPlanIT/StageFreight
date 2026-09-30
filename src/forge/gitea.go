@@ -540,6 +540,7 @@ func (g *GiteaForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAsse
 func (g *GiteaForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
 	return ErrNotSupported
 }
+
 // UpdateRelease converges name, body and prerelease. Gitea edits a release in place
 // (PATCH /releases/{id}); identity (tag, target) is never sent, so this converges what
 // the release SAYS without ever moving what it points at.

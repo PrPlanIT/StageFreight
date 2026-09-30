@@ -43,7 +43,7 @@ func TestPruneOrphanBadges(t *testing.T) {
 	}
 	keep := write("release-updated.svg")
 	orphan := write("updated.svg")
-	notOurs := write("diagram.png")      // not an SVG we generate
+	notOurs := write("diagram.png") // not an SVG we generate
 	nested := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)

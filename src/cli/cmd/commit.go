@@ -114,16 +114,16 @@ func runCommit(cmd *cobra.Command, args []string) error {
 
 	// Build planner options
 	opts := commit.PlannerOptions{
-		Type:    commitType,
-		Scope:   commitScope,
-		Message: summary,
-		Body:    commitBody,
+		Type:     commitType,
+		Scope:    commitScope,
+		Message:  summary,
+		Body:     commitBody,
 		AddPaths: commitAdd,
 		Paths:    pathArgs,
-		All:     commitAll,
-		SignOff: commitSignOff,
-		Remote:  commitRemote,
-		Refspec: commitRefspec,
+		All:      commitAll,
+		SignOff:  commitSignOff,
+		Remote:   commitRemote,
+		Refspec:  commitRefspec,
 	}
 	if cmd.Flags().Changed("breaking") {
 		opts.Breaking = commitBreak
