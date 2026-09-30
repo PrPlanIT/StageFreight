@@ -55,8 +55,7 @@ LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
 # handles all repository operations natively (SSH via golang.org/x/crypto/ssh,
 # HTTPS via net/http). No git binary, no openssh-client required.
 RUN apk add --no-cache \
-      chafa \
-      tree
+      chafa
 
 # UTF-8 locale for chafa Unicode block characters in CI logs.
 ENV LANG=C.UTF-8
