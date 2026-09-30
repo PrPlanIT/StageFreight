@@ -340,7 +340,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 
 // BuildSummary generates a markdown summary at the specified detail level.
 // Returns (tile, body):
-//   - tile: single-line status for hero area (e.g., "🛡️ ✅ **Passed** — no critical or high vulnerabilities")
+//   - tile: single-line status for hero area (e.g., "✅ **Passed** — no critical or high vulnerabilities")
 //   - body: full section content (status line + optional <details> block with CVE data)
 //
 // Detail levels: "none", "counts", "detailed", "full".
@@ -365,8 +365,13 @@ func BuildSummary(result *ScanResult, detail string, maxRows int) (tile, body st
 }
 
 // buildStatusTile produces the one-line security status.
+//
+// One emoji only, and it is the one that VARIES. A constant shield rendered ahead of
+// the status carried no information — identical on every release — and sat adjacent to
+// the status emoji, so the eye stopped twice for one meaning. The notes already label
+// the line "**Security:**".
 func buildStatusTile(result *ScanResult) string {
-	return fmt.Sprintf("🛡️ %s — %s", statusEmoji(result.Status), statusDetail(result))
+	return fmt.Sprintf("%s — %s", statusEmoji(result.Status), statusDetail(result))
 }
 
 func statusEmoji(status string) string {

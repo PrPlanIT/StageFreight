@@ -1,7 +1,7 @@
 ## 📦 stagefreight — `v0.7.0`
 > **Release type:** latest • **Commit:** `abcd1234`
 
-**Security:** 🛡️ ✅ **Passed** — no vulnerabilities
+**Security:** ✅ **Passed** — no vulnerabilities
 
 ## Image Availability
 

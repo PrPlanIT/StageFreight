@@ -93,7 +93,7 @@ type NotesInput struct {
 	ToRef        string         // end ref (default: HEAD)
 	TagPatterns  []string       // regex patterns for release tags (from versioning.tag_sources)
 	Config       *config.Config // config for auto-detect version (nil = skip auto-detect)
-	SecurityTile string         // one-line status (e.g., "🛡️ ✅ **Passed** — no vulnerabilities")
+	SecurityTile string         // one-line status (e.g., "✅ **Passed** — no vulnerabilities")
 	// ChangesLimit and ChangelogLimit bound the sections built from commit lists, in
 	// characters; 0 is unbounded. Bounding here is what keeps a composed body inside
 	// every forge's release-body cap without any forge knowing about it.

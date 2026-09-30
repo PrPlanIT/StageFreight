@@ -22,7 +22,7 @@ func parityFullInput() (NotesInput, []CommitCategory, []Commit) {
 		Version:      "0.7.0",
 		SHA:          "abcd1234",
 		ReleaseType:  "latest",
-		SecurityTile: "🛡️ ✅ **Passed** — no vulnerabilities",
+		SecurityTile: "✅ **Passed** — no vulnerabilities",
 		SecurityBody: "No blocking vulnerabilities.\n\n<details>\n<summary>Scan detail</summary>\n\n- CVE-2026-0001 (low)\n</details>",
 		TagMessage:   "Ships the stencil engine\nAlso fixes badges",
 		Images: []ImageRow{
