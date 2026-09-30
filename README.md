@@ -47,6 +47,7 @@ Git is the source of truth: the acts only enact **accepted** state — never a m
 | **Cache-Aware Linting**        | Parallel lint modules, delta-only on changed files, with JUnit reporting for CI                           |
 | **Retention Policies**         | Restic-style tag retention (keep_last, daily, weekly, monthly, yearly) across all registry providers       |
 | **Self-Building**              | StageFreight builds, scans, and releases itself through its own pipeline — this image is one of its own artifacts |
+| **Fleet Governance**           | One source-of-truth [MaintenancePolicy](https://github.com/PrPlanIT/MaintenancePolicy) reconciled across a multi-org, multi-forge repository fleet — CI, presets, and lifecycle config in lockstep |
 
 ### Documentation:
 
