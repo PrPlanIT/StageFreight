@@ -64,7 +64,7 @@ ENV LANG=C.UTF-8
 # All other tools (trivy, syft, grype, osv-scanner, cosign, flux, kubectl, go)
 # are resolved at runtime by the StageFreight toolchain subsystem:
 # downloaded, checksum-verified, cached, and executed by absolute path.
-ENV BUILDX_VERSION=v0.37.1 \
+ENV BUILDX_VERSION=v0.37.2 \
     DOCKER_VERSION=29.3.1
 
 # Install docker CLI (static binary — execution substrate for DinD)
