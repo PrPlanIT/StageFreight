@@ -705,7 +705,14 @@ func (g *GitHubForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID
 }
 
 func (g *GitHubForge) UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error {
-	payload := map[string]interface{}{"name": meta.Name, "body": meta.Description}
-	lowerReleaseType(payload, meta.Type)
-	return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), payload, nil)
+	// Mirror-convergence updates an existing (published) release. Re-stamp published_at via
+	// the shared draft-toggle so a re-cut whose notes changed carries the current date, not
+	// the first publish (GitHub keeps published_at across a plain PATCH). The content carries
+	// draft:false, which re-publishes after the draft:true step; the transition re-stamps.
+	content := map[string]interface{}{"name": meta.Name, "body": meta.Description, "draft": false}
+	lowerReleaseType(content, meta.Type)
+	patch := func(ctx context.Context, body map[string]interface{}, out interface{}) error {
+		return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), body, out)
+	}
+	return republishWithDraftToggle(ctx, releaseID, true, content, nil, patch)
 }

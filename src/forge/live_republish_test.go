@@ -11,6 +11,7 @@ package forge
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -73,5 +74,61 @@ func runLiveRepublish(t *testing.T, g *GiteaForge) {
 	_ = g.DeleteRelease(ctx, tag) // best-effort cleanup
 }
 
-func TestLive_Gitea_Republish(t *testing.T)   { runLiveRepublish(t, liveForge(t, "GITEA_URL", "GITEA_TOKEN")) }
-func TestLive_Forgejo_Republish(t *testing.T) { runLiveRepublish(t, liveForge(t, "FORGEJO_URL", "FORGEJO_TOKEN")) }
+func TestLive_Gitea_Republish(t *testing.T) {
+	runLiveRepublish(t, liveForge(t, "GITEA_URL", "GITEA_TOKEN"))
+}
+func TestLive_Forgejo_Republish(t *testing.T) {
+	runLiveRepublish(t, liveForge(t, "FORGEJO_URL", "FORGEJO_TOKEN"))
+}
+
+// runLiveUpdateRelease exercises the exact method the CI mirror uses on a re-cut —
+// forge.UpdateRelease — and verifies it re-stamps published_at (the thing that was silently
+// broken: the mirror path bypassed the draft-toggle) while updating content and staying
+// visible.
+func runLiveUpdateRelease(t *testing.T, g *GiteaForge) {
+	ctx := context.Background()
+	tag := "vupd-" + time.Now().Format("150405.000")
+
+	if _, err := g.CreateRelease(ctx, ReleaseOptions{
+		TagName: tag, Ref: "main", Name: tag, Description: "first", Type: ReleaseTypeLatest,
+	}); err != nil {
+		t.Fatalf("initial create: %v", err)
+	}
+	before, _, _ := liveRelease(t, g, tag)
+
+	var r struct {
+		ID int `json:"id"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/releases/tags/"+tag), nil, &r); err != nil {
+		t.Fatalf("resolve id: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	// The mirror-convergence path, directly.
+	if err := g.UpdateRelease(ctx, fmt.Sprintf("%d", r.ID),
+		ReleaseMeta{Name: tag, Description: "updated", Type: ReleaseTypeLatest}); err != nil {
+		t.Fatalf("UpdateRelease: %v", err)
+	}
+	after, body, draft := liveRelease(t, g, tag)
+
+	if draft {
+		t.Errorf("release left as DRAFT after UpdateRelease")
+	}
+	if after == before {
+		t.Errorf("UpdateRelease did NOT re-stamp published_at: still %s", after)
+	}
+	if body != "updated" {
+		t.Errorf("content not updated: body = %q, want \"updated\"", body)
+	}
+	t.Logf("UpdateRelease OK: published_at %s -> %s, body=%q, visible", before, after, body)
+
+	_ = g.DeleteRelease(ctx, tag)
+}
+
+func TestLive_Gitea_UpdateRelease(t *testing.T) {
+	runLiveUpdateRelease(t, liveForge(t, "GITEA_URL", "GITEA_TOKEN"))
+}
+func TestLive_Forgejo_UpdateRelease(t *testing.T) {
+	runLiveUpdateRelease(t, liveForge(t, "FORGEJO_URL", "FORGEJO_TOKEN"))
+}

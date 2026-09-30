@@ -80,3 +80,36 @@ func TestGiteaCreateRelease_NonConflictErrorStillFails(t *testing.T) {
 		t.Fatal("expected the 422 to surface, not be treated as a conflict")
 	}
 }
+
+// UpdateRelease (the mirror-convergence path) must re-stamp the publish date via the
+// draft-toggle on Gitea/Forgejo too — they keep the date across a plain PATCH.
+func TestGiteaUpdateRelease_ReStampsViaDraftToggle(t *testing.T) {
+	var patchBodies []map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/releases/") {
+			var b map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			patchBodies = append(patchBodies, b)
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	g := &GiteaForge{BaseURL: srv.URL, Token: "t", Owner: "o", Repo: "r"}
+	if err := g.UpdateRelease(context.Background(), "7",
+		ReleaseMeta{Name: "v1.2.3", Description: "notes", Type: ReleaseTypeLatest}); err != nil {
+		t.Fatalf("UpdateRelease: %v", err)
+	}
+	if len(patchBodies) != 2 {
+		t.Fatalf("got %d PATCHes, want 2 (draft:true then content draft:false)", len(patchBodies))
+	}
+	if patchBodies[0]["draft"] != true {
+		t.Errorf("first PATCH draft = %v, want true", patchBodies[0]["draft"])
+	}
+	if patchBodies[1]["draft"] != false || patchBodies[1]["body"] != "notes" {
+		t.Errorf("second PATCH = %v, want the content with draft:false", patchBodies[1])
+	}
+}

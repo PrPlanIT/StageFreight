@@ -589,11 +589,18 @@ func (g *GiteaForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID 
 
 // UpdateRelease converges name, body and prerelease. Gitea edits a release in place
 // (PATCH /releases/{id}); identity (tag, target) is never sent, so this converges what
-// the release SAYS without ever moving what it points at.
+// the release SAYS without ever moving what it points at. It also re-stamps the publish
+// date via the shared draft-toggle (Gitea/Forgejo, like GitHub, keep the date across a
+// plain PATCH), so a re-cut whose notes changed carries the current date.
 func (g *GiteaForge) UpdateRelease(ctx context.Context, releaseID string, meta ReleaseMeta) error {
-	return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), map[string]interface{}{
+	content := map[string]interface{}{
 		"name":       meta.Name,
 		"body":       meta.Description,
 		"prerelease": meta.Type == ReleaseTypePrerelease,
-	}, nil)
+		"draft":      false,
+	}
+	patch := func(ctx context.Context, body map[string]interface{}, out interface{}) error {
+		return g.doJSON(ctx, "PATCH", g.apiURL("/releases/"+releaseID), body, out)
+	}
+	return republishWithDraftToggle(ctx, releaseID, true, content, nil, patch)
 }
