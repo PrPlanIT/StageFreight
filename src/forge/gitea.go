@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -191,6 +192,13 @@ func (g *GiteaForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*R
 
 	err := g.doJSON(ctx, "POST", g.apiURL("/releases"), payload, &resp)
 	if err != nil {
+		// A tag that already has a release is a re-publish, not a failure. Gitea (and
+		// Forgejo, which shares this backend) answer 409 Conflict; the release is then
+		// updated in place so the notes refresh, the assets upload against it, and its
+		// publish date moves. Without this a re-cut hard-failed on the conflict.
+		if isGiteaReleaseConflict(err) {
+			return g.updateReleaseByTag(ctx, opts.TagName, payload)
+		}
 		return nil, err
 	}
 
@@ -198,6 +206,44 @@ func (g *GiteaForge) CreateRelease(ctx context.Context, opts ReleaseOptions) (*R
 		ID:  fmt.Sprintf("%d", resp.ID),
 		URL: resp.HTMLURL,
 	}, nil
+}
+
+// isGiteaReleaseConflict reports whether an error is Gitea/Forgejo refusing to create a
+// second release for a tag that already has one (HTTP 409). Any other error is a real
+// failure and must surface, because the update path that follows would only 404 and bury it.
+func isGiteaReleaseConflict(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
+}
+
+// updateReleaseByTag resolves the release already published for a tag and updates it in
+// place, re-stamping its publish date via the shared draft-toggle. tag_name and
+// target_commitish are dropped (immutable once a release exists). Mirrors the GitHub path.
+func (g *GiteaForge) updateReleaseByTag(ctx context.Context, tag string, payload map[string]interface{}) (*Release, error) {
+	var existing struct {
+		ID      int    `json:"id"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := g.doJSON(ctx, "GET", g.apiURL("/releases/tags/"+tag), nil, &existing); err != nil {
+		return nil, fmt.Errorf("release %s exists but could not be read back: %w", tag, err)
+	}
+
+	update, publishing := republishUpdate(payload)
+
+	var resp struct {
+		ID      int    `json:"id"`
+		HTMLURL string `json:"html_url"`
+	}
+	patch := func(ctx context.Context, body map[string]interface{}, out interface{}) error {
+		return g.doJSON(ctx, "PATCH", g.apiURL(fmt.Sprintf("/releases/%d", existing.ID)), body, out)
+	}
+	if err := republishWithDraftToggle(ctx, tag, publishing, update, &resp, patch); err != nil {
+		return nil, err
+	}
+	if resp.ID == 0 {
+		resp.ID, resp.HTMLURL = existing.ID, existing.HTMLURL
+	}
+	return &Release{ID: fmt.Sprintf("%d", resp.ID), URL: resp.HTMLURL}, nil
 }
 
 func (g *GiteaForge) UploadAsset(ctx context.Context, releaseID string, asset Asset) error {
