@@ -247,10 +247,30 @@ func (g *GitHubForge) updateReleaseByTag(ctx context.Context, tag string, payloa
 		update[k] = v
 	}
 
+	// Refresh published_at on a re-publish. GitHub keeps a release's ORIGINAL published_at
+	// across an in-place PATCH, so re-cutting an existing release would keep showing the
+	// first publish date rather than this one. Toggling the release to draft and back
+	// re-stamps published_at to the un-draft time (verified against the API) while keeping
+	// the release id, assets, and URL — the whole reason this path PATCHes instead of
+	// delete-recreating. Only for a (re)publish of a non-draft release: a target that stays
+	// a draft has no publish time to refresh, and the content PATCH below carries draft:true.
+	publishing := true
+	if d, ok := update["draft"].(bool); ok && d {
+		publishing = false
+	}
+	if publishing {
+		if err := g.doJSON(ctx, "PATCH", g.apiURL(fmt.Sprintf("/releases/%d", existing.ID)), map[string]interface{}{"draft": true}, nil); err != nil {
+			return nil, fmt.Errorf("re-drafting release %s to refresh publish time: %w", tag, err)
+		}
+	}
+
 	var resp struct {
 		ID      int    `json:"id"`
 		HTMLURL string `json:"html_url"`
 	}
+	// The content PATCH carries draft:false, so it both updates the release and — following
+	// the draft:true above — re-publishes it; that draft→published transition is what
+	// re-stamps published_at to now.
 	if err := g.doJSON(ctx, "PATCH", g.apiURL(fmt.Sprintf("/releases/%d", existing.ID)), update, &resp); err != nil {
 		return nil, fmt.Errorf("updating existing release %s: %w", tag, err)
 	}

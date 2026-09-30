@@ -183,6 +183,53 @@ func TestGitHubCreateRelease_UpdatesExistingOnConflict(t *testing.T) {
 	}
 }
 
+// A re-published (non-draft) release must have its published_at refreshed. GitHub keeps
+// the ORIGINAL published_at across an in-place PATCH, so a re-cut would keep showing the
+// first publish date. updateReleaseByTag toggles the release draft→published — a PATCH
+// {draft:true} then the content PATCH {draft:false} — and that transition re-stamps
+// published_at to now while keeping the release id, assets, and URL.
+func TestGitHubUpdateRelease_RefreshesPublishedAtViaDraftToggle(t *testing.T) {
+	var patchBodies []map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/releases"):
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"resource":"Release","code":"already_exists","field":"tag_name"}]}`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/releases/tags/"):
+			_, _ = w.Write([]byte(`{"id":4242,"html_url":"https://github.com/o/r/releases/tag/v1.2.3"}`))
+		case r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/releases/"):
+			var b map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			patchBodies = append(patchBodies, b)
+			_, _ = w.Write([]byte(`{"id":4242,"html_url":"https://github.com/o/r/releases/tag/v1.2.3"}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	g := &GitHubForge{BaseURL: srv.URL, Token: "t", Owner: "o", Repo: "r"}
+	if _, err := g.CreateRelease(context.Background(), ReleaseOptions{
+		TagName: "v1.2.3", Name: "v1.2.3", Description: "notes", Type: ReleaseTypeLatest, Ref: "abc",
+	}); err != nil {
+		t.Fatalf("CreateRelease on existing tag: %v", err)
+	}
+
+	if len(patchBodies) != 2 {
+		t.Fatalf("got %d PATCH requests, want 2 (draft:true then content draft:false)", len(patchBodies))
+	}
+	if patchBodies[0]["draft"] != true {
+		t.Errorf("first PATCH draft = %v, want true (re-draft to refresh publish time)", patchBodies[0]["draft"])
+	}
+	if patchBodies[1]["draft"] != false {
+		t.Errorf("second PATCH draft = %v, want false (re-publish)", patchBodies[1]["draft"])
+	}
+	if patchBodies[1]["body"] != "notes" {
+		t.Errorf("second PATCH must carry the content: body = %v, want \"notes\"", patchBodies[1]["body"])
+	}
+}
+
 // A 422 that is not an already-exists conflict must still fail. Swallowing every
 // validation error would hide real misconfiguration behind a lookup that then 404s.
 func TestGitHubCreateRelease_OtherValidationErrorStillFails(t *testing.T) {
