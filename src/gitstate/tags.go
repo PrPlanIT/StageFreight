@@ -298,6 +298,21 @@ func ParseCommitLog(repo *git.Repository, fromRef, toRef string) ([]*object.Comm
 	return commits, nil
 }
 
+// IsEmptyCommit reports whether c introduced no tree changes over its sole parent — a
+// no-op commit with nothing to show (e.g. one a rebase/replay re-applied when the change
+// was already present upstream). It compares tree hashes directly, so no diff is computed.
+// Root commits and merges (zero or multiple parents) are never reported empty.
+func IsEmptyCommit(c *object.Commit) bool {
+	if c == nil || len(c.ParentHashes) != 1 {
+		return false
+	}
+	parent, err := c.Parent(0)
+	if err != nil {
+		return false
+	}
+	return c.TreeHash == parent.TreeHash
+}
+
 // DiffStats returns file/insertion/deletion counts between two refs.
 func DiffStats(repo *git.Repository, fromRef, toRef string) (files, insertions, deletions int, err error) {
 	fromHash, err := resolveRefToHash(repo, fromRef)

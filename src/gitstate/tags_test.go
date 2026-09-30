@@ -71,3 +71,68 @@ func TestTagPointsAtHEAD(t *testing.T) {
 	check("v1.0.0", false)      // on the earlier commit
 	check("nonexistent", false) // missing tag
 }
+
+// TestIsEmptyCommit pins the changelog no-op guard: a commit whose tree matches its sole
+// parent (e.g. one a rebase/replay re-applied when the change was already present) is
+// reported empty and skipped from release notes, while a content-bearing commit and the
+// root commit are not.
+func TestIsEmptyCommit(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+		InitOptions: git.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")},
+	})
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	sig := &object.Signature{Name: "t", Email: "t@t", When: time.Now()}
+	obj := func(h plumbing.Hash) *object.Commit {
+		c, err := repo.CommitObject(h)
+		if err != nil {
+			t.Fatalf("commit object: %v", err)
+		}
+		return c
+	}
+
+	// Root commit (with content): not empty (no parent to compare).
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("f"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := wt.Commit("root", &git.CommitOptions{Author: sig})
+	if err != nil {
+		t.Fatalf("root commit: %v", err)
+	}
+	if IsEmptyCommit(obj(root)) {
+		t.Errorf("root commit reported empty")
+	}
+
+	// Content-bearing child: not empty.
+	if err := os.WriteFile(filepath.Join(dir, "f"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("f"); err != nil {
+		t.Fatal(err)
+	}
+	real, err := wt.Commit("real change", &git.CommitOptions{Author: sig})
+	if err != nil {
+		t.Fatalf("real commit: %v", err)
+	}
+	if IsEmptyCommit(obj(real)) {
+		t.Errorf("content-bearing commit reported empty")
+	}
+
+	// No-op commit (tree identical to parent): empty.
+	empty, err := wt.Commit("no-op", &git.CommitOptions{Author: sig, AllowEmptyCommits: true})
+	if err != nil {
+		t.Fatalf("empty commit: %v", err)
+	}
+	if !IsEmptyCommit(obj(empty)) {
+		t.Errorf("no-op commit NOT reported empty")
+	}
+}

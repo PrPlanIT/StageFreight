@@ -539,6 +539,13 @@ func ParseCommits(repoDir, fromRef, toRef string) ([]Commit, error) {
 
 	var commits []Commit
 	for _, raw := range rawCommits {
+		// Skip no-op commits (tree identical to their sole parent) — e.g. a commit a
+		// rebase/replay re-applied when the change was already present upstream. They
+		// carry nothing and would otherwise appear as duplicate changelog entries.
+		if gitstate.IsEmptyCommit(raw) {
+			continue
+		}
+
 		subject, body := splitCommitMessage(raw.Message)
 		hash := raw.Hash.String()
 		if len(hash) > 7 {
