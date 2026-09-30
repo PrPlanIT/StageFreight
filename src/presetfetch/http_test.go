@@ -102,4 +102,3 @@ func (s stubFetcher) Fetch(_, _, _ string) ([]byte, error) { return []byte(s), n
 func (s stubFetcher) Classify(_, _, _ string) (presetref.Kind, error) {
 	return presetref.Tracked, nil
 }
-
