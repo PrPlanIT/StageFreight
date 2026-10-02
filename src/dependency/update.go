@@ -250,9 +250,21 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	// repo can be internally inconsistent with nothing to update. The per-ecosystem
 	// apply blocks below each guard on their own slice, so they no-op cleanly.
 
+	// remediate: false (DryRun) is EVALUATE-ONLY: candidates are reported as eligible
+	// above, but no ecosystem writer runs — no `go get`, no `cargo update`, no file
+	// mutation — honoring this config's documented contract ("only evaluates them
+	// without changing anything"). The apply writers are the sole mutation path, so
+	// gating them is sufficient; repository reconciliation (5c) is independently
+	// DryRun-aware, Verify no-ops on the then-empty TouchedModuleDirs, and artifact
+	// generation (read-only) still runs so the evaluation is reported.
+	applyEcosystems := !cfg.DryRun
+	if !applyEcosystems && len(candidates) > 0 {
+		steps = append(steps, depStep{label: "apply", status: "skipped", detail: fmt.Sprintf("evaluate-only (remediate: false) — %d candidate(s) not applied", len(candidates))})
+	}
+
 	// 6. Per-ecosystem activity — a row emerges ONLY for an ecosystem that had a
 	// candidate, reporting what actually happened (updated / skipped). No zero rows.
-	if len(gomodDeps) > 0 {
+	if applyEcosystems && len(gomodDeps) > 0 {
 		t0 = time.Now()
 		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, deps, repoRoot)
 		if err != nil {
@@ -266,7 +278,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	if len(dockerDeps) > 0 {
+	if applyEcosystems && len(dockerDeps) > 0 {
 		t0 = time.Now()
 		applied, dkSkipped, touchedFiles, err := applyDockerfileUpdates(dockerDeps, repoRoot)
 		if err != nil {
@@ -279,7 +291,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	if len(toolchainDeps) > 0 {
+	if applyEcosystems && len(toolchainDeps) > 0 {
 		t0 = time.Now()
 		applied, tcSkipped, touchedFiles, err := applyToolchainUpdates(toolchainDeps, repoRoot)
 		if err != nil {
@@ -292,7 +304,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	if len(cargoDeps) > 0 {
+	if applyEcosystems && len(cargoDeps) > 0 {
 		t0 = time.Now()
 		applied, cgSkipped, touchedFiles, churn, err := applyCargoUpdates(ctx, cargoDeps, repoRoot)
 		if err != nil {
@@ -305,7 +317,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	if len(pipDeps) > 0 {
+	if applyEcosystems && len(pipDeps) > 0 {
 		t0 = time.Now()
 		applied, pipSkipped, touchedFiles, err := applyPipUpdates(pipDeps, repoRoot)
 		if err != nil {
@@ -318,7 +330,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	if len(npmDeps) > 0 {
+	if applyEcosystems && len(npmDeps) > 0 {
 		t0 = time.Now()
 		applied, npmSkipped, touchedFiles, err := applyNpmUpdates(ctx, npmDeps, repoRoot)
 		if err != nil {
@@ -345,7 +357,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	driftResolved := detectGoDirectiveDrift(repoRoot, deps)
 	syncResolved = mergeGoDirectiveSyncResults(syncResolved, driftResolved)
 
-	if len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0 {
+	if applyEcosystems && (len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0) {
 		t0 = time.Now()
 		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved); err != nil {
 			steps = append(steps, depStep{label: "sync directives", status: "fail", detail: err.Error(), dur: time.Since(t0)})
