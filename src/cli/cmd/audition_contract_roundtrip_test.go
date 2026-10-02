@@ -9,8 +9,10 @@ func TestAuditionContractRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 
 	// Remediated: write → read → gate. Must survive serialization and refuse to build.
+	// RemediationEnabled: a remediated source is one remediation acted on, so it blocks (the fix
+	// is in the Replacement C′, not this subject).
 	recordAuditionContract(dir, deriveAuditionContract(auditionInputs{
-		RunnerHealthy: true, Remediable: true, TestsPassed: true, Replacement: "c0ffee",
+		RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true, Replacement: "c0ffee",
 	}))
 	c := auditionContract(dir)
 	if c == nil {
@@ -32,9 +34,16 @@ func TestAuditionContractRoundTrip(t *testing.T) {
 		t.Fatalf("clean must build: build=%v err=%v", build, err)
 	}
 
-	// Unremediable: read back, gate → hard fail.
-	recordAuditionContract(dir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, Remediable: true, TestsPassed: true}))
+	// Unremediable: remediation was enabled but produced no fix → read back, gate → hard fail.
+	recordAuditionContract(dir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true}))
 	if build, err := performGate(auditionContract(dir)); build || err == nil {
 		t.Fatalf("unremediable must fail: build=%v err=%v", build, err)
+	}
+
+	// Evaluate-only (remediate: false): a remediable finding with remediation DISABLED must round-trip
+	// non-blocking and BUILD — the subject ships as-is. This is the image-mode fork path.
+	recordAuditionContract(dir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, Remediable: true, RemediationEnabled: false, TestsPassed: true}))
+	if build, err := performGate(auditionContract(dir)); !build || err != nil {
+		t.Fatalf("remediate:false must build (ship as-is): build=%v err=%v", build, err)
 	}
 }
