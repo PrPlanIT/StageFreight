@@ -94,6 +94,56 @@ func TestGitLabAddReleaseLink_DirectAssetPath(t *testing.T) {
 	}
 }
 
+// TestGitLabAddReleaseLink_Idempotent proves AddReleaseLink reconciles against an existing
+// link of the same name instead of blindly POSTing a duplicate — GitLab rejects that with
+// 400 "Name has already been taken", which surfaced as a false failure when a rolling channel
+// (dev-<sha>, latest-dev) was re-published. Same URL → no-op; drifted URL → in-place PUT.
+func TestGitLabAddReleaseLink_Idempotent(t *testing.T) {
+	var posted, putPath string
+	existing := `[{"id":7,"name":"Docker Hub v1","url":"https://hub/img"}]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/assets/links"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(existing))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/assets/links"):
+			posted = "called"
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":["Name has already been taken"]}`))
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/assets/links/"):
+			putPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+	g := &GitLabForge{BaseURL: srv.URL, Token: "t", ProjectID: "grp/proj"}
+
+	// Same name + same URL → no-op: neither POST nor PUT.
+	if err := g.AddReleaseLink(context.Background(), "dev-abc", ReleaseLink{
+		Name: "Docker Hub v1", URL: "https://hub/img", LinkType: "image",
+	}); err != nil {
+		t.Fatalf("idempotent no-op: %v", err)
+	}
+	if posted != "" || putPath != "" {
+		t.Fatalf("identical link must be a no-op; posted=%q put=%q", posted, putPath)
+	}
+
+	// Same name + drifted URL → PUT the existing link id, never POST.
+	if err := g.AddReleaseLink(context.Background(), "dev-abc", ReleaseLink{
+		Name: "Docker Hub v1", URL: "https://hub/img@sha256:new", LinkType: "image",
+	}); err != nil {
+		t.Fatalf("idempotent update: %v", err)
+	}
+	if posted != "" {
+		t.Fatalf("drifted link must PUT not POST; posted=%q", posted)
+	}
+	if !strings.HasSuffix(putPath, "/assets/links/7") {
+		t.Fatalf("expected PUT to link id 7, got %q", putPath)
+	}
+}
+
 // gitlabDirectAssetPath must produce a path GitLab accepts: leading slash and
 // only [A-Za-z0-9._-]. The SemVer build-metadata '+' (e.g. "0.6.1-dev+6e376f2")
 // previously leaked through and GitLab rejected the link with

@@ -313,8 +313,31 @@ func (g *GitLabForge) AddReleaseLink(ctx context.Context, releaseID string, link
 		// Permanent permalink: /-/releases/<tag>/downloads/<direct_asset_path> → url.
 		payload["direct_asset_path"] = link.DirectAssetPath
 	}
-	linkURL := g.apiURL(fmt.Sprintf("/releases/%s/assets/links", url.PathEscape(releaseID)))
-	return g.doJSON(ctx, "POST", linkURL, payload, nil)
+	base := g.apiURL(fmt.Sprintf("/releases/%s/assets/links", url.PathEscape(releaseID)))
+
+	// Idempotent upsert. A rolling release channel (dev-<sha>, latest-dev) is re-published
+	// whenever its commit is rebuilt, so a link with this name may already exist. GitLab
+	// rejects a duplicate name with 400 "Name has already been taken" — reconcile against
+	// the existing link instead of surfacing a false failure: no-op when it already points
+	// where we want, update in place when the target URL has drifted (e.g. a new digest).
+	var existing []struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	}
+	if err := g.doJSON(ctx, "GET", base, nil, &existing); err == nil {
+		for _, e := range existing {
+			if e.Name != link.Name {
+				continue
+			}
+			if e.URL == link.URL {
+				return nil // already present and correct
+			}
+			upd := g.apiURL(fmt.Sprintf("/releases/%s/assets/links/%d", url.PathEscape(releaseID), e.ID))
+			return g.doJSON(ctx, "PUT", upd, payload, nil)
+		}
+	}
+	return g.doJSON(ctx, "POST", base, payload, nil)
 }
 
 func (g *GitLabForge) CommitFile(ctx context.Context, opts CommitFileOptions) error {
