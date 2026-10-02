@@ -408,6 +408,10 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	mut := lint.Classify(lintFindings)
 	in.Fatal = mut.HasFatal()
 	in.Remediable = mut.HasRemediable()
+	// A remediable finding blocks only when remediation is enabled (the fix is expected in a
+	// Replacement C′). With remediate: false (evaluate-only) the operator has opted out of
+	// fix-forward, so remediable findings are advisory and do not block the subject.
+	in.RemediationEnabled = appCfg.Dependency.RemediateEnabled()
 	lintOutcome := "success"
 	if in.Fatal {
 		lintOutcome = "failed"
@@ -421,7 +425,11 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		return fmt.Errorf("deps subsystem (lint): source has %d fatal finding(s) — not mutating a void tree", len(mut.Fatal))
 	}
 	if in.Remediable {
-		fmt.Printf("  deps: %d remediable finding(s) on the source — running the deps update to remediate\n", len(mut.Remediable))
+		if in.RemediationEnabled {
+			fmt.Printf("  deps: %d remediable finding(s) on the source — running the deps update to remediate\n", len(mut.Remediable))
+		} else {
+			fmt.Printf("  deps: %d remediable finding(s) on the source — evaluate-only (remediate: false); reporting without fixing, subject ships as-is\n", len(mut.Remediable))
+		}
 	}
 
 	// Correctness gate: run the tests on the COMMITTED tree — after lint, before any

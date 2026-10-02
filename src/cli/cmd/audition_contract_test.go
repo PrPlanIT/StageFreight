@@ -59,11 +59,11 @@ func TestDeriveAuditionContract(t *testing.T) {
 
 	// Each blocking condition, in isolation, must block.
 	blockers := map[string]auditionInputs{
-		"runner unhealthy": {RunnerHealthy: false, TestsPassed: true},
-		"fatal finding":    {RunnerHealthy: true, Fatal: true, TestsPassed: true},
-		"remediable":       {RunnerHealthy: true, Remediable: true, TestsPassed: true},
-		"tests failed":     {RunnerHealthy: true, TestsPassed: false},
-		"deps errored":     {RunnerHealthy: true, TestsPassed: true, DepsErrored: true},
+		"runner unhealthy":          {RunnerHealthy: false, TestsPassed: true},
+		"fatal finding":             {RunnerHealthy: true, Fatal: true, TestsPassed: true},
+		"remediable (remediate on)": {RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true},
+		"tests failed":              {RunnerHealthy: true, TestsPassed: false},
+		"deps errored":              {RunnerHealthy: true, TestsPassed: true, DepsErrored: true},
 	}
 	for name, in := range blockers {
 		t.Run(name+" blocks", func(t *testing.T) {
@@ -81,7 +81,7 @@ func TestDeriveAuditionContract(t *testing.T) {
 	// STILL blocking — the fix is in the replacement, not in this subject. Replacement must
 	// never flip Blocking to false. This is the exact correctness bug that was caught in review.
 	t.Run("remediated is still blocking", func(t *testing.T) {
-		in := auditionInputs{RunnerHealthy: true, Remediable: true, TestsPassed: true, Replacement: "abc123"}
+		in := auditionInputs{RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true, Replacement: "abc123"}
 		c := deriveAuditionContract(in)
 		if !c.Blocking {
 			t.Fatalf("remediated source MUST stay blocking (fix is in C′, not here): %+v", c)
@@ -99,7 +99,7 @@ func TestDeriveAuditionContract(t *testing.T) {
 	})
 
 	t.Run("unremediable names human and fails the badge", func(t *testing.T) {
-		in := auditionInputs{RunnerHealthy: true, Remediable: true, TestsPassed: true}
+		in := auditionInputs{RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true}
 		c := deriveAuditionContract(in)
 		if !c.Blocking || c.Replacement != "" {
 			t.Fatalf("unremediable: want blocking + no replacement: %+v", c)
@@ -113,20 +113,40 @@ func TestDeriveAuditionContract(t *testing.T) {
 		}
 	})
 
-	// Exhaustive safety net: Blocking is false for exactly ONE input combination — all-good.
-	// Any single degraded input must block. (2^4 over the boolean facts; Replacement is lineage
-	// and must not affect Blocking, so it's fixed empty here and checked separately above.)
-	t.Run("blocking is false iff everything is good", func(t *testing.T) {
+	// remediate: false — evaluate-only. A remediable finding with remediation DISABLED must
+	// NOT block: the operator opted out of fix-forward, so the subject ships as-is (vuln gating,
+	// if wanted, is the separate security.fail_on residual gate, not this contract). This is the
+	// case that was wedging image-mode forks: audition passed but the subject dead-ended at
+	// perform with "no automated fix".
+	t.Run("remediable with remediation disabled does not block", func(t *testing.T) {
+		in := auditionInputs{RunnerHealthy: true, Remediable: true, RemediationEnabled: false, TestsPassed: true}
+		c := deriveAuditionContract(in)
+		if c.Blocking {
+			t.Fatalf("remediate:false remediable must NOT block (ship as-is): %+v", c)
+		}
+		if c.Outcome != "success" {
+			t.Fatalf("remediate:false remediable Outcome = %q, want success", c.Outcome)
+		}
+	})
+
+	// Exhaustive safety net over the 5 boolean facts (2^5). Blocking is false ONLY when nothing
+	// blocks: healthy, no fatal, tests pass, deps did not error, and no remediable finding that
+	// remediation is set to fix-forward — i.e. a remediable finding blocks IFF remediation is
+	// enabled. (Replacement is lineage and must not affect Blocking, so it's fixed empty here and
+	// checked separately above.)
+	t.Run("blocking is false iff shippable", func(t *testing.T) {
 		for _, healthy := range []bool{false, true} {
 			for _, fatal := range []bool{false, true} {
 				for _, rem := range []bool{false, true} {
-					for _, tests := range []bool{false, true} {
-						for _, depsErr := range []bool{false, true} {
-							in := auditionInputs{RunnerHealthy: healthy, Fatal: fatal, Remediable: rem, TestsPassed: tests, DepsErrored: depsErr}
-							allGood := healthy && !fatal && !rem && tests && !depsErr
-							c := deriveAuditionContract(in)
-							if c.Blocking == allGood {
-								t.Fatalf("in=%+v: Blocking=%v but allGood=%v", in, c.Blocking, allGood)
+					for _, remEnabled := range []bool{false, true} {
+						for _, tests := range []bool{false, true} {
+							for _, depsErr := range []bool{false, true} {
+								in := auditionInputs{RunnerHealthy: healthy, Fatal: fatal, Remediable: rem, RemediationEnabled: remEnabled, TestsPassed: tests, DepsErrored: depsErr}
+								shippable := healthy && !fatal && !(rem && remEnabled) && tests && !depsErr
+								c := deriveAuditionContract(in)
+								if c.Blocking == shippable {
+									t.Fatalf("in=%+v: Blocking=%v but shippable=%v", in, c.Blocking, shippable)
+								}
 							}
 						}
 					}

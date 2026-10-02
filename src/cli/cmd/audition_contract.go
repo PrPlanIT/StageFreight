@@ -69,25 +69,35 @@ func recordAuditionContract(rootDir string, contract cistate.SubsystemState) {
 // authoritative `audition` contract the rest of the pipeline consumes. Keeping this a pure
 // function makes the safety-critical logic unit-testable with no CI, no forge, no I/O.
 type auditionInputs struct {
-	RunnerHealthy bool   // executor substrate healthy
-	Fatal         bool   // a Fatal lint finding (secret / conflict / broken tree) — voids the source
-	Remediable    bool   // a Remediable blocking finding (freshness/osv CVE) on the source
-	TestsPassed   bool   // the audition correctness gate (committed-tree tests) passed
-	DepsErrored   bool   // the deps update itself errored
-	Replacement   string // the fix commit (C′) if remediation committed one, else ""
+	RunnerHealthy bool // executor substrate healthy
+	Fatal         bool // a Fatal lint finding (secret / conflict / broken tree) — voids the source
+	Remediable    bool // a Remediable blocking finding (freshness/osv CVE) on the source
+	// RemediationEnabled reports whether the deps update is allowed to patch (dependency.remediate,
+	// default true). A Remediable finding only BLOCKS when remediation is enabled: then the fix is
+	// expected to land in a Replacement (C′) and building this subject would ship unfixed source.
+	// With remediation disabled (remediate: false — evaluate-only), the operator has chosen not to
+	// fix-forward; the finding is advisory, the subject ships as-is, and vulnerability GATING (if
+	// wanted) is the separate security.fail_on residual gate — not this contract.
+	RemediationEnabled bool
+	TestsPassed        bool   // the audition correctness gate (committed-tree tests) passed
+	DepsErrored        bool   // the deps update itself errored
+	Replacement        string // the fix commit (C′) if remediation committed one, else ""
 }
 
 // deriveAuditionContract is the PURE projection of an audition run into its contract. Two
 // invariants it must never violate:
 //
 //   - Blocking answers only "is this subject shippable?" It is false ONLY when nothing blocks:
-//     runner healthy, no fatal, no remediable finding, tests passed, deps did not error. A
-//     REMEDIATED source stays Blocking — the fix is in Replacement (C′), NOT in this subject,
-//     so building this subject would ship unfixed source.
+//     runner healthy, no fatal, tests passed, deps did not error, and no remediable finding that
+//     remediation is set to fix-forward. A REMEDIATED source stays Blocking — the fix is in
+//     Replacement (C′), NOT in this subject, so building this subject would ship unfixed source.
+//     A remediable finding under remediation-DISABLED (remediate: false) does NOT block: the
+//     operator chose evaluate-only, so the subject ships as-is and vuln gating, if wanted, is the
+//     separate security.fail_on residual gate.
 //   - Replacement is lineage only. It records the fix commit but NEVER makes a subject
 //     non-Blocking. Control (Perform) reads Blocking; it must never read Replacement.
 func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
-	blocking := !in.RunnerHealthy || in.Fatal || in.Remediable || !in.TestsPassed || in.DepsErrored
+	blocking := !in.RunnerHealthy || in.Fatal || (in.Remediable && in.RemediationEnabled) || !in.TestsPassed || in.DepsErrored
 
 	c := cistate.SubsystemState{
 		Name:        "audition",
