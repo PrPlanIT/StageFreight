@@ -67,12 +67,35 @@ type ImageRow struct {
 	RegistryLabel string        // human label (e.g., "Docker Hub")
 	RegistryURL   string        // provider-derived repo page URL
 	ImageRef      string        // full image ref (e.g., "docker.io/prplanit/stagefreight")
+	Label         string        // optional human group label (build.label); empty → group header is the image name
 	Tags          []ResolvedTag // resolved tags with URLs
 	DigestRef     string        // host/path@sha256:... (for pull command)
 	SBOM          string        // pull ref for SBOM artifact
 	Provenance    string        // pull ref for provenance artifact
 	Signature     string        // pull ref for signature artifact
 }
+
+// imageGroupKey is the dedupe/group key for the Image Availability table: the final path
+// segment of an image ref, stripped of registry host, :tag and @digest. Rows that publish the
+// SAME image to different registries (ghcr.io/homelabhd/zitadel, docker.io/hlhd/zitadel) share
+// the key "zitadel" and render under one group — derived purely from data, no per-app logic.
+func imageGroupKey(ref string) string {
+	s := ref
+	if i := strings.IndexByte(s, '@'); i >= 0 { // drop @sha256:...
+		s = s[:i]
+	}
+	if i := strings.LastIndexByte(s, '/'); i >= 0 { // keep last path segment
+		s = s[i+1:]
+	}
+	if i := strings.IndexByte(s, ':'); i >= 0 { // drop :tag
+		s = s[:i]
+	}
+	return s
+}
+
+// isGHCR reports whether an image ref is published to GitHub Container Registry, used to sort
+// it first within its group (it mirrors most upstreams' canonical registry).
+func isGHCR(ref string) bool { return strings.HasPrefix(ref, "ghcr.io/") }
 
 // BinaryRow is a single binary or archive artifact for the Downloads table.
 type BinaryRow struct {
@@ -823,30 +846,58 @@ func sectionImages(input NotesInput) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Image Availability\n\n")
-	b.WriteString("| Registry | Image | Tags |\n")
-	b.WriteString("|----------|-------|------|\n")
-	for _, img := range input.Images {
-		// Registry cell: linked label or plain text
-		var regCell string
-		if img.RegistryURL != "" {
-			regCell = fmt.Sprintf("[%s](%s)", img.RegistryLabel, img.RegistryURL)
-		} else {
-			regCell = img.RegistryLabel
-		}
 
-		// Tags cell: linked code spans or plain code
-		tagParts := make([]string, 0, len(img.Tags))
-		for _, t := range img.Tags {
-			if t.URL != "" {
-				tagParts = append(tagParts, fmt.Sprintf("[`%s`](%s)", t.Name, t.URL))
-			} else {
-				tagParts = append(tagParts, fmt.Sprintf("`%s`", t.Name))
+	// Group rows by image so the same image published to several registries renders as ONE
+	// group instead of a registry name repeated per row. Group order is first-seen; within a
+	// group GHCR sorts first (it mirrors most upstreams' canonical registry), then the rows'
+	// original order. The group header is the build's label when set, else the image name —
+	// both derived from data, no per-image hardcoding.
+	var order []string
+	groups := map[string][]ImageRow{}
+	for _, img := range input.Images {
+		k := imageGroupKey(img.ImageRef)
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], img)
+	}
+
+	for _, k := range order {
+		rows := groups[k]
+		header := k
+		for _, img := range rows {
+			if img.Label != "" {
+				header = img.Label
+				break
 			}
 		}
+		b.WriteString(fmt.Sprintf("### %s\n\n", header))
+		b.WriteString("| Registry | Reference | Tags |\n")
+		b.WriteString("|----------|-----------|------|\n")
 
-		b.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", regCell, img.ImageRef, strings.Join(tagParts, " ")))
+		ordered := make([]ImageRow, len(rows))
+		copy(ordered, rows)
+		sort.SliceStable(ordered, func(i, j int) bool {
+			return isGHCR(ordered[i].ImageRef) && !isGHCR(ordered[j].ImageRef)
+		})
+
+		for _, img := range ordered {
+			regCell := img.RegistryLabel
+			if img.RegistryURL != "" {
+				regCell = fmt.Sprintf("[%s](%s)", img.RegistryLabel, img.RegistryURL)
+			}
+			tagParts := make([]string, 0, len(img.Tags))
+			for _, t := range img.Tags {
+				if t.URL != "" {
+					tagParts = append(tagParts, fmt.Sprintf("[`%s`](%s)", t.Name, t.URL))
+				} else {
+					tagParts = append(tagParts, fmt.Sprintf("`%s`", t.Name))
+				}
+			}
+			b.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", regCell, img.ImageRef, strings.Join(tagParts, " · ")))
+		}
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 
 	// Digest pull commands and artifact links
 	hasExtras := false

@@ -5,9 +5,11 @@
 
 ## Image Availability
 
-| Registry | Image | Tags |
-|----------|-------|------|
-| [Docker Hub](https://hub.docker.com/r/prplanit/stagefreight) | `docker.io/prplanit/stagefreight` | [`v0.7.0`](https://hub.docker.com/r/prplanit/stagefreight/tags?name=v0.7.0) `latest` |
+### stagefreight
+
+| Registry | Reference | Tags |
+|----------|-----------|------|
+| [Docker Hub](https://hub.docker.com/r/prplanit/stagefreight) | `docker.io/prplanit/stagefreight` | [`v0.7.0`](https://hub.docker.com/r/prplanit/stagefreight/tags?name=v0.7.0) · `latest` |
 | Harbor | `cr.pcfae.com/prplanit/stagefreight` | `v0.7.0` |
 
 <details>

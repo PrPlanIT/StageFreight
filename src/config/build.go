@@ -129,6 +129,12 @@ type BuildConfig struct {
 	// SelectTags enables CLI filtering via --select.
 	SelectTags []string `yaml:"select_tags,omitempty"`
 
+	// Label is an optional human display name for this build's image in the release
+	// notes / README "Image Availability" table group header (e.g. "Backend", "Login v2").
+	// Purely presentational; when empty the group header falls back to the image name.
+	// Generic — no per-app defaults.
+	Label string `yaml:"label,omitempty"`
+
 	// Required means build failure is a hard pipeline fail. Default: true.
 	Required *bool `yaml:"required,omitempty"`
 

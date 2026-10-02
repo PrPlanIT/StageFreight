@@ -310,16 +310,17 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			// always the ArtifactID, carried separately.
 			type imageGroupKey struct{ host, path string }
 			type pendingImageGroup struct {
-				artifactID artifact.ArtifactID
-				host       string
-				path       string
-				provider   string
-				seen       map[string]bool
-				tagList    []string
-				digest     string
-				sbom       string
-				prov       string
-				sig        string
+				artifactID   artifact.ArtifactID
+				artifactName string // == producing build's id (docker artifact Name); keys the display label
+				host         string
+				path         string
+				provider     string
+				seen         map[string]bool
+				tagList      []string
+				digest       string
+				sbom         string
+				prov         string
+				sig          string
 			}
 			groupIndex := make(map[imageGroupKey]*pendingImageGroup)
 			var groupOrder []imageGroupKey
@@ -328,11 +329,12 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				g, exists := groupIndex[k]
 				if !exists {
 					g = &pendingImageGroup{
-						artifactID: v.ArtifactID,
-						host:       v.Host,
-						path:       v.Path,
-						provider:   providerFromHost(v.Host),
-						seen:       make(map[string]bool),
+						artifactID:   v.ArtifactID,
+						artifactName: v.ArtifactName,
+						host:         v.Host,
+						path:         v.Path,
+						provider:     providerFromHost(v.Host),
+						seen:         make(map[string]bool),
 					}
 					groupIndex[k] = g
 					groupOrder = append(groupOrder, k)
@@ -360,6 +362,15 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 				return gi.host < gj.host
 			})
 
+			// Optional per-build display labels for the Image Availability group headers,
+			// keyed by build id (== the docker artifact Name carried on each group).
+			labelByBuildID := map[string]string{}
+			for _, bld := range req.Config.Builds {
+				if bld.Label != "" {
+					labelByBuildID[bld.ID] = bld.Label
+				}
+			}
+
 			imageRows = make([]release.ImageRow, 0, len(groupOrder))
 			for _, k := range groupOrder {
 				g := groupIndex[k]
@@ -384,6 +395,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 					RegistryLabel: rt.DisplayName(),
 					RegistryURL:   rt.RepoURL(),
 					ImageRef:      rt.ImageRef(),
+					Label:         labelByBuildID[g.artifactName],
 					Tags:          tags,
 					DigestRef:     digestRef,
 					SBOM:          g.sbom,
@@ -918,9 +930,18 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 	type pendingTarget struct {
 		resolved registry.ResolvedRegistryTarget
 		seen     map[string]bool
+		label    string // optional build.label for the group header
 	}
 	targetIndex := make(map[imageKey]*pendingTarget)
 	var targetOrder []imageKey
+
+	// Optional per-build display labels, keyed by build id (targets reference it via t.Build).
+	labelByBuildID := map[string]string{}
+	for _, b := range cfg.Builds {
+		if b.Label != "" {
+			labelByBuildID[b.ID] = b.Label
+		}
+	}
 
 	// CRITICAL:
 	// tag_sources as map is ONLY for when.git_tags lookup on target conditions.
@@ -958,7 +979,8 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 					Host:     host,
 					Path:     resolved.Path,
 				},
-				seen: make(map[string]bool),
+				seen:  make(map[string]bool),
+				label: labelByBuildID[t.Build],
 			}
 			targetIndex[k] = pt
 			targetOrder = append(targetOrder, k)
@@ -993,6 +1015,7 @@ func buildImageRowsFromConfig(cfg *config.Config, currentTag string, versionInfo
 			RegistryLabel: rt.DisplayName(),
 			RegistryURL:   rt.RepoURL(),
 			ImageRef:      rt.ImageRef(),
+			Label:         targetIndex[k].label,
 			Tags:          tags,
 		})
 	}

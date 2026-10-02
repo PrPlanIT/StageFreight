@@ -73,8 +73,11 @@ func (r ResolvedRegistryTarget) RepoURL() string {
 	case "docker":
 		return fmt.Sprintf("https://hub.docker.com/r/%s", r.Path)
 	case "github":
+		// GHCR package page lives under the owner's /orgs/ namespace; without that
+		// segment (github.com/<owner>/packages/...) the link 404s. Container packages
+		// are overwhelmingly org-scoped, which is what GHCR paths resolve under here.
 		owner, pkg := splitPath(r.Path)
-		return fmt.Sprintf("https://github.com/%s/packages/container/package/%s", owner, pkg)
+		return fmt.Sprintf("https://github.com/orgs/%s/packages/container/package/%s", owner, pkg)
 	case "quay":
 		return fmt.Sprintf("https://quay.io/repository/%s", r.Path)
 	case "gitlab":
@@ -129,9 +132,9 @@ func (r ResolvedRegistryTarget) TagURL(tag string) string {
 	case "docker":
 		return fmt.Sprintf("https://hub.docker.com/r/%s/tags?name=%s", r.Path, tag)
 	case "github":
-		// GHCR packages page doesn't have per-tag deep links
-		owner, pkg := splitPath(r.Path)
-		return fmt.Sprintf("https://github.com/%s/packages/container/package/%s", owner, pkg)
+		// GHCR packages page has no per-tag deep link — reuse the repo page URL
+		// (single source of truth for the /orgs/ package path).
+		return r.RepoURL()
 	case "quay":
 		return fmt.Sprintf("https://quay.io/repository/%s?tab=tags&tag=%s", r.Path, tag)
 	case "gitlab":
