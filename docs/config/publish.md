@@ -90,6 +90,23 @@ The `aliases` are rolling git tags resolved with the same [template
 variables](concepts.md#template-variables) as everything else — `{version}` → `1.2.3`,
 `{major}.{minor}` → `1.2`, `latest` → always the newest.
 
+### Cutting the tag & its release notes
+
+Releases are cut with `stagefreight tag` (never raw `git tag` — that is hook-blocked):
+
+```bash
+stagefreight tag v1.2.3 -m "- first highlight
+- second highlight"
+```
+
+- The `-m` message **is the release's _Notable Features_ section** — each **bulleted line becomes one item** in that list. Write the highlights you want to surface; StageFreight renders them under the heading and assembles the rest of the notes (Image Availability, Downloads + checksums, Security summary, SBOM/signatures) automatically.
+- **Omit `-m`** and the glossary pipeline generates the highlights from the conventional-commit history since the previous release. Interactive (TTY) runs prompt for the message; non-interactive runs require `-m` or a non-empty glossary result.
+- `--target <ref>` tags a specific commit without checking it out (e.g. release `origin/main` while on another branch); a `[skip ci]` tip is skipped and its releasable parent is tagged instead.
+- `--dry-run` previews the full plan and the rendered highlights; `--push` creates **and** pushes the tag, which triggers the release pipeline. Without `--push` the tag stays local.
+
+!!! tip "Bullets with backticks or apostrophes"
+    Passing them straight through a shell lets it interpret them. Keep the notes in a file and pass `-m "$(cat NOTES.md)"` — command-substitution output is not re-parsed.
+
 !!! note "CLI"
     Release authoring (`release create`, `release notes`, `release prune`, `release badge`)
     and its flags live in the [CLI Reference](../reference/CLI.md). In CI these run as part of
