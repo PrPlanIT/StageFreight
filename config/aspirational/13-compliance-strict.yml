@@ -1,0 +1,107 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Compliance-Strict (Regulated Industry)
+#
+# Who: Teams in regulated industries — healthcare, finance, government,
+#      defense contractors. Compliance is mandatory, not optional.
+# What: Every implemented security feature turned on and set to fail.
+#       SBOM generation required. Full lint suite with strict file size
+#       limits. Builds push to a private registry only — no public exposure.
+# Build: Single-platform image pushed to private registry from main and
+#       release/* branches.
+# Why: Auditors want proof. StageFreight generates SBOMs and runs security
+#      scans automatically. Lint catches secrets, merge conflicts, and
+#      suspicious unicode before they reach production.
+
+version: 1
+
+policies:
+  branches:
+    main: "^main$"
+    release: "^release/.*$"
+
+builds:
+  patient-portal:
+    kind: docker
+    platforms: [linux/amd64]
+
+targets:
+  private-registry:
+    kind: registry
+    build: patient-portal
+    url: registry.prplanit.com
+    path: compliance/patient-portal
+    tags: ["{version}", "{version}-{sha:.7}"]
+    when: { branches: [main, release], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:^\\d+\\.\\d+\\.\\d+$"], events: [tag] }
+
+lint:
+  level: full
+  modules:
+    secrets: { enabled: true }
+    unicode: { enabled: true }
+    tabs: { enabled: true }
+    filesize:
+      enabled: true
+      options:
+        max_bytes: 204800
+    conflicts: { enabled: true }
+
+security:
+  enabled: true
+  sbom: true
+  fail_on_critical: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# rebuild:
+#   schedule: daily
+#   on_base_update: true
+#   notify: true
+#
+# security:
+#   audit_deps: true
+#   secret_findings: alert
+#   codebase_audit: true
+#   codebase_audit_fix: false
+#   codebase_audit_threshold: warning
+#
+# license:
+#   compliance: true
+#   headers: true
+#   spdx: true
+#
+# templates:
+#   golden_files: true
+#   gitignore: true
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   target: dev
+#   env:
+#     DATABASE_URL: postgres://dev:dev@db:5432/portal_dev
+#     FHIR_SERVER_URL: http://fhir-mock:8080
+#     AUDIT_LOG_LEVEL: verbose
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: portal_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     fhir-mock:
+#       image: docker.io/library/nginx:alpine
+#   ports: ["8443:8443"]
+#   test:
+#     startup: { timeout: 30s, depends_on: [db, fhir-mock] }
+#     healthchecks:
+#       - { name: https, type: http, url: "https://localhost:8443/health", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "./manage.py migrate --check" }
+#       - { name: audit-log-test, run: "./manage.py test audit --verbosity=2" }
+#       - { name: hipaa-checks, run: "./scripts/verify-phi-encryption.sh" }
+#       - { name: full-suite, run: "pytest tests/ --tb=short -x" }
+#     teardown: always
+#
+# yolo: false

@@ -1,0 +1,72 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Game Server
+#
+# Who: Homelab users and small communities hosting game servers — Minecraft,
+#      Valheim, Factorio, Palworld. Often forked from upstream server images
+#      with custom mods, configs, or performance patches.
+# What: Builds a customized game server image with mods baked in. Pushes to
+#       a private registry on every main branch push. Release notes on tags.
+# Build: Dockerfile extending upstream game server image with mods/configs.
+# Why: Game servers are "upstream image + mods folder + config tweaks" — a
+#      manifest that rebuilds on push means mod changes deploy automatically.
+
+version: 1
+
+policies:
+  branches:
+    main: "^main$"
+
+builds:
+  minecraft-modded:
+    kind: docker
+    platforms: [linux/amd64]
+
+targets:
+  private-registry:
+    kind: registry
+    build: minecraft-modded
+    url: registry.prplanit.com
+    path: games/minecraft-modded
+    tags: ["{version}", latest]
+    when: { branches: [main], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# fork:
+#   upstream: github.com/itzg/docker-minecraft-server
+#   strategy: merge
+#   auto_sync: true
+#
+# rebuild:
+#   schedule: weekly
+#   on_base_update: true
+#   notify: true
+#
+# yolo: true
+#
+# dev:
+#   env:
+#     EULA: "TRUE"
+#     TYPE: FABRIC
+#     VERSION: "1.21.4"
+#     MEMORY: 4G
+#     DIFFICULTY: normal
+#     MODE: survival
+#     MOTD: "StageFreight Dev Server"
+#   ports:
+#     - "25565:25565"
+#     - "25575:25575"
+#   volumes:
+#     - ./mods:/data/mods
+#     - ./config:/data/config
+#     - server-data:/data/world
+#   test:
+#     startup: { timeout: 120s }
+#     healthchecks:
+#       - { name: tcp-ready, type: tcp, host: localhost, port: 25565, timeout: 10s }
+#     sanity:
+#       - { name: rcon-ping, run: "rcon-cli --host localhost --port 25575 --password dev 'list'" }
+#     teardown: always

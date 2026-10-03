@@ -1,0 +1,38 @@
+# Release target with rolling tags and retention.
+version: 1
+
+git:
+  tags:
+    stable:     { pattern: "^v?\\d+\\.\\d+\\.\\d+$" }
+    prerelease: { pattern: "^v?\\d+\\.\\d+\\.\\d+-.+" }
+
+forges:
+  github: { provider: github, url: "https://github.com", credentials: GITHUB }
+
+repos:
+  primary:
+    forge: github
+    project: myorg/myapp
+    roles: [primary]
+    branches: { default: main }
+
+builds:
+  myapp:
+    kind: docker
+
+publish:
+  dockerhub-stable:
+    kind: registry
+    build: myapp
+    url: docker.io
+    path: myorg/myapp
+    tags: ["{version}", "{major}.{minor}", "latest"]
+    when: { git_tags: [stable], events: [tag] }
+    credentials: DOCKER
+    retention: { keep_last: 10, keep_monthly: 6 }
+
+  primary-release:
+    kind: release
+    repos: [primary]
+    aliases: ["{version}", "{major}.{minor}", "latest"]
+    when: { git_tags: [stable], events: [tag] }
