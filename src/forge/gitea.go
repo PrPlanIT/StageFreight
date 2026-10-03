@@ -297,6 +297,13 @@ func (g *GiteaForge) AddReleaseLink(ctx context.Context, releaseID string, link 
 
 	linkLine := fmt.Sprintf("- [%s](%s)", link.Name, link.URL)
 	body := rel.Body
+	// The Image Availability table already lists every registry/image with pull commands;
+	// a separate "### Container Images" link list is redundant, so skip the body-append when
+	// the table is present (Gitea/Forgejo have no native release links, so these links only
+	// ever lived in the body anyway).
+	if strings.Contains(body, "## Image Availability") {
+		return nil
+	}
 	if !strings.Contains(body, "### Container Images") {
 		body += "\n\n### Container Images\n"
 	}

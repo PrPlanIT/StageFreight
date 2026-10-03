@@ -334,6 +334,13 @@ func (g *GitHubForge) AddReleaseLink(ctx context.Context, releaseID string, link
 
 	linkLine := fmt.Sprintf("- [%s](%s)", link.Name, link.URL)
 	body := rel.Body
+	// The Image Availability table already lists every registry/image with pull commands;
+	// a separate "### Container Images" link list is redundant, so skip the body-append when
+	// the table is present (GitHub has no native release links, so these links only ever
+	// lived in the body anyway).
+	if strings.Contains(body, "## Image Availability") {
+		return nil
+	}
 	// Add-if-missing: GitHub has no native release links, so links live as body lines.
 	// Skip when the exact line is already present, keeping reconcile idempotent (no
 	// duplicate appends on re-run).
