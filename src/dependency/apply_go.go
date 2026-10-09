@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -51,6 +52,35 @@ func resolveGoRunner(repoRoot string) (goRunner, error) {
 		return cmd.CombinedOutput()
 	})
 	goRunnerMemo[repoRoot] = runner
+	return runner, nil
+}
+
+var goVersionRunnerMemo = map[string]goRunner{}
+
+// resolveGoRunnerForVersion provisions a Go toolchain AT the requested version (not the
+// repo's current, possibly-older version) and returns a runner pinned to it via
+// GOTOOLCHAIN=local. A go directive can only be raised to X by a toolchain that is itself
+// >= X — otherwise `go mod tidy` fails or reverts the bump — so a directive sync to X must
+// execute under Go X. Memoized per (repoRoot, version).
+func resolveGoRunnerForVersion(repoRoot, version string) (goRunner, error) {
+	key := repoRoot + "\x00" + version
+	goRunnerMu.Lock()
+	defer goRunnerMu.Unlock()
+	if r, ok := goVersionRunnerMemo[key]; ok {
+		return r, nil
+	}
+	result, err := toolchain.Resolve(repoRoot, "go", version)
+	if err != nil {
+		return nil, fmt.Errorf("go toolchain %s: %w", version, err)
+	}
+	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(result, "go directive sync")}, output.UseColor())
+	runner := goRunner(func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, result.Path, args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+		return cmd.CombinedOutput()
+	})
+	goVersionRunnerMemo[key] = runner
 	return runner, nil
 }
 
@@ -245,7 +275,10 @@ func hasAppliedGolangBuilderUpdate(applied []AppliedUpdate) bool {
 
 // syncGoDirectivesFromResolved bumps go directives in go.mod files to match their
 // associated Dockerfile golang builder versions, using pre-computed sync targets.
-func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *UpdateResult, resolved goDirectiveSyncResult) error {
+// runGo may be nil, in which case the Go toolchain is resolved internally; tests inject a
+// fake runner. Each module's directive is only recorded as applied when go.mod actually
+// changed on disk — a no-op edit is reported as a skip, never a phantom applied update.
+func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *UpdateResult, resolved goDirectiveSyncResult, runGo goRunner) error {
 	// Surface conflicted modules as skipped entries with version details
 	for _, conflict := range resolved.Conflicted {
 		detail := fmt.Sprintf("conflicting golang builder versions in %s: %s (from %s)",
@@ -267,11 +300,6 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 		return nil
 	}
 
-	runGo, err := resolveGoRunner(repoRoot)
-	if err != nil {
-		return err
-	}
-
 	for _, t := range resolved.Targets {
 		modFile := filepath.Join(repoRoot, t.ModuleDir, "go.mod")
 		if _, err := os.Stat(modFile); err != nil {
@@ -285,14 +313,41 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 
 		absDir := filepath.Join(repoRoot, t.ModuleDir)
 
-		out, err := runGo(ctx, absDir, "mod", "edit", "-go="+t.GoVersion)
-		if err != nil {
-			return fmt.Errorf("go mod edit -go=%s in %s: %s\n%w", t.GoVersion, t.ModuleDir, string(out), err)
+		// Raising the directive to t.GoVersion requires running under Go >= t.GoVersion;
+		// the repo's current (older) toolchain would make tidy fail or revert the bump.
+		// Provision a runner at the target version so the bump actually persists. Tests
+		// inject runGo to bypass provisioning.
+		run := runGo
+		if run == nil {
+			var err error
+			run, err = resolveGoRunnerForVersion(repoRoot, t.GoVersion)
+			if err != nil {
+				return err
+			}
 		}
 
-		out, err = runGo(ctx, absDir, "mod", "tidy")
+		changed, err := syncModuleGoDirective(ctx, absDir, modFile, t.GoVersion, run)
 		if err != nil {
-			return fmt.Errorf("go mod tidy in %s: %s\n%w", t.ModuleDir, string(out), err)
+			return err
+		}
+
+		if !changed {
+			// edit+tidy left go.mod byte-identical — e.g. the resolved Go runner is older
+			// than the target, so `tidy` reverted the directive. Report the no-op honestly
+			// instead of claiming a phantom "applied" update that changed no file (which
+			// previously printed "Applied stdlib" alongside "files changed 0").
+			result.Skipped = append(result.Skipped, SkippedDep{
+				Dep: supplychain.Dependency{
+					Name:      "stdlib",
+					Current:   cur,
+					Latest:    t.GoVersion,
+					Ecosystem: supplychain.EcosystemGoMod,
+					File:      moduleGoModPath(t.ModuleDir),
+				},
+				Category: SkipNoChange,
+				Reason:   fmt.Sprintf("go directive sync to %s produced no change (left at %s)", t.GoVersion, cur),
+			})
+			continue
 		}
 
 		result.Applied = append(result.Applied, AppliedUpdate{
@@ -321,6 +376,28 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 	}
 
 	return nil
+}
+
+// syncModuleGoDirective edits one module's go directive to target (go mod edit + tidy)
+// and reports whether go.mod actually changed on disk. A byte-identical result means the
+// edit did not persist (commonly: the resolved runner is older than target and tidy
+// reverted it), so callers must NOT record it as an applied update.
+func syncModuleGoDirective(ctx context.Context, absDir, modFile, target string, runGo goRunner) (bool, error) {
+	before, err := os.ReadFile(modFile)
+	if err != nil {
+		return false, fmt.Errorf("reading %s: %w", modFile, err)
+	}
+	if out, err := runGo(ctx, absDir, "mod", "edit", "-go="+target); err != nil {
+		return false, fmt.Errorf("go mod edit -go=%s in %s: %s\n%w", target, absDir, string(out), err)
+	}
+	if out, err := runGo(ctx, absDir, "mod", "tidy"); err != nil {
+		return false, fmt.Errorf("go mod tidy in %s: %s\n%w", absDir, string(out), err)
+	}
+	after, err := os.ReadFile(modFile)
+	if err != nil {
+		return false, fmt.Errorf("reading %s: %w", modFile, err)
+	}
+	return !bytes.Equal(before, after), nil
 }
 
 // goDirectiveConflict records a module with conflicting golang builder versions.

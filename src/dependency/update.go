@@ -359,7 +359,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 
 	if applyEcosystems && (len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0) {
 		t0 = time.Now()
-		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved); err != nil {
+		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved, nil); err != nil {
 			steps = append(steps, depStep{label: "sync directives", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("syncing go directives: %w", err)
 		}
