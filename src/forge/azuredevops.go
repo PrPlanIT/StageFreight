@@ -154,6 +154,17 @@ func (a *AzureDevOpsForge) BranchHeadSHA(ctx context.Context, branch string) (st
 
 // GetFileContent reads a file from the repo at a branch ref.
 func (a *AzureDevOpsForge) GetFileContent(ctx context.Context, path, ref string) ([]byte, error) {
+	// The items API wants a concrete branch (versionType=branch); it serves neither an
+	// empty ref nor the symbolic "HEAD" (that would read as a branch literally named
+	// "HEAD"). Resolve both to the default branch so governance detection reads real
+	// content instead of 404ing and churning empty reconcile commits.
+	if ref == "" || ref == "HEAD" {
+		var err error
+		ref, err = a.DefaultBranch(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resolving default branch: %w", err)
+		}
+	}
 	q := fmt.Sprintf("path=%s&versionDescriptor.version=%s&versionDescriptor.versionType=branch&includeContent=true",
 		path, strings.TrimPrefix(ref, "refs/heads/"))
 	var resp struct {

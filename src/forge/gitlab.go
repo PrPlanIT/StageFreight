@@ -451,7 +451,11 @@ func (g *GitLabForge) fileExists(ctx context.Context, path, branch string) bool 
 }
 
 func (g *GitLabForge) GetFileContent(ctx context.Context, path, ref string) ([]byte, error) {
-	if ref == "" {
+	// GitLab's files API does not serve the symbolic ref "HEAD" (see governance/loader.go:
+	// "a tag spelled HEAD matches nothing a server serves"). Treat it, like an empty ref,
+	// as the default branch — otherwise every governance detection read 404s, each file
+	// then looks new, and a reconcile churns an empty 0-file commit on every run.
+	if ref == "" || ref == "HEAD" {
 		var err error
 		ref, err = g.DefaultBranch(ctx)
 		if err != nil {

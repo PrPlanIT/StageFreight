@@ -544,7 +544,10 @@ func (g *GiteaForge) DownloadJobArtifact(ctx context.Context, ref, jobName, arti
 }
 
 func (g *GiteaForge) GetFileContent(ctx context.Context, path, ref string) ([]byte, error) {
-	if ref == "" {
+	// Resolve "" and the symbolic "HEAD" to the default branch ourselves rather than
+	// trusting the server to serve "HEAD" — so governance detection reads real content
+	// deterministically instead of risking a 404 that churns empty reconcile commits.
+	if ref == "" || ref == "HEAD" {
 		var err error
 		ref, err = g.DefaultBranch(ctx)
 		if err != nil {
