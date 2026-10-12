@@ -2,6 +2,7 @@ package facts
 
 import (
 	"encoding/json"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func writeManifest(t *testing.T, root, cluster string, complete bool, states ...string) {
 	t.Helper()
-	dir := filepath.Join(root, ".stagefreight", "manifests")
+	dir := paths.Durable(root, paths.InventoryName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

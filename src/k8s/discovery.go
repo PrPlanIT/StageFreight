@@ -87,7 +87,7 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 	sortRecords(platform)
 
 	// Phase 7: Reconcile lifecycle state + derive graveyard.
-	// Scoped to cluster: .stagefreight/manifests/k8s-inventory-<cluster>.json
+	// Scoped to cluster: .stagefreight/inventory/k8s-inventory-<cluster>.json
 	allActive := append(apps, platform...)
 	var graveyard []GraveyardEntry
 
@@ -371,6 +371,10 @@ func groupByPrefix(groups map[AppKey]*appGroup) {
 		if len(candidates) < 2 {
 			continue
 		}
+		// Fixed member order: the family inherits the first member's labels and lists
+		// its workloads in merge order, so an order taken from map iteration would
+		// leak into every downstream derivation.
+		sort.Slice(candidates, func(i, j int) bool { return candidates[i].key.less(candidates[j].key) })
 
 		// Bucket candidates by first hyphen segment for initial grouping.
 		firstSegBuckets := map[string][]candidate{}
@@ -473,20 +477,53 @@ func augmentServices(ctx context.Context, cs kubernetes.Interface, groups map[Ap
 		if len(svc.Spec.Selector) == 0 {
 			continue // no-selector services ignored
 		}
-
-		// Find matching app group: selector ⊆ pod labels
-		for key, g := range groups {
-			if key.Namespace != svc.Namespace {
-				continue
-			}
-			if selectorMatches(svc.Spec.Selector, g.podLabels) {
-				g.services = append(g.services, *svc)
-				break // one service → one group
-			}
+		if key, ok := serviceOwner(groups, svc); ok {
+			groups[key].services = append(groups[key].services, *svc)
 		}
 	}
 
 	return nil
+}
+
+// serviceOwner picks the ONE group a Service belongs to: the selector must be a subset
+// of the labels of some workload in the group. A merged family (indexer + manager +
+// dashboard) carries one label set per member and a per-component Service selects
+// exactly one of them, so every member is consulted, not just whichever one happened
+// to be merged first. If distinct groups both qualify, the lowest key wins — a fixed
+// rule, so the same cluster state yields the same owner on every run. Ownership decides
+// which app the HTTPRoutes (hostnames, exposure) attach to, and through rec.Hosts even
+// the app/platform tier; an owner that varied with map order made all of those flip
+// between consecutive renders of an unchanged cluster.
+func serviceOwner(groups map[AppKey]*appGroup, svc *corev1.Service) (AppKey, bool) {
+	var best AppKey
+	found := false
+	for key, g := range groups {
+		if key.Namespace != svc.Namespace || !g.matchesSelector(svc.Spec.Selector) {
+			continue
+		}
+		if !found || key.less(best) {
+			best, found = key, true
+		}
+	}
+	return best, found
+}
+
+// matchesSelector reports whether the selector selects any workload in the group.
+func (g *appGroup) matchesSelector(selector map[string]string) bool {
+	for _, wl := range g.workloads {
+		if selectorMatches(selector, wl.labels) {
+			return true
+		}
+	}
+	return len(g.workloads) == 0 && selectorMatches(selector, g.podLabels)
+}
+
+// less orders keys by namespace, then identity — the one tiebreak every sort here uses.
+func (k AppKey) less(o AppKey) bool {
+	if k.Namespace != o.Namespace {
+		return k.Namespace < o.Namespace
+	}
+	return k.Identity < o.Identity
 }
 
 // augmentHTTPRoutes attaches HTTPRoute hostnames to app groups.
@@ -572,7 +609,14 @@ func extractGateway(route *gatewayv1.HTTPRoute) string {
 func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *CategoryResolver, fluxSources map[AppKey][]DeclaredSource, exposureRules config.ExposureRules) []AppRecord {
 	var records []AppRecord
 
-	for _, g := range groups {
+	keys := make([]AppKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].less(keys[j]) })
+
+	for _, key := range keys {
+		g := groups[key]
 		rec := AppRecord{
 			Key:       g.identity.Key,
 			Category:  resolver.Resolve(g.identity.Key.Namespace),
@@ -925,7 +969,12 @@ func sortRecords(records []AppRecord) {
 		if ci != cj {
 			return ci < cj
 		}
-		return strings.ToLower(records[i].FriendlyName) < strings.ToLower(records[j].FriendlyName)
+		if a, b := strings.ToLower(records[i].FriendlyName), strings.ToLower(records[j].FriendlyName); a != b {
+			return a < b
+		}
+		// Equal display names (shared label value, catalog alias) are not equal records;
+		// without a total order their relative position is whatever the input had.
+		return records[i].Key.less(records[j].Key)
 	})
 }
 

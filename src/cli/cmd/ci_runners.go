@@ -971,7 +971,7 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 			if _, err := autoCommitViaPlanner(ctx, appCfg, rootDir, commit.PlannerOptions{
 				Type:     appCfg.Scribe.Commit.Type,
 				Message:  appCfg.Scribe.Commit.Message,
-				AddPaths: appCfg.Scribe.Commit.Add,
+				AddPaths: withInventoryState(rootDir, appCfg.Scribe.Commit.Add),
 				// OriginNarrate is the internal commit-origin marker for loop
 				// prevention; kept stable so existing auto-commits are still
 				// recognized even though this work is now a publish action.
@@ -986,6 +986,26 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	// No sync here: the single terminal mirror sync lives in publishPhaseRunner,
 	// downstream of this commit, so one sync carries it (and any release data).
 	return nil
+}
+
+// withInventoryState adds the k8s-inventory lifecycle manifests to the scribe commit's
+// declared paths whenever the durable inventory directory exists. The manifests are
+// tool-owned state — written by the k8s-inventory module during this same run — so the
+// tool stages them, the way the preset-cache refresh stages its own output; a repo's
+// scribe.commit.add should not have to know StageFreight's internal state path, and
+// forgetting it must not silently reset every lifecycle transition to the last
+// hand-committed snapshot. A no-op when nothing under it changed.
+func withInventoryState(rootDir string, declared []string) []string {
+	rel := paths.Durable("", paths.InventoryName)
+	if st, err := os.Stat(paths.Durable(rootDir, paths.InventoryName)); err != nil || !st.IsDir() {
+		return declared
+	}
+	for _, p := range declared {
+		if strings.TrimSuffix(p, "/") == rel {
+			return declared
+		}
+	}
+	return append(append([]string(nil), declared...), rel)
 }
 
 // isDocsAutoCommit detects if the current commit was created by StageFreight's docs subsystem.

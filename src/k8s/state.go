@@ -10,10 +10,15 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
-const manifestsDir = paths.Root + "/manifests"
+// inventoryDir is the DURABLE home of the lifecycle manifests. It must be inside the
+// workspace allowlist (workspace.persistentEntries): the build manifests under
+// .stagefreight/manifests are ephemeral and gitignored, and a lifecycle file that is
+// gitignored is a lifecycle file that is written every run and persisted never — every
+// sweep then starts from whatever snapshot was last committed by hand.
+var inventoryDir = paths.Durable("", paths.InventoryName)
 
 // InventoryManifest is the scoped k8s inventory manifest.
-// Lives at .stagefreight/manifests/k8s-inventory-<cluster>.json
+// Lives at .stagefreight/inventory/k8s-inventory-<cluster>.json
 // Manifest accelerates truth — it never becomes truth.
 type InventoryManifest struct {
 	SchemaVersion   int                    `json:"schema_version"`
@@ -93,7 +98,7 @@ type EnrichBasis struct {
 
 // inventoryPath returns the scoped manifest path for a cluster.
 func inventoryPath(repoRoot, clusterName string) string {
-	return filepath.Join(repoRoot, manifestsDir, "k8s-inventory-"+clusterName+".json")
+	return filepath.Join(repoRoot, inventoryDir, "k8s-inventory-"+clusterName+".json")
 }
 
 // LoadManifest reads the generated inventory manifest for a cluster.
@@ -268,7 +273,10 @@ func GraveyardFromManifest(manifest *InventoryManifest) []GraveyardEntry {
 		})
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name < entries[j].Name
+		if entries[i].Name != entries[j].Name {
+			return entries[i].Name < entries[j].Name
+		}
+		return entries[i].Namespace < entries[j].Namespace
 	})
 	return entries
 }
@@ -276,7 +284,7 @@ func GraveyardFromManifest(manifest *InventoryManifest) []GraveyardEntry {
 // SaveManifest writes the manifest with stable formatting.
 // Sorted keys, indented JSON, no-op if unchanged.
 func SaveManifest(repoRoot, clusterName string, manifest *InventoryManifest) error {
-	dir := filepath.Join(repoRoot, manifestsDir)
+	dir := filepath.Join(repoRoot, inventoryDir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}

@@ -23,7 +23,7 @@ var invFields = []string{"count"}
 //
 // The COMMITTED manifest is the source of truth, not a live cluster. The k8s-inventory
 // scribe module already discovered the cluster and wrote
-// .stagefreight/manifests/k8s-inventory-<cluster>.json into the repo, so the badge and
+// .stagefreight/inventory/k8s-inventory-<cluster>.json into the repo, so the badge and
 // the Apps & Services region it sits above are then two readings of one fact rather than
 // two independent discoveries that can disagree.
 //

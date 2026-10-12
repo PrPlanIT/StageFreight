@@ -7,7 +7,7 @@
 //
 // The four buckets, four lifecycles:
 //
-//	Durable — committed repo state (scribe/, preset-cache/, toolchains.lock). Tracked;
+//	Durable — committed repo state (scribe/, preset-cache/, inventory/, toolchains.lock). Tracked;
 //	          travels with the repo; reviewed. The ONLY bucket that is ever committed.
 //	Scratch — per-run pipeline I/O (handoff artifacts, reports, dist). In-tree ONLY
 //	          because forge artifact/report paths must live under the project dir;
@@ -45,6 +45,13 @@ const (
 	// and the durable allowlist (workspace) both derive from ONE name and cannot drift —
 	// the drift that once left scribe outputs gitignored and unrenderable on the forge.
 	ScribeName = "scribe"
+
+	// InventoryName is the Durable subdirectory holding the k8s-inventory lifecycle
+	// manifests (one per cluster). They are memory, not a snapshot: active→missing→
+	// graveyard transitions only exist across runs, so the file has to travel with the
+	// repo. Kept apart from the ephemeral build manifests so the durable allowlist can
+	// carve out exactly this directory.
+	InventoryName = "inventory"
 
 	// DefaultCacheRoot is the default mount for the Cache bucket. Overridable per host
 	// (a runner may mount elsewhere); on a hosted runner the forge cache maps onto it.

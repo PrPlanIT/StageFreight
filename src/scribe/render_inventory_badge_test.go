@@ -1,6 +1,7 @@
 package scribe
 
 import (
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,7 @@ func TestRenderShield_InventoryCountResolvesFromManifest(t *testing.T) {
     "ns/d": {"lifecycle": {"state": "graveyard"}}
   }
 }`
-	mdir := filepath.Join(dir, ".stagefreight", "manifests")
+	mdir := paths.Durable(dir, paths.InventoryName)
 	if err := os.MkdirAll(mdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
