@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // Catalog holds human-curated metadata that augments cluster discovery.
@@ -108,83 +110,50 @@ func (c *Catalog) ApplyOverrides(rec *AppRecord) {
 	}
 }
 
-// CategoryResolver maps namespaces to human-readable category names.
+// Uncategorized is the section for namespaces the cluster declares no category for.
+const Uncategorized = "Uncategorized"
+
+// CategoryResolver answers what the cluster declares about a namespace: its inventory
+// section, that section's position, and the tier of everything in it.
 type CategoryResolver struct {
-	overrides map[string]string
+	categories  []config.InventoryCategory
+	byNamespace map[string]int
+	order       map[string]int
 }
 
-// defaultCategories maps Zelda-themed namespaces to category names.
-var defaultCategories = map[string]string{
-	"temple-of-time":    "Archival & Media",
-	"swift-sail":        "Downloads & Arr",
-	"gossip-stone":      "Monitoring",
-	"lost-woods":        "Discovery & Dashboards",
-	"shooting-gallery":  "Game Servers",
-	"tingle-tuner":      "Tools & Utilities",
-	"zeldas-lullaby":    "Administrative",
-	"compass":           "DNS & NTP",
-	"hookshot":          "Remote Management",
-	"lens-of-truth":     "Security & IDS",
-	"delivery-bag":      "Mail Services",
-	"fairy-bottle":      "Backup Services",
-	"gorons-bracelet":   "Storage Services",
-	"wallmaster":        "Bot Protection",
-	"gerudo-crest":      "Internal Trust",
-	"pedestal-of-time":  "Privileged Services",
-	"kokiri-forest":     "Personal Gateway",
-	"hyrule-castle":     "Business Gateway",
-	"arylls-lookout":    "Internal Gateway",
-	"king-of-red-lions": "Routing Infrastructure",
-	"kube-system":       "Platform",
-	"flux-system":       "Platform",
-	"istio-system":      "Platform",
-	"cert-manager":      "Platform",
-}
-
-// NewCategoryResolver creates a resolver with built-in defaults and optional overrides.
-func NewCategoryResolver(overrides map[string]string) *CategoryResolver {
-	return &CategoryResolver{overrides: overrides}
-}
-
-// Resolve returns the category for a namespace.
-// Precedence: overrides → defaults → "Uncategorized".
-func (r *CategoryResolver) Resolve(namespace string) string {
-	if r.overrides != nil {
-		if cat, ok := r.overrides[namespace]; ok {
-			return cat
+func NewCategoryResolver(categories []config.InventoryCategory) *CategoryResolver {
+	r := &CategoryResolver{categories: categories, byNamespace: map[string]int{}, order: map[string]int{}}
+	for i, c := range categories {
+		r.order[c.Name] = i
+		for _, ns := range c.Namespaces {
+			r.byNamespace[ns] = i
 		}
 	}
-	if cat, ok := defaultCategories[namespace]; ok {
-		return cat
-	}
-	return "Uncategorized"
+	return r
 }
 
-// CategoryOrder defines the stable rendering order for categories.
-// Categories not in this list sort alphabetically after the listed ones.
-var CategoryOrder = []string{
-	"Administrative",
-	"DNS & NTP",
-	"Routing Infrastructure",
-	"Storage Services",
-	"Backup Services",
-	"Monitoring",
-	"Security & IDS",
-	"Bot Protection",
-	"Internal Trust",
-	"Business Gateway",
-	"Personal Gateway",
-	"Internal Gateway",
-	"Archival & Media",
-	"Discovery & Dashboards",
-	"Downloads & Arr",
-	"Game Servers",
-	"Mail Services",
-	"Remote Management",
-	"Tools & Utilities",
-	"Privileged Services",
-	"Platform",
-	"Uncategorized",
+// Resolve returns the namespace's declared category, or Uncategorized.
+func (r *CategoryResolver) Resolve(namespace string) string {
+	if i, ok := r.byNamespace[namespace]; ok {
+		return r.categories[i].Name
+	}
+	return Uncategorized
+}
+
+// Tier returns the namespace's declared tier, or "" when the cluster declares none.
+func (r *CategoryResolver) Tier(namespace string) Tier {
+	if i, ok := r.byNamespace[namespace]; ok {
+		return Tier(r.categories[i].Tier)
+	}
+	return ""
+}
+
+// Order ranks a category by its declared position; undeclared categories sort last.
+func (r *CategoryResolver) Order(category string) int {
+	if i, ok := r.order[category]; ok {
+		return i
+	}
+	return len(r.categories)
 }
 
 // IsSidecarImage returns true if the image string matches a known sidecar pattern.

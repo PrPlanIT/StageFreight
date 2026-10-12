@@ -32,6 +32,10 @@ const (
 	TierApp      Tier = "app"
 	TierPlatform Tier = "platform"
 	TierHidden   Tier = "hidden"
+
+	// TierUnresolved is a workload neither declared nor confidently inferred. It is
+	// listed on its own rather than guessed into apps or platform.
+	TierUnresolved Tier = "unresolved"
 )
 
 // AppRecord is the fully resolved, grouped representation of an application.
@@ -157,6 +161,7 @@ type GraveyardEntry struct {
 type DiscoveryResult struct {
 	Apps       []AppRecord
 	Platform   []AppRecord
+	Unresolved []AppRecord
 	Graveyard  []GraveyardEntry
 	ObservedAt time.Time
 	Cluster    string

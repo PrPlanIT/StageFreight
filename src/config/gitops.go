@@ -56,13 +56,27 @@ type GitOpsCluster struct {
 	// Exposure classifies endpoint reachability (rule-based).
 	Exposure ExposureRules `yaml:"exposure"`
 
+	// Categories groups the cluster's namespaces into app inventory sections.
+	Categories []InventoryCategory `yaml:"categories,omitempty"`
+
 	// OIDC defines authentication configuration for the cluster.
 	OIDC OIDCConfig `yaml:"oidc"`
 }
 
 // Connection returns the connection descriptor the k8s/gitops packages consume.
 func (c GitOpsCluster) Connection() ClusterConfig {
-	return ClusterConfig{Name: c.Name, Endpoint: c.Endpoint, Exposure: c.Exposure}
+	return ClusterConfig{Name: c.Name, Endpoint: c.Endpoint, Exposure: c.Exposure, Categories: c.Categories}
+}
+
+// InventoryCategory is one section of the app inventory. List order is section order.
+type InventoryCategory struct {
+	Name string `yaml:"name"`
+
+	// Tier declares what the namespaces' workloads are: app, platform or hidden. Left
+	// empty, discovery infers it per workload.
+	Tier string `yaml:"tier,omitempty"`
+
+	Namespaces []string `yaml:"namespaces"`
 }
 
 // ClusterConfig identifies a Kubernetes cluster and how to connect to it. Built
@@ -73,9 +87,10 @@ func (c GitOpsCluster) Connection() ClusterConfig {
 //
 // Name is uppercased with hyphens replaced by underscores for the env prefix.
 type ClusterConfig struct {
-	Name     string
-	Endpoint string
-	Exposure ExposureRules
+	Name       string
+	Endpoint   string
+	Exposure   ExposureRules
+	Categories []InventoryCategory
 }
 
 // ExposureRules defines rule-based endpoint exposure classification.

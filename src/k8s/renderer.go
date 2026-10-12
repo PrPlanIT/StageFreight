@@ -105,6 +105,18 @@ func RenderOverview(result *DiscoveryResult) string {
 		b.WriteString("</details>\n\n")
 	}
 
+	// Unresolved section: neither declared nor confidently inferred
+	if len(result.Unresolved) > 0 {
+		b.WriteString(fmt.Sprintf("## Unclassified (%d)\n\n", len(result.Unresolved)))
+		b.WriteString(fmt.Sprintf("Not yet placed: declare their namespaces under `gitops.%s.categories` to list them as apps or platform.\n\n", result.Cluster))
+		b.WriteString("| Workload | Namespace | Status |\n")
+		b.WriteString("| --- | --- | --- |\n")
+		for _, r := range result.Unresolved {
+			b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", escMD(r.FriendlyName), escMD(r.Key.Namespace), statusIcon(r.Status)))
+		}
+		b.WriteString("\n")
+	}
+
 	// Graveyard section
 	if len(result.Graveyard) > 0 {
 		b.WriteString(fmt.Sprintf("<details>\n<summary>Retired / Graveyard (%d)</summary>\n\n", len(result.Graveyard)))

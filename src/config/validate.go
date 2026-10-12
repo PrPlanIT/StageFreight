@@ -785,6 +785,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	errs = append(errs, validateLifecycle(cfg)...)
 	errs = append(errs, validateAnsible(cfg)...)
+	errs = append(errs, validateInventoryCategories(cfg)...)
 
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
@@ -810,6 +811,37 @@ func validateLifecycle(cfg *Config) []string {
 			cfg.Lifecycle.Mode, ModeImage, ModeGitops, ModeDocker, ModeGovernance)}
 	}
 	return nil
+}
+
+// validateInventoryCategories checks each cluster's inventory sections: a namespace
+// belongs to exactly one section, so its tier and heading are never ambiguous.
+func validateInventoryCategories(cfg *Config) []string {
+	var errs []string
+	for _, cl := range cfg.GitOps {
+		owner := map[string]string{}
+		for i, c := range cl.Categories {
+			path := fmt.Sprintf("gitops.%s.categories[%d]", cl.Name, i)
+			if strings.TrimSpace(c.Name) == "" {
+				errs = append(errs, path+".name: required")
+			}
+			switch c.Tier {
+			case "", "app", "platform", "hidden":
+			default:
+				errs = append(errs, fmt.Sprintf("%s.tier: unknown tier %q (expected: app, platform, hidden)", path, c.Tier))
+			}
+			if len(c.Namespaces) == 0 {
+				errs = append(errs, path+".namespaces: required")
+			}
+			for _, ns := range c.Namespaces {
+				if prev, ok := owner[ns]; ok {
+					errs = append(errs, fmt.Sprintf("%s.namespaces: %q is already in category %q", path, ns, prev))
+					continue
+				}
+				owner[ns] = c.Name
+			}
+		}
+	}
+	return errs
 }
 
 // validateAnsible checks the ansible play library. Deliberately NOT gated on

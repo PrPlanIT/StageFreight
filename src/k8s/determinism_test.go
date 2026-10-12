@@ -68,7 +68,7 @@ func TestSortRecordsTotalOrder(t *testing.T) {
 	y := AppRecord{Key: AppKey{Namespace: "a-ns", Identity: "svc"}, FriendlyName: "same", Category: "apps"}
 	for _, in := range [][]AppRecord{{x, y}, {y, x}} {
 		recs := append([]AppRecord(nil), in...)
-		sortRecords(recs)
+		sortRecords(recs, NewCategoryResolver(nil))
 		if recs[0].Key != y.Key || recs[1].Key != x.Key {
 			t.Fatalf("got %v,%v want %v,%v", recs[0].Key, recs[1].Key, y.Key, x.Key)
 		}

@@ -57,7 +57,7 @@ func ResolveInventoryTemplates(ctx context.Context, values []string, appCfg *con
 		if err != nil {
 			continue
 		}
-		result, err := k8s.Discover(ctx, client, catalog, rootDir, cluster.Exposure)
+		result, err := k8s.Discover(ctx, client, catalog, rootDir, cluster.Connection())
 		if err != nil || result == nil {
 			continue
 		}

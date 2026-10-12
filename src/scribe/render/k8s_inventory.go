@@ -27,7 +27,7 @@ func (m *K8sInventoryModule) Render() string {
 	}
 	defer client.Close()
 
-	result, err := k8s.Discover(context.Background(), client, m.CatalogPath, m.RepoRoot, m.ClusterConfig.Exposure)
+	result, err := k8s.Discover(context.Background(), client, m.CatalogPath, m.RepoRoot, m.ClusterConfig)
 	if err != nil {
 		diag.Error("k8s-inventory: %s", err)
 		return ""

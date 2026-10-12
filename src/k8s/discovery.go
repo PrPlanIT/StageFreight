@@ -29,7 +29,7 @@ const (
 
 // Discover queries the live cluster and returns a complete DiscoveryResult.
 // ObservedAt is captured once at start. Uses client-go directly.
-func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string, exposureRules config.ExposureRules) (*DiscoveryResult, error) {
+func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string, cluster config.ClusterConfig) (*DiscoveryResult, error) {
 	observedAt := time.Now()
 
 	// Load catalog
@@ -63,32 +63,35 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 	fluxSources := resolveFluxSources(repoRoot, groups)
 
 	// Phase 5: Build AppRecords, classify, apply catalog
-	resolver := NewCategoryResolver(nil)
-	records := buildRecords(groups, catalog, resolver, fluxSources, exposureRules)
+	resolver := NewCategoryResolver(cluster.Categories)
+	records := buildRecords(groups, catalog, resolver, fluxSources, cluster.Exposure)
 
 	// Phase 5.5: Fold subordinate-only apps into their parents.
 	// Must happen after buildRecords (need roles) and before tier separation.
 	records = FoldSubordinates(records)
 
 	// Phase 6: Separate into tiers
-	var apps, platform []AppRecord
+	var apps, platform, unresolved []AppRecord
 	for _, r := range records {
 		switch r.Tier {
 		case TierApp:
 			apps = append(apps, r)
 		case TierPlatform:
 			platform = append(platform, r)
+		case TierUnresolved:
+			unresolved = append(unresolved, r)
 		case TierHidden:
 			// excluded
 		}
 	}
 
-	sortRecords(apps)
-	sortRecords(platform)
+	sortRecords(apps, resolver)
+	sortRecords(platform, resolver)
+	sortRecords(unresolved, resolver)
 
 	// Phase 7: Reconcile lifecycle state + derive graveyard.
 	// Scoped to cluster: .stagefreight/inventory/k8s-inventory-<cluster>.json
-	allActive := append(apps, platform...)
+	allActive := append(append(append([]AppRecord{}, apps...), platform...), unresolved...)
 	var graveyard []GraveyardEntry
 
 	if repoRoot != "" && client.ClusterName != "" {
@@ -119,6 +122,7 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 	return &DiscoveryResult{
 		Apps:       apps,
 		Platform:   platform,
+		Unresolved: unresolved,
 		Graveyard:  graveyard,
 		ObservedAt: observedAt,
 		Cluster:    client.ClusterName,
@@ -656,7 +660,7 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 		rec.Status = ComputeStatus(totalReady, totalDesired)
 
 		// Classification (before catalog, so catalog can override)
-		rec.Tier = classify(g, rec)
+		rec.Tier = classify(g, rec, resolver.Tier(g.identity.Key.Namespace))
 
 		// Check label override
 		for _, wl := range g.workloads {
@@ -752,33 +756,30 @@ func parseImage(image string) ImageRef {
 	return ImageRef{Repository: image, Tag: "latest"}
 }
 
-// classify applies heuristic tier classification.
-// Default: unsure → platform (deny-by-default for app).
-func classify(g *appGroup, rec AppRecord) Tier {
-	ns := g.identity.Key.Namespace
-	name := strings.ToLower(g.identity.Key.Identity)
+// classify resolves a workload's tier: declared, else inferred from generic Kubernetes
+// signals, else unresolved.
+func classify(g *appGroup, rec AppRecord, declared Tier) Tier {
+	// What the cluster declares for the namespace is authoritative; everything below
+	// only fills gaps, and what it cannot place stays unresolved instead of guessed.
+	if declared != "" {
+		return declared
+	}
 
-	// Platform namespaces
-	switch ns {
-	case "kube-system", "flux-system", "istio-system", "cert-manager",
-		"kube-node-lease", "kube-public":
+	// Kubernetes' own namespaces
+	switch g.identity.Key.Namespace {
+	case "kube-system", "kube-node-lease", "kube-public":
 		return TierPlatform
 	}
 
-	// Platform heuristic patterns
-	platformPatterns := []string{
-		"operator", "controller", "exporter", "agent",
-		"ztunnel", "coredns", "cilium", "reflector",
-		"kyverno", "alloy", "node-exporter", "webhook",
-		"provisioner", "csi-", "snapshot-controller",
-	}
-	for _, p := range platformPatterns {
+	// Names that say what a workload does for the cluster rather than for its users
+	name := strings.ToLower(g.identity.Key.Identity)
+	for _, p := range []string{"operator", "controller", "exporter", "webhook", "provisioner", "csi-"} {
 		if strings.Contains(name, p) {
 			return TierPlatform
 		}
 	}
 
-	// DaemonSets are usually platform
+	// One pod per node serves the nodes
 	allDaemonSet := true
 	for _, wl := range g.workloads {
 		if wl.kind != "DaemonSet" {
@@ -790,23 +791,12 @@ func classify(g *appGroup, rec AppRecord) Tier {
 		return TierPlatform
 	}
 
-	// If the app is in a known app namespace and has routes → app
+	// Routed to users
 	if len(rec.Hosts) > 0 {
 		return TierApp
 	}
 
-	// Named app namespaces → app
-	appNamespaces := map[string]bool{
-		"temple-of-time": true, "swift-sail": true, "lost-woods": true,
-		"shooting-gallery": true, "tingle-tuner": true, "hookshot": true,
-		"delivery-bag": true, "lens-of-truth": true, "wallmaster": true,
-	}
-	if appNamespaces[ns] {
-		return TierApp
-	}
-
-	// Default: unsure → platform
-	return TierPlatform
+	return TierUnresolved
 }
 
 // selectorMatches returns true if selector ⊆ labels (strict subset).
@@ -950,23 +940,10 @@ func lastPathSegment(path string) string {
 	return path
 }
 
-// sortRecords sorts by category (predefined order) then name (alpha, lowercase).
-func sortRecords(records []AppRecord) {
-	catOrder := map[string]int{}
-	for i, c := range CategoryOrder {
-		catOrder[c] = i
-	}
-
+// sortRecords sorts by declared category order then name (alpha, lowercase).
+func sortRecords(records []AppRecord, resolver *CategoryResolver) {
 	sort.SliceStable(records, func(i, j int) bool {
-		ci, oki := catOrder[records[i].Category]
-		cj, okj := catOrder[records[j].Category]
-		if !oki {
-			ci = len(CategoryOrder)
-		}
-		if !okj {
-			cj = len(CategoryOrder)
-		}
-		if ci != cj {
+		if ci, cj := resolver.Order(records[i].Category), resolver.Order(records[j].Category); ci != cj {
 			return ci < cj
 		}
 		if a, b := strings.ToLower(records[i].FriendlyName), strings.ToLower(records[j].FriendlyName); a != b {
