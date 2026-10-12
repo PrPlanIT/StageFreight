@@ -80,7 +80,8 @@ type dfDump struct {
 		Names, Status, Size string
 	}
 	BuildCache []struct {
-		Size string
+		Size  string
+		InUse string // "true" while a builder holds a lease on the record
 	}
 }
 
@@ -99,9 +100,19 @@ func queryDaemon(ctx context.Context, env, args []string, label, endpoint, runti
 	if v := scanDockerVolumes(df, runtime); v != nil {
 		d.add(v)
 	}
-	if bc := sumSizes(buildCacheSizes(df)); bc > 0 {
-		d.add(&Node{Label: "build cache", Bytes: bc, Flags: FlagReclaimable,
+	// Two nodes, because they have different remedies: prune frees only records no
+	// builder holds a lease on, so counting the whole cache under a "safe" prune hint
+	// advertised bytes the command could not return (a killed build leaves its leases
+	// behind, and only a daemon restart releases them).
+	free, held := buildCacheSplit(df)
+	if free > 0 {
+		d.add(&Node{Label: "build cache", Bytes: free, Flags: FlagReclaimable,
 			Hint: &Hint{Command: "docker buildx prune", Safety: "safe"}, Attr: Attribution{Runtime: runtime}})
+	}
+	if held > 0 {
+		d.add(&Node{Label: "build cache (in use)", Bytes: held,
+			Note: "leased by a builder · not prunable; a daemon restart releases leases left by killed builds",
+			Attr: Attribution{Runtime: runtime}})
 	}
 	if cn, cb := stoppedContainers(df); cb > 0 {
 		d.add(&Node{Label: "stopped containers", Bytes: cb, Note: fmt.Sprintf("%d exited", cn),
@@ -338,12 +349,17 @@ func volumeAttr(name, runtime string) Attribution {
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-func buildCacheSizes(df dfDump) []string {
-	out := make([]string, len(df.BuildCache))
-	for i, c := range df.BuildCache {
-		out[i] = c.Size
+// buildCacheSplit partitions the build cache into bytes a prune can reclaim and bytes
+// held under a builder lease (InUse), which it cannot.
+func buildCacheSplit(df dfDump) (reclaimable, held int64) {
+	for _, c := range df.BuildCache {
+		if c.InUse == "true" {
+			held += parseDockerSize(c.Size)
+		} else {
+			reclaimable += parseDockerSize(c.Size)
+		}
 	}
-	return out
+	return reclaimable, held
 }
 
 func sumSizes(sizes []string) int64 {

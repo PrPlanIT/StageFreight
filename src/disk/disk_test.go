@@ -152,3 +152,21 @@ func TestFormatting(t *testing.T) {
 		t.Errorf("barOf half = %q", got)
 	}
 }
+
+// Build-cache records under a builder lease cannot be pruned; advertising them as
+// "safe" reclaim overstated the recoverable space by exactly the leased bytes.
+func TestBuildCacheSplitHonoursLeases(t *testing.T) {
+	var df dfDump
+	df.BuildCache = append(df.BuildCache,
+		struct{ Size, InUse string }{"1.5GB", "false"},
+		struct{ Size, InUse string }{"2GB", "true"},
+		struct{ Size, InUse string }{"512MB", ""},
+	)
+	free, held := buildCacheSplit(df)
+	if free != parseDockerSize("1.5GB")+parseDockerSize("512MB") {
+		t.Errorf("reclaimable: got %d", free)
+	}
+	if held != parseDockerSize("2GB") {
+		t.Errorf("held: got %d", held)
+	}
+}
