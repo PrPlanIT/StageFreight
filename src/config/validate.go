@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	gopath "path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -1170,6 +1171,13 @@ func validateStencilDef(c StencilDef, path string, buildIDs map[string]bool) []s
 		}
 		if c.Wrap == "details" && c.Summary == "" {
 			errs = append(errs, fmt.Sprintf("%s: summary is required when wrap=details", path))
+		}
+		for i, pat := range c.Include {
+			if pat == "" {
+				errs = append(errs, fmt.Sprintf("%s.include[%d]: empty pattern", path, i))
+			} else if _, merr := gopath.Match(pat, ""); merr != nil {
+				errs = append(errs, fmt.Sprintf("%s.include[%d]: invalid glob %q: %v", path, i, pat, merr))
+			}
 		}
 	}
 

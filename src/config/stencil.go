@@ -55,6 +55,10 @@ type StencilDef struct {
 	Section string `yaml:"section,omitempty"`
 	// Limit caps a ci producer's rows (self-bounding: excess becomes "+K more").
 	Limit int `yaml:"limit,omitempty"`
+	// Include keeps only the inventory items whose name matches one of these globs
+	// (case-insensitive), ordered as the globs are listed — a curated subset of a
+	// section that would otherwise print every package the image carries.
+	Include []string `yaml:"include,omitempty"`
 	// contents renderer form lives on the RENDER axis (render:), not a separate
 	// renderer: key — one form vocabulary (badges|table|list|kv|versions).
 	Columns    []string `yaml:"columns,omitempty"`

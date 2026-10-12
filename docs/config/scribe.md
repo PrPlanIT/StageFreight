@@ -39,6 +39,8 @@ stencils:
   go-report:     { type: goreportcard }
   contributors:  { type: github-contributors }
   contents-base: { type: contents, build: myapp, section: inventories.versions, render: badges }
+  # include: a curated subset of a section (name globs, rendered in the order listed)
+  contents-apps: { type: contents, build: myapp, section: inventories.pip, render: badges, include: [frappe, erpnext, hrms] }
 ```
 
 Browse every producer type with `stagefreight scribe types`.

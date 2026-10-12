@@ -521,6 +521,7 @@ func resolveStencilMarkdownIn(appCfg *config.Config, def config.StencilDef, link
 			Section:  def.Section,
 			Renderer: def.Render,
 			Columns:  def.Columns,
+			Include:  def.Include,
 			Wrap:     def.Wrap,
 			Summary:  def.Summary,
 		}.Render(), nil

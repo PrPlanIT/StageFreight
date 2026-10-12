@@ -175,3 +175,45 @@ func TestRenderVersions_FROMPrefixStripped(t *testing.T) {
 		t.Errorf("expected clean ref in header, got:\n%s", got)
 	}
 }
+
+// include: keeps only the named items, in the order the patterns are declared — a
+// curated subset of a section that would otherwise print everything.
+func TestFilterItems(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"name": "requests", "version": "2.32"},
+		map[string]interface{}{"name": "hrms", "version": "16.50.0"},
+		map[string]interface{}{"name": "Frappe", "version": "16.51.0"},
+		map[string]interface{}{"name": "erpnext", "version": "16.50.0"},
+		map[string]interface{}{"name": "frappe-extras", "version": "1.0"},
+	}
+	out, err := FilterItems(data, []string{"frappe", "erpnext", "hrms"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, _ := toMapSlice(out)
+	var names []string
+	for _, it := range items {
+		names = append(names, formatCell(it["name"]))
+	}
+	want := []string{"Frappe", "erpnext", "hrms"}
+	if len(names) != len(want) {
+		t.Fatalf("got %v, want %v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("got %v, want %v (declared order, case-insensitive, exact glob)", names, want)
+		}
+	}
+	// globs work, and an empty pattern list is a no-op
+	out, _ = FilterItems(data, []string{"frappe*"})
+	if items, _ := toMapSlice(out); len(items) != 2 {
+		t.Fatalf("glob: got %d items, want 2", len(items))
+	}
+	if same, _ := FilterItems(data, nil); len(same.([]interface{})) != len(data) {
+		t.Fatal("no patterns must return the section unchanged")
+	}
+	// a non-array section passes through untouched
+	if kv, _ := FilterItems(map[string]interface{}{"os": "linux"}, []string{"x"}); kv == nil {
+		t.Fatal("non-array section must pass through")
+	}
+}

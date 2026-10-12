@@ -3,6 +3,7 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 )
 
@@ -174,7 +175,53 @@ func RenderSection(m *Manifest, section, renderer string, columns []string) (str
 	if err != nil {
 		return "", err
 	}
+	return RenderData(data, renderer, columns)
+}
 
+// FilterItems keeps the items of an inventory section whose "name" matches any of the
+// glob patterns (path.Match, case-insensitive). The result is ordered by the first
+// pattern each item matches, then by the section's own order within a pattern, so a
+// curated list renders in the order it was declared rather than the order the scanner
+// happened to emit. A section that is not an array of items is returned unchanged.
+func FilterItems(data interface{}, patterns []string) (interface{}, error) {
+	if len(patterns) == 0 {
+		return data, nil
+	}
+	arr, ok := data.([]interface{})
+	if !ok {
+		return data, nil
+	}
+	lowered := make([]string, len(patterns))
+	for i, p := range patterns {
+		lowered[i] = strings.ToLower(p)
+	}
+	buckets := make([][]interface{}, len(patterns))
+	for _, item := range arr {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name := strings.ToLower(formatCell(m["name"]))
+		for i, p := range lowered {
+			matched, err := path.Match(p, name)
+			if err != nil {
+				return nil, fmt.Errorf("include pattern %q: %w", patterns[i], err)
+			}
+			if matched {
+				buckets[i] = append(buckets[i], item)
+				break
+			}
+		}
+	}
+	out := make([]interface{}, 0, len(arr))
+	for _, b := range buckets {
+		out = append(out, b...)
+	}
+	return out, nil
+}
+
+// RenderData renders already-extracted section data with the named renderer.
+func RenderData(data interface{}, renderer string, columns []string) (string, error) {
 	switch renderer {
 	case "table":
 		return RenderTable(data, columns)

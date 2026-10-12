@@ -16,8 +16,9 @@ type BuildContentsModule struct {
 	Section  string
 	Renderer string
 	Columns  []string
-	Wrap     string // "details" wraps in <details>/<summary>
-	Summary  string // required when Wrap is set
+	Include  []string // name globs; empty = the whole section
+	Wrap     string   // "details" wraps in <details>/<summary>
+	Summary  string   // required when Wrap is set
 }
 
 // Render produces the markdown content for this manifest section.
@@ -30,7 +31,15 @@ func (b BuildContentsModule) Render() string {
 		return ""
 	}
 
-	content, err := manifest.RenderSection(b.Manifest, b.Section, b.Renderer, b.Columns)
+	data, err := manifest.ExtractSection(b.Manifest, b.Section)
+	if err != nil {
+		return ""
+	}
+	if data, err = manifest.FilterItems(data, b.Include); err != nil {
+		diag.Warn("scribe: contents %s: %v", b.Section, err)
+		return ""
+	}
+	content, err := manifest.RenderData(data, b.Renderer, b.Columns)
 	if err != nil {
 		return ""
 	}
