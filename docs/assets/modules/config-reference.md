@@ -1000,6 +1000,10 @@ gitops:
           cidrs: [<string>]   # required
           ports: [...]   # AND with CIDRs (empty = any port) · required
           service_types: [<string>]   # ClusterIP | NodePort | LoadBalancer · required
+    categories:   # Categories groups the cluster's namespaces into app inventory sections.
+      - name: <string>   # required
+        tier: <string>   # Tier declares what the namespaces' workloads are: app, platform or hidden. Left empty, discovery…
+        namespaces: [<string>]   # required
     oidc:   # OIDC defines authentication configuration for the cluster. · required
       audience: <string>   # required
 ```
