@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -189,8 +190,9 @@ func FoldSubordinates(records []AppRecord) []AppRecord {
 		}
 
 		if bestIdx >= 0 {
-			// Merge subordinate's components into parent.
+			// Merge subordinate's components and images into parent.
 			parents[bestIdx].Components = append(parents[bestIdx].Components, sub.Components...)
+			parents[bestIdx].Images = append(parents[bestIdx].Images, sub.Images...)
 		} else {
 			orphans = append(orphans, sub)
 		}
@@ -265,4 +267,43 @@ func longestCommonHyphenPrefix(names []string) string {
 
 	// No hyphen in common prefix — not a valid family prefix.
 	return ""
+}
+
+// Products names the software an app is: its image repositories without registry or tag,
+// minus backing services (databases, caches, queues, ...) that run alongside it. An app
+// made only of backing services is those services.
+func Products(images []string) []string {
+	var own, backing []string
+	for _, img := range images {
+		name := productName(parseImage(img).Repository)
+		if IsSubordinate(imageRole(name)) {
+			backing = append(backing, name)
+		} else {
+			own = append(own, name)
+		}
+	}
+	if len(own) == 0 {
+		own = backing
+	}
+	sort.Strings(own)
+	return slices.Compact(own)
+}
+
+// productName strips the registry host and Docker Hub's implicit library/ namespace, so the
+// same software pulled through different registries is one product.
+func productName(repo string) string {
+	name := strings.ToLower(repo)
+	if host, rest, ok := strings.Cut(name, "/"); ok && (strings.ContainsAny(host, ".:") || host == "localhost") {
+		name = rest
+	}
+	return strings.TrimPrefix(name, "library/")
+}
+
+func imageRole(name string) ComponentRole {
+	for _, p := range imageRolePatterns {
+		if strings.Contains(name, p.pattern) {
+			return p.role
+		}
+	}
+	return RoleUnknown
 }

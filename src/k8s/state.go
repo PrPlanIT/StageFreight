@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/paths"
@@ -146,9 +147,22 @@ func ReconcileLifecycle(manifest *InventoryManifest, activeApps []AppRecord, dis
 
 	// Build active set from discovery.
 	activeKeys := map[string]AppRecord{}
+	// What runs anywhere in the cluster: every image, and every app and workload name. An
+	// entry is a product, not a workload - absent by its own key but with its software or
+	// its name still running, it was not retired: its key changed (a family grouping, a new
+	// name label, a namespace move, a rename) and it still runs. Retiring it would list a
+	// running app in the graveyard forever, because the old key never comes back.
+	live := map[string]bool{}
 	for _, app := range activeApps {
 		key := app.Key.Namespace + "/" + app.Key.Identity
 		activeKeys[key] = app
+		live["name:"+app.Key.Identity] = true
+		for _, c := range app.Components {
+			live["name:"+c.Name] = true
+		}
+		for _, img := range app.Images {
+			live["product:"+productName(img.Repository)] = true
+		}
 	}
 
 	// Update existing entries.
@@ -175,6 +189,12 @@ func ReconcileLifecycle(manifest *InventoryManifest, activeApps []AppRecord, dis
 			entry.Observed = newObserved
 			manifest.Apps[key] = entry
 		} else {
+			if runsAnywhere(key, entry, live) {
+				// Superseded, not retired: the software runs under another key.
+				delete(manifest.Apps, key)
+				changed = true
+				continue
+			}
 			// App is missing. Transition: active → missing → graveyard.
 			// Missing provides temporal buffering against flapping.
 			switch entry.Lifecycle.State {
@@ -238,6 +258,18 @@ func buildObserved(app AppRecord) AppObserved {
 	}
 }
 
+func runsAnywhere(key string, entry AppManifest, live map[string]bool) bool {
+	if live["name:"+key[strings.IndexByte(key, '/')+1:]] {
+		return true
+	}
+	for _, p := range Products(entry.Observed.Images) {
+		if live["product:"+p] {
+			return true
+		}
+	}
+	return false
+}
+
 // digestsChanged returns true if the digest sets differ.
 func digestsChanged(old, new []string) bool {
 	if len(old) != len(new) {
@@ -257,20 +289,45 @@ func digestsChanged(old, new []string) bool {
 
 // GraveyardFromManifest returns graveyard entries for rendering.
 func GraveyardFromManifest(manifest *InventoryManifest) []GraveyardEntry {
-	var entries []GraveyardEntry
+	// One line per retired product: fragments an older discovery recorded separately
+	// (erpnext-frontend, erpnext-scheduler, ...) are the same software, retired once.
+	// Missing entries are still believed to exist and are not retired yet.
+	type retired struct {
+		entry GraveyardEntry
+		since *time.Time
+	}
+	byProduct := map[string]retired{}
 	for _, entry := range manifest.Apps {
-		if entry.Lifecycle.State != "graveyard" && entry.Lifecycle.State != "missing" {
+		if entry.Lifecycle.State != "graveyard" {
 			continue
 		}
-		reason := "no longer running in cluster"
-		if entry.Lifecycle.MissingSince != nil {
-			reason = "missing since " + entry.Lifecycle.MissingSince.UTC().Format("2006-01-02")
+		product := strings.Join(Products(entry.Observed.Images), "+")
+		if product == "" {
+			product = entry.Observed.Namespace + "/" + entry.Observed.Name
 		}
-		entries = append(entries, GraveyardEntry{
-			Name:      entry.Observed.Name,
-			Namespace: entry.Observed.Namespace,
-			Reason:    reason,
-		})
+		cur := retired{
+			entry: GraveyardEntry{Name: entry.Observed.Name, Namespace: entry.Observed.Namespace},
+			since: entry.Lifecycle.MissingSince,
+		}
+		if prev, ok := byProduct[product]; ok {
+			if len(prev.entry.Name) < len(cur.entry.Name) ||
+				(len(prev.entry.Name) == len(cur.entry.Name) && prev.entry.Namespace+prev.entry.Name < cur.entry.Namespace+cur.entry.Name) {
+				cur.entry = prev.entry
+			}
+			if cur.since == nil || (prev.since != nil && prev.since.After(*cur.since)) {
+				cur.since = prev.since
+			}
+		}
+		byProduct[product] = cur
+	}
+
+	var entries []GraveyardEntry
+	for _, r := range byProduct {
+		r.entry.Reason = "no longer running in cluster"
+		if r.since != nil {
+			r.entry.Reason = "missing since " + r.since.UTC().Format("2006-01-02")
+		}
+		entries = append(entries, r.entry)
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Name != entries[j].Name {
