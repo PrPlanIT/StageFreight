@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -30,6 +31,7 @@ func TestDeclaredCategoriesDriveTierAndOrder(t *testing.T) {
 		group("pipes", "boiler", "Deployment", true),            // declared platform despite a route
 		group("rafters", "lamp", "Deployment", true),            // declared section, tier inferred: routed
 		group("rafters", "fan-controller", "Deployment", false), // declared section, tier inferred: name
+		group("rafters", "beam", "StatefulSet", false),          // declared section, no signal: platform
 		group("garage", "workbench", "Deployment", true),        // undeclared, routed
 		group("garage", "shelf", "StatefulSet", false),          // undeclared, no signal
 	} {
@@ -49,6 +51,7 @@ func TestDeclaredCategoriesDriveTierAndOrder(t *testing.T) {
 		"boiler":         {TierPlatform, "Plumbing"},
 		"lamp":           {TierApp, "Attic"},
 		"fan-controller": {TierPlatform, "Attic"},
+		"beam":           {TierPlatform, "Attic"},
 		"workbench":      {TierApp, Uncategorized},
 		"shelf":          {TierUnresolved, Uncategorized},
 	} {
@@ -69,5 +72,15 @@ func TestListedCountsEveryRunningSection(t *testing.T) {
 	r := &DiscoveryResult{Apps: make([]AppRecord, 3), Platform: make([]AppRecord, 2), Unresolved: make([]AppRecord, 1)}
 	if got := r.Listed(); got != 6 {
 		t.Errorf("got %d, want 6", got)
+	}
+}
+
+func TestCategoryHeadingNamesEveryNamespace(t *testing.T) {
+	app := func(ns, name string) AppRecord {
+		return AppRecord{Key: AppKey{Namespace: ns, Identity: name}, FriendlyName: name, Category: "Monitoring", Status: StatusHealthy}
+	}
+	out := RenderOverview(&DiscoveryResult{Cluster: "lab", Apps: []AppRecord{app("watchtower", "grafana"), app("beacon", "netalert")}})
+	if !strings.Contains(out, "### Monitoring (beacon, watchtower)") {
+		t.Errorf("heading should name both namespaces:\n%s", out)
 	}
 }

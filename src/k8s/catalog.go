@@ -140,6 +140,12 @@ func (r *CategoryResolver) Resolve(namespace string) string {
 	return Uncategorized
 }
 
+// Declared reports whether the cluster places the namespace in a category.
+func (r *CategoryResolver) Declared(namespace string) bool {
+	_, ok := r.byNamespace[namespace]
+	return ok
+}
+
 // Tier returns the namespace's declared tier, or "" when the cluster declares none.
 func (r *CategoryResolver) Tier(namespace string) Tier {
 	if i, ok := r.byNamespace[namespace]; ok {

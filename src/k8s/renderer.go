@@ -2,6 +2,8 @@ package k8s
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -137,6 +139,17 @@ func RenderOverview(result *DiscoveryResult) string {
 
 // renderAppsByCategory groups apps and renders Layer 1 (summary table) + Layer 2 (details).
 func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
+	// A category can span several namespaces; its heading names all of them.
+	categoryNamespaces := map[string][]string{}
+	for _, r := range apps {
+		if !slices.Contains(categoryNamespaces[r.Category], r.Key.Namespace) {
+			categoryNamespaces[r.Category] = append(categoryNamespaces[r.Category], r.Key.Namespace)
+		}
+	}
+	for _, nss := range categoryNamespaces {
+		sort.Strings(nss)
+	}
+
 	// Layer 1: Summary table per category
 	var currentCat string
 	for _, r := range apps {
@@ -145,8 +158,7 @@ func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
 				b.WriteString("\n")
 			}
 			currentCat = r.Category
-			ns := r.Key.Namespace
-			b.WriteString(fmt.Sprintf("### %s (%s)\n\n", currentCat, ns))
+			b.WriteString(fmt.Sprintf("### %s (%s)\n\n", currentCat, strings.Join(categoryNamespaces[currentCat], ", ")))
 			b.WriteString("| App | Status | Exposure | Links |\n")
 			b.WriteString("| --- | --- | --- | --- |\n")
 		}

@@ -764,7 +764,7 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 		rec.Status = ComputeStatus(totalReady, totalDesired)
 
 		// Classification (before catalog, so catalog can override)
-		rec.Tier = classify(g, rec, resolver.Tier(g.identity.Key.Namespace))
+		rec.Tier = classify(g, rec, resolver.Tier(g.identity.Key.Namespace), resolver.Declared(g.identity.Key.Namespace))
 
 		// Check label override
 		for _, wl := range g.workloads {
@@ -861,10 +861,10 @@ func parseImage(image string) ImageRef {
 }
 
 // classify resolves a workload's tier: declared, else inferred from generic Kubernetes
-// signals, else unresolved.
-func classify(g *appGroup, rec AppRecord, declared Tier) Tier {
+// signals, else platform in a namespace the cluster declares, else unresolved.
+func classify(g *appGroup, rec AppRecord, declared Tier, categorized bool) Tier {
 	// What the cluster declares for the namespace is authoritative; everything below
-	// only fills gaps, and what it cannot place stays unresolved instead of guessed.
+	// only fills gaps.
 	if declared != "" {
 		return declared
 	}
@@ -900,6 +900,12 @@ func classify(g *appGroup, rec AppRecord, declared Tier) Tier {
 		return TierApp
 	}
 
+	// The namespace is declared, so the workload is placed: one nobody is routed to
+	// serves the apps beside it. Only a namespace the cluster says nothing about is
+	// left unresolved rather than guessed.
+	if categorized {
+		return TierPlatform
+	}
 	return TierUnresolved
 }
 
