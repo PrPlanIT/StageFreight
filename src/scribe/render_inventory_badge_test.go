@@ -22,7 +22,7 @@ import (
 func TestRenderShield_InventoryCountResolvesFromManifest(t *testing.T) {
 	dir := t.TempDir()
 
-	// Committed manifest: 2 active + 1 missing (both counted) + 1 graveyard (excluded) → 3.
+	// Committed manifest: only active entries count; missing and graveyard are not on the page → 2.
 	manifest := `{
   "schema_version": 1,
   "cluster": "testcluster",
@@ -75,7 +75,7 @@ stencils:
 	if strings.Contains(got, "inventory.testcluster.count") {
 		t.Errorf("badge message left {inventory.testcluster.count} unresolved:\n%s", got)
 	}
-	if !strings.Contains(got, "Applications-3") {
-		t.Errorf("badge did not render the manifest count (3):\n%s", got)
+	if !strings.Contains(got, "Applications-2") {
+		t.Errorf("badge did not render the manifest count (2):\n%s", got)
 	}
 }

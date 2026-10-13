@@ -64,3 +64,10 @@ func TestDeclaredCategoriesDriveTierAndOrder(t *testing.T) {
 			apps[0].Key.Identity, apps[1].Key.Identity, apps[2].Key.Identity)
 	}
 }
+
+func TestListedCountsEveryRunningSection(t *testing.T) {
+	r := &DiscoveryResult{Apps: make([]AppRecord, 3), Platform: make([]AppRecord, 2), Unresolved: make([]AppRecord, 1)}
+	if got := r.Listed(); got != 6 {
+		t.Errorf("got %d, want 6", got)
+	}
+}

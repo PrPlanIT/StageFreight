@@ -20,18 +20,10 @@ type K8sInventoryModule struct {
 // classifies, and produces stable markdown. Returns empty string on error
 // (Module interface contract — errors are logged via diag).
 func (m *K8sInventoryModule) Render() string {
-	client, err := k8s.NewClient(m.ClusterConfig)
+	result, err := k8s.Sweep(context.Background(), m.ClusterConfig, m.CatalogPath, m.RepoRoot)
 	if err != nil {
 		diag.Error("k8s-inventory: %s", err)
 		return ""
 	}
-	defer client.Close()
-
-	result, err := k8s.Discover(context.Background(), client, m.CatalogPath, m.RepoRoot, m.ClusterConfig)
-	if err != nil {
-		diag.Error("k8s-inventory: %s", err)
-		return ""
-	}
-
 	return k8s.RenderOverview(result)
 }
