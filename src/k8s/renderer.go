@@ -228,7 +228,7 @@ func renderAppsByCategory(b *strings.Builder, apps []AppRecord) {
 
 		b.WriteString("\n")
 	}
-	b.WriteString("</details>\n")
+	b.WriteString("</details>\n\n")
 }
 
 // renderSourceLinks builds action-oriented link labels from DeclaredSources.
