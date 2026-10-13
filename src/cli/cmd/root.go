@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"os"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -53,8 +54,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
-		for _, w := range warnings {
-			fmt.Fprintf(os.Stderr, "  warning: %s\n", w)
+		if len(warnings) > 0 {
+			color := output.UseColor()
+			sec := output.NewSection(os.Stdout, "Config", 0, color)
+			for _, w := range warnings {
+				sec.Row("%s %s", output.StatusIcon("warning", color), w)
+			}
+			sec.Close()
 		}
 		return nil
 	},

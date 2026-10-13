@@ -347,6 +347,7 @@ func loadResolvedMode(path string, offline bool) (*Config, []string, []MergeEntr
 	if verr != nil {
 		return nil, warnings, entries, fmt.Errorf("validating %s: %w", path, verr)
 	}
+	warnings = append(warnings, unusedMatcherWarnings(cfg, mappingKeys(&rootNode, "git", "branches"))...)
 
 	// Fan registry: [a, b, c] into one single-registry target per id — after
 	// validation (which sees the authored list), before normalization.

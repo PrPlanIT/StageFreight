@@ -690,36 +690,6 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	errs = append(errs, ValidateTargetSigningProfileRefs(cfg.Targets, cfg.SigningSetup.Profiles)...)
 	errs = append(errs, ValidateSigningConfig(cfg.SigningSetup)...)
 
-	// ── Unused matcher warning (high signal, low cost) ──────────────────
-	//
-	// Cross-check declared branch matchers against references. If a matcher
-	// is defined but unused, it's almost always a typo or leftover cruft.
-	// Warn, don't block — just diagnostic.
-	if len(cfg.Git.Branches) > 0 {
-		referenced := make(map[string]bool)
-		for _, bb := range cfg.Git.Versioning.BranchBuilds {
-			if bb.Match != "" {
-				referenced[bb.Match] = true
-			}
-		}
-		for _, t := range cfg.Targets {
-			for _, c := range t.When {
-				for _, b := range c.Branches {
-					if !strings.HasPrefix(b, "re:") && isIdentifier(b) {
-						referenced[b] = true
-					}
-				}
-			}
-		}
-		for name := range cfg.Git.Branches {
-			if !referenced[name] {
-				warnings = append(warnings, fmt.Sprintf(
-					"matcher %q is defined but not referenced by any branch_build or target.when.branches",
-					name))
-			}
-		}
-	}
-
 	// ── Test suites ──────────────────────────────────────────────────────
 	// Own schema (NOT lint's ModuleConfig). tool ∈ {go,rust,script}; script
 	// requires command and go|rust forbid it; gate ∈ {"",perform,advisory}
