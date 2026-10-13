@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -215,86 +216,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		result.OverriddenBlocks = governanceBlocks.GovernanceOnly()
 	}
 
-	// Render output
-	elapsed := time.Since(start)
-	useColor := output.UseColor()
-	w := os.Stdout
-	sec := output.NewSection(w, "Commit", elapsed, useColor)
-
-	// Type display
-	typeDisplay := plan.Type
-	if plan.Scope != "" {
-		typeDisplay += fmt.Sprintf("(%s)", plan.Scope)
-	}
-	if plan.Breaking {
-		typeDisplay += "!"
-	}
-	sec.Row("%-16s%s", "type", typeDisplay)
-
-	if result.Backend != "" {
-		sec.Row("%-16s%s", "backend", result.Backend)
-	}
-
-	if result.NoOp && !result.Pushed {
-		sec.Row("%-16s%s", "status", "nothing to commit")
-		sec.Close()
-		return nil
-	}
-
-	if result.NoOp {
-		sec.Row("%-16s%s", "status", "nothing to commit — pushing existing commits")
-	} else {
-		// Message
-		sec.Row("%-16s%s", "message", plan.Subject(cfg.Commit.Conventional))
-	}
-
-	if commitDryRun {
-		sec.Row("%-16s%s", "mode", "dry-run")
-	}
-
-	// Staged files and SHA only when a commit was actually created.
-	if !result.NoOp {
-		sec.Row("%-16s%d files", "staged", len(result.Files))
-		for _, f := range result.Files {
-			output.RowStatus(sec, f, "", "success", useColor)
-		}
-		if result.SHA != "" {
-			sec.Row("%-16s%s", "sha", result.SHA)
-		}
-	}
-
-	// Push status
-	if plan.Push.Enabled {
-		if result.Pushed {
-			pushTarget := plan.Push.Remote
-			output.RowStatus(sec, "pushed", pushTarget, "success", useColor)
-			// Show non-trivial sync actions (rebase, fast-forward, set-upstream).
-			if result.Sync != nil {
-				for _, action := range result.Sync.ActionsExecuted {
-					switch action {
-					case commit.SyncRebase:
-						sec.Row("%-16s%s", "sync", "rebased onto upstream before push")
-					case commit.SyncFastForward:
-						sec.Row("%-16s%s", "sync", "fast-forwarded to upstream")
-					case commit.SyncSetUpstream:
-						sec.Row("%-16s%s", "sync", "tracking branch configured")
-					}
-				}
-			}
-		} else if commitDryRun {
-			sec.Row("%-16s%s (dry-run)", "push", plan.Push.Remote)
-		}
-	}
-
-	// Render governance overrides — honest, never silent.
-	if result.MaintainerOverride && len(result.OverriddenBlocks) > 0 {
-		sec.Row("%-16s%s", "override", "--maintainer-override active")
-		for _, b := range result.OverriddenBlocks {
-			sec.Row("  %-14s[%s] %s", b.ID, b.Ring, b.Message)
-		}
-	}
-
-	sec.Close()
+	renderCommitSection(os.Stdout, plan, result, cfg.Commit.Conventional, commitDryRun, time.Since(start))
 	return nil
 }
 
@@ -363,4 +285,86 @@ func detectForgeForPush(rootDir string, plan *commit.Plan, cfg *config.Config) (
 	}
 
 	return fc, branch, nil
+}
+
+// renderCommitSection prints the Commit section: the same record for a commit made by
+// `stagefreight commit` and one made automatically by a CI phase.
+func renderCommitSection(w io.Writer, plan *commit.Plan, result *commit.Result, conventional, dryRun bool, elapsed time.Duration) {
+	useColor := output.UseColor()
+	sec := output.NewSection(w, "Commit", elapsed, useColor)
+
+	// Type display
+	typeDisplay := plan.Type
+	if plan.Scope != "" {
+		typeDisplay += fmt.Sprintf("(%s)", plan.Scope)
+	}
+	if plan.Breaking {
+		typeDisplay += "!"
+	}
+	sec.Row("%-16s%s", "type", typeDisplay)
+
+	if result.Backend != "" {
+		sec.Row("%-16s%s", "backend", result.Backend)
+	}
+
+	if result.NoOp && !result.Pushed {
+		sec.Row("%-16s%s", "status", "nothing to commit")
+		sec.Close()
+		return
+	}
+
+	if result.NoOp {
+		sec.Row("%-16s%s", "status", "nothing to commit — pushing existing commits")
+	} else {
+		// Message
+		sec.Row("%-16s%s", "message", plan.Subject(conventional))
+	}
+
+	if dryRun {
+		sec.Row("%-16s%s", "mode", "dry-run")
+	}
+
+	// Staged files and SHA only when a commit was actually created.
+	if !result.NoOp {
+		sec.Row("%-16s%d files", "staged", len(result.Files))
+		for _, f := range result.Files {
+			output.RowStatus(sec, f, "", "success", useColor)
+		}
+		if result.SHA != "" {
+			sec.Row("%-16s%s", "sha", result.SHA)
+		}
+	}
+
+	// Push status
+	if plan.Push.Enabled {
+		if result.Pushed {
+			pushTarget := plan.Push.Remote
+			output.RowStatus(sec, "pushed", pushTarget, "success", useColor)
+			// Show non-trivial sync actions (rebase, fast-forward, set-upstream).
+			if result.Sync != nil {
+				for _, action := range result.Sync.ActionsExecuted {
+					switch action {
+					case commit.SyncRebase:
+						sec.Row("%-16s%s", "sync", "rebased onto upstream before push")
+					case commit.SyncFastForward:
+						sec.Row("%-16s%s", "sync", "fast-forwarded to upstream")
+					case commit.SyncSetUpstream:
+						sec.Row("%-16s%s", "sync", "tracking branch configured")
+					}
+				}
+			}
+		} else if dryRun {
+			sec.Row("%-16s%s (dry-run)", "push", plan.Push.Remote)
+		}
+	}
+
+	// Render governance overrides — honest, never silent.
+	if result.MaintainerOverride && len(result.OverriddenBlocks) > 0 {
+		sec.Row("%-16s%s", "override", "--maintainer-override active")
+		for _, b := range result.OverriddenBlocks {
+			sec.Row("  %-14s[%s] %s", b.ID, b.Ring, b.Message)
+		}
+	}
+
+	sec.Close()
 }

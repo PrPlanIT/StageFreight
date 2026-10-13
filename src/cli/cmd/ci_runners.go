@@ -1641,15 +1641,12 @@ func autoCommitViaPlanner(ctx context.Context, appCfg *config.Config, rootDir st
 		backend = &commit.GitBackend{RootDir: rootDir, Cfg: appCfg}
 	}
 
+	start := time.Now()
 	result, err := backend.Execute(ctx, plan, appCfg.Commit.Conventional)
 	if err != nil {
 		return nil, fmt.Errorf("auto-commit execute: %w", err)
 	}
-	if result.NoOp {
-		fmt.Println("  auto-commit: nothing to commit")
-		return result, nil
-	}
-	fmt.Printf("  auto-commit: %s\n", result.SHA)
+	renderCommitSection(os.Stdout, plan, result, appCfg.Commit.Conventional, false, time.Since(start))
 	return result, nil
 }
 
