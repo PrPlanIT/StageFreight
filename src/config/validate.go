@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
+	"net"
 	gopath "path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -756,6 +758,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	errs = append(errs, validateLifecycle(cfg)...)
 	errs = append(errs, validateAnsible(cfg)...)
 	errs = append(errs, validateInventoryCategories(cfg)...)
+	errs = append(errs, validateExposureRules(cfg)...)
 
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
@@ -808,6 +811,50 @@ func validateInventoryCategories(cfg *Config) []string {
 					continue
 				}
 				owner[ns] = c.Name
+			}
+		}
+	}
+	return errs
+}
+
+// validateExposureRules checks each cluster's exposure rules: a known level, and
+// endpoints, CIDRs, ports and service types that can actually match.
+func validateExposureRules(cfg *Config) []string {
+	var errs []string
+	for _, cl := range cfg.GitOps {
+		for i, rule := range cl.Exposure.Rules {
+			path := fmt.Sprintf("gitops.%s.exposure[%d]", cl.Name, i)
+			switch strings.ToLower(rule.Level) {
+			case "internet", "intranet", "cluster":
+			default:
+				errs = append(errs, fmt.Sprintf("%s.level: unknown level %q (expected: internet, intranet, cluster)", path, rule.Level))
+			}
+			for _, ep := range rule.Endpoints {
+				host, port, err := net.SplitHostPort(ep)
+				if err != nil || net.ParseIP(host) == nil {
+					errs = append(errs, fmt.Sprintf("%s.endpoints: %q is not ip:port", path, ep))
+					continue
+				}
+				if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+					errs = append(errs, fmt.Sprintf("%s.endpoints: %q has an invalid port", path, ep))
+				}
+			}
+			for _, c := range rule.CIDRs {
+				if _, _, err := net.ParseCIDR(c); err != nil {
+					errs = append(errs, fmt.Sprintf("%s.cidrs: %q is not a CIDR", path, c))
+				}
+			}
+			for _, p := range rule.Ports {
+				if p < 1 || p > 65535 {
+					errs = append(errs, fmt.Sprintf("%s.ports: %d is not a port", path, p))
+				}
+			}
+			for _, st := range rule.ServiceTypes {
+				switch strings.ToLower(st) {
+				case "clusterip", "nodeport", "loadbalancer":
+				default:
+					errs = append(errs, fmt.Sprintf("%s.service_types: unknown type %q (expected: ClusterIP, NodePort, LoadBalancer)", path, st))
+				}
 			}
 		}
 	}

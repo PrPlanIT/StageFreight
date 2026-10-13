@@ -11,6 +11,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/gitops"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -53,9 +54,12 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 		return nil, err
 	}
 
-	// Phase 3: Augment with HTTPRoutes
+	// Phase 3: Augment with HTTPRoutes and Ingresses. Either API may be absent or not
+	// readable; routes only add hostnames and exposure, never whether an app exists.
 	if err := augmentHTTPRoutes(ctx, client.GatewayClient, client.Clientset, groups); err != nil {
-		// Gateway API may not be installed — log but don't fail
+		_ = err
+	}
+	if err := augmentIngresses(ctx, client.Clientset, groups); err != nil {
 		_ = err
 	}
 
@@ -538,13 +542,7 @@ func augmentHTTPRoutes(ctx context.Context, gwc gatewayclient.Interface, cs kube
 		return fmt.Errorf("listing httproutes: %w", err)
 	}
 
-	// Build service→appKey index from already-attached services
-	svcToApp := map[string]AppKey{} // "ns/svcname" → AppKey
-	for key, g := range groups {
-		for _, svc := range g.services {
-			svcToApp[svc.Namespace+"/"+svc.Name] = key
-		}
-	}
+	svcToApp := serviceIndex(groups)
 
 	for i := range routes.Items {
 		route := &routes.Items[i]
@@ -582,6 +580,103 @@ func augmentHTTPRoutes(ctx context.Context, gwc gatewayclient.Interface, cs kube
 	}
 
 	return nil
+}
+
+// serviceIndex maps "ns/service" to the app group that service already belongs to.
+func serviceIndex(groups map[AppKey]*appGroup) map[string]AppKey {
+	idx := map[string]AppKey{}
+	for key, g := range groups {
+		for _, svc := range g.services {
+			idx[svc.Namespace+"/"+svc.Name] = key
+		}
+	}
+	return idx
+}
+
+// augmentIngresses attaches Ingress hostnames to the apps whose services they route to.
+func augmentIngresses(ctx context.Context, cs kubernetes.Interface, groups map[AppKey]*appGroup) error {
+	ingresses, err := cs.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("listing ingresses: %w", err)
+	}
+	svcToApp := serviceIndex(groups)
+
+	for i := range ingresses.Items {
+		ing := &ingresses.Items[i]
+		class := ""
+		if ing.Spec.IngressClassName != nil {
+			class = *ing.Spec.IngressClassName
+		} else {
+			class = ing.Annotations["kubernetes.io/ingress.class"]
+		}
+
+		var hosts []string
+		seenHost := map[string]bool{}
+		for _, r := range ing.Spec.Rules {
+			if r.Host != "" && !seenHost[r.Host] {
+				seenHost[r.Host] = true
+				hosts = append(hosts, r.Host)
+			}
+		}
+
+		var services []string
+		seenSvc := map[string]bool{}
+		addService := func(b *networkingv1.IngressBackend) {
+			if b != nil && b.Service != nil && !seenSvc[b.Service.Name] {
+				seenSvc[b.Service.Name] = true
+				services = append(services, b.Service.Name)
+			}
+		}
+		addService(ing.Spec.DefaultBackend)
+		for _, r := range ing.Spec.Rules {
+			if r.HTTP == nil {
+				continue
+			}
+			for _, p := range r.HTTP.Paths {
+				addService(&p.Backend)
+			}
+		}
+
+		for _, svc := range services {
+			key, ok := svcToApp[ing.Namespace+"/"+svc]
+			if !ok {
+				continue
+			}
+			g := groups[key]
+			for _, h := range hosts {
+				g.routes = append(g.routes, ExposureRef{Kind: "Ingress", Host: h, Name: ing.Name, Class: class})
+			}
+		}
+	}
+	return nil
+}
+
+// exposedService picks the Service through which an app is most reachable -
+// LoadBalancer, then NodePort, then ClusterIP - and its load-balancer address, so
+// service-type, endpoint and CIDR exposure rules see what the app actually exposes.
+// Ties go to the lowest name, so the choice is the same on every run.
+func exposedService(services []corev1.Service) (svcType, lbIP string) {
+	rank := map[corev1.ServiceType]int{corev1.ServiceTypeLoadBalancer: 3, corev1.ServiceTypeNodePort: 2, corev1.ServiceTypeClusterIP: 1}
+	var best *corev1.Service
+	for i := range services {
+		svc := &services[i]
+		if best == nil || rank[svc.Spec.Type] > rank[best.Spec.Type] ||
+			(rank[svc.Spec.Type] == rank[best.Spec.Type] && svc.Name < best.Name) {
+			best = svc
+		}
+	}
+	if best == nil {
+		return "", ""
+	}
+	if best.Spec.Type == corev1.ServiceTypeLoadBalancer {
+		for _, in := range best.Status.LoadBalancer.Ingress {
+			if in.IP != "" {
+				return string(best.Spec.Type), in.IP
+			}
+		}
+		return string(best.Spec.Type), best.Spec.LoadBalancerIP
+	}
+	return string(best.Spec.Type), ""
 }
 
 // extractHosts returns unique hostnames from an HTTPRoute.
@@ -648,7 +743,8 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 
 		// Hosts (deduplicated, sorted) + Exposure from gateway parentRefs
 		rec.Hosts = dedupeHosts(g.routes)
-		rec.Exposure = ClassifyExposure(g.routes, "", "", exposureRules)
+		svcType, lbIP := exposedService(g.services)
+		rec.Exposure = ClassifyExposure(g.routes, svcType, lbIP, exposureRules)
 
 		// Replicas + Status
 		var totalReady, totalDesired int32

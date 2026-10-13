@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -82,34 +81,40 @@ func matchByEndpoint(routes []ExposureRef, lbIP string, rules config.ExposureRul
 
 // matchByGateway checks gateway name matches.
 func matchByGateway(routes []ExposureRef, rules config.ExposureRules) (ExposureResult, bool) {
-	routeGateways := map[string]bool{}
+	gateways, classes := map[string]bool{}, map[string]bool{}
 	for _, r := range routes {
 		if r.Gateway != "" {
-			routeGateways[r.Gateway] = true
+			gateways[r.Gateway] = true
+		}
+		if r.Class != "" {
+			classes[r.Class] = true
 		}
 	}
-	if len(routeGateways) == 0 {
+	if len(gateways) == 0 && len(classes) == 0 {
 		return ExposureResult{}, false
 	}
 
 	matches := map[ExposureLevel]int{}
 	for i, rule := range rules.Rules {
 		for _, gw := range rule.Gateways {
-			if routeGateways[gw] {
-				level := parseLevel(rule.Level)
-				matches[level] = i
+			if gateways[gw] {
+				matches[parseLevel(rule.Level)] = i
+			}
+		}
+		for _, c := range rule.IngressClasses {
+			if classes[c] {
+				matches[parseLevel(rule.Level)] = i
 			}
 		}
 	}
 
 	result, ok := resolveMatches(matches, "inferred")
 	if ok {
-		result.Gateway = firstMatchedGateway(routeGateways, rules)
+		result.Gateway = firstMatchedDoor(gateways, classes, rules)
 	}
 	return result, ok
 }
 
-// matchByCIDR checks CIDR range matches (AND port if specified).
 func matchByCIDR(lbIP string, routes []ExposureRef, rules config.ExposureRules) (ExposureResult, bool) {
 	if lbIP == "" {
 		return ExposureResult{}, false
@@ -221,20 +226,29 @@ func normalizeServiceType(s string) string {
 	}
 }
 
+// firstGateway names the first door a route came through: a gateway, or an ingress class.
 func firstGateway(routes []ExposureRef) string {
 	for _, r := range routes {
 		if r.Gateway != "" {
 			return r.Gateway
 		}
+		if r.Class != "" {
+			return r.Class
+		}
 	}
 	return ""
 }
 
-func firstMatchedGateway(routeGateways map[string]bool, rules config.ExposureRules) string {
+func firstMatchedDoor(gateways, classes map[string]bool, rules config.ExposureRules) string {
 	for _, rule := range rules.Rules {
 		for _, gw := range rule.Gateways {
-			if routeGateways[gw] {
+			if gateways[gw] {
 				return gw
+			}
+		}
+		for _, c := range rule.IngressClasses {
+			if classes[c] {
+				return c
 			}
 		}
 	}
@@ -253,53 +267,4 @@ func endpointMatches(ruleEndpoint, lbIP string, routes []ExposureRef) bool {
 	}
 	_ = rulePort // port matching against routes would need port data on ExposureRef
 	return ruleIP == lbIP
-}
-
-// ValidateExposureRules checks rules for valid schema at load time.
-func ValidateExposureRules(rules config.ExposureRules) []string {
-	var errs []string
-	validLevels := map[string]bool{"internet": true, "intranet": true, "cluster": true}
-
-	for i, rule := range rules.Rules {
-		prefix := fmt.Sprintf("exposure.rules[%d]", i)
-
-		if !validLevels[strings.ToLower(rule.Level)] {
-			errs = append(errs, fmt.Sprintf("%s: invalid level %q (valid: internet, intranet, cluster)", prefix, rule.Level))
-		}
-
-		for _, ep := range rule.Endpoints {
-			parts := strings.SplitN(ep, ":", 2)
-			if len(parts) != 2 {
-				errs = append(errs, fmt.Sprintf("%s: invalid endpoint %q (expected ip:port)", prefix, ep))
-				continue
-			}
-			if net.ParseIP(parts[0]) == nil {
-				errs = append(errs, fmt.Sprintf("%s: invalid IP in endpoint %q", prefix, ep))
-			}
-			if _, err := strconv.Atoi(parts[1]); err != nil {
-				errs = append(errs, fmt.Sprintf("%s: invalid port in endpoint %q", prefix, ep))
-			}
-		}
-
-		for _, cidr := range rule.CIDRs {
-			if _, _, err := net.ParseCIDR(cidr); err != nil {
-				errs = append(errs, fmt.Sprintf("%s: invalid CIDR %q", prefix, cidr))
-			}
-		}
-
-		for _, port := range rule.Ports {
-			if port < 1 || port > 65535 {
-				errs = append(errs, fmt.Sprintf("%s: invalid port %d", prefix, port))
-			}
-		}
-
-		validSvcTypes := map[string]bool{"clusterip": true, "nodeport": true, "loadbalancer": true}
-		for _, st := range rule.ServiceTypes {
-			if !validSvcTypes[strings.ToLower(st)] {
-				errs = append(errs, fmt.Sprintf("%s: invalid service type %q", prefix, st))
-			}
-		}
-	}
-
-	return errs
 }
