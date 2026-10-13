@@ -651,32 +651,40 @@ func augmentIngresses(ctx context.Context, cs kubernetes.Interface, groups map[A
 	return nil
 }
 
-// exposedService picks the Service through which an app is most reachable -
-// LoadBalancer, then NodePort, then ClusterIP - and its load-balancer address, so
-// service-type, endpoint and CIDR exposure rules see what the app actually exposes.
-// Ties go to the lowest name, so the choice is the same on every run.
-func exposedService(services []corev1.Service) (svcType, lbIP string) {
+// exposedService reports how an app's Services expose it: the most reachable type
+// (LoadBalancer, then NodePort, then ClusterIP) and every ip:port its LoadBalancer
+// Services serve, so service-type, endpoint and CIDR rules see what the app exposes.
+// Services are read in name order, so the result is the same on every run.
+func exposedService(services []corev1.Service) (string, []Endpoint) {
 	rank := map[corev1.ServiceType]int{corev1.ServiceTypeLoadBalancer: 3, corev1.ServiceTypeNodePort: 2, corev1.ServiceTypeClusterIP: 1}
-	var best *corev1.Service
-	for i := range services {
-		svc := &services[i]
-		if best == nil || rank[svc.Spec.Type] > rank[best.Spec.Type] ||
-			(rank[svc.Spec.Type] == rank[best.Spec.Type] && svc.Name < best.Name) {
-			best = svc
+	sorted := append([]corev1.Service(nil), services...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+
+	best := ""
+	var endpoints []Endpoint
+	for _, svc := range sorted {
+		if best == "" || rank[svc.Spec.Type] > rank[corev1.ServiceType(best)] {
+			best = string(svc.Spec.Type)
 		}
-	}
-	if best == nil {
-		return "", ""
-	}
-	if best.Spec.Type == corev1.ServiceTypeLoadBalancer {
-		for _, in := range best.Status.LoadBalancer.Ingress {
+		if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+			continue
+		}
+		var ips []string
+		for _, in := range svc.Status.LoadBalancer.Ingress {
 			if in.IP != "" {
-				return string(best.Spec.Type), in.IP
+				ips = append(ips, in.IP)
 			}
 		}
-		return string(best.Spec.Type), best.Spec.LoadBalancerIP
+		if len(ips) == 0 && svc.Spec.LoadBalancerIP != "" {
+			ips = append(ips, svc.Spec.LoadBalancerIP)
+		}
+		for _, ip := range ips {
+			for _, p := range svc.Spec.Ports {
+				endpoints = append(endpoints, Endpoint{IP: ip, Port: int(p.Port)})
+			}
+		}
 	}
-	return string(best.Spec.Type), ""
+	return best, endpoints
 }
 
 // extractHosts returns unique hostnames from an HTTPRoute.
@@ -743,8 +751,8 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 
 		// Hosts (deduplicated, sorted) + Exposure from gateway parentRefs
 		rec.Hosts = dedupeHosts(g.routes)
-		svcType, lbIP := exposedService(g.services)
-		rec.Exposure = ClassifyExposure(g.routes, svcType, lbIP, exposureRules)
+		svcType, endpoints := exposedService(g.services)
+		rec.Exposure = ClassifyExposure(g.routes, svcType, endpoints, exposureRules)
 
 		// Replicas + Status
 		var totalReady, totalDesired int32

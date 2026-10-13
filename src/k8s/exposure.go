@@ -2,7 +2,7 @@ package k8s
 
 import (
 	"net"
-	"strconv"
+	"slices"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -12,7 +12,9 @@ import (
 // Rules are grouped by precedence: endpoint > gateway > CIDR > service type.
 // Conflicting equal-precedence rules → unknown. Never first-match-wins.
 // Confidence is derived from match type, never user-set.
-func ClassifyExposure(routes []ExposureRef, serviceType string, lbIP string, rules config.ExposureRules) ExposureResult {
+// endpoints are the app's load-balanced addresses: every ip:port its LoadBalancer
+// Services expose.
+func ClassifyExposure(routes []ExposureRef, serviceType string, endpoints []Endpoint, rules config.ExposureRules) ExposureResult {
 	if len(rules.Rules) == 0 {
 		// No rules configured — classify from route presence only.
 		if len(routes) > 0 {
@@ -28,7 +30,7 @@ func ClassifyExposure(routes []ExposureRef, serviceType string, lbIP string, rul
 
 	// Validate and normalize rules at evaluation time.
 	// Phase 1: endpoint matches (highest precedence)
-	if result, ok := matchByEndpoint(routes, lbIP, rules); ok {
+	if result, ok := matchByEndpoint(endpoints, rules); ok {
 		return result
 	}
 
@@ -38,7 +40,7 @@ func ClassifyExposure(routes []ExposureRef, serviceType string, lbIP string, rul
 	}
 
 	// Phase 3: CIDR matches
-	if result, ok := matchByCIDR(lbIP, routes, rules); ok {
+	if result, ok := matchByCIDR(endpoints, rules); ok {
 		return result
 	}
 
@@ -59,24 +61,28 @@ func ClassifyExposure(routes []ExposureRef, serviceType string, lbIP string, rul
 	return ExposureResult{Declared: ExposureCluster, Confidence: "fallback", RuleIndex: -1}
 }
 
-// matchByEndpoint checks exact ip:port matches (highest precedence).
-func matchByEndpoint(routes []ExposureRef, lbIP string, rules config.ExposureRules) (ExposureResult, bool) {
-	matches := map[ExposureLevel]int{} // level → rule index
-
+// matchByEndpoint checks exact ip:port matches (highest precedence): a port forwarded
+// on one address, declared as exactly that.
+func matchByEndpoint(endpoints []Endpoint, rules config.ExposureRules) (ExposureResult, bool) {
+	matches := map[ExposureLevel]int{}
+	matched := ""
 	for i, rule := range rules.Rules {
-		if len(rule.Endpoints) == 0 {
-			continue
-		}
 		for _, ep := range rule.Endpoints {
-			// Check against LB IP + known ports from routes
-			if lbIP != "" && endpointMatches(ep, lbIP, routes) {
-				level := parseLevel(rule.Level)
-				matches[level] = i
+			for _, e := range endpoints {
+				if e.String() == ep {
+					matches[parseLevel(rule.Level)] = i
+					if matched == "" {
+						matched = ep
+					}
+				}
 			}
 		}
 	}
-
-	return resolveMatches(matches, "exact")
+	result, ok := resolveMatches(matches, "exact")
+	if ok {
+		result.Endpoint = matched
+	}
+	return result, ok
 }
 
 // matchByGateway checks gateway name matches.
@@ -115,44 +121,32 @@ func matchByGateway(routes []ExposureRef, rules config.ExposureRules) (ExposureR
 	return result, ok
 }
 
-func matchByCIDR(lbIP string, routes []ExposureRef, rules config.ExposureRules) (ExposureResult, bool) {
-	if lbIP == "" {
-		return ExposureResult{}, false
-	}
-
-	ip := net.ParseIP(lbIP)
-	if ip == nil {
-		return ExposureResult{}, false
-	}
-
+// matchByCIDR checks load-balanced addresses against address ranges, narrowed to the
+// rule's ports when it lists any.
+func matchByCIDR(endpoints []Endpoint, rules config.ExposureRules) (ExposureResult, bool) {
 	matches := map[ExposureLevel]int{}
+	matched := ""
 	for i, rule := range rules.Rules {
-		if len(rule.CIDRs) == 0 {
-			continue
-		}
 		for _, cidrStr := range rule.CIDRs {
 			_, cidr, err := net.ParseCIDR(cidrStr)
 			if err != nil {
 				continue
 			}
-			if !cidr.Contains(ip) {
-				continue
-			}
-			// CIDR matches. Check port constraint (AND semantics).
-			if len(rule.Ports) == 0 {
-				// No port constraint — CIDR match alone is sufficient.
+			for _, e := range endpoints {
+				ip := net.ParseIP(e.IP)
+				if ip == nil || !cidr.Contains(ip) || (len(rule.Ports) > 0 && !slices.Contains(rule.Ports, e.Port)) {
+					continue
+				}
 				matches[parseLevel(rule.Level)] = i
-			} else {
-				// Port must also match. Check against known ports from routes.
-				// For now, accept if any route exists (port info may not be available).
-				matches[parseLevel(rule.Level)] = i
+				if matched == "" {
+					matched = e.IP
+				}
 			}
 		}
 	}
-
 	result, ok := resolveMatches(matches, "inferred")
 	if ok {
-		result.Endpoint = lbIP
+		result.Endpoint = matched
 	}
 	return result, ok
 }
@@ -253,18 +247,4 @@ func firstMatchedDoor(gateways, classes map[string]bool, rules config.ExposureRu
 		}
 	}
 	return ""
-}
-
-func endpointMatches(ruleEndpoint, lbIP string, routes []ExposureRef) bool {
-	parts := strings.SplitN(ruleEndpoint, ":", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	ruleIP := parts[0]
-	rulePort, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return false
-	}
-	_ = rulePort // port matching against routes would need port data on ExposureRef
-	return ruleIP == lbIP
 }

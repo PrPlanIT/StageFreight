@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -12,7 +13,7 @@ import (
 )
 
 func service(name string, typ corev1.ServiceType, lbIP string) corev1.Service {
-	svc := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: name}, Spec: corev1.ServiceSpec{Type: typ}}
+	svc := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: name}, Spec: corev1.ServiceSpec{Type: typ, Ports: []corev1.ServicePort{{Port: 80}}}}
 	if lbIP != "" {
 		svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: lbIP}}
 	}
@@ -55,7 +56,7 @@ func TestIngressAttachesHostsAndClass(t *testing.T) {
 		t.Fatalf("got %+v", routes)
 	}
 	rules := config.ExposureRules{Rules: []config.ExposureRule{{Level: "internet", IngressClasses: []string{"nginx"}}}}
-	if got := ClassifyExposure(routes, "ClusterIP", "", rules); got.Declared != ExposureInternet || got.Gateway != "nginx" {
+	if got := ClassifyExposure(routes, "ClusterIP", nil, rules); got.Declared != ExposureInternet || got.Gateway != "nginx" {
 		t.Errorf("an ingress class rule decides exposure: got %+v", got)
 	}
 }
@@ -88,13 +89,33 @@ func TestServiceRulesSeeTheAppsServices(t *testing.T) {
 	}
 }
 
-func TestExposedServicePrefersTheMostReachable(t *testing.T) {
-	typ, ip := exposedService([]corev1.Service{
-		service("a", corev1.ServiceTypeClusterIP, ""),
-		service("z", corev1.ServiceTypeLoadBalancer, "192.0.2.10"),
-		service("m", corev1.ServiceTypeNodePort, ""),
-	})
-	if typ != "LoadBalancer" || ip != "192.0.2.10" {
-		t.Errorf("got %s %s", typ, ip)
+func TestExposedServiceListsEveryLoadBalancedPort(t *testing.T) {
+	lb := service("z", corev1.ServiceTypeLoadBalancer, "192.0.2.10")
+	lb.Spec.Ports = []corev1.ServicePort{{Port: 8211}, {Port: 27015}}
+	typ, eps := exposedService([]corev1.Service{service("a", corev1.ServiceTypeClusterIP, ""), lb, service("m", corev1.ServiceTypeNodePort, "")})
+	want := []Endpoint{{"192.0.2.10", 8211}, {"192.0.2.10", 27015}}
+	if typ != "LoadBalancer" || !slices.Equal(eps, want) {
+		t.Errorf("got %s %v", typ, eps)
+	}
+}
+
+// A shared load-balancer address with one port forwarded: only the app behind that port
+// is internet-facing, the rest of the address stays on the LAN.
+func TestForwardedPortIsExactOnASharedAddress(t *testing.T) {
+	rules := config.ExposureRules{Rules: []config.ExposureRule{
+		{Level: "internet", Endpoints: []string{"192.0.2.10:35566"}},
+		{Level: "intranet", CIDRs: []string{"192.0.2.0/24"}},
+	}}
+	game := []Endpoint{{"192.0.2.10", 35566}}
+	admin := []Endpoint{{"192.0.2.10", 28019}}
+	if got := ClassifyExposure(nil, "LoadBalancer", game, rules); got.Declared != ExposureInternet || got.Endpoint != "192.0.2.10:35566" {
+		t.Errorf("forwarded port: got %+v", got)
+	}
+	if got := ClassifyExposure(nil, "LoadBalancer", admin, rules); got.Declared != ExposureIntranet {
+		t.Errorf("same address, unforwarded port: got %+v", got)
+	}
+	ported := config.ExposureRules{Rules: []config.ExposureRule{{Level: "internet", CIDRs: []string{"192.0.2.0/24"}, Ports: []int{35566}}}}
+	if got := ClassifyExposure(nil, "LoadBalancer", admin, ported); got.Declared == ExposureInternet {
+		t.Errorf("a CIDR rule's ports narrow it: got %+v", got)
 	}
 }

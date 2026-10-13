@@ -8,7 +8,11 @@
 //   - Renderer: presentation (stable markdown output)
 package k8s
 
-import "time"
+import (
+	"net"
+	"strconv"
+	"time"
+)
 
 // AppKey uniquely identifies an application within the cluster.
 // Scoped to namespace + resolved identity.
@@ -114,6 +118,14 @@ type ImageRef struct {
 	Tag        string // e.g. "7.4.2", "latest"
 	Digest     string // e.g. "sha256:abc..." (if available from pod spec)
 }
+
+// Endpoint is one load-balanced address an app exposes.
+type Endpoint struct {
+	IP   string
+	Port int
+}
+
+func (e Endpoint) String() string { return net.JoinHostPort(e.IP, strconv.Itoa(e.Port)) }
 
 // ExposureRef represents a discovered route/ingress attachment.
 // Interface-based: HTTPRoute today, Ingress extensible later.
