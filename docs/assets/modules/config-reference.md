@@ -997,6 +997,7 @@ gitops:
         - level: <string>   # internet | intranet | cluster · required
           endpoints: [<string>]   # ip:port (highest precedence) · required
           gateways: [<string>]   # required
+          ingress_classes: [<string>]   # Ingress spec.ingressClassName · required
           cidrs: [<string>]   # required
           ports: [...]   # AND with CIDRs (empty = any port) · required
           service_types: [<string>]   # ClusterIP | NodePort | LoadBalancer · required
