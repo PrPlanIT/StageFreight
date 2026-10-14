@@ -1,0 +1,58 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Cross-Platform CLI Tool
+#
+# Who: Developers shipping a CLI binary for multiple OS/arch combos.
+#      Go, Rust, C projects that cross-compile. No container image needed.
+# What: Creates release notes on semver tags. Today this is the minimal
+#       useful manifest for a non-Docker project. When artifact builds land,
+#       this config will gain matrix builds, packaging, and release assets.
+# Build: None (container-wise). Artifact builds are a future feature.
+# Why: Establishes the manifest so release notes work now, and artifact
+#      builds slot in without restructuring when the feature ships.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+
+targets:
+  primary-release:
+    kind: release
+    when: { git_tags: [stable], events: [tag] }
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# build:
+#   artifacts:
+#     - name: mycli
+#       dockerfile: build/Dockerfile
+#       build_args:
+#         VERSION: "{version}"
+#       matrix:
+#         - { goos: linux,   goarch: amd64, suffix: linux-amd64 }
+#         - { goos: linux,   goarch: arm64, suffix: linux-arm64 }
+#         - { goos: darwin,  goarch: amd64, suffix: darwin-amd64 }
+#         - { goos: darwin,  goarch: arm64, suffix: darwin-arm64 }
+#         - { goos: windows, goarch: amd64, suffix: windows-amd64, ext: .exe }
+#       extract:
+#         - from: "/out/mycli{ext}"
+#           to: "dist/mycli-{suffix}/"
+#       package:
+#         - type: tar.gz
+#           name: "mycli-{version}-{suffix}.tar.gz"
+#           contents: "dist/mycli-{suffix}/"
+#           if: "goos != 'windows'"
+#         - type: zip
+#           name: "mycli-{version}-{suffix}.zip"
+#           contents: "dist/mycli-{suffix}/"
+#           if: "goos == 'windows'"
+#   release_assets: true
+#
+# security:
+#   audit_deps: true
+#
+# dev:
+#   test:
+#     sanity:
+#       - { name: unit-tests, run: "go test ./... -v -count=1" }
+#       - { name: lint, run: "golangci-lint run" }

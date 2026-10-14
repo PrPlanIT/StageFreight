@@ -1,0 +1,117 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Microservices Monorepo
+#
+# Who: Teams with multiple distinct services in a single repository. Each
+#      service has its own Dockerfile, its own image, its own tests — but
+#      they share a codebase, a CI pipeline, and a release cycle.
+# What: Multiple docker configs, each with their own Dockerfile path, target,
+#       and registries. Distinct from multi-image (05) which uses ONE Dockerfile
+#       with multiple stages — this uses MULTIPLE Dockerfiles.
+# Build: Multiple Dockerfiles in subdirectories, each producing a separate image.
+# Why: Monorepos are common. Each service should build, test, and push
+#      independently while sharing the manifest.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+
+builds:
+  gateway:
+    kind: docker
+    dockerfile: services/gateway/Dockerfile
+    context: services/gateway
+    platforms: [linux/amd64, linux/arm64]
+
+  users:
+    kind: docker
+    dockerfile: services/users/Dockerfile
+    context: services/users
+    platforms: [linux/amd64, linux/arm64]
+
+  billing:
+    kind: docker
+    dockerfile: services/billing/Dockerfile
+    context: services/billing
+    platforms: [linux/amd64, linux/arm64]
+
+  notifications:
+    kind: docker
+    dockerfile: services/notifications/Dockerfile
+    context: services/notifications
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  gateway-dockerhub:
+    kind: registry
+    build: gateway
+    url: docker.io
+    path: prplanit/platform-gateway
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  users-dockerhub:
+    kind: registry
+    build: users
+    url: docker.io
+    path: prplanit/platform-users
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  billing-dockerhub:
+    kind: registry
+    build: billing
+    url: docker.io
+    path: prplanit/platform-billing
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  notifications-dockerhub:
+    kind: registry
+    build: notifications
+    url: docker.io
+    path: prplanit/platform-notifications
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: [stable], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   audit_deps: true
+#
+# dev:
+#   env:
+#     GATEWAY_PORT: "8080"
+#     USERS_PORT: "8081"
+#     BILLING_PORT: "8082"
+#     NOTIFICATIONS_PORT: "8083"
+#     DATABASE_URL: postgres://dev:dev@db:5432/platform_dev
+#     RABBITMQ_URL: amqp://dev:dev@mq:5672
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: platform_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     mq:
+#       image: docker.io/library/rabbitmq:3-management-alpine
+#       env: { RABBITMQ_DEFAULT_USER: dev, RABBITMQ_DEFAULT_PASS: dev }
+#       ports: [5672, 15672]
+#       healthcheck: { test: "rabbitmq-diagnostics -q ping", interval: 10s }
+#   ports: ["8080:8080", "8081:8081", "8082:8082", "8083:8083"]
+#   test:
+#     startup: { timeout: 45s, depends_on: [db, mq] }
+#     healthchecks:
+#       - { name: gateway, type: http, url: "http://localhost:8080/health", expect_status: 200 }
+#       - { name: users, type: http, url: "http://localhost:8081/health", expect_status: 200 }
+#       - { name: billing, type: http, url: "http://localhost:8082/health", expect_status: 200 }
+#       - { name: notifications, type: http, url: "http://localhost:8083/health", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "npm run db:migrate" }
+#       - { name: integration, run: "npm run test:integration" }

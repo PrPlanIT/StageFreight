@@ -1,0 +1,96 @@
+# GitLab runner — minimal: runner + DinD, no BuildKit. Serves any pipeline that
+# doesn't build images (GitOps/Flux reconcile, ansible). Setup: README.md.
+
+services:
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: always
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+    volumes:
+      - dind-storage:/var/lib/docker
+      - /opt/docker/gitlab-runner/certs:/certs
+    # Pull-through cache for the job's inner docker.io pulls. Cache is OFF unless
+    # REGISTRY_MIRROR_DOCKER is set (unset → empty list → direct upstream).
+    configs:
+      - source: dind_daemon_json
+        target: /etc/docker/daemon.json
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      stagefreight:
+        aliases:
+          - dind
+
+  register-runner:
+    image: gitlab/gitlab-runner:latest
+    restart: 'no'
+    depends_on:
+      dind:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /etc/gitlab-runner/config.toml ]; then
+          gitlab-runner register \
+            --docker-dns=1.1.1.1 \
+            --docker-dns=8.8.8.8 \
+            --docker-host=unix:///var/run/docker.sock \
+            --docker-image=alpine:latest \
+            --docker-network-mode=stagefreight \
+            --docker-privileged=false \
+            --docker-volumes=/cache \
+            --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
+            --env=DOCKER_CERT_PATH=/certs/client \
+            --env=DOCKER_HOST=tcp://dind:2376 \
+            --env=DOCKER_TLS_VERIFY=1 \
+            --executor=docker \
+            --name=$${RUNNER_NAME:-"GitLab Runner"} \
+            --non-interactive \
+            --token=$${RUNNER_TOKEN} \
+            --url=$${CI_SERVER_URL}
+        fi
+    environment:
+      - CI_SERVER_URL=${CI_SERVER_URL}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+    networks:
+      - stagefreight
+
+  runner:
+    image: gitlab/gitlab-runner:latest
+    restart: always
+    depends_on:
+      dind:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+    healthcheck:
+      test: ["CMD", "gitlab-runner", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - stagefreight
+
+configs:
+  dind_daemon_json:
+    content: |
+      { "registry-mirrors": [${REGISTRY_MIRROR_DOCKER:+"https://${REGISTRY_MIRROR_DOCKER}"}] }
+
+networks:
+  stagefreight:
+    name: stagefreight
+
+volumes:
+  dind-storage:

@@ -1,0 +1,45 @@
+# Stencils + Scribe — compose reusable text and place it into README, then commit.
+# stencils: the shared library — define each renderable once (inline badge, inline
+#           shield, or a `type:` producer); embed as {id}.
+# scribe.files: an id → region map; a region's items reference stencils by id.
+version: 1
+
+vars:
+  org: myorg
+  repo: myapp
+
+builds:
+  myapp:
+    kind: docker
+
+publish:
+  dockerhub:
+    kind: registry
+    build: myapp
+    url: docker.io
+    path: "{var:org}/{var:repo}"
+    tags: ["{version}", "latest"]
+    credentials: DOCKER
+
+stencils:
+  # inline badge — a local SVG you own
+  release:
+    label: release
+    message: "v{base}"
+    color: "#74ecbe"
+    output: ".stagefreight/badges/release.svg"
+    link: "https://github.com/{var:org}/{var:repo}/releases"
+  # inline shield — composed from fields (no %2F juggling)
+  docker: { render: shield, label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
+
+scribe:
+  files:
+    readme-badges:
+      file: "README.md"
+      between: ["<!-- sf:badges:start -->", "<!-- sf:badges:end -->"]
+      inline: true
+      items: [release, docker]
+  commit:
+    type: docs
+    message: "refresh generated badges"
+    add: [".stagefreight/badges", "README.md"]

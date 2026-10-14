@@ -1,0 +1,69 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Personal Docker Application
+#
+# Who: Solo dev shipping a containerized side project.
+# What: Builds a dual-platform image, pushes to Docker Hub and GHCR on
+#       semver tags, creates release notes, and runs security scans.
+# Build: Single Dockerfile, linux/amd64 + linux/arm64.
+# Why: One manifest replaces a .gitlab-ci.yml build job and manual
+#      release note writing.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+
+builds:
+  app:
+    kind: docker
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  dockerhub:
+    kind: registry
+    build: app
+    url: docker.io
+    path: sofmeright/my-app
+    tags: ["{version}", "{major}.{minor}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  ghcr:
+    kind: registry
+    build: app
+    url: ghcr.io
+    path: sofmeright/my-app
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: [stable], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# dev:
+#   target: dev
+#   env:
+#     DATABASE_URL: postgres://dev:dev@db:5432/myapp_dev
+#     LOG_LEVEL: debug
+#     SECRET_KEY: dev-only-not-real
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: myapp_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#   ports: ["8080:8080"]
+#   volumes:
+#     - ./src:/app/src
+#   test:
+#     startup: { timeout: 30s, depends_on: [db] }
+#     healthchecks:
+#       - { name: ready, type: http, url: "http://localhost:8080/health", expect_status: 200 }
+#     sanity:
+#       - { name: smoke, run: "curl -sf http://localhost:8080/api/status | jq -e '.ok'" }
+#
+# rebuild:
+#   on_base_update: true

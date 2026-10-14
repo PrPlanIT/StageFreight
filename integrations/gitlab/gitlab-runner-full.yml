@@ -1,0 +1,188 @@
+# GitLab runner — full: minimal + persistent BuildKit (independent PKI) + build cache.
+# Superset of the minimal stack; adds container image builds. Setup: README.md.
+
+services:
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: always
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+    volumes:
+      - dind-storage:/var/lib/docker
+      - /opt/docker/gitlab-runner/certs:/certs
+      - /opt/docker/gitlab-runner/stagefreight:/stagefreight
+    # Pull-through cache for the job's inner docker.io pulls. Cache is OFF unless
+    # REGISTRY_MIRROR_DOCKER is set (unset → empty list → direct upstream).
+    configs:
+      - source: dind_daemon_json
+        target: /etc/docker/daemon.json
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      stagefreight:
+        aliases:
+          - dind
+
+  buildkitd-certs:
+    image: docker.io/library/alpine:3
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -f /out/server/cert.pem ]; then
+          echo "BuildKit PKI already exists, skipping"
+          exit 0
+        fi
+        apk add --no-cache openssl >/dev/null 2>&1
+        mkdir -p /out/ca /out/server /out/client
+
+        # CA
+        openssl genrsa -out /out/ca/key.pem 4096 2>/dev/null
+        openssl req -new -x509 -key /out/ca/key.pem -out /out/ca/cert.pem \
+          -days 3650 -subj "/CN=BuildKit CA" 2>/dev/null
+
+        # Server cert (SAN: DNS:buildkitd + IP:127.0.0.1 for healthcheck)
+        openssl genrsa -out /out/server/key.pem 4096 2>/dev/null
+        openssl req -new -key /out/server/key.pem -out /tmp/server.csr \
+          -subj "/CN=buildkitd" 2>/dev/null
+        printf "[v3]\nsubjectAltName=DNS:buildkitd,DNS:localhost,IP:127.0.0.1" > /tmp/ext.cnf
+        openssl x509 -req -in /tmp/server.csr \
+          -CA /out/ca/cert.pem -CAkey /out/ca/key.pem -CAcreateserial \
+          -out /out/server/cert.pem -days 3650 \
+          -extensions v3 -extfile /tmp/ext.cnf 2>/dev/null
+
+        # Client cert
+        openssl genrsa -out /out/client/key.pem 4096 2>/dev/null
+        openssl req -new -key /out/client/key.pem -out /tmp/client.csr \
+          -subj "/CN=buildkit-client" 2>/dev/null
+        openssl x509 -req -in /tmp/client.csr \
+          -CA /out/ca/cert.pem -CAkey /out/ca/key.pem -CAcreateserial \
+          -out /out/client/cert.pem -days 3650 2>/dev/null
+        cp /out/ca/cert.pem /out/client/ca.pem
+    volumes:
+      - /opt/docker/gitlab-runner/buildkitd-certs:/out
+
+  buildkitd:
+    image: moby/buildkit:latest
+    privileged: true
+    restart: always
+    depends_on:
+      buildkitd-certs:
+        condition: service_completed_successfully
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --tlscacert=/certs/ca/cert.pem
+      - --tlscert=/certs/server/cert.pem
+      - --tlskey=/certs/server/key.pem
+      - --oci-worker-gc=true
+      - --oci-worker-gc-keepstorage=12000
+    volumes:
+      - buildkitd-state:/var/lib/buildkit
+      - /opt/docker/gitlab-runner/stagefreight:/stagefreight
+      - /opt/docker/gitlab-runner/buildkitd-certs:/certs:ro
+    # Per-registry pull-through cache for build bases. Each registry's cache is
+    # OFF unless its REGISTRY_MIRROR_* is set (unset → empty list → direct upstream).
+    configs:
+      - source: buildkitd_toml
+        target: /etc/buildkit/buildkitd.toml
+    healthcheck:
+      test: ["CMD-SHELL", "buildctl --addr tcp://127.0.0.1:1234 --tlscacert /certs/ca/cert.pem --tlscert /certs/client/cert.pem --tlskey /certs/client/key.pem debug workers"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      stagefreight:
+        aliases:
+          - buildkitd
+
+  register-runner:
+    image: gitlab/gitlab-runner:latest
+    restart: "no"
+    depends_on:
+      dind:
+        condition: service_healthy
+      buildkitd:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /etc/gitlab-runner/config.toml ]; then
+          gitlab-runner register \
+            --docker-dns=1.1.1.1 \
+            --docker-dns=8.8.8.8 \
+            --docker-host=unix:///var/run/docker.sock \
+            --docker-image=alpine:latest \
+            --docker-network-mode=stagefreight \
+            --docker-privileged=false \
+            --docker-volumes=/cache \
+            --docker-volumes=/opt/docker/gitlab-runner/stagefreight:/stagefreight \
+            --docker-volumes=/opt/docker/gitlab-runner/buildkitd-certs/client:/buildkit-certs:ro \
+            --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
+            --env=DOCKER_CERT_PATH=/certs/client \
+            --env=DOCKER_HOST=tcp://dind:2376 \
+            --env=DOCKER_TLS_VERIFY=1 \
+            --executor=docker \
+            --name=$${RUNNER_NAME:-"GitLab Runner"} \
+            --non-interactive \
+            --token=$${RUNNER_TOKEN} \
+            --url=$${CI_SERVER_URL}
+        fi
+    environment:
+      - CI_SERVER_URL=${CI_SERVER_URL}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+    networks:
+      - stagefreight
+
+  runner:
+    image: gitlab/gitlab-runner:latest
+    restart: always
+    depends_on:
+      dind:
+        condition: service_healthy
+      buildkitd:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+    healthcheck:
+      test: ["CMD", "gitlab-runner", "list"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - stagefreight
+
+configs:
+  dind_daemon_json:
+    content: |
+      { "registry-mirrors": [${REGISTRY_MIRROR_DOCKER:+"https://${REGISTRY_MIRROR_DOCKER}"}] }
+  buildkitd_toml:
+    content: |
+      [registry."docker.io"]
+        mirrors = [${REGISTRY_MIRROR_DOCKER:+"${REGISTRY_MIRROR_DOCKER}"}]
+      [registry."ghcr.io"]
+        mirrors = [${REGISTRY_MIRROR_GHCR:+"${REGISTRY_MIRROR_GHCR}"}]
+      [registry."quay.io"]
+        mirrors = [${REGISTRY_MIRROR_QUAY:+"${REGISTRY_MIRROR_QUAY}"}]
+      [registry."lscr.io"]
+        mirrors = [${REGISTRY_MIRROR_LSCR:+"${REGISTRY_MIRROR_LSCR}"}]
+
+networks:
+  stagefreight:
+    name: stagefreight
+
+volumes:
+  dind-storage:
+  buildkitd-state:

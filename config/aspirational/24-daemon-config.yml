@@ -1,0 +1,120 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# stagefreight-daemon.yml — Daemon Configuration
+#
+# This is NOT a per-repo .stagefreight.yml — this is the config file
+# for `stagefreight serve`, the daemon that watches over an entire
+# organization's repos.
+#
+# Deploy as a K8s ConfigMap/Secret mounted into the stagefreight pod.
+# Environment variable substitution is supported for secrets.
+#
+# The daemon:
+# 1. Connects to configured providers with deploy tokens
+# 2. Scans all visible repos at the configured interval
+# 3. Discovers .stagefreight.yml manifests in each repo
+# 4. Applies org defaults to repos without manifests (if configured)
+# 5. Executes features per manifest + org defaults
+# 6. Opens MRs for all changes (unless YOLO)
+# 7. Pushes to mirrors per mirror rules
+
+providers:
+  # GitLab — primary source of truth
+  - name: gitlab-prplanit
+    type: gitlab
+    url: https://gitlab.prplanit.com
+    token: ${GITLAB_TOKEN}
+    orgs: [precisionplanit, components]
+    defaults:
+      # Applied to all repos in these orgs that don't have a .stagefreight.yml
+      # Repos WITH a manifest override these defaults
+      release: { notes: true, badge: true }
+      security: { scan: true, secret_findings: alert }
+      license: { compliance: true }
+      templates: { golden_files: true, gitignore: true }
+
+  # GitHub — public mirrors and personal projects
+  - name: github-sofmeright
+    type: github
+    token: ${GITHUB_TOKEN}
+    orgs: [sofmeright]
+    defaults:
+      release: { notes: true }
+      security: { secret_findings: alert }
+
+  # Gitea — self-hosted forge
+  - name: gitea-internal
+    type: gitea
+    url: https://git.internal.prplanit.com
+    token: ${GITEA_TOKEN}
+    orgs: [infrastructure, clients]
+    defaults:
+      security: { scan: true, secret_findings: alert }
+
+# Alert channels for discrete findings (secrets, critical CVEs)
+alerts:
+  - type: smtp
+    to: security@precisionplanit.com
+    from: stagefreight@precisionplanit.com
+    host: ${SMTP_HOST}
+    port: 587
+    username: ${SMTP_USERNAME}
+    password: ${SMTP_PASSWORD}
+
+  - type: webhook
+    url: ${SLACK_WEBHOOK_URL}
+    # Slack-compatible webhook — StageFreight formats the message
+
+  - type: syslog
+    host: ${SYSLOG_HOST}
+    port: 514
+    # For SIEM integration — all findings logged here
+
+# How often the daemon scans for repo changes
+scan:
+  interval: 15m
+
+# Auto-init: open init MRs for repos without .stagefreight.yml
+# Repos in orgs with defaults get an MR proposing a manifest
+auto_init:
+  enabled: true
+  # Don't spam — only init repos that match these patterns
+  include: [".*"]                     # all repos by default
+  exclude: ["(archived|deprecated)/.*"]
+  # Rate limit: max init MRs opened per scan cycle
+  max_per_cycle: 5
+
+# Mirror rules — automated git push relationships between providers
+mirrors:
+  # Mirror PrecisionPlanIT repos to GitHub, flattening the path
+  - source:
+      provider: gitlab-prplanit
+      match: "precisionplanit/.*"
+      ignore: "precisionplanit/(private-|internal-).*"
+    target:
+      provider: github-sofmeright
+      path: "sofmeright/{name}"
+
+  # Mirror components to GitHub
+  - source:
+      provider: gitlab-prplanit
+      match: "components/.*"
+    target:
+      provider: github-sofmeright
+      path: "sofmeright/{name}"
+
+  # Mirror everything readable, preserving structure
+  # (lower priority — specific rules above take precedence)
+  - source:
+      provider: gitlab-prplanit
+      match: ".*"
+      ignore: "(private-|internal-|archived/).*"
+    target:
+      provider: github-sofmeright
+      path: "{group}/{name}"
+
+# Golden files — template repo for org-wide file sync
+golden_files:
+  repo: gitlab-prplanit/precisionplanit/templates
+  # Files in this repo are synced to all repos in the org
+  # Repos can override with their own versions
+  # StageFreight opens MRs when drift is detected

@@ -1,0 +1,97 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Mobile / Hybrid App (Capacitor, React Native, Flutter)
+#
+# Who: Teams building mobile or hybrid apps. The app itself isn't a container,
+#      but the API backend is, and benefits from reproducible builds.
+# What: Builds the API backend as a dual-platform container image, pushes to
+#       Docker Hub, creates release notes, runs security scans with SBOM.
+#       Mobile artifact builds (APK, web bundle) are a future feature.
+# Build: Docker build for the API backend. Mobile assets built separately.
+# Why: The API backend gets the same build/push/scan pipeline as any other
+#      container. Mobile artifact builds will slot in when that feature ships.
+
+version: 1
+
+policies:
+  branches:
+    main: "^main$"
+
+builds:
+  # API backend — standard container image
+  api:
+    kind: docker
+    dockerfile: api/Dockerfile
+    context: api
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  dockerhub-api:
+    kind: registry
+    build: api
+    url: docker.io
+    path: prplanit/myapp-api
+    tags: ["{version}", latest]
+    when: { branches: [main], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+  sbom: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# build:
+#   artifacts:
+#     - name: android-apk
+#       dockerfile: build/Dockerfile.android
+#       target: export
+#       platforms: [linux/amd64]
+#       build_args:
+#         APP_VERSION: "{version}"
+#       extract:
+#         - from: /out/app-release.apk
+#           to: dist/android/
+#       package:
+#         - type: zip
+#           name: "myapp-android-{version}.zip"
+#           contents: dist/android/
+#
+#     - name: web-bundle
+#       dockerfile: build/Dockerfile.web
+#       target: export
+#       platforms: [linux/amd64]
+#       extract:
+#         - from: /out/dist/
+#           to: dist/web/
+#       package:
+#         - type: tar.gz
+#           name: "myapp-web-{version}.tar.gz"
+#           contents: dist/web/
+#
+#   release_assets: true
+#
+# security:
+#   audit_deps: true
+#
+# dev:
+#   env:
+#     API_URL: http://localhost:4000
+#     DATABASE_URL: postgres://dev:dev@db:5432/myapp_dev
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: myapp_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#   ports: ["4000:4000", "8081:8081"]
+#   test:
+#     startup: { timeout: 30s, depends_on: [db] }
+#     healthchecks:
+#       - { name: api, type: http, url: "http://localhost:4000/health", expect_status: 200 }
+#     sanity:
+#       - { name: api-migrations, run: "cd api && npx prisma migrate deploy" }
+#       - { name: api-tests, run: "cd api && npm test" }
+#       - { name: app-lint, run: "cd app && npm run lint" }
+#       - { name: app-typecheck, run: "cd app && npm run typecheck" }
+#       - { name: app-tests, run: "cd app && npm test" }
