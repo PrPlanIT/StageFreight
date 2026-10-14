@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -324,7 +326,15 @@ func (a *forgeAdapter) GetFileContent(repo, path, ref string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating forge for %s: %w", repo, err)
 	}
-	return f.GetFileContent(a.ctx, path, ref)
+	data, err := f.GetFileContent(a.ctx, path, ref)
+	if err != nil {
+		var apiErr *forge.APIError
+		if errors.Is(err, os.ErrNotExist) || (errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound) {
+			return nil, fmt.Errorf("%w: %v", governance.ErrFileNotFound, err)
+		}
+		return nil, err
+	}
+	return data, nil
 }
 
 func (a *forgeAdapter) DefaultBranch(repo string) (string, error) {

@@ -2,6 +2,7 @@ package governance
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -337,6 +338,10 @@ type ForgeReader interface {
 	DefaultBranch(repo string) (string, error)
 }
 
+// ErrFileNotFound is what a ForgeReader's GetFileContent wraps when the file does not
+// exist. Any other error means the file's state is unknown.
+var ErrFileNotFound = errors.New("file not found")
+
 // planFile determines the action for a single file in a target repo.
 func planFile(reader ForgeReader, repo, path string, newContent []byte) DistributedFile {
 	f := DistributedFile{
@@ -351,9 +356,16 @@ func planFile(reader ForgeReader, repo, path string, newContent []byte) Distribu
 	}
 
 	existing, err := reader.GetFileContent(repo, path, "HEAD")
-	if err != nil {
-		// File doesn't exist — create.
+	if errors.Is(err, ErrFileNotFound) {
 		f.Action = "create"
+		return f
+	}
+	if err != nil {
+		// Unknown is not absent. Treating a failed read (rate limit, timeout, 5xx) as a
+		// new file made the forge commit the existing content back unchanged — an empty
+		// commit in every satellite whose read happened to fail.
+		f.Action = "unreadable"
+		f.ReadErr = err
 		return f
 	}
 

@@ -61,6 +61,16 @@ func commitRepo(plan DistributionPlan, forge ForgeClient, source string, dryRun 
 		return result
 	}
 
+	// A file whose current content could not be read cannot be compared, so nothing in
+	// the repo is committed: writing it anyway would turn a read failure into a commit.
+	for _, f := range plan.Files {
+		if f.ReadErr != nil {
+			result.Status = "error"
+			result.Error = fmt.Errorf("reading %s: %w (not committing without knowing what is there)", f.Path, f.ReadErr)
+			return result
+		}
+	}
+
 	// Check for drift.
 	for _, f := range plan.Files {
 		if f.Drifted {

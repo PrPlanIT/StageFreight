@@ -183,8 +183,9 @@ type DistributionPlan struct {
 type DistributedFile struct {
 	Path    string // e.g., ".stagefreight/stagefreight-managed.yml"
 	Content []byte
-	Action  string // "create", "replace", "unchanged", "delete"
+	Action  string // "create", "replace", "unchanged", "delete", "unreadable"
 	Drifted bool   // true if existing file differs from governance intent
+	ReadErr error  // set with Action "unreadable": the existing file could not be read
 }
 
 // CommitResult records what happened for each repo during distribution.
