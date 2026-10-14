@@ -48,7 +48,7 @@ func TestIngressAttachesHostsAndClass(t *testing.T) {
 	key := AppKey{Namespace: "shop", Identity: "web"}
 	groups := map[AppKey]*appGroup{key: appGroupWith("web", service("web", corev1.ServiceTypeClusterIP, ""))}
 
-	if err := augmentIngresses(context.Background(), fake.NewSimpleClientset(ing), groups); err != nil {
+	if err := augmentIngresses(context.Background(), fake.NewSimpleClientset(ing), groups, config.GroupSource{}); err != nil {
 		t.Fatal(err)
 	}
 	routes := groups[key].routes
@@ -78,7 +78,7 @@ func TestServiceRulesSeeTheAppsServices(t *testing.T) {
 		groups[g.identity.Key] = g
 	}
 	got := map[string]ExposureLevel{}
-	for _, r := range buildRecords(groups, &Catalog{}, NewCategoryResolver(nil), nil, rules) {
+	for _, r := range buildRecords(groups, &Catalog{}, NewCategoryResolver(nil), nil, rules, config.GroupSource{}) {
 		got[r.Key.Identity] = r.Exposure.Declared
 	}
 	want := map[string]ExposureLevel{"internal": ExposureCluster, "printer": ExposureIntranet, "media": ExposureIntranet}

@@ -135,6 +135,7 @@ type ExposureRef struct {
 	Name    string
 	Gateway string // HTTPRoute: parentRef gateway name, for exposure classification
 	Class   string // Ingress: ingress class, for exposure classification
+	Group   string // the app group the route declares, when a group source is configured
 }
 
 // Status represents the health state of an application.

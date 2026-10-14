@@ -59,16 +59,42 @@ type GitOpsCluster struct {
 	// Categories groups the cluster's namespaces into app inventory sections.
 	Categories []InventoryCategory `yaml:"categories,omitempty"`
 
+	// Inventory configures how the app inventory reads the cluster.
+	Inventory InventoryConfig `yaml:"inventory,omitempty"`
+
 	// OIDC defines authentication configuration for the cluster.
 	OIDC OIDCConfig `yaml:"oidc"`
 }
 
 // Connection returns the connection descriptor the k8s/gitops packages consume.
 func (c GitOpsCluster) Connection() ClusterConfig {
-	return ClusterConfig{Name: c.Name, Endpoint: c.Endpoint, Exposure: c.Exposure, Categories: c.Categories}
+	return ClusterConfig{Name: c.Name, Endpoint: c.Endpoint, Exposure: c.Exposure, Categories: c.Categories, Groups: c.Inventory.Groups.From}
 }
 
-// InventoryCategory is one section of the app inventory. List order is section order.
+// InventoryConfig is gitops.<cluster>.inventory.
+type InventoryConfig struct {
+	Groups InventoryGroups `yaml:"groups,omitempty"`
+}
+
+// InventoryGroups names where an app's group is already declared in the cluster, so the
+// inventory reuses it instead of a second declaration. An app with a group is an app,
+// listed under that group; categories: covers apps without one.
+type InventoryGroups struct {
+	From GroupSource `yaml:"from,omitempty"`
+}
+
+// GroupSource reads a group from the Services, HTTPRoutes and Ingresses that expose an
+// app: an annotation or a label, and when the value is a YAML mapping, one field of it.
+type GroupSource struct {
+	Annotation string `yaml:"annotation,omitempty"`
+	Label      string `yaml:"label,omitempty"`
+	Field      string `yaml:"field,omitempty"`
+}
+
+// Set reports whether a group source is configured.
+func (g GroupSource) Set() bool { return g.Annotation != "" || g.Label != "" }
+
+// InventoryCategory is one section of the app inventory. Sections render alphabetically.
 type InventoryCategory struct {
 	Name string `yaml:"name"`
 
@@ -91,6 +117,7 @@ type ClusterConfig struct {
 	Endpoint   string
 	Exposure   ExposureRules
 	Categories []InventoryCategory
+	Groups     GroupSource
 }
 
 // ExposureRules defines rule-based endpoint exposure classification.

@@ -10,6 +10,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitops"
 
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,10 +57,10 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 
 	// Phase 3: Augment with HTTPRoutes and Ingresses. Either API may be absent or not
 	// readable; routes only add hostnames and exposure, never whether an app exists.
-	if err := augmentHTTPRoutes(ctx, client.GatewayClient, client.Clientset, groups); err != nil {
+	if err := augmentHTTPRoutes(ctx, client.GatewayClient, client.Clientset, groups, cluster.Groups); err != nil {
 		_ = err
 	}
-	if err := augmentIngresses(ctx, client.Clientset, groups); err != nil {
+	if err := augmentIngresses(ctx, client.Clientset, groups, cluster.Groups); err != nil {
 		_ = err
 	}
 
@@ -68,7 +69,7 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 
 	// Phase 5: Build AppRecords, classify, apply catalog
 	resolver := NewCategoryResolver(cluster.Categories)
-	records := buildRecords(groups, catalog, resolver, fluxSources, cluster.Exposure)
+	records := buildRecords(groups, catalog, resolver, fluxSources, cluster.Exposure, cluster.Groups)
 
 	// Phase 5.5: Fold subordinate-only apps into their parents.
 	// Must happen after buildRecords (need roles) and before tier separation.
@@ -89,9 +90,9 @@ func Discover(ctx context.Context, client *Client, catalogPath, repoRoot string,
 		}
 	}
 
-	sortRecords(apps, resolver)
-	sortRecords(platform, resolver)
-	sortRecords(unresolved, resolver)
+	sortRecords(apps)
+	sortRecords(platform)
+	sortRecords(unresolved)
 
 	// Phase 7: Reconcile lifecycle state + derive graveyard.
 	// Scoped to cluster: .stagefreight/inventory/k8s-inventory-<cluster>.json
@@ -536,7 +537,7 @@ func (k AppKey) less(o AppKey) bool {
 
 // augmentHTTPRoutes attaches HTTPRoute hostnames to app groups.
 // Validates: route backendRefs → Service → selector → workload.
-func augmentHTTPRoutes(ctx context.Context, gwc gatewayclient.Interface, cs kubernetes.Interface, groups map[AppKey]*appGroup) error {
+func augmentHTTPRoutes(ctx context.Context, gwc gatewayclient.Interface, cs kubernetes.Interface, groups map[AppKey]*appGroup, src config.GroupSource) error {
 	routes, err := gwc.GatewayV1().HTTPRoutes("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("listing httproutes: %w", err)
@@ -567,12 +568,14 @@ func augmentHTTPRoutes(ctx context.Context, gwc gatewayclient.Interface, cs kube
 
 				g := groups[appKey]
 				gateway := extractGateway(route)
+				group := declaredGroup(route.ObjectMeta, src)
 				for _, h := range hosts {
 					g.routes = append(g.routes, ExposureRef{
 						Kind:    "HTTPRoute",
 						Host:    h,
 						Name:    route.Name,
 						Gateway: gateway,
+						Group:   group,
 					})
 				}
 			}
@@ -594,7 +597,7 @@ func serviceIndex(groups map[AppKey]*appGroup) map[string]AppKey {
 }
 
 // augmentIngresses attaches Ingress hostnames to the apps whose services they route to.
-func augmentIngresses(ctx context.Context, cs kubernetes.Interface, groups map[AppKey]*appGroup) error {
+func augmentIngresses(ctx context.Context, cs kubernetes.Interface, groups map[AppKey]*appGroup, src config.GroupSource) error {
 	ingresses, err := cs.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("listing ingresses: %w", err)
@@ -643,12 +646,64 @@ func augmentIngresses(ctx context.Context, cs kubernetes.Interface, groups map[A
 				continue
 			}
 			g := groups[key]
+			group := declaredGroup(ing.ObjectMeta, src)
 			for _, h := range hosts {
-				g.routes = append(g.routes, ExposureRef{Kind: "Ingress", Host: h, Name: ing.Name, Class: class})
+				g.routes = append(g.routes, ExposureRef{Kind: "Ingress", Host: h, Name: ing.Name, Class: class, Group: group})
 			}
 		}
 	}
 	return nil
+}
+
+// declaredGroup reads the group an object declares through the configured source: a
+// label, or an annotation whose value, when a field is named, is a YAML mapping.
+func declaredGroup(meta metav1.ObjectMeta, src config.GroupSource) string {
+	var raw string
+	switch {
+	case src.Annotation != "":
+		raw = meta.Annotations[src.Annotation]
+	case src.Label != "":
+		raw = meta.Labels[src.Label]
+	default:
+		return ""
+	}
+	if src.Field == "" || raw == "" {
+		return strings.TrimSpace(raw)
+	}
+	var fields map[string]any
+	if err := yaml.Unmarshal([]byte(raw), &fields); err != nil {
+		return ""
+	}
+	if v, ok := fields[src.Field].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// appGroupName is the group an app's Services and routes declare. Should they disagree,
+// the most declared wins, then the lowest name, so the choice is the same on every run.
+func appGroupName(g *appGroup, src config.GroupSource) string {
+	if !src.Set() {
+		return ""
+	}
+	count := map[string]int{}
+	for _, svc := range g.services {
+		if n := declaredGroup(svc.ObjectMeta, src); n != "" {
+			count[n]++
+		}
+	}
+	for _, r := range g.routes {
+		if r.Group != "" {
+			count[r.Group]++
+		}
+	}
+	best := ""
+	for n, c := range count {
+		if best == "" || c > count[best] || (c == count[best] && n < best) {
+			best = n
+		}
+	}
+	return best
 }
 
 // exposedService reports how an app's Services expose it: the most reachable type
@@ -713,7 +768,7 @@ func extractGateway(route *gatewayv1.HTTPRoute) string {
 }
 
 // buildRecords converts app groups into classified AppRecords.
-func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *CategoryResolver, fluxSources map[AppKey][]DeclaredSource, exposureRules config.ExposureRules) []AppRecord {
+func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *CategoryResolver, fluxSources map[AppKey][]DeclaredSource, exposureRules config.ExposureRules, groupSrc config.GroupSource) []AppRecord {
 	var records []AppRecord
 
 	keys := make([]AppKey, 0, len(groups))
@@ -764,7 +819,14 @@ func buildRecords(groups map[AppKey]*appGroup, catalog *Catalog, resolver *Categ
 		rec.Status = ComputeStatus(totalReady, totalDesired)
 
 		// Classification (before catalog, so catalog can override)
-		rec.Tier = classify(g, rec, resolver.Tier(g.identity.Key.Namespace), resolver.Declared(g.identity.Key.Namespace))
+		// A group the cluster already declares for the app (its monitoring, say) places it:
+		// it is an app, under that group. Without one, the namespace declaration applies.
+		if group := appGroupName(g, groupSrc); group != "" {
+			rec.Category = group
+			rec.Tier = TierApp
+		} else {
+			rec.Tier = classify(g, rec, resolver.Tier(g.identity.Key.Namespace), resolver.Declared(g.identity.Key.Namespace))
+		}
 
 		// Check label override
 		for _, wl := range g.workloads {
@@ -1050,10 +1112,14 @@ func lastPathSegment(path string) string {
 	return path
 }
 
-// sortRecords sorts by declared category order then name (alpha, lowercase).
-func sortRecords(records []AppRecord, resolver *CategoryResolver) {
+// sortRecords sorts by section name (Uncategorized last) then app name.
+func sortRecords(records []AppRecord) {
 	sort.SliceStable(records, func(i, j int) bool {
-		if ci, cj := resolver.Order(records[i].Category), resolver.Order(records[j].Category); ci != cj {
+		if ci, cj := records[i].Category, records[j].Category; ci != cj {
+			// Sections read alphabetically, with what nothing places at the end.
+			if ci == Uncategorized || cj == Uncategorized {
+				return cj == Uncategorized
+			}
 			return ci < cj
 		}
 		if a, b := strings.ToLower(records[i].FriendlyName), strings.ToLower(records[j].FriendlyName); a != b {

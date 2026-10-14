@@ -759,6 +759,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	errs = append(errs, validateAnsible(cfg)...)
 	errs = append(errs, validateInventoryCategories(cfg)...)
 	errs = append(errs, validateExposureRules(cfg)...)
+	errs = append(errs, validateInventoryGroups(cfg)...)
 
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
@@ -812,6 +813,22 @@ func validateInventoryCategories(cfg *Config) []string {
 				}
 				owner[ns] = c.Name
 			}
+		}
+	}
+	return errs
+}
+
+// validateInventoryGroups checks each cluster's group source names exactly one place.
+func validateInventoryGroups(cfg *Config) []string {
+	var errs []string
+	for _, cl := range cfg.GitOps {
+		g := cl.Inventory.Groups.From
+		path := fmt.Sprintf("gitops.%s.inventory.groups.from", cl.Name)
+		if g.Annotation != "" && g.Label != "" {
+			errs = append(errs, path+": set annotation or label, not both")
+		}
+		if g.Field != "" && !g.Set() {
+			errs = append(errs, path+".field: needs an annotation or label to read from")
 		}
 	}
 	return errs

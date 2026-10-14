@@ -5,13 +5,13 @@
 
 ✅ 1 healthy · ❌ 1 down
 
-### Kitchen (pantry)
+### Kitchen
 
 | App | Status | Exposure | Links |
 | --- | --- | --- | --- |
 | Toaster (2 components) | ✅ | 🌐 toast.example.com | [open](https://toast.example.com) |
 
-### Uncategorized (garage)
+### Uncategorized
 
 | App | Status | Exposure | Links |
 | --- | --- | --- | --- |

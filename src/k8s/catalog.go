@@ -118,13 +118,11 @@ const Uncategorized = "Uncategorized"
 type CategoryResolver struct {
 	categories  []config.InventoryCategory
 	byNamespace map[string]int
-	order       map[string]int
 }
 
 func NewCategoryResolver(categories []config.InventoryCategory) *CategoryResolver {
-	r := &CategoryResolver{categories: categories, byNamespace: map[string]int{}, order: map[string]int{}}
+	r := &CategoryResolver{categories: categories, byNamespace: map[string]int{}}
 	for i, c := range categories {
-		r.order[c.Name] = i
 		for _, ns := range c.Namespaces {
 			r.byNamespace[ns] = i
 		}
@@ -152,14 +150,6 @@ func (r *CategoryResolver) Tier(namespace string) Tier {
 		return Tier(r.categories[i].Tier)
 	}
 	return ""
-}
-
-// Order ranks a category by its declared position; undeclared categories sort last.
-func (r *CategoryResolver) Order(category string) int {
-	if i, ok := r.order[category]; ok {
-		return i
-	}
-	return len(r.categories)
 }
 
 // IsSidecarImage returns true if the image string matches a known sidecar pattern.
