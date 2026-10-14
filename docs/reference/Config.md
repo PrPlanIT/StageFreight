@@ -1022,6 +1022,12 @@ gitops:
       - name: <string>   # required
         tier: <string>   # Tier declares what the namespaces' workloads are: app, platform or hidden. Left empty, discovery…
         namespaces: [<string>]   # required
+    inventory:   # Inventory configures how the app inventory reads the cluster.
+      groups:
+        from:
+          annotation: <string>
+          label: <string>
+          field: <string>
     oidc:   # OIDC defines authentication configuration for the cluster. · required
       audience: <string>   # required
 ```
