@@ -11,6 +11,12 @@ import (
 // package managers resolve to their ecosystem's package page. Returns "" when no
 // public page is derivable (e.g. a private registry), so the badge renders unlinked.
 func inventoryItemLink(item map[string]interface{}) string {
+	// A package found by scanning the image has no recorded origin: a pip package may
+	// come from PyPI or from a git checkout installed in place, and the SBOM cannot
+	// tell them apart. A registry link would be a guess, so it renders unlinked.
+	if formatCell(item["source"]) == "sbom" {
+		return ""
+	}
 	manager := formatCell(item["manager"])
 	name := formatCell(item["name"])
 	switch manager {

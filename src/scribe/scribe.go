@@ -24,6 +24,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/props"
 	"github.com/PrPlanIT/StageFreight/src/registry"
 	"github.com/PrPlanIT/StageFreight/src/scribe/render"
+	"github.com/PrPlanIT/StageFreight/src/security"
 	"github.com/PrPlanIT/StageFreight/src/stencil"
 )
 
@@ -845,6 +846,7 @@ func resolveBuildContentsManifest(appCfg *config.Config, def config.StencilDef, 
 
 	manifestPath := manifest.ResolveManifestPath(rootDir, appCfg, buildID)
 	if m, err := manifest.LoadManifest(manifestPath); err == nil {
+		importDetected(m, appCfg, rootDir, buildID)
 		return m
 	}
 
@@ -858,7 +860,24 @@ func resolveBuildContentsManifest(appCfg *config.Config, def config.StencilDef, 
 		fmt.Fprintf(os.Stderr, "scribe: build-contents manifest generation failed: %v\n", err)
 		return nil
 	}
+	importDetected(manifests[0], appCfg, rootDir, buildID)
 	return manifests[0]
+}
+
+// importDetected fills the manifest's detected inventories from this run's SBOM of the
+// built image, when the security scan produced one for this same build.
+func importDetected(m *manifest.Manifest, appCfg *config.Config, rootDir, buildID string) {
+	dir := appCfg.Security.OutputDir
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(rootDir, dir)
+	}
+	subject, err := security.ReadSBOMSubject(dir)
+	if err != nil || subject.Build != buildID {
+		return
+	}
+	if err := manifest.ImportSBOM(m, filepath.Join(dir, security.SBOMFile)); err != nil {
+		fmt.Fprintf(os.Stderr, "scribe: build-contents SBOM import: %v\n", err)
+	}
 }
 
 // resolveLink resolves a relative link against a base URL.

@@ -139,6 +139,8 @@ func RenderKV(data interface{}) (string, error) {
 // ExtractSection extracts a nested value from a manifest using a dot-path.
 // e.g., "inventories.pip" → manifest.Inventories.Pip
 func ExtractSection(m *Manifest, dotPath string) (interface{}, error) {
+	// Empty sections are lists, not null, so they render as "no items".
+	ensureArrays(m)
 	// Marshal to JSON, then navigate by dot-path
 	data, err := json.Marshal(m)
 	if err != nil {

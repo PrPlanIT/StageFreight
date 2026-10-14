@@ -289,10 +289,20 @@ func resolveTarget(rootDir string, explicitImage string, positionalArgs []string
 		SelectionReason:  reason,
 		Stability:        stability,
 		Candidates:       candidates,
+		BuildID:          dockerBuildID(*selected),
 		ExpectedTags:     selected.ExpectedTags,
 		ExpectedCommit:   selected.ExpectedCommit,
 		SigningAttempted: selected.SigningAttempted,
 	}, nil
+}
+
+// dockerBuildID names the build behind a published image: a docker artifact carries its
+// build's id as its name.
+func dockerBuildID(v artifact.PublicationView) string {
+	if v.ArtifactKind == "docker" {
+		return v.ArtifactName
+	}
+	return ""
 }
 
 func runSecurityScan(cmd *cobra.Command, args []string) error {
@@ -387,6 +397,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		SBOMEnabled:      req.SBOM,
 		FailOnCritical:   req.FailOnCritical || req.Config.Security.FailOnCritical,
 		ImageRef:         imageRef,
+		BuildID:          target.BuildID,
 		OCILayoutDir:     ociLayoutDir,
 		OutputDir:        req.OutputDir,
 		RootDir:          req.RootDir,

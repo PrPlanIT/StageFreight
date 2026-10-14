@@ -31,6 +31,7 @@ type ScanConfig struct {
 	SBOMEnabled      bool                             // generate SBOM
 	FailOnCritical   bool                             // fail if critical vulns found
 	ImageRef         string                           // image reference or tarball path to scan
+	BuildID          string                           // the build that produced ImageRef, when known
 	OCILayoutDir     string                           // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
 	OutputDir        string                           // directory for scan artifacts
 	RootDir          string                           // workspace root for toolchain resolution
@@ -99,6 +100,7 @@ type ScanTarget struct {
 	SelectionReason   string          `json:"selection_reason"`
 	Stability         RefStability    `json:"stability"`
 	Candidates        []CandidateInfo `json:"candidates,omitempty"`
+	BuildID           string          `json:"build_id,omitempty"` // the build that produced the image, when known
 	ExpectedTags      []string        `json:"expected_tags,omitempty"`
 	ExpectedCommit    string          `json:"expected_commit,omitempty"`
 	SigningAttempted  bool            `json:"signing_attempted,omitempty"`
@@ -315,6 +317,9 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 		spdxErr := runSyft(ctx, syftResult.Path, cfg.ImageRef, "spdx-json", spdxPath)
 		if spdxErr == nil {
 			result.Artifacts = append(result.Artifacts, spdxPath)
+			if err := writeSBOMSubject(cfg.OutputDir, SBOMSubject{Build: cfg.BuildID, Ref: cfg.ImageRef}); err != nil {
+				diag.Warn("could not record the SBOM's build: %v", err)
+			}
 			cdxPath := cfg.OutputDir + "/sbom.cyclonedx.json"
 			if err := runSyft(ctx, syftResult.Path, cfg.ImageRef, "cyclonedx-json", cdxPath); err != nil {
 				output.SectionEnd(sw, "sf_syft_raw")

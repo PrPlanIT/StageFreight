@@ -22,7 +22,23 @@ type Manifest struct {
 	Image         Image    `json:"image"`
 	Completeness  Complete `json:"completeness"`
 	Inventories   Invs     `json:"inventories"`
+	Detected      Detected `json:"detected"`
 	Security      Security `json:"security"`
+}
+
+// Detected is what scanning the built image found, by package ecosystem - everything
+// actually present, however it got there. Inventories is what the Dockerfile declares.
+type Detected struct {
+	Pip []InvItem `json:"pip"`
+	Npm []InvItem `json:"npm"`
+	Apk []InvItem `json:"apk"`
+	Apt []InvItem `json:"apt"`
+	Go  []InvItem `json:"go"`
+	Gem []InvItem `json:"gem"`
+}
+
+func (d *Detected) groups() []*[]InvItem {
+	return []*[]InvItem{&d.Pip, &d.Npm, &d.Apk, &d.Apt, &d.Go, &d.Gem}
 }
 
 // Metadata holds generation metadata.
@@ -169,6 +185,9 @@ func MarshalDeterministic(m *Manifest) ([]byte, error) {
 	sortInvItems(m.Inventories.Npm)
 	sortInvItems(m.Inventories.Go)
 	sortInvItems(m.Inventories.Binaries)
+	for _, g := range m.Detected.groups() {
+		sortInvItems(*g)
+	}
 
 	// Sort scans and signatures
 	sort.Slice(m.Security.Scans, func(i, j int) bool {
@@ -211,6 +230,11 @@ func sortInvItems(items []InvItem) {
 }
 
 func ensureArrays(m *Manifest) {
+	for _, g := range m.Detected.groups() {
+		if *g == nil {
+			*g = []InvItem{}
+		}
+	}
 	if m.Targets == nil {
 		m.Targets = []Target{}
 	}
