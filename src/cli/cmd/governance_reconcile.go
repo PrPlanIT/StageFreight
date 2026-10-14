@@ -148,7 +148,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 			BaseURL:      forgeBaseURL,
 			CredPrefix:   forgeCreds,
 		}
-		adapter = &forgeAdapter{factory: factory, ctx: ctx}
+		adapter = &forgeAdapter{factory: factory, ctx: ctx, credOverrides: gov.RepoCredentials()}
 		forgeReader = adapter
 		forgeSummary = fmt.Sprintf("%s @ %s (cred: %s_*)", forgeProvider, forgeBaseURL, forgeCreds)
 	}
@@ -193,15 +193,6 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	if adapter == nil {
 		return fmt.Errorf("sources.primary required for --apply mode (forge identity not resolved)")
 	}
-
-	// Populate per-repo credential overrides from cluster targets.
-	credOverrides := make(map[string]string)
-	for _, p := range plans {
-		if p.Credentials != "" {
-			credOverrides[p.Repo] = p.Credentials
-		}
-	}
-	adapter.credOverrides = credOverrides
 
 	vlog("\nCommitting to satellite repos...\n")
 	// Host-qualified: "PrPlanIT/MaintenancePolicy" alone cannot tell a reader whether

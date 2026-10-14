@@ -223,3 +223,20 @@ var CanonicalKeyOrder = []string{
 	"tag",
 	"manifest",
 }
+
+// RepoCredentials maps each governed repo to its profile's credential prefix, for repos
+// whose profile names one. Reading a satellite and committing to it must use the same
+// identity: a read with a token that cannot see the repo returns not-found, every file
+// plans as new, and the write - with the token that can - commits identical content.
+func (g *GovernanceConfig) RepoCredentials() map[string]string {
+	out := map[string]string{}
+	for _, cluster := range g.Profiles {
+		if cluster.Credentials == "" {
+			continue
+		}
+		for _, entry := range cluster.Repos {
+			out[entry.At] = cluster.Credentials
+		}
+	}
+	return out
+}
