@@ -89,6 +89,11 @@ func TestResolveCASTarget_PicksVerifiedLayout(t *testing.T) {
 	if target.Stability != "digest" {
 		t.Fatalf("stability = %q, want digest (content-addressed)", target.Stability)
 	}
+	// The SBOM of this scan is recorded against this build, so a contents stencil for
+	// it imports what was detected. CI scans this path, not the publication path.
+	if target.BuildID != "app" {
+		t.Fatalf("build id = %q, want app (the artifact's build)", target.BuildID)
+	}
 }
 
 // TestResolveCASTarget_TamperedLayoutFallsBack proves review never scans bytes

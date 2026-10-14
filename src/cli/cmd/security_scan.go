@@ -118,6 +118,7 @@ func resolveCASTarget(rootDir string) (security.ScanTarget, string, bool, []stri
 			Source:          security.TargetSource("content_store"),
 			SelectionReason: "content-store layout carried from perform (re-hash verified)",
 			Stability:       security.StabilityDigest,
+			BuildID:         a.Name, // a docker artifact is named after its build
 			// Carry the commit perform recorded for this artifact. The re-hash above
 			// proves the bytes match the recorded digest (integrity) — it does NOT
 			// prove perform built them for the commit now under review. The caller
