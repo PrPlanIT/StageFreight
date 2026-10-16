@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 )
 
 // RunHook executes a git hook if it exists and is executable.
@@ -30,13 +32,13 @@ import (
 // - worktree snapshot before/after pre-commit; any new dirty paths emitted as hook_side_effect
 // - filesystem mutations outside commit-msg tmpfile are detected and reported
 func RunHook(repoRoot, hookName string, args []string, input []byte, cb func(stream, line string)) error {
-	hookPath := filepath.Join(repoRoot, ".git", "hooks", hookName)
+	hookPath := filepath.Join(hooksDir(repoRoot), hookName)
 	if !isExecutable(hookPath) {
 		return nil // hook absent or not executable — skip silently
 	}
 
 	cmdArgs := append([]string{hookPath}, args...)
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...) //nolint:gosec — hook path is from .git/hooks, not user input
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...) //nolint:gosec — hook path is the repo's configured hooks directory, not user input
 	cmd.Dir = repoRoot
 
 	if len(input) > 0 {
@@ -88,7 +90,7 @@ func RunHook(repoRoot, hookName string, args []string, input []byte, cb func(str
 	return nil
 }
 
-// RunPreCommitHook executes .git/hooks/pre-commit and snapshots worktree
+// RunPreCommitHook executes the pre-commit hook and snapshots worktree
 // state before/after, emitting hook_side_effect diagnostics for new dirty paths.
 func RunPreCommitHook(repoRoot string, wt *git.Worktree, cb func(stream, line string)) error {
 	// Snapshot status before hook
@@ -113,17 +115,18 @@ func RunPreCommitHook(repoRoot string, wt *git.Worktree, cb func(stream, line st
 	return nil
 }
 
-// RunCommitMsgHook writes the message to a temp file, executes .git/hooks/commit-msg,
+// RunCommitMsgHook writes the message to a temp file, executes the commit-msg hook,
 // and re-reads the (possibly modified) message from the file.
 // Returns the (possibly modified) message and any error.
 func RunCommitMsgHook(repoRoot, message string, cb func(stream, line string)) (string, error) {
-	hookPath := filepath.Join(repoRoot, ".git", "hooks", "commit-msg")
+	hookPath := filepath.Join(hooksDir(repoRoot), "commit-msg")
 	if !isExecutable(hookPath) {
 		return message, nil
 	}
 
-	// Write message to temp file in .git to match git's behaviour
-	tmpFile, err := os.CreateTemp(filepath.Join(repoRoot, ".git"), "COMMIT_EDITMSG.*")
+	// Write message to temp file in the git directory to match git's behaviour
+	gitDir, _ := gitDirs(repoRoot)
+	tmpFile, err := os.CreateTemp(gitDir, "COMMIT_EDITMSG.*")
 	if err != nil {
 		return message, fmt.Errorf("creating commit-msg tmpfile: %w", err)
 	}
@@ -148,7 +151,7 @@ func RunCommitMsgHook(repoRoot, message string, cb func(stream, line string)) (s
 	return string(modified), nil
 }
 
-// RunPostCommitHook executes .git/hooks/post-commit.
+// RunPostCommitHook executes the post-commit hook.
 // Non-zero exit is logged as a warning via cb but does NOT abort.
 func RunPostCommitHook(repoRoot string, cb func(stream, line string)) {
 	if err := RunHook(repoRoot, "post-commit", nil, nil, cb); err != nil {
@@ -165,4 +168,72 @@ func isExecutable(path string) bool {
 		return false
 	}
 	return fi.Mode()&0o111 != 0
+}
+
+// hooksDir is where git itself looks for this repository's hooks: core.hooksPath when
+// set (repository, global or system config; "~/" expands to the home directory and a
+// relative path is taken from the worktree root), otherwise the hooks directory of the
+// shared git directory - which in a linked worktree is not <root>/.git/hooks, since
+// there .git is a file pointing elsewhere.
+func hooksDir(repoRoot string) string {
+	if p := configuredHooksPath(repoRoot); p != "" {
+		if rest, ok := strings.CutPrefix(p, "~/"); ok {
+			if home, err := os.UserHomeDir(); err == nil {
+				p = filepath.Join(home, rest)
+			}
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(repoRoot, p)
+		}
+		return p
+	}
+	_, common := gitDirs(repoRoot)
+	return filepath.Join(common, "hooks")
+}
+
+// configuredHooksPath reads core.hooksPath with git's precedence: repository, then
+// global, then system - the first level that sets it wins.
+func configuredHooksPath(repoRoot string) string {
+	if repo, err := git.PlainOpenWithOptions(repoRoot, &git.PlainOpenOptions{EnableDotGitCommonDir: true}); err == nil {
+		if cfg, err := repo.Config(); err == nil {
+			if p := cfg.Raw.Section("core").Option("hooksPath"); p != "" {
+				return p
+			}
+		}
+	}
+	for _, scope := range []gitconfig.Scope{gitconfig.GlobalScope, gitconfig.SystemScope} {
+		if cfg, err := gitconfig.LoadConfig(scope); err == nil {
+			if p := cfg.Raw.Section("core").Option("hooksPath"); p != "" {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+// gitDirs resolves a worktree's git directory and the shared (common) git directory.
+// For a plain checkout both are <root>/.git; a linked worktree's .git is a file naming
+// its own git directory, whose "commondir" file points at the shared one.
+func gitDirs(repoRoot string) (gitDir, commonDir string) {
+	dotGit := filepath.Join(repoRoot, ".git")
+	fi, err := os.Stat(dotGit)
+	if err != nil || fi.IsDir() {
+		return dotGit, dotGit
+	}
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return dotGit, dotGit
+	}
+	gitDir = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:"))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoRoot, gitDir)
+	}
+	commonDir = gitDir
+	if c, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		commonDir = strings.TrimSpace(string(c))
+		if !filepath.IsAbs(commonDir) {
+			commonDir = filepath.Join(gitDir, commonDir)
+		}
+	}
+	return gitDir, filepath.Clean(commonDir)
 }
