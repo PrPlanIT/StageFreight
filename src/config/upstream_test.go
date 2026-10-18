@@ -123,3 +123,30 @@ func TestUpstream_EvidenceValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestUpstream_PinAndReleaseValidation(t *testing.T) {
+	cases := map[string]struct {
+		u    UpstreamConfig
+		want string
+	}{
+		"two pin kinds":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "Dockerfile", Arg: "X", Path: "y"}}}}}, "exactly one of arg | path | marker"},
+		"absolute file":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "/etc/x", Arg: "X"}}}}}, "repo-relative"},
+		"match off marker":  {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "f", Arg: "X", Match: "v"}}}}}, "only used with marker"},
+		"release under own": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Release: "auto"}, "only meaningful with version.track"},
+		"unknown release":   {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Release: "nightly"}, "auto | manual"},
+	}
+	for name, c := range cases {
+		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")
+		if !strings.Contains(errs, c.want) {
+			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
+		}
+	}
+	u := UpstreamConfig{Version: UpstreamVersion{Track: "a"}}
+	if !u.AutoRelease() {
+		t.Error("track releases are cut automatically by default")
+	}
+	u.Release = UpstreamReleaseManual
+	if u.AutoRelease() {
+		t.Error("release: manual leaves it to a human")
+	}
+}

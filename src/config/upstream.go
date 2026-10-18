@@ -22,6 +22,11 @@ type UpstreamConfig struct {
 	// Version says what this repo's release tags claim about an upstream.
 	Version UpstreamVersion `yaml:"version,omitempty"`
 
+	// Release decides who cuts a track release when the pins name a new upstream version:
+	// auto (default for track) tags the built commit after a successful default-branch run;
+	// manual leaves it to a human (stagefreight tag).
+	Release string `yaml:"release,omitempty"`
+
 	// Evidence proves, per build, that the built artifact contains the version a release
 	// claims. Keyed by build id (a docker build). Checked in publish, on the exact bytes
 	// about to be distributed.
@@ -83,6 +88,18 @@ func (o *OrderedUpstreamEvidence) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// Release modes.
+const (
+	UpstreamReleaseAuto   = "auto"
+	UpstreamReleaseManual = "manual"
+)
+
+// AutoRelease reports whether StageFreight cuts track releases itself.
+func (u UpstreamConfig) AutoRelease() bool {
+	mode, _ := u.Version.Mode()
+	return mode == UpstreamVersionTrack && u.Release != UpstreamReleaseManual
+}
+
 // Guard outcomes: what a failed version guard or probe does.
 const (
 	UpstreamRefuse = "refuse"
@@ -125,6 +142,32 @@ type UpstreamSource struct {
 	//           (1.6.60a > 1.6.60), a hyphen suffix as a prerelease (2.0-rc1)
 	// Our release tags are read with the same scheme when a claim names this source.
 	Scheme string `yaml:"scheme,omitempty"`
+
+	// Pins are the places this upstream's version is pinned. When upstream releases, the
+	// dependency update moves every pin together (or none, if they disagree), through the
+	// dependency engine's commit, max_update and min_release_age.
+	Pins []UpstreamPin `yaml:"pins,omitempty"`
+}
+
+// UpstreamPin is one place a source's version is pinned. Set exactly one of arg, path,
+// marker.
+type UpstreamPin struct {
+	// File is the repo-relative file holding the pin.
+	File string `yaml:"file"`
+
+	// Arg is a Dockerfile ARG or ENV name whose value is the version.
+	Arg string `yaml:"arg,omitempty"`
+
+	// Path is a dotted path to a scalar in a YAML or JSON file (ansible.core, apps.0.tag).
+	Path string `yaml:"path,omitempty"`
+
+	// Marker pins the line after a comment containing "stagefreight: upstream=<source id>",
+	// for any other format. Match picks the version on that line.
+	Marker bool `yaml:"marker,omitempty"`
+
+	// Match (marker only) is a regex whose version group (else first group) is the pinned
+	// version. Default: the first dotted version on the line.
+	Match string `yaml:"match,omitempty"`
 }
 
 // UpstreamSelect picks releases from an upstream's tags: candidates (tags), minus exclusions,
@@ -319,6 +362,28 @@ func validateUpstream(cfg *Config) []string {
 				errs = append(errs, fmt.Sprintf("%s.select.rewrite[%d].from: %v", path, i, err))
 			}
 		}
+		for i, p := range s.Pins {
+			ppath := fmt.Sprintf("%s.pins[%d]", path, i)
+			if strings.TrimSpace(p.File) == "" || strings.HasPrefix(p.File, "/") || strings.Contains(p.File, "..") {
+				errs = append(errs, fmt.Sprintf("%s.file: %q must be a repo-relative path", ppath, p.File))
+			}
+			set := 0
+			for _, on := range []bool{p.Arg != "", p.Path != "", p.Marker} {
+				if on {
+					set++
+				}
+			}
+			if set != 1 {
+				errs = append(errs, ppath+": set exactly one of arg | path | marker")
+			}
+			if p.Match != "" {
+				if !p.Marker {
+					errs = append(errs, ppath+".match: only used with marker")
+				} else if _, err := regexp.Compile(p.Match); err != nil {
+					errs = append(errs, fmt.Sprintf("%s.match: %v", ppath, err))
+				}
+			}
+		}
 		if s.Scheme != "" {
 			if _, err := scheme.Get(s.Scheme); err != nil {
 				errs = append(errs, fmt.Sprintf("%s.scheme: %v", path, err))
@@ -353,6 +418,14 @@ func validateUpstream(cfg *Config) []string {
 		}
 	}
 	checkOnMismatch("upstream.version", v.OnMismatch, v.Reason)
+	switch u.Release {
+	case "", UpstreamReleaseAuto, UpstreamReleaseManual:
+		if u.Release != "" && mode != UpstreamVersionTrack {
+			errs = append(errs, "upstream.release: only meaningful with version.track")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("upstream.release: unknown %q (auto | manual)", u.Release))
+	}
 	if v.Ancestry {
 		if kind, _ := claimed.Kind(); mode != UpstreamVersionTrack || kind != UpstreamKindGit {
 			errs = append(errs, "upstream.version.ancestry: needs track naming a git source")

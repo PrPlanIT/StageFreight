@@ -55,6 +55,7 @@ func (s Source) String() string { return s.ID + " (" + s.Kind + " " + s.Location
 type Release struct {
 	Tag     string
 	Version scheme.Version
+	Raw     string // the version text as extracted (and rewritten), before parsing
 	Commit  string
 }
 
@@ -168,7 +169,7 @@ tag:
 		if v.Prerelease() && !sel.Prereleases {
 			continue
 		}
-		releases = append(releases, Release{Tag: t, Version: v})
+		releases = append(releases, Release{Tag: t, Version: v, Raw: raw})
 	}
 	// Equal versions (3.15 and 3.15.0) rank the more precise tag first, so a floating alias
 	// never stands in for the release it points at.

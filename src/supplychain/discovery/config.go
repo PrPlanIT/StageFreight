@@ -44,6 +44,10 @@ type FreshnessConfig struct {
 // minReleaseAge parses the configured cooldown into a duration (0 = disabled).
 func (c FreshnessConfig) minReleaseAge() time.Duration { return parseFlexDuration(c.MinReleaseAge) }
 
+// ParseReleaseAge reads a min_release_age value ("3d", "72h"); zero when empty or invalid.
+// Exported so every consumer of the cooldown reads it the same way.
+func ParseReleaseAge(s string) time.Duration { return parseFlexDuration(s) }
+
 // parseFlexDuration extends Go duration syntax with day ("d") and week ("w") units, the
 // natural granularity for a release cooldown. Returns 0 for empty/unparseable input.
 func parseFlexDuration(s string) time.Duration {

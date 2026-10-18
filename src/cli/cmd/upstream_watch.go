@@ -48,10 +48,8 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		facts    = map[string]string{}
 	)
 	for _, src := range sources {
-		lctx, cancel := context.WithTimeout(ctx, upstreamListTimeout)
-		tags, commits, err := upstream.ListTags(lctx, src)
-		cancel()
-		if err != nil {
+		l := listUpstream(ctx, src)
+		if err := l.err; err != nil {
 			if guarding && src.ID == claimed {
 				return recordUpstreamFailure(rootDir, true, err)
 			}
@@ -60,10 +58,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 			signals = appendOnce(signals, config.SignalUpstreamUnreachable)
 			continue
 		}
-		releases, bad := upstream.Releases(tags, src.Select)
-		for i := range releases {
-			releases[i].Commit = commits[releases[i].Tag]
-		}
+		releases, bad := l.releases, l.unparsed
 		unparsed += len(bad)
 		if len(bad) > 0 {
 			fmt.Printf("  upstream: %s: %d tag(s) selected but not a version, ignored: %s\n", src, len(bad), sample(bad, 5))

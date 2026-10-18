@@ -67,7 +67,7 @@ func eligibleDetail(total int, byEcosystem map[string]int) string {
 		return "none"
 	}
 	var ecos []string
-	for _, k := range []string{"gomod", "docker", "toolchain", "cargo"} {
+	for _, k := range []string{"gomod", "docker", "toolchain", "cargo", "upstream"} {
 		if byEcosystem[k] > 0 {
 			ecos = append(ecos, k)
 		}
@@ -229,9 +229,9 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	// 5. Eligibility — candidates by ecosystem; ecosystems named ONLY when present.
 	candidates, skipped := FilterUpdateCandidates(deps, cfg, trackedFiles)
 	result.Skipped = skipped
-	gomodDeps, dockerDeps, toolchainDeps, cargoDeps, pipDeps, npmDeps := groupByEcosystem(candidates)
+	gomodDeps, dockerDeps, toolchainDeps, cargoDeps, pipDeps, npmDeps, upstreamDeps := groupByEcosystem(candidates)
 	eligible := eligibleDetail(len(candidates), map[string]int{
-		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps), "pip": len(pipDeps), "npm": len(npmDeps),
+		"gomod": len(gomodDeps), "docker": len(dockerDeps), "toolchain": len(toolchainDeps), "cargo": len(cargoDeps), "pip": len(pipDeps), "npm": len(npmDeps), "upstream": len(upstreamDeps),
 	})
 	// "latest available" ≠ "autonomous-safe target": surface constraint-expanding
 	// majors that are held for review rather than auto-applied.
@@ -288,6 +288,19 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		steps = append(steps, ecosystemStep("docker", applied, dkSkipped, nil, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, dkSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+	}
+
+	if applyEcosystems && len(upstreamDeps) > 0 {
+		t0 = time.Now()
+		applied, upSkipped, touchedFiles, err := applyUpstreamUpdates(upstreamDeps, repoRoot)
+		if err != nil {
+			steps = append(steps, depStep{label: "upstream", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			return result, fmt.Errorf("applying upstream pin updates: %w", err)
+		}
+		steps = append(steps, ecosystemStep("upstream", applied, upSkipped, nil, time.Since(t0)))
+		result.Applied = append(result.Applied, applied...)
+		result.Skipped = append(result.Skipped, upSkipped...)
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
@@ -445,7 +458,7 @@ func reconcileConfigErrorf(errs []reconcile.ConfigError) error {
 	return fmt.Errorf("%s", b.String())
 }
 
-func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, pip, npm []supplychain.Dependency) {
+func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, pip, npm, upstream []supplychain.Dependency) {
 	for _, dep := range deps {
 		switch dep.Ecosystem {
 		case supplychain.EcosystemGoMod:
@@ -458,6 +471,8 @@ func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, 
 			cargo = append(cargo, dep)
 		case supplychain.EcosystemPip:
 			pip = append(pip, dep)
+		case supplychain.EcosystemUpstream:
+			upstream = append(upstream, dep)
 		case supplychain.EcosystemNpm:
 			npm = append(npm, dep)
 		}

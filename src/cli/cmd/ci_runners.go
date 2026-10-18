@@ -720,6 +720,8 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		}
 	}
 
+	deps, ecosystems, finishUpstream := joinUpstreamPins(ctx, appCfg, rootDir, deps, ecosystems)
+
 	output.SectionEnd(w, "sf_deps_resolve")
 
 	// Build update config
@@ -751,6 +753,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		return result, fmt.Errorf("dependency update: %w", err)
 	}
 
+	finishUpstream(result, updateCfg.DryRun)
 	return result, nil
 }
 

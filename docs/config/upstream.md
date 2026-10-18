@@ -113,6 +113,53 @@ upstream:
 
 Validation names any docker build that has neither.
 
+## Pins — moving with upstream
+
+A source's `pins` are the places its version is pinned. When upstream releases, the
+dependency update moves them — through the same engine, commit and merge-request handling as
+every other dependency, honouring `dependency.max_update` and `dependency.min_release_age`:
+
+```yaml
+upstream:
+  sources:
+    core:
+      git: https://github.com/ansible/ansible
+      scheme: pep440
+      pins:
+        - { file: Dockerfile, arg: ANSIBLE_CORE_VERSION }   # ARG or ENV
+        - { file: versions.yml, path: ansible.core }        # YAML or JSON dotted path
+        - { file: apps.txt, marker: true }                  # the line after the marker comment
+```
+
+| Pin | Where the version is |
+|---|---|
+| `arg: NAME` | a Dockerfile `ARG` or `ENV` declaration |
+| `path: a.b.0.c` | a scalar in a YAML or JSON file (map keys, sequence indexes) |
+| `marker: true` | the line after a comment containing `stagefreight: upstream=<source id>`; `match:` picks the version (default: the first dotted version) |
+
+- **One source, one version.** Every pin of a source must hold the same version. If they
+  disagree, none of them moves and the run says which pin holds what.
+- **Only the value changes.** Each pin is located to its exact line and column, and the edit
+  replaces that value — quotes, comments and a `v` prefix stay as written.
+- **A declared pin wins.** A dependency StageFreight would otherwise discover on the same line
+  is left to the pin, so one value never has two writers.
+- **Cooldown.** With `dependency.min_release_age`, a release is adopted only once it has been
+  known for that long. Git tags carry no release time, so StageFreight records when it first
+  saw each newer version in `.stagefreight/upstream.lock` (committed, deterministic) and counts
+  from there; the bump that adopts a version also clears it from the lock. Without a cooldown
+  there is no lock.
+
+## Release — cutting the tag
+
+Under `track`, `release: auto` (the default) cuts the release itself: after a successful run on
+the default branch, when the source's pins name a version upstream has released and no tag of
+ours names it yet, StageFreight tags the commit it just built with that version (keeping our
+`v` convention) and pushes the tag. The release pipeline then checks every guard and evidence
+probe like any hand-cut release. `release: manual` leaves tagging to a person
+(`stagefreight tag`). A rebuild of an already-released version stays an in-place rebuild — no
+new tag. The tag spawns a release pipeline only if it matches a declared `git.tags` release
+pattern.
+
 ## Signals
 
 What the watcher finds is raised as signals, which notifications select with
