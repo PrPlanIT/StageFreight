@@ -42,6 +42,7 @@ elides when its domain recorded nothing):
 | `reconcile.` (gitops) | `total` · `succeeded` · `failed` · `declined` · `backend` · `units` · `cluster` · `failures` |
 | `ansible.` (hosts) | `total` · `converged` · `changed` · `unreachable` · `failed` |
 | `upstream.` | `source` · `latest` · `ours` · `mismatched` · `unparsed` · `signals` (the claimed source; plus `{upstream.<id>.latest}` per source) |
+| `schedules.` | `managed` · `changes` · `signals` (GitLab schedule reconcile) |
 | `retention.` | `pruned` |
 
 Every recorded domain additionally serves `{domain.outcome}` and
@@ -121,7 +122,9 @@ Dispatch rules worth knowing:
   green run can still have found that upstream released something new. A
   condition with `signals:` matches only a run that raised at least one of them —
   `updates-available`, `version-mismatch`, `upstream-unreachable` (see
-  [Upstream](upstream.md)).
+  [Upstream](upstream.md)), `schedule-inactive` (see [Schedules](schedules.md)).
+- **`schedules:` gates on which schedule fired the run** — ids from the
+  top-level `schedules:` block.
 - **Empty bodies skip** — a notification whose rendered body is empty (every
   line elided) does not ping anyone.
 - **`max_length` trims at line boundaries** and always preserves the

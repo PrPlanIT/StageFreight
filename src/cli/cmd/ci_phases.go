@@ -384,6 +384,13 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		postbuild.RunMetadataSection(ctx, os.Stdout, output.UseColor(), due, rootDir, appCfg)
 	}
 
+	// Pipeline schedules that are forge API state (GitLab) converge to schedules: from
+	// accepted state only, like every other forge-setting projection. Runs even when no
+	// schedule is declared, so removing the last one prunes it.
+	if acceptedState(ciCtx) {
+		reconcileSchedules(ctx, appCfg, ciCtx, rootDir)
+	}
+
 	syncMirrors(ctx, appCfg)
 	return nil
 }

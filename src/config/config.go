@@ -155,6 +155,10 @@ type Config struct {
 	// Upstream declares the upstreams a repo repackages or forks: each source is watched for new
 	// releases, and a release whose version claim about one is false is refused.
 	Upstream UpstreamConfig `yaml:"upstream,omitempty"`
+
+	// Schedules declares the cadences on which StageFreight runs by itself, materialized into
+	// each forge's own scheduler. when.schedules selects work by schedule id.
+	Schedules OrderedSchedules `yaml:"schedules,omitempty"`
 }
 
 // Load reads configuration from a YAML file.

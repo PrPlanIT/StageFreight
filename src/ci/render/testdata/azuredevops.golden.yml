@@ -18,6 +18,20 @@ pr:
     include:
       - '*'
 
+schedules:
+  - cron: '17 4 * * *'
+    displayName: 'nightly,deps'
+    branches:
+      include:
+        - main
+    always: true
+  - cron: '42 6 * * 1'
+    displayName: 'weekly-rebuild'
+    branches:
+      include:
+        - main
+    always: true
+
 pool:
   vmImage: ubuntu-latest
 
@@ -46,6 +60,7 @@ stages:
               export SF_CI_REPO_URL="$(Build.Repository.Uri)"
               export SF_CI_PIPELINE_ID="$(Build.BuildId)"
               export SF_CI_WORKSPACE="$(Build.SourcesDirectory)"
+              export SF_CI_SCHEDULE="$([ "$(Build.Reason)" = "Schedule" ] && echo '$(Build.CronSchedule.DisplayName)')"
               stagefreight ci run audition
             displayName: audition
           - publish: .stagefreight/
@@ -75,6 +90,7 @@ stages:
               export SF_CI_REPO_URL="$(Build.Repository.Uri)"
               export SF_CI_PIPELINE_ID="$(Build.BuildId)"
               export SF_CI_WORKSPACE="$(Build.SourcesDirectory)"
+              export SF_CI_SCHEDULE="$([ "$(Build.Reason)" = "Schedule" ] && echo '$(Build.CronSchedule.DisplayName)')"
               stagefreight ci run perform
             displayName: perform
           - publish: .stagefreight/
@@ -99,6 +115,7 @@ stages:
               export SF_CI_REPO_URL="$(Build.Repository.Uri)"
               export SF_CI_PIPELINE_ID="$(Build.BuildId)"
               export SF_CI_WORKSPACE="$(Build.SourcesDirectory)"
+              export SF_CI_SCHEDULE="$([ "$(Build.Reason)" = "Schedule" ] && echo '$(Build.CronSchedule.DisplayName)')"
               stagefreight ci run review
             displayName: review
           - publish: .stagefreight/security/
@@ -124,6 +141,7 @@ stages:
               export SF_CI_REPO_URL="$(Build.Repository.Uri)"
               export SF_CI_PIPELINE_ID="$(Build.BuildId)"
               export SF_CI_WORKSPACE="$(Build.SourcesDirectory)"
+              export SF_CI_SCHEDULE="$([ "$(Build.Reason)" = "Schedule" ] && echo '$(Build.CronSchedule.DisplayName)')"
               stagefreight ci run publish
             displayName: publish
   - stage: narrate
@@ -146,5 +164,6 @@ stages:
               export SF_CI_REPO_URL="$(Build.Repository.Uri)"
               export SF_CI_PIPELINE_ID="$(Build.BuildId)"
               export SF_CI_WORKSPACE="$(Build.SourcesDirectory)"
+              export SF_CI_SCHEDULE="$([ "$(Build.Reason)" = "Schedule" ] && echo '$(Build.CronSchedule.DisplayName)')"
               stagefreight ci run narrate
             displayName: narrate

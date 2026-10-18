@@ -56,6 +56,20 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 	buf.WriteString("\ntrigger:\n  branches:\n    include:\n      - '*'\n")
 	buf.WriteString("\npr:\n  branches:\n    include:\n      - '*'\n")
 
+	// ── schedules (always: run even when nothing changed — rebuilds are the point) ──
+	if len(p.Schedules) > 0 {
+		if p.Defaults.DefaultBranch == "" {
+			return nil, fmt.Errorf("schedules: Azure schedules name a branch; declare the primary repo's branches.default")
+		}
+		buf.WriteString("\nschedules:\n")
+		for _, sc := range p.Schedules {
+			fmt.Fprintf(&buf, "  - cron: '%s'\n", sc.Cron)
+			fmt.Fprintf(&buf, "    displayName: '%s'\n", strings.Join(sc.IDs, ","))
+			fmt.Fprintf(&buf, "    branches:\n      include:\n        - %s\n", p.Defaults.DefaultBranch)
+			buf.WriteString("    always: true\n")
+		}
+	}
+
 	// ── agent pool ───────────────────────────────────────────────────────────
 	buf.WriteString("\npool:\n  vmImage: ubuntu-latest\n")
 
@@ -75,13 +89,13 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 
 	buf.WriteString("\nstages:\n")
 	for _, j := range p.Jobs {
-		emitStage(&buf, j, p.Defaults, d.Provider, stages, producers)
+		emitStage(&buf, j, p.Defaults, d.Provider, len(p.Schedules) > 0, stages, producers)
 	}
 
 	return buf.Bytes(), nil
 }
 
-func emitStage(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provider string, stages stageOrder, producers map[string]bool) {
+func emitStage(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provider string, scheduled bool, stages stageOrder, producers map[string]bool) {
 	needs := effectiveNeeds(j, stages)
 
 	fmt.Fprintf(buf, "  - stage: %s\n", j.Stage)
@@ -143,7 +157,7 @@ func emitStage(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provi
 	// do not share env unless promoted, so the context is set in the same shell).
 	buf.WriteString("          - script: |\n")
 	if def.CIContext {
-		for _, line := range ciContextExports(provider) {
+		for _, line := range ciContextExports(provider, scheduled) {
 			fmt.Fprintf(buf, "              %s\n", line)
 		}
 	}
@@ -183,8 +197,8 @@ func header(provider string) string {
 
 // ciContextExports maps Azure predefined variables to the SF_CI_* contract.
 // SF_CI_PROVIDER carries the calling forge.
-func ciContextExports(provider string) []string {
-	return []string{
+func ciContextExports(provider string, scheduled bool) []string {
+	lines := []string{
 		fmt.Sprintf(`export SF_CI_PROVIDER=%s`, provider),
 		`export SF_CI_EVENT="$(Build.Reason)"`,
 		`export SF_CI_BRANCH="$(Build.SourceBranchName)"`,
@@ -193,6 +207,11 @@ func ciContextExports(provider string) []string {
 		`export SF_CI_PIPELINE_ID="$(Build.BuildId)"`,
 		`export SF_CI_WORKSPACE="$(Build.SourcesDirectory)"`,
 	}
+	if scheduled {
+		// The display name is the schedule's ids; the macro is defined only on scheduled runs.
+		lines = append(lines, `export SF_CI_SCHEDULE="$([ "$(Build.Reason)" = "Schedule" ] && echo '$(Build.CronSchedule.DisplayName)')"`)
+	}
+	return lines
 }
 
 // stageOrder captures stage names in first-seen order and the jobs in each.

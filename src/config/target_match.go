@@ -120,7 +120,7 @@ func TargetEligibility(t TargetConfig, event, branch, tag, forge string, tagPoli
 }
 
 // conditionEligibility interprets ONE condition-set (events, then git_tags, then
-// branches, then forges).
+// branches, then forges, then schedules).
 func conditionEligibility(c TargetCondition, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
 	if !EventMatches(c.Events, event) {
 		return MatchResult{Reason: fmt.Sprintf("run source %q not in events:%v", event, c.Events)}
@@ -138,8 +138,17 @@ func conditionEligibility(c TargetCondition, event, branch, tag, forge string, t
 	if len(c.Forges) > 0 && !forgeMatches(c.Forges, forge) {
 		return MatchResult{Reason: fmt.Sprintf("forge %q not in forges:%v", forge, c.Forges)}
 	}
+	if len(c.Schedules) > 0 {
+		if fired := ciSchedules(); !anyFold(c.Schedules, fired) {
+			return MatchResult{Reason: fmt.Sprintf("run fired by schedules %v, none in schedules:%v", fired, c.Schedules)}
+		}
+	}
 	return MatchResult{Eligible: true}
 }
+
+// ciSchedules is the schedules that fired this run; a variable so tests can stand in for the
+// CI environment.
+var ciSchedules = CISchedules
 
 // forgeMatches reports whether the current forge provider is in the allow-list
 // (case-insensitive exact match on provider name).

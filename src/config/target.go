@@ -314,6 +314,11 @@ type TargetCondition struct {
 	// matches only a run that raised at least one of them. Only valid on notifications.
 	// Empty = no signal filtering.
 	Signals []string `yaml:"signals,omitempty"`
+
+	// Schedules restricts this condition to runs fired by one of these schedules (ids from
+	// schedules:). events: [schedule] matches any scheduled run; schedules: names which.
+	// Empty = no schedule filtering.
+	Schedules []string `yaml:"schedules,omitempty"`
 }
 
 // Signals a run can raise for notifications' when.signals.
@@ -325,17 +330,21 @@ const (
 	SignalVersionMismatch = "version-mismatch"
 	// SignalUpstreamUnreachable: a declared upstream could not be listed.
 	SignalUpstreamUnreachable = "upstream-unreachable"
+	// SignalScheduleInactive: a declared schedule was found deactivated on the forge (and
+	// reactivated), or StageFreight could not manage the forge's schedules.
+	SignalScheduleInactive = "schedule-inactive"
 )
 
 var validSignals = map[string]bool{
 	SignalUpdatesAvailable:    true,
 	SignalVersionMismatch:     true,
 	SignalUpstreamUnreachable: true,
+	SignalScheduleInactive:    true,
 }
 
 // SignalNames lists the signal vocabulary, for messages and docs.
 func SignalNames() []string {
-	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable}
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

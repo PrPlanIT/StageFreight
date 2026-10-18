@@ -94,6 +94,12 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 	buf.WriteString("  push:\n")
 	buf.WriteString("  pull_request:\n")
 	buf.WriteString("  workflow_dispatch:\n")
+	if len(p.Schedules) > 0 {
+		buf.WriteString("  schedule:\n")
+		for _, sc := range p.Schedules {
+			fmt.Fprintf(&buf, "    - cron: '%s'\n", sc.Cron)
+		}
+	}
 
 	// ── concurrency (cancel superseded) ──────────────────────────────────────
 	if p.Defaults.CancelSuperseded || p.Defaults.Interruptible {
@@ -119,13 +125,14 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
-		emitJob(&buf, j, p.Defaults, d, stages, producers)
+		emitJob(&buf, j, p, d, stages, producers)
 	}
 
 	return buf.Bytes(), nil
 }
 
-func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Dialect, stages stageOrder, producers map[string]bool) {
+func emitJob(buf *bytes.Buffer, j model.Job, p model.Pipeline, d Dialect, stages stageOrder, producers map[string]bool) {
+	def := p.Defaults
 	needs := effectiveNeeds(j, stages)
 
 	fmt.Fprintf(buf, "  %s:\n", j.Name)
@@ -229,7 +236,7 @@ func emitJob(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, d Diale
 		buf.WriteString("      - name: stagefreight-context\n")
 		buf.WriteString("        run: |\n")
 		buf.WriteString("          {\n")
-		for _, line := range ciContextExports(d.Provider) {
+		for _, line := range ciContextExports(d.Provider, p.Schedules) {
 			fmt.Fprintf(buf, "            %s\n", line)
 		}
 		buf.WriteString("          } >> \"$GITHUB_ENV\"\n")
@@ -370,8 +377,8 @@ func header(provider string) string {
 // SF_CI_PROVIDER carries the calling forge so the binary treats each forge as
 // itself; the remaining values come from the github.* context the Actions
 // runtime exposes.
-func ciContextExports(provider string) []string {
-	return []string{
+func ciContextExports(provider string, schedules []model.Schedule) []string {
+	lines := []string{
 		fmt.Sprintf(`echo "SF_CI_PROVIDER=%s"`, provider),
 		`echo "SF_CI_EVENT=${{ github.event_name }}"`,
 		`echo "SF_CI_BRANCH=${{ github.ref_name }}"`,
@@ -387,6 +394,24 @@ func ciContextExports(provider string) []string {
 		`echo "SF_CI_WORKSPACE=$PWD"`,
 		`echo "SF_CI_PIPELINE_ID=${{ github.run_id }}"`,
 	}
+	if len(schedules) > 0 {
+		lines = append(lines, fmt.Sprintf(`echo "SF_CI_SCHEDULE=${{ %s }}"`, scheduleExpr(schedules)))
+	}
+	return lines
+}
+
+// scheduleExpr maps the cron that fired the run (github.event.schedule) back to its schedule
+// ids. With a single cadence the event alone identifies it, so the mapping does not depend on
+// the forge populating github.event.schedule.
+func scheduleExpr(schedules []model.Schedule) string {
+	if len(schedules) == 1 {
+		return fmt.Sprintf("github.event_name == 'schedule' && '%s' || ''", strings.Join(schedules[0].IDs, ","))
+	}
+	var parts []string
+	for _, sc := range schedules {
+		parts = append(parts, fmt.Sprintf("github.event.schedule == '%s' && '%s'", sc.Cron, strings.Join(sc.IDs, ",")))
+	}
+	return strings.Join(parts, " || ") + " || ''"
 }
 
 // stageOrder captures stage names in first-seen order and the jobs in each.

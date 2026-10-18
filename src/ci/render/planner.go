@@ -30,7 +30,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 			CancelSuperseded: true,
 			CIContext:        true,
 			ReleaseTagRules:  releaseTagRules(cfg),
+			DefaultBranch:    config.PrimaryDefaultBranch(cfg),
 		},
+		Schedules: schedules(cfg),
 		Jobs: []model.Job{
 			{
 				Name:     "audition",
@@ -197,6 +199,16 @@ func packageRegistries(cfg *config.Config) []model.PackageRegistry {
 			continue
 		}
 		out = append(out, model.PackageRegistry{Provider: r.Provider, CredPrefix: r.Credentials})
+	}
+	return out
+}
+
+// schedules lowers the declared schedules to the forge-neutral model: one entry per distinct
+// resolved cron, carrying every schedule id that shares it.
+func schedules(cfg *config.Config) []model.Schedule {
+	var out []model.Schedule
+	for _, r := range config.ResolvedSchedules(cfg) {
+		out = append(out, model.Schedule{Cron: r.Cron, IDs: r.IDs})
 	}
 	return out
 }
