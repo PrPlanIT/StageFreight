@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,7 +62,7 @@ func TestAutoReleaseTag(t *testing.T) {
 	cs := config.UpstreamSource{ID: "core", Git: src.Location, Pins: []config.UpstreamPin{{File: "Dockerfile", Arg: "CORE"}}}
 	seed := func(raws ...string) {
 		listingMu.Lock()
-		listings[src.Kind+" "+src.Location+" "+src.Select.Tags.String()] = upstreamListing{releases: releasesOf(t, raws...)}
+		listings[listingKey(src)] = upstreamListing{releases: releasesOf(t, raws...)}
 		listingMu.Unlock()
 	}
 
@@ -79,4 +80,30 @@ func TestAutoReleaseTag(t *testing.T) {
 		t.Fatalf("pins naming a version upstream never released must not be tagged: tag=%q reason=%q", tag, reason)
 	}
 	_ = plumbing.ZeroHash
+}
+
+func TestMirrorBehind(t *testing.T) {
+	sem, _ := scheme.Get(scheme.Semver)
+	mirror := upstream.Source{ID: "core", Kind: config.UpstreamKindGit, Location: "https://example.invalid/mirror", MirrorOf: "https://example.invalid/origin", Select: upstream.Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags), Scheme: sem}}
+	origin := mirror
+	origin.Location, origin.MirrorOf = mirror.MirrorOf, ""
+	seed := func(src upstream.Source, l upstreamListing) {
+		listingMu.Lock()
+		listings[listingKey(src)] = l
+		listingMu.Unlock()
+	}
+	ours := releasesOf(t, "1.0.0")
+
+	seed(origin, upstreamListing{releases: releasesOf(t, "1.1.0", "1.0.0")})
+	if got := mirrorBehind(t.Context(), mirror, ours); got != "v1.1.0" {
+		t.Fatalf("origin released 1.1.0 the mirror lacks: got %q", got)
+	}
+	seed(origin, upstreamListing{releases: releasesOf(t, "1.0.0")})
+	if got := mirrorBehind(t.Context(), mirror, ours); got != "" {
+		t.Fatalf("mirror caught up: got %q", got)
+	}
+	seed(origin, upstreamListing{err: fmt.Errorf("unreachable")})
+	if got := mirrorBehind(t.Context(), mirror, ours); got != "" {
+		t.Fatalf("an unreachable origin is not a lag: got %q", got)
+	}
 }

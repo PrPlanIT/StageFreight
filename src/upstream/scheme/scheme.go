@@ -19,6 +19,21 @@ type Version interface {
 	Prerelease() bool
 }
 
+// Claimer is implemented by versions whose scheme distinguishes packaging from upstream (a
+// Debian revision): Claims reports whether our release version ours names this one. Schemes
+// without it use Compare == 0.
+type Claimer interface {
+	Claims(ours Version) bool
+}
+
+// Same reports whether our version ours names the upstream release v.
+func Same(v, ours Version) bool {
+	if c, ok := v.(Claimer); ok {
+		return c.Claims(ours)
+	}
+	return v.Compare(ours) == 0
+}
+
 // Scheme parses versions of one versioning scheme.
 type Scheme interface {
 	Name() string
@@ -31,12 +46,14 @@ const (
 	Semver = "semver"
 	PEP440 = "pep440"
 	Loose  = "loose"
+	Debian = "debian"
 )
 
 var schemes = map[string]Scheme{
 	Semver: semverScheme{},
 	PEP440: pep440Scheme{},
 	Loose:  looseScheme{},
+	Debian: debianScheme{},
 }
 
 // Get returns the named scheme.

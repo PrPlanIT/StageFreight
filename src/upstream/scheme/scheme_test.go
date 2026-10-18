@@ -66,6 +66,28 @@ func TestLoose(t *testing.T) {
 	}
 }
 
+func TestDebian(t *testing.T) {
+	// dpkg's own ordering cases.
+	ordered(t, Debian, "1.0~rc1-1", "1.0-1", "1.0-1.1", "1.0-2", "1.0a-1", "1.0+dfsg-1", "1.1-1", "1:0.9-1")
+	ordered(t, Debian, "3.7.4-1", "3.7.5-1", "3.7.5-1.1")
+	ordered(t, Debian, "2.8.3-r0", "2.8.3-r4", "2.8.3-r10", "2.8.4-r0") // apk revisions
+	equal(t, Debian, "1.0-01", "1.0-1")
+	s, _ := Get(Debian)
+	pre, _ := s.Parse("1.0~beta1-1")
+	if !pre.Prerelease() {
+		t.Error("~ marks a Debian prerelease")
+	}
+	rel, _ := s.Parse("3.7.5-1")
+	ours, _ := s.Parse("v3.7.5")
+	other, _ := s.Parse("3.7.5-2")
+	if !Same(rel, ours) || Same(rel, other) {
+		t.Error("our revision-less 3.7.5 names Debian's 3.7.5-1; an explicit revision must match exactly")
+	}
+	if _, err := s.Parse("latest"); err == nil {
+		t.Error("latest is not a Debian version")
+	}
+}
+
 func TestUnknownScheme(t *testing.T) {
 	if _, err := Get("calver"); err == nil {
 		t.Fatal("unknown scheme accepted")

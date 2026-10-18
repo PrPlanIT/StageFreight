@@ -336,6 +336,8 @@ const (
 	// SignalSyncConflict: upstream's changes overlap ours (or a mirror diverged), so the sync
 	// did not land and needs a human.
 	SignalSyncConflict = "sync-conflict"
+	// SignalMirrorBehind: a mirror source has not caught up with a release its origin made.
+	SignalMirrorBehind = "mirror-behind"
 )
 
 var validSignals = map[string]bool{
@@ -344,11 +346,12 @@ var validSignals = map[string]bool{
 	SignalUpstreamUnreachable: true,
 	SignalScheduleInactive:    true,
 	SignalSyncConflict:        true,
+	SignalMirrorBehind:        true,
 }
 
 // SignalNames lists the signal vocabulary, for messages and docs.
 func SignalNames() []string {
-	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict}
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict, SignalMirrorBehind}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

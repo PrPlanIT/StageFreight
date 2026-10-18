@@ -71,7 +71,7 @@ func TestUpstream_Validation(t *testing.T) {
 		want string
 	}{
 		"no kind":        {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a"}}}, "set exactly one kind"},
-		"two kinds":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Image: "i"}}}, "found both"},
+		"two kinds":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Image: "i"}}}, "found 2"},
 		"image tag":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Image: "ghcr.io/x/y:1.0"}}}, "names a tag or digest"},
 		"bad regex":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Exclude: []string{"("}}}}}, "select.exclude[0]"},
 		"unknown source": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "b"}}, `"b" is not a declared source`},
@@ -148,5 +148,39 @@ func TestUpstream_PinAndReleaseValidation(t *testing.T) {
 	u.Release = UpstreamReleaseManual
 	if u.AutoRelease() {
 		t.Error("release: manual leaves it to a human")
+	}
+}
+
+func TestUpstream_KindsLifecycleMirror(t *testing.T) {
+	cases := map[string]struct {
+		s    UpstreamSource
+		want string // "" = valid
+	}{
+		"pypi":                   {UpstreamSource{ID: "a", PyPI: "ansible-core"}, ""},
+		"npm":                    {UpstreamSource{ID: "a", Npm: "@scope/pkg"}, ""},
+		"github release":         {UpstreamSource{ID: "a", GitHubRelease: "henrygd/beszel"}, ""},
+		"github release shape":   {UpstreamSource{ID: "a", GitHubRelease: "beszel"}, "want owner/repo"},
+		"apk":                    {UpstreamSource{ID: "a", Apk: "nut", Suite: "v3.22/main"}, ""},
+		"apt without suite":      {UpstreamSource{ID: "a", Apt: "apt-cacher-ng"}, "needs <release>/<repository>"},
+		"suite on git":           {UpstreamSource{ID: "a", Git: "g", Suite: "trixie/main"}, "only used with apk or apt"},
+		"url needs tags":         {UpstreamSource{ID: "a", URL: "https://networkupstools.org/download.html"}, "required for url"},
+		"url":                    {UpstreamSource{ID: "a", URL: "https://networkupstools.org/download.html", Select: UpstreamSelect{Tags: `nut-(?P<version>[\d.]+)\.tar\.gz`}}, ""},
+		"mirror_of on pypi":      {UpstreamSource{ID: "a", PyPI: "x", MirrorOf: "y"}, "only git and image"},
+		"dormant needs a reason": {UpstreamSource{ID: "a", Git: "g", Lifecycle: "dormant"}, "reason: required"},
+		"gone with pins":         {UpstreamSource{ID: "a", Git: "g", Lifecycle: "gone", Reason: "deleted", Pins: []UpstreamPin{{File: "f", Arg: "X"}}}, "nothing to move pins to"},
+		"unknown lifecycle":      {UpstreamSource{ID: "a", Git: "g", Lifecycle: "sleeping", Reason: "x"}, "unknown"},
+	}
+	for name, c := range cases {
+		errs := strings.Join(validateUpstream(&Config{Upstream: UpstreamConfig{Sources: OrderedUpstreamSources{c.s}}}), "\n")
+		if (c.want == "") != (errs == "") || !strings.Contains(errs, c.want) {
+			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
+		}
+	}
+	gone := UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "j", Git: "g", Lifecycle: "gone", Reason: "deleted upstream"}}, Version: UpstreamVersion{Track: "j", Ancestry: true}}
+	if errs := strings.Join(validateUpstream(&Config{Upstream: gone}), "\n"); !strings.Contains(errs, "is gone") {
+		t.Errorf("a gone upstream cannot be tracked: %q", errs)
+	}
+	if (UpstreamSource{PyPI: "x"}).EffectiveScheme() != "pep440" || (UpstreamSource{Apt: "x"}).EffectiveScheme() != "debian" || (UpstreamSource{Git: "x"}).EffectiveScheme() != "semver" {
+		t.Error("the kind implies its scheme")
 	}
 }

@@ -48,15 +48,28 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		facts    = map[string]string{}
 	)
 	for _, src := range sources {
+		if src.Lifecycle == config.LifecycleGone {
+			facts[src.ID+".latest"] = "gone"
+			continue
+		}
 		l := listUpstream(ctx, src)
 		if err := l.err; err != nil {
 			if guarding && src.ID == claimed {
 				return recordUpstreamFailure(rootDir, true, err)
 			}
+			if src.Lifecycle != config.LifecycleActive {
+				fmt.Printf("  upstream: %s (%s) not listed: %v\n", src, src.Lifecycle, err)
+				continue
+			}
 			fmt.Printf("  upstream: %s not listed: %v\n", src, err)
 			failures = append(failures, src.ID)
 			signals = appendOnce(signals, config.SignalUpstreamUnreachable)
 			continue
+		}
+		if behind := mirrorBehind(ctx, src, l.releases); behind != "" {
+			fmt.Printf("  upstream: %s lags its origin %s, which has released %s\n", src, src.MirrorOf, behind)
+			facts[src.ID+".mirror_behind"] = behind
+			signals = appendOnce(signals, config.SignalMirrorBehind)
 		}
 		releases, bad := l.releases, l.unparsed
 		unparsed += len(bad)
@@ -200,4 +213,24 @@ func short(sha string) string {
 		return sha[:9]
 	}
 	return sha
+}
+
+// mirrorBehind lists a mirror source's origin and returns the origin's newest release when the
+// mirror does not have it yet. An origin that cannot be listed is why the mirror exists, so it
+// returns "" rather than an error.
+func mirrorBehind(ctx context.Context, src upstream.Source, mirrored []upstream.Release) string {
+	if src.MirrorOf == "" {
+		return ""
+	}
+	origin := src
+	origin.Location, origin.MirrorOf = src.MirrorOf, ""
+	l := listUpstream(ctx, origin)
+	if l.err != nil || len(l.releases) == 0 {
+		return ""
+	}
+	newest := l.releases[0]
+	if _, ok := upstream.Find(mirrored, newest.Version); ok {
+		return ""
+	}
+	return newest.Tag
 }

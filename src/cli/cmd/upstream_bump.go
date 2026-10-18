@@ -31,7 +31,7 @@ var (
 // listUpstream lists a source once per run: the watcher, the pin bump and auto-release all
 // read the same answer, and the upstream is asked only once.
 func listUpstream(ctx context.Context, src upstream.Source) upstreamListing {
-	key := src.Kind + " " + src.Location + " " + src.Select.Tags.String()
+	key := listingKey(src)
 	listingMu.Lock()
 	defer listingMu.Unlock()
 	if l, ok := listings[key]; ok {
@@ -40,17 +40,18 @@ func listUpstream(ctx context.Context, src upstream.Source) upstreamListing {
 	lctx, cancel := context.WithTimeout(ctx, upstreamListTimeout)
 	defer cancel()
 	var l upstreamListing
-	tags, commits, err := upstream.ListTags(lctx, src)
-	if err != nil {
+	if cands, err := upstream.List(lctx, src); err != nil {
 		l.err = err
 	} else {
-		l.releases, l.unparsed = upstream.Releases(tags, src.Select)
-		for i := range l.releases {
-			l.releases[i].Commit = commits[l.releases[i].Tag]
-		}
+		l.releases, l.unparsed = upstream.ReleasesOf(cands, src.Select)
 	}
 	listings[key] = l
 	return l
+}
+
+// listingKey identifies one listing: the same upstream read with the same selection.
+func listingKey(src upstream.Source) string {
+	return src.Kind + " " + src.Location + " " + src.Suite + " " + src.Select.Tags.String()
 }
 
 // readPins locates every pin of a source and checks they agree. current is the version they
@@ -167,14 +168,21 @@ func pickTarget(newer []upstream.Release, lock *upstream.Lock, id string, age ti
 		}
 		return nil, nil
 	}
+	// A release the upstream timestamps is aged from that; only the rest need the lock.
 	var raws []string
 	for _, r := range newer {
-		raws = append(raws, r.Raw)
+		if r.Published.IsZero() {
+			raws = append(raws, r.Raw)
+		}
 	}
 	seen, ch := lock.Observe(id, raws, now)
 	*changed = *changed || ch
 	for i := range newer {
-		if now.Sub(seen[newer[i].Raw]) >= age {
+		at := newer[i].Published
+		if at.IsZero() {
+			at = seen[newer[i].Raw]
+		}
+		if now.Sub(at) >= age {
 			return &newer[i], held
 		}
 		if held == nil {

@@ -136,6 +136,46 @@ type UpstreamSource struct {
 	// ghcr.io/zitadel/zitadel. Its tags are listed anonymously (OCI registry API).
 	Image string `yaml:"image,omitempty"`
 
+	// PyPI is a Python project on pypi.org (yanked releases are not releases). Scheme pep440.
+	PyPI string `yaml:"pypi,omitempty"`
+
+	// Npm is a package on registry.npmjs.org (deprecated versions are not releases).
+	Npm string `yaml:"npm,omitempty"`
+
+	// GitHubRelease is a GitHub repository (owner/repo) whose published releases — not its
+	// tags — are watched; drafts are skipped and GitHub's prerelease flag is honoured.
+	GitHubRelease string `yaml:"github-release,omitempty"`
+
+	// Apk is an Alpine package, read from the suite's APKINDEX. Needs suite. Scheme debian.
+	Apk string `yaml:"apk,omitempty"`
+
+	// Apt is a Debian package, read from the suite's Packages index. Needs suite. Scheme
+	// debian.
+	Apt string `yaml:"apt,omitempty"`
+
+	// URL is a release page; every match of select.tags on it is a candidate (needs
+	// select.tags), for upstreams that publish only a download page.
+	URL string `yaml:"url,omitempty"`
+
+	// Suite (apk, apt) is <release>/<repository>: v3.22/main for Alpine, trixie/main for
+	// Debian.
+	Suite string `yaml:"suite,omitempty"`
+
+	// MirrorOf (git, image) is the origin this source mirrors. StageFreight lists the mirror
+	// (ours, reachable) and also the origin when it answers; the mirror lagging behind its
+	// origin raises mirror-behind. An unreachable origin is why mirrors exist, so it is not
+	// a failure.
+	MirrorOf string `yaml:"mirror_of,omitempty"`
+
+	// Lifecycle is the upstream's state: active (default), dormant, abandoned, gone. Anything
+	// but active needs a reason. A dormant or abandoned upstream that cannot be listed is not
+	// reported unreachable; a gone one is not listed at all and cannot be claimed, pinned or
+	// synced.
+	Lifecycle string `yaml:"lifecycle,omitempty"`
+
+	// Reason says why an upstream is not active.
+	Reason string `yaml:"reason,omitempty"`
+
 	// Select picks the upstream's releases out of everything it tags.
 	Select UpstreamSelect `yaml:"select,omitempty"`
 
@@ -354,21 +394,60 @@ func (u *UpstreamConfig) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-// Upstream source kinds.
+// Upstream source kinds — the YAML key that names each.
 const (
-	UpstreamKindGit   = "git"
-	UpstreamKindImage = "image"
+	UpstreamKindGit           = "git"
+	UpstreamKindImage         = "image"
+	UpstreamKindPyPI          = "pypi"
+	UpstreamKindNpm           = "npm"
+	UpstreamKindGitHubRelease = "github-release"
+	UpstreamKindApk           = "apk"
+	UpstreamKindApt           = "apt"
+	UpstreamKindURL           = "url"
 )
+
+// kinds returns every kind key with its value, in a fixed order.
+func (s UpstreamSource) kinds() [][2]string {
+	return [][2]string{
+		{UpstreamKindGit, s.Git}, {UpstreamKindImage, s.Image}, {UpstreamKindPyPI, s.PyPI},
+		{UpstreamKindNpm, s.Npm}, {UpstreamKindGitHubRelease, s.GitHubRelease},
+		{UpstreamKindApk, s.Apk}, {UpstreamKindApt, s.Apt}, {UpstreamKindURL, s.URL},
+	}
+}
+
+// UpstreamKinds lists the kind keys, for messages and docs.
+func UpstreamKinds() []string {
+	var out []string
+	for _, k := range (UpstreamSource{}).kinds() {
+		out = append(out, k[0])
+	}
+	return out
+}
 
 // Kind returns the source's kind and location ("" when no kind key is set).
 func (s UpstreamSource) Kind() (kind, location string) {
-	switch {
-	case s.Git != "":
-		return UpstreamKindGit, s.Git
-	case s.Image != "":
-		return UpstreamKindImage, s.Image
+	for _, k := range s.kinds() {
+		if k[1] != "" {
+			return k[0], k[1]
+		}
 	}
 	return "", ""
+}
+
+// Upstream lifecycle states.
+const (
+	LifecycleActive    = "active"
+	LifecycleDormant   = "dormant"
+	LifecycleAbandoned = "abandoned"
+	LifecycleGone      = "gone"
+)
+
+// EffectiveLifecycle returns the lifecycle (active when unset).
+func (s UpstreamSource) EffectiveLifecycle() string {
+	if s.Lifecycle == "" {
+		return LifecycleActive
+	}
+	return s.Lifecycle
 }
 
 // DefaultUpstreamTags selects tags that start with a dotted version, optionally v-prefixed, so
@@ -385,10 +464,16 @@ func (s UpstreamSelect) EffectiveTags() string {
 
 // EffectiveScheme returns the source's versioning scheme (semver when unset).
 func (s UpstreamSource) EffectiveScheme() string {
-	if s.Scheme == "" {
-		return scheme.Semver
+	if s.Scheme != "" {
+		return s.Scheme
 	}
-	return s.Scheme
+	switch kind, _ := s.Kind(); kind {
+	case UpstreamKindPyPI:
+		return scheme.PEP440
+	case UpstreamKindApk, UpstreamKindApt:
+		return scheme.Debian
+	}
+	return scheme.Semver
 }
 
 // Upstream version modes.
@@ -420,13 +505,52 @@ func validateUpstream(cfg *Config) []string {
 	for _, s := range u.Sources {
 		path := "upstream.sources." + s.ID
 		ids[s.ID] = s
+		var set []string
+		for _, k := range s.kinds() {
+			if k[1] != "" {
+				set = append(set, k[0])
+			}
+		}
+		kind, _ := s.Kind()
 		switch {
-		case s.Git != "" && s.Image != "":
-			errs = append(errs, path+": set exactly one kind (git | image), found both")
-		case s.Git == "" && s.Image == "":
-			errs = append(errs, path+": set exactly one kind (git | image)")
+		case len(set) != 1:
+			errs = append(errs, fmt.Sprintf("%s: set exactly one kind (%s), found %d", path, strings.Join(UpstreamKinds(), " | "), len(set)))
 		case s.Image != "" && (strings.Contains(s.Image, "@") || strings.Contains(s.Image[strings.LastIndex(s.Image, "/")+1:], ":")):
 			errs = append(errs, fmt.Sprintf("%s.image: %q names a tag or digest; give the repository only (its tags are what is watched)", path, s.Image))
+		case s.GitHubRelease != "" && strings.Count(s.GitHubRelease, "/") != 1:
+			errs = append(errs, fmt.Sprintf("%s.github-release: %q — want owner/repo", path, s.GitHubRelease))
+		case s.URL != "" && !strings.HasPrefix(s.URL, "https://") && !strings.HasPrefix(s.URL, "http://"):
+			errs = append(errs, fmt.Sprintf("%s.url: %q is not an http(s) URL", path, s.URL))
+		case s.URL != "" && s.Select.Tags == "":
+			errs = append(errs, path+".select.tags: required for url — it is what finds versions on the page")
+		}
+		switch kind {
+		case UpstreamKindApk, UpstreamKindApt:
+			if rel, repo, ok := strings.Cut(s.Suite, "/"); !ok || rel == "" || repo == "" {
+				errs = append(errs, fmt.Sprintf("%s.suite: %q — %s needs <release>/<repository>, e.g. v3.22/main or trixie/main", path, s.Suite, kind))
+			}
+		default:
+			if s.Suite != "" {
+				errs = append(errs, path+".suite: only used with apk or apt")
+			}
+		}
+		if s.MirrorOf != "" && kind != UpstreamKindGit && kind != UpstreamKindImage {
+			errs = append(errs, path+".mirror_of: only git and image sources mirror an origin")
+		}
+		switch s.Lifecycle {
+		case "", LifecycleActive:
+			if s.Reason != "" {
+				errs = append(errs, path+".reason: only used with a lifecycle other than active")
+			}
+		case LifecycleDormant, LifecycleAbandoned, LifecycleGone:
+			if strings.TrimSpace(s.Reason) == "" {
+				errs = append(errs, fmt.Sprintf("%s.reason: required with lifecycle: %s — say what happened upstream", path, s.Lifecycle))
+			}
+			if s.Lifecycle == LifecycleGone && len(s.Pins) > 0 {
+				errs = append(errs, path+".pins: a gone upstream publishes nothing to move pins to")
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("%s.lifecycle: unknown %q (active | dormant | abandoned | gone)", path, s.Lifecycle))
 		}
 		if s.Select.Tags != "" {
 			if _, err := regexp.Compile(s.Select.Tags); err != nil {
@@ -488,6 +612,12 @@ func validateUpstream(cfg *Config) []string {
 	claimed, declared := ids[src]
 	if src != "" && !declared {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is not a declared source (upstream.sources)", mode, src))
+	}
+	if declared && claimed.EffectiveLifecycle() == LifecycleGone {
+		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is gone, so no release of ours can be checked against it — use own", mode, src))
+	}
+	if from, ok := ids[u.Sync.From]; ok && from.EffectiveLifecycle() == LifecycleGone {
+		errs = append(errs, fmt.Sprintf("upstream.sync.from: %q is gone; there is nothing to sync", u.Sync.From))
 	}
 	checkOnMismatch := func(path, on, reason string) {
 		switch on {

@@ -1,24 +1,17 @@
-// Package upstream answers fork mode's questions about a declared upstream: what has it
-// released, is there something newer than ours, and does every release of ours name a version
-// it actually published.
+// Package upstream answers upstream mode's questions about a declared upstream: what has it
+// released, is there something newer than ours, does every release of ours make a true claim
+// about it, and how does our history join its own.
 //
 // Listing is anonymous by design: an upstream is somebody else's public project, so watching it
-// needs no credentials (git ls-remote; the OCI registry API with its anonymous token flow).
+// needs no credentials (git ls-remote, the OCI registry API, public package indexes).
 package upstream
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
-
-	git "github.com/go-git/go-git/v5"
-	gitconfig "github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/storage/memory"
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
@@ -26,10 +19,13 @@ import (
 
 // Source is one declared upstream, ready to list.
 type Source struct {
-	ID       string
-	Kind     string // config.UpstreamKind*
-	Location string // repository URL or image repository
-	Select   Selection
+	ID        string
+	Kind      string // config.UpstreamKind*
+	Location  string // repository URL, image repository, package or page, by kind
+	Suite     string // apk, apt
+	MirrorOf  string // the origin a mirror source follows
+	Lifecycle string
+	Select    Selection
 }
 
 // Selection is a source's compiled select: block and scheme.
@@ -53,10 +49,11 @@ func (s Source) String() string { return s.ID + " (" + s.Kind + " " + s.Location
 // Release is one upstream release: the tag as published, the version it names, and (git
 // sources) the commit it points at.
 type Release struct {
-	Tag     string
-	Version scheme.Version
-	Raw     string // the version text as extracted (and rewritten), before parsing
-	Commit  string
+	Tag       string
+	Version   scheme.Version
+	Raw       string    // the version text as extracted (and rewritten), before parsing
+	Commit    string    // git sources: the commit the release names
+	Published time.Time // registries that publish a release time; zero when unknown
 }
 
 // Sources builds the listable sources from config, compiling each selection.
@@ -88,50 +85,9 @@ func Sources(u config.UpstreamConfig) ([]Source, error) {
 			}
 			sel.Exclude = append(sel.Exclude, re)
 		}
-		out = append(out, Source{ID: cs.ID, Kind: kind, Location: loc, Select: sel})
+		out = append(out, Source{ID: cs.ID, Kind: kind, Location: loc, Suite: cs.Suite, MirrorOf: cs.MirrorOf, Lifecycle: cs.EffectiveLifecycle(), Select: sel})
 	}
 	return out, nil
-}
-
-// ListTags lists every tag the source publishes. For a git source, commits maps each tag to
-// the commit it names (annotated tags peeled); image sources have no commits.
-func ListTags(ctx context.Context, src Source) (tags []string, commits map[string]string, err error) {
-	switch src.Kind {
-	case config.UpstreamKindGit:
-		rem := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "upstream", URLs: []string{src.Location}})
-		refs, err := rem.ListContext(ctx, &git.ListOptions{PeelingOption: git.AppendPeeled})
-		if err != nil {
-			return nil, nil, fmt.Errorf("ls-remote %s: %w", src.Location, err)
-		}
-		commits = map[string]string{}
-		for _, r := range refs {
-			if !r.Name().IsTag() {
-				continue
-			}
-			name := r.Name().Short()
-			if base, peeled := strings.CutSuffix(name, "^{}"); peeled {
-				commits[base] = r.Hash().String() // the commit an annotated tag points at
-				continue
-			}
-			tags = append(tags, name)
-			if _, ok := commits[name]; !ok {
-				commits[name] = r.Hash().String()
-			}
-		}
-		return tags, commits, nil
-	case config.UpstreamKindImage:
-		repo, err := name.NewRepository(src.Location)
-		if err != nil {
-			return nil, nil, fmt.Errorf("image %s: %w", src.Location, err)
-		}
-		tags, err := remote.List(repo, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
-		if err != nil {
-			return nil, nil, fmt.Errorf("listing tags of %s: %w", src.Location, err)
-		}
-		return tags, nil, nil
-	default:
-		return nil, nil, fmt.Errorf("unknown upstream kind %q", src.Kind)
-	}
 }
 
 // Releases applies the selection to a source's tags and returns its releases, newest first.
@@ -139,9 +95,17 @@ func ListTags(ctx context.Context, src Source) (tags []string, commits map[strin
 // tag. Candidates whose version does not parse are returned as unparsed, so the caller can
 // report them instead of silently losing them.
 func Releases(tags []string, sel Selection) (releases []Release, unparsed []string) {
+	return ReleasesOf(names(tags), sel)
+}
+
+// ReleasesOf is Releases over listed candidates, carrying what the kind knows (commit,
+// publish time) onto each release; an upstream-marked prerelease is a prerelease whatever
+// its version says.
+func ReleasesOf(cands []Candidate, sel Selection) (releases []Release, unparsed []string) {
 	vi := sel.Tags.SubexpIndex("version")
 tag:
-	for _, t := range tags {
+	for _, cand := range cands {
+		t := cand.Name
 		m := sel.Tags.FindStringSubmatch(t)
 		if m == nil {
 			continue
@@ -166,10 +130,10 @@ tag:
 			unparsed = append(unparsed, t)
 			continue
 		}
-		if v.Prerelease() && !sel.Prereleases {
+		if (v.Prerelease() || cand.Prerelease) && !sel.Prereleases {
 			continue
 		}
-		releases = append(releases, Release{Tag: t, Version: v, Raw: raw})
+		releases = append(releases, Release{Tag: t, Version: v, Raw: raw, Commit: cand.Commit, Published: cand.Published})
 	}
 	// Equal versions (3.15 and 3.15.0) rank the more precise tag first, so a floating alias
 	// never stands in for the release it points at.
@@ -298,7 +262,7 @@ func released(upstream []Release, v scheme.Version) bool {
 // Find returns the upstream release naming version v.
 func Find(upstream []Release, v scheme.Version) (Release, bool) {
 	for _, rel := range upstream {
-		if rel.Version.Compare(v) == 0 {
+		if scheme.Same(rel.Version, v) {
 			return rel, true
 		}
 	}

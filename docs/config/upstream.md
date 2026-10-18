@@ -24,12 +24,31 @@ upstream:
 
 `sources` is an id → source map. Each source names exactly one kind:
 
-| Kind | Value | Listed with |
-|---|---|---|
-| `git` | repository URL | `git ls-remote` |
-| `image` | image repository, no tag or digest | the OCI registry API |
+| Kind | Value | Listed from | Default scheme |
+|---|---|---|---|
+| `git` | repository URL | `git ls-remote` (tags, with their commits) | semver |
+| `image` | image repository, no tag or digest | the OCI registry API | semver |
+| `pypi` | project name | pypi.org (yanked releases skipped; upload times) | pep440 |
+| `npm` | package name | registry.npmjs.org (deprecated versions skipped; publish times) | semver |
+| `github-release` | `owner/repo` | GitHub's published releases — not tags (drafts skipped, GitHub's prerelease flag honoured, publish times) | semver |
+| `apk` | package name, plus `suite: v3.22/main` | Alpine's APKINDEX (build times) | debian |
+| `apt` | package name, plus `suite: trixie/main` | Debian's Packages index | debian |
+| `url` | a release page | every match of `select.tags` on the page (needs `select.tags`) | semver |
 
-Listing is anonymous: an upstream is someone else's public project.
+Listing is anonymous: an upstream is someone else's public project. (`github-release` uses
+`GITHUB_TOKEN` when the environment has one: GitHub's API allows 60 anonymous requests an
+hour.) Where the kind publishes release times, the cooldown counts from them instead of from
+first sight.
+
+**`mirror_of`** (git, image) names the origin a source mirrors — for upstreams we cannot reach
+directly and keep a mirror of. StageFreight lists the mirror, and the origin when it answers;
+a mirror missing the origin's newest release raises `mirror-behind`. An unreachable origin is
+why the mirror exists, so it is not an error.
+
+**`lifecycle`** records what has happened upstream: `active` (default), `dormant`,
+`abandoned`, `gone`, each but `active` with a required `reason`. A dormant or abandoned
+upstream that cannot be listed is not reported unreachable. A gone one is not listed at all,
+and cannot be tracked, pinned or synced — its history is ours now (`version: { own: {} }`).
 
 `select` picks releases out of everything the source tags, in this order:
 
@@ -48,13 +67,14 @@ never sorted as a string.
 ### Schemes
 
 Versions are only ever compared within one scheme, so a source names the one its upstream
-uses:
+uses (the kind's default, in the table above, when it does not):
 
 | `scheme:` | Reads | Prereleases |
 |---|---|---|
-| `semver` (default) | `1.2.3`, `v1.2.3-rc.1`; a missing minor or patch is zero (`11.4` = `11.4.0`) | a hyphen suffix |
+| `semver` | `1.2.3`, `v1.2.3-rc.1`; a missing minor or patch is zero (`11.4` = `11.4.0`) | a hyphen suffix |
 | `pep440` | Python versions: `2.22.0b1`, `1.0rc1`, `1.0.post1`, `1.0.dev3`, `1!2.0` | `a`/`b`/`rc` and `.dev` |
 | `loose` | 1–6 dotted numbers (`0.6.7.1`, `2026.7.0`); a trailing letter is a *later* release (`1.6.60a` > `1.6.60`) | a hyphen suffix |
+| `debian` | dpkg versions, `[epoch:]upstream[-revision]` (`1:2.8.1-3+deb13u1`, apk's `2.8.3-r4`); our `v3.7.5` names Debian's `3.7.5-1` | `~` (`1.0~rc1`) |
 
 Our release tags are read with the claimed source's scheme, after the `v` prefix and any
 revision suffix (`-3`, `-r2`) are removed.
@@ -220,6 +240,7 @@ What the watcher finds is raised as signals, which notifications select with
 | `version-mismatch` | one of our tags makes a false claim (track: never released; continue: already released), or a tolerated (`report`) guard or probe mismatch shipped |
 | `upstream-unreachable` | a source could not be listed |
 | `sync-conflict` | a sync could not land: upstream's changes overlap ours, a mirror diverged, or the push was refused |
+| `mirror-behind` | a `mirror_of` source lacks a release its origin has made |
 
 ```yaml
 notifications:
