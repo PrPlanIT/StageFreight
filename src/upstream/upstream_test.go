@@ -5,17 +5,32 @@ import (
 	"strings"
 	"testing"
 
-	masterminds "github.com/Masterminds/semver/v3"
-
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
 // The case that motivated the guard: hlhd/ansible tracks ansible-core, upstream has released
 // up to 2.21.5, and an image-only fix was tagged v2.21.6.
 var ansibleUpstreamTags = []string{"v2.20.9", "v2.21.4", "v2.21.5", "v2.22.0b1", "v2.22.0-rc.1", "devel-tip", "v2-preview-1", "002749b50-arm64", "0032aa529f273e7ff37d92832a3b19c522c7e690"}
 
+func sch(name string) scheme.Scheme {
+	s, err := scheme.Get(name)
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
+
+func mustParse(name, v string) scheme.Version {
+	out, err := sch(name).Parse(v)
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
 func defaultSel() Selection {
-	return Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags)}
+	return Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags), Scheme: sch(scheme.Semver)}
 }
 
 func ansible(mode string) Claim {
@@ -57,7 +72,7 @@ func TestReleases_ExcludeWinsAndPrereleasesOptIn(t *testing.T) {
 }
 
 func TestReleases_VersionGroupAndTwoPartVersions(t *testing.T) {
-	sel := Selection{Tags: regexp.MustCompile(`^release-(?P<version>[\d.]+)$`)}
+	sel := Selection{Tags: regexp.MustCompile(`^release-(?P<version>[\d.]+)$`), Scheme: sch(scheme.Semver)}
 	got, _ := Releases([]string{"release-11.4", "release-11.10", "v9.9.9"}, sel)
 	if tagsOf(got) != "release-11.10,release-11.4" || got[1].Version.String() != "11.4.0" {
 		t.Fatalf("got %s", tagsOf(got))
@@ -82,7 +97,7 @@ func TestOurVersion(t *testing.T) {
 		"latest":      "",
 	}
 	for tag, want := range cases {
-		v, ok := OurVersion(tag)
+		v, ok := OurVersion(tag, sch(scheme.Semver))
 		got := ""
 		if ok {
 			got = v.String()
@@ -127,7 +142,7 @@ func TestEvaluate_ContinueFlagsCollisions(t *testing.T) {
 func TestEvaluate_SinceIsTheCutover(t *testing.T) {
 	up, _ := Releases(ansibleUpstreamTags, defaultSel())
 	c := ansible(config.UpstreamVersionTrack)
-	c.Since = masterminds.MustParse("2.21.0")
+	c.Since = mustParse(scheme.Semver, "2.21.0")
 	rep := Evaluate(c, up, []string{"v1.0.7", "v2.21.6"})
 	if strings.Join(rep.Mismatched, ",") != "v2.21.6" {
 		t.Fatalf("mismatched = %v, want only the tag after the cutover", rep.Mismatched)
@@ -159,7 +174,7 @@ func TestReleaseVerdict_Track(t *testing.T) {
 	if ok, reason := ReleaseVerdict(c, up, "v2.22.0-rc.1"); ok || !strings.Contains(reason, "select.prereleases") {
 		t.Fatalf("an unselected prerelease must be refused with the prereleases hint; reason=%q", reason)
 	}
-	c.Since = masterminds.MustParse("2.22.0")
+	c.Since = mustParse(scheme.Semver, "2.22.0")
 	if ok, _ := ReleaseVerdict(c, up, "v2.21.6"); !ok {
 		t.Fatal("a tag before the cutover is not judged")
 	}
@@ -176,5 +191,45 @@ func TestReleaseVerdict_Continue(t *testing.T) {
 	}
 	if ok, _ := ReleaseVerdict(c, up, "nightly"); !ok {
 		t.Fatal("continue judges only tags that name a version")
+	}
+}
+
+func TestReleases_PEP440ReadsWhatSemverCannot(t *testing.T) {
+	sel := Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags), Scheme: sch(scheme.PEP440)}
+	got, unparsed := Releases(ansibleUpstreamTags, sel)
+	if tagsOf(got) != "v2.21.5,v2.21.4,v2.20.9" || len(unparsed) != 0 {
+		t.Fatalf("releases = %s unparsed = %v: the beta is a prerelease, not an unreadable tag", tagsOf(got), unparsed)
+	}
+	sel.Prereleases = true
+	got, _ = Releases(ansibleUpstreamTags, sel)
+	if tagsOf(got) != "v2.22.0-rc.1,v2.22.0b1,v2.21.5,v2.21.4,v2.20.9" {
+		t.Fatalf("with prereleases: %s", tagsOf(got))
+	}
+
+	c := Claim{Mode: config.UpstreamVersionTrack, Source: Source{ID: "core", Select: sel}}
+	if ok, reason := ReleaseVerdict(c, got, "v2.22.0b1"); !ok {
+		t.Fatalf("our tag naming upstream's beta must be allowed under pep440: %s", reason)
+	}
+	if ok, _ := ReleaseVerdict(c, got, "v2.21.5-2"); !ok {
+		t.Fatal("our revision suffix is stripped before reading the tag with upstream's scheme")
+	}
+}
+
+func TestReleases_RewriteAndLoose(t *testing.T) {
+	sel := Selection{
+		Tags:    regexp.MustCompile(`^(?:release_|v)(?P<version>[\d_.]+[a-z]?)$`),
+		Rewrite: []Rewrite{{From: regexp.MustCompile(`_`), To: "."}},
+		Scheme:  sch(scheme.Loose),
+	}
+	got, unparsed := Releases([]string{"release_1_6_60", "v1.6.60a", "v1.6.59", "release_1_6_61"}, sel)
+	if tagsOf(got) != "release_1_6_61,v1.6.60a,release_1_6_60,v1.6.59" || len(unparsed) != 0 {
+		t.Fatalf("releases = %s unparsed = %v", tagsOf(got), unparsed)
+	}
+	c := Claim{Mode: config.UpstreamVersionTrack, Source: Source{ID: "amg", Select: sel}}
+	if ok, reason := ReleaseVerdict(c, got, "v1.6.60a"); !ok {
+		t.Fatalf("a letter release must match itself: %s", reason)
+	}
+	if ok, _ := ReleaseVerdict(c, got, "v1.6.69"); ok {
+		t.Fatal("ark-se-server's v1.6.69 names an AMG version upstream never released")
 	}
 }

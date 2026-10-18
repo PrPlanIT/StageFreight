@@ -10,7 +10,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
-	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
 )
 
@@ -78,7 +77,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		}
 		claim := upstream.Claim{Mode: mode, Source: src}
 		if u.Version.Since != "" {
-			claim.Since = version.ParseVersion(u.Version.Since)
+			claim.Since, _ = src.Select.Scheme.Parse(u.Version.Since)
 		}
 		rep := upstream.Evaluate(claim, releases, ours)
 		facts["source"], facts["latest"], facts["ours"] = src.ID, latest, orNone(rep.OursNewest)

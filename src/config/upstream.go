@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
+	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
 // UpstreamConfig declares the upstreams a repo repackages or forks ("upstream mode").
@@ -37,6 +37,14 @@ type UpstreamSource struct {
 
 	// Select picks the upstream's releases out of everything it tags.
 	Select UpstreamSelect `yaml:"select,omitempty"`
+
+	// Scheme is how this upstream's versions are read and ordered. Default semver.
+	//   semver: 1.2.3, 1.2.3-rc.1 (a missing minor/patch is zero: 11.4 = 11.4.0)
+	//   pep440: Python versions — 2.22.0b1, 1.0rc1, 1.0.post1, 1!2.0
+	//   loose:  1–6 dotted numbers (0.6.7.1, 2026.7.0), a trailing letter as a later release
+	//           (1.6.60a > 1.6.60), a hyphen suffix as a prerelease (2.0-rc1)
+	// Our release tags are read with the same scheme when a claim names this source.
+	Scheme string `yaml:"scheme,omitempty"`
 }
 
 // UpstreamSelect picks releases from an upstream's tags: candidates (tags), minus exclusions,
@@ -52,8 +60,20 @@ type UpstreamSelect struct {
 	// over tags.
 	Exclude []string `yaml:"exclude,omitempty"`
 
-	// Prereleases admits upstream prereleases (1.2.0-rc.1) as releases. Default false.
+	// Prereleases admits upstream prereleases (as the scheme defines them) as releases.
+	// Default false.
 	Prereleases bool `yaml:"prereleases,omitempty"`
+
+	// Rewrite edits the extracted version before it is parsed, in order: each from is a regex
+	// replaced by to (with $1-style group references), e.g. {from: '_', to: '.'} reads
+	// release_1_2_3 as 1.2.3.
+	Rewrite []UpstreamRewrite `yaml:"rewrite,omitempty"`
+}
+
+// UpstreamRewrite is one select.rewrite step.
+type UpstreamRewrite struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to,omitempty"` // empty deletes the match
 }
 
 // UpstreamVersion is what our release tags claim. Set at most one of track, continue, own;
@@ -142,6 +162,14 @@ func (s UpstreamSelect) EffectiveTags() string {
 	return s.Tags
 }
 
+// EffectiveScheme returns the source's versioning scheme (semver when unset).
+func (s UpstreamSource) EffectiveScheme() string {
+	if s.Scheme == "" {
+		return scheme.Semver
+	}
+	return s.Scheme
+}
+
 // Upstream version modes.
 const (
 	UpstreamVersionOwn      = "own"
@@ -166,10 +194,10 @@ func (v UpstreamVersion) Mode() (mode, source string) {
 // validateUpstream checks the upstream: block.
 func validateUpstream(u UpstreamConfig) []string {
 	var errs []string
-	ids := map[string]bool{}
+	ids := map[string]UpstreamSource{}
 	for _, s := range u.Sources {
 		path := "upstream.sources." + s.ID
-		ids[s.ID] = true
+		ids[s.ID] = s
 		switch {
 		case s.Git != "" && s.Image != "":
 			errs = append(errs, path+": set exactly one kind (git | image), found both")
@@ -188,6 +216,18 @@ func validateUpstream(u UpstreamConfig) []string {
 				errs = append(errs, fmt.Sprintf("%s.select.exclude[%d]: %v", path, i, err))
 			}
 		}
+		for i, rw := range s.Select.Rewrite {
+			if rw.From == "" {
+				errs = append(errs, fmt.Sprintf("%s.select.rewrite[%d].from: required", path, i))
+			} else if _, err := regexp.Compile(rw.From); err != nil {
+				errs = append(errs, fmt.Sprintf("%s.select.rewrite[%d].from: %v", path, i, err))
+			}
+		}
+		if s.Scheme != "" {
+			if _, err := scheme.Get(s.Scheme); err != nil {
+				errs = append(errs, fmt.Sprintf("%s.scheme: %v", path, err))
+			}
+		}
 	}
 
 	v := u.Version
@@ -201,14 +241,17 @@ func validateUpstream(u UpstreamConfig) []string {
 		errs = append(errs, "upstream.version: set at most one of track | continue | own")
 	}
 	mode, src := v.Mode()
-	if src != "" && !ids[src] {
+	claimed, declared := ids[src]
+	if src != "" && !declared {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is not a declared source (upstream.sources)", mode, src))
 	}
 	if v.Since != "" {
 		if mode == UpstreamVersionOwn {
 			errs = append(errs, "upstream.version.since: only meaningful with track or continue")
-		} else if version.ParseVersion(v.Since) == nil {
-			errs = append(errs, fmt.Sprintf("upstream.version.since: %q is not a version", v.Since))
+		} else if sch, err := scheme.Get(claimed.EffectiveScheme()); declared && err == nil {
+			if _, err := sch.Parse(v.Since); err != nil {
+				errs = append(errs, fmt.Sprintf("upstream.version.since: %q is not a %s version", v.Since, sch.Name()))
+			}
 		}
 	}
 	return errs

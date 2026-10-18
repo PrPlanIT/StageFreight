@@ -4,6 +4,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
 // enumSources binds a config field's full doc-path to the authoritative source of its
@@ -21,6 +22,7 @@ var enumSources = map[string]func() []string{
 	"builds.outputs.type":       config.ValidOutputTypes,
 	"registries.provider":       registry.KnownProviders,
 	"forges.provider":           forge.KnownProviders,
+	"upstream.sources.scheme":   scheme.Names,
 }
 
 // enumValuesFor returns the sourced allowed values for a config field doc-path, or nil.
