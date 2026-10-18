@@ -308,6 +308,30 @@ type TargetCondition struct {
 	// on notifications: a publish target's when: is evaluated for eligibility
 	// BEFORE an outcome exists, so outcomes: there is a validation error.
 	Outcomes []string `yaml:"outcomes,omitempty"`
+
+	// Signals gates on things the run FOUND, independent of its outcome — a run that succeeded
+	// can still have found that upstream released something new. A condition with signals:
+	// matches only a run that raised at least one of them. Only valid on notifications.
+	// Empty = no signal filtering.
+	Signals []string `yaml:"signals,omitempty"`
+}
+
+// Signals a run can raise for notifications' when.signals.
+const (
+	// SignalUpdatesAvailable: the declared upstream published a release newer than ours.
+	SignalUpdatesAvailable = "updates-available"
+	// SignalVersionMismatch: one of our release tags names a version upstream never released.
+	SignalVersionMismatch = "version-mismatch"
+)
+
+var validSignals = map[string]bool{
+	SignalUpdatesAvailable: true,
+	SignalVersionMismatch:  true,
+}
+
+// SignalNames lists the signal vocabulary, for messages and docs.
+func SignalNames() []string {
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

@@ -342,7 +342,8 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	if !appCfg.Dependency.Enabled {
 		// Deps disabled is an operator choice, not a failure — the subject is shippable.
-		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true}))
+		refused := watchUpstream(ctx, appCfg, rootDir)
+		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: refused}))
 		fmt.Println("  dependency update disabled in config")
 		return nil
 	}
@@ -361,6 +362,10 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	if err := runConfigPhase(rootDir); err != nil {
 		return fmt.Errorf("deps subsystem: %w", err)
 	}
+
+	// Fork mode: watch the declared upstream, and refuse a track-mode release whose version
+	// upstream never published — before anything is built.
+	in.UpstreamRefused = watchUpstream(ctx, appCfg, rootDir)
 
 	// Discover dependencies ONCE for the whole audition — a single Snapshot shared,
 	// read-only, by both the lint pass (below, via runUniversalLint) and the

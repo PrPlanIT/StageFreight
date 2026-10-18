@@ -82,6 +82,11 @@ type auditionInputs struct {
 	TestsPassed        bool   // the audition correctness gate (committed-tree tests) passed
 	DepsErrored        bool   // the deps update itself errored
 	Replacement        string // the fix commit (C′) if remediation committed one, else ""
+
+	// UpstreamRefused is the reason a release under upstream.version: track names a version its
+	// upstream never published (or one that could not be verified); "" when nothing is refused.
+	// It voids the subject as that release: no rebuild or fix of this source changes the number.
+	UpstreamRefused string
 }
 
 // deriveAuditionContract is the PURE projection of an audition run into its contract. Two
@@ -97,7 +102,7 @@ type auditionInputs struct {
 //   - Replacement is lineage only. It records the fix commit but NEVER makes a subject
 //     non-Blocking. Control (Perform) reads Blocking; it must never read Replacement.
 func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
-	blocking := !in.RunnerHealthy || in.Fatal || (in.Remediable && in.RemediationEnabled) || !in.TestsPassed || in.DepsErrored
+	blocking := !in.RunnerHealthy || in.Fatal || in.UpstreamRefused != "" || (in.Remediable && in.RemediationEnabled) || !in.TestsPassed || in.DepsErrored
 
 	c := cistate.SubsystemState{
 		Name:        "audition",
@@ -124,6 +129,8 @@ func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
 		c.Reason = "runner substrate unhealthy"
 	case in.Fatal:
 		c.Reason = "fatal finding voids the source (secret, merge conflict, or broken tree); resolve manually and re-run"
+	case in.UpstreamRefused != "":
+		c.Reason = in.UpstreamRefused
 	case in.DepsErrored:
 		c.Reason = "dependency update errored"
 	case !in.TestsPassed:

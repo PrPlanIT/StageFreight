@@ -363,6 +363,12 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				break
 			}
 		}
+		for _, w := range t.When {
+			if len(w.Signals) > 0 {
+				errs = append(errs, fmt.Sprintf("%s.when.signals: not valid on publish targets (signals: gates notifications)", tpath))
+				break
+			}
+		}
 	}
 
 	// ── Stencils library + scribe files ──────────────────────────────────
@@ -489,6 +495,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 				case "success", "failure", "warning":
 				default:
 					errs = append(errs, fmt.Sprintf("%s.when.outcomes: unknown outcome %q (success | failure | warning)", npath, o))
+				}
+			}
+			for _, sig := range w.Signals {
+				if !validSignals[sig] {
+					errs = append(errs, fmt.Sprintf("%s.when.signals: unknown signal %q (%s)", npath, sig, strings.Join(SignalNames(), " | ")))
 				}
 			}
 		}
@@ -757,6 +768,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	errs = append(errs, validateLifecycle(cfg)...)
 	errs = append(errs, validateAnsible(cfg)...)
+	errs = append(errs, validateUpstream(cfg.Upstream)...)
 	errs = append(errs, validateInventoryCategories(cfg)...)
 	errs = append(errs, validateExposureRules(cfg)...)
 	errs = append(errs, validateInventoryGroups(cfg)...)

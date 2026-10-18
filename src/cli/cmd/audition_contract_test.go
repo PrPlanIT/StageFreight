@@ -64,6 +64,7 @@ func TestDeriveAuditionContract(t *testing.T) {
 		"remediable (remediate on)": {RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true},
 		"tests failed":              {RunnerHealthy: true, TestsPassed: false},
 		"deps errored":              {RunnerHealthy: true, TestsPassed: true, DepsErrored: true},
+		"upstream refused":          {RunnerHealthy: true, TestsPassed: true, UpstreamRefused: "release v2.21.6 names version 2.21.6, which upstream has not released"},
 	}
 	for name, in := range blockers {
 		t.Run(name+" blocks", func(t *testing.T) {
@@ -76,6 +77,18 @@ func TestDeriveAuditionContract(t *testing.T) {
 			}
 		})
 	}
+
+	// A refused track-mode release carries the refusal as its reason: it is what the operator
+	// has to act on (fix the tag), and nothing in this subject's build changes it.
+	t.Run("upstream refusal is the reason", func(t *testing.T) {
+		c := deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: "release v2.21.6 names version 2.21.6, which upstream has not released"})
+		if !c.Blocking || !strings.Contains(c.Reason, "v2.21.6") {
+			t.Fatalf("refused release must block with the refusal as its reason: %+v", c)
+		}
+		if gate, err := performGate(&c); gate || err == nil {
+			t.Fatalf("perform must refuse to build a refused release with an error, got build=%v err=%v", gate, err)
+		}
+	})
 
 	// THE invariant the whole design hinges on: a REMEDIATED source (fix committed as C′) is
 	// STILL blocking — the fix is in the replacement, not in this subject. Replacement must

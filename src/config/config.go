@@ -151,6 +151,10 @@ type Config struct {
 	// Toolchains defines operator control over external tool resolution.
 	// Version pins, future retention policy, future trust settings.
 	Toolchains ToolchainSection `yaml:"toolchains,omitempty"`
+
+	// Upstream declares the source a fork repackages (fork mode): watched for new releases,
+	// and with version: track, the only source a release version may name.
+	Upstream UpstreamConfig `yaml:"upstream,omitempty"`
 }
 
 // Load reads configuration from a YAML file.

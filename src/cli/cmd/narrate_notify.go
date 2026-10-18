@@ -21,6 +21,7 @@ import (
 func dispatchNotifications(appCfg *config.Config, rootDir string, st *cistate.State) {
 	outcome := outcomeWord(st.PipelineStatus())
 	failed := outcome == "failure"
+	signals := runSignals(st)
 
 	tagPolicies := make(map[string]string, len(appCfg.Git.Tags))
 	for _, ts := range appCfg.Git.Tags {
@@ -28,7 +29,7 @@ func dispatchNotifications(appCfg *config.Config, rootDir string, st *cistate.St
 	}
 
 	for _, n := range appCfg.Notifications {
-		if r := config.NotificationEligibility(n.When, outcome, config.CIEvent(), config.CIBranch(), config.CITag(), config.CIProvider(), tagPolicies, appCfg.Git.Branches); !r.Eligible {
+		if r := config.NotificationEligibility(n.When, outcome, signals, config.CIEvent(), config.CIBranch(), config.CITag(), config.CIProvider(), tagPolicies, appCfg.Git.Branches); !r.Eligible {
 			continue
 		}
 
@@ -76,6 +77,16 @@ func dispatchNotifications(appCfg *config.Config, rootDir string, st *cistate.St
 			fmt.Printf("  narrate: notified %q (%s)\n", n.ID, n.Provider)
 		}
 	}
+}
+
+// runSignals returns the signals the run raised (the when.signals vocabulary). The upstream
+// watcher records them as a comma-separated "signals" fact on its subsystem.
+func runSignals(st *cistate.State) []string {
+	sub := st.GetSubsystem("upstream")
+	if sub == nil || sub.Results["signals"] == "" {
+		return nil
+	}
+	return strings.Split(sub.Results["signals"], ",")
 }
 
 // outcomeWord maps the pipeline status to the when.outcomes vocabulary.

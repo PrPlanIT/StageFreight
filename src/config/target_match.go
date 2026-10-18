@@ -154,29 +154,42 @@ func forgeMatches(forges []string, forge string) bool {
 
 // NotificationEligibility interprets a notification's when: — the SAME grammar as
 // publish targets (events/branches/git_tags/forges, OR over condition-sets) plus
-// the outcomes: dimension. Lives here, in the one when: interpreter, per the
-// eligibility-routing invariant. outcome is the run's word: success | failure |
-// warning (unknown matches only an empty outcomes:).
-func NotificationEligibility(when WhenConditions, outcome, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
+// the outcomes: and signals: dimensions. Lives here, in the one when: interpreter, per
+// the eligibility-routing invariant. outcome is the run's word: success | failure |
+// warning (unknown matches only an empty outcomes:); signals are what the run raised.
+func NotificationEligibility(when WhenConditions, outcome string, signals []string, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
 	if len(when) == 0 {
 		return MatchResult{Eligible: true}
 	}
 	if len(when) == 1 {
-		return notifyConditionEligibility(when[0], outcome, event, branch, tag, forge, tagPolicies, branchPolicies)
+		return notifyConditionEligibility(when[0], outcome, signals, event, branch, tag, forge, tagPolicies, branchPolicies)
 	}
 	for _, c := range when {
-		if r := notifyConditionEligibility(c, outcome, event, branch, tag, forge, tagPolicies, branchPolicies); r.Eligible {
+		if r := notifyConditionEligibility(c, outcome, signals, event, branch, tag, forge, tagPolicies, branchPolicies); r.Eligible {
 			return r
 		}
 	}
 	return MatchResult{Reason: fmt.Sprintf("no when: condition matched (outcome=%q event=%q tag=%q branch=%q)", outcome, event, tag, branch)}
 }
 
-func notifyConditionEligibility(c TargetCondition, outcome, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
+func notifyConditionEligibility(c TargetCondition, outcome string, signals []string, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
 	if len(c.Outcomes) > 0 && !containsFold(c.Outcomes, outcome) {
 		return MatchResult{Reason: fmt.Sprintf("run outcome %q not in outcomes:%v", outcome, c.Outcomes)}
 	}
+	if len(c.Signals) > 0 && !anyFold(c.Signals, signals) {
+		return MatchResult{Reason: fmt.Sprintf("run raised signals %v, none in signals:%v", signals, c.Signals)}
+	}
 	return conditionEligibility(c, event, branch, tag, forge, tagPolicies, branchPolicies)
+}
+
+// anyFold reports whether any of have appears in want (case-insensitive).
+func anyFold(want, have []string) bool {
+	for _, h := range have {
+		if containsFold(want, h) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsFold(list []string, v string) bool {
