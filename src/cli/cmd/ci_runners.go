@@ -343,6 +343,9 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	if !appCfg.Dependency.Enabled {
 		// Deps disabled is an operator choice, not a failure — the subject is shippable.
 		refused := watchUpstream(ctx, appCfg, rootDir)
+		if _, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir); refused == "" {
+			refused = syncRefused
+		}
 		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: refused}))
 		fmt.Println("  dependency update disabled in config")
 		return nil
@@ -366,6 +369,13 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// Fork mode: watch the declared upstream, and refuse a track-mode release whose version
 	// upstream never published — before anything is built.
 	in.UpstreamRefused = watchUpstream(ctx, appCfg, rootDir)
+	// Upstream sync: join upstream's newest release into our branch. When it pushes, the new
+	// commit's pipeline runs the dependency update; this run leaves it alone (below) so two
+	// writers never push onto a branch that was just rewritten.
+	syncPushed, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir)
+	if in.UpstreamRefused == "" {
+		in.UpstreamRefused = syncRefused
+	}
 
 	// Discover dependencies ONCE for the whole audition — a single Snapshot shared,
 	// read-only, by both the lint pass (below, via runUniversalLint) and the
@@ -461,6 +471,14 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 				fmt.Printf("  deps: fetched %d advisories from prior security scan\n", len(advisories))
 			}
 		}
+	}
+
+	if syncPushed {
+		recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+			Name: "deps", Attempted: true, Completed: true, Skipped: true, Outcome: "skipped",
+			Reason: "upstream sync moved the branch; its pipeline runs the dependency update",
+		})
+		return nil
 	}
 
 	// Run dependency update via the same code path as the CLI command, reusing the

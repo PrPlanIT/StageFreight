@@ -333,6 +333,9 @@ const (
 	// SignalScheduleInactive: a declared schedule was found deactivated on the forge (and
 	// reactivated), or StageFreight could not manage the forge's schedules.
 	SignalScheduleInactive = "schedule-inactive"
+	// SignalSyncConflict: upstream's changes overlap ours (or a mirror diverged), so the sync
+	// did not land and needs a human.
+	SignalSyncConflict = "sync-conflict"
 )
 
 var validSignals = map[string]bool{
@@ -340,11 +343,12 @@ var validSignals = map[string]bool{
 	SignalVersionMismatch:     true,
 	SignalUpstreamUnreachable: true,
 	SignalScheduleInactive:    true,
+	SignalSyncConflict:        true,
 }
 
 // SignalNames lists the signal vocabulary, for messages and docs.
 func SignalNames() []string {
-	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive}
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

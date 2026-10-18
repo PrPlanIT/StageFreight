@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"strings"
 
+	git "github.com/go-git/go-git/v5"
+
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
+	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
 // autoReleaseUpstream is upstream.release: auto. After a successful default-branch run in
@@ -28,11 +31,12 @@ func autoReleaseUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 		return
 	}
 	for i, cs := range u.Sources {
-		if cs.ID != claimedID || len(cs.Pins) == 0 {
+		synced := u.Sync.From == cs.ID && u.Sync.Onto.Branch == ""
+		if cs.ID != claimedID || (len(cs.Pins) == 0 && !synced) {
 			continue
 		}
 		src := sources[i]
-		tag, reason := autoReleaseTag(ctx, rootDir, cs, src)
+		tag, reason := autoReleaseTag(ctx, rootDir, cs, src, ciCtx.SHA)
 		if tag == "" {
 			if reason != "" {
 				fmt.Printf("  upstream: no release cut — %s\n", reason)
@@ -54,22 +58,35 @@ func autoReleaseUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 }
 
 // autoReleaseTag decides the tag to cut: "" with a reason when there is nothing to release.
-func autoReleaseTag(ctx context.Context, rootDir string, cs config.UpstreamSource, src upstream.Source) (tag, reason string) {
-	pins, current, err := readPins(rootDir, cs, src.Select.Scheme)
-	if err != nil {
-		return "", err.Error()
-	}
+// The version is what the pins hold, or — for a history fork synced onto upstream's
+// releases — the newest upstream release whose commit the built commit contains.
+func autoReleaseTag(ctx context.Context, rootDir string, cs config.UpstreamSource, src upstream.Source, built string) (tag, reason string) {
 	l := listUpstream(ctx, src)
 	if l.err != nil {
 		return "", fmt.Sprintf("%s not listed: %v", src, l.err)
 	}
-	rel, ok := upstream.Find(l.releases, current)
-	if !ok {
-		return "", fmt.Sprintf("pins name %s, which %s has not released", pins[0].Value, src)
-	}
 	repo, err := gitstate.OpenRepo(rootDir)
 	if err != nil {
 		return "", err.Error()
+	}
+	var rel upstream.Release
+	var current scheme.Version
+	if len(cs.Pins) > 0 {
+		pins, v, err := readPins(rootDir, cs, src.Select.Scheme)
+		if err != nil {
+			return "", err.Error()
+		}
+		r, ok := upstream.Find(l.releases, v)
+		if !ok {
+			return "", fmt.Sprintf("pins name %s, which %s has not released", pins[0].Value, src)
+		}
+		rel, current = r, v
+	} else {
+		r, ok := newestContained(repo, l.releases, built)
+		if !ok {
+			return "", fmt.Sprintf("the built commit contains no release of %s", src)
+		}
+		rel, current = r, r.Version
 	}
 	ours, _ := gitstate.ListTagsSorted(repo)
 	vPrefix := true
@@ -94,4 +111,17 @@ func autoReleaseTag(ctx context.Context, rootDir string, cs config.UpstreamSourc
 		tag = "v" + tag
 	}
 	return tag, ""
+}
+
+// newestContained is the newest release whose commit is an ancestor of (or is) built.
+func newestContained(repo *git.Repository, releases []upstream.Release, built string) (upstream.Release, bool) {
+	for _, r := range releases {
+		if r.Commit == "" {
+			continue
+		}
+		if ok, err := gitstate.IsAncestor(repo, r.Commit, built); err == nil && ok {
+			return r, true
+		}
+	}
+	return upstream.Release{}, false
 }

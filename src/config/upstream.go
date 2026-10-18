@@ -27,6 +27,10 @@ type UpstreamConfig struct {
 	// manual leaves it to a human (stagefreight tag).
 	Release string `yaml:"release,omitempty"`
 
+	// Sync keeps this repository's history on top of a git upstream: rebased or merged onto
+	// its newest release (or a branch), or mirrored. Runs on the default branch.
+	Sync UpstreamSync `yaml:"sync,omitempty"`
+
 	// Evidence proves, per build, that the built artifact contains the version a release
 	// claims. Keyed by build id (a docker build). Checked in publish, on the exact bytes
 	// about to be distributed.
@@ -147,6 +151,85 @@ type UpstreamSource struct {
 	// dependency update moves every pin together (or none, if they disagree), through the
 	// dependency engine's commit, max_update and min_release_age.
 	Pins []UpstreamPin `yaml:"pins,omitempty"`
+}
+
+// UpstreamSync is upstream.sync.
+type UpstreamSync struct {
+	// From names the git source to sync from.
+	From string `yaml:"from,omitempty"`
+
+	// Onto is what to sync onto: release (default — the newest release the source's
+	// select: keeps) or {branch: <name>} (the head of an upstream branch).
+	Onto UpstreamOnto `yaml:"onto,omitempty"`
+
+	// Strategy is how upstream's history joins ours:
+	//   rebase (default): our commits are replayed on top of upstream's, our branch is
+	//                     rewritten (the forge must let StageFreight force-push it).
+	//   merge:            a merge commit joins upstream into our branch; nothing is rewritten.
+	//   mirror:           our branch follows upstream's exactly (fast-forward only; a diverged
+	//                     branch is kept and reported, never overwritten).
+	Strategy string `yaml:"strategy,omitempty"`
+
+	// Shadow, when set, is a branch of ours kept at upstream's synced commit — a plain copy of
+	// upstream to diff against.
+	Shadow string `yaml:"shadow,omitempty"`
+
+	// OnConflict is what happens when upstream's changes overlap ours:
+	//   mr (default): nothing is rewritten; a merge request from upstream's commit into our
+	//                 branch is opened for a human, and sync-conflict is signalled.
+	//   fail:         the run fails.
+	//   notify:       sync-conflict is signalled; nothing else.
+	OnConflict string `yaml:"on_conflict,omitempty"`
+}
+
+// UpstreamOnto is upstream.sync.onto: the scalar release, or {branch: <name>}.
+type UpstreamOnto struct {
+	Branch string `yaml:"branch,omitempty"`
+}
+
+// UnmarshalYAML accepts the scalar release or a {branch:} map.
+func (o *UpstreamOnto) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		if n.Value != "release" {
+			return fmt.Errorf("upstream.sync.onto: %q — use release or {branch: <name>}", n.Value)
+		}
+		*o = UpstreamOnto{}
+		return nil
+	}
+	type plain UpstreamOnto
+	var p plain
+	if err := strictNodeDecode(n, &p); err != nil {
+		return fmt.Errorf("upstream.sync.onto: %w", err)
+	}
+	*o = UpstreamOnto(p)
+	return nil
+}
+
+// Sync strategies and conflict outcomes.
+const (
+	SyncRebase = "rebase"
+	SyncMerge  = "merge"
+	SyncMirror = "mirror"
+
+	SyncConflictMR     = "mr"
+	SyncConflictFail   = "fail"
+	SyncConflictNotify = "notify"
+)
+
+// EffectiveStrategy returns the sync strategy (rebase when unset).
+func (s UpstreamSync) EffectiveStrategy() string {
+	if s.Strategy == "" {
+		return SyncRebase
+	}
+	return s.Strategy
+}
+
+// EffectiveOnConflict returns the conflict outcome (mr when unset).
+func (s UpstreamSync) EffectiveOnConflict() string {
+	if s.OnConflict == "" {
+		return SyncConflictMR
+	}
+	return s.OnConflict
 }
 
 // UpstreamPin is one place a source's version is pinned. Set exactly one of arg, path,
@@ -418,6 +501,31 @@ func validateUpstream(cfg *Config) []string {
 		}
 	}
 	checkOnMismatch("upstream.version", v.OnMismatch, v.Reason)
+	if sy := u.Sync; sy != (UpstreamSync{}) {
+		from, ok := ids[sy.From]
+		switch kind, _ := from.Kind(); {
+		case sy.From == "":
+			errs = append(errs, "upstream.sync.from: required — the git source to sync from")
+		case !ok:
+			errs = append(errs, fmt.Sprintf("upstream.sync.from: %q is not a declared source (upstream.sources)", sy.From))
+		case kind != UpstreamKindGit:
+			errs = append(errs, fmt.Sprintf("upstream.sync.from: %q is not a git source", sy.From))
+		}
+		switch sy.Strategy {
+		case "", SyncRebase, SyncMerge:
+		case SyncMirror:
+			if sy.Onto.Branch == "" {
+				errs = append(errs, "upstream.sync.onto: mirror follows a branch — set onto: {branch: <name>}")
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("upstream.sync.strategy: unknown %q (rebase | merge | mirror)", sy.Strategy))
+		}
+		switch sy.OnConflict {
+		case "", SyncConflictMR, SyncConflictFail, SyncConflictNotify:
+		default:
+			errs = append(errs, fmt.Sprintf("upstream.sync.on_conflict: unknown %q (mr | fail | notify)", sy.OnConflict))
+		}
+	}
 	switch u.Release {
 	case "", UpstreamReleaseAuto, UpstreamReleaseManual:
 		if u.Release != "" && mode != UpstreamVersionTrack {

@@ -66,16 +66,16 @@ func TestAutoReleaseTag(t *testing.T) {
 	}
 
 	seed("2.21.6", "2.21.5")
-	if tag, reason := autoReleaseTag(t.Context(), root, cs, src); tag != "v2.21.6" {
+	if tag, reason := autoReleaseTag(t.Context(), root, cs, src, head.String()); tag != "v2.21.6" {
 		t.Fatalf("pins name an unreleased-by-us upstream release: tag=%q reason=%q", tag, reason)
 	}
 	repo.CreateTag("v2.21.6", head, nil)
-	if tag, reason := autoReleaseTag(t.Context(), root, cs, src); tag != "" || reason != "" {
+	if tag, reason := autoReleaseTag(t.Context(), root, cs, src, head.String()); tag != "" || reason != "" {
 		t.Fatalf("already released: tag=%q reason=%q", tag, reason)
 	}
 	repo.DeleteTag("v2.21.6")
 	seed("2.21.5")
-	if tag, reason := autoReleaseTag(t.Context(), root, cs, src); tag != "" || reason == "" {
+	if tag, reason := autoReleaseTag(t.Context(), root, cs, src, head.String()); tag != "" || reason == "" {
 		t.Fatalf("pins naming a version upstream never released must not be tagged: tag=%q reason=%q", tag, reason)
 	}
 	_ = plumbing.ZeroHash

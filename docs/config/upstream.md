@@ -149,11 +149,60 @@ upstream:
   from there; the bump that adopts a version also clears it from the lock. Without a cooldown
   there is no lock.
 
+## Sync — keeping a fork on top of upstream
+
+`sync` keeps a history fork current: on the default branch, StageFreight joins upstream's
+newest release (or a branch head) into our branch and pushes the result, which starts an
+ordinary pipeline on it.
+
+```yaml
+upstream:
+  sources:
+    zitadel: { git: https://github.com/zitadel/zitadel }
+  version: { track: zitadel, ancestry: true }
+  sync:
+    from: zitadel
+    onto: release            # default; or { branch: main }
+    strategy: rebase         # default; merge | mirror
+    shadow: upstream         # optional: a branch kept at upstream's synced commit
+    on_conflict: mr          # default; fail | notify
+```
+
+| `strategy:` | Our branch afterwards |
+|---|---|
+| `rebase` | our commits replayed on top of upstream's release — rewritten, so the forge must let StageFreight force-push the branch |
+| `merge` | a merge commit joining upstream's release; nothing rewritten. The merge commit carries `Upstream-Rev: <sha>` |
+| `mirror` | exactly upstream's branch (fast-forward only); a branch that has diverged is kept and reported, never overwritten |
+
+How a sync behaves:
+
+- **Line-level merging, without guessing.** Each change is a three-way merge: changes to
+  different lines of a file combine; changes that overlap (or touch) are a conflict unless
+  both sides made the identical change. A patch upstream has already taken is dropped from a
+  rebase. Replaying the same history onto the same release always produces the same commits.
+- **Conflicts change nothing.** `on_conflict: mr` pushes upstream's commit to
+  `stagefreight/sync/<source>/<release>` and opens a merge request into our branch listing the
+  conflicting paths; `fail` fails the run; `notify` only signals. All three raise
+  `sync-conflict`.
+- **Never over someone else's push.** Our branch is pushed only if it still points at the
+  commit the run started from; otherwise the next run syncs again.
+- **A refused force push becomes a merge request** carrying the rebased branch, with what to
+  do (allow StageFreight to force-push, or replace the branch with it).
+- **A rebase needs straight history.** A branch with merge commits is reported; use
+  `strategy: merge`.
+- **The dependency update waits.** When a sync pushes, that run leaves the dependency update to
+  the new commit's pipeline, so two writers never push onto a branch just rewritten.
+
+With `version.track` on the same source and `release: auto`, the synced commit is released as
+the newest upstream release it contains — no pins needed. `version.ancestry: true` then proves
+that release on the tag pipeline.
+
 ## Release — cutting the tag
 
 Under `track`, `release: auto` (the default) cuts the release itself: after a successful run on
 the default branch, when the source's pins name a version upstream has released and no tag of
-ours names it yet, StageFreight tags the commit it just built with that version (keeping our
+ours names it yet (or, for a synced fork, when the built commit contains an upstream release
+we have not tagged), StageFreight tags the commit it just built with that version (keeping our
 `v` convention) and pushes the tag. The release pipeline then checks every guard and evidence
 probe like any hand-cut release. `release: manual` leaves tagging to a person
 (`stagefreight tag`). A rebuild of an already-released version stays an in-place rebuild — no
@@ -170,6 +219,7 @@ What the watcher finds is raised as signals, which notifications select with
 | `updates-available` | the tracked source released a version newer than our newest |
 | `version-mismatch` | one of our tags makes a false claim (track: never released; continue: already released), or a tolerated (`report`) guard or probe mismatch shipped |
 | `upstream-unreachable` | a source could not be listed |
+| `sync-conflict` | a sync could not land: upstream's changes overlap ours, a mirror diverged, or the push was refused |
 
 ```yaml
 notifications:

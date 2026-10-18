@@ -44,6 +44,7 @@ elides when its domain recorded nothing):
 | `upstream.` | `source` · `latest` · `ours` · `mismatched` · `unparsed` · `signals` (the claimed source; plus `{upstream.<id>.latest}` per source) |
 | `schedules.` | `managed` · `changes` · `signals` (GitLab schedule reconcile) |
 | `evidence.` | `checked` · `mismatched` · `signals` (release version probes, publish) |
+| `sync.` | `target` · `result` · `conflicts` · `signals` (upstream sync) |
 | `retention.` | `pruned` |
 
 Every recorded domain additionally serves `{domain.outcome}` and
@@ -123,7 +124,8 @@ Dispatch rules worth knowing:
   green run can still have found that upstream released something new. A
   condition with `signals:` matches only a run that raised at least one of them —
   `updates-available`, `version-mismatch`, `upstream-unreachable` (see
-  [Upstream](upstream.md)), `schedule-inactive` (see [Schedules](schedules.md)).
+  [Upstream](upstream.md)), `sync-conflict`, `schedule-inactive` (see
+  [Schedules](schedules.md)).
 - **`schedules:` gates on which schedule fired the run** — ids from the
   top-level `schedules:` block.
 - **Empty bodies skip** — a notification whose rendered body is empty (every
