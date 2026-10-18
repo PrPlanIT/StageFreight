@@ -29,4 +29,5 @@ var DomainFacts = map[string][]string{
 	"changelog": {"count", "range"},
 	"reconcile": {"total", "succeeded", "failed", "backend", "units", "cluster", "declined", "failures"},
 	"ansible":   {"total", "converged", "changed", "unreachable", "failed"},
+	"upstream":  {"source", "latest", "ours", "mismatched", "unparsed", "signals"},
 }

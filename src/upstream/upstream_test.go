@@ -5,43 +5,81 @@ import (
 	"strings"
 	"testing"
 
+	masterminds "github.com/Masterminds/semver/v3"
+
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // The case that motivated the guard: hlhd/ansible tracks ansible-core, upstream has released
 // up to 2.21.5, and an image-only fix was tagged v2.21.6.
-var (
-	ansibleUpstreamTags = []string{"v2.20.9", "v2.21.4", "v2.21.5", "v2.22.0b1", "v2.22.0rc1", "devel-tip"}
-	ansibleSource       = Source{Kind: "git", Location: "https://github.com/ansible/ansible", Match: regexp.MustCompile(config.DefaultUpstreamMatch)}
-)
+var ansibleUpstreamTags = []string{"v2.20.9", "v2.21.4", "v2.21.5", "v2.22.0b1", "v2.22.0-rc.1", "devel-tip", "v2-preview-1", "002749b50-arm64", "0032aa529f273e7ff37d92832a3b19c522c7e690"}
 
-func TestReleases_DefaultMatchKeepsStableSemverNewestFirst(t *testing.T) {
-	got := Releases(ansibleUpstreamTags, ansibleSource.Match)
-	var tags []string
-	for _, r := range got {
-		tags = append(tags, r.Tag)
+func defaultSel() Selection {
+	return Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags)}
+}
+
+func ansible(mode string) Claim {
+	return Claim{Mode: mode, Source: Source{ID: "core", Kind: config.UpstreamKindGit, Location: "https://github.com/ansible/ansible", Select: defaultSel()}}
+}
+
+func tagsOf(rs []Release) string {
+	var out []string
+	for _, r := range rs {
+		out = append(out, r.Tag)
 	}
-	if strings.Join(tags, ",") != "v2.21.5,v2.21.4,v2.20.9" {
-		t.Fatalf("releases = %v, want stable semver newest first", tags)
+	return strings.Join(out, ",")
+}
+
+func TestReleases_DefaultSelectionKeepsStableNewestFirstAndReportsUnparsed(t *testing.T) {
+	got, unparsed := Releases(ansibleUpstreamTags, defaultSel())
+	if tagsOf(got) != "v2.21.5,v2.21.4,v2.20.9" {
+		t.Fatalf("releases = %s, want stable versions newest first", tagsOf(got))
+	}
+	// devel-tip and the commit-SHA tags are not candidates; v2-preview-1 parses as the prerelease 2.0.0-preview-1 and
+	// is not selected; the PEP 440 beta is a candidate that does not parse, and must be
+	// reported rather than lost.
+	if strings.Join(unparsed, ",") != "v2.22.0b1" {
+		t.Fatalf("unparsed = %v", unparsed)
 	}
 }
 
-func TestReleases_VersionGroup(t *testing.T) {
-	re := regexp.MustCompile(`^release-(?P<version>\d+\.\d+\.\d+)$`)
-	got := Releases([]string{"release-1.2.3", "release-1.10.0", "v9.9.9"}, re)
-	if len(got) != 2 || got[0].Tag != "release-1.10.0" || got[0].Version.String() != "1.10.0" {
-		t.Fatalf("got %+v, want release-1.10.0 then release-1.2.3", got)
+func TestReleases_ExcludeWinsAndPrereleasesOptIn(t *testing.T) {
+	sel := defaultSel()
+	sel.Exclude = []*regexp.Regexp{regexp.MustCompile(`^v2-preview`), regexp.MustCompile(`b\d+$`)}
+	sel.Prereleases = true
+	got, unparsed := Releases(ansibleUpstreamTags, sel)
+	if tagsOf(got) != "v2.22.0-rc.1,v2.21.5,v2.21.4,v2.20.9" {
+		t.Fatalf("releases = %s", tagsOf(got))
+	}
+	if len(unparsed) != 0 {
+		t.Fatalf("excluded tags must not be reported as unparsed: %v", unparsed)
+	}
+}
+
+func TestReleases_VersionGroupAndTwoPartVersions(t *testing.T) {
+	sel := Selection{Tags: regexp.MustCompile(`^release-(?P<version>[\d.]+)$`)}
+	got, _ := Releases([]string{"release-11.4", "release-11.10", "v9.9.9"}, sel)
+	if tagsOf(got) != "release-11.10,release-11.4" || got[1].Version.String() != "11.4.0" {
+		t.Fatalf("got %s", tagsOf(got))
+	}
+}
+
+func TestReleases_PreciseTagBeatsFloatingAlias(t *testing.T) {
+	got, _ := Releases([]string{"3.15", "3.15.0", "3.14.2", "3.14"}, defaultSel())
+	if tagsOf(got) != "3.15.0,3.15,3.14.2,3.14" {
+		t.Fatalf("releases = %s, want the precise tag first among equal versions", tagsOf(got))
 	}
 }
 
 func TestOurVersion(t *testing.T) {
 	cases := map[string]string{
-		"v2.21.5":    "2.21.5",
-		"2.21.5":     "2.21.5",
-		"v2.8.1-3":   "2.8.1", // image revision suffix names the same upstream version
-		"v0.9.2-r2":  "0.9.2",
-		"v2.22.0rc1": "", // a pre-release is not a release
-		"latest":     "",
+		"v2.21.5":     "2.21.5",
+		"2.21.5":      "2.21.5",
+		"v2.8.1-3":    "2.8.1", // a revision suffix names the same upstream version
+		"v0.9.2-r2":   "0.9.2",
+		"v1.2.0-rc.1": "1.2.0-rc.1", // a prerelease names itself
+		"v2.22.0rc1":  "",
+		"latest":      "",
 	}
 	for tag, want := range cases {
 		v, ok := OurVersion(tag)
@@ -56,55 +94,87 @@ func TestOurVersion(t *testing.T) {
 }
 
 func TestEvaluate_TrackFlagsTheUnreleasedVersion(t *testing.T) {
-	up := Releases(ansibleUpstreamTags, ansibleSource.Match)
-	rep := Evaluate(ansibleSource, up, []string{"v2.21.4", "v2.21.5", "v2.21.6", "latest-dev"}, true)
+	up, _ := Releases(ansibleUpstreamTags, defaultSel())
+	rep := Evaluate(ansible(config.UpstreamVersionTrack), up, []string{"v2.21.4", "v2.21.5", "v2.21.6", "latest-dev"})
 	if strings.Join(rep.Mismatched, ",") != "v2.21.6" {
 		t.Fatalf("mismatched = %v, want [v2.21.6]", rep.Mismatched)
 	}
 	if rep.UpdatesAvailable {
-		t.Fatal("ours (v2.21.6) is not behind upstream's newest (v2.21.5); no update is available")
+		t.Fatal("ours (v2.21.6) is not behind upstream's newest; no update is available")
 	}
 }
 
-func TestEvaluate_UpdatesAvailable(t *testing.T) {
-	up := Releases(ansibleUpstreamTags, ansibleSource.Match)
-	rep := Evaluate(ansibleSource, up, []string{"v2.21.4"}, true)
+func TestEvaluate_TrackUpdatesAvailable(t *testing.T) {
+	up, _ := Releases(ansibleUpstreamTags, defaultSel())
+	rep := Evaluate(ansible(config.UpstreamVersionTrack), up, []string{"v2.21.4"})
 	if !rep.UpdatesAvailable || rep.UpstreamNewest.Tag != "v2.21.5" || rep.OursNewest != "v2.21.4" {
 		t.Fatalf("report = %+v, want update v2.21.4 -> v2.21.5", rep)
 	}
-	if len(rep.Mismatched) != 0 {
-		t.Fatalf("mismatched = %v, want none", rep.Mismatched)
+}
+
+func TestEvaluate_ContinueFlagsCollisions(t *testing.T) {
+	// weave-gitops: our lineage continues a dormant upstream's numbering.
+	up, _ := Releases([]string{"v0.38.0", "v0.39.0"}, defaultSel())
+	rep := Evaluate(ansible(config.UpstreamVersionContinue), up, []string{"v0.39.0", "v0.39.1"})
+	if strings.Join(rep.Mismatched, ",") != "v0.39.0" {
+		t.Fatalf("mismatched = %v, want the collision v0.39.0 only", rep.Mismatched)
+	}
+	if rep.UpdatesAvailable {
+		t.Fatal("continue never reports updates: upstream's numbering is ours to extend")
 	}
 }
 
-func TestEvaluate_OwnModeNeverMismatches(t *testing.T) {
-	up := Releases(ansibleUpstreamTags, ansibleSource.Match)
-	rep := Evaluate(ansibleSource, up, []string{"v1.0.0", "v1.4.2"}, false)
-	if len(rep.Mismatched) != 0 {
-		t.Fatalf("own lineage cannot mismatch upstream, got %v", rep.Mismatched)
+func TestEvaluate_SinceIsTheCutover(t *testing.T) {
+	up, _ := Releases(ansibleUpstreamTags, defaultSel())
+	c := ansible(config.UpstreamVersionTrack)
+	c.Since = masterminds.MustParse("2.21.0")
+	rep := Evaluate(c, up, []string{"v1.0.7", "v2.21.6"})
+	if strings.Join(rep.Mismatched, ",") != "v2.21.6" {
+		t.Fatalf("mismatched = %v, want only the tag after the cutover", rep.Mismatched)
 	}
 }
 
 func TestEvaluate_EmptyUpstreamFlagsNothing(t *testing.T) {
-	// A pattern that selects nothing is a config problem, not proof that every tag lies.
-	rep := Evaluate(ansibleSource, nil, []string{"v2.21.5"}, true)
+	// A selection that keeps nothing is a config problem, not proof that every tag lies.
+	rep := Evaluate(ansible(config.UpstreamVersionTrack), nil, []string{"v2.21.5"})
 	if len(rep.Mismatched) != 0 || rep.UpdatesAvailable {
 		t.Fatalf("report = %+v, want nothing flagged", rep)
 	}
 }
 
-func TestReleaseVerdict(t *testing.T) {
-	up := Releases(ansibleUpstreamTags, ansibleSource.Match)
-	if ok, reason := ReleaseVerdict(ansibleSource, up, "v2.21.6"); ok || !strings.Contains(reason, "2.21.6") || !strings.Contains(reason, "v2.21.5") {
+func TestReleaseVerdict_Track(t *testing.T) {
+	up, _ := Releases(ansibleUpstreamTags, defaultSel())
+	c := ansible(config.UpstreamVersionTrack)
+	if ok, reason := ReleaseVerdict(c, up, "v2.21.6"); ok || !strings.Contains(reason, "2.21.6") || !strings.Contains(reason, "v2.21.5") {
 		t.Fatalf("v2.21.6 must be refused naming the newest upstream release; ok=%v reason=%q", ok, reason)
 	}
-	if ok, _ := ReleaseVerdict(ansibleSource, up, "v2.21.5"); !ok {
-		t.Fatal("v2.21.5 is released upstream and must be allowed")
+	for _, tag := range []string{"v2.21.5", "v2.21.5-2"} {
+		if ok, reason := ReleaseVerdict(c, up, tag); !ok {
+			t.Fatalf("%s names a released version and must be allowed: %s", tag, reason)
+		}
 	}
-	if ok, _ := ReleaseVerdict(ansibleSource, up, "v2.21.5-2"); !ok {
-		t.Fatal("an image revision of a released version names that version and must be allowed")
-	}
-	if ok, _ := ReleaseVerdict(ansibleSource, up, "nightly"); ok {
+	if ok, _ := ReleaseVerdict(c, up, "nightly"); ok {
 		t.Fatal("a tag naming no version cannot ship under track")
+	}
+	if ok, reason := ReleaseVerdict(c, up, "v2.22.0-rc.1"); ok || !strings.Contains(reason, "select.prereleases") {
+		t.Fatalf("an unselected prerelease must be refused with the prereleases hint; reason=%q", reason)
+	}
+	c.Since = masterminds.MustParse("2.22.0")
+	if ok, _ := ReleaseVerdict(c, up, "v2.21.6"); !ok {
+		t.Fatal("a tag before the cutover is not judged")
+	}
+}
+
+func TestReleaseVerdict_Continue(t *testing.T) {
+	up, _ := Releases([]string{"v0.38.0", "v0.39.0"}, defaultSel())
+	c := ansible(config.UpstreamVersionContinue)
+	if ok, reason := ReleaseVerdict(c, up, "v0.39.0"); ok || !strings.Contains(reason, "already released") {
+		t.Fatalf("a version upstream released must be refused; ok=%v reason=%q", ok, reason)
+	}
+	if ok, _ := ReleaseVerdict(c, up, "v0.39.1"); !ok {
+		t.Fatal("a version upstream never released is ours to take")
+	}
+	if ok, _ := ReleaseVerdict(c, up, "nightly"); !ok {
+		t.Fatal("continue judges only tags that name a version")
 	}
 }

@@ -318,20 +318,24 @@ type TargetCondition struct {
 
 // Signals a run can raise for notifications' when.signals.
 const (
-	// SignalUpdatesAvailable: the declared upstream published a release newer than ours.
+	// SignalUpdatesAvailable: the tracked upstream published a release newer than ours.
 	SignalUpdatesAvailable = "updates-available"
-	// SignalVersionMismatch: one of our release tags names a version upstream never released.
+	// SignalVersionMismatch: one of our release tags makes a false claim about upstream — under
+	// track a version it never released, under continue one it has released.
 	SignalVersionMismatch = "version-mismatch"
+	// SignalUpstreamUnreachable: a declared upstream could not be listed.
+	SignalUpstreamUnreachable = "upstream-unreachable"
 )
 
 var validSignals = map[string]bool{
-	SignalUpdatesAvailable: true,
-	SignalVersionMismatch:  true,
+	SignalUpdatesAvailable:    true,
+	SignalVersionMismatch:     true,
+	SignalUpstreamUnreachable: true,
 }
 
 // SignalNames lists the signal vocabulary, for messages and docs.
 func SignalNames() []string {
-	return []string{SignalUpdatesAvailable, SignalVersionMismatch}
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

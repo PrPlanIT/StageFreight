@@ -26,13 +26,21 @@ import (
 
 // Source is one declared upstream, ready to list.
 type Source struct {
-	Kind     string // "git" | "image"
+	ID       string
+	Kind     string // config.UpstreamKind*
 	Location string // repository URL or image repository
-	Match    *regexp.Regexp
+	Select   Selection
+}
+
+// Selection is a source's compiled select: block.
+type Selection struct {
+	Tags        *regexp.Regexp
+	Exclude     []*regexp.Regexp
+	Prereleases bool
 }
 
 // String names the source for messages.
-func (s Source) String() string { return s.Kind + " " + s.Location }
+func (s Source) String() string { return s.ID + " (" + s.Kind + " " + s.Location + ")" }
 
 // Release is one upstream release: the tag as published and the version it names.
 type Release struct {
@@ -40,26 +48,25 @@ type Release struct {
 	Version *masterminds.Version
 }
 
-// Sources builds the listable sources from config, compiling each match pattern.
+// Sources builds the listable sources from config, compiling each selection.
 func Sources(u config.UpstreamConfig) ([]Source, error) {
 	var out []Source
-	add := func(kind, loc, match string) error {
-		re, err := regexp.Compile(config.EffectiveMatch(match))
+	for _, cs := range u.Sources {
+		kind, loc := cs.Kind()
+		sel := Selection{Prereleases: cs.Select.Prereleases}
+		re, err := regexp.Compile(cs.Select.EffectiveTags())
 		if err != nil {
-			return fmt.Errorf("upstream %s %s: match: %w", kind, loc, err)
+			return nil, fmt.Errorf("upstream.sources.%s.select.tags: %w", cs.ID, err)
 		}
-		out = append(out, Source{Kind: kind, Location: loc, Match: re})
-		return nil
-	}
-	for _, g := range u.Git {
-		if err := add("git", g.Repo, g.Match); err != nil {
-			return nil, err
+		sel.Tags = re
+		for i, ex := range cs.Select.Exclude {
+			re, err := regexp.Compile(ex)
+			if err != nil {
+				return nil, fmt.Errorf("upstream.sources.%s.select.exclude[%d]: %w", cs.ID, i, err)
+			}
+			sel.Exclude = append(sel.Exclude, re)
 		}
-	}
-	for _, im := range u.Images {
-		if err := add("image", im.Ref, im.Match); err != nil {
-			return nil, err
-		}
+		out = append(out, Source{ID: cs.ID, Kind: kind, Location: loc, Select: sel})
 	}
 	return out, nil
 }
@@ -67,7 +74,7 @@ func Sources(u config.UpstreamConfig) ([]Source, error) {
 // ListTags lists every tag the source publishes.
 func ListTags(ctx context.Context, src Source) ([]string, error) {
 	switch src.Kind {
-	case "git":
+	case config.UpstreamKindGit:
 		rem := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "upstream", URLs: []string{src.Location}})
 		refs, err := rem.ListContext(ctx, &git.ListOptions{})
 		if err != nil {
@@ -80,7 +87,7 @@ func ListTags(ctx context.Context, src Source) ([]string, error) {
 			}
 		}
 		return tags, nil
-	case "image":
+	case config.UpstreamKindImage:
 		repo, err := name.NewRepository(src.Location)
 		if err != nil {
 			return nil, fmt.Errorf("image %s: %w", src.Location, err)
@@ -95,16 +102,22 @@ func ListTags(ctx context.Context, src Source) ([]string, error) {
 	}
 }
 
-// Releases keeps the tags the source's pattern selects, newest first. The version is the
-// named group "version", else the first group, else the whole tag; tags whose version does
-// not parse are dropped.
-func Releases(tags []string, match *regexp.Regexp) []Release {
-	var out []Release
-	vi := match.SubexpIndex("version")
+// Releases applies the selection to a source's tags and returns its releases, newest first.
+// The version is the named group "version" of select.tags, else its first group, else the whole
+// tag. Candidates whose version does not parse are returned as unparsed, so the caller can
+// report them instead of silently losing them.
+func Releases(tags []string, sel Selection) (releases []Release, unparsed []string) {
+	vi := sel.Tags.SubexpIndex("version")
+tag:
 	for _, t := range tags {
-		m := match.FindStringSubmatch(t)
+		m := sel.Tags.FindStringSubmatch(t)
 		if m == nil {
 			continue
+		}
+		for _, ex := range sel.Exclude {
+			if ex.MatchString(t) {
+				continue tag
+			}
 		}
 		raw := m[0]
 		switch {
@@ -115,21 +128,41 @@ func Releases(tags []string, match *regexp.Regexp) []Release {
 		}
 		v := version.ParseVersion(raw)
 		if v == nil {
+			unparsed = append(unparsed, t)
 			continue
 		}
-		out = append(out, Release{Tag: t, Version: v})
+		if v.Prerelease() != "" && !sel.Prereleases {
+			continue
+		}
+		releases = append(releases, Release{Tag: t, Version: v})
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Version.GreaterThan(out[j].Version) })
-	return out
+	// Equal versions (3.15 and 3.15.0) rank the more precise tag first, so a floating alias
+	// never stands in for the release it points at.
+	sort.SliceStable(releases, func(i, j int) bool {
+		a, b := releases[i], releases[j]
+		if !a.Version.Equal(b.Version) {
+			return a.Version.GreaterThan(b.Version)
+		}
+		if len(a.Tag) != len(b.Tag) {
+			return len(a.Tag) > len(b.Tag)
+		}
+		return a.Tag < b.Tag
+	})
+	sort.Strings(unparsed)
+	return releases, unparsed
 }
 
-// OurVersion returns the upstream version one of our release tags names: the semver at the
-// start of the tag, v-prefix and any "-suffix" (an image revision) stripped. ok is false for
-// tags that name no version.
+// OurVersion returns the upstream version one of our release tags names: the version at the
+// start of the tag with the v-prefix and any revision suffix ("-3", "-r2") stripped. A
+// prerelease tag names its full prerelease version. ok is false for tags that name no version.
 func OurVersion(tag string) (*masterminds.Version, bool) {
 	dt := version.DecomposeTag(tag)
-	if dt.Version == nil || dt.PreRank != 0 {
+	if dt.Version == nil {
 		return nil, false
+	}
+	if dt.PreRank != 0 {
+		v := version.ParseVersion(tag)
+		return v, v != nil
 	}
 	base, err := masterminds.NewVersion(fmt.Sprintf("%d.%d.%d", dt.Version.Major(), dt.Version.Minor(), dt.Version.Patch()))
 	if err != nil {
@@ -138,26 +171,34 @@ func OurVersion(tag string) (*masterminds.Version, bool) {
 	return base, true
 }
 
-// Report is what the watcher found for one source.
-type Report struct {
-	Source           Source
-	UpstreamNewest   *Release // nil when the source published nothing the pattern selects
-	OursNewest       string   // our newest release tag, "" when we have none
-	UpdatesAvailable bool     // upstream's newest is newer than our newest
-	Mismatched       []string // (track) our release tags naming a version upstream never released
+// Claim is what our release tags claim about one upstream: the version mode, the source it
+// names, and the cutover before which tags are not judged.
+type Claim struct {
+	Mode   string               // config.UpstreamVersionTrack | config.UpstreamVersionContinue
+	Source Source               // the source the mode names
+	Since  *masterminds.Version // nil: every tag is judged
 }
 
-// Evaluate compares the upstream's releases with our release tags. ours is every tag in our
-// repo; tags that name no version are ignored. Mismatched is filled only for track mode, where
-// our version is upstream's version; in own mode our lineage is ours and nothing can mismatch.
-func Evaluate(src Source, upstream []Release, ours []string, track bool) Report {
-	r := Report{Source: src}
+// judged reports whether a tag's version falls under the claim (at or after the cutover).
+func (c Claim) judged(v *masterminds.Version) bool {
+	return c.Since == nil || !v.LessThan(c.Since)
+}
+
+// Report is what the watcher found for the claimed source.
+type Report struct {
+	UpstreamNewest   *Release // nil when the source released nothing the selection keeps
+	OursNewest       string   // our newest release tag, "" when we have none
+	UpdatesAvailable bool     // track: upstream's newest is newer than our newest
+	Mismatched       []string // our judged tags whose claim is false
+}
+
+// Evaluate compares the claimed source's releases with our tags. Under track a tag is false
+// when it names a version upstream never released; under continue, when it names one upstream
+// has released. Tags naming no version, and tags before the cutover, are not judged.
+func Evaluate(c Claim, upstream []Release, ours []string) Report {
+	var r Report
 	if len(upstream) > 0 {
 		r.UpstreamNewest = &upstream[0]
-	}
-	published := make(map[string]bool, len(upstream))
-	for _, rel := range upstream {
-		published[rel.Version.String()] = true
 	}
 	var newest *masterminds.Version
 	for _, t := range ours {
@@ -168,32 +209,60 @@ func Evaluate(src Source, upstream []Release, ours []string, track bool) Report 
 		if newest == nil || v.GreaterThan(newest) {
 			newest, r.OursNewest = v, t
 		}
-		if track && len(upstream) > 0 && !published[v.String()] {
+		if !c.judged(v) || len(upstream) == 0 {
+			continue
+		}
+		if released(upstream, v) != (c.Mode == config.UpstreamVersionTrack) {
 			r.Mismatched = append(r.Mismatched, t)
 		}
 	}
 	sort.Strings(r.Mismatched)
-	if r.UpstreamNewest != nil && (newest == nil || r.UpstreamNewest.Version.GreaterThan(newest)) {
+	if c.Mode == config.UpstreamVersionTrack && r.UpstreamNewest != nil && (newest == nil || r.UpstreamNewest.Version.GreaterThan(newest)) {
 		r.UpdatesAvailable = true
 	}
 	return r
 }
 
-// ReleaseVerdict decides whether a release tag may ship under version: track: its version must
-// be one upstream published. ok=false carries the reason the release is refused.
-func ReleaseVerdict(src Source, upstream []Release, tag string) (ok bool, reason string) {
+// ReleaseVerdict decides whether a release tag may ship under the claim. ok=false carries the
+// reason the release is refused.
+func ReleaseVerdict(c Claim, upstream []Release, tag string) (ok bool, reason string) {
 	v, named := OurVersion(tag)
 	if !named {
-		return false, fmt.Sprintf("release tag %q names no version, but upstream.version is track", tag)
+		if c.Mode == config.UpstreamVersionTrack {
+			return false, fmt.Sprintf("release tag %q names no version, but upstream.version tracks %s", tag, c.Source.ID)
+		}
+		return true, ""
 	}
-	for _, rel := range upstream {
-		if rel.Version.Equal(v) {
+	if !c.judged(v) {
+		return true, ""
+	}
+	switch c.Mode {
+	case config.UpstreamVersionTrack:
+		if released(upstream, v) {
 			return true, ""
 		}
+		newest := "nothing"
+		if len(upstream) > 0 {
+			newest = upstream[0].Tag
+		}
+		hint := ""
+		if v.Prerelease() != "" && !c.Source.Select.Prereleases {
+			hint = "; prereleases are not selected (select.prereleases: true tracks them)"
+		}
+		return false, fmt.Sprintf("release %s names version %s, which %s has not released (newest: %s)%s", tag, v, c.Source, newest, hint)
+	case config.UpstreamVersionContinue:
+		if released(upstream, v) {
+			return false, fmt.Sprintf("release %s names version %s, which %s has already released; our lineage continues its numbering and must not reuse it", tag, v, c.Source)
+		}
 	}
-	newest := "nothing"
-	if len(upstream) > 0 {
-		newest = upstream[0].Tag
+	return true, ""
+}
+
+func released(upstream []Release, v *masterminds.Version) bool {
+	for _, rel := range upstream {
+		if rel.Version.Equal(v) {
+			return true
+		}
 	}
-	return false, fmt.Sprintf("release %s names version %s, which %s has not released (newest: %s)", tag, v, src, newest)
+	return false
 }

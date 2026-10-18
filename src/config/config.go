@@ -152,8 +152,8 @@ type Config struct {
 	// Version pins, future retention policy, future trust settings.
 	Toolchains ToolchainSection `yaml:"toolchains,omitempty"`
 
-	// Upstream declares the source a fork repackages (fork mode): watched for new releases,
-	// and with version: track, the only source a release version may name.
+	// Upstream declares the upstreams a repo repackages or forks: each source is watched for new
+	// releases, and a release whose version claim about one is false is refused.
 	Upstream UpstreamConfig `yaml:"upstream,omitempty"`
 }
 

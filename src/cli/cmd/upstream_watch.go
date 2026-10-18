@@ -3,33 +3,35 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
 )
 
 // upstreamListTimeout bounds one upstream listing; a slow registry must not stall audition.
 const upstreamListTimeout = 60 * time.Second
 
-// watchUpstream runs fork mode's audition step for a repo that declares upstream:. It records
-// what it found as the "upstream" subsystem (facts {upstream.*} and the run's signals) and
-// returns the reason a release must be refused, or "" when nothing is refused.
+// watchUpstream runs upstream mode's audition step for a repo that declares upstream:. It lists
+// every source, records what it found as the "upstream" subsystem (facts {upstream.*} and the
+// run's signals), and returns the reason a release must be refused, or "" when nothing is.
 //
-// Only a release under version: track can be refused, and it fails closed: when upstream cannot
-// be listed, a release whose version cannot be verified does not ship. Everywhere else the
-// watcher only reports, and a failed listing degrades the run to a warning instead of blocking.
+// Only a release under version: track or continue can be refused, and it fails closed: when the
+// claimed source cannot be listed, a release whose claim cannot be verified does not ship. Any
+// other listing failure degrades the run to a warning and raises upstream-unreachable.
 func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (refuse string) {
 	u := appCfg.Upstream
 	if !u.Declared() {
 		return ""
 	}
-	track := u.VersionMode() == config.UpstreamVersionTrack
+	mode, claimed := u.Version.Mode()
 	releaseTag := config.CITag()
-	guarding := track && releaseTag != ""
+	guarding := mode != config.UpstreamVersionOwn && releaseTag != ""
 
 	sources, err := upstream.Sources(u)
 	if err != nil {
@@ -41,49 +43,71 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 	}
 
 	var (
-		signals    []string
-		mismatched []string
-		facts      = map[string]string{}
+		signals  []string
+		failures []string
+		unparsed int
+		facts    = map[string]string{}
 	)
 	for _, src := range sources {
 		lctx, cancel := context.WithTimeout(ctx, upstreamListTimeout)
 		tags, err := upstream.ListTags(lctx, src)
 		cancel()
 		if err != nil {
-			return recordUpstreamFailure(rootDir, guarding, err)
+			if guarding && src.ID == claimed {
+				return recordUpstreamFailure(rootDir, true, err)
+			}
+			fmt.Printf("  upstream: %s not listed: %v\n", src, err)
+			failures = append(failures, src.ID)
+			signals = appendOnce(signals, config.SignalUpstreamUnreachable)
+			continue
 		}
-		releases := upstream.Releases(tags, src.Match)
-		rep := upstream.Evaluate(src, releases, ours, track)
-
+		releases, bad := upstream.Releases(tags, src.Select)
+		unparsed += len(bad)
+		if len(bad) > 0 {
+			fmt.Printf("  upstream: %s: %d tag(s) selected but not a version, ignored: %s\n", src, len(bad), sample(bad, 5))
+		}
 		latest := "none"
-		if rep.UpstreamNewest != nil {
-			latest = rep.UpstreamNewest.Tag
+		if len(releases) > 0 {
+			latest = releases[0].Tag
 		}
-		fmt.Printf("  upstream: %s — newest %s, ours %s\n", src, latest, orNone(rep.OursNewest))
-		if facts["latest"] == "" {
-			facts["source"], facts["latest"], facts["ours"] = src.String(), latest, orNone(rep.OursNewest)
+		facts[src.ID+".latest"] = latest
+		fmt.Printf("  upstream: %s — newest %s\n", src, latest)
+
+		if src.ID != claimed {
+			continue
 		}
+		claim := upstream.Claim{Mode: mode, Source: src}
+		if u.Version.Since != "" {
+			claim.Since = version.ParseVersion(u.Version.Since)
+		}
+		rep := upstream.Evaluate(claim, releases, ours)
+		facts["source"], facts["latest"], facts["ours"] = src.ID, latest, orNone(rep.OursNewest)
 		if rep.UpdatesAvailable {
-			fmt.Printf("  upstream: %s released %s, newer than ours\n", src, latest)
+			fmt.Printf("  upstream: %s released %s, newer than ours (%s)\n", src, latest, orNone(rep.OursNewest))
 			signals = appendOnce(signals, config.SignalUpdatesAvailable)
 		}
 		if len(rep.Mismatched) > 0 {
-			fmt.Printf("  upstream: our tags name versions %s never released: %s\n", src, strings.Join(rep.Mismatched, ", "))
+			fmt.Printf("  upstream: our tags make a false %s claim about %s: %s\n", mode, src, strings.Join(rep.Mismatched, ", "))
 			signals = appendOnce(signals, config.SignalVersionMismatch)
-			mismatched = append(mismatched, rep.Mismatched...)
+			facts["mismatched"] = strings.Join(rep.Mismatched, ",")
 		}
 		if guarding {
-			if ok, reason := upstream.ReleaseVerdict(src, releases, releaseTag); !ok {
+			if ok, reason := upstream.ReleaseVerdict(claim, releases, releaseTag); !ok {
 				refuse = reason
 			}
 		}
 	}
+	if unparsed > 0 {
+		facts["unparsed"] = strconv.Itoa(unparsed)
+	}
+	facts[cistate.SignalsKey] = strings.Join(signals, ",")
 
-	facts["signals"] = strings.Join(signals, ",")
-	facts["mismatched"] = strings.Join(mismatched, ",")
 	sub := cistate.SubsystemState{
 		Name: "upstream", Attempted: true, Completed: true, AllowFailure: true,
 		Outcome: "success", Reason: "upstream watched", Results: facts,
+	}
+	if len(failures) > 0 {
+		sub.Outcome, sub.Reason = "warning", "upstream not listed: "+strings.Join(failures, ", ")
 	}
 	if refuse != "" {
 		fmt.Printf("  upstream: refusing release — %s\n", refuse)
@@ -93,12 +117,14 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 	return refuse
 }
 
-// recordUpstreamFailure records a failed upstream listing. A track-mode release cannot be
-// verified without the listing, so it is refused; any other run only degrades to a warning.
+// recordUpstreamFailure records a run in which upstream could not be watched. A claimed release
+// cannot be verified without the listing, so it is refused; any other run only degrades to a
+// warning.
 func recordUpstreamFailure(rootDir string, guarding bool, err error) string {
 	sub := cistate.SubsystemState{
 		Name: "upstream", Attempted: true, Completed: true, AllowFailure: true,
 		Outcome: "warning", Reason: fmt.Sprintf("upstream not watched: %v", err),
+		Results: map[string]string{cistate.SignalsKey: config.SignalUpstreamUnreachable},
 	}
 	refuse := ""
 	if guarding {
@@ -124,4 +150,12 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+// sample renders up to n items, noting how many more there are.
+func sample(items []string, n int) string {
+	if len(items) <= n {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s, … (%d more)", strings.Join(items[:n], ", "), len(items)-n)
 }

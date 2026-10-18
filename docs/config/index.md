@@ -28,6 +28,7 @@ Every top-level key, sorted into meaningful groups:
 | [Lint](lint.md) | `lint` |
 | [Policy](policy.md) | `git` · `ci` · `dependency` · `release` · `security` · `commit` · `tagging` · `toolchains` · `glossary` · `manifest` |
 | [Signing](signing.md) | `signing` |
+| [Upstream](upstream.md) | `upstream` |
 
 A few ideas cut across every bucket — template variables, credential resolution, retention,
 and the pattern/condition syntax. They live once in **[Concepts](concepts.md)** and are
