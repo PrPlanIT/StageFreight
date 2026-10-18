@@ -15,6 +15,9 @@ upstream:
   version:
     track: core
     since: v2.21.5
+  evidence:
+    image:                      # build id
+      probe: { package: ansible-core, manager: pip }
 ```
 
 ## Sources
@@ -71,6 +74,45 @@ changing mode never reinterprets old releases.
 The check fails closed: if the claimed source cannot be listed, a release that needs it does
 not ship. Any other listing failure is a warning.
 
+`on_mismatch: report` (with a required `reason:`) lets a false claim ship and raises
+`version-mismatch` instead of refusing — for a lineage shared with upstream, say. The default
+is `refuse`.
+
+## Evidence — the image must contain what the tag says
+
+A version that upstream released is still a lie if the image ships something else (an
+image-only fix tagged as the next upstream version). So `track` needs **evidence** for every
+docker build, checked in publish on the exact bytes about to be distributed, before anything
+reaches a registry. There are two kinds:
+
+**A probe** reads the version out of the built image without running it:
+
+| Probe | Reads |
+|---|---|
+| `label: <key>` | an OCI image label |
+| `file: /abs/path` | a file in the image (symlinks followed); `match:` picks the version |
+| `package: <name>` + `manager: pip \| dpkg \| apk` | the package database — works on images with no shell |
+
+`match:` is a regex whose `version` group (else first group) is the version; the default takes
+the first dotted version. A package manager's own revision (`-r3`, Debian `-1`, epochs) is
+removed before comparing. A probe that disagrees with the release tag refuses that image; a
+probe that cannot read anything refuses it too — unproven is not proven. Per build,
+`on_mismatch: report` + `reason:` tolerates an upstream whose metadata trails its own tag.
+
+**Ancestry** (`version.ancestry: true`, git sources) proves a history fork instead: upstream's
+commit for the claimed version must be an ancestor of the commit being released. It is the
+right evidence where the build stamps its own version into the binary, which makes a probe
+circular.
+
+```yaml
+upstream:
+  sources:
+    zitadel: { git: https://github.com/zitadel/zitadel }
+  version: { track: zitadel, ancestry: true }
+```
+
+Validation names any docker build that has neither.
+
 ## Signals
 
 What the watcher finds is raised as signals, which notifications select with
@@ -79,7 +121,7 @@ What the watcher finds is raised as signals, which notifications select with
 | Signal | Raised when |
 |---|---|
 | `updates-available` | the tracked source released a version newer than our newest |
-| `version-mismatch` | one of our tags makes a false claim (track: never released; continue: already released) |
+| `version-mismatch` | one of our tags makes a false claim (track: never released; continue: already released), or a tolerated (`report`) guard or probe mismatch shipped |
 | `upstream-unreachable` | a source could not be listed |
 
 ```yaml

@@ -123,30 +123,37 @@ func LayoutToRegistry(ctx context.Context, layoutDir, ref, wantDigest string, au
 // entry it reads the first real platform image's config; the provenance labels
 // StandardLabels injects are identical across platforms.
 func OCILabel(layoutDir, wantDigest, key string) (string, error) {
-	p, err := layout.FromPath(layoutDir)
-	if err != nil {
-		return "", fmt.Errorf("promote: opening OCI layout %s: %w", layoutDir, err)
-	}
-	idx, err := p.ImageIndex()
-	if err != nil {
-		return "", fmt.Errorf("promote: reading layout index: %w", err)
-	}
-	want, err := v1.NewHash(wantDigest)
-	if err != nil {
-		return "", fmt.Errorf("promote: parsing recorded digest %q: %w", wantDigest, err)
-	}
-	img, err := imageForDigest(idx, want)
+	img, err := LayoutImage(layoutDir, wantDigest)
 	if err != nil {
 		return "", err
 	}
 	cf, err := img.ConfigFile()
 	if err != nil {
-		return "", fmt.Errorf("promote: reading image config for %s: %w", want, err)
+		return "", fmt.Errorf("promote: reading image config for %s: %w", wantDigest, err)
 	}
 	if cf == nil || cf.Config.Labels == nil {
 		return "", nil
 	}
 	return cf.Config.Labels[key], nil
+}
+
+// LayoutImage returns the recorded artifact inside the layout — the manifest whose digest
+// equals wantDigest, or for a multi-platform entry its first real platform image — so a gate
+// can inspect the exact bytes about to be distributed.
+func LayoutImage(layoutDir, wantDigest string) (v1.Image, error) {
+	p, err := layout.FromPath(layoutDir)
+	if err != nil {
+		return nil, fmt.Errorf("promote: opening OCI layout %s: %w", layoutDir, err)
+	}
+	idx, err := p.ImageIndex()
+	if err != nil {
+		return nil, fmt.Errorf("promote: reading layout index: %w", err)
+	}
+	want, err := v1.NewHash(wantDigest)
+	if err != nil {
+		return nil, fmt.Errorf("promote: parsing recorded digest %q: %w", wantDigest, err)
+	}
+	return imageForDigest(idx, want)
 }
 
 // imageForDigest resolves want to a concrete image: directly when it is an image

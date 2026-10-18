@@ -50,10 +50,12 @@ type Rewrite struct {
 // String names the source for messages.
 func (s Source) String() string { return s.ID + " (" + s.Kind + " " + s.Location + ")" }
 
-// Release is one upstream release: the tag as published and the version it names.
+// Release is one upstream release: the tag as published, the version it names, and (git
+// sources) the commit it points at.
 type Release struct {
 	Tag     string
 	Version scheme.Version
+	Commit  string
 }
 
 // Sources builds the listable sources from config, compiling each selection.
@@ -90,34 +92,44 @@ func Sources(u config.UpstreamConfig) ([]Source, error) {
 	return out, nil
 }
 
-// ListTags lists every tag the source publishes.
-func ListTags(ctx context.Context, src Source) ([]string, error) {
+// ListTags lists every tag the source publishes. For a git source, commits maps each tag to
+// the commit it names (annotated tags peeled); image sources have no commits.
+func ListTags(ctx context.Context, src Source) (tags []string, commits map[string]string, err error) {
 	switch src.Kind {
 	case config.UpstreamKindGit:
 		rem := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "upstream", URLs: []string{src.Location}})
-		refs, err := rem.ListContext(ctx, &git.ListOptions{})
+		refs, err := rem.ListContext(ctx, &git.ListOptions{PeelingOption: git.AppendPeeled})
 		if err != nil {
-			return nil, fmt.Errorf("ls-remote %s: %w", src.Location, err)
+			return nil, nil, fmt.Errorf("ls-remote %s: %w", src.Location, err)
 		}
-		var tags []string
+		commits = map[string]string{}
 		for _, r := range refs {
-			if r.Name().IsTag() {
-				tags = append(tags, r.Name().Short())
+			if !r.Name().IsTag() {
+				continue
+			}
+			name := r.Name().Short()
+			if base, peeled := strings.CutSuffix(name, "^{}"); peeled {
+				commits[base] = r.Hash().String() // the commit an annotated tag points at
+				continue
+			}
+			tags = append(tags, name)
+			if _, ok := commits[name]; !ok {
+				commits[name] = r.Hash().String()
 			}
 		}
-		return tags, nil
+		return tags, commits, nil
 	case config.UpstreamKindImage:
 		repo, err := name.NewRepository(src.Location)
 		if err != nil {
-			return nil, fmt.Errorf("image %s: %w", src.Location, err)
+			return nil, nil, fmt.Errorf("image %s: %w", src.Location, err)
 		}
 		tags, err := remote.List(repo, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
 		if err != nil {
-			return nil, fmt.Errorf("listing tags of %s: %w", src.Location, err)
+			return nil, nil, fmt.Errorf("listing tags of %s: %w", src.Location, err)
 		}
-		return tags, nil
+		return tags, nil, nil
 	default:
-		return nil, fmt.Errorf("unknown upstream kind %q", src.Kind)
+		return nil, nil, fmt.Errorf("unknown upstream kind %q", src.Kind)
 	}
 }
 
@@ -278,10 +290,16 @@ func ReleaseVerdict(c Claim, upstream []Release, tag string) (ok bool, reason st
 }
 
 func released(upstream []Release, v scheme.Version) bool {
+	_, ok := Find(upstream, v)
+	return ok
+}
+
+// Find returns the upstream release naming version v.
+func Find(upstream []Release, v scheme.Version) (Release, bool) {
 	for _, rel := range upstream {
 		if rel.Version.Compare(v) == 0 {
-			return true
+			return rel, true
 		}
 	}
-	return false
+	return Release{}, false
 }

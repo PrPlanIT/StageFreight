@@ -39,11 +39,11 @@ upstream:
 	if mode, src := u.Version.Mode(); mode != UpstreamVersionTrack || src != "core" {
 		t.Fatalf("mode = %s %s", mode, src)
 	}
-	if errs := validateUpstream(u); len(errs) != 0 {
+	if errs := validateUpstream(&Config{Upstream: u}); len(errs) != 0 {
 		t.Fatalf("valid config rejected: %v", errs)
 	}
 	port := UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Image: "registry.local:5000/team/app"}}}
-	if errs := validateUpstream(port); len(errs) != 0 {
+	if errs := validateUpstream(&Config{Upstream: port}); len(errs) != 0 {
 		t.Fatalf("a registry port is not a tag: %v", errs)
 	}
 }
@@ -82,8 +82,43 @@ func TestUpstream_Validation(t *testing.T) {
 		"bad rewrite":    {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Rewrite: []UpstreamRewrite{{From: "("}}}}}}, "select.rewrite[0].from"},
 	}
 	for name, c := range cases {
-		errs := strings.Join(validateUpstream(c.u), "\n")
+		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")
 		if !strings.Contains(errs, c.want) {
+			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
+		}
+	}
+}
+
+func TestUpstream_EvidenceValidation(t *testing.T) {
+	builds := OrderedBuilds{{ID: "image", Kind: "docker"}, {ID: "cli", Kind: "binary"}}
+	src := OrderedUpstreamSources{{ID: "core", Git: "https://github.com/ansible/ansible"}}
+	track := UpstreamVersion{Track: "core"}
+	cases := map[string]struct {
+		u    UpstreamConfig
+		want string // "" = valid
+	}{
+		"track without evidence": {UpstreamConfig{Sources: src, Version: track}, "upstream.evidence.image: version.track needs proof"},
+		"track with a probe": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Package: "ansible-core", Manager: "pip"}}}}, ""},
+		"track with ancestry":         {UpstreamConfig{Sources: src, Version: UpstreamVersion{Track: "core", Ancestry: true}}, ""},
+		"ancestry on an image source": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "core", Image: "ghcr.io/a/b"}}, Version: UpstreamVersion{Track: "core", Ancestry: true}}, "needs track naming a git source"},
+		"evidence on a binary build": {UpstreamConfig{Sources: src, Version: UpstreamVersion{Track: "core", Ancestry: true}, Evidence: OrderedUpstreamEvidence{
+			{ID: "cli", Probe: UpstreamProbe{Label: "x"}}}}, "not a docker build"},
+		"two probe kinds": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Label: "x", File: "/v"}}}}, "exactly one of label | file | package"},
+		"package without manager": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Package: "nut"}}}}, "package needs manager"},
+		"relative file": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{File: "VERSION"}}}}, "must be an absolute path"},
+		"report without reason": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Label: "v"}, OnMismatch: "report"}}}, "reason: required"},
+		"version report with reason": {UpstreamConfig{Sources: src, Version: UpstreamVersion{Continue: "core", OnMismatch: "report", Reason: "shared lineage with riffcc"}}, ""},
+		"evidence under own": {UpstreamConfig{Sources: src, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Label: "v"}}}}, "set version.track or version.continue"},
+	}
+	for name, c := range cases {
+		errs := strings.Join(validateUpstream(&Config{Builds: builds, Upstream: c.u}), "\n")
+		if (c.want == "") != (errs == "") || !strings.Contains(errs, c.want) {
 			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
 		}
 	}

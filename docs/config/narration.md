@@ -43,6 +43,7 @@ elides when its domain recorded nothing):
 | `ansible.` (hosts) | `total` · `converged` · `changed` · `unreachable` · `failed` |
 | `upstream.` | `source` · `latest` · `ours` · `mismatched` · `unparsed` · `signals` (the claimed source; plus `{upstream.<id>.latest}` per source) |
 | `schedules.` | `managed` · `changes` · `signals` (GitLab schedule reconcile) |
+| `evidence.` | `checked` · `mismatched` · `signals` (release version probes, publish) |
 | `retention.` | `pruned` |
 
 Every recorded domain additionally serves `{domain.outcome}` and

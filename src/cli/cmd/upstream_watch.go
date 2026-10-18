@@ -49,7 +49,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 	)
 	for _, src := range sources {
 		lctx, cancel := context.WithTimeout(ctx, upstreamListTimeout)
-		tags, err := upstream.ListTags(lctx, src)
+		tags, commits, err := upstream.ListTags(lctx, src)
 		cancel()
 		if err != nil {
 			if guarding && src.ID == claimed {
@@ -61,6 +61,9 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 			continue
 		}
 		releases, bad := upstream.Releases(tags, src.Select)
+		for i := range releases {
+			releases[i].Commit = commits[releases[i].Tag]
+		}
 		unparsed += len(bad)
 		if len(bad) > 0 {
 			fmt.Printf("  upstream: %s: %d tag(s) selected but not a version, ignored: %s\n", src, len(bad), sample(bad, 5))
@@ -91,7 +94,19 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 			facts["mismatched"] = strings.Join(rep.Mismatched, ",")
 		}
 		if guarding {
-			if ok, reason := upstream.ReleaseVerdict(claim, releases, releaseTag); !ok {
+			reason := ""
+			if ok, why := upstream.ReleaseVerdict(claim, releases, releaseTag); !ok {
+				reason = why
+			} else if u.Version.Ancestry {
+				reason = ancestryVerdict(rootDir, claim, releases, releaseTag)
+			}
+			switch {
+			case reason == "":
+			case config.EffectiveOnMismatch(u.Version.OnMismatch) == config.UpstreamReport:
+				fmt.Printf("  upstream: release claim is false, shipping anyway (on_mismatch: report — %s): %s\n", u.Version.Reason, reason)
+				signals = appendOnce(signals, config.SignalVersionMismatch)
+				facts["mismatched"] = strings.Trim(facts["mismatched"]+","+releaseTag, ",")
+			default:
 				refuse = reason
 			}
 		}
@@ -157,4 +172,37 @@ func sample(items []string, n int) string {
 		return strings.Join(items, ", ")
 	}
 	return fmt.Sprintf("%s, … (%d more)", strings.Join(items[:n], ", "), len(items)-n)
+}
+
+// ancestryVerdict checks that upstream's commit for the version our release tag claims is an
+// ancestor of the commit being released: a history fork may carry upstream's tag name only
+// for code that contains upstream's release. Returns the reason for refusal, or "".
+func ancestryVerdict(rootDir string, c upstream.Claim, releases []upstream.Release, tag string) string {
+	v, ok := upstream.OurVersion(tag, c.Source.Select.Scheme)
+	if !ok {
+		return ""
+	}
+	rel, ok := upstream.Find(releases, v)
+	if !ok || rel.Commit == "" {
+		return fmt.Sprintf("ancestry: %s published no commit for %s", c.Source, v)
+	}
+	repo, err := gitstate.OpenRepo(rootDir)
+	if err != nil {
+		return fmt.Sprintf("ancestry: cannot open our repository: %v", err)
+	}
+	isAncestor, err := gitstate.IsAncestor(repo, rel.Commit, "HEAD")
+	switch {
+	case err != nil:
+		return fmt.Sprintf("ancestry: upstream's %s (%s) is not in our history — %s is not built on upstream's release", rel.Tag, short(rel.Commit), tag)
+	case !isAncestor:
+		return fmt.Sprintf("ancestry: upstream's %s (%s) is not an ancestor of %s — our tag names upstream's release on code that does not contain it", rel.Tag, short(rel.Commit), tag)
+	}
+	return ""
+}
+
+func short(sha string) string {
+	if len(sha) > 9 {
+		return sha[:9]
+	}
+	return sha
 }

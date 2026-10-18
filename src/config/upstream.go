@@ -21,7 +21,87 @@ type UpstreamConfig struct {
 
 	// Version says what this repo's release tags claim about an upstream.
 	Version UpstreamVersion `yaml:"version,omitempty"`
+
+	// Evidence proves, per build, that the built artifact contains the version a release
+	// claims. Keyed by build id (a docker build). Checked in publish, on the exact bytes
+	// about to be distributed.
+	Evidence OrderedUpstreamEvidence `yaml:"evidence,omitempty"`
 }
+
+// UpstreamEvidence is one build's proof of version.
+type UpstreamEvidence struct {
+	ID string `yaml:"-"`
+
+	// Probe reads the version the built image contains.
+	Probe UpstreamProbe `yaml:"probe"`
+
+	// OnMismatch is what happens when the probe disagrees with the claimed version:
+	// refuse (default) does not distribute the image; report distributes it and raises
+	// version-mismatch. report needs a reason.
+	OnMismatch string `yaml:"on_mismatch,omitempty"`
+
+	// Reason says why a mismatch is tolerated (required with on_mismatch: report), e.g. an
+	// upstream whose metadata trails its own tag.
+	Reason string `yaml:"reason,omitempty"`
+}
+
+// UpstreamProbe reads a version out of a built image without running it. Set exactly one of
+// label, file, package.
+type UpstreamProbe struct {
+	// Label is an OCI image label whose value is the version, e.g.
+	// org.opencontainers.image.version.
+	Label string `yaml:"label,omitempty"`
+
+	// File is an absolute path in the image filesystem holding the version.
+	File string `yaml:"file,omitempty"`
+
+	// Package is an installed package whose version is read from the package database
+	// named by manager.
+	Package string `yaml:"package,omitempty"`
+
+	// Manager is the package database package reads: pip (site-packages dist-info),
+	// dpkg (/var/lib/dpkg/status), apk (/lib/apk/db/installed).
+	Manager string `yaml:"manager,omitempty"`
+
+	// Match is a regex applied to the label value or file content; the version is its named
+	// group "version", else its first group, else the whole match. Default: the first
+	// dotted version.
+	Match string `yaml:"match,omitempty"`
+}
+
+// OrderedUpstreamEvidence is upstream.evidence — a build id→evidence map.
+type OrderedUpstreamEvidence []UpstreamEvidence
+
+func (OrderedUpstreamEvidence) isIDMap() {}
+
+func (o *OrderedUpstreamEvidence) UnmarshalYAML(n *yaml.Node) error {
+	v, err := decodeIDMap(n, func(e *UpstreamEvidence, id string) { e.ID = id })
+	if err != nil {
+		return fmt.Errorf("upstream.evidence: %w", err)
+	}
+	*o = v
+	return nil
+}
+
+// Guard outcomes: what a failed version guard or probe does.
+const (
+	UpstreamRefuse = "refuse"
+	UpstreamReport = "report"
+)
+
+// EffectiveOnMismatch returns refuse when unset.
+func EffectiveOnMismatch(v string) string {
+	if v == "" {
+		return UpstreamRefuse
+	}
+	return v
+}
+
+// DefaultProbeMatch is the first dotted version in a label value or file.
+const DefaultProbeMatch = `(?P<version>\d+(?:\.\d+)+[0-9A-Za-z.+\-]*)`
+
+// Probe package managers.
+var validProbeManagers = map[string]bool{"pip": true, "dpkg": true, "apk": true}
 
 // UpstreamSource is one watched upstream. Exactly one kind key (git, image) names it.
 type UpstreamSource struct {
@@ -94,6 +174,21 @@ type UpstreamVersion struct {
 	// Since is the cutover tag: only release tags at or after this version are judged, so a
 	// mode change never reinterprets older tags.
 	Since string `yaml:"since,omitempty"`
+
+	// Ancestry (track, git source) requires upstream's commit for the claimed version to be an
+	// ancestor of our release commit: a history fork may reuse upstream's tag names only for
+	// code that contains upstream's release. It is evidence in its own right, standing in for
+	// a probe where the build stamps its version itself.
+	Ancestry bool `yaml:"ancestry,omitempty"`
+
+	// OnMismatch is what happens when a release's claim is false (track: upstream never
+	// released it or ancestry fails; continue: upstream already released it): refuse
+	// (default) blocks the release; report lets it ship and raises version-mismatch. report
+	// needs a reason.
+	OnMismatch string `yaml:"on_mismatch,omitempty"`
+
+	// Reason says why a false claim is tolerated (required with on_mismatch: report).
+	Reason string `yaml:"reason,omitempty"`
 }
 
 // OrderedUpstreamSources is upstream.sources — an id→source map (key becomes UpstreamSource.ID).
@@ -192,7 +287,8 @@ func (v UpstreamVersion) Mode() (mode, source string) {
 }
 
 // validateUpstream checks the upstream: block.
-func validateUpstream(u UpstreamConfig) []string {
+func validateUpstream(cfg *Config) []string {
+	u := cfg.Upstream
 	var errs []string
 	ids := map[string]UpstreamSource{}
 	for _, s := range u.Sources {
@@ -245,6 +341,78 @@ func validateUpstream(u UpstreamConfig) []string {
 	if src != "" && !declared {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is not a declared source (upstream.sources)", mode, src))
 	}
+	checkOnMismatch := func(path, on, reason string) {
+		switch on {
+		case "", UpstreamRefuse:
+		case UpstreamReport:
+			if strings.TrimSpace(reason) == "" {
+				errs = append(errs, path+".reason: required with on_mismatch: report — say why a false version is tolerated")
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("%s.on_mismatch: unknown %q (refuse | report)", path, on))
+		}
+	}
+	checkOnMismatch("upstream.version", v.OnMismatch, v.Reason)
+	if v.Ancestry {
+		if kind, _ := claimed.Kind(); mode != UpstreamVersionTrack || kind != UpstreamKindGit {
+			errs = append(errs, "upstream.version.ancestry: needs track naming a git source")
+		}
+	}
+
+	dockerBuilds := map[string]bool{}
+	for _, b := range cfg.Builds {
+		if b.Kind == "docker" {
+			dockerBuilds[b.ID] = true
+		}
+	}
+	evidenced := map[string]bool{}
+	for _, e := range u.Evidence {
+		path := "upstream.evidence." + e.ID
+		evidenced[e.ID] = true
+		if !dockerBuilds[e.ID] {
+			errs = append(errs, path+": not a docker build (builds)")
+		}
+		if mode == UpstreamVersionOwn {
+			errs = append(errs, path+": evidence checks a claimed version; set version.track or version.continue")
+		}
+		p := e.Probe
+		set := 0
+		for _, on := range []bool{p.Label != "", p.File != "", p.Package != ""} {
+			if on {
+				set++
+			}
+		}
+		if set != 1 {
+			errs = append(errs, path+".probe: set exactly one of label | file | package")
+		}
+		switch {
+		case p.Package != "" && !validProbeManagers[p.Manager]:
+			errs = append(errs, fmt.Sprintf("%s.probe.manager: %q — package needs manager: pip | dpkg | apk", path, p.Manager))
+		case p.Package == "" && p.Manager != "":
+			errs = append(errs, path+".probe.manager: only meaningful with package")
+		}
+		if p.File != "" && !strings.HasPrefix(p.File, "/") {
+			errs = append(errs, fmt.Sprintf("%s.probe.file: %q must be an absolute path in the image", path, p.File))
+		}
+		if p.Match != "" {
+			if p.Package != "" {
+				errs = append(errs, path+".probe.match: not used with package (the database names the version)")
+			} else if _, err := regexp.Compile(p.Match); err != nil {
+				errs = append(errs, fmt.Sprintf("%s.probe.match: %v", path, err))
+			}
+		}
+		checkOnMismatch(path, e.OnMismatch, e.Reason)
+	}
+	// No evidence, no track: a tracked version must be proven for every image that ships it,
+	// by a probe or by ancestry.
+	if mode == UpstreamVersionTrack && declared && !v.Ancestry {
+		for _, b := range cfg.Builds {
+			if b.Kind == "docker" && !evidenced[b.ID] {
+				errs = append(errs, fmt.Sprintf("upstream.evidence.%s: version.track needs proof the image contains the version — add a probe (label | file | package) for this build, or set version.ancestry: true for a history fork", b.ID))
+			}
+		}
+	}
+
 	if v.Since != "" {
 		if mode == UpstreamVersionOwn {
 			errs = append(errs, "upstream.version.since: only meaningful with track or continue")

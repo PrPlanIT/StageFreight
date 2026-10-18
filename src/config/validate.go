@@ -768,7 +768,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	errs = append(errs, validateLifecycle(cfg)...)
 	errs = append(errs, validateAnsible(cfg)...)
-	errs = append(errs, validateUpstream(cfg.Upstream)...)
+	errs = append(errs, validateUpstream(cfg)...)
 	errs = append(errs, validateSchedules(cfg)...)
 	errs = append(errs, validateInventoryCategories(cfg)...)
 	errs = append(errs, validateExposureRules(cfg)...)

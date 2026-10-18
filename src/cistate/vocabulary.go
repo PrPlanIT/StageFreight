@@ -31,4 +31,5 @@ var DomainFacts = map[string][]string{
 	"ansible":   {"total", "converged", "changed", "unreachable", "failed"},
 	"upstream":  {"source", "latest", "ours", "mismatched", "unparsed", "signals"},
 	"schedules": {"managed", "changes", "signals"},
+	"evidence":  {"checked", "mismatched", "signals"},
 }
