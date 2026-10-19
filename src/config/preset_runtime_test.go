@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -56,25 +55,6 @@ func TestPresetLocalSiblingOverrides(t *testing.T) {
 	}
 	if got := cfg.Security.OutputDir; got != "LOCAL_WINS" {
 		t.Fatalf("local sibling did not override preset: security.output = %q, want %q", got, "LOCAL_WINS")
-	}
-}
-
-// A stale preset_source: block must fail with a migration hint, not an unknown-field
-// error: every governed satellite carries one until it is reconciled, so this is the
-// message an operator meets first.
-func TestPresetSourceIsRejectedWithGuidance(t *testing.T) {
-	path := writePresetFixture(t,
-		"version: 1\npreset_source:\n  provider: gitlab\n  ref: abc123\n  cache_policy: authoritative\n",
-		"", "")
-
-	_, _, err := LoadWithWarnings(path)
-	if err == nil {
-		t.Fatal("a config carrying preset_source must not load")
-	}
-	for _, want := range []string{"preset_source", "reconcile"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not mention %q", err, want)
-		}
 	}
 }
 

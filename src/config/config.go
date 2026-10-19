@@ -175,23 +175,6 @@ func LoadOffline(path string) (*Config, error) {
 	return cfg, err
 }
 
-// nodeHasKey reports whether the document's top-level mapping has a key.
-func nodeHasKey(root *yaml.Node, key string) bool {
-	doc := root
-	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
-		doc = doc.Content[0]
-	}
-	if doc.Kind != yaml.MappingNode {
-		return false
-	}
-	for i := 0; i+1 < len(doc.Content); i += 2 {
-		if doc.Content[i].Value == key {
-			return true
-		}
-	}
-	return false
-}
-
 // SetPresetOutcomes records how sourced references resolved. The loader sets this on
 // the config it builds; exported so a caller that resolves presets itself can hand the
 // result on, and so the behaviour that depends on it is reachable from a test.
@@ -325,15 +308,6 @@ func loadResolvedMode(path string, offline bool) (*Config, []string, []MergeEntr
 		decodeData = reenc
 	} else if rerr != nil {
 		entries = nil // resolver hiccup on a preset-free config: no usable provenance
-	}
-
-	// preset_source was governance metadata that nothing read: it recorded a pinned ref
-	// and a cache policy while the satellite resolved every preset from its vendored
-	// copy regardless. Provenance now lives on each reference, so the block is gone
-	// rather than corrected — say so, instead of reporting an unknown field.
-	if nodeHasKey(&rootNode, "preset_source") {
-		return nil, nil, entries, fmt.Errorf("%s: preset_source: was governance metadata that nothing read; "+
-			"provenance now lives on each preset reference (source//path[@ref]) — reconcile from the policy repo to regenerate this config", path)
 	}
 
 	cfg := defaults()
