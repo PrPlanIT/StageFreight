@@ -1,0 +1,213 @@
+apk-tools 3.0.8-r0, compiled for x86_64.
+apk-tools 3.0.8-r0, compiled for x86_64.
+
+Usage: apk add [<OPTIONS>...] [CONSTRAINTS|_file_]...
+
+Description:
+  apk add adds or updates given constraints to WORLD (see apk-world(5)) and
+  commit changes to disk. This usually involves installing new packages, but
+  may also cause other changes to the installed packages.
+
+Global options:
+  --allow-untrusted     Install packages with untrusted signature or no
+                        signature
+  --arch ARCH           Temporarily override architectures
+  --cache[=BOOL]        When disabled, prevents using any local cache paths
+  --cache-dir CACHEDIR  Temporarily override the cache directory
+  --cache-max-age AGE   Maximum AGE (in minutes) for index in cache before
+                        it's refreshed
+  --cache-packages[=BOOL]
+                        Store a copy of packages at installation time to
+                        cache
+  --cache-predownload[=BOOL]
+                        Download needed packages to cache before starting to
+                        commit a transaction
+  --check-certificate[=BOOL]
+                        When disabled, omits the validation of the HTTPS
+                        server certificate
+  --force, -f           Enable selected --force-* options (deprecated)
+  --force-binary-stdout
+                        Continue even if binary data will be printed to the
+                        terminal
+  --force-broken-world  DANGEROUS: Delete world constraints until a solution
+                        without conflicts is found
+  --force-missing-repositories
+                        Continue even if some of the repository indexes are
+                        not available
+  --force-no-chroot     Disable chroot for scripts
+  --force-non-repository
+                        Continue even if packages may be lost on reboot
+  --force-old-apk       Continue even if packages use unsupported features
+  --force-overwrite     Overwrite files in other packages
+  --force-refresh       Do not use cached files (local or from proxy)
+  --help, -h            Print the list of all commands with descriptions
+  --interactive[=AUTO]  Determine if questions can be asked before
+                        performing certain operations
+  --keys-dir KEYSDIR    Override the default system trusted keys directories
+  --legacy-info[=BOOL]  Print output from "info" applet in legacy format or
+                        new "query" format
+  --logfile[=BOOL]      If turned off, disables the writing of the log file
+  --network[=BOOL]      If turned off, does not use the network
+  --preserve-env[=BOOL]
+                        Allow passing the user environment down to scripts
+                        (excluding variables starting APK_ which are
+                        reserved)
+  --pretty-print[=AUTO]
+                        Determine if output should be stylized to be human
+                        readable
+  --preupgrade-depends DEPS
+                        Add or modify preupgrade dependencies
+  --print-arch          Print default arch and exit
+  --progress[=AUTO]     Enable or disable progress bar
+  --progress-fd FD      Write progress to the specified file descriptor
+  --purge[=BOOL]        Purge modified configuration and cached packages
+  --quiet, -q           Print less information
+  --repositories-file REPOFILE
+                        Override system repositories, see
+                        apk-repositories(5)
+  --repository, -X REPO
+                        Specify additional package repository
+  --repository-config REPOCONFIG
+                        Specify additional package repository configuration
+  --root, -p ROOT       Manage file system at ROOT
+  --root-tmpfs[=AUTO]   Specify if the ROOT is a temporary filesystem
+  --sync[=AUTO]         Determine if filesystem caches should be committed
+                        to disk
+  --timeout TIME        Timeout network connections if no progress is made
+                        in TIME seconds
+  --update-cache, -U    Alias for '--cache-max-age 0'
+  --uvol-manager UVOL   Specify the OpenWRT UVOL volume manager executable
+                        location
+  --verbose, -v         Print more information (can be specified twice)
+  --version, -V         Print program version and exit
+  --wait TIME           Wait for TIME seconds to get an exclusive repository
+                        lock before failing
+
+Commit options:
+  --clean-protected[=BOOL]
+                        If disabled, prevents creation of .apk-new files in
+                        configuration directories
+  --commit-hooks[=BOOL]
+                        If disabled, skips the pre/post hook scripts (but
+                        not other scripts)
+  --initramfs-diskless-boot
+                        Used by initramfs when it's recreating root tmpfs
+  --overlay-from-stdin  Read list of overlay files from stdin
+  --scripts[=BOOL]      If disabled, prevents execution of all scripts
+  --simulate[=BOOL], -s
+                        Simulate the requested operation without making any
+                        changes
+
+Add options:
+  --initdb              Initialize a new package database
+  --latest, -l          Always choose the latest package by version
+  --no-chown            Deprecated alias for --usermode
+  --upgrade, -u         Upgrade PACKAGES and their dependencies
+  --usermode            Create usermode database with --initdb
+  --virtual, -t NAME    Create virtual package NAME with given dependencies
+
+For more information: man 8 apk-add
+apk-tools 3.0.8-r0, compiled for x86_64.
+
+Usage: apk del [<OPTIONS>...] CONSTRAINTS...
+
+Description:
+  apk del removes constraints from WORLD (see apk-world(5)) and commits
+  changes to disk. This usually involves removing unneeded packages, but may
+  also cause other changes to the installed packages.
+
+Global options:
+  --allow-untrusted     Install packages with untrusted signature or no
+                        signature
+  --arch ARCH           Temporarily override architectures
+  --cache[=BOOL]        When disabled, prevents using any local cache paths
+  --cache-dir CACHEDIR  Temporarily override the cache directory
+  --cache-max-age AGE   Maximum AGE (in minutes) for index in cache before
+                        it's refreshed
+  --cache-packages[=BOOL]
+                        Store a copy of packages at installation time to
+                        cache
+  --cache-predownload[=BOOL]
+                        Download needed packages to cache before starting to
+                        commit a transaction
+  --check-certificate[=BOOL]
+                        When disabled, omits the validation of the HTTPS
+                        server certificate
+  --force, -f           Enable selected --force-* options (deprecated)
+  --force-binary-stdout
+                        Continue even if binary data will be printed to the
+                        terminal
+  --force-broken-world  DANGEROUS: Delete world constraints until a solution
+                        without conflicts is found
+  --force-missing-repositories
+                        Continue even if some of the repository indexes are
+                        not available
+  --force-no-chroot     Disable chroot for scripts
+  --force-non-repository
+                        Continue even if packages may be lost on reboot
+  --force-old-apk       Continue even if packages use unsupported features
+  --force-overwrite     Overwrite files in other packages
+  --force-refresh       Do not use cached files (local or from proxy)
+  --help, -h            Print the list of all commands with descriptions
+  --interactive[=AUTO]  Determine if questions can be asked before
+                        performing certain operations
+  --keys-dir KEYSDIR    Override the default system trusted keys directories
+  --legacy-info[=BOOL]  Print output from "info" applet in legacy format or
+                        new "query" format
+  --logfile[=BOOL]      If turned off, disables the writing of the log file
+  --network[=BOOL]      If turned off, does not use the network
+  --preserve-env[=BOOL]
+                        Allow passing the user environment down to scripts
+                        (excluding variables starting APK_ which are
+                        reserved)
+  --pretty-print[=AUTO]
+                        Determine if output should be stylized to be human
+                        readable
+  --preupgrade-depends DEPS
+                        Add or modify preupgrade dependencies
+  --print-arch          Print default arch and exit
+  --progress[=AUTO]     Enable or disable progress bar
+  --progress-fd FD      Write progress to the specified file descriptor
+  --purge[=BOOL]        Purge modified configuration and cached packages
+  --quiet, -q           Print less information
+  --repositories-file REPOFILE
+                        Override system repositories, see
+                        apk-repositories(5)
+  --repository, -X REPO
+                        Specify additional package repository
+  --repository-config REPOCONFIG
+                        Specify additional package repository configuration
+  --root, -p ROOT       Manage file system at ROOT
+  --root-tmpfs[=AUTO]   Specify if the ROOT is a temporary filesystem
+  --sync[=AUTO]         Determine if filesystem caches should be committed
+                        to disk
+  --timeout TIME        Timeout network connections if no progress is made
+                        in TIME seconds
+  --update-cache, -U    Alias for '--cache-max-age 0'
+  --uvol-manager UVOL   Specify the OpenWRT UVOL volume manager executable
+                        location
+  --verbose, -v         Print more information (can be specified twice)
+  --version, -V         Print program version and exit
+  --wait TIME           Wait for TIME seconds to get an exclusive repository
+                        lock before failing
+
+Commit options:
+  --clean-protected[=BOOL]
+                        If disabled, prevents creation of .apk-new files in
+                        configuration directories
+  --commit-hooks[=BOOL]
+                        If disabled, skips the pre/post hook scripts (but
+                        not other scripts)
+  --initramfs-diskless-boot
+                        Used by initramfs when it's recreating root tmpfs
+  --overlay-from-stdin  Read list of overlay files from stdin
+  --scripts[=BOOL]      If disabled, prevents execution of all scripts
+  --simulate[=BOOL], -s
+                        Simulate the requested operation without making any
+                        changes
+
+Del options:
+  --rdepends, -r        Recursively delete all top-level reverse
+                        dependencies, too
+
+For more information: man 8 apk-del

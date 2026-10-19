@@ -475,10 +475,7 @@ func parseDistroFromSuffix(suffix string) []distroVersion {
 // extractRunPackages parses a RUN instruction body and extracts packages plus any apk
 // deletion targets (`apk del <names>`), so ExtractInventory can drop build-only deps.
 func extractRunPackages(body string, args map[string]ArgDecl) (pkgs []PackageInfo, deleted []string) {
-	// Split on && ; | to get individual commands
-	commands := splitShellCommands(body)
-
-	for _, cmd := range commands {
+	for _, cmd := range splitShellCommands(body) {
 		cmd = strings.TrimSpace(cmd)
 		if cmd == "" {
 			continue
@@ -486,373 +483,246 @@ func extractRunPackages(body string, args map[string]ArgDecl) (pkgs []PackageInf
 
 		deleted = append(deleted, extractApkDeletions(cmd)...)
 
-		// Try each extractor
-		for _, ext := range extractors {
-			if got := ext.extract(cmd, args); len(got) > 0 {
+		// A command runs one program, so at most one manager reads it.
+		matched := false
+		for _, m := range packageManagers {
+			if got, ok := m.extract(cmd, args); ok {
 				pkgs = append(pkgs, got...)
-				break // first match wins
+				matched = true
+				break
 			}
+		}
+		if !matched {
+			pkgs = append(pkgs, extractBinary(cmd, args)...)
 		}
 	}
 
 	return pkgs, deleted
 }
 
-// splitShellCommands splits a shell command string on &&, ;, and |
-func splitShellCommands(s string) []string {
-	var result []string
-	var current strings.Builder
-	i := 0
-	for i < len(s) {
-		if i+1 < len(s) && s[i] == '&' && s[i+1] == '&' {
-			result = append(result, current.String())
-			current.Reset()
-			i += 2
-			continue
-		}
-		if s[i] == ';' || s[i] == '|' {
-			result = append(result, current.String())
-			current.Reset()
-			i++
-			continue
-		}
-		current.WriteByte(s[i])
-		i++
-	}
-	if current.Len() > 0 {
-		result = append(result, current.String())
-	}
-	return result
+// ── Package managers ─────────────────────────────────────────────────────────
+
+// packageOperand is one install operand read as a package: ok is false when the operand
+// names something other than a registry package (a file, a URL, a local path).
+type packageOperand func(word string) (name, version string, pinned, ok bool)
+
+// packageManager inventories the packages an install command names: the command line is
+// read against the manager's grammar, and each operand against its package syntax.
+type packageManager struct {
+	name    string
+	cli     cliGrammar
+	install [][]string // the subcommands that install their operands
+	operand packageOperand
+	// virtualOption names the option whose value groups the installed packages (apk --virtual).
+	virtualOption string
 }
 
-// ── Extractor registry ───────────────────────────────────────────────────────
-
-type extractor struct {
-	manager string
-	extract func(cmd string, args map[string]ArgDecl) []PackageInfo
+var packageManagers = []packageManager{
+	{name: "apk", cli: apkGrammar, install: [][]string{{"add"}}, operand: apkOperand, virtualOption: "--virtual"},
+	{name: "apt", cli: aptGrammar, install: [][]string{{"install"}}, operand: aptOperand},
+	{name: "pip", cli: pipGrammar, install: [][]string{{"install"}}, operand: pipOperand},
+	{name: "galaxy", cli: galaxyGrammar, install: [][]string{{"install"}, {"collection", "install"}, {"role", "install"}}, operand: galaxyOperand},
+	{name: "npm", cli: npmGrammar, install: [][]string{{"install"}, {"i"}, {"add"}}, operand: npmOperand},
+	{name: "go", cli: goGrammar, install: [][]string{{"install"}}, operand: goOperand},
 }
 
-var extractors = []extractor{
-	{manager: "apk", extract: extractApk},
-	{manager: "apt", extract: extractApt},
-	{manager: "pip", extract: extractPip},
-	{manager: "galaxy", extract: extractGalaxy},
-	{manager: "npm", extract: extractNpm},
-	{manager: "go", extract: extractGo},
-	{manager: "binary", extract: extractBinary},
-}
-
-// ── apk extractor ────────────────────────────────────────────────────────────
-
-var (
-	apkAddRe = regexp.MustCompile(`(?:^|\s)apk\s+add\b`)
-	apkDelRe = regexp.MustCompile(`(?:^|\s)apk\s+del\b`)
-)
-
-func extractApk(cmd string, args map[string]ArgDecl) []PackageInfo {
-	if !apkAddRe.MatchString(cmd) {
-		return nil
+// extract returns the packages cmd installs; ok is false when cmd is not this manager's
+// install command.
+func (m packageManager) extract(cmd string, args map[string]ArgDecl) (pkgs []PackageInfo, ok bool) {
+	inv, ok := m.cli.parse(cmd, m.install...)
+	if !ok {
+		return nil, false
 	}
-
-	var results []PackageInfo
-	tokens := strings.Fields(cmd)
-	pastAdd := false
-	virtual := "" // the --virtual group these packages belong to, if any
-	for i := 0; i < len(tokens); i++ {
-		tok := tokens[i]
-		if tok == "add" {
-			pastAdd = true
+	for _, word := range inv.operands {
+		// An unresolved variable ($PHPIZE_DEPS, ${PKGS}) expands to a set, not one package.
+		if strings.HasPrefix(word, "$") {
 			continue
 		}
-		if !pastAdd {
+		name, version, pinned, isPackage := m.operand(word)
+		if !isPackage {
 			continue
 		}
-		// --virtual <name> / -t <name>: the group NAME is not a package; remember it so
-		// the packages that follow can be dropped by a later `apk del <name>`.
-		if tok == "--virtual" || tok == "-t" {
-			if i+1 < len(tokens) {
-				virtual = tokens[i+1] // keep the leading '.' so `apk del .build-deps` matches
-				i++
-			}
-			continue
-		}
-		if strings.HasPrefix(tok, "--virtual=") {
-			virtual = strings.TrimPrefix(tok, "--virtual=")
-			continue
-		}
-		if strings.HasPrefix(tok, "-") {
-			continue // other flags: --no-cache, --update, etc.
-		}
-		// Not concrete packages: a virtual group name (".build-deps" convention) or an
-		// unresolved variable reference ($PHPIZE_DEPS / ${VAR}) that expands to a set.
-		if strings.HasPrefix(tok, ".") || strings.HasPrefix(tok, "$") {
-			continue
-		}
-		results = append(results, PackageInfo{
-			Name:         tok,
+		pkgs = append(pkgs, PackageInfo{
+			Name:         name,
+			Version:      resolveArgVars(version, args),
+			Pinned:       pinned,
 			Source:       "dockerfile",
 			SourceRef:    "RUN " + strings.TrimSpace(cmd),
-			Manager:      "apk",
-			VirtualGroup: virtual,
+			Manager:      m.name,
+			VirtualGroup: inv.values[m.virtualOption],
 		})
 	}
-	return results
+	return pkgs, true
 }
 
 // extractApkDeletions returns the targets removed by an `apk del` — package names or
 // --virtual group names. These drop build-only deps installed then deleted in the layer.
 func extractApkDeletions(cmd string) []string {
-	if !apkDelRe.MatchString(cmd) {
+	inv, ok := apkGrammar.parse(cmd, []string{"del"})
+	if !ok {
 		return nil
 	}
 	var out []string
-	pastDel := false
-	for _, tok := range strings.Fields(cmd) {
-		if tok == "del" {
-			pastDel = true
-			continue
-		}
-		if !pastDel || strings.HasPrefix(tok, "-") {
-			continue
-		}
-		out = append(out, tok)
+	for _, word := range inv.operands {
+		name, _, _ := strings.Cut(word, "=")
+		out = append(out, name)
 	}
 	return out
 }
 
-// ── apt extractor ────────────────────────────────────────────────────────────
+// ── apk ──────────────────────────────────────────────────────────────────────
 
-var aptInstallRe = regexp.MustCompile(`(?:^|\s)apt(?:-get)?\s+install\b`)
+var (
+	apkNameRe       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+._-]*$`)
+	apkConstraintRe = regexp.MustCompile(`^([^=<>~]+?)(?:(><|>=|<=|=~|~=|=|~|>|<)(.*))?$`)
+)
 
-func extractApt(cmd string, args map[string]ArgDecl) []PackageInfo {
-	if !aptInstallRe.MatchString(cmd) {
-		return nil
+// apkOperand reads name[@tag][<op><version>]; only "=" pins an exact version. A virtual
+// group name (".build-deps") is not a package.
+func apkOperand(word string) (name, version string, pinned, ok bool) {
+	m := apkConstraintRe.FindStringSubmatch(word)
+	if m == nil {
+		return "", "", false, false
 	}
-
-	var results []PackageInfo
-	tokens := strings.Fields(cmd)
-	pastInstall := false
-	for _, tok := range tokens {
-		if tok == "install" {
-			pastInstall = true
-			continue
-		}
-		if !pastInstall {
-			continue
-		}
-		if strings.HasPrefix(tok, "-") {
-			continue
-		}
-		results = append(results, PackageInfo{
-			Name:      tok,
-			Source:    "dockerfile",
-			SourceRef: "RUN " + strings.TrimSpace(cmd),
-			Manager:   "apt",
-		})
+	name, op, version := m[1], m[2], m[3]
+	name, _, _ = strings.Cut(name, "@")
+	version, _, _ = strings.Cut(version, "@")
+	if !apkNameRe.MatchString(name) {
+		return "", "", false, false
 	}
-	return results
+	return name, version, op == "=", true
 }
 
-// ── pip extractor ────────────────────────────────────────────────────────────
+// ── apt ──────────────────────────────────────────────────────────────────────
 
-var pipInstallRe = regexp.MustCompile(`(?:^|\s)pip[23]?\s+install\b`)
+var aptNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
 
-func extractPip(cmd string, args map[string]ArgDecl) []PackageInfo {
-	if !pipInstallRe.MatchString(cmd) {
-		return nil
+// aptOperand reads name[:arch][=version] or name[:arch][/release]. A trailing "-" asks
+// apt to remove the package, and a path names a local .deb.
+func aptOperand(word string) (name, version string, pinned, ok bool) {
+	spec, version, hasVersion := strings.Cut(word, "=")
+	if !hasVersion {
+		spec, _, _ = strings.Cut(word, "/")
 	}
-
-	var results []PackageInfo
-	tokens := strings.Fields(cmd)
-	pastInstall := false
-	for _, tok := range tokens {
-		if tok == "install" {
-			pastInstall = true
-			continue
-		}
-		if !pastInstall {
-			continue
-		}
-		if strings.HasPrefix(tok, "-") {
-			continue
-		}
-
-		name, version, pinned := parsePipPackage(tok, args)
-		results = append(results, PackageInfo{
-			Name:      name,
-			Version:   version,
-			Pinned:    pinned,
-			Source:    "dockerfile",
-			SourceRef: "RUN " + strings.TrimSpace(cmd),
-			Manager:   "pip",
-		})
+	name, _, _ = strings.Cut(spec, ":")
+	if !aptNameRe.MatchString(name) || strings.HasSuffix(name, "-") || strings.HasPrefix(word, ".") {
+		return "", "", false, false
 	}
-	return results
+	return name, version, hasVersion, true
 }
 
-// parsePipPackage handles pip package specs: pkg, pkg==1.0, pkg==${VAR}
-func parsePipPackage(tok string, args map[string]ArgDecl) (name, version string, pinned bool) {
-	if idx := strings.Index(tok, "=="); idx >= 0 {
-		name = tok[:idx]
-		version = tok[idx+2:]
-		version = resolveArgVars(version, args)
-		return name, version, true
+// ── pip ──────────────────────────────────────────────────────────────────────
+
+var (
+	pipRequirementRe = regexp.MustCompile(`^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?:\[[^\]]*\])?\s*(.*)$`)
+	pipClauseRe      = regexp.MustCompile(`^(===|==|~=|!=|>=|<=|>|<)\s*(.+)$`)
+	archiveRe        = regexp.MustCompile(`\.(?:whl|tar\.gz|tgz|tar\.bz2|tar\.xz|zip)$`)
+)
+
+// pipOperand reads a PEP 508 requirement: name[extras][specifier][; marker]. An exact
+// == or === pins the version; ~= and >= give a floor. Archives, paths and URLs are not
+// registry packages.
+func pipOperand(word string) (name, version string, pinned, ok bool) {
+	spec, _, _ := strings.Cut(word, ";")
+	m := pipRequirementRe.FindStringSubmatch(strings.TrimSpace(spec))
+	if m == nil || archiveRe.MatchString(m[1]) {
+		return "", "", false, false
 	}
-	if idx := strings.Index(tok, ">="); idx >= 0 {
-		name = tok[:idx]
-		version = tok[idx+2:]
-		version = resolveArgVars(version, args)
-		return name, version, false
+	name, rest := m[1], strings.TrimSpace(m[2])
+	if rest == "" || strings.HasPrefix(rest, "@") {
+		return name, "", false, true
 	}
-	return tok, "", false
+	first, _, _ := strings.Cut(rest, ",")
+	c := pipClauseRe.FindStringSubmatch(strings.TrimSpace(first))
+	if c == nil {
+		return "", "", false, false
+	}
+	switch op, v := c[1], strings.TrimSpace(c[2]); op {
+	case "==", "===":
+		return name, v, !strings.Contains(v, "*"), true
+	case "~=", ">=":
+		return name, v, false, true
+	}
+	return name, "", false, true
 }
 
-// ── galaxy extractor ─────────────────────────────────────────────────────────
+// ── galaxy ───────────────────────────────────────────────────────────────────
 
-var galaxyInstallRe = regexp.MustCompile(`(?:^|\s)ansible-galaxy\s+(?:collection\s+)?install\b`)
+var (
+	galaxyNameRe    = regexp.MustCompile(`^[A-Za-z0-9_]+\.[A-Za-z0-9_-]+$`)
+	galaxyVersionRe = regexp.MustCompile(`^(==|!=|>=|<=|>|<|=)?\s*(.*)$`)
+)
 
-func extractGalaxy(cmd string, args map[string]ArgDecl) []PackageInfo {
-	if !galaxyInstallRe.MatchString(cmd) {
-		return nil
+// galaxyOperand reads a collection (namespace.name[:spec]) or a role
+// (namespace.name[,version]). A spec with no operator, or ==, pins the version; "*" and
+// ranges do not. Tarballs, paths and URLs are not Galaxy packages.
+func galaxyOperand(word string) (name, version string, pinned, ok bool) {
+	sep := ":"
+	if !strings.Contains(word, ":") {
+		sep = ","
 	}
-
-	var results []PackageInfo
-	tokens := strings.Fields(cmd)
-	pastInstall := false
-	for _, tok := range tokens {
-		if tok == "install" {
-			pastInstall = true
-			continue
-		}
-		if !pastInstall {
-			continue
-		}
-		if strings.HasPrefix(tok, "-") {
-			continue
-		}
-		// Galaxy collections look like namespace.collection or namespace.collection:version
-		name := tok
-		var version string
-		var pinned bool
-		if idx := strings.LastIndex(tok, ":"); idx > 0 {
-			name = tok[:idx]
-			version = tok[idx+1:]
-			pinned = true
-		}
-		results = append(results, PackageInfo{
-			Name:      name,
-			Version:   version,
-			Pinned:    pinned,
-			Source:    "dockerfile",
-			SourceRef: "RUN " + strings.TrimSpace(cmd),
-			Manager:   "galaxy",
-		})
+	name, spec, _ := strings.Cut(word, sep)
+	if !galaxyNameRe.MatchString(name) {
+		return "", "", false, false
 	}
-	return results
+	spec = strings.TrimSpace(spec)
+	if sep == "," {
+		spec, _, _ = strings.Cut(spec, ",")
+	}
+	if spec == "" || spec == "*" {
+		return name, "", false, true
+	}
+	first, _, isRange := strings.Cut(spec, ",")
+	m := galaxyVersionRe.FindStringSubmatch(strings.TrimSpace(first))
+	op, v := m[1], strings.TrimSpace(m[2])
+	return name, v, !isRange && (op == "" || op == "==" || op == "="), true
 }
 
-// ── npm extractor ────────────────────────────────────────────────────────────
+// ── npm ──────────────────────────────────────────────────────────────────────
 
-var npmInstallRe = regexp.MustCompile(`(?:^|\s)npm\s+install\b`)
+var (
+	npmNameRe      = regexp.MustCompile(`^(?:@[a-z0-9~-][a-z0-9._~-]*/)?[a-z0-9~-][a-z0-9._~-]*$`)
+	exactVersionRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+)
 
-func extractNpm(cmd string, args map[string]ArgDecl) []PackageInfo {
-	if !npmInstallRe.MatchString(cmd) {
-		return nil
+// npmOperand reads name[@version|@tag|@range], scoped or not; only an exact version pins.
+// Tarballs, paths, git URLs and user/repo shorthands are not registry packages.
+func npmOperand(word string) (name, version string, pinned, ok bool) {
+	if archiveRe.MatchString(word) {
+		return "", "", false, false
 	}
-
-	var results []PackageInfo
-	tokens := strings.Fields(cmd)
-	pastInstall := false
-	for _, tok := range tokens {
-		if tok == "install" {
-			pastInstall = true
-			continue
-		}
-		if !pastInstall {
-			continue
-		}
-		if strings.HasPrefix(tok, "-") {
-			continue
-		}
-		// npm packages: pkg, pkg@version, @scope/pkg@version
-		name, version, pinned := parseNpmPackage(tok)
-		results = append(results, PackageInfo{
-			Name:      name,
-			Version:   version,
-			Pinned:    pinned,
-			Source:    "dockerfile",
-			SourceRef: "RUN " + strings.TrimSpace(cmd),
-			Manager:   "npm",
-		})
+	name, version = parseNpmPackage(word)
+	if !npmNameRe.MatchString(name) {
+		return "", "", false, false
 	}
-	return results
+	return name, version, exactVersionRe.MatchString(version), true
 }
 
-func parseNpmPackage(tok string) (name, version string, pinned bool) {
-	// Handle @scope/pkg@version — the @ for scope is not a version separator
-	search := tok
-	if strings.HasPrefix(tok, "@") {
-		// Scoped package: find the second @
-		rest := tok[1:]
-		if idx := strings.Index(rest, "@"); idx >= 0 {
-			name = tok[:idx+1]
-			version = rest[idx+1:]
-			return name, version, true
-		}
-		return tok, "", false
+// parseNpmPackage splits name@version; the @ of a scope (@scope/pkg) is not a separator.
+func parseNpmPackage(tok string) (name, version string) {
+	at := strings.LastIndex(tok, "@")
+	if at <= 0 {
+		return tok, ""
 	}
-	if idx := strings.LastIndex(search, "@"); idx > 0 {
-		name = tok[:idx]
-		version = tok[idx+1:]
-		return name, version, true
-	}
-	return tok, "", false
+	return tok[:at], tok[at+1:]
 }
 
-// ── go extractor ─────────────────────────────────────────────────────────────
+// ── go ───────────────────────────────────────────────────────────────────────
 
-var goInstallRe = regexp.MustCompile(`(?:^|\s)go\s+install\b`)
+var (
+	goImportPathRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_~-]*(?:\.[A-Za-z0-9_~-]+)+(?:/[A-Za-z0-9._~+-]+)*$`)
+	commitRe       = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+)
 
-func extractGo(cmd string, args map[string]ArgDecl) []PackageInfo {
-	if !goInstallRe.MatchString(cmd) {
-		return nil
+// goOperand reads importpath[@version]. A version, pseudo-version or commit pins; a
+// query (latest, upgrade, patch) or branch does not. Relative paths and patterns name
+// the build's own packages, not dependencies.
+func goOperand(word string) (name, version string, pinned, ok bool) {
+	name, version, _ = strings.Cut(word, "@")
+	if !goImportPathRe.MatchString(name) || strings.Contains(name, "...") {
+		return "", "", false, false
 	}
-
-	var results []PackageInfo
-	tokens := strings.Fields(cmd)
-	pastInstall := false
-	for _, tok := range tokens {
-		if tok == "install" {
-			pastInstall = true
-			continue
-		}
-		if !pastInstall {
-			continue
-		}
-		if strings.HasPrefix(tok, "-") {
-			continue
-		}
-		// go install pkg@version
-		name := tok
-		var version string
-		pinned := false
-		if idx := strings.LastIndex(tok, "@"); idx > 0 {
-			name = tok[:idx]
-			version = tok[idx+1:]
-			if version != "latest" {
-				pinned = true
-			}
-		}
-		results = append(results, PackageInfo{
-			Name:      name,
-			Version:   version,
-			Pinned:    pinned,
-			Source:    "dockerfile",
-			SourceRef: "RUN " + strings.TrimSpace(cmd),
-			Manager:   "go",
-		})
-	}
-	return results
+	return name, version, exactVersionRe.MatchString(version) || commitRe.MatchString(version), true
 }
 
 // ── binary extractor ─────────────────────────────────────────────────────────

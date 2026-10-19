@@ -1,0 +1,137 @@
+ansible-galaxy [core 2.21.5]
+usage: ansible-galaxy collection install [-h] [-s API_SERVER]
+                                         [--token API_KEY] [-c]
+                                         [--timeout TIMEOUT] [-v] [-f]
+                                         [--clear-response-cache] [--no-cache]
+                                         [-i] [-n | --force-with-deps]
+                                         [-p COLLECTIONS_PATH]
+                                         [-r REQUIREMENTS] [--pre] [-U]
+                                         [--keyring KEYRING]
+                                         [--disable-gpg-verify]
+                                         [--signature SIGNATURES]
+                                         [--required-valid-signature-count REQUIRED_VALID_SIGNATURE_COUNT]
+                                         [--ignore-signature-status-code {EXPSIG,EXPKEYSIG,REVKEYSIG,BADSIG,ERRSIG,NO_PUBKEY,MISSING_PASSPHRASE,BAD_PASSPHRASE,NODATA,UNEXPECTED,ERROR,FAILURE,BADARMOR,KEYEXPIRED,KEYREVOKED,NO_SECKEY}]
+                                         [--ignore-signature-status-codes {EXPSIG,EXPKEYSIG,REVKEYSIG,BADSIG,ERRSIG,NO_PUBKEY,MISSING_PASSPHRASE,BAD_PASSPHRASE,NODATA,UNEXPECTED,ERROR,FAILURE,BADARMOR,KEYEXPIRED,KEYREVOKED,NO_SECKEY} [{EXPSIG,EXPKEYSIG,REVKEYSIG,BADSIG,ERRSIG,NO_PUBKEY,MISSING_PASSPHRASE,BAD_PASSPHRASE,NODATA,UNEXPECTED,ERROR,FAILURE,BADARMOR,KEYEXPIRED,KEYREVOKED,NO_SECKEY} ...]]
+                                         [--offline]
+                                         [collection_name ...]
+
+Install collection(s) from file(s), URL(s) or Ansible Galaxy to the first
+entry in the config COLLECTIONS_PATH unless overridden by --collections-path.
+
+positional arguments:
+  collection_name       The collection(s) name or path/url to a tar.gz
+                        collection artifact. This is mutually exclusive with
+                        --requirements-file.
+
+options:
+  -h, --help            show this help message and exit
+  -s, --server API_SERVER
+                        The Galaxy API server URL
+  --token, --api-key API_KEY
+                        The Ansible Galaxy API key which can be found at
+                        https://galaxy.ansible.com/ui/token.
+  -c, --ignore-certs    Ignore SSL certificate validation errors.
+  --timeout TIMEOUT     The time to wait for operations against the galaxy
+                        server, defaults to 60s.
+  -v, --verbose         Causes Ansible to print more debug messages. Adding
+                        multiple -v will increase the verbosity, the builtin
+                        plugins currently evaluate up to -vvvvvv. A reasonable
+                        level to start is -vvv, connection debugging might
+                        require -vvvv. This argument may be specified multiple
+                        times.
+  -f, --force           Force overwriting an existing role or collection
+  --clear-response-cache
+                        Clear the existing server response cache.
+  --no-cache            Do not use the server response cache.
+  -i, --ignore-errors   Ignore errors during installation and continue with
+                        the next specified collection. This will not ignore
+                        dependency conflict errors.
+  -n, --no-deps         Don't download collections listed as dependencies.
+  --force-with-deps     Force overwriting an existing collection and its
+                        dependencies.
+  -p, --collections-path COLLECTIONS_PATH
+                        The path to the directory containing your collections.
+  -r, --requirements-file REQUIREMENTS
+                        A file containing a list of collections to be
+                        installed.
+  --pre                 Include pre-release versions. Semantic versioning pre-
+                        releases are ignored by default
+  -U, --upgrade         Upgrade installed collection artifacts. This will also
+                        update dependencies unless --no-deps is provided
+  --keyring KEYRING     The keyring used during signature verification
+  --disable-gpg-verify  Disable GPG signature verification when installing
+                        collections from a Galaxy server
+  --signature SIGNATURES
+                        An additional signature source to verify the
+                        authenticity of the MANIFEST.json before installing
+                        the collection from a Galaxy server. Use in
+                        conjunction with a positional collection name
+                        (mutually exclusive with --requirements-file). This
+                        argument may be specified multiple times.
+  --required-valid-signature-count REQUIRED_VALID_SIGNATURE_COUNT
+                        The number of signatures that must successfully verify
+                        the collection. This should be a positive integer or
+                        -1 to signify that all signatures must be used to
+                        verify the collection. Prepend the value with + to
+                        fail if no valid signatures are found for the
+                        collection (e.g. +all).
+  --ignore-signature-status-code {EXPSIG,EXPKEYSIG,REVKEYSIG,BADSIG,ERRSIG,NO_PUBKEY,MISSING_PASSPHRASE,BAD_PASSPHRASE,NODATA,UNEXPECTED,ERROR,FAILURE,BADARMOR,KEYEXPIRED,KEYREVOKED,NO_SECKEY}
+                        ==SUPPRESS==. This argument may be specified multiple
+                        times.
+  --ignore-signature-status-codes {EXPSIG,EXPKEYSIG,REVKEYSIG,BADSIG,ERRSIG,NO_PUBKEY,MISSING_PASSPHRASE,BAD_PASSPHRASE,NODATA,UNEXPECTED,ERROR,FAILURE,BADARMOR,KEYEXPIRED,KEYREVOKED,NO_SECKEY} [{EXPSIG,EXPKEYSIG,REVKEYSIG,BADSIG,ERRSIG,NO_PUBKEY,MISSING_PASSPHRASE,BAD_PASSPHRASE,NODATA,UNEXPECTED,ERROR,FAILURE,BADARMOR,KEYEXPIRED,KEYREVOKED,NO_SECKEY} ...]
+                        A space separated list of status codes to ignore
+                        during signature verification (for example, NO_PUBKEY
+                        FAILURE). Descriptions for the choices can be seen at
+                        L(https://github.com/gpg/gnupg/blob/master/doc/DETAILS
+                        #general-status-codes).Note: specify these after
+                        positional arguments or use -- to separate them. This
+                        argument may be specified multiple times.
+  --offline             Install collection artifacts (tarballs) without
+                        contacting any distribution servers. This does not
+                        apply to collections in remote Git repositories or
+                        URLs to remote tarballs.
+usage: ansible-galaxy role install [-h] [-s API_SERVER] [--token API_KEY] [-c]
+                                   [--timeout TIMEOUT] [-v] [-f]
+                                   [-p ROLES_PATH] [-i] [-n |
+                                   --force-with-deps] [-r REQUIREMENTS] [-g]
+                                   [role_name ...]
+
+Install role(s) from file(s), URL(s) or Ansible Galaxy to the first entry in
+the config ROLES_PATH unless overridden by --roles-path.
+
+positional arguments:
+  role_name             Role name, URL or tar file. This is mutually exclusive
+                        with -r.
+
+options:
+  -h, --help            show this help message and exit
+  -s, --server API_SERVER
+                        The Galaxy API server URL
+  --token, --api-key API_KEY
+                        The Ansible Galaxy API key which can be found at
+                        https://galaxy.ansible.com/ui/token.
+  -c, --ignore-certs    Ignore SSL certificate validation errors.
+  --timeout TIMEOUT     The time to wait for operations against the galaxy
+                        server, defaults to 60s.
+  -v, --verbose         Causes Ansible to print more debug messages. Adding
+                        multiple -v will increase the verbosity, the builtin
+                        plugins currently evaluate up to -vvvvvv. A reasonable
+                        level to start is -vvv, connection debugging might
+                        require -vvvv. This argument may be specified multiple
+                        times.
+  -f, --force           Force overwriting an existing role or collection
+  -p, --roles-path ROLES_PATH
+                        The path to the directory containing your roles. The
+                        default is the first writable one configured via
+                        DEFAULT_ROLES_PATH: {{ ANSIBLE_HOME ~
+                        "/roles:/usr/share/ansible/roles:/etc/ansible/roles"
+                        }} . This argument may be specified multiple times.
+  -i, --ignore-errors   Ignore errors and continue with the next specified
+                        role.
+  -n, --no-deps         Don't download roles listed as dependencies.
+  --force-with-deps     Force overwriting an existing role and its
+                        dependencies.
+  -r, --role-file REQUIREMENTS
+                        A file containing a list of roles to be installed.
+  -g, --keep-scm-meta   Use tar instead of the scm archive option when
+                        packaging the role.
