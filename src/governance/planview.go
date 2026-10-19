@@ -35,6 +35,8 @@ func actionMarker(action string) string {
 		return "="
 	case "delete":
 		return "-"
+	case "unreadable":
+		return "!"
 	default:
 		return "?"
 	}
@@ -105,16 +107,20 @@ func classifyFiles(files []DistributedFile, verbose bool) []classifiedFile {
 
 // repoGroupKey determines the state label for grouping repos in plan view.
 func repoPlanState(plan DistributionPlan) string {
-	hasCreate, hasReplace := false, false
+	hasCreate, hasReplace, hasUnreadable := false, false, false
 	for _, f := range plan.Files {
 		switch f.Action {
 		case "create":
 			hasCreate = true
 		case "replace":
 			hasReplace = true
+		case "unreadable":
+			hasUnreadable = true
 		}
 	}
 	switch {
+	case hasUnreadable:
+		return "unreadable"
 	case hasReplace:
 		return "drifted"
 	case hasCreate:
@@ -291,6 +297,14 @@ func groupRepos(cluster Profile, data PlanViewData) []repoGroup {
 			}
 		} else {
 			state = repoPlanState(plan)
+			if state == "unreadable" {
+				for _, f := range plan.Files {
+					if f.ReadErr != nil {
+						entry.errMsg = f.ReadErr.Error()
+						break
+					}
+				}
+			}
 		}
 
 		sig := repoFileSignature(plan, data.Config.Verbose)
@@ -325,7 +339,7 @@ func separator(w io.Writer) {
 
 // fileCounts tracks file action totals.
 type fileCounts struct {
-	create, replace, unchanged, delete int
+	create, replace, unchanged, delete, unreadable int
 }
 
 func (c *fileCounts) add(action string, repoCount int) {
@@ -338,6 +352,8 @@ func (c *fileCounts) add(action string, repoCount int) {
 		c.unchanged += repoCount
 	case "delete":
 		c.delete += repoCount
+	case "unreadable":
+		c.unreadable += repoCount
 	}
 }
 
@@ -348,11 +364,14 @@ func (c *fileCounts) render(w io.Writer) {
 	if c.delete > 0 {
 		row(w, "%-20s%d", "files delete", c.delete)
 	}
+	if c.unreadable > 0 {
+		row(w, "%-20s%d", "files unreadable", c.unreadable)
+	}
 }
 
 // repoCounts tracks repo state totals.
 type repoCounts struct {
-	changed, unchanged, committed, failed int
+	changed, unchanged, committed, failed, unreadable int
 }
 
 func (c *repoCounts) add(state string, _ repoEntry) {
@@ -365,6 +384,8 @@ func (c *repoCounts) add(state string, _ repoEntry) {
 		c.committed++
 	case "failed":
 		c.failed++
+	case "unreadable":
+		c.unreadable++
 	}
 }
 
@@ -378,6 +399,9 @@ func (c *repoCounts) render(w io.Writer, mode string) {
 	} else {
 		row(w, "%-20s%d", "repos changed", c.changed)
 		row(w, "%-20s%d", "repos unchanged", c.unchanged)
+		if c.unreadable > 0 {
+			row(w, "%-20s%d", "repos unreadable", c.unreadable)
+		}
 	}
 }
 

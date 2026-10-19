@@ -134,9 +134,11 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	}
 
 	// Resolve forge from sources.primary — standard StageFreight config resolution.
+	// Without a forge every satellite file reads as absent, so a plan would report each
+	// one as a create — a fleet-wide rewrite the forge never asked for. No forge, no plan.
 	forgeProvider, forgeBaseURL, forgeCreds, err := resolveGovernanceForgeFromConfig(opts.Config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ forge unresolved: %v — drift detection disabled\n", err)
+		return fmt.Errorf("resolving the governance forge: %w", err)
 	}
 
 	var adapter *forgeAdapter

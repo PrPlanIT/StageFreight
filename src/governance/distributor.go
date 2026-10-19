@@ -64,6 +64,25 @@ func PlanDistribution(
 			repo := entry.At
 			plan := DistributionPlan{Repo: repo, Credentials: cluster.Credentials}
 
+			// Read access to the repo is proven before any of its files is classified.
+			// A forge answers a project the caller cannot see the same way it answers a
+			// missing file (GitLab: 404), so a run without credentials, or with a token
+			// scoped short of this repo, would otherwise plan every file as "create".
+			// An unreadable repo is planned as unreadable, which apply refuses to commit.
+			reader := forgeReader
+			branch := ""
+			var repoErr error
+			if forgeReader != nil {
+				branch, repoErr = forgeReader.DefaultBranch(repo)
+				if repoErr == nil && branch == "" {
+					repoErr = errors.New("forge reported no default branch")
+				}
+				if repoErr != nil {
+					repoErr = fmt.Errorf("repo %s is not readable: %w", repo, repoErr)
+					reader = nil
+				}
+			}
+
 			// Merge satellite-owned vars into governance vars.
 			// Governance keys are authoritative. Undeclared satellite keys are preserved.
 			repoConfig := deepCopyMap(baseConfig)
@@ -98,9 +117,9 @@ func PlanDistribution(
 			// source's provider; a mirror is emitted when the entry's org declares a
 			// forge-named alias (e.g. github: PrPlanIT → a github mirror at
 			// <alias>/<slug>). The default branch is read from the forge, never assumed.
-			repoConfig["repos"] = concretizeRepos(entry, cluster.Config, presetSource.Provider, forgeReader, repo)
+			repoConfig["repos"] = concretizeRepos(entry, cluster.Config, presetSource.Provider, branch)
 
-			mergeSatelliteVars(repoConfig, forgeReader, repo)
+			mergeSatelliteVars(repoConfig, reader, repo)
 
 			sealedContent, err := RenderSealedConfig(seal, repoConfig)
 			if err != nil {
@@ -143,7 +162,7 @@ func PlanDistribution(
 
 			// Sealed .stagefreight.yml — section presets preserved, vars resolved.
 			plan.Files = append(plan.Files, planFile(
-				forgeReader, repo,
+				reader, repo,
 				".stagefreight.yml",
 				sealedContent,
 			))
@@ -160,13 +179,13 @@ func PlanDistribution(
 				return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
 			}
 			for _, f := range ciFiles {
-				plan.Files = append(plan.Files, planFile(forgeReader, repo, f.Path, f.Content))
+				plan.Files = append(plan.Files, planFile(reader, repo, f.Path, f.Content))
 			}
 
 			// Preset cache files — 1:1 copies for runtime resolution.
 			for cachePath, cacheContent := range repoPresetFiles {
 				plan.Files = append(plan.Files, planFile(
-					forgeReader, repo,
+					reader, repo,
 					cachePath,
 					cacheContent,
 				))
@@ -200,11 +219,19 @@ func PlanDistribution(
 								cluster.ID, target, repoURL, ref, srcPath, err)
 						}
 						plan.Files = append(plan.Files, planFile(
-							forgeReader, repo,
+							reader, repo,
 							target,
 							content,
 						))
 					}
+				}
+			}
+
+			if repoErr != nil {
+				for i := range plan.Files {
+					plan.Files[i].Action = "unreadable"
+					plan.Files[i].ReadErr = repoErr
+					plan.Files[i].Drifted = false
 				}
 			}
 
@@ -267,18 +294,15 @@ func slugFromLocation(at string) string {
 // concretizeRepos builds the satellite's CONCRETE repos section from the catalog
 // entry's authoritative location: primary = the location on the entry's forge (default:
 // the governance source's provider), plus a mirror for each forge-named org alias
-// (alias key = forge id, alias value = that forge's org path). The default branch is
-// read from the forge when a reader is available; "main" otherwise.
-func concretizeRepos(entry CatalogEntry, clusterConfig map[string]any, sourceProvider string, reader ForgeReader, repo string) map[string]any {
+// (alias key = forge id, alias value = that forge's org path). branch is the default
+// branch the forge reported for the repo; "" (no forge reader) renders "main".
+func concretizeRepos(entry CatalogEntry, clusterConfig map[string]any, sourceProvider string, branch string) map[string]any {
 	forgeID := entry.Forge
 	if forgeID == "" {
 		forgeID = sourceProvider
 	}
-	branch := "main"
-	if reader != nil {
-		if b, err := reader.DefaultBranch(repo); err == nil && b != "" {
-			branch = b
-		}
+	if branch == "" {
+		branch = "main"
 	}
 	repos := map[string]any{
 		"primary": map[string]any{
