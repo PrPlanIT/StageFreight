@@ -1311,7 +1311,7 @@ upstream:
   evidence:   # Evidence proves, per build, that the built artifact contains the version a release claims. Keyed by…
     <id>:   # entry key = the unique id
       probe:   # Probe reads the version the built image contains. · required
-        label: <string>   # Label is an OCI image label whose value is the version, e.g. org.opencontainers.image.version.
+        label: <string>   # Label is an OCI image label whose value is the version — one the image's own build sets from what…
         file: <string>   # File is an absolute path in the image filesystem holding the version.
         package: <string>   # Package is an installed package whose version is read from the package database named by manager.
         manager: <string>   # Manager is the package database package reads: pip (site-packages dist-info), dpkg…
@@ -1334,6 +1334,7 @@ schedules:
   <id>:   # entry key = the unique id
     cron: <string>   # Cron is a 5-field cron expression in UTC: minute hour day-of-month month day-of-week. The minute is… · required
     reason: <string>   # Reason says what the schedule is for; shown wherever the schedule is materialized.
+    build: <string>   # Build decides whether the scheduled run builds and publishes what it runs on: changes (default)…
 ```
 
 ---

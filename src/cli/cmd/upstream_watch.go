@@ -37,8 +37,14 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		return recordUpstreamFailure(rootDir, guarding, err)
 	}
 	var ours []string
+	ourCommits := map[string]string{}
 	if repo, err := gitstate.OpenRepo(rootDir); err == nil {
 		ours, _ = gitstate.ListTagsSorted(repo)
+		for _, t := range ours {
+			if ref, err := repo.Tag(t); err == nil {
+				ourCommits[t] = peel(repo, ref.Hash()).String()
+			}
+		}
 	}
 
 	var (
@@ -90,7 +96,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		if u.Version.Since != "" {
 			claim.Since, _ = src.Select.Scheme.Parse(u.Version.Since)
 		}
-		rep := upstream.Evaluate(claim, releases, ours)
+		rep := upstream.Evaluate(claim, releases, ours, ourCommits)
 		facts["source"], facts["latest"], facts["ours"] = src.ID, latest, orNone(rep.OursNewest)
 		if rep.UpdatesAvailable {
 			fmt.Printf("  upstream: %s released %s, newer than ours (%s)\n", src, latest, orNone(rep.OursNewest))

@@ -119,3 +119,30 @@ func TestCISchedules(t *testing.T) {
 		t.Fatal("no schedule outside a scheduled run")
 	}
 }
+
+func TestScheduledRunBuilds(t *testing.T) {
+	cfg := &Config{Schedules: OrderedSchedules{{ID: "nightly", Cron: "H 4 * * *"}, {ID: "rebuild", Cron: "H H * * 1", Build: "always"}}}
+	cases := []struct {
+		event, fired string
+		want         bool
+	}{
+		{"push", "", true},                    // not a scheduled run
+		{"schedule", "nightly", false},        // build: changes (default)
+		{"schedule", "nightly,rebuild", true}, // any always wins
+		{"schedule", "", true},                // cannot name the schedule: build, as before
+		{"schedule", "someone-elses", true},   // not declared by StageFreight
+	}
+	for _, c := range cases {
+		t.Setenv("SF_CI_TAG", "")
+		t.Setenv("CI_COMMIT_TAG", "")
+		t.Setenv("SF_CI_EVENT", c.event)
+		t.Setenv("SF_CI_SCHEDULE", c.fired)
+		if got := ScheduledRunBuilds(cfg); got != c.want {
+			t.Errorf("event=%s fired=%q: builds=%v, want %v", c.event, c.fired, got, c.want)
+		}
+	}
+	bad := &Config{Schedules: OrderedSchedules{{ID: "x", Cron: "0 4 * * *", Build: "sometimes"}}}
+	if errs := strings.Join(validateSchedules(bad), "\n"); !strings.Contains(errs, "changes | always") {
+		t.Errorf("errors = %q", errs)
+	}
+}

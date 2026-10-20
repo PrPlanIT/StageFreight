@@ -110,7 +110,7 @@ func TestOurVersion(t *testing.T) {
 
 func TestEvaluate_TrackFlagsTheUnreleasedVersion(t *testing.T) {
 	up, _ := Releases(ansibleUpstreamTags, defaultSel())
-	rep := Evaluate(ansible(config.UpstreamVersionTrack), up, []string{"v2.21.4", "v2.21.5", "v2.21.6", "latest-dev"})
+	rep := Evaluate(ansible(config.UpstreamVersionTrack), up, []string{"v2.21.4", "v2.21.5", "v2.21.6", "latest-dev"}, nil)
 	if strings.Join(rep.Mismatched, ",") != "v2.21.6" {
 		t.Fatalf("mismatched = %v, want [v2.21.6]", rep.Mismatched)
 	}
@@ -121,7 +121,7 @@ func TestEvaluate_TrackFlagsTheUnreleasedVersion(t *testing.T) {
 
 func TestEvaluate_TrackUpdatesAvailable(t *testing.T) {
 	up, _ := Releases(ansibleUpstreamTags, defaultSel())
-	rep := Evaluate(ansible(config.UpstreamVersionTrack), up, []string{"v2.21.4"})
+	rep := Evaluate(ansible(config.UpstreamVersionTrack), up, []string{"v2.21.4"}, nil)
 	if !rep.UpdatesAvailable || rep.UpstreamNewest.Tag != "v2.21.5" || rep.OursNewest != "v2.21.4" {
 		t.Fatalf("report = %+v, want update v2.21.4 -> v2.21.5", rep)
 	}
@@ -130,7 +130,7 @@ func TestEvaluate_TrackUpdatesAvailable(t *testing.T) {
 func TestEvaluate_ContinueFlagsCollisions(t *testing.T) {
 	// weave-gitops: our lineage continues a dormant upstream's numbering.
 	up, _ := Releases([]string{"v0.38.0", "v0.39.0"}, defaultSel())
-	rep := Evaluate(ansible(config.UpstreamVersionContinue), up, []string{"v0.39.0", "v0.39.1"})
+	rep := Evaluate(ansible(config.UpstreamVersionContinue), up, []string{"v0.39.0", "v0.39.1"}, nil)
 	if strings.Join(rep.Mismatched, ",") != "v0.39.0" {
 		t.Fatalf("mismatched = %v, want the collision v0.39.0 only", rep.Mismatched)
 	}
@@ -143,7 +143,7 @@ func TestEvaluate_SinceIsTheCutover(t *testing.T) {
 	up, _ := Releases(ansibleUpstreamTags, defaultSel())
 	c := ansible(config.UpstreamVersionTrack)
 	c.Since = mustParse(scheme.Semver, "2.21.0")
-	rep := Evaluate(c, up, []string{"v1.0.7", "v2.21.6"})
+	rep := Evaluate(c, up, []string{"v1.0.7", "v2.21.6"}, nil)
 	if strings.Join(rep.Mismatched, ",") != "v2.21.6" {
 		t.Fatalf("mismatched = %v, want only the tag after the cutover", rep.Mismatched)
 	}
@@ -151,7 +151,7 @@ func TestEvaluate_SinceIsTheCutover(t *testing.T) {
 
 func TestEvaluate_EmptyUpstreamFlagsNothing(t *testing.T) {
 	// A selection that keeps nothing is a config problem, not proof that every tag lies.
-	rep := Evaluate(ansible(config.UpstreamVersionTrack), nil, []string{"v2.21.5"})
+	rep := Evaluate(ansible(config.UpstreamVersionTrack), nil, []string{"v2.21.5"}, nil)
 	if len(rep.Mismatched) != 0 || rep.UpdatesAvailable {
 		t.Fatalf("report = %+v, want nothing flagged", rep)
 	}
@@ -231,5 +231,24 @@ func TestReleases_RewriteAndLoose(t *testing.T) {
 	}
 	if ok, _ := ReleaseVerdict(c, got, "v1.6.69"); ok {
 		t.Fatal("ark-se-server's v1.6.69 names an AMG version upstream never released")
+	}
+}
+
+func TestEvaluate_InheritedUpstreamTagsAreNotOurs(t *testing.T) {
+	// LinkStack: our lineage continues upstream's numbering, and our repository carries
+	// upstream's own tags. v4.8.5 and v4.8.6 are upstream's tags at upstream's commits; v4.9.0
+	// is ours.
+	up, _ := Releases([]string{"v4.8.5", "v4.8.6"}, defaultSel())
+	up[0].Commit, up[1].Commit = "c486", "c485"
+	ours := []string{"v4.8.5", "v4.8.6", "v4.9.0"}
+	commits := map[string]string{"v4.8.6": "c486", "v4.8.5": "c485", "v4.9.0": "ours"}
+	rep := Evaluate(ansible(config.UpstreamVersionContinue), up, ours, commits)
+	if len(rep.Mismatched) != 0 || rep.OursNewest != "v4.9.0" {
+		t.Fatalf("inherited tags must not read as collisions or as our releases: %+v", rep)
+	}
+	// The same name on a commit of ours is ours, and collides.
+	commits["v4.8.6"] = "ours-too"
+	if rep := Evaluate(ansible(config.UpstreamVersionContinue), up, ours, commits); strings.Join(rep.Mismatched, ",") != "v4.8.6" {
+		t.Fatalf("a tag of ours reusing upstream's number collides: %+v", rep.Mismatched)
 	}
 }

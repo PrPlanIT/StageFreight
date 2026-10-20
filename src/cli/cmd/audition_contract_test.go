@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 )
 
@@ -167,4 +168,28 @@ func TestDeriveAuditionContract(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestDeriveAuditionContract_NothingToBuild(t *testing.T) {
+	c := deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, NothingToBuild: "scheduled run (nightly, build: changes)"})
+	if c.Blocking || !c.Skipped || c.Outcome != "success" {
+		t.Fatalf("a shippable scheduled subject with nothing to build is a clean skip: %+v", c)
+	}
+	if build, err := performGate(&c); err != nil || !build {
+		// performGate itself never reads Skipped; the perform runner checks it first.
+		t.Fatalf("performGate unchanged: build=%v err=%v", build, err)
+	}
+	blocked := deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: false, NothingToBuild: "scheduled"})
+	if !blocked.Blocking || blocked.Skipped {
+		t.Fatalf("nothing to build never unblocks a blocked subject: %+v", blocked)
+	}
+}
+
+func TestPhaseSkipped_AuthorizesPublish(t *testing.T) {
+	root := t.TempDir()
+	phaseSkipped(root, "Perform", "build", "scheduled run")
+	phaseSkipped(root, "Review", "security", "scheduled run")
+	if err := authorizePhase(&ci.CIContext{Provider: "gitlab"}, root, "publish"); err != nil {
+		t.Fatalf("a skipped build and review must not block publish's forge work: %v", err)
+	}
 }

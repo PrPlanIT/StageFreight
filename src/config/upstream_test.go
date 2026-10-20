@@ -113,6 +113,10 @@ func TestUpstream_EvidenceValidation(t *testing.T) {
 		"report without reason": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
 			{ID: "image", Probe: UpstreamProbe{Label: "v"}, OnMismatch: "report"}}}, "reason: required"},
 		"version report with reason": {UpstreamConfig{Sources: src, Version: UpstreamVersion{Continue: "core", OnMismatch: "report", Reason: "shared lineage with riffcc"}}, ""},
+		"stamped label": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Label: "org.opencontainers.image.version"}}}}, "proves nothing"},
+		"own label": {UpstreamConfig{Sources: src, Version: track, Evidence: OrderedUpstreamEvidence{
+			{ID: "image", Probe: UpstreamProbe{Label: "io.homelabhd.ansible-core.version"}}}}, ""},
 		"evidence under own": {UpstreamConfig{Sources: src, Evidence: OrderedUpstreamEvidence{
 			{ID: "image", Probe: UpstreamProbe{Label: "v"}}}}, "set version.track or version.continue"},
 	}
@@ -202,5 +206,25 @@ func TestUpstream_SyncFileRules(t *testing.T) {
 		if (c.want == "") != (errs == "") || !strings.Contains(errs, c.want) {
 			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
 		}
+	}
+}
+
+func TestUpstream_RebaseRequiresForcedMirrors(t *testing.T) {
+	src := OrderedUpstreamSources{{ID: "zitadel", Git: "https://github.com/zitadel/zitadel"}}
+	mirror := func(force bool) OrderedRepos {
+		return OrderedRepos{{ID: "github", Roles: []string{"mirror"}, Sync: SyncConfig{Branches: &FacetSpec{Scope: "all", Force: force}}}}
+	}
+	cfg := &Config{Repos: mirror(false), Upstream: UpstreamConfig{Sources: src, Sync: UpstreamSync{From: "zitadel"}}}
+	if errs := strings.Join(validateUpstream(cfg), "\n"); !strings.Contains(errs, "repos.github.sync.branches.force: true") {
+		t.Fatalf("a rebase with a keep-divergent mirror must be refused: %q", errs)
+	}
+	cfg.Repos = mirror(true)
+	if errs := validateUpstream(cfg); len(errs) != 0 {
+		t.Fatalf("a forced mirror follows the rewrite: %v", errs)
+	}
+	cfg.Repos = mirror(false)
+	cfg.Upstream.Sync.Strategy = "merge"
+	if errs := validateUpstream(cfg); len(errs) != 0 {
+		t.Fatalf("a merge never rewrites, so the mirror is fine: %v", errs)
 	}
 }

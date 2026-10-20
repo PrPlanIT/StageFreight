@@ -60,7 +60,7 @@ func image(t *testing.T, labels map[string]string, entries ...entry) v1.Image {
 }
 
 func TestProbe(t *testing.T) {
-	img := image(t, map[string]string{"org.opencontainers.image.version": "v2.21.5"},
+	img := image(t, map[string]string{"io.homelabhd.ansible-core.version": "v2.21.5"},
 		entry{name: "usr/lib/python3.13/site-packages/ansible_core-2.21.5.dist-info/METADATA", body: "Name: ansible-core\n"},
 		entry{name: "usr/lib/python3.13/site-packages/ansible-2.21.0.dist-info/METADATA", body: "Name: ansible\n"},
 		entry{name: "var/lib/dpkg/status", body: "Package: nut-server\nStatus: install ok installed\nVersion: 2.8.1-3+deb13u1\n\nPackage: nut-client\nStatus: deinstall ok config-files\nVersion: 2.7.0-1\n"},
@@ -72,7 +72,7 @@ func TestProbe(t *testing.T) {
 		probe config.UpstreamProbe
 		want  string
 	}{
-		{config.UpstreamProbe{Label: "org.opencontainers.image.version"}, "2.21.5"},
+		{config.UpstreamProbe{Label: "io.homelabhd.ansible-core.version"}, "2.21.5"},
 		{config.UpstreamProbe{Package: "ansible-core", Manager: "pip"}, "2.21.5"},
 		{config.UpstreamProbe{Package: "Ansible_Core", Manager: "pip"}, "2.21.5"},
 		{config.UpstreamProbe{Package: "nut-server", Manager: "dpkg"}, "2.8.1-3+deb13u1"},

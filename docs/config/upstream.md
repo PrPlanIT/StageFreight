@@ -109,7 +109,7 @@ reaches a registry. There are two kinds:
 
 | Probe | Reads |
 |---|---|
-| `label: <key>` | an OCI image label |
+| `label: <key>` | an OCI image label the image's own build sets (labels StageFreight stamps itself — `org.opencontainers.image.version`, `…revision`, … — are refused: they repeat the tag) |
 | `file: /abs/path` | a file in the image (symlinks followed); `match:` picks the version |
 | `package: <name>` + `manager: pip \| dpkg \| apk` | the package database — works on images with no shell |
 
@@ -190,7 +190,7 @@ upstream:
 
 | `strategy:` | Our branch afterwards |
 |---|---|
-| `rebase` | our commits replayed on top of upstream's release — rewritten, so the forge must let StageFreight force-push the branch |
+| `rebase` | our commits replayed on top of upstream's release — rewritten, so the forge must let StageFreight force-push the branch, and every outbound mirror must follow a rewrite (`repos.<id>.sync.branches.force: true`; validation refuses a mirror that would silently stop) |
 | `merge` | a merge commit joining upstream's release; nothing rewritten. The merge commit carries `Upstream-Rev: <sha>` |
 | `mirror` | exactly upstream's branch (fast-forward only); a branch that has diverged is kept and reported, never overwritten |
 

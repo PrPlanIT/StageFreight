@@ -24,6 +24,50 @@ type ScheduleConfig struct {
 
 	// Reason says what the schedule is for; shown wherever the schedule is materialized.
 	Reason string `yaml:"reason,omitempty"`
+
+	// Build decides whether the scheduled run builds and publishes what it runs on:
+	//   changes (default): no. The run watches upstreams, bumps, syncs; whatever it commits
+	//                      starts its own pipeline, which builds and publishes. A night with
+	//                      nothing new publishes nothing — no fresh digests to chase.
+	//   always:            yes — rebuild and republish the current commit (a base-image
+	//                      refresh). Publish targets can narrow it with when.schedules.
+	Build string `yaml:"build,omitempty"`
+}
+
+// Schedule build modes.
+const (
+	ScheduleBuildChanges = "changes"
+	ScheduleBuildAlways  = "always"
+)
+
+// ScheduledRunBuilds reports whether this scheduled run builds and publishes: when any
+// schedule that fired it says build: always, or when the run cannot name a declared schedule
+// (a schedule StageFreight did not declare keeps the push-equivalent behaviour). Always true
+// outside a scheduled run.
+func ScheduledRunBuilds(cfg *Config) bool {
+	if CIEvent() != "schedule" {
+		return true
+	}
+	fired := CISchedules()
+	if len(fired) == 0 {
+		return true
+	}
+	for _, id := range fired {
+		s, ok := findSchedule(cfg.Schedules, id)
+		if !ok || s.Build == ScheduleBuildAlways {
+			return true
+		}
+	}
+	return false
+}
+
+func findSchedule(all OrderedSchedules, id string) (ScheduleConfig, bool) {
+	for _, s := range all {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return ScheduleConfig{}, false
 }
 
 // OrderedSchedules is the schedules: block — an id→schedule map (key becomes ScheduleConfig.ID).
@@ -182,6 +226,11 @@ func validateSchedules(cfg *Config) []string {
 		}
 		if _, err := ResolveCron(s.Cron, "", s.ID); err != nil {
 			errs = append(errs, fmt.Sprintf("%s.cron: %v", path, err))
+		}
+		switch s.Build {
+		case "", ScheduleBuildChanges, ScheduleBuildAlways:
+		default:
+			errs = append(errs, fmt.Sprintf("%s.build: unknown %q (changes | always)", path, s.Build))
 		}
 	}
 	return errs

@@ -77,7 +77,7 @@ func TestEvidenceGate(t *testing.T) {
 	img := empty.Image
 	cf, _ := img.ConfigFile()
 	cf = cf.DeepCopy()
-	cf.Config.Labels = map[string]string{"org.opencontainers.image.version": "2.21.5"}
+	cf.Config.Labels = map[string]string{"io.homelabhd.ansible-core.version": "2.21.5"}
 	img, _ = mutate.ConfigFile(img, cf)
 	dir := t.TempDir()
 	p, err := layout.Write(dir, empty.Index)
@@ -93,8 +93,8 @@ func TestEvidenceGate(t *testing.T) {
 		Sources: config.OrderedUpstreamSources{{ID: "core", Git: "https://github.com/ansible/ansible"}},
 		Version: config.UpstreamVersion{Track: "core"},
 		Evidence: config.OrderedUpstreamEvidence{
-			{ID: "image", Probe: config.UpstreamProbe{Label: "org.opencontainers.image.version"}},
-			{ID: "tolerant", Probe: config.UpstreamProbe{Label: "org.opencontainers.image.version"}, OnMismatch: "report", Reason: "metadata trails the tag"},
+			{ID: "image", Probe: config.UpstreamProbe{Label: "io.homelabhd.ansible-core.version"}},
+			{ID: "tolerant", Probe: config.UpstreamProbe{Label: "io.homelabhd.ansible-core.version"}, OnMismatch: "report", Reason: "metadata trails the tag"},
 		},
 	}}
 

@@ -87,6 +87,11 @@ type auditionInputs struct {
 	// upstream never published (or one that could not be verified); "" when nothing is refused.
 	// It voids the subject as that release: no rebuild or fix of this source changes the number.
 	UpstreamRefused string
+
+	// NothingToBuild marks a scheduled run whose schedules say build: changes — anything it
+	// changed is built by the pipeline its own push starts. A run that would block keeps
+	// blocking; this only turns a shippable subject into a clean skip.
+	NothingToBuild string
 }
 
 // deriveAuditionContract is the PURE projection of an audition run into its contract. Two
@@ -120,6 +125,10 @@ func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
 	if !blocking {
 		c.Outcome = "success"
 		c.Reason = "candidate acceptable"
+		if in.NothingToBuild != "" {
+			c.Skipped = true
+			c.Reason = in.NothingToBuild
+		}
 		return c
 	}
 	c.Outcome = "failed"

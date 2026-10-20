@@ -58,8 +58,10 @@ type UpstreamEvidence struct {
 // UpstreamProbe reads a version out of a built image without running it. Set exactly one of
 // label, file, package.
 type UpstreamProbe struct {
-	// Label is an OCI image label whose value is the version, e.g.
-	// org.opencontainers.image.version.
+	// Label is an OCI image label whose value is the version — one the image's own build sets
+	// from what it installs (e.g. a Dockerfile LABEL fed by the pinned ARG). Labels
+	// StageFreight stamps itself (org.opencontainers.image.version, …revision, …) describe the
+	// build, not its contents, and are refused: a probe on them would always agree.
 	Label string `yaml:"label,omitempty"`
 
 	// File is an absolute path in the image filesystem holding the version.
@@ -121,6 +123,19 @@ func EffectiveOnMismatch(v string) string {
 
 // DefaultProbeMatch is the first dotted version in a label value or file.
 const DefaultProbeMatch = `(?P<version>\d+(?:\.\d+)+[0-9A-Za-z.+\-]*)`
+
+// StampedLabels are the OCI labels StageFreight writes on every image it builds. They state the
+// build's own claims (the version being built, its commit, its time), so they can never be
+// evidence of what the image contains. Kept in lockstep with build.StandardLabels by a test in
+// the build package.
+var StampedLabels = []string{
+	"org.opencontainers.image.created",
+	"org.opencontainers.image.revision",
+	"org.opencontainers.image.version",
+	"org.opencontainers.image.description",
+	"org.stagefreight.build.mode",
+	"org.stagefreight.plan.sha256",
+}
 
 // Probe package managers.
 var validProbeManagers = map[string]bool{"pip": true, "dpkg": true, "apk": true}
@@ -697,6 +712,15 @@ func validateUpstream(cfg *Config) []string {
 				errs = append(errs, fmt.Sprintf("%s.take: %q (merge | fork | upstream | review)", fpath, f.Take))
 			}
 		}
+		// A rebase rewrites our branch. A mirror that keeps diverged branches (force off, the
+		// default) would silently stop following it; say so here, not after the fork drifts.
+		if sy.EffectiveStrategy() == SyncRebase {
+			for _, r := range cfg.Repos {
+				if b := r.Sync.Branches; b != nil && !b.Force {
+					errs = append(errs, fmt.Sprintf("upstream.sync: strategy rebase rewrites the default branch, and repos.%s.sync.branches keeps diverged branches, so %s would stop following it — set repos.%s.sync.branches.force: true, or use strategy: merge", r.ID, r.ID, r.ID))
+				}
+			}
+		}
 		if len(sy.Files) > 0 && sy.Strategy == SyncMirror {
 			errs = append(errs, "upstream.sync.files: a mirror is an exact copy of upstream; per-file rules apply to rebase and merge")
 		}
@@ -751,6 +775,11 @@ func validateUpstream(cfg *Config) []string {
 			errs = append(errs, fmt.Sprintf("%s.probe.manager: %q — package needs manager: pip | dpkg | apk", path, p.Manager))
 		case p.Package == "" && p.Manager != "":
 			errs = append(errs, path+".probe.manager: only meaningful with package")
+		}
+		for _, stamped := range StampedLabels {
+			if p.Label == stamped {
+				errs = append(errs, fmt.Sprintf("%s.probe.label: %s is stamped by StageFreight from the release being built, so it always matches the tag and proves nothing — probe what the image installed (package, file) or a label its own build sets", path, stamped))
+			}
 		}
 		if p.File != "" && !strings.HasPrefix(p.File, "/") {
 			errs = append(errs, fmt.Sprintf("%s.probe.file: %q must be an absolute path in the image", path, p.File))

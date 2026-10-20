@@ -1,15 +1,25 @@
 # Schedules
 
 `schedules:` declares the cadences on which StageFreight runs by itself — with nobody pushing.
-A scheduled run is a full run: it watches upstreams, bumps dependencies, rebuilds, and
-publishes, under the same guards as a push. That is how forks and quiet projects stay
-current while everyone sleeps.
+A scheduled run watches upstreams, bumps dependencies and syncs forks; whatever it commits
+starts an ordinary pipeline that builds and publishes it under every guard. That is how forks
+and quiet projects stay current while everyone sleeps.
 
 ```yaml
 schedules:
   nightly:        { cron: 'H 4 * * *', reason: upstream watch + deps }
-  weekly-rebuild: { cron: 'H H * * 1', reason: base image refresh }
+  weekly-rebuild: { cron: 'H H * * 1', build: always, reason: base image refresh }
 ```
+
+## What a scheduled run builds
+
+| `build:` | The scheduled run itself |
+|---|---|
+| `changes` (default) | builds nothing. Its changes — a bump, a sync — are built and published by the pipeline their push starts, so a night with nothing new publishes nothing and mints no new digests. |
+| `always` | rebuilds and republishes the current commit — a base-image refresh — like a push would. Narrow which targets publish with `when.schedules`. |
+
+A run fired by a schedule StageFreight did not declare (one made by hand in the forge) builds,
+as before.
 
 ## The cron contract
 

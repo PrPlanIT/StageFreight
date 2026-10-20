@@ -191,13 +191,27 @@ type Report struct {
 // Evaluate compares the claimed source's releases with our tags. Under track a tag is false
 // when it names a version upstream never released; under continue, when it names one upstream
 // has released. Tags naming no version, and tags before the cutover, are not judged.
-func Evaluate(c Claim, upstream []Release, ours []string) Report {
+//
+// ourCommits (tag → commit, may be nil) recognizes upstream's own tags mirrored into our
+// repository: a tag of ours that names exactly the commit upstream's same-named release
+// names is upstream's, not ours, so it is neither judged nor counted as our release. A
+// history fork that carries upstream's tags therefore needs no cutover to stay quiet.
+func Evaluate(c Claim, upstream []Release, ours []string, ourCommits map[string]string) Report {
 	var r Report
 	if len(upstream) > 0 {
 		r.UpstreamNewest = &upstream[0]
 	}
+	inherited := map[string]bool{}
+	for _, rel := range upstream {
+		if rel.Commit != "" && ourCommits[rel.Tag] == rel.Commit {
+			inherited[rel.Tag] = true
+		}
+	}
 	var newest scheme.Version
 	for _, t := range ours {
+		if inherited[t] {
+			continue
+		}
 		v, ok := OurVersion(t, c.Source.Select.Scheme)
 		if !ok {
 			continue

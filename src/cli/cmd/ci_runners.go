@@ -346,7 +346,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		if _, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir); refused == "" {
 			refused = syncRefused
 		}
-		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: refused}))
+		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: refused, NothingToBuild: scheduledSkip(appCfg)}))
 		fmt.Println("  dependency update disabled in config")
 		return nil
 	}
@@ -355,7 +355,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// (Blocking) and narrate/publish/forge project (Replacement, Reason). Fail-closed: the zero
 	// value blocks, so any early return below records a blocking contract unless a field was
 	// explicitly cleared. The defer fires on EVERY exit path — no gate can be bypassed.
-	in := auditionInputs{}
+	in := auditionInputs{NothingToBuild: scheduledSkip(appCfg)}
 	defer func() { recordAuditionContract(rootDir, deriveAuditionContract(in)) }()
 
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
@@ -2595,4 +2595,13 @@ func relTargetLinks(cfg *config.Config, kind string) bool {
 		return t.CatalogLinks
 	}
 	return t.RegistryLinks
+}
+
+// scheduledSkip is the reason a scheduled run builds nothing (its schedules say build:
+// changes), or "" when it builds.
+func scheduledSkip(appCfg *config.Config) string {
+	if config.ScheduledRunBuilds(appCfg) {
+		return ""
+	}
+	return fmt.Sprintf("scheduled run (%s, build: changes) — anything it changed is built by the pipeline its push starts", strings.Join(config.CISchedules(), ", "))
 }

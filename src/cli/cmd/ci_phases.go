@@ -75,6 +75,18 @@ func phaseNotApplicable(rootDir, phase, mode string) error {
 	return nil
 }
 
+// phaseSkipped records a phase that has nothing to do this run (the audition said so) as a
+// skipped subsystem — which authorizes downstream phases, unlike a missing one — and renders
+// why.
+func phaseSkipped(rootDir, display, subsystem, reason string) error {
+	renderCISkip(display, time.Now(), reason)
+	recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+		Name: subsystem, Attempted: true, Completed: true, Skipped: true,
+		Outcome: "skipped", Reason: reason,
+	})
+	return nil
+}
+
 // renderAuditionBanner prints the full logo banner (StageFreight's own identity)
 // followed by the ── Code ── block (the built repo's commit + branch). The audition
 // phase is the sole place the logo appears — it is the readiness/proving phase at the
@@ -196,6 +208,9 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		// (nil skip → Warn via the superseding pipeline; error → Fail). Never builds unaudited
 		// or blocked source.
 		c := auditionContract(rootDir)
+		if c != nil && !c.Blocking && c.Skipped {
+			return phaseSkipped(rootDir, "Perform", "build", c.Reason)
+		}
 		build, gateErr := performGate(c)
 		if !build {
 			if gateErr != nil {
@@ -243,6 +258,9 @@ func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIC
 	case m.PhaseReconcile:
 		return phaseNotApplicable(rootDir, "review", m.Name)
 	default:
+		if c := auditionContract(rootDir); c != nil && !c.Blocking && c.Skipped {
+			return phaseSkipped(rootDir, "Review", "security", c.Reason)
+		}
 		return securityRunner(ctx, appCfg, ciCtx, opts)
 	}
 }
