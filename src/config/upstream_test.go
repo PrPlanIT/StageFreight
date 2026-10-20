@@ -184,3 +184,23 @@ func TestUpstream_KindsLifecycleMirror(t *testing.T) {
 		t.Error("the kind implies its scheme")
 	}
 }
+
+func TestUpstream_SyncFileRules(t *testing.T) {
+	src := OrderedUpstreamSources{{ID: "nut", Git: "https://github.com/networkupstools/nut"}}
+	cases := map[string]struct {
+		sync UpstreamSync
+		want string // "" = valid
+	}{
+		"rules":         {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Match: "**", Take: "merge"}, {Match: "README.adoc", Take: "fork"}}}, ""},
+		"unknown take":  {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Match: "x", Take: "ours"}}}, "merge | fork | upstream | review"},
+		"empty match":   {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Take: "fork"}}}, "match: required"},
+		"bad glob":      {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Match: "[", Take: "fork"}}}, "files[0].match"},
+		"mirror + rule": {UpstreamSync{From: "nut", Strategy: "mirror", Onto: UpstreamOnto{Branch: "master"}, Files: []UpstreamFileRule{{Match: "x", Take: "fork"}}}, "exact copy"},
+	}
+	for name, c := range cases {
+		errs := strings.Join(validateUpstream(&Config{Upstream: UpstreamConfig{Sources: src, Sync: c.sync}}), "\n")
+		if (c.want == "") != (errs == "") || !strings.Contains(errs, c.want) {
+			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
+		}
+	}
+}

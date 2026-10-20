@@ -213,6 +213,43 @@ How a sync behaves:
 - **The dependency update waits.** When a sync pushes, that run leaves the dependency update to
   the new commit's pipeline, so two writers never push onto a branch just rewritten.
 
+### Per-file rules
+
+By default every file is merged line by line. `files` decides, per path, what happens when
+upstream changes a file — for a file we deleted and upstream keeps editing, a file that is
+ours by design, or one a human must always see:
+
+```yaml
+upstream:
+  sync:
+    from: nut
+    files:                                   # top to bottom; the last match wins
+      - { match: "**",           take: merge }     # the default, shown for clarity
+      - { match: "README.adoc",  take: fork }      # ours — our deletion stands
+      - { match: "docs/**",      take: upstream }  # upstream's; our edits are dropped
+      - { match: "drivers/usb*", take: review }    # a human sees every upstream change
+```
+
+| `take:` | When upstream changes a matching file |
+|---|---|
+| `merge` (default) | combined line by line with ours; overlapping edits are a conflict |
+| `fork` | the fork's version stays — including a deletion — and the sync reports it under `{sync.held}`, every time, so a held file never silently misses an upstream fix |
+| `upstream` | upstream's version wins; our edits to it are dropped and reported under `{sync.overridden}` |
+| `review` | the sync becomes a conflict (an MR under `on_conflict: mr`), even when it would merge cleanly |
+
+- **Fork and upstream, never ours and theirs.** The names say which side wins in a rebase and in
+  a merge alike (git swaps "ours" during a rebase).
+- **No markers needed.** Our customization is exactly the difference between the common base
+  and our branch; the rules only decide what happens where upstream changed the same file.
+- **Holds are attributed.** In a merge they live in the merge commit. In a rebase, our replayed
+  commits keep only their own changes, and the fork's version of held files our commits never
+  touched is restored in one commit of its own on top ("Keep the fork's version of …",
+  listing them).
+- **StageFreight's own files always keep the fork's version:** `.stagefreight.yml`,
+  `.stagefreight/`, and every rendered CI file — upstream's own CI never merges into ours.
+- Rules are plain config, so a fleet-wide rule set can come from governance, with each repo
+  adding its exceptions after it. A mirror is an exact copy; rules apply to rebase and merge.
+
 With `version.track` on the same source and `release: auto`, the synced commit is released as
 the newest upstream release it contains — no pins needed. `version.ancestry: true` then proves
 that release on the tag pipeline.

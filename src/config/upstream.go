@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -220,7 +221,35 @@ type UpstreamSync struct {
 	//   fail:         the run fails.
 	//   notify:       sync-conflict is signalled; nothing else.
 	OnConflict string `yaml:"on_conflict,omitempty"`
+
+	// Files decides, per path, what happens when upstream changes a file. Rules are read top
+	// to bottom and the last one that matches wins, so broad rules go first and exceptions
+	// after. A path no rule matches is merged. StageFreight's own files (.stagefreight.yml,
+	// .stagefreight/, the rendered CI files) always keep the fork's version.
+	Files []UpstreamFileRule `yaml:"files,omitempty"`
 }
+
+// UpstreamFileRule is one upstream.sync.files rule.
+type UpstreamFileRule struct {
+	// Match is a path glob (** spans directories), e.g. README.adoc, docs/**, **/*.md.
+	Match string `yaml:"match"`
+
+	// Take is what wins when upstream changes a matching file:
+	//   merge (default): combine line by line; edits that overlap are a conflict.
+	//   fork:            keep the fork's version (including a deletion); upstream's change is
+	//                    held back, and the sync reports it.
+	//   upstream:        take upstream's version; the fork's edits to it are dropped.
+	//   review:          always route the change through a merge request, even when clean.
+	Take string `yaml:"take"`
+}
+
+// Sync file outcomes.
+const (
+	TakeMerge    = "merge"
+	TakeFork     = "fork"
+	TakeUpstream = "upstream"
+	TakeReview   = "review"
+)
 
 // UpstreamOnto is upstream.sync.onto: the scalar release, or {branch: <name>}.
 type UpstreamOnto struct {
@@ -255,6 +284,11 @@ const (
 	SyncConflictFail   = "fail"
 	SyncConflictNotify = "notify"
 )
+
+// declared reports whether any sync field is set.
+func (s UpstreamSync) declared() bool {
+	return s.From != "" || s.Onto.Branch != "" || s.Strategy != "" || s.Shadow != "" || s.OnConflict != "" || len(s.Files) > 0
+}
 
 // EffectiveStrategy returns the sync strategy (rebase when unset).
 func (s UpstreamSync) EffectiveStrategy() string {
@@ -631,7 +665,7 @@ func validateUpstream(cfg *Config) []string {
 		}
 	}
 	checkOnMismatch("upstream.version", v.OnMismatch, v.Reason)
-	if sy := u.Sync; sy != (UpstreamSync{}) {
+	if sy := u.Sync; sy.declared() {
 		from, ok := ids[sy.From]
 		switch kind, _ := from.Kind(); {
 		case sy.From == "":
@@ -649,6 +683,22 @@ func validateUpstream(cfg *Config) []string {
 			}
 		default:
 			errs = append(errs, fmt.Sprintf("upstream.sync.strategy: unknown %q (rebase | merge | mirror)", sy.Strategy))
+		}
+		for i, f := range sy.Files {
+			fpath := fmt.Sprintf("upstream.sync.files[%d]", i)
+			if strings.TrimSpace(f.Match) == "" {
+				errs = append(errs, fpath+".match: required")
+			} else if _, err := filepath.Match(strings.ReplaceAll(f.Match, "**", "*"), ""); err != nil {
+				errs = append(errs, fmt.Sprintf("%s.match: %v", fpath, err))
+			}
+			switch f.Take {
+			case TakeMerge, TakeFork, TakeUpstream, TakeReview:
+			default:
+				errs = append(errs, fmt.Sprintf("%s.take: %q (merge | fork | upstream | review)", fpath, f.Take))
+			}
+		}
+		if len(sy.Files) > 0 && sy.Strategy == SyncMirror {
+			errs = append(errs, "upstream.sync.files: a mirror is an exact copy of upstream; per-file rules apply to rebase and merge")
 		}
 		switch sy.OnConflict {
 		case "", SyncConflictMR, SyncConflictFail, SyncConflictNotify:

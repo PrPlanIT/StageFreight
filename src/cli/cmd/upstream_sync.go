@@ -115,12 +115,28 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 
 	head := plumbing.NewHash(ciCtx.SHA)
 	msg := fmt.Sprintf("Merge upstream %s %s\n\nUpstream-Rev: %s\nUpdated-By: StageFreight\n", src.ID, label, target)
-	plan, err := upstream.PlanSync(repo, sy.EffectiveStrategy(), head, target, commit.ResolveAuthorSignature(repo), msg)
+	plan, err := upstream.PlanSync(repo, head, target, upstream.SyncOptions{
+		Strategy:     sy.EffectiveStrategy(),
+		Policy:       upstream.FilePolicy(sy.Files),
+		Sig:          commit.ResolveAuthorSignature(repo),
+		MergeMessage: msg,
+		HoldMessage:  fmt.Sprintf("Keep the fork's version of files upstream %s %s changed", src.ID, label),
+	})
 	if err != nil {
 		record("warning", err.Error())
 		return false, ""
 	}
 	facts["result"] = plan.Result
+	if len(plan.Held) > 0 {
+		// Upstream moved on in these; the fork keeps its version (take: fork). Said every
+		// time, so a held file never silently misses an upstream fix.
+		facts["held"] = strings.Join(plan.Held, ",")
+		fmt.Printf("  sync: kept the fork's version of %s (upstream %s changed them)\n", strings.Join(plan.Held, ", "), label)
+	}
+	if len(plan.Overridden) > 0 {
+		facts["overridden"] = strings.Join(plan.Overridden, ",")
+		fmt.Printf("  sync: took upstream's version of %s over the fork's edits\n", strings.Join(plan.Overridden, ", "))
+	}
 	switch plan.Result {
 	case upstream.SyncInSync:
 		record("success", fmt.Sprintf("%s in sync with %s %s", branch, src.ID, label))

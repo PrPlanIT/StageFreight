@@ -78,7 +78,7 @@ func fork(t *testing.T, ourPatch map[string]string) (repo *git.Repository, v1, v
 
 func TestPlanSync_RebaseCarriesOurPatchOntoTheRelease(t *testing.T) {
 	repo, _, v2, ours := fork(t, map[string]string{"Dockerfile": "FROM alpine\nRUN apk add nut tini\nCMD [\"upsd\"]\n"})
-	plan, err := PlanSync(repo, config.SyncRebase, ours, v2, sig, "")
+	plan, err := PlanSync(repo, ours, v2, SyncOptions{Strategy: config.SyncRebase, Sig: sig, MergeMessage: ""})
 	if err != nil || plan.Result != SyncSynced || !plan.Rewrites {
 		t.Fatalf("plan = %+v, %v", plan, err)
 	}
@@ -89,18 +89,18 @@ func TestPlanSync_RebaseCarriesOurPatchOntoTheRelease(t *testing.T) {
 	if file(t, repo, plan.NewHead, "VERSION") != "1.1.0\n" || !strings.Contains(file(t, repo, plan.NewHead, "Dockerfile"), "tini") || !strings.Contains(file(t, repo, plan.NewHead, "app.go"), "run()") {
 		t.Fatal("the result holds upstream's release and our patch")
 	}
-	again, _ := PlanSync(repo, config.SyncRebase, ours, v2, sig, "")
+	again, _ := PlanSync(repo, ours, v2, SyncOptions{Strategy: config.SyncRebase, Sig: sig, MergeMessage: ""})
 	if again.NewHead != plan.NewHead {
 		t.Fatal("replaying the same history onto the same release must give the same hash")
 	}
-	if inSync, _ := PlanSync(repo, config.SyncRebase, plan.NewHead, v2, sig, ""); inSync.Result != SyncInSync {
+	if inSync, _ := PlanSync(repo, plan.NewHead, v2, SyncOptions{Strategy: config.SyncRebase, Sig: sig, MergeMessage: ""}); inSync.Result != SyncInSync {
 		t.Fatalf("after the rebase we are in sync: %+v", inSync)
 	}
 }
 
 func TestPlanSync_MergeJoinsWithoutRewriting(t *testing.T) {
 	repo, _, v2, ours := fork(t, map[string]string{"Dockerfile": "FROM alpine\nRUN apk add nut tini\nCMD [\"upsd\"]\n"})
-	plan, err := PlanSync(repo, config.SyncMerge, ours, v2, sig, "Merge upstream core v2\n\nUpstream-Rev: x\n")
+	plan, err := PlanSync(repo, ours, v2, SyncOptions{Strategy: config.SyncMerge, Sig: sig, MergeMessage: "Merge upstream core v2\n\nUpstream-Rev: x\n"})
 	if err != nil || plan.Result != SyncSynced || plan.Rewrites {
 		t.Fatalf("plan = %+v, %v", plan, err)
 	}
@@ -113,7 +113,7 @@ func TestPlanSync_MergeJoinsWithoutRewriting(t *testing.T) {
 func TestPlanSync_ConflictProducesNothing(t *testing.T) {
 	repo, _, v2, ours := fork(t, map[string]string{"VERSION": "1.0.0-ours\n"})
 	for _, s := range []string{config.SyncRebase, config.SyncMerge} {
-		plan, err := PlanSync(repo, s, ours, v2, sig, "m")
+		plan, err := PlanSync(repo, ours, v2, SyncOptions{Strategy: s, Sig: sig, MergeMessage: "m"})
 		if err != nil || plan.Result != SyncConflict || strings.Join(plan.Conflicts, ",") != "VERSION" || !plan.NewHead.IsZero() {
 			t.Fatalf("%s: plan = %+v, %v", s, plan, err)
 		}
@@ -122,7 +122,7 @@ func TestPlanSync_ConflictProducesNothing(t *testing.T) {
 
 func TestPlanSync_PatchUpstreamAlreadyHasIsDropped(t *testing.T) {
 	repo, _, v2, ours := fork(t, map[string]string{"app.go": "package main\n\nfunc main() { run() }\n"})
-	plan, _ := PlanSync(repo, config.SyncRebase, ours, v2, sig, "")
+	plan, _ := PlanSync(repo, ours, v2, SyncOptions{Strategy: config.SyncRebase, Sig: sig, MergeMessage: ""})
 	if plan.Result != SyncSynced || plan.NewHead != v2 {
 		t.Fatalf("a patch upstream took is dropped; we land on the release itself: %+v", plan)
 	}
@@ -131,11 +131,11 @@ func TestPlanSync_PatchUpstreamAlreadyHasIsDropped(t *testing.T) {
 func TestPlanSync_FastForwardAndMirror(t *testing.T) {
 	repo, v1, v2, ours := fork(t, map[string]string{"Dockerfile": "x\n"})
 	for _, s := range []string{config.SyncRebase, config.SyncMerge, config.SyncMirror} {
-		if plan, _ := PlanSync(repo, s, v1, v2, sig, "m"); plan.Result != SyncSynced || plan.NewHead != v2 || plan.Rewrites {
+		if plan, _ := PlanSync(repo, v1, v2, SyncOptions{Strategy: s, Sig: sig, MergeMessage: "m"}); plan.Result != SyncSynced || plan.NewHead != v2 || plan.Rewrites {
 			t.Fatalf("%s: nothing of ours on top is a fast-forward: %+v", s, plan)
 		}
 	}
-	if plan, _ := PlanSync(repo, config.SyncMirror, ours, v2, sig, "m"); plan.Result != SyncConflict || !strings.Contains(plan.Reason, "diverged") {
+	if plan, _ := PlanSync(repo, ours, v2, SyncOptions{Strategy: config.SyncMirror, Sig: sig, MergeMessage: "m"}); plan.Result != SyncConflict || !strings.Contains(plan.Reason, "diverged") {
 		t.Fatalf("a diverged mirror is kept and reported: %+v", plan)
 	}
 }
@@ -144,7 +144,7 @@ func TestPlanSync_RebaseRefusesMergeHistory(t *testing.T) {
 	repo, v1, v2, ours := fork(t, map[string]string{"Dockerfile": "x\n"})
 	side := mk(t, repo, map[string]string{"VERSION": "1.0.0\n", "Dockerfile": "x\n", "app.go": "package main\n\nfunc main() {}\n", "NOTES": "n\n"}, "side", v1)
 	merged := mk(t, repo, map[string]string{"VERSION": "1.0.0\n", "Dockerfile": "x\n", "app.go": "package main\n\nfunc main() {}\n", "NOTES": "n\n"}, "merge", ours, side)
-	if plan, _ := PlanSync(repo, config.SyncRebase, merged, v2, sig, ""); plan.Result != SyncConflict || !strings.Contains(plan.Reason, "use strategy: merge") {
+	if plan, _ := PlanSync(repo, merged, v2, SyncOptions{Strategy: config.SyncRebase, Sig: sig, MergeMessage: ""}); plan.Result != SyncConflict || !strings.Contains(plan.Reason, "use strategy: merge") {
 		t.Fatalf("plan = %+v", plan)
 	}
 }

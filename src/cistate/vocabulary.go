@@ -32,5 +32,5 @@ var DomainFacts = map[string][]string{
 	"upstream":  {"source", "latest", "ours", "mismatched", "unparsed", "signals"},
 	"schedules": {"managed", "changes", "signals"},
 	"evidence":  {"checked", "mismatched", "signals"},
-	"sync":      {"target", "result", "conflicts", "signals"},
+	"sync":      {"target", "result", "conflicts", "held", "overridden", "signals"},
 }

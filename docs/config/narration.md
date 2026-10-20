@@ -44,7 +44,7 @@ elides when its domain recorded nothing):
 | `upstream.` | `source` · `latest` · `ours` · `mismatched` · `unparsed` · `signals` (the claimed source; plus `{upstream.<id>.latest}` and `{upstream.<id>.mirror_behind}` per source) |
 | `schedules.` | `managed` · `changes` · `signals` (GitLab schedule reconcile) |
 | `evidence.` | `checked` · `mismatched` · `signals` (release version probes, publish) |
-| `sync.` | `target` · `result` · `conflicts` · `signals` (upstream sync) |
+| `sync.` | `target` · `result` · `conflicts` · `held` · `overridden` · `signals` (upstream sync) |
 | `retention.` | `pruned` |
 
 Every recorded domain additionally serves `{domain.outcome}` and
