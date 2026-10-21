@@ -786,17 +786,9 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 		return nil
 	}
 
-	// Terminal evaluation failure: an unhealthy substrate means the scan cannot
-	// run, so the artifact is UNREVIEWED. Record it as a failure (not a silent
-	// return) so publish's authorization gate denies distribution of bytes that
-	// were never actually evaluated.
-	if r := executorCheck(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
-		recordSecurity("failed", "substrate unhealthy — security scan could not run")
-		return fmt.Errorf("security subsystem: substrate unhealthy")
-	}
-
-	// Pre-flight: check pipeline state for build output.
-	// Only skip when build completed successfully and produced nothing.
+	// Pre-flight, before the substrate check: with nothing to scan there is nothing to
+	// leave unreviewed, so these skips must not depend on a working Docker daemon.
+	// Skip when no builds are configured, or when build completed successfully and produced nothing.
 	// Missing state = proceed (local dev, or state not written yet).
 	// Build failed = proceed (let scan fail naturally with good error).
 	if ciCtx.IsCI() {
@@ -822,9 +814,12 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 			}
 			return nil
 		}
-		if buildSub != nil && buildSub.Outcome == "success" && !st.Build.ProducedImages {
+		noBuilds := buildSub != nil && buildSub.Outcome == "not_applicable"
+		if noBuilds || (buildSub != nil && buildSub.Outcome == "success" && !st.Build.ProducedImages) {
 			reason := "build completed but produced no images"
-			if buildSub.Reason != "" {
+			if noBuilds {
+				reason = "no builds configured — no image to scan"
+			} else if buildSub.Reason != "" {
 				reason += " (" + buildSub.Reason + ")"
 			}
 			fmt.Printf("  security: skipping — %s\n", reason)
@@ -838,6 +833,15 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 			}
 			return nil
 		}
+	}
+
+	// Terminal evaluation failure: an unhealthy substrate means the scan cannot
+	// run, so the artifact is UNREVIEWED. Record it as a failure (not a silent
+	// return) so publish's authorization gate denies distribution of bytes that
+	// were never actually evaluated.
+	if r := executorCheck(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
+		recordSecurity("failed", "substrate unhealthy — security scan could not run")
+		return fmt.Errorf("security subsystem: substrate unhealthy")
 	}
 
 	// Mark attempted before running scan
