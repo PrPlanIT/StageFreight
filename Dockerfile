@@ -1,5 +1,5 @@
 # ---- Go build stage ----
-FROM docker.io/library/golang:1.26.9-alpine3.23 AS builder
+FROM docker.io/library/golang:1.26.10-alpine3.23 AS builder
 
 RUN apk add --no-cache git chafa
 
@@ -64,7 +64,7 @@ ENV LANG=C.UTF-8
 # All other tools (trivy, syft, grype, osv-scanner, cosign, flux, kubectl, go)
 # are resolved at runtime by the StageFreight toolchain subsystem:
 # downloaded, checksum-verified, cached, and executed by absolute path.
-ENV BUILDX_VERSION=v0.38.0 \
+ENV BUILDX_VERSION=v0.38.1 \
     DOCKER_VERSION=29.3.1
 
 # Install docker CLI (static binary — execution substrate for DinD)
