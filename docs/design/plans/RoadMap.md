@@ -3161,6 +3161,14 @@ Keeping a patched fork current with upstream while preserving your changes and s
 - Audit heuristics flag but never block — advisory only
 - `fork audit` integrates with `audit codebase` — every upstream sync runs invisible character detection on the incoming diff, not just the full codebase. Catches Trojan Source and prompt injection payloads injected by compromised upstream maintainers.
 
+#### Hardened downstream (soft fork)
+
+The common real-world case: maintain a hardened build of a project you don't own. Flow: track upstream repo/releases → apply a patch set → rebase onto each new upstream → rebuild on upstream release → scheduled security-only rebuild of all maintained tags.
+
+- **Transforms vs. patches.** A *transform* is an idempotent operation (rootless-ify, inject Vault/OpenBao secrets or KMS, wire OIDC, swap base) and re-applies cleanly on every upstream release. An arbitrary line-diff *patch* conflicts when upstream edits the patched lines; it can be surfaced cleanly but never promised conflict-free. Conflict-free automatic rebase is only deliverable for the transform tier.
+- **Two rebuild paths, both needed.** Scheduled rebuilds of existing tags pick up base-image and dependency CVEs (the majority by count, and the only fix for compatibility-locked tags). Application-logic vulnerabilities need the upstream-version path: new upstream release → rebase → rebuild.
+- **Delivery: documented composition first.** The pieces exist — commit replay, Dockerfile `FROM` / go-directive sync, transitive-CVE remediation, Vault/KMS signing, multi-registry distribution, retention, release channels. Ship this as an operator recipe composed from those primitives rather than a `downstream:` config block: downstream maintenance varies per project, and one frozen config shape is either too narrow or a config swamp. The recipe is the spec — the awkward seams in it are the only places a new thin primitive is justified.
+
 ### Phase 4 — Supply Chain & Security
 
 Extends the existing `security scan` subcommand with pre-build dependency auditing, dependency provenance, and SBOM tracking.

@@ -79,3 +79,42 @@ Phase 3 locks versioning. Phase 4 locks matchers. Phase 5 locks repo branches.
 Promotion is strictly post-v0.6.0 territory. Shipping it earlier risks
 conflating authority with identity — exactly what the current phase structure
 prevents.
+
+## Pipfile / Poetry dependency apply
+
+pip `requirements.txt` exact pins auto-update today, and the interpreter is provisionable
+(`src/toolchain/python.go`, python-build-standalone, checksum-verified). Pipfile and Poetry
+apply are not built; they need live iteration against real pipenv/poetry and are not to
+be built blind.
+
+Shared foundation (build once):
+1. A hardened runner for python3/pip/pipenv/poetry from the provisioned tree — scrubbed
+   environment and pinned `PATH`, mirroring the node runner in `dependency/npm_runner.go`.
+2. Provisioning the sub-tool through the provisioned pip, cached.
+3. An operator-preserving TOML line edit (same discipline as Cargo/pip).
+
+- **Pipfile** — discovery exists (`parsePipfile`, `[packages]`); `apply_pip.go` currently
+  skips it. Edit the `[packages]` line, then `pipenv lock` in the Pipfile directory without
+  creating a virtualenv. All-or-nothing: an edit without a lock sync leaves a stale
+  `Pipfile.lock` and is refused.
+- **Poetry** — needs `pyproject.toml` discovery first (`[tool.poetry.dependencies]`,
+  `[tool.poetry.group.*.dependencies]`), then edit + `poetry lock` without re-resolving
+  unrelated packages (`--no-update` semantics changed in Poetry 2.0) and with
+  `POETRY_VIRTUALENVS_CREATE=false`.
+
+**Decision required first:** Python lock resolution cannot match npm's
+`--package-lock-only --ignore-scripts`. pip, pipenv, and poetry may build sdists (run
+`setup.py` / a PEP 517 backend) while resolving wheel-less packages, which executes package
+code. Either accept that, mitigated by the scrubbed environment and `min_release_age`, or
+restrict to wheels only and skip packages that need an sdist build.
+
+## Release-notes URLs derived from host
+
+Release-notes links (`registry.ResolvedRegistryTarget.RepoURL` / `TagURL` in
+`src/registry/urls.go`) switch on a `Provider` token that `providerFromHost`
+(`src/cli/cmd/release_create.go`) re-derives from the host, because `published.json`
+deliberately does not record provider. That classification is a redundant middle layer
+where vocabulary mismatches and new-registry gaps surface. When this path is next touched,
+build the links directly from `(host, path, tag)` (e.g. `docker.io` → `hub.docker.com/…`)
+and drop `providerFromHost` from the release path. Do not instead re-read provider from
+config — that re-couples release rendering to config, against the manifest contract.

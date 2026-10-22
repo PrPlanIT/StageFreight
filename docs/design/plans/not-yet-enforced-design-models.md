@@ -59,3 +59,16 @@ there is something to enforce against:
   capability opens a path outside `ManagedRoot`. Recorded now because the resolver seam
   is the thing that keeps a future first-class tree artifact (or OCI/CAS transport) an
   internal change rather than a `pages` change.
+
+- **Discovery happens once per run.** Registry resolution and OSV correlation run in a
+  single pass (`discovery.Discover` in `depsRunner`) producing an immutable
+  `supplychain.Snapshot`, threaded explicitly to every consumer — the freshness and
+  vulnerabilities lint modules render from it, and `runDependencyUpdateLogic` consumes it
+  without resolving again. Reachability analysis (govulncheck's compile) is the one
+  sanctioned *additional* pass, because it is build-capable enrichment, not re-discovery.
+  The Snapshot is passed as a parameter, never through `context.Context`: a ctx-carried
+  producer/consumer bus hides ordering dependencies. The direction is for the Snapshot to
+  become a persisted discovery artifact (adding licenses, dependency graph, SBOM,
+  provenance) that evidence contributors and later phases read, mirroring perform→outputs.
+  Not yet a hard invariant: nothing asserts that an audition path calls `Discover` exactly
+  once.

@@ -67,6 +67,36 @@ Load-bearing facts (learned the hard way):
   handled by **pull policy** (pull-always / TTL) + freshness — **never** by hardcoding image
   tags/digests into config.
 
+## Compile-self vs. govern-self
+
+Crucible proves the candidate can **compile itself** (pass-2 rebuilds with the candidate
+binary). It does not prove the candidate **governs itself** — that running
+`audition → perform → review → publish → narrate` over this repo still makes the right
+decisions. A broken verdict engine passes crucible; only a govern-self run catches it.
+
+Today the govern-self proof uses the branch-image channel, no extra machinery:
+1. The `harbor-test` target builds every non-`main` push as `test-{branch}-{sha:8}` /
+   `latest-test-{branch}` to a private registry only.
+2. The branch must be able to see publish credentials (on GitLab: a protected branch, since
+   publish credentials are protected variables). Without them review/publish are gated off,
+   which looks like a no-op rather than a failure.
+3. Point `ci.image` at the branch image and update the rendered CI file to match (the
+   audition's CI-staleness gate requires it; render emits `ci.image` verbatim). Pull it from
+   the registry directly, not through a docker.io pull-through mirror, which cannot serve a
+   private-only image. These edits are branch-only and are reverted before merge.
+
+The candidate then runs its own full pipeline, including review scanning the content-store
+image and publish preserving the same digest.
+
+Constraints for automating this later:
+- The binary under test is the **content-store candidate image** — reuse the artifact, never
+  rebuild it.
+- It is a **separate stage**, not part of crucible's build; crucible stays an ordinary image
+  build so it keeps exercising the real user path.
+- **Always run** it; do not try to predict which changes are risky.
+- "See the result on itself" = **diff the candidate's artifacts** (audition contract,
+  outputs/published manifests) against the current binary's.
+
 ## Placement principle (locked)
 
 - **Repo-content commits** (badges, docs, **config promotion**) → **Narrate**. Inward,

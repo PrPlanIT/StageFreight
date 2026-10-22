@@ -129,6 +129,76 @@ These rules are intended for future automated checking.
 - **Smells (should trigger review pushback):** release authoring, pipeline triggering,
   configuration mutation, provenance generation, signing, notification fanout
 
+## Layer Rigor
+
+Review rules depend on which layer code belongs to. Identify the layer first.
+
+| Layer | Example | Rules |
+|---|---|---|
+| Identity | `artifact.ArtifactID` | Typed; constructed only by `NewArtifactID`; propagated unchanged; never recomputed from fields |
+| Truth model | `OutputsManifest`, `ResultsManifest`, `*ExecutionView` | Schema-validated; deterministic; joined only on `ArtifactID` |
+| Configuration | `RegistryConfig.Provider`, `RegistryConfig.Credentials` | Authoritative for routing, auth, and policy |
+| Presentation | `providerFromHost`, release-notes labels, display strings | Heuristics allowed; misclassification affects labels only |
+
+A presentation helper is correct when a misclassification renders as a bad label and never
+changes behavior. Verify that its output does not flow into routing, auth, or policy, and
+record that boundary in a comment; do not prune working heuristics (e.g. substring matches
+for self-hosted `harbor.*` / `gitea.*` hosts) to make a display function "safer".
+Presentation must never fail a completed operation — URL and label builders degrade, never
+panic.
+
+## Git Transport
+
+Commit, tag, and sync networking goes through one `gitstate.Transport`, chosen once per
+session by `gitstate.ResolveTransport`:
+
+- **System git** (default) — whenever a `git` binary exists and StageFreight holds no
+  injected credential. It honors `~/.ssh/config`, credential helpers, agents, SSH certs,
+  `ProxyJump`, and enterprise auth, which an embedded client cannot reproduce (e.g. go-git
+  picks SSH keys by filename and ignores host → `IdentityFile` mappings).
+- **Embedded go-git** — only when StageFreight was explicitly handed a credential to act
+  as (`SSH_PRIVATE_KEY` for SSH; the owning forge's host-bound credential for HTTPS) or
+  there is no git binary. An SSH agent or on-disk key is the user's environment, not an
+  injected credential.
+
+The decision is made in one place from git availability and credentials together;
+implementations never re-scan the environment, and one operation never mixes transports.
+
+The commit replay engine (`src/commit/gogit_replay.go`) rebuilds trees in-process and is
+guarded by a path-set integrity check (staged paths must equal the source commit's change
+paths; mismatch hard-resets). Open direction: extend the guard to tree/blob/mode equality,
+or replace in-process replay with system `git rebase` for local workflows on the same
+"let git do git" principle.
+
+## On-Disk Layout
+
+`src/paths` (stdlib-only leaf) is the single source of truth for where StageFreight
+writes. Every path belongs to one bucket:
+
+| Bucket | Location | Accessor | Lifecycle |
+|---|---|---|---|
+| Durable | `.stagefreight/` allowlisted entries (`scribe/`, `preset-cache/`, `inventory/`, `toolchains.lock`) | `paths.Durable` | Committed and reviewed |
+| Per-run I/O | `.stagefreight/` everything else (manifests, content store, reports, security, deps, `dist/`, `pipeline.json`) | `paths.Ephemeral` | Gitignored; forwarded between CI jobs; regenerated each run |
+| Scratch | `.stagefreight/.tmp/` | `paths.Scratch` | Gitignored; safe to delete |
+| Cache | out of tree (`paths.ResolveCacheRoot`) | `paths.Cache` | Cross-run reuse; never a correctness dependency |
+| State | `/var/lib/stagefreight/` | `paths.State` | Host-scoped (signing/KMS) |
+
+- Per-run I/O is in-tree only because forge artifact/report paths must resolve inside the
+  project directory. It stays flat at the top of `.stagefreight/` for discoverability.
+- `.stagefreight/.gitignore` is a self-contained **allowlist**: `/*` ignores everything,
+  then `!` lines carve out the durable set. A new output is ignored by default; a new
+  durable entry must be added to the allowlist and the classifier together (a completeness
+  test ties them). The commit backend plants it via `workspace.EnsureGitignore` before
+  staging, so every managed repo gets it without editing its root `.gitignore`.
+- Cache root priority: `--cache` → `SF_CACHE_ROOT` → `/stagefreight` if writable (the
+  container bind-mount convention) → `${XDG_CACHE_HOME:-~/.cache}/stagefreight` (native)
+  → none (each consumer falls back to its own ephemeral location). The Actions render
+  persists `/stagefreight/cache` with `actions/cache`; `SF_CACHE_ROOT` is the seam for
+  pointing the cache at a forge-cacheable in-workspace path.
+- `.stagefreight/toolchains` (`src/toolchain/cache.go`) is the last-resort toolchain
+  install location when no cache root resolves. It is cache (ignored, wiped by checkout),
+  not durable state.
+
 ## Enforcement
 
 Today these boundaries are enforced by **convention and code review**, not a mechanical

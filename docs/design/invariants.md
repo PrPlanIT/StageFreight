@@ -155,6 +155,43 @@ If you are about to violate one of these, stop. Discuss it first.
 
 ---
 
+## 9. Perform → Publish state lives under `.stagefreight/`
+
+> Anything a later phase needs from an earlier phase must exist beneath `artifact.ManagedRoot` (`.stagefreight/`).
+
+**What this means:**
+- Perform and publish are separate CI jobs, and the rendered pipeline forwards exactly one root between them: `.stagefreight/`
+- Every producer defaults its output under it — manifests, content store, security/SBOM, deps, reports, and binary archives (`build.DistDir` = `.stagefreight/dist`)
+- Fix a new leak by relocating the producer, never by adding a second forwarded path; every forge renderer would then have to remember both
+- A docker image's identity is its digest; its bytes ride in the content store's OCI layout, whose path is subject to the same rule
+
+**Why:**
+- A file outside the root is silently absent in the publish job. Release asset upload is non-fatal, so archives written to a bare top-level `dist/` produce a release with notes and no assets.
+- Docs generation writes to `docs/` by design: that is committed source, not inter-phase state
+
+**Enforcement:**
+- `src/artifact/outputs_boundary_test.go` asserts every filesystem path from `OutputsManifest.LocalFilesystemPaths()` satisfies `artifact.WithinManagedRoot`
+- `src/build/archive_boundary_test.go` pins `build.DistDir` under `ManagedRoot`
+- Not checked at manifest-write time, deliberately: `stagefreight build binary --output-dir` is a legitimate local escape hatch
+
+---
+
+## 10. `published.json` is cumulative
+
+> A phase that records outcomes extends the existing results manifest; it never writes a fresh, phase-only one.
+
+**What this means:**
+- `.stagefreight/published.json` holds every observed outcome across phases: perform's build outcomes (binary, archive, docker) plus publish's push outcomes
+- Publish-phase code seeds its builder with `build.ResultsBuilderFromManifest(existing)` and adds on top; `build.NewResultsBuilder()` is only for the phase that originates the manifest (perform)
+
+**Why:**
+- Release asset discovery (`artifact.BuildArchiveExecutionViews`, used by release creation and `kind: generic-package`) reads the archive build outcomes from this file. A publish step that overwrites it with only its own push outcomes drops every release asset, and registry links survive (they are config-derived), which hides the loss.
+
+**Enforcement:**
+- `src/build/results_builder_test.go` (`TestPromotionPreservesArchiveOutcomes`) asserts promotion preserves archive outcomes, with a negative control reproducing the clobber
+
+---
+
 ## Adding a new invariant
 
 Before adding a new invariant here:

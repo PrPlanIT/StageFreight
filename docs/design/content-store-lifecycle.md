@@ -91,3 +91,19 @@ makes the layout occupy disk once.
 
 The store is safe because all three are workspace-bounded. It is *not* safe to
 rely on any one of them alone — and never on a global GC.
+
+---
+
+## Produced ≠ published
+
+Perform retains the image to the store and pushes nothing, so a push is **not** the signal
+that an image exists. The existence signal is the content-store persistence handle:
+`Artifact.Persistence.Kind == PersistenceOCILayout` in `outputs.json`. That is what review
+(`resolveCASTarget`) and publish (`promoteArtifacts`) key on, and what
+`Build.ProducedImages` in the ledger counts alongside pushes.
+
+Any gate, skip condition, counter, or status line near build/review/publish that is keyed on
+push outcomes reintroduces the "perform must push" coupling: review skips a scan because
+"no images were produced", or output labels a retained tag as pushed. Keep the two facts
+separate — `ProducedImages` vs `PublishedCount` — and when no publish target matches a ref,
+say so ("nothing to distribute") rather than implying nothing was built.

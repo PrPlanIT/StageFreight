@@ -44,6 +44,32 @@ Two invariants (both unit-tested in `deriveAuditionContract` / `performGate`):
 
 ---
 
+## Phase responsibilities
+
+> Perform creates outputs. Review evaluates outputs. Publish is the only phase permitted to
+> mutate external distribution targets — registry push, signing, forge releases, package and
+> chart publication, remote retention.
+
+This contract is backend-universal, not Docker-shaped:
+
+- **Never assume a backend can rebuild.** Helm charts, packages, rendered docs, and release
+  notes have no cache-rebuild semantics. "Publish rebuilds from cache" is a Docker
+  optimization, never the framework model; publish distributes the bytes perform produced.
+- **Cross-cutting contracts stay backend-neutral.** Credential references, cache keys, and
+  rebuild instructions never go into the outputs/results manifests.
+- **Publication requirements are intent.** Signing, attestation, and SBOM are declared in
+  `outputs.json` (`sign`/`attest`/`sbom`), satisfied at publish, and recorded as evidence in
+  `published.json`. Never result-only: that allows an artifact approved-for-signing to ship
+  unsigned.
+- **Review defaults to fail-closed.** A soft-fail review is advisory, not a gate, and is
+  explicit project opt-in.
+- **Retention follows ownership.** Deleting remote tags, releases, or package versions mutates
+  a distribution target, so it runs in publish after the push, when the final remote set is
+  known. Only local Docker daemon cleanup (`provider: local`) stays in perform — it is
+  workspace hygiene, and the daemon does not survive into the publish job.
+
+---
+
 ## Phase gating (in-code)
 
 Each phase records its own contract; each downstream phase consumes the prior one — never
