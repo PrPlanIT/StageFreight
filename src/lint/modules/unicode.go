@@ -179,6 +179,12 @@ func (m *unicodeModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 					i += size
 					continue
 				}
+				// A byte-order mark as the file's first character declares its encoding (files
+				// written by Windows tools carry one); only a U+FEFF anywhere else is hidden text.
+				if r == '\uFEFF' && lineNum == 1 && i == 0 {
+					i += size
+					continue
+				}
 			case catControlASCII:
 				if !m.cfg.DetectControlASCII {
 					i += size
