@@ -383,11 +383,17 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 		}
 
 		if t.Checksums && len(targetArchives) > 0 {
-			checksumPath, err := build.WriteChecksums(filepath.Join(rc.RootDir, build.DistDir), targetArchives)
+			checksumPath, checksumSHA, err := build.WriteChecksums(filepath.Join(rc.RootDir, build.DistDir), targetArchives)
 			if err != nil {
 				return domains.Contribution{Rows: rows, Status: "failed", Summary: "checksums failed"},
 					fmt.Errorf("writing checksums: %w", err)
 			}
+			rc.RB.Record(artifact.NewArtifactID("checksums", filepath.Base(checksumPath)), artifact.Outcome{
+				Type: artifact.OutcomeTypeChecksums,
+				Checksums: &artifact.ChecksumsOutcome{
+					Status: artifact.OutcomeSuccess, Path: checksumPath, SHA256: checksumSHA, Set: t.ID,
+				},
+			})
 			rows = append(rows, fmt.Sprintf("%-9s %-40s %s  checksums",
 				"binary", filepath.Base(checksumPath), output.StatusIcon("success", rc.Color)))
 

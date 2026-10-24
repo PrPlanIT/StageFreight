@@ -72,6 +72,7 @@ type Outcome struct {
 	Archive               *ArchiveOutcome               `json:"archive,omitempty"`
 	BlobSignature         *BlobSignatureOutcome         `json:"blob_signature,omitempty"`
 	ProvenanceAttestation *ProvenanceAttestationOutcome `json:"provenance_attestation,omitempty"`
+	Checksums             *ChecksumsOutcome             `json:"checksums,omitempty"`
 }
 
 // OutcomeType discriminates the Outcome sub-kind. Closed enum.
@@ -84,13 +85,14 @@ const (
 	OutcomeTypeArchive               OutcomeType = "archive_build"
 	OutcomeTypeBlobSignature         OutcomeType = "blob_signature"
 	OutcomeTypeProvenanceAttestation OutcomeType = "provenance_attestation"
+	OutcomeTypeChecksums             OutcomeType = "checksums"
 )
 
 // Valid reports whether t is one of the defined OutcomeType values.
 func (t OutcomeType) Valid() bool {
 	switch t {
 	case OutcomeTypePush, OutcomeTypeAttestation, OutcomeTypeBinaryBuild, OutcomeTypeArchive,
-		OutcomeTypeBlobSignature, OutcomeTypeProvenanceAttestation:
+		OutcomeTypeBlobSignature, OutcomeTypeProvenanceAttestation, OutcomeTypeChecksums:
 		return true
 	}
 	return false
@@ -165,6 +167,18 @@ type BlobSignatureOutcome struct {
 	BlobPath      string        `json:"blob_path,omitempty"`
 	SignaturePath string        `json:"signature_path,omitempty"`
 	TrustEvidence
+	Error string `json:"error,omitempty"`
+}
+
+// ChecksumsOutcome is the SHA256SUMS file written for one binary-archive target. It is
+// distributed beside the archives it lists, so a consumer can verify a download (and a
+// detached signature over it has something to cover). Un-targeted, like the archives.
+type ChecksumsOutcome struct {
+	Status OutcomeStatus `json:"status"`
+	Path   string        `json:"path,omitempty"`
+	SHA256 string        `json:"sha256,omitempty"`
+	// Set is the binary-archive target id whose archives the file lists.
+	Set   string `json:"set,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
@@ -458,6 +472,9 @@ func validateOutcome(o *Outcome, artifactID ArtifactID, idx int, errType error) 
 	if o.ProvenanceAttestation != nil {
 		set = append(set, string(OutcomeTypeProvenanceAttestation))
 	}
+	if o.Checksums != nil {
+		set = append(set, string(OutcomeTypeChecksums))
+	}
 	if len(set) == 0 {
 		return fmt.Errorf("%w: result %q outcome[%d]: no sub-outcome set (expected %q)",
 			errType, artifactID, idx, o.Type)
@@ -501,6 +518,11 @@ func validateOutcome(o *Outcome, artifactID ArtifactID, idx int, errType error) 
 		if !o.BlobSignature.Status.Valid() {
 			return fmt.Errorf("%w: result %q outcome[%d]: blob_signature.status invalid %q",
 				errType, artifactID, idx, o.BlobSignature.Status)
+		}
+	case OutcomeTypeChecksums:
+		if !o.Checksums.Status.Valid() {
+			return fmt.Errorf("%w: result %q outcome[%d]: checksums.status invalid %q",
+				errType, artifactID, idx, o.Checksums.Status)
 		}
 	}
 	return nil

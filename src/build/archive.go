@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -229,8 +231,9 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	return out.Close()
 }
 
-// WriteChecksums creates a SHA256SUMS file from a set of archive results.
-func WriteChecksums(outputDir string, archives []*ArchiveResult) (string, error) {
+// WriteChecksums creates a SHA256SUMS file from a set of archive results and returns its
+// path and its own SHA-256.
+func WriteChecksums(outputDir string, archives []*ArchiveResult) (string, string, error) {
 	checksumPath := filepath.Join(outputDir, "SHA256SUMS")
 
 	// Sort by filename for determinism
@@ -247,10 +250,10 @@ func WriteChecksums(outputDir string, archives []*ArchiveResult) (string, error)
 
 	content := strings.Join(lines, "\n") + "\n"
 	if err := atomicfile.WriteFile(checksumPath, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("writing checksums: %w", err)
+		return "", "", fmt.Errorf("writing checksums: %w", err)
 	}
-
-	return checksumPath, nil
+	sum := sha256.Sum256([]byte(content))
+	return checksumPath, hex.EncodeToString(sum[:]), nil
 }
 
 func resolveArchiveName(tmpl, buildID string, tgt Target, v *VersionInfo) string {

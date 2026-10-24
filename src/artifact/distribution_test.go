@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,6 +89,40 @@ func TestSuccessfulBlobSignatureAssets_FiltersSuccessOnly(t *testing.T) {
 	}
 	if SuccessfulBlobSignatureAssets(nil) != nil {
 		t.Errorf("nil manifest must yield nil")
+	}
+}
+
+func TestChecksumsForArchiveSet_ScopesToSet(t *testing.T) {
+	results := &ResultsManifest{
+		IntentChecksum: "abc",
+		Results: []Result{
+			{ArtifactID: "checksums:SHA256SUMS", ArtifactName: "SHA256SUMS", Kind: "checksums",
+				Outcomes: []Outcome{
+					{Type: OutcomeTypeChecksums, Checksums: &ChecksumsOutcome{
+						Status: OutcomeSuccess, Path: "dist/SHA256SUMS", SHA256: "aa", Set: "binaries"}},
+					{Type: OutcomeTypeBlobSignature, BlobSignature: &BlobSignatureOutcome{
+						Status: OutcomeSuccess, BlobPath: "dist/SHA256SUMS", SignaturePath: "dist/SHA256SUMS.sig"}},
+				}},
+			{ArtifactID: "checksums:DEV", ArtifactName: "DEV", Kind: "checksums",
+				Outcomes: []Outcome{{Type: OutcomeTypeChecksums, Checksums: &ChecksumsOutcome{
+					Status: OutcomeSuccess, Path: "dist/DEV", Set: "binaries-dev"}}}},
+			{ArtifactID: "checksums:BAD", ArtifactName: "BAD", Kind: "checksums",
+				Outcomes: []Outcome{{Type: OutcomeTypeChecksums, Checksums: &ChecksumsOutcome{
+					Status: OutcomeFailed, Path: "dist/BAD", Set: "binaries", Error: "boom"}}}},
+		},
+	}
+	got := ChecksumsForArchiveSet(results, "binaries")
+	if len(got) != 1 || got[0].Path != "dist/SHA256SUMS" || got[0].SHA256 != "aa" {
+		t.Fatalf("want only the successful binaries SHA256SUMS, got %+v", got)
+	}
+	if len(ChecksumsForArchiveSet(results, "")) != 0 {
+		t.Errorf("empty set must select nothing")
+	}
+	if len(ChecksumsForArchiveSet(nil, "binaries")) != 0 {
+		t.Errorf("nil manifest must select nothing")
+	}
+	if err := validateResults(results.Results, errors.New("invalid")); err != nil {
+		t.Errorf("manifest with a checksums outcome must validate: %v", err)
 	}
 }
 

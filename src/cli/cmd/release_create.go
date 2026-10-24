@@ -467,6 +467,12 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			manifestAssets = append(manifestAssets, s.Path)
 		}
 
+		// The SHA256SUMS for the archive set rides beside the archives: it is what a
+		// consumer verifies a download against, and what a .sig above covers.
+		for _, c := range artifact.ChecksumsForArchiveSet(results, archiveSet) {
+			manifestAssets = append(manifestAssets, c.Path)
+		}
+
 		// Publish the canonical public trust anchor (Tier-0 auto-provisioned key)
 		// and the Verification disclosure: attach cosign.pub as a release asset and
 		// state the assurance tier explicitly. Anchor + fingerprint come from the

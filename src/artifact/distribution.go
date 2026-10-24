@@ -116,6 +116,41 @@ func SuccessfulBlobSignatureAssets(results *ResultsManifest) []ResolvedSignature
 	return out
 }
 
+// ResolvedChecksumsAsset is a successfully-written SHA256SUMS file ready for distribution.
+// Manifest-sourced, like the archives it lists.
+type ResolvedChecksumsAsset struct {
+	ArtifactID ArtifactID
+	Path       string
+	SHA256     string
+	Set        string
+}
+
+// ChecksumsForArchiveSet returns the checksum files written for the named binary-archive
+// target. Same selector rule as AssetsForArchiveSet: an empty setID selects nothing.
+func ChecksumsForArchiveSet(results *ResultsManifest, setID string) []ResolvedChecksumsAsset {
+	var out []ResolvedChecksumsAsset
+	if results == nil || setID == "" {
+		return out
+	}
+	for _, r := range results.Results {
+		for _, o := range r.Outcomes {
+			if o.Type != OutcomeTypeChecksums || o.Checksums == nil {
+				continue
+			}
+			if o.Checksums.Status != OutcomeSuccess || o.Checksums.Path == "" || o.Checksums.Set != setID {
+				continue
+			}
+			out = append(out, ResolvedChecksumsAsset{
+				ArtifactID: r.ArtifactID,
+				Path:       o.Checksums.Path,
+				SHA256:     o.Checksums.SHA256,
+				Set:        o.Checksums.Set,
+			})
+		}
+	}
+	return out
+}
+
 // ValidateRecordedDigests recomputes each successfully-built archive's SHA-256 and
 // confirms it matches the results manifest — refusing to attach a signature to an
 // artifact that drifted (or vanished) since the build. Files are located by base
