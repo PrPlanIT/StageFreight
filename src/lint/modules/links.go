@@ -67,6 +67,12 @@ func (m *linksModule) Name() string         { return "links" }
 func (m *linksModule) DefaultEnabled() bool { return false }
 func (m *linksModule) AutoDetect() []string { return nil }
 
+// NeedsFullRepo makes the engine check links against the whole collected repo, not just the
+// scanned delta: moving or renaming a page breaks inbound links in pages that did not
+// themselves change, so under `--level changed` those stale links are only visible when the
+// module sees every file, not the changeset.
+func (m *linksModule) NeedsFullRepo() bool { return true }
+
 // CacheTTL: external checks hit the network, so the module's result is never cached forever.
 // Whole-repo modules bypass the per-file cache anyway; a negative TTL documents the intent.
 func (m *linksModule) CacheTTL() time.Duration { return -1 }
@@ -109,11 +115,20 @@ func (m *linksModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Fin
 	return nil, fmt.Errorf("links: Check called on a whole-repo module (engine dispatch bug)")
 }
 
-func (m *linksModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lint.Finding, error) {
-	root, err := os.Getwd()
-	if err != nil {
-		return nil, err
+// repoRootOf recovers the repository root from a FileInfo. The engine sets AbsPath to the
+// root joined with the repo-relative Path, so trimming Path off AbsPath yields the root —
+// link targets then resolve against the scanned repo, not the process working directory
+// (which is not the repo root during the baseline re-lint, or when lint is run from a subdir).
+// Falls back to "" (→ working-directory-relative) when AbsPath does not carry Path as expected.
+func repoRootOf(f lint.FileInfo) string {
+	suffix := filepath.FromSlash(f.Path)
+	if suffix == "" || !strings.HasSuffix(f.AbsPath, suffix) {
+		return ""
 	}
+	return strings.TrimRight(strings.TrimSuffix(f.AbsPath, suffix), string(filepath.Separator))
+}
+
+func (m *linksModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lint.Finding, error) {
 	slugCache := map[string]map[string]bool{} // repo-rel md path -> heading slugs
 	extCache := map[string]*extResult{}       // url -> result (dedup within the run)
 
@@ -125,6 +140,10 @@ func (m *linksModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]li
 		if !isMarkdown(f.Path) || !m.scoped(f.Path) {
 			continue
 		}
+		// Resolve link targets against the repo root recovered from this file (AbsPath is
+		// the root joined with the repo-relative Path), NOT os.Getwd(): the baseline
+		// re-lint runs over a staged tree elsewhere, and lint may be invoked from a subdir.
+		root := repoRootOf(f)
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
 			return nil, err

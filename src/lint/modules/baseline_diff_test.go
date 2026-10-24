@@ -64,3 +64,62 @@ func TestBaselineNewFindings(t *testing.T) {
 		t.Error("y.go finding was introduced in the working tree — must be new")
 	}
 }
+
+// TestBaselineNewFindings_FullRepoModule proves the whole-repo baseline path: a link broken
+// because its TARGET moved (the linking page itself did not change) is diffed against the
+// full base tree, so it is correctly marked NEW — while a link that was already broken at the
+// baseline is NOT. A per-file baseline (changed files only) cannot do this, since the linking
+// page is unchanged and absent from the diff.
+func TestBaselineNewFindings_FullRepoModule(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, _ := repo.Worktree()
+	write := func(name, content string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := wt.Add(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit := func(msg string) {
+		if _, err := wt.Commit(msg, &git.CommitOptions{Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Baseline: index links to /pages/guide (resolves) and /pages/ghost (already broken).
+	write("index.md", "# Index\n\n[guide](/pages/guide) and [ghost](/pages/ghost).\n")
+	write("pages/guide.md", "# Guide\n")
+	commit("c1")
+	write("z.md", "# Z\n") // second commit so HEAD has a parent (= baseline)
+	commit("c2")
+
+	base, ok, err := lint.ResolveBaseline(dir, "master")
+	if err != nil || !ok {
+		t.Fatalf("ResolveBaseline ok=%v err=%v", ok, err)
+	}
+
+	// Current findings from a (hypothetical) main run after pages/guide.md moved away:
+	// index.md did not change, yet its link to /pages/guide is now broken; /pages/ghost
+	// was broken already.
+	moved := lint.Finding{File: "index.md", Module: "links", RuleID: "unresolved-link", Anchor: "/pages/guide"}
+	preexisting := lint.Finding{File: "index.md", Module: "links", RuleID: "unresolved-link", Anchor: "/pages/ghost"}
+
+	newFp, err := base.NewFindings([]lint.Finding{moved, preexisting}, config.DefaultLintConfig(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !newFp[moved.Fingerprint()] {
+		t.Error("link broken by this change (target moved) must be NEW and block under --baseline")
+	}
+	if newFp[preexisting.Fingerprint()] {
+		t.Error("link already broken at the baseline must NOT be new")
+	}
+}

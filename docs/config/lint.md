@@ -71,8 +71,11 @@ scanner silently skips the osv-scanner leg (the OSV-API leg still runs).
 
 The `links` module checks that every markdown link resolves, so a moved or renamed page can't
 silently break the pages that point at it. It is a whole-repo check (a move breaks links in
-files that did not themselves change), so it runs the full set each pass and is **opt-in**: off
-unless a config enables it, which keeps it off large repos that never ask for it.
+files that did not themselves change), so it always sees the entire repo — even under
+`--level changed`, where other modules scan only the delta, and under `--baseline`, where it is
+diffed against the whole base tree so a link this change actually broke still blocks while
+pre-existing link debt does not. It is **opt-in**: off unless a config enables it, which keeps
+it off large repos that never ask for it.
 
 Three link classes, each with its own severity (`error` blocks, `warn` reports, `off` skips).
 Enabling the module is purely local and additive: the two filesystem-only classes default to

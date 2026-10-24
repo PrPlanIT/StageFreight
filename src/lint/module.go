@@ -108,6 +108,22 @@ type WholeRepoModule interface {
 	CheckAll(ctx context.Context, files []FileInfo) ([]Finding, error)
 }
 
+// FullRepoModule is a WholeRepoModule whose result depends on files that may be absent
+// from the scanned (delta) set. The canonical case is a link checker: moving or renaming
+// page B breaks an inbound link in page A, but A did not itself change, so under
+// `--level changed` A is not in the scanned set. The engine feeds such a module the FULL
+// collected file set (from CollectFiles) rather than the delta subset, so the check sees
+// the whole repo regardless of scan level.
+//
+// A WholeRepoModule that does NOT implement this (or returns false) keeps receiving only
+// the scanned subset — correct for modules whose findings are a function of each file in
+// isolation (e.g. per-lockfile advisory scans), and the right default so this never
+// silently widens an existing module's scope fleet-wide.
+type FullRepoModule interface {
+	WholeRepoModule
+	NeedsFullRepo() bool
+}
+
 // CacheTTLModule controls time-based cache expiry.
 //
 // Modules that do not implement this interface are cached forever.

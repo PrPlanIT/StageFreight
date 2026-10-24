@@ -65,6 +65,46 @@ func TestLinks_CheckIsMisdispatchGuard(t *testing.T) {
 	}
 }
 
+// TestLinks_ResolvesAgainstFileInfoRootNotCwd guards the regression where CheckAll resolved
+// targets against os.Getwd() instead of the repo root carried by FileInfo.AbsPath. Here the
+// process working directory is deliberately NOT the repo root (as in the baseline re-lint, or
+// `lint` run from a subdir): resolution must still succeed from AbsPath.
+func TestLinks_ResolvesAgainstFileInfoRootNotCwd(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		abs := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.md", "[ok](/pages/guide) and [bad](/pages/gone)\n")
+	write("pages/guide.md", "# Guide\n")
+
+	// chdir somewhere that is NOT the repo root.
+	other := t.TempDir()
+	oldwd, _ := os.Getwd()
+	if err := os.Chdir(other); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+
+	m := newLinks(t, map[string]any{"internal": "error"})
+	files := []lint.FileInfo{
+		{Path: "a.md", AbsPath: filepath.Join(dir, "a.md"), Content: lint.Content{Kind: lint.ContentText}},
+		{Path: "pages/guide.md", AbsPath: filepath.Join(dir, "pages", "guide.md"), Content: lint.Content{Kind: lint.ContentText}},
+	}
+	f, err := m.CheckAll(context.Background(), files)
+	if err != nil {
+		t.Fatalf("CheckAll: %v", err)
+	}
+	if len(f) != 1 || f[0].Anchor != "/pages/gone" {
+		t.Fatalf("resolution must use the FileInfo root (not cwd): /pages/guide should resolve, only /pages/gone should fail; got: %+v", f)
+	}
+}
+
 func TestLinks_InternalResolvesAndExtensionless(t *testing.T) {
 	f := runLinks(t, newLinks(t, nil), map[string]string{
 		"a.md":         "[x](/b.md) [y](/docs/page) [z](docs/page.md)\n",

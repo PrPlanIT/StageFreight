@@ -76,6 +76,12 @@ type Engine struct {
 	// given a delta-filtered subset. Empty when files are supplied without CollectFiles
 	// (e.g. the baseline base-relint), where the scanned set is used instead.
 	allPaths []string
+
+	// allFiles is the full FileInfo set from CollectFiles, retained so a FullRepoModule
+	// receives the whole repo even when RunWithStats is given a delta-filtered subset (a
+	// link broken by moving a different file lives in a file that did not itself change).
+	// Empty when files are supplied without CollectFiles, where the scanned set is used.
+	allFiles []FileInfo
 }
 
 // NonTextEntry is one non-text artifact for the disclosure inventory — a review
@@ -449,11 +455,25 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 	// barrier, so appends to findings/modStats need no locking. Whole-repo
 	// modules bypass the per-file content-hash cache — their result is a function
 	// of the WHOLE set, which that cache does not model.
+	var fullClassified []FileInfo // lazily built on first FullRepoModule
+	fullBuilt := false
 	for _, im := range wholeRepo {
 		wr := im.mod.(WholeRepoModule)
 
-		subset := make([]FileInfo, 0, len(classified))
-		for _, f := range classified {
+		// A FullRepoModule (e.g. links) is checked against the whole collected repo, not
+		// the delta subset: a link broken by moving a different file lives in a file that
+		// did not itself change. Every other whole-repo module keeps the scanned subset.
+		src := classified
+		if fr, ok := im.mod.(FullRepoModule); ok && fr.NeedsFullRepo() {
+			if !fullBuilt {
+				fullClassified = e.fullClassifiedSet(classified, vendoredRoots)
+				fullBuilt = true
+			}
+			src = fullClassified
+		}
+
+		subset := make([]FileInfo, 0, len(src))
+		for _, f := range src {
 			if e.isModuleExcluded(im.mod.Name(), f.Path) {
 				continue
 			}
@@ -550,14 +570,47 @@ func (e *Engine) CollectFiles() ([]FileInfo, error) {
 		return nil
 	})
 
-	// Record the full collected set so provenance vendor-root derivation sees the whole
-	// repo even when the scan is later delta-filtered to changed files (a vendor marker
-	// rarely lives in a changeset).
+	// Record the full collected set so provenance vendor-root derivation (allPaths) and
+	// FullRepoModule dispatch (allFiles) see the whole repo even when the scan is later
+	// delta-filtered to changed files (a vendor marker, or a link's target, rarely lives
+	// in the changeset).
+	e.allFiles = files
 	e.allPaths = make([]string, len(files))
 	for i, f := range files {
 		e.allPaths[i] = f.Path
 	}
 	return files, err
+}
+
+// fullClassifiedSet returns the whole collected repo with content/provenance classification
+// applied, for a FullRepoModule that must see files outside the scanned delta. Already-
+// classified delta entries are reused (keyed by path) so they are not re-read; the rest are
+// classified here. Coverage counters (BinariesScanned/NonText/NonAuthored) are deliberately
+// NOT touched — those reflect the scanned set, not the whole repo. Falls back to the scanned
+// set when no full set was collected (files supplied without CollectFiles).
+func (e *Engine) fullClassifiedSet(classified []FileInfo, vendoredRoots map[string]bool) []FileInfo {
+	if len(e.allFiles) == 0 {
+		return classified
+	}
+	done := make(map[string]FileInfo, len(classified))
+	for _, f := range classified {
+		done[f.Path] = f
+	}
+	out := make([]FileInfo, 0, len(e.allFiles))
+	for _, f := range e.allFiles {
+		if e.isExcluded(f.Path) {
+			continue
+		}
+		if c, ok := done[f.Path]; ok {
+			out = append(out, c)
+			continue
+		}
+		classData := readPrefix(f.AbsPath, classifyPrefix)
+		f.Content = classifyContent(classData)
+		f.Provenance = classifyProvenance(f.Path, classData, e.Config.Provenance, vendoredRoots)
+		out = append(out, f)
+	}
+	return out
 }
 
 // ModuleNames returns the names of all active modules in this engine.

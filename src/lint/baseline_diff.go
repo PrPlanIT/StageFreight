@@ -26,20 +26,44 @@ var worldModules = map[string]bool{"freshness": true, "osv": true, "vulnerabilit
 // caller treats a baseline-diff failure as "no diff", never as a failed lint.
 func (b *Baseline) NewFindings(current []Finding, cfg config.LintConfig, rootDir string, cache *Cache) (map[string]bool, error) {
 	byFile := map[string][]Finding{}
+	var fullRepo []Finding
 	for _, f := range current {
-		if worldModules[f.Module] {
+		switch {
+		case worldModules[f.Module]:
 			continue // world-driven: never "introduced by this change"
+		case isFullRepoModuleName(f.Module):
+			// A whole-repo finding (e.g. a broken link) can reference a file that did
+			// not change, so it cannot be diffed against a single file's base content —
+			// it is diffed against the whole base tree below.
+			fullRepo = append(fullRepo, f)
+		default:
+			byFile[f.File] = append(byFile[f.File], f)
 		}
-		byFile[f.File] = append(byFile[f.File], f)
 	}
 	newFp := map[string]bool{}
+	if err := b.markNewPerFile(byFile, cfg, rootDir, cache, newFp); err != nil {
+		return newFp, err
+	}
+	if err := b.markNewFullRepo(fullRepo, cfg, cache, newFp); err != nil {
+		return newFp, err
+	}
+	return newFp, nil
+}
+
+// markNewPerFile diffs ordinary (per-file) findings against the baseline version of each
+// changed file: a finding is new iff its fingerprint is absent when that file's base content
+// is re-linted. Unchanged files contribute nothing; a file absent at the baseline has all
+// its findings marked new. Whole-repo and world modules are excluded from this pass — the
+// first because a partial staged tree cannot represent it, the second because "new" is
+// meaningless for world-driven findings.
+func (b *Baseline) markNewPerFile(byFile map[string][]Finding, cfg config.LintConfig, rootDir string, cache *Cache, newFp map[string]bool) error {
 	if len(byFile) == 0 {
-		return newFp, nil
+		return nil
 	}
 
 	tmp, err := os.MkdirTemp("", "sf-baseline-*")
 	if err != nil {
-		return newFp, err
+		return err
 	}
 	defer os.RemoveAll(tmp)
 
@@ -70,17 +94,15 @@ func (b *Baseline) NewFindings(current []Finding, cfg config.LintConfig, rootDir
 	}
 
 	if len(staged) == 0 {
-		return newFp, nil
+		return nil
 	}
 
-	// One base lint pass over the staged tree, world modules skipped.
-	skip := make([]string, 0, len(worldModules))
-	for m := range worldModules {
-		skip = append(skip, m)
-	}
+	// One base lint pass over the staged tree, world AND whole-repo modules skipped
+	// (whole-repo modules are handled separately against the full base tree).
+	skip := append(worldModuleNames(), fullRepoModuleNames()...)
 	baseEngine, err := NewEngine(cfg, tmp, nil, skip, false, cache)
 	if err != nil {
-		return newFp, err
+		return err
 	}
 	baseFiles := make([]FileInfo, 0, len(staged))
 	for path := range staged {
@@ -93,14 +115,12 @@ func (b *Baseline) NewFindings(current []Finding, cfg config.LintConfig, rootDir
 	}
 	baseFindings, _, err := baseEngine.RunWithStats(context.Background(), baseFiles)
 	if err != nil {
-		return newFp, err
+		return err
 	}
 
 	baseFp := map[string]bool{}
 	for _, f := range baseFindings {
-		if !worldModules[f.Module] {
-			baseFp[f.Fingerprint()] = true
-		}
+		baseFp[f.Fingerprint()] = true
 	}
 
 	// A current finding on a changed file is new iff its fingerprint is absent at base.
@@ -111,5 +131,107 @@ func (b *Baseline) NewFindings(current []Finding, cfg config.LintConfig, rootDir
 			}
 		}
 	}
-	return newFp, nil
+	return nil
+}
+
+// markNewFullRepo diffs whole-repo (FullRepoModule) findings against the baseline version of
+// the ENTIRE repo. A link checker cannot be baselined per changed file — a link's target may
+// be a file that did not itself change — so the base version of every path is staged and the
+// full-repo modules are re-linted over that whole base tree; a current finding is new iff its
+// fingerprint is absent there. This is what makes `--baseline` both surface pre-existing link
+// debt without blocking AND still block a link this change actually broke.
+func (b *Baseline) markNewFullRepo(fullRepo []Finding, cfg config.LintConfig, cache *Cache, newFp map[string]bool) error {
+	if len(fullRepo) == 0 {
+		return nil
+	}
+
+	basePaths, err := b.Paths()
+	if err != nil {
+		return err
+	}
+
+	tmp, err := os.MkdirTemp("", "sf-baseline-full-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+
+	staged := 0
+	for path := range basePaths {
+		content, ok, cerr := b.Content(path)
+		if cerr != nil || !ok {
+			continue
+		}
+		dst := filepath.Join(tmp, path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			continue
+		}
+		if err := os.WriteFile(dst, content, 0o644); err != nil {
+			continue
+		}
+		staged++
+	}
+	if staged == 0 {
+		// No base tree to compare against → the whole repo is new → every finding is new.
+		for _, f := range fullRepo {
+			newFp[f.Fingerprint()] = true
+		}
+		return nil
+	}
+
+	only := fullRepoModuleNames()
+	baseEngine, err := NewEngine(cfg, tmp, only, nil, false, cache)
+	if err != nil {
+		return err
+	}
+	// CollectFiles populates the engine's full set, so each full-repo module sees the whole
+	// base tree (not a delta) — the same completeness the main run gives it.
+	baseFiles, err := baseEngine.CollectFiles()
+	if err != nil {
+		return err
+	}
+	baseFindings, _, err := baseEngine.RunWithStats(context.Background(), baseFiles)
+	if err != nil {
+		return err
+	}
+
+	baseFp := map[string]bool{}
+	for _, f := range baseFindings {
+		baseFp[f.Fingerprint()] = true
+	}
+	for _, f := range fullRepo {
+		if !baseFp[f.Fingerprint()] {
+			newFp[f.Fingerprint()] = true
+		}
+	}
+	return nil
+}
+
+// worldModuleNames / fullRepoModuleNames list the module names excluded from the per-file
+// base pass. isFullRepoModuleName reports whether a registered module needs the whole repo.
+func worldModuleNames() []string {
+	names := make([]string, 0, len(worldModules))
+	for m := range worldModules {
+		names = append(names, m)
+	}
+	return names
+}
+
+func fullRepoModuleNames() []string {
+	var names []string
+	for _, name := range All() {
+		if isFullRepoModuleName(name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func isFullRepoModuleName(name string) bool {
+	m, err := Get(name)
+	if err != nil {
+		return false
+	}
+	fr, ok := m.(FullRepoModule)
+	return ok && fr.NeedsFullRepo()
 }
