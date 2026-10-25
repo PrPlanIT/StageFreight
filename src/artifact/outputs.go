@@ -85,9 +85,10 @@ type Artifact struct {
 	// present handle must never be read as implicit trust.
 	Persistence PersistenceHandle `json:"persistence,omitempty"`
 
-	Docker  *DockerDescriptor  `json:"docker,omitempty"`
-	Binary  *BinaryDescriptor  `json:"binary,omitempty"`
-	Archive *ArchiveDescriptor `json:"archive,omitempty"`
+	Docker    *DockerDescriptor    `json:"docker,omitempty"`
+	Binary    *BinaryDescriptor    `json:"binary,omitempty"`
+	Archive   *ArchiveDescriptor   `json:"archive,omitempty"`
+	Checksums *ChecksumsDescriptor `json:"checksums,omitempty"`
 
 	Targets []Target `json:"targets"`
 }
@@ -160,6 +161,13 @@ type ArchiveDescriptor struct {
 	// NO Set, so it is unselectable by any distribution target — a build output reaches a forge
 	// only by being produced by a binary-archive target that a distribution target names.
 	Set string `json:"set,omitempty"`
+}
+
+// ChecksumsDescriptor describes a SHA256SUMS file for a binary-archive set — the checksum
+// manifest distributed beside the archives it lists.
+type ChecksumsDescriptor struct {
+	Path string `json:"path"`
+	Set  string `json:"set,omitempty"` // binary-archive target id whose archives the file lists
 }
 
 // Target is one destination an artifact must be distributed to. Exactly one
@@ -505,6 +513,9 @@ func validateDescriptorMatchesKind(a *Artifact, errType error) error {
 	}
 	if a.Archive != nil {
 		set = append(set, "archive")
+	}
+	if a.Checksums != nil {
+		set = append(set, "checksums")
 	}
 	if len(set) == 0 {
 		return fmt.Errorf("%w: artifact %q: no descriptor set (expected %q)",

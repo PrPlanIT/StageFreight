@@ -388,7 +388,14 @@ func (b *binaryContributor) Publish(rc *domains.RunContext) (domains.Contributio
 				return domains.Contribution{Rows: rows, Status: "failed", Summary: "checksums failed"},
 					fmt.Errorf("writing checksums: %w", err)
 			}
-			rc.RB.Record(artifact.NewArtifactID("checksums", filepath.Base(checksumPath)), artifact.Outcome{
+			checksumName := filepath.Base(checksumPath)
+			rc.Outputs.Artifacts = append(rc.Outputs.Artifacts, artifact.Artifact{
+				Kind:      "checksums",
+				Name:      checksumName,
+				Version:   b.version.Version,
+				Checksums: &artifact.ChecksumsDescriptor{Path: checksumPath, Set: t.ID},
+			})
+			rc.RB.Record(artifact.NewArtifactID("checksums", checksumName), artifact.Outcome{
 				Type: artifact.OutcomeTypeChecksums,
 				Checksums: &artifact.ChecksumsOutcome{
 					Status: artifact.OutcomeSuccess, Path: checksumPath, SHA256: checksumSHA, Set: t.ID,
