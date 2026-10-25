@@ -19,23 +19,12 @@ func init() {
 	lint.Register("links", func() lint.Module { return &linksModule{cfg: defaultLinksConfig()} })
 }
 
-// linksModule checks that every Markdown link resolves, so a moved or renamed page cannot
-// silently break the pages that point at it. Three link classes, each with its own
-// configurable severity (error / warn / off):
+// linksModule checks that every Markdown link resolves. Three classes, each with its own
+// severity (error | warn | off): internal (repo-relative and wiki-root `/a/b` paths),
+// anchors (`#section` against the target's headings), external (http(s) reachability).
 //
-//   - internal: repo-relative (resolved beside the file) and wiki-root (`/a/b`, resolved
-//     against the configured root as `<path>.md`).
-//   - anchors:  `#section` checked against the target page's headings.
-//   - external: http(s) URLs, reachability by network fetch.
-//
-// internal and anchors default to warn and external to off, so enabling the module only
-// reports (and makes no network call) until a config deliberately escalates a class to error
-// (the docs preset escalates `internal`, the one filesystem-certain class).
-//
-// Opt-in by design: DefaultEnabled is false and AutoDetect is nil, so the engine runs this
-// only where a config enables it (a docs lint preset) — never fleet-wide. It is a whole-repo
-// module because a moved page breaks links in files that did not themselves change, so
-// link-vs-file consistency can only be judged over the full set at once.
+// Opt-in: DefaultEnabled is false, AutoDetect nil. Whole-repo, because a moved page breaks
+// links in files that did not themselves change.
 type linksModule struct {
 	cfg     linksConfig
 	include []*regexp.Regexp
@@ -54,11 +43,7 @@ type linksConfig struct {
 	ExternalTimeout int      `json:"external_timeout_ms"` // per-URL timeout (default 5000)
 }
 
-// defaultLinksConfig keeps enabling the module safe and local: the two filesystem-only
-// classes (internal, anchors) default to warn — they report, never break a build — and
-// external defaults to off, so flipping the module on makes no surprise network call.
-// Enforcement is a deliberate per-class escalation to `error` (the docs preset escalates
-// `internal`, the one filesystem-certain class); external reachability is an explicit opt-in.
+// defaultLinksConfig: internal and anchors warn, external off (no network until opted in).
 func defaultLinksConfig() linksConfig {
 	return linksConfig{Internal: "warn", Anchors: "warn", External: "off", ExternalTimeout: 5000}
 }
@@ -67,14 +52,11 @@ func (m *linksModule) Name() string         { return "links" }
 func (m *linksModule) DefaultEnabled() bool { return false }
 func (m *linksModule) AutoDetect() []string { return nil }
 
-// NeedsFullRepo makes the engine check links against the whole collected repo, not just the
-// scanned delta: moving or renaming a page breaks inbound links in pages that did not
-// themselves change, so under `--level changed` those stale links are only visible when the
-// module sees every file, not the changeset.
+// NeedsFullRepo routes CheckAll over the whole repo, not the scanned delta: a moved page
+// breaks inbound links in files that did not themselves change.
 func (m *linksModule) NeedsFullRepo() bool { return true }
 
-// CacheTTL: external checks hit the network, so the module's result is never cached forever.
-// Whole-repo modules bypass the per-file cache anyway; a negative TTL documents the intent.
+// CacheTTL negative: a whole-repo result is not per-file content-addressable, so never cache.
 func (m *linksModule) CacheTTL() time.Duration { return -1 }
 
 func (m *linksModule) Configure(opts map[string]any) error {
@@ -115,11 +97,8 @@ func (m *linksModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.Fin
 	return nil, fmt.Errorf("links: Check called on a whole-repo module (engine dispatch bug)")
 }
 
-// repoRootOf recovers the repository root from a FileInfo. The engine sets AbsPath to the
-// root joined with the repo-relative Path, so trimming Path off AbsPath yields the root —
-// link targets then resolve against the scanned repo, not the process working directory
-// (which is not the repo root during the baseline re-lint, or when lint is run from a subdir).
-// Falls back to "" (→ working-directory-relative) when AbsPath does not carry Path as expected.
+// repoRootOf recovers the repo root from a FileInfo (AbsPath is the root joined with the
+// repo-relative Path). Returns "" when AbsPath does not carry Path as a suffix.
 func repoRootOf(f lint.FileInfo) string {
 	suffix := filepath.FromSlash(f.Path)
 	if suffix == "" || !strings.HasSuffix(f.AbsPath, suffix) {
@@ -140,9 +119,6 @@ func (m *linksModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]li
 		if !isMarkdown(f.Path) || !m.scoped(f.Path) {
 			continue
 		}
-		// Resolve link targets against the repo root recovered from this file (AbsPath is
-		// the root joined with the repo-relative Path), NOT os.Getwd(): the baseline
-		// re-lint runs over a staged tree elsewhere, and lint may be invoked from a subdir.
 		root := repoRootOf(f)
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {

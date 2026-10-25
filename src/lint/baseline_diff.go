@@ -32,9 +32,7 @@ func (b *Baseline) NewFindings(current []Finding, cfg config.LintConfig, rootDir
 		case worldModules[f.Module]:
 			continue // world-driven: never "introduced by this change"
 		case isFullRepoModuleName(f.Module):
-			// A whole-repo finding (e.g. a broken link) can reference a file that did
-			// not change, so it cannot be diffed against a single file's base content —
-			// it is diffed against the whole base tree below.
+			// Diffed against the whole base tree below, not per changed file.
 			fullRepo = append(fullRepo, f)
 		default:
 			byFile[f.File] = append(byFile[f.File], f)
@@ -50,12 +48,10 @@ func (b *Baseline) NewFindings(current []Finding, cfg config.LintConfig, rootDir
 	return newFp, nil
 }
 
-// markNewPerFile diffs ordinary (per-file) findings against the baseline version of each
-// changed file: a finding is new iff its fingerprint is absent when that file's base content
-// is re-linted. Unchanged files contribute nothing; a file absent at the baseline has all
-// its findings marked new. Whole-repo and world modules are excluded from this pass — the
-// first because a partial staged tree cannot represent it, the second because "new" is
-// meaningless for world-driven findings.
+// markNewPerFile diffs ordinary per-file findings against each changed file's baseline
+// version: a finding is new iff its fingerprint is absent when that file's base content is
+// re-linted. Unchanged files contribute nothing; a file absent at the baseline has all its
+// findings marked new. Whole-repo and world modules are excluded from this pass.
 func (b *Baseline) markNewPerFile(byFile map[string][]Finding, cfg config.LintConfig, rootDir string, cache *Cache, newFp map[string]bool) error {
 	if len(byFile) == 0 {
 		return nil
@@ -97,8 +93,7 @@ func (b *Baseline) markNewPerFile(byFile map[string][]Finding, cfg config.LintCo
 		return nil
 	}
 
-	// One base lint pass over the staged tree, world AND whole-repo modules skipped
-	// (whole-repo modules are handled separately against the full base tree).
+	// Base lint over the staged tree; world and whole-repo modules skipped.
 	skip := append(worldModuleNames(), fullRepoModuleNames()...)
 	baseEngine, err := NewEngine(cfg, tmp, nil, skip, false, cache)
 	if err != nil {
@@ -134,12 +129,10 @@ func (b *Baseline) markNewPerFile(byFile map[string][]Finding, cfg config.LintCo
 	return nil
 }
 
-// markNewFullRepo diffs whole-repo (FullRepoModule) findings against the baseline version of
-// the ENTIRE repo. A link checker cannot be baselined per changed file — a link's target may
-// be a file that did not itself change — so the base version of every path is staged and the
-// full-repo modules are re-linted over that whole base tree; a current finding is new iff its
-// fingerprint is absent there. This is what makes `--baseline` both surface pre-existing link
-// debt without blocking AND still block a link this change actually broke.
+// markNewFullRepo diffs whole-repo (FullRepoModule) findings against the ENTIRE base tree:
+// every base path is staged and the full-repo modules are re-linted over it, and a current
+// finding is new iff its fingerprint is absent there. Per-file baselining cannot serve these
+// — a finding may reference a file that did not itself change.
 func (b *Baseline) markNewFullRepo(fullRepo []Finding, cfg config.LintConfig, cache *Cache, newFp map[string]bool) error {
 	if len(fullRepo) == 0 {
 		return nil
@@ -184,8 +177,8 @@ func (b *Baseline) markNewFullRepo(fullRepo []Finding, cfg config.LintConfig, ca
 	if err != nil {
 		return err
 	}
-	// CollectFiles populates the engine's full set, so each full-repo module sees the whole
-	// base tree (not a delta) — the same completeness the main run gives it.
+	// CollectFiles populates the engine's full set so each full-repo module sees the whole
+	// base tree.
 	baseFiles, err := baseEngine.CollectFiles()
 	if err != nil {
 		return err

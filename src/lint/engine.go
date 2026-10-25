@@ -77,10 +77,9 @@ type Engine struct {
 	// (e.g. the baseline base-relint), where the scanned set is used instead.
 	allPaths []string
 
-	// allFiles is the full FileInfo set from CollectFiles, retained so a FullRepoModule
-	// receives the whole repo even when RunWithStats is given a delta-filtered subset (a
-	// link broken by moving a different file lives in a file that did not itself change).
-	// Empty when files are supplied without CollectFiles, where the scanned set is used.
+	// allFiles is the full FileInfo set from CollectFiles, so a FullRepoModule sees the whole
+	// repo even when RunWithStats is given a delta subset. Empty when files are supplied
+	// without CollectFiles, where the scanned set is used.
 	allFiles []FileInfo
 }
 
@@ -460,9 +459,8 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 	for _, im := range wholeRepo {
 		wr := im.mod.(WholeRepoModule)
 
-		// A FullRepoModule (e.g. links) is checked against the whole collected repo, not
-		// the delta subset: a link broken by moving a different file lives in a file that
-		// did not itself change. Every other whole-repo module keeps the scanned subset.
+		// A FullRepoModule gets the whole collected repo; every other whole-repo module
+		// keeps the scanned subset.
 		src := classified
 		if fr, ok := im.mod.(FullRepoModule); ok && fr.NeedsFullRepo() {
 			if !fullBuilt {
@@ -570,10 +568,8 @@ func (e *Engine) CollectFiles() ([]FileInfo, error) {
 		return nil
 	})
 
-	// Record the full collected set so provenance vendor-root derivation (allPaths) and
-	// FullRepoModule dispatch (allFiles) see the whole repo even when the scan is later
-	// delta-filtered to changed files (a vendor marker, or a link's target, rarely lives
-	// in the changeset).
+	// Retain the full set so provenance vendor-root derivation (allPaths) and FullRepoModule
+	// dispatch (allFiles) see the whole repo even under a later delta filter.
 	e.allFiles = files
 	e.allPaths = make([]string, len(files))
 	for i, f := range files {
@@ -582,12 +578,10 @@ func (e *Engine) CollectFiles() ([]FileInfo, error) {
 	return files, err
 }
 
-// fullClassifiedSet returns the whole collected repo with content/provenance classification
-// applied, for a FullRepoModule that must see files outside the scanned delta. Already-
-// classified delta entries are reused (keyed by path) so they are not re-read; the rest are
-// classified here. Coverage counters (BinariesScanned/NonText/NonAuthored) are deliberately
-// NOT touched — those reflect the scanned set, not the whole repo. Falls back to the scanned
-// set when no full set was collected (files supplied without CollectFiles).
+// fullClassifiedSet returns the whole collected repo with classification applied, reusing
+// already-classified delta entries (keyed by path). Coverage counters are deliberately not
+// touched — they reflect the scanned set. Falls back to the scanned set when no full set was
+// collected.
 func (e *Engine) fullClassifiedSet(classified []FileInfo, vendoredRoots map[string]bool) []FileInfo {
 	if len(e.allFiles) == 0 {
 		return classified
