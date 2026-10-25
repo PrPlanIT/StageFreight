@@ -107,9 +107,11 @@ func isDockerfile(base string) bool {
 
 // Resolve runs the full dependency resolution pipeline across all files
 // and returns raw Dependency structs with vulnerabilities correlated.
-// opts is passed to Configure; nil uses FreshnessConfig defaults.
-func Resolve(ctx context.Context, opts map[string]any, files []lint.FileInfo) ([]supplychain.Dependency, error) {
+// opts is passed to Configure; nil uses FreshnessConfig defaults. toolchains is the
+// config's toolchains.want; without it no toolchain constraint is resolved or locked.
+func Resolve(ctx context.Context, opts map[string]any, toolchains map[string]config.ToolConstraint, files []lint.FileInfo) ([]supplychain.Dependency, error) {
 	m := NewResolver()
+	m.SetToolchainDesired(toolchains)
 	if opts != nil {
 		if err := m.Configure(opts); err != nil {
 			return nil, err
@@ -140,8 +142,8 @@ func Resolve(ctx context.Context, opts map[string]any, files []lint.FileInfo) ([
 // exactly once and pass the result down explicitly. Resolve remains the
 // entry point for standalone callers (e.g. `stagefreight dependency update`)
 // that don't need a shared Snapshot; Discover wraps it so both stay in sync.
-func Discover(ctx context.Context, opts map[string]any, files []lint.FileInfo) (*supplychain.Snapshot, error) {
-	deps, err := Resolve(ctx, opts, files)
+func Discover(ctx context.Context, opts map[string]any, toolchains map[string]config.ToolConstraint, files []lint.FileInfo) (*supplychain.Snapshot, error) {
+	deps, err := Resolve(ctx, opts, toolchains, files)
 	if err != nil {
 		return nil, err
 	}

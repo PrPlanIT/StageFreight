@@ -1,7 +1,10 @@
 package toolchain
 
 import (
+	"fmt"
+	"os"
 	"sort"
+	"sync"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
@@ -25,6 +28,7 @@ func ResolveVersion(rootDir, tool, requestedVersion string, desired map[string]c
 	if requestedVersion != "" {
 		return requestedVersion, false
 	}
+	unlocked := ""
 	if pin, ok := desired[tool]; ok && pin.Constraint != "" {
 		if !depversion.IsWildcardConstraint(pin.Constraint) {
 			return pin.Constraint, true // exact — the constraint IS the version
@@ -36,11 +40,26 @@ func ResolveVersion(rootDir, tool, requestedVersion string, desired map[string]c
 				}
 			}
 		}
+		unlocked = pin.Constraint
 	}
 	if def, ok := LookupTool(tool); ok {
+		if unlocked != "" {
+			warnUnlocked(tool, unlocked, def.DefaultVer)
+		}
 		return def.DefaultVer, false
 	}
 	return "", false
+}
+
+var warnedUnlocked sync.Map
+
+// warnUnlocked discloses, once per tool per process, that a wildcard constraint ran the
+// built-in default instead of a resolved version.
+func warnUnlocked(tool, constraint, used string) {
+	if _, seen := warnedUnlocked.LoadOrStore(tool, true); seen {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  ⚠ toolchain %s %q has no entry in .stagefreight/toolchains.lock — running the built-in default %s, not the newest in range\n", tool, constraint, used)
 }
 
 // SeedDesired returns a complete map of all managed tools with their current
