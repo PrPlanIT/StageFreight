@@ -1,6 +1,6 @@
 module github.com/PrPlanIT/StageFreight
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
