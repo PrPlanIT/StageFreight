@@ -222,7 +222,10 @@ var registry = map[string]ToolDef{
 			return ""
 		},
 		ChecksumURL: func(ver string, t Target) string {
-			return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/%s/kubectl.sha256", ver, linuxArch(t, "amd64", "arm64"))
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/%s/kubectl.sha256", ver, a)
+			}
+			return ""
 		},
 		Format: "binary",
 	},
@@ -299,7 +302,10 @@ var registry = map[string]ToolDef{
 			return ""
 		},
 		ChecksumURL: func(ver string, t Target) string {
-			return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-%s.sha256", ver, ver, rustTriple(t))
+			if tr := rustTriple(t); tr != "" {
+				return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-%s.sha256", ver, ver, tr)
+			}
+			return ""
 		},
 		Format: "tar.gz",
 	},

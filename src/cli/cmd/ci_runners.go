@@ -344,6 +344,12 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		// Deps disabled is an operator choice, not a failure — the subject is shippable.
 		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true}))
 		fmt.Println("  dependency update disabled in config")
+		for tool := range appCfg.Toolchains.Want {
+			if appCfg.Toolchains.HoldReason(tool) == "" {
+				fmt.Fprintln(os.Stderr, "  ⚠ toolchains are not updated while dependency: is disabled")
+				break
+			}
+		}
 		return nil
 	}
 
