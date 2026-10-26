@@ -23,7 +23,9 @@ func TestNonSemverOrderingWarnings(t *testing.T) {
 	}
 	// Lexical-descending order, as ListTagsSorted yields non-semver tags after semver.
 	tags := []string{"v1.2.0", "v1.1.5", "proto_v0.600", "beta_v0.9", "beta_v0.614", "2024.09.18", "2024.09.07"}
-	rule := func(ids ...string) []BranchRule { return []BranchRule{{ID: "default", IsDefault: true, BaseFromIDs: ids}} }
+	rule := func(ids ...string) []BranchRule {
+		return []BranchRule{{ID: "default", IsDefault: true, BaseFromIDs: ids}}
+	}
 
 	if w := nonSemverOrderingWarnings(tags, sources, rule("stable"), committed); len(w) != 0 {
 		t.Errorf("original is not on a base_from path and stable orders semantically; want no warning, got %v", w)

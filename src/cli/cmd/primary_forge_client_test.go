@@ -1,9 +1,11 @@
 package cmd
 
 import (
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 
 	"github.com/PrPlanIT/StageFreight/src/forge"
 )
@@ -13,19 +15,15 @@ import (
 // detect forge from remote URL" and the project was empty. The declared primary supplies
 // provider, endpoint and project.
 func TestPrimaryForgeClient_DeclaredPrimaryOutsideCI(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("system git required")
-	}
 	t.Setenv("CI_PROJECT_ID", "")
 	t.Setenv("CI_PROJECT_PATH", "")
 	repo := filepath.Join(t.TempDir(), "r")
-	for _, args := range [][]string{
-		{"init", "-q", repo},
-		{"-C", repo, "remote", "add", "origin", "ssh://git@10.30.1.123:2424/PrPlanIT/DisplayWizard.git"},
-	} {
-		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+	r, err := git.PlainInit(repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{"ssh://git@10.30.1.123:2424/PrPlanIT/DisplayWizard.git"}}); err != nil {
+		t.Fatal(err)
 	}
 	cfg := cfgWithForge("gitlab", "https://gitlab.prplanit.com")
 	cfg.Repos[0].Project = "PrPlanIT/DisplayWizard"
