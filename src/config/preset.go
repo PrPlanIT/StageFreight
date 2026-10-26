@@ -73,8 +73,9 @@ var keyedListSections = map[string]string{
 // decodeIDMap and are document-order sensitive, which is exactly why the whole preset
 // layer runs on yaml.Node — a map[string]any round-trip would alphabetize them.
 var keyedMapSections = map[string]bool{
-	"stencils":     true,
-	"scribe.files": true,
+	"stencils":        true,
+	"scribe.files":    true,
+	"toolchains.want": true,
 }
 
 // ── yaml.Node accessor kit ───────────────────────────────────────────────────
@@ -229,7 +230,7 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 				entries = append(entries, mapEntries...)
 				continue
 			}
-			return nil, nil, fmt.Errorf("%s: presets: is only allowed on keyed-collection sections (targets, builds, badges.items, versioning.tag_sources, versioning.branch_builds, stencils, scribe.files)", currentPath)
+			return nil, nil, fmt.Errorf("%s: presets: is only allowed on keyed-collection sections (targets, builds, badges.items, versioning.tag_sources, versioning.branch_builds, stencils, scribe.files, toolchains.want)", currentPath)
 		}
 
 		if !hasPreset {
@@ -296,9 +297,12 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 				return nil, nil, fmt.Errorf("%s: resolving nested preset %q in %q: %w", key, innerPresetPath, presetPath, err)
 			}
 			innerSection, _ := mapGet(resolvedInner, topKey)
-			currentOverrides := withoutKey(withoutKey(presetValue, "preset"), "on_mismatch")
+			currentOverrides, overrideEntries, err := resolvePresetsInner(withoutKey(withoutKey(presetValue, "preset"), "on_mismatch"), loader, sourceRef, presetPath, depth+1, seen, currentPath)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: resolving preset %q: %w", key, presetPath, err)
+			}
 			resolvedPreset = DeepMerge(innerSection, currentOverrides)
-			presetEntries = innerEntries
+			presetEntries = append(innerEntries, overrideEntries...)
 		} else {
 			resolvedPreset, presetEntries, err = resolvePresetsInner(presetValue, loader, sourceRef, presetPath, depth+1, seen, currentPath)
 			if err != nil {
@@ -311,8 +315,12 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 		}
 		entries = append(entries, presetEntries...)
 
-		// Local siblings (everything except preset:) override the preset.
-		localOverrides := withoutKey(withoutKey(section, "preset"), "on_mismatch")
+		// Local siblings (everything except preset:) override the preset, after resolving
+		// any presets of their own (e.g. toolchains.want.presets beside toolchains.preset).
+		localOverrides, localEntries, err := resolvePresetsInner(withoutKey(withoutKey(section, "preset"), "on_mismatch"), loader, sourceRef, sourcePath, depth, seen, currentPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", key, err)
+		}
 		merged := DeepMerge(resolvedPreset, localOverrides)
 
 		for _, localKey := range mapKeys(localOverrides) {
@@ -335,6 +343,13 @@ func resolvePresetsInner(raw *yaml.Node, loader PresetLoader, sourceRef, sourceP
 				Path: path, Source: sourcePath, SourceRef: sourceRef,
 				Layer: depth, Operation: op, Value: nodeToAny(lv),
 			})
+		}
+		// What the local siblings' own presets contributed (their plain keys are the
+		// override entries above).
+		for _, e := range localEntries {
+			if e.Source != sourcePath {
+				entries = append(entries, e)
+			}
 		}
 
 		mapSet(result, key, merged)
