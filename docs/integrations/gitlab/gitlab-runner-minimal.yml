@@ -39,13 +39,13 @@ services:
       - |
         if [ ! -f /etc/gitlab-runner/config.toml ]; then
           gitlab-runner register \
+            --docker-disable-cache=true \
             --docker-dns=1.1.1.1 \
             --docker-dns=8.8.8.8 \
             --docker-host=unix:///var/run/docker.sock \
             --docker-image=alpine:latest \
             --docker-network-mode=stagefreight \
             --docker-privileged=false \
-            --docker-volumes=/cache \
             --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
             --env=DOCKER_CERT_PATH=/certs/client \
             --env=DOCKER_HOST=tcp://dind:2376 \
