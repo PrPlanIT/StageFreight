@@ -192,6 +192,62 @@ func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 	}
 }
 
+// TestPlanDistribution_RepoSettingsOverlay: an entry's repos: settings (a mirror's
+// default branch and sync scope) reach the satellite, while the generated location wins.
+func TestPlanDistribution_RepoSettingsOverlay(t *testing.T) {
+	gov := &GovernanceConfig{
+		Profiles: ProfileList{{
+			ID:          "p",
+			Credentials: "GITLAB_X",
+			Config: map[string]any{
+				"version": 1,
+				"forges": map[string]any{
+					"gitlab": map[string]any{"provider": "gitlab", "url": "https://gitlab.prplanit.com"},
+					"github": map[string]any{"provider": "github", "url": "https://github.com"},
+				},
+				"orgs": map[string]any{"PrPlanIT": map[string]any{"maintainer": "P <p@example.com>", "aliases": map[string]any{"github": "PrPlanIT"}}},
+				"git":  map[string]any{"tags": map[string]any{"stable": map[string]any{"pattern": `^v\d+\.\d+\.\d+$`}}},
+			},
+			Repos: ProfileCatalog{{
+				ID: "DisplayWizard",
+				At: "PrPlanIT/DisplayWizard",
+				Config: map[string]any{"repos": map[string]any{"github-mirror": map[string]any{
+					"project":  "Elsewhere/Wrong",
+					"branches": map[string]any{"default": "autohotkey-original"},
+					"sync":     map[string]any{"branches": "exact", "releases": map[string]any{"scope": "all", "prune": true, "only": []any{"stable"}}},
+				}}},
+			}},
+		}},
+	}
+	plans, err := PlanDistribution(gov, fakeLoader{}, nil, nil,
+		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
+		"PrPlanIT/MaintenancePolicy")
+	requireNoError(t, err)
+	var parsed struct {
+		Repos map[string]map[string]any `yaml:"repos"`
+	}
+	for _, f := range plans[0].Files {
+		if f.Path == ".stagefreight.yml" {
+			if err := yaml.Unmarshal(f.Content, &parsed); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	m := parsed.Repos["github-mirror"]
+	if m["project"] != "PrPlanIT/DisplayWizard" {
+		t.Errorf("the generated location must win, got project %v", m["project"])
+	}
+	if b, _ := m["branches"].(map[string]any); b["default"] != "autohotkey-original" {
+		t.Errorf("declared default branch lost: %v", m)
+	}
+	if sy, _ := m["sync"].(map[string]any); sy["branches"] != "exact" {
+		t.Errorf("declared sync lost: %v", m)
+	}
+	if parsed.Repos["primary"]["project"] != "PrPlanIT/DisplayWizard" {
+		t.Errorf("primary must stay generated: %v", parsed.Repos["primary"])
+	}
+}
+
 // TestPlanDistribution_CachesComposedPresets proves a `presets: [a, b]` composition has
 // BOTH files seeded into the satellite's preset-cache — else a tracking satellite fails to
 // resolve the composed section ("open .../preset-cache/<path>: no such file").

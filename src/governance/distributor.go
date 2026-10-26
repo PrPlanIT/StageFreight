@@ -117,7 +117,11 @@ func PlanDistribution(
 			// source's provider; a mirror is emitted when the entry's org declares a
 			// forge-named alias (e.g. github: PrPlanIT → a github mirror at
 			// <alias>/<slug>). The default branch is read from the forge, never assumed.
-			repoConfig["repos"] = concretizeRepos(entry, cluster.Config, presetSource.Provider, branch)
+			repos := concretizeRepos(entry, cluster.Config, presetSource.Provider, branch)
+			if declared, ok := repoConfig["repos"].(map[string]any); ok {
+				overlayRepoSettings(repos, declared)
+			}
+			repoConfig["repos"] = repos
 
 			mergeSatelliteVars(repoConfig, reader, repo)
 
@@ -327,6 +331,30 @@ func concretizeRepos(entry CatalogEntry, clusterConfig map[string]any, sourcePro
 		}
 	}
 	return repos
+}
+
+// overlayRepoSettings lays declared repos: settings (branches, sync) over the generated
+// repos. Location (forge, project, roles, worktree) stays generated, since the catalog
+// entry is authoritative for it; a declared id the generator does not produce is added.
+func overlayRepoSettings(repos, declared map[string]any) {
+	for id, v := range declared {
+		d, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		gen, ok := repos[id].(map[string]any)
+		if !ok {
+			repos[id] = d
+			continue
+		}
+		for k, val := range d {
+			switch k {
+			case "forge", "project", "roles", "worktree":
+			default:
+				gen[k] = val
+			}
+		}
+	}
 }
 
 // orgAliases reads an org's aliases out of the profile's raw config map
