@@ -35,9 +35,9 @@ import (
 // its own cache, resets the worktree so hooks see only staged content, then
 // restores. If that run is interrupted before its restore, the operator's edits
 // are stranded. StageFreight orchestrates the commit, so it owns the invariant —
-// the Replay path already models worktree preservation as first-class
-// (captureWorktree/restoreWorktree in gogit_replay.go); this brings the commit
-// path to the same bar.
+// the Replay path already treats worktree preservation as first-class (it writes
+// only the paths the rebase changes and refuses before touching uncommitted work);
+// this brings the commit path to the same bar.
 //
 // Coverage matrix:
 //

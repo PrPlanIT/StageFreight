@@ -62,15 +62,6 @@ func (e *ErrHookRejected) Error() string {
 	return fmt.Sprintf("hook %q rejected commit (exit %d)", e.Hook, e.ExitCode)
 }
 
-// ErrPathTraversal is returned when a diff path would escape the repository root.
-type ErrPathTraversal struct {
-	Path string
-}
-
-func (e *ErrPathTraversal) Error() string {
-	return fmt.Sprintf("path traversal detected: %q escapes repository root — aborting", e.Path)
-}
-
 // ErrTransport wraps SSH auth or push failures with an actionable message.
 type ErrTransport struct {
 	Err error

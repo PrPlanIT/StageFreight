@@ -2,20 +2,14 @@ package commit
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
-	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
 
 const sfGeneratedTrailer = "X-StageFreight-Generated: true"
@@ -25,13 +19,16 @@ const sfGeneratedTrailer = "X-StageFreight-Generated: true"
 // explicit tree diffing with full integrity verification at each step.
 //
 // Algorithm:
-//  0. Pre-conditions: HEAD attached, worktree clean, upstream configured → fail fast, no mutation
+//  0. Pre-conditions: HEAD attached, upstream configured → fail fast, no mutation
 //  1. Gate: no merge commits, linear chain (structural only — no authorship constraints)
 //  2. Re-validate upstream hash non-zero; record fetchedUpstreamHash
 //  3. Compute merge-base (exactly 1); collect commits oldest-first
-//  4. Hard reset to upstream
-//  5. For each commit: apply diff, stage, verify staging states, commit
-//  6. Race guard: upstream unchanged since fetch
+//  4. Build each replayed commit at the object layer; verify its delta equals the source's
+//  5. Race guard: upstream unchanged since fetch, branch unchanged since read
+//  6. Refuse, right before the write, if a path that differs between HEAD and the
+//     replayed head holds uncommitted work or a file git does not track there
+//  7. Move the branch to the replayed head and check out only the differing paths;
+//     everything else in the index and worktree is left as the operator had it
 //
 // Push is NOT performed by Replay — the planner's executor owns it: a diverged plan is the
 // operation graph Confirm → Replay → Upload, so Execute runs the Upload after Replay returns.
@@ -62,11 +59,9 @@ func Replay(session *gitstate.SyncSession) (err error) {
 		return gitstate.ErrNoUpstream
 	}
 
-	// Uncommitted worktree changes are NOT a pre-condition failure. `git push`
-	// never touches the working tree; this replay hard-resets it, so it must
-	// preserve the operator's in-progress edits rather than refuse (or discard)
-	// them — git rebase --autostash semantics. Snapshot is taken just before the
-	// reset (below) and restored on every exit path.
+	// Uncommitted work is NOT a pre-condition failure, as with git rebase --autostash:
+	// the replay writes only the paths that differ between HEAD and the replayed head
+	// and refuses (step 5) only if one of those holds uncommitted work.
 
 	originalHEAD := state.HeadHash
 
@@ -132,58 +127,88 @@ func Replay(session *gitstate.SyncSession) (err error) {
 		return &gitstate.ErrReplayUnsafe{Reasons: violations}
 	}
 
-	// Get repo root for filesystem operations
-	repoRoot := wt.Filesystem.Root()
-
-	// Autostash: snapshot uncommitted changes before the reset, restore after the
-	// rebase (and on any failure path). A snapshotted path the rebase also touched
-	// is a conflict — reported, never silently overwriting the rebased content.
-	stash, err := captureWorktree(wt, repoRoot)
+	// 4. Build every replayed commit at the object layer and verify it. Nothing
+	// touches the branch, the index or the worktree until all of them pass.
+	originalTree, err := headCommit.Tree()
 	if err != nil {
-		return fmt.Errorf("snapshotting uncommitted changes: %w", err)
+		return fmt.Errorf("loading HEAD tree: %w", err)
 	}
-	rebasePaths, err := changedPaths(commits)
+	upstreamTree, err := upstreamCommit.Tree()
 	if err != nil {
-		return fmt.Errorf("computing rebase paths: %w", err)
+		return fmt.Errorf("loading upstream tree: %w", err)
 	}
-	// Abort BEFORE any mutation if an uncommitted change conflicts with the rebase
-	// — the worktree is untouched, so the operator's work is never lost (no
-	// silent clobber, no half-applied stash). They commit/set aside and retry.
-	if conflicts := stashConflicts(stash, rebasePaths); len(conflicts) > 0 {
-		return fmt.Errorf("uncommitted changes to %s conflict with the rebase onto upstream — commit or set them aside first, then retry", strings.Join(conflicts, ", "))
+	flat, err := flattenTree(upstreamTree)
+	if err != nil {
+		return fmt.Errorf("flattening upstream tree: %w", err)
 	}
-	// Restore the (now conflict-free) snapshot on every exit path — a failed
-	// rebase must not lose the operator's uncommitted work either.
-	defer func() {
-		if rerr := restoreWorktree(repoRoot, stash); rerr != nil && err == nil {
-			err = rerr
-		}
-	}()
-
-	// 5. Hard reset to upstream — mutation begins here
-	if err := wt.Reset(&git.ResetOptions{
-		Commit: fetchedUpstreamHash,
-		Mode:   git.HardReset,
-	}); err != nil {
-		return fmt.Errorf("hard reset to upstream: %w", err)
-	}
-
-	// 6. Replay commits oldest-first
+	tip := fetchedUpstreamHash
 	for _, c := range commits {
-		if err := replayCommit(repo, wt, repoRoot, c, originalHEAD); err != nil {
-			_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
+		if tip, err = replayOnto(repo, c, tip, flat); err != nil {
 			return err
 		}
 	}
+	finalCommit, err := repo.CommitObject(tip)
+	if err != nil {
+		return fmt.Errorf("loading replayed head: %w", err)
+	}
+	finalTree, err := finalCommit.Tree()
+	if err != nil {
+		return fmt.Errorf("loading replayed tree: %w", err)
+	}
 
-	// 7. Race guard: upstream must not have moved since our fetch
+	// 5. Race guard: upstream must not have moved since our fetch, nor the branch since
+	// we read it (a commit made meanwhile would be orphaned by moving the branch).
 	if err := session.Refresh(); err != nil {
-		_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
 		return fmt.Errorf("refreshing state before push: %w", err)
 	}
 	if session.State().UpstreamHash != fetchedUpstreamHash {
-		_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
 		return gitstate.ErrUpstreamMoved
+	}
+	if session.State().HeadHash != originalHEAD {
+		return fmt.Errorf("the branch moved during the replay (now %s) — retry", short(session.State().HeadHash))
+	}
+
+	// 6. The worktree moves from the original tree to the final one, and only the paths
+	// that differ are written. Refuse, before any write, when one of them holds work the
+	// operator has not committed or a file git does not track there.
+	toFinal, err := originalTree.Diff(finalTree)
+	if err != nil {
+		return fmt.Errorf("diffing onto the replayed head: %w", err)
+	}
+	written := changePathSet(toFinal)
+	head, err := flattenTree(originalTree)
+	if err != nil {
+		return fmt.Errorf("flattening HEAD tree: %w", err)
+	}
+	uncommitted, err := uncommittedPaths(repo, wt, head)
+	if err != nil {
+		return err
+	}
+	var conflicts []string
+	for p := range written {
+		if uncommitted[p] {
+			conflicts = append(conflicts, p)
+		}
+	}
+	if len(conflicts) > 0 {
+		sort.Strings(conflicts)
+		return fmt.Errorf("uncommitted changes to %s conflict with the rebase onto upstream — commit or set them aside first, then retry", strings.Join(conflicts, ", "))
+	}
+	owned, err := operatorCollisions(repo, wt.Filesystem.Root(), head, written)
+	if err != nil {
+		return err
+	}
+	if len(owned) > 0 {
+		return fmt.Errorf("the rebase would overwrite or remove %s, which git does not track here — move them aside, then retry", strings.Join(owned, ", "))
+	}
+
+	// 7. Move the branch to the verified head and check out only the differing paths.
+	// A failure puts those paths and the branch back on the original HEAD.
+	if err := checkoutPaths(wt, tip, written); err != nil {
+		if rerr := checkoutPaths(wt, originalHEAD, written); rerr != nil {
+			return fmt.Errorf("checking out the replayed head: %w (rolling back to %s also failed: %v)", err, short(originalHEAD), rerr)
+		}
+		return fmt.Errorf("checking out the replayed head: %w", err)
 	}
 
 	// Push is the executor's responsibility — Replay() owns only the rebase. The Upload
@@ -226,143 +251,11 @@ func validateReplayGate(commits []*object.Commit, mergeBase plumbing.Hash) []str
 	return violations
 }
 
-// replayCommit applies a single commit's diff to the worktree and creates a new commit.
-// Hooks are NOT run — replay is a machine operation, not a user commit.
-// On error, the caller is responsible for resetting to originalHEAD.
-func replayCommit(repo *git.Repository, wt *git.Worktree, repoRoot string, c *object.Commit, originalHEAD plumbing.Hash) error {
-	var parentTree *object.Tree
-	if len(c.ParentHashes) > 0 {
-		parentCommit, err := repo.CommitObject(c.ParentHashes[0])
-		if err != nil {
-			return fmt.Errorf("loading parent commit: %w", err)
-		}
-		parentTree, err = parentCommit.Tree()
-		if err != nil {
-			return fmt.Errorf("loading parent tree: %w", err)
-		}
-	}
-
-	commitTree, err := c.Tree()
-	if err != nil {
-		return fmt.Errorf("loading commit tree: %w", err)
-	}
-
-	var changes object.Changes
-	if parentTree != nil {
-		changes, err = parentTree.Diff(commitTree)
-	} else {
-		emptyTree := &object.Tree{}
-		changes, err = emptyTree.Diff(commitTree)
-	}
-	if err != nil {
-		return fmt.Errorf("computing diff: %w", err)
-	}
-
-	for _, change := range changes {
-		if err := applyChange(repoRoot, change); err != nil {
-			return err
-		}
-	}
-
-	if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
-		return fmt.Errorf("staging changes: %w", err)
-	}
-
-	// Diff-application sanity check.
-	//
-	// We do NOT compare tree hashes to the original commit — after rebasing on a new
-	// upstream base the replayed tree includes upstream changes, so the hashes will
-	// legitimately differ. Instead we verify that the diff applied without producing
-	// any unexpected or corrupted staging states (conflicts, unknown modes, etc.).
-	status, err := wt.Status()
-	if err != nil {
-		return fmt.Errorf("checking worktree status after staging: %w", err)
-	}
-	for path, s := range status {
-		switch s.Staging {
-		case git.Unmodified, git.Added, git.Modified, git.Deleted:
-			// Valid states — diff applied cleanly.
-		default:
-			_ = wt.Reset(&git.ResetOptions{Commit: originalHEAD, Mode: git.HardReset})
-			return fmt.Errorf("unexpected staging state for %s (%v) after applying commit %s — hard reset applied",
-				path, s.Staging, c.Hash.String()[:8])
-		}
-	}
-
-	// Path-integrity guard (data-corruption defense). The replay reconstructs files
-	// from a diff; a wrong-field path bug (object.File.Name basename vs ChangeEntry
-	// full path) silently writes nested files to the repo root, producing a commit
-	// with the wrong tree — or an empty one. Verify the STAGED path-set equals the
-	// source commit's CHANGE path-set. A non-empty source replaying to empty fails
-	// here too (empty set != non-empty set). On mismatch the caller hard-resets to
-	// originalHEAD, so corruption can never become a commit, let alone a push.
-	sourceEmpty := len(changes) == 0
-	if !sourceEmpty {
-		expected := changePathSet(changes)
-		actual := stagedPathSet(status)
-		if !equalStringSet(expected, actual) {
-			return &ErrReplayCorruption{
-				Commit:   c.Hash.String()[:8],
-				Expected: sortedKeys(expected),
-				Actual:   sortedKeys(actual),
-			}
-		}
-	}
-
-	// Commit, preserving original Author; Committer timestamp = now (replay time).
-	// No hooks — replay is machine-generated. AllowEmptyCommits is true ONLY when the
-	// source commit was itself empty; a non-empty source replaying to empty was
-	// already rejected by the path-integrity guard above.
-	now := time.Now()
-	newHash, err := wt.Commit(c.Message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  c.Author.Name,
-			Email: c.Author.Email,
-			When:  c.Author.When,
-		},
-		Committer: &object.Signature{
-			Name:  c.Committer.Name,
-			Email: c.Committer.Email,
-			When:  now,
-		},
-		AllowEmptyCommits: sourceEmpty,
-	})
-	if err != nil {
-		return fmt.Errorf("creating replayed commit: %w", err)
-	}
-
-	// Change-set equivalence gate — the authoritative tree-identity check, beyond
-	// the path-set guard above. The delta the replayed commit introduces over its
-	// base (diff(baseTree, replayedTree)) MUST equal the source commit's delta
-	// entry-for-entry: operation kind, old/new path, blob OID, and file mode. Both
-	// deltas share the same base tree, so identical structured change-sets prove the
-	// resulting trees are bit-identical — collapsing blob-content, mode, exec-bit,
-	// symlink, rename, and subtree-composition corruption into one invariant that
-	// path-set equivalence alone cannot see. Authoritative and publish-blocking: on
-	// mismatch the caller (Replay loop) hard-resets to originalHEAD, so a
-	// non-equivalent replay can never become a commit that is pushed.
-	if !sourceEmpty {
-		replayed, derr := replayedDelta(repo, newHash)
-		if derr != nil {
-			return fmt.Errorf("computing replayed delta for verification: %w", derr)
-		}
-		if !equalChangeSets(changes, replayed) {
-			return &ErrReplayCorruption{
-				Commit:   c.Hash.String()[:8],
-				Expected: changeSignatures(changes),
-				Actual:   changeSignatures(replayed),
-			}
-		}
-	}
-
-	return nil
-}
-
 // ErrReplayCorruption signals that a replayed commit's delta did not match the
-// source commit's delta — a structural corruption. Raised by both the pre-commit
-// path-set guard (e.g. nested files written to the repo root by basename) and the
-// post-commit change-set equivalence gate (blob/mode/op divergence at preserved
-// paths). Expected/Actual hold the source vs replayed signatures. Never pushed.
+// source commit's delta — a structural corruption. Raised by the path-set guard
+// (the replay touched other paths than the source) and the change-set equivalence
+// gate (blob/mode/op divergence at preserved paths). Expected/Actual hold the source
+// vs replayed signatures. Never pushed.
 type ErrReplayCorruption struct {
 	Commit   string
 	Expected []string
@@ -382,22 +275,7 @@ func replayedDelta(repo *git.Repository, commitHash plumbing.Hash) (object.Chang
 	if err != nil {
 		return nil, fmt.Errorf("loading replayed commit: %w", err)
 	}
-	tree, err := c.Tree()
-	if err != nil {
-		return nil, fmt.Errorf("loading replayed tree: %w", err)
-	}
-	if c.NumParents() == 0 {
-		return (&object.Tree{}).Diff(tree)
-	}
-	parent, err := c.Parent(0)
-	if err != nil {
-		return nil, fmt.Errorf("loading replay base commit: %w", err)
-	}
-	baseTree, err := parent.Tree()
-	if err != nil {
-		return nil, fmt.Errorf("loading replay base tree: %w", err)
-	}
-	return baseTree.Diff(tree)
+	return commitChanges(c)
 }
 
 // changeSignature renders one change as a structured, object-layer identity:
@@ -466,18 +344,6 @@ func changePathSet(changes object.Changes) map[string]bool {
 	return set
 }
 
-// stagedPathSet is the set of paths the worktree has actually staged.
-func stagedPathSet(status git.Status) map[string]bool {
-	set := make(map[string]bool)
-	for path, s := range status {
-		switch s.Staging {
-		case git.Added, git.Modified, git.Deleted:
-			set[path] = true
-		}
-	}
-	return set
-}
-
 func equalStringSet(a, b map[string]bool) bool {
 	if len(a) != len(b) {
 		return false
@@ -499,172 +365,6 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// applyChange applies a single tree change to the worktree filesystem.
-//
-// CRITICAL: filesystem paths MUST come from change.From.Name / change.To.Name —
-// the ChangeEntry's FULL tree path. object.File.Name (from change.Files()) is the
-// entry BASENAME, not the path; using it writes nested files to the repo root,
-// which is a data-corruption bug. The *object.File is used ONLY for content/mode.
-func applyChange(repoRoot string, change *object.Change) error {
-	action, err := change.Action()
-	if err != nil {
-		return fmt.Errorf("determining change action: %w", err)
-	}
-
-	from, to, err := change.Files()
-	if err != nil {
-		return fmt.Errorf("getting change files: %w", err)
-	}
-
-	fromPath := change.From.Name // full tree path (NOT from.Name basename)
-	toPath := change.To.Name     // full tree path (NOT to.Name basename)
-
-	switch action {
-	case merkletrie.Insert:
-		if to == nil {
-			return nil
-		}
-		return writeFile(repoRoot, toPath, to)
-
-	case merkletrie.Delete:
-		if from == nil {
-			return nil
-		}
-		if err := checkPathSafe(repoRoot, fromPath); err != nil {
-			return err
-		}
-		dest := filepath.Join(repoRoot, fromPath)
-		// For existing paths, verify the real parent dir hasn't been redirected
-		// by a pre-existing symlink to outside the repo root.
-		if err := checkRealPathSafe(repoRoot, filepath.Dir(dest), fromPath); err != nil {
-			return err
-		}
-		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("deleting %s: %w", fromPath, err)
-		}
-
-	case merkletrie.Modify:
-		// Rename: delete old path, write new path
-		if from != nil && to != nil && fromPath != toPath {
-			if err := checkPathSafe(repoRoot, fromPath); err != nil {
-				return err
-			}
-			oldPath := filepath.Join(repoRoot, fromPath)
-			if err := checkRealPathSafe(repoRoot, filepath.Dir(oldPath), fromPath); err != nil {
-				return err
-			}
-			if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("removing old path %s: %w", fromPath, err)
-			}
-		}
-		if to != nil {
-			return writeFile(repoRoot, toPath, to)
-		}
-	}
-
-	return nil
-}
-
-// writeFile writes a file object's content to path (a full repo-relative tree
-// path) under repoRoot. path is authoritative for the destination; f supplies
-// only content and mode. Handles regular files, executable files, and symlinks.
-func writeFile(repoRoot, path string, f *object.File) error {
-	if err := checkPathSafe(repoRoot, path); err != nil {
-		return err
-	}
-	dest := filepath.Join(repoRoot, path)
-
-	switch f.Mode {
-	case filemode.Symlink:
-		// Symlink: blob content is the target path.
-		// Validate that the symlink target, resolved relative to its parent directory,
-		// does not escape the repository root.
-		content, err := f.Contents()
-		if err != nil {
-			return fmt.Errorf("reading symlink target for %s: %w", path, err)
-		}
-		target := strings.TrimSpace(content)
-
-		// Resolve the symlink target relative to its parent directory
-		parentDir := filepath.Dir(dest)
-		resolvedTarget := target
-		if !filepath.IsAbs(target) {
-			resolvedTarget = filepath.Join(parentDir, target)
-		}
-		resolvedTarget = filepath.Clean(resolvedTarget)
-
-		// The resolved target must stay within the repo root
-		rootWithSep := repoRoot + string(os.PathSeparator)
-		if resolvedTarget != repoRoot && !strings.HasPrefix(resolvedTarget, rootWithSep) {
-			return &gitstate.ErrPathTraversal{Path: path + " -> " + target}
-		}
-
-		_ = os.Remove(dest) // remove any existing file
-		if err := os.Symlink(target, dest); err != nil {
-			return fmt.Errorf("creating symlink %s: %w", path, err)
-		}
-
-	default:
-		// Regular file or executable
-		osMode, err := f.Mode.ToOSFileMode()
-		if err != nil {
-			osMode = 0o644 // safe default
-		}
-		parentDir := filepath.Dir(dest)
-		if err := os.MkdirAll(parentDir, 0o755); err != nil {
-			return fmt.Errorf("creating parent dirs for %s: %w", path, err)
-		}
-		// Post-MkdirAll: resolve symlinks in the real parent dir to catch
-		// pre-existing symlinked directories that escape the repo root.
-		if err := checkRealPathSafe(repoRoot, parentDir, path); err != nil {
-			return err
-		}
-		reader, err := f.Blob.Reader()
-		if err != nil {
-			return fmt.Errorf("reading blob for %s: %w", path, err)
-		}
-		data, err := io.ReadAll(reader)
-		reader.Close()
-		if err != nil {
-			return fmt.Errorf("reading blob data for %s: %w", path, err)
-		}
-		if err := os.WriteFile(dest, data, osMode); err != nil {
-			return fmt.Errorf("writing %s: %w", path, err)
-		}
-	}
-	return nil
-}
-
-// checkPathSafe performs a lexical path-traversal check.
-// It guards against ".." escape via filepath.Clean but does NOT resolve symlinks.
-// For filesystem writes, call checkRealPathSafe after the parent dir exists.
-func checkPathSafe(repoRoot, relPath string) error {
-	absPath := filepath.Join(repoRoot, filepath.Clean(relPath))
-	rootWithSep := repoRoot + string(os.PathSeparator)
-	if absPath != repoRoot && !strings.HasPrefix(absPath, rootWithSep) {
-		return &gitstate.ErrPathTraversal{Path: relPath}
-	}
-	return nil
-}
-
-// checkRealPathSafe resolves all symlinks in dirPath and verifies the result
-// is still within repoRoot. This catches escapes via pre-existing symlinked
-// directories that a lexical check cannot detect.
-// dirPath must exist on disk (call after MkdirAll or only for existing paths).
-func checkRealPathSafe(repoRoot, dirPath, label string) error {
-	real, err := filepath.EvalSymlinks(dirPath)
-	if err != nil {
-		// Path disappeared between MkdirAll and here — treat as traversal-safe,
-		// the subsequent write/remove will fail on its own with a clear OS error.
-		return nil
-	}
-	rootWithSep := repoRoot + string(os.PathSeparator)
-	if real != repoRoot && !strings.HasPrefix(real, rootWithSep) {
-		return &gitstate.ErrPathTraversal{Path: label + " (parent dir resolves outside repo root: " + real + ")"}
-	}
-	return nil
-}
-
 // firstLine returns the first non-empty line of a string (for error display).
 func firstLine(s string) string {
 	if idx := strings.Index(s, "\n"); idx >= 0 {
@@ -674,130 +374,4 @@ func firstLine(s string) string {
 		s = s[:72] + "…"
 	}
 	return s
-}
-
-// ── Autostash: preserve uncommitted worktree changes across the rebase ────────
-// `git push` never touches the working tree; this replay hard-resets it, so it
-// must snapshot the operator's in-progress edits and restore them afterward
-// (git rebase --autostash). Refusing on a dirty tree, or discarding it, is a
-// regression over git that does not help operators.
-
-type stashedFile struct {
-	path    string
-	content []byte
-	mode    os.FileMode
-	deleted bool
-}
-
-// captureWorktree snapshots uncommitted changes to TRACKED files — the ones a
-// hard reset would discard. Untracked files survive a reset and are left alone.
-func captureWorktree(wt *git.Worktree, repoRoot string) ([]stashedFile, error) {
-	st, err := wt.Status()
-	if err != nil {
-		return nil, err
-	}
-	var out []stashedFile
-	for path, s := range st {
-		if s.Worktree == git.Untracked {
-			continue // survives a hard reset; not ours to manage
-		}
-		if s.Staging == git.Unmodified && s.Worktree == git.Unmodified {
-			continue
-		}
-		full := filepath.Join(repoRoot, path)
-		info, serr := os.Stat(full)
-		if serr != nil {
-			if os.IsNotExist(serr) {
-				out = append(out, stashedFile{path: path, deleted: true})
-				continue
-			}
-			return nil, serr
-		}
-		data, rerr := os.ReadFile(full)
-		if rerr != nil {
-			return nil, rerr
-		}
-		out = append(out, stashedFile{path: path, content: data, mode: info.Mode().Perm()})
-	}
-	return out, nil
-}
-
-// changedPaths is the union of repo-relative paths the given commits modify (each
-// vs its first parent) — the paths the rebase will touch, used to detect a stash
-// conflict (a snapshotted path that the rebase also changed).
-func changedPaths(commits []*object.Commit) (map[string]bool, error) {
-	paths := map[string]bool{}
-	for _, c := range commits {
-		ct, err := c.Tree()
-		if err != nil {
-			return nil, err
-		}
-		var parentTree *object.Tree
-		if c.NumParents() > 0 {
-			p, perr := c.Parent(0)
-			if perr != nil {
-				return nil, perr
-			}
-			if parentTree, err = p.Tree(); err != nil {
-				return nil, err
-			}
-		}
-		var changes object.Changes
-		if parentTree != nil {
-			changes, err = parentTree.Diff(ct)
-		} else {
-			changes, err = (&object.Tree{}).Diff(ct)
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, ch := range changes {
-			if ch.From.Name != "" {
-				paths[ch.From.Name] = true
-			}
-			if ch.To.Name != "" {
-				paths[ch.To.Name] = true
-			}
-		}
-	}
-	return paths, nil
-}
-
-// stashConflicts returns the snapshotted paths the rebase also modifies — the
-// cases where re-applying the snapshot would clobber rebased content. Detected
-// before any mutation so the replay can abort with the worktree intact.
-func stashConflicts(stash []stashedFile, rebasePaths map[string]bool) []string {
-	var c []string
-	for _, f := range stash {
-		if rebasePaths[f.path] {
-			c = append(c, f.path)
-		}
-	}
-	sort.Strings(c)
-	return c
-}
-
-// restoreWorktree re-applies the (conflict-free) autostash onto the current
-// worktree — the operator's uncommitted edits, back on top of the rebased state.
-func restoreWorktree(repoRoot string, stash []stashedFile) error {
-	for _, f := range stash {
-		full := filepath.Join(repoRoot, f.path)
-		if f.deleted {
-			if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("restoring (delete) %s: %w", f.path, err)
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return fmt.Errorf("restoring %s: %w", f.path, err)
-		}
-		mode := f.mode
-		if mode == 0 {
-			mode = 0o644
-		}
-		if err := os.WriteFile(full, f.content, mode); err != nil {
-			return fmt.Errorf("restoring %s: %w", f.path, err)
-		}
-	}
-	return nil
 }

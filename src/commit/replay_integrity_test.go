@@ -13,7 +13,7 @@ import (
 // TestReplayNestedPathsNotCorrupted reproduces the exact data-corruption scenario:
 // a divergent upstream forces a replay of a commit that ADDS and MODIFIES nested
 // files across two directories (src/gitstate/..., src/ci/...). It runs the real
-// replayCommit and asserts the replayed commit's tree carries the full nested
+// replayOnto and asserts the replayed commit's tree carries the full nested
 // paths — never basenames at the repo root (the original bug wrote auth.go,
 // transport.go, etc. to the root and produced an empty/garbage commit).
 func TestReplayNestedPathsNotCorrupted(t *testing.T) {
@@ -60,27 +60,29 @@ func TestReplayNestedPathsNotCorrupted(t *testing.T) {
 	write("other.txt", "upstream\n")
 	uHash := commit("upstream U")
 
-	// replay A onto U via the REAL replayCommit
-	_ = wt.Reset(&git.ResetOptions{Commit: uHash, Mode: git.HardReset})
+	// replay A onto U via the REAL object-layer replay
 	aCommit, _ := repo.CommitObject(aHash)
-	repoRoot := wt.Filesystem.Root()
-	if err := replayCommit(repo, wt, repoRoot, aCommit, uHash); err != nil {
-		t.Fatalf("replayCommit returned corruption/error: %v", err)
+	uCommit, _ := repo.CommitObject(uHash)
+	uTree, _ := uCommit.Tree()
+	flat, err := flattenTree(uTree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedHash, err := replayOnto(repo, aCommit, uHash, flat)
+	if err != nil {
+		t.Fatalf("replayOnto returned corruption/error: %v", err)
 	}
 
-	// no basename written at the repo root
-	for _, b := range []string{"new.go", "existing.go", "handoff.go"} {
-		if _, e := os.Stat(filepath.Join(repoRoot, b)); e == nil {
-			t.Errorf("CORRUPTION: %q written at repo root", b)
-		}
-	}
-
-	// the replayed HEAD commit's tree carries full nested paths
-	head, _ := repo.Head()
-	c, _ := repo.CommitObject(head.Hash())
+	// the replayed commit's tree carries full nested paths, never basenames at the root
+	c, _ := repo.CommitObject(replayedHash)
 	tree, _ := c.Tree()
 	got := map[string]bool{}
 	_ = tree.Files().ForEach(func(f *object.File) error { got[f.Name] = true; return nil })
+	for _, b := range []string{"new.go", "existing.go", "handoff.go"} {
+		if got[b] {
+			t.Errorf("CORRUPTION: %q written at the tree root", b)
+		}
+	}
 	for _, p := range []string{
 		"src/gitstate/new.go", "src/gitstate/existing.go", "src/ci/handoff.go",
 		"other.txt", "README.md",

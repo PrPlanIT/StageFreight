@@ -14,9 +14,9 @@ import (
 // Two replay mechanisms share one verification vocabulary (changeSignature,
 // ErrReplayCorruption) under different contracts:
 //
-//   - Replay (gogit_replay.go): WORKTREE mechanism — sequential user-commit
-//     chains rebased via reset/apply/stage, gated by STRICT delta equality
-//     (any divergence from the source delta is corruption).
+//   - Replay (gogit_replay.go): sequential user-commit chains rebuilt at the object
+//     layer (replayOnto), gated by STRICT delta equality (any divergence from the
+//     source delta is corruption), then checked out once over the differing paths.
 //
 //   - replayCommitOntoTip (this file): OBJECT mechanism — one machine-generated
 //     commit rebuilt onto a moved branch tip with no worktree involvement,
@@ -77,34 +77,16 @@ func replayCommitOntoTip(repo *git.Repository, local, tip plumbing.Hash) (plumbi
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("flattening tip tree: %w", err)
 	}
-	for _, ch := range sourceDelta {
-		if ch.From.Name != "" && ch.From.Name != ch.To.Name {
-			delete(flat, ch.From.Name) // delete, or the departure side of a rename
-		}
-		if ch.To.Name != "" {
-			flat[ch.To.Name] = object.TreeEntry{Name: ch.To.Name, Mode: ch.To.TreeEntry.Mode, Hash: ch.To.TreeEntry.Hash}
-		}
-	}
+	applyChangesToFlat(flat, sourceDelta)
 
 	newTreeHash, err := writeTreeFromFlat(repo, flat)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("writing replayed tree: %w", err)
 	}
 
-	newCommit := &object.Commit{
-		Author:       localC.Author,
-		Committer:    localC.Committer,
-		Message:      localC.Message,
-		TreeHash:     newTreeHash,
-		ParentHashes: []plumbing.Hash{tip},
-	}
-	obj := repo.Storer.NewEncodedObject()
-	if err := newCommit.Encode(obj); err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("encoding replayed commit: %w", err)
-	}
-	newHash, err := repo.Storer.SetEncodedObject(obj)
+	newHash, err := writeCommit(repo, localC, newTreeHash, tip, localC.Committer)
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("storing replayed commit: %w", err)
+		return plumbing.ZeroHash, err
 	}
 
 	// Containment gate — same vocabulary as the worktree replay's equivalence
