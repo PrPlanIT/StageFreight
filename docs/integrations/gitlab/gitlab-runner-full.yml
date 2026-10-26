@@ -139,6 +139,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+    # The image declares VOLUME /home/gitlab-runner; unmounted, every recreate leaves
+    # an anonymous volume behind. The docker executor keeps nothing there.
+    tmpfs:
+      - /home/gitlab-runner
     networks:
       - stagefreight
 
@@ -153,6 +157,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/docker/gitlab-runner/config:/etc/gitlab-runner:z
+    # The image declares VOLUME /home/gitlab-runner; unmounted, every recreate leaves
+    # an anonymous volume behind. The docker executor keeps nothing there.
+    tmpfs:
+      - /home/gitlab-runner
     healthcheck:
       test: ["CMD", "gitlab-runner", "list"]
       interval: 30s
