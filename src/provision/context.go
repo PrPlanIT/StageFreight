@@ -49,6 +49,23 @@ func Resolve(ctx context.Context, rootDir, tool, version, purpose string) (toolc
 	return res, nil
 }
 
+// ResolveSelection is Resolve for a toolchain.Select result: the download must match
+// sel.SHA256 when one is set. A Select error (an asserted digest missing for this
+// platform) is returned as-is.
+func ResolveSelection(ctx context.Context, rootDir, tool string, sel toolchain.Selection, selErr error, purpose string) (toolchain.Result, error) {
+	if selErr != nil {
+		return toolchain.Result{}, selErr
+	}
+	res, err := toolchain.ResolvePinned(rootDir, tool, sel.Version, sel.SHA256)
+	if err != nil {
+		return res, err
+	}
+	if c := collectorFrom(ctx); c != nil {
+		c.record(FromToolchain(res, purpose))
+	}
+	return res, nil
+}
+
 // Record adds an already-built Entry to the ctx collector — for tools acquired outside
 // Resolve (ResolvePinned, EnsureRustLlvmTools) or native substrate rows.
 func Record(ctx context.Context, e Entry) {

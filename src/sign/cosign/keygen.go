@@ -24,8 +24,8 @@ type KeyGen struct {
 // GenerateKeyPair writes cosign.key/cosign.pub into dir. cosign emits exactly those
 // filenames in its working directory, which match provision's canonical names.
 func (g KeyGen) GenerateKeyPair(ctx context.Context, dir, keyFile, pubFile string) error {
-	ver, _ := toolchain.ResolveVersion(g.RootDir, "cosign", "", g.Desired)
-	res, err := provision.Resolve(ctx, g.RootDir, "cosign", ver, "signing key generation")
+	sel, selErr := toolchain.Select(g.RootDir, "cosign", g.Desired)
+	res, err := provision.ResolveSelection(ctx, g.RootDir, "cosign", sel, selErr, "signing key generation")
 	if err != nil {
 		return fmt.Errorf("resolve cosign: %w", err)
 	}

@@ -79,7 +79,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "could not derive pinned sha256 for " + dep.Latest})
 				continue
 			}
-			if lock.Set(toolName, dep.Latest, sha) {
+			if lock.Set(toolName, dep.Latest, toolchain.Platform(), sha) {
 				lockModified = true
 				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest)})
 			}
@@ -100,7 +100,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 		}
 		lines[verIdx] = rewriteVersion(lines[verIdx], verKey, dep.Latest)
 		configModified = true
-		lock.Set(toolName, dep.Latest, sha)
+		lock.Set(toolName, dep.Latest, toolchain.Platform(), sha)
 		lockModified = true
 		applied = append(applied, AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)})
 	}
@@ -248,7 +248,7 @@ func resolveLockDigest(lock *toolchain.Lock, tool, ver string) (sha string, keep
 	if s, err := fetchArtifactSHA256(tool, ver); err == nil {
 		return s, true
 	}
-	if e, ok := lock.Get(tool); ok && e.SHA256 != "" {
+	if e, ok := lock.Get(tool); ok && len(e.SHA256) > 0 {
 		return "", false // was pinned — do not silently drop the digest
 	}
 	return "", true

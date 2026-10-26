@@ -235,8 +235,8 @@ func (m *vulnModule) reachability(ctx context.Context, files []lint.FileInfo, ob
 // govulncheck failure is never hard — reachability is enrichment.
 func (m *vulnModule) govulncheck(ctx context.Context, root string) (string, []string, error) {
 	m.gvOnce.Do(func() {
-		gvVer, _ := toolchain.ResolveVersion(root, "govulncheck", "", m.desired)
-		gvRes, err := provision.Resolve(ctx, root, "govulncheck", gvVer, "vulnerability reachability analysis")
+		gvSel, gvSelErr := toolchain.Select(root, "govulncheck", m.desired)
+		gvRes, err := provision.ResolveSelection(ctx, root, "govulncheck", gvSel, gvSelErr, "vulnerability reachability analysis")
 		if err != nil {
 			m.gvErr = err
 			return
@@ -402,11 +402,11 @@ func (m *vulnModule) eligibleDeps(deps []supplychain.Dependency) []supplychain.D
 func (m *vulnModule) scanner(ctx context.Context, file lint.FileInfo) (string, error) {
 	m.once.Do(func() {
 		root := repoRoot(file)
-		ver, pinned := toolchain.ResolveVersion(root, "osv-scanner", "", m.desired)
-		result, err := provision.Resolve(ctx, root, "osv-scanner", ver, "dependency vulnerability audit")
+		sel, selErr := toolchain.Select(root, "osv-scanner", m.desired)
+		result, err := provision.ResolveSelection(ctx, root, "osv-scanner", sel, selErr, "dependency vulnerability audit")
 		if err != nil {
-			if pinned {
-				m.resolveErr = fmt.Errorf("osv-scanner pinned version %s failed to resolve: %w", ver, err)
+			if sel.Pinned || selErr != nil {
+				m.resolveErr = fmt.Errorf("osv-scanner pinned version %s failed to resolve: %w", sel.Version, err)
 			}
 			return
 		}

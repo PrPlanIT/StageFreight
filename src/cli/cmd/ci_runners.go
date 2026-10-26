@@ -737,7 +737,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		Ignore:     mapIgnores(appCfg.Dependency.Ignore),
 		Writer:     w, // render the Dependencies card alongside the other phase cards
 
-		ToolchainUpdate: appCfg.Toolchains.UpdateEnabled,
+		ToolchainHold: appCfg.Toolchains.HoldReason,
 	}
 
 	result, err := dependency.Update(ctx, updateCfg, deps)

@@ -2,8 +2,12 @@ package toolchain
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+const amd64, arm64 = "linux/amd64", "linux/arm64"
 
 func TestLock_ReadMissingIsEmpty(t *testing.T) {
 	l, err := ReadLock(t.TempDir())
@@ -17,19 +21,19 @@ func TestLock_ReadMissingIsEmpty(t *testing.T) {
 
 func TestLock_SetGetResolved(t *testing.T) {
 	l := &Lock{}
-	if !l.Set("trivy", "0.69.3", "abc") {
+	if !l.Set("trivy", "0.69.3", amd64, "abc") {
 		t.Error("first Set must report a change")
 	}
-	if l.Set("trivy", "0.69.3", "abc") {
+	if l.Set("trivy", "0.69.3", amd64, "abc") {
 		t.Error("identical Set must be a no-op")
 	}
-	if !l.Set("trivy", "0.69.4", "def") {
+	if !l.Set("trivy", "0.69.4", amd64, "def") {
 		t.Error("changed Set must report a change")
 	}
-	if !l.Set("kubectl", "1.26.7", "") {
+	if !l.Set("kubectl", "1.26.7", amd64, "") {
 		t.Error("new tool Set must report a change")
 	}
-	if l.Set("x", "", "y") {
+	if l.Set("x", "", amd64, "y") {
 		t.Error("empty resolved must be rejected")
 	}
 	if got := l.Resolved("trivy"); got != "0.69.4" {
@@ -44,11 +48,42 @@ func TestLock_SetGetResolved(t *testing.T) {
 	}
 }
 
+// TestLock_DigestPerPlatform: digests are kept per os/arch for the locked version; a new
+// version drops the previous version's digests rather than carrying them over.
+func TestLock_DigestPerPlatform(t *testing.T) {
+	l := &Lock{}
+	l.Set("trivy", "0.76.1", amd64, "aaa")
+	if !l.Set("trivy", "0.76.1", arm64, "bbb") {
+		t.Fatal("a second platform's digest must report a change")
+	}
+	if got := l.Digest("trivy", "0.76.1", amd64); got != "aaa" {
+		t.Errorf("amd64 digest = %q, want aaa", got)
+	}
+	if got := l.Digest("trivy", "0.76.1", arm64); got != "bbb" {
+		t.Errorf("arm64 digest = %q, want bbb", got)
+	}
+	if got := l.Digest("trivy", "0.69.3", amd64); got != "" {
+		t.Errorf("a digest must not answer for another version, got %q", got)
+	}
+	if got := l.Digest("trivy", "0.76.1", "darwin/arm64"); got != "" {
+		t.Errorf("an unrecorded platform has no digest, got %q", got)
+	}
+
+	l.Set("trivy", "0.77.0", amd64, "ccc")
+	if got := l.Digest("trivy", "0.77.0", arm64); got != "" {
+		t.Errorf("a new version must drop the old version's arm64 digest, got %q", got)
+	}
+	if got := l.Digest("trivy", "0.77.0", amd64); got != "ccc" {
+		t.Errorf("new version amd64 digest = %q, want ccc", got)
+	}
+}
+
 func TestLock_WriteReadRoundtripDeterministic(t *testing.T) {
 	root := t.TempDir()
 	l := &Lock{}
-	l.Set("trivy", "0.69.3", "abc")
-	l.Set("kubectl", "1.26.7", "def")
+	l.Set("trivy", "0.69.3", amd64, "abc")
+	l.Set("kubectl", "1.26.7", amd64, "def")
+	l.Set("kubectl", "1.26.7", arm64, "ghi")
 	if err := WriteLock(root, l); err != nil {
 		t.Fatalf("WriteLock: %v", err)
 	}
@@ -65,7 +100,25 @@ func TestLock_WriteReadRoundtripDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLock: %v", err)
 	}
-	if e, ok := back.Get("kubectl"); !ok || e.Resolved != "1.26.7" || e.SHA256 != "def" {
-		t.Errorf("roundtrip lost kubectl entry: %+v", back.Toolchains)
+	if back.Digest("kubectl", "1.26.7", amd64) != "def" || back.Digest("kubectl", "1.26.7", arm64) != "ghi" {
+		t.Errorf("roundtrip lost kubectl digests: %+v", back.Toolchains)
+	}
+}
+
+// TestLock_OldVersionRejected: a lock from another schema version fails with a hint to
+// regenerate it, never a bare JSON error.
+func TestLock_OldVersionRejected(t *testing.T) {
+	root := t.TempDir()
+	path := LockPath(root)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v1 := `{"lockfileVersion": 1, "toolchains": [{"name": "trivy", "resolved": "0.69.3", "sha256": "abc"}]}`
+	if err := os.WriteFile(path, []byte(v1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadLock(root)
+	if err == nil || !strings.Contains(err.Error(), "lockfileVersion 1") || !strings.Contains(err.Error(), "delete it") {
+		t.Errorf("v1 lock must be rejected with a regenerate hint, got %v", err)
 	}
 }

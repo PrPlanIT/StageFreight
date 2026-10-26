@@ -291,14 +291,19 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	// Toolchains follow toolchains.update, not remediate: a held tool is reported, not moved.
+	// Toolchains follow toolchains.update and asserted digests, not remediate: a held tool
+	// is reported, not moved.
 	var tcHeld []SkippedDep
 	tcMovable := toolchainDeps[:0:0]
 	for _, d := range toolchainDeps {
-		if cfg.ToolchainUpdate == nil || cfg.ToolchainUpdate(d.Name) {
+		reason := ""
+		if cfg.ToolchainHold != nil {
+			reason = cfg.ToolchainHold(d.Name)
+		}
+		if reason == "" {
 			tcMovable = append(tcMovable, d)
 		} else {
-			tcHeld = append(tcHeld, SkippedDep{Dep: d, Category: SkipToolchainHeld, Reason: "toolchains update: false"})
+			tcHeld = append(tcHeld, SkippedDep{Dep: d, Category: SkipToolchainHeld, Reason: reason})
 		}
 	}
 	result.Skipped = append(result.Skipped, tcHeld...)

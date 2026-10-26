@@ -3,6 +3,7 @@ package toolchain
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"sync"
 
@@ -49,6 +50,39 @@ func ResolveVersion(rootDir, tool, requestedVersion string, desired map[string]c
 		return def.DefaultVer, false
 	}
 	return "", false
+}
+
+// Platform is the os/arch key of per-platform artifact digests.
+func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+// Selection is what to provision for a tool: the version, and the artifact digest the
+// download must match on this platform ("" verifies by upstream checksum or first use).
+type Selection struct {
+	Version string
+	SHA256  string
+	Pinned  bool // the version came from config intent; a failed resolve is fatal
+}
+
+// Select resolves tool's version (ResolveVersion) and its expected digest: the config's
+// sha256 for this platform when declared for that exact version (missing platform is an
+// error), else the lock's digest for that version on this platform.
+func Select(rootDir, tool string, desired map[string]config.ToolConstraint) (Selection, error) {
+	ver, pinned := ResolveVersion(rootDir, tool, "", desired)
+	sel := Selection{Version: ver, Pinned: pinned}
+	if c, ok := desired[tool]; ok && len(c.SHA256) > 0 && c.Constraint == ver {
+		d, ok := c.SHA256[Platform()]
+		if !ok {
+			return sel, fmt.Errorf("toolchains.want.%s.sha256 declares no digest for %s", tool, Platform())
+		}
+		sel.SHA256 = d
+		return sel, nil
+	}
+	if rootDir != "" {
+		if lock, err := ReadLock(rootDir); err == nil {
+			sel.SHA256 = lock.Digest(tool, ver, Platform())
+		}
+	}
+	return sel, nil
 }
 
 var warnedUnlocked sync.Map

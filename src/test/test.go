@@ -202,15 +202,12 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolConstraint) ([]string, error) {
 	// Both optional: an absent version → registry DefaultVer, an absent digest → TOFU. A
 	// user MAY pin either for stronger guarantees, but coverage works with nothing
-	// configured. The digest now lives in .stagefreight/toolchains.lock, not the config.
-	ver, _ := toolchain.ResolveVersion(rootDir, "cargo-llvm-cov", "", desired)
-	sha := ""
-	if lock, lerr := toolchain.ReadLock(rootDir); lerr == nil {
-		if e, ok := lock.Get("cargo-llvm-cov"); ok {
-			sha = e.SHA256
-		}
+	// configured.
+	sel, err := toolchain.Select(rootDir, "cargo-llvm-cov", desired)
+	if err != nil {
+		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}
-	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", ver, sha)
+	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", sel.Version, sel.SHA256)
 	if err != nil {
 		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}

@@ -67,11 +67,11 @@ func BuildKubeconfig(ctx context.Context, cfg config.ClusterConfig, rctx *runtim
 	}
 
 	// Resolve kubectl via toolchain.
-	kubectlVer, kubectlPinned := toolchain.ResolveVersion(rctx.RepoRoot, "kubectl", "", desired)
-	kubectlResult, resolveErr := provision.Resolve(ctx, rctx.RepoRoot, "kubectl", kubectlVer, "cluster queries")
+	kubectlSel, selErr := toolchain.Select(rctx.RepoRoot, "kubectl", desired)
+	kubectlResult, resolveErr := provision.ResolveSelection(ctx, rctx.RepoRoot, "kubectl", kubectlSel, selErr, "cluster queries")
 	if resolveErr != nil {
-		if kubectlPinned {
-			return "", fmt.Errorf("kubectl pinned version %s failed to resolve: %w", kubectlVer, resolveErr)
+		if kubectlSel.Pinned || selErr != nil {
+			return "", fmt.Errorf("kubectl pinned version %s failed to resolve: %w", kubectlSel.Version, resolveErr)
 		}
 		return "", fmt.Errorf("kubectl toolchain resolve: %w", resolveErr)
 	}

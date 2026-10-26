@@ -64,19 +64,22 @@ func SignBlob(ctx context.Context, rootDir string, desired map[string]config.Too
 
 // Available reports whether cosign can be resolved via the toolchain.
 func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
-	ver, _ := toolchain.ResolveVersion(rootDir, "cosign", "", desired)
-	_, err := toolchain.Resolve(rootDir, "cosign", ver)
+	sel, err := toolchain.Select(rootDir, "cosign", desired)
+	if err != nil {
+		return false
+	}
+	_, err = toolchain.ResolvePinned(rootDir, "cosign", sel.Version, sel.SHA256)
 	return err == nil
 }
 
 // run resolves cosign and execs it with the rendered args and a class-appropriate
 // environment. The sole exec point; warnings carry cosign's stderr for diagnosis.
 func run(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, op string, args []string) error {
-	ver, pinned := toolchain.ResolveVersion(rootDir, "cosign", "", desired)
-	result, err := provision.Resolve(ctx, rootDir, "cosign", ver, "artifact signing")
+	sel, selErr := toolchain.Select(rootDir, "cosign", desired)
+	result, err := provision.ResolveSelection(ctx, rootDir, "cosign", sel, selErr, "artifact signing")
 	if err != nil {
-		if pinned {
-			return fmt.Errorf("cosign %s: pinned version %s failed to resolve: %w", op, ver, err)
+		if sel.Pinned || selErr != nil {
+			return fmt.Errorf("cosign %s: pinned version %s failed to resolve: %w", op, sel.Version, err)
 		}
 		return fmt.Errorf("cosign %s: toolchain resolve: %w", op, err)
 	}

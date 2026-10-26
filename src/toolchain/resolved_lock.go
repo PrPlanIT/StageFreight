@@ -12,16 +12,16 @@ import (
 
 // LockfileVersion is the schema version of .stagefreight/toolchains.lock. Bump only on
 // a breaking shape change; a reader may then migrate older versions.
-const LockfileVersion = 1
+const LockfileVersion = 2
 
 // LockEntry is the machine-maintained resolution of one tool: the concrete version a
-// constraint currently resolves to, plus its artifact digest. For an EXACT constraint
+// constraint currently resolves to, plus its artifact digest per os/arch. For an EXACT constraint
 // this simply mirrors the version; for a WILDCARD (1.26.x) it is the selected in-line
 // member — the "lock" that keeps a wildcard reproducible between deliberate moves.
 type LockEntry struct {
-	Name     string `json:"name"`
-	Resolved string `json:"resolved"`
-	SHA256   string `json:"sha256,omitempty"`
+	Name     string            `json:"name"`
+	Resolved string            `json:"resolved"`
+	SHA256   map[string]string `json:"sha256,omitempty"` // os/arch → artifact digest
 }
 
 // Lock is .stagefreight/toolchains.lock: the durable, committed record of what each
@@ -51,12 +51,18 @@ func ReadLock(rootDir string) (*Lock, error) {
 		}
 		return nil, fmt.Errorf("reading %s: %w", lockRelPath(), err)
 	}
+	var head struct {
+		LockfileVersion int `json:"lockfileVersion"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", lockRelPath(), err)
+	}
+	if head.LockfileVersion != LockfileVersion {
+		return nil, fmt.Errorf("%s is lockfileVersion %d, this StageFreight reads %d: delete it and the next dependency update rewrites it", lockRelPath(), head.LockfileVersion, LockfileVersion)
+	}
 	var l Lock
 	if err := json.Unmarshal(data, &l); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", lockRelPath(), err)
-	}
-	if l.LockfileVersion == 0 {
-		l.LockfileVersion = LockfileVersion
 	}
 	return &l, nil
 }
@@ -79,24 +85,44 @@ func (l *Lock) Resolved(name string) string {
 	return ""
 }
 
-// Set upserts a tool's resolution and keeps the entries sorted. Returns true if the lock
-// changed (a new entry, or a different resolved/sha256), so callers can avoid a no-op
-// write. An empty resolved is rejected — the lock never records "nothing".
-func (l *Lock) Set(name, resolved, sha256 string) bool {
+// Digest returns the recorded artifact digest of tool@version for platform, or "".
+func (l *Lock) Digest(name, version, platform string) string {
+	if e, ok := l.Get(name); ok && e.Resolved == version {
+		return e.SHA256[platform]
+	}
+	return ""
+}
+
+// Set upserts a tool's resolution and its digest on platform, keeping entries sorted. A new
+// resolved version discards the old version's digests. Returns true if the lock changed,
+// so callers can avoid a no-op write. An empty resolved is rejected — the lock never
+// records "nothing"; an empty sha256 records the version alone.
+func (l *Lock) Set(name, resolved, platform, sha256 string) bool {
 	if resolved == "" {
 		return false
 	}
 	for i := range l.Toolchains {
-		if l.Toolchains[i].Name == name {
-			if l.Toolchains[i].Resolved == resolved && l.Toolchains[i].SHA256 == sha256 {
-				return false // unchanged
-			}
-			l.Toolchains[i].Resolved = resolved
-			l.Toolchains[i].SHA256 = sha256
-			return true
+		e := &l.Toolchains[i]
+		if e.Name != name {
+			continue
 		}
+		changed := false
+		if e.Resolved != resolved {
+			e.Resolved, e.SHA256, changed = resolved, nil, true
+		}
+		if sha256 != "" && e.SHA256[platform] != sha256 {
+			if e.SHA256 == nil {
+				e.SHA256 = map[string]string{}
+			}
+			e.SHA256[platform], changed = sha256, true
+		}
+		return changed
 	}
-	l.Toolchains = append(l.Toolchains, LockEntry{Name: name, Resolved: resolved, SHA256: sha256})
+	e := LockEntry{Name: name, Resolved: resolved}
+	if sha256 != "" {
+		e.SHA256 = map[string]string{platform: sha256}
+	}
+	l.Toolchains = append(l.Toolchains, e)
 	sort.Slice(l.Toolchains, func(i, j int) bool { return l.Toolchains[i].Name < l.Toolchains[j].Name })
 	return true
 }

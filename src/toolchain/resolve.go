@@ -106,7 +106,7 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 }
 
 // ResolvePinned is Resolve for tools whose integrity is a project-pinned SHA256
-// (from toolchains.desired.<tool>.sha256), not an upstream checksum manifest —
+// (Select: an asserted toolchains.want.<tool>.sha256, or the lock's digest), not an upstream checksum manifest —
 // e.g. cargo-llvm-cov, whose upstream ships BLAKE3. The downloaded artifact is
 // verified against sha256. An empty sha256 falls back to the tool's ChecksumURL,
 // so this is a strict superset of Resolve.

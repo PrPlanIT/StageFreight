@@ -116,6 +116,21 @@ type ToolConstraint struct {
 	Constraint string `yaml:"version,omitempty"`
 	// Update overrides toolchains.update for this tool; nil inherits it.
 	Update *bool `yaml:"update,omitempty"`
+	// SHA256 is the operator-asserted artifact digest per os/arch, for an exact version.
+	// A declared digest holds the tool: the dependency update never rewrites it.
+	SHA256 map[string]string `yaml:"sha256,omitempty"`
+}
+
+// HoldReason reports why the dependency update must not move tool, or "" when it may: an
+// asserted sha256 holds it, as does update: false.
+func (s ToolchainSection) HoldReason(tool string) string {
+	if c, ok := s.Want[tool]; ok && len(c.SHA256) > 0 {
+		return "sha256 asserted: update the version and its digests together"
+	}
+	if !s.UpdateEnabled(tool) {
+		return "toolchains update: false"
+	}
+	return ""
 }
 
 // UpdateEnabled reports whether the dependency update may move tool: its own update:,
@@ -136,6 +151,7 @@ func (s ToolchainSection) UpdateEnabled(tool string) bool {
 //	go: 1.26.x                            # scalar shorthand
 //	go: {version: 1.26.x}                 # explicit
 //	go: {version: 1.26.x, update: false}  # explicit, held at its lock
+//	cosign: {version: 3.0.6, sha256: {linux/amd64: <hex>}}  # exact, digest asserted
 func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 	parsed, err := parseToolConstraint(node)
 	if err != nil {
@@ -147,8 +163,8 @@ func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 
 // parseToolConstraint is the shared normalization core: scalar-or-map → one
 // ToolConstraint. The map form's keys are `version` (Cargo convention; its value is a
-// version requirement) and `update`. A pre-lock inline `constraint`/`resolved`/`sha256` is silently
-// ignored (node.Decode does not reject unknown keys) and superseded by the lock.
+// version requirement), `update` and `sha256`. A pre-lock inline `constraint`/`resolved` is
+// silently ignored (node.Decode does not reject unknown keys) and superseded by the lock.
 func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	var t ToolConstraint
 	if node.Kind == yaml.ScalarNode {
@@ -156,13 +172,23 @@ func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 		return t, nil
 	}
 	var raw struct {
-		Version string `yaml:"version"`
-		Update  *bool  `yaml:"update"`
+		Version string    `yaml:"version"`
+		Update  *bool     `yaml:"update"`
+		SHA256  yaml.Node `yaml:"sha256"`
 	}
 	if err := node.Decode(&raw); err != nil {
 		return t, err
 	}
 	t.Constraint = raw.Version
 	t.Update = raw.Update
+	switch raw.SHA256.Kind {
+	case 0:
+	case yaml.MappingNode:
+		if err := raw.SHA256.Decode(&t.SHA256); err != nil {
+			return t, fmt.Errorf("sha256: %w", err)
+		}
+	default:
+		return t, fmt.Errorf("sha256: map each platform to its digest, e.g. sha256: {linux/amd64: <hex>}")
+	}
 	return t, nil
 }

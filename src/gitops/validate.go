@@ -212,11 +212,11 @@ func finalize(v map[KustomizationKey]*Verdict) map[KustomizationKey]Verdict {
 // → a silent bypass. Under enforcement, an unavailable tool MUST become a Fail,
 // not a skip.
 func resolveTool(ctx context.Context, rootDir, tool, purpose string, desired map[string]config.ToolConstraint) (toolchain.Result, error) {
-	ver, pinned := toolchain.ResolveVersion(rootDir, tool, "", desired)
-	res, err := provision.Resolve(ctx, rootDir, tool, ver, purpose) // resolves AND records in the ctx ledger
+	sel, selErr := toolchain.Select(rootDir, tool, desired)
+	res, err := provision.ResolveSelection(ctx, rootDir, tool, sel, selErr, purpose) // resolves AND records in the ctx ledger
 	if err != nil {
-		if pinned {
-			return toolchain.Result{}, fmt.Errorf("%s pinned version %s failed to resolve: %w", tool, ver, err)
+		if sel.Pinned || selErr != nil {
+			return toolchain.Result{}, fmt.Errorf("%s pinned version %s failed to resolve: %w", tool, sel.Version, err)
 		}
 		return toolchain.Result{}, nil // unavailable + not pinned → advisory skip (empty Path)
 	}

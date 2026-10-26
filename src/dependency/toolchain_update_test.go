@@ -70,8 +70,13 @@ func TestUpdate_ToolchainsFollowUpdateNotRemediate(t *testing.T) {
 
 	t.Run("update false holds a tool even with remediate on", func(t *testing.T) {
 		repo := initTestRepo(t, toolchainRepoFiles())
-		held := func(tool string) bool { return tool != "kubectl" }
-		res, err := Update(ctx, UpdateConfig{RootDir: repo, DryRun: false, Ecosystems: []string{supplychain.EcosystemToolchain}, ToolchainUpdate: held}, outdatedToolchainDeps())
+		held := func(tool string) string {
+			if tool == "kubectl" {
+				return "toolchains update: false"
+			}
+			return ""
+		}
+		res, err := Update(ctx, UpdateConfig{RootDir: repo, DryRun: false, Ecosystems: []string{supplychain.EcosystemToolchain}, ToolchainHold: held}, outdatedToolchainDeps())
 		if err != nil {
 			t.Fatalf("update: %v", err)
 		}

@@ -740,11 +740,10 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	}
 
 	// ── Toolchains ───────────────────────────────────────────────────────
-	// Semantic validation of the parsed constraint model (grammar only). The config is
-	// pure intent; the machine-maintained resolution + digest live in
-	// .stagefreight/toolchains.lock, so there is no sha256/resolved to validate here.
+	// Constraint grammar, plus any operator-asserted digest. Machine-recorded digests live
+	// in .stagefreight/toolchains.lock.
 	for name, c := range cfg.Toolchains.Want {
-		tpath := fmt.Sprintf("toolchains.desired.%s", name)
+		tpath := fmt.Sprintf("toolchains.want.%s", name)
 		constraint := strings.TrimSpace(c.Constraint)
 		if constraint == "" {
 			errs = append(errs, fmt.Sprintf("%s: version is required", tpath))
@@ -752,6 +751,17 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 		if verr := depversion.ValidateConstraint(constraint); verr != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", tpath, verr))
+		}
+		if len(c.SHA256) > 0 && depversion.IsWildcardConstraint(constraint) {
+			errs = append(errs, fmt.Sprintf("%s.sha256: a digest identifies one artifact; it needs an exact version, not %q", tpath, constraint))
+		}
+		for platform, digest := range c.SHA256 {
+			if !platformKeyRE.MatchString(platform) {
+				errs = append(errs, fmt.Sprintf("%s.sha256.%s: key must be os/arch, e.g. linux/amd64", tpath, platform))
+			}
+			if !sha256HexRE.MatchString(digest) {
+				errs = append(errs, fmt.Sprintf("%s.sha256.%s: must be 64 lowercase hex characters", tpath, platform))
+			}
 		}
 	}
 
@@ -1293,3 +1303,8 @@ func validateOutputPath(p string, itemPath string) []string {
 
 	return errs
 }
+
+var (
+	platformKeyRE = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9]+$`)
+	sha256HexRE   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)

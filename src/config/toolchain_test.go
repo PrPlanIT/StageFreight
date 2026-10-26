@@ -8,8 +8,7 @@ import (
 )
 
 // TestToolConstraintParse: scalar shorthand and the explicit `version:` key both
-// normalize to Constraint; a pre-lock inline sha256 is tolerated (ignored — it now lives
-// in the lock).
+// normalize to Constraint.
 func TestToolConstraintParse(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -19,7 +18,6 @@ func TestToolConstraintParse(t *testing.T) {
 		{"scalar shorthand", `go: 1.26.4`, "1.26.4"},
 		{"explicit version", "go:\n  version: 1.26.4", "1.26.4"},
 		{"wildcard version", "go:\n  version: 1.26.x", "1.26.x"},
-		{"legacy inline sha256 ignored", "go:\n  version: 1.26.4\n  sha256: abc", "1.26.4"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,5 +146,65 @@ func TestToolchainSection_UpdateMustBeBool(t *testing.T) {
 	err := yaml.Unmarshal([]byte("update: sometimes\nwant:\n  trivy: 0.x\n"), &s)
 	if err == nil || !strings.Contains(err.Error(), "toolchains.update") {
 		t.Errorf("a non-boolean update: must fail naming toolchains.update, got %v", err)
+	}
+}
+
+// TestToolConstraint_SHA256: a platform-keyed sha256 map parses; a scalar sha256 fails
+// with a hint to key it by platform.
+func TestToolConstraint_SHA256(t *testing.T) {
+	var m map[string]ToolConstraint
+	y := "cosign:\n  version: 3.0.6\n  sha256:\n    linux/amd64: " + strings.Repeat("a", 64) + "\n    linux/arm64: " + strings.Repeat("b", 64) + "\n"
+	if err := yaml.Unmarshal([]byte(y), &m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := m["cosign"].SHA256["linux/arm64"]; got != strings.Repeat("b", 64) {
+		t.Errorf("arm64 digest = %q", got)
+	}
+
+	err := yaml.Unmarshal([]byte("cosign:\n  version: 3.0.6\n  sha256: abc\n"), &m)
+	if err == nil || !strings.Contains(err.Error(), "linux/amd64") {
+		t.Errorf("scalar sha256 must fail with a platform hint, got %v", err)
+	}
+}
+
+func TestToolConstraint_SHA256Validate(t *testing.T) {
+	hex := strings.Repeat("c", 64)
+	validate := func(c ToolConstraint) error {
+		_, err := Validate(&Config{Version: 1, Toolchains: ToolchainSection{Want: ToolchainConfig{"cosign": c}}})
+		return err
+	}
+	if err := validate(ToolConstraint{Constraint: "3.0.6", SHA256: map[string]string{"linux/amd64": hex}}); err != nil {
+		t.Errorf("exact version + well-formed digest must validate, got %v", err)
+	}
+	cases := map[string]ToolConstraint{
+		"wildcard with digest": {Constraint: "3.x", SHA256: map[string]string{"linux/amd64": hex}},
+		"bad platform key":     {Constraint: "3.0.6", SHA256: map[string]string{"amd64": hex}},
+		"short digest":         {Constraint: "3.0.6", SHA256: map[string]string{"linux/amd64": "abc"}},
+		"uppercase digest":     {Constraint: "3.0.6", SHA256: map[string]string{"linux/amd64": strings.ToUpper(hex)}},
+	}
+	for name, c := range cases {
+		if err := validate(c); err == nil || !strings.Contains(err.Error(), "toolchains.want.cosign.sha256") {
+			t.Errorf("%s: must fail naming toolchains.want.cosign.sha256, got %v", name, err)
+		}
+	}
+}
+
+// TestToolchainSection_HoldReason: an asserted digest holds a tool even when update is on;
+// update: false holds it too; otherwise it may move.
+func TestToolchainSection_HoldReason(t *testing.T) {
+	on, off := true, false
+	s := ToolchainSection{Update: &on, Want: ToolchainConfig{
+		"cosign":  {Constraint: "3.0.6", SHA256: map[string]string{"linux/amd64": strings.Repeat("d", 64)}},
+		"kubectl": {Constraint: "1.34.2", Update: &off},
+		"trivy":   {Constraint: "0.x"},
+	}}
+	if r := s.HoldReason("cosign"); !strings.Contains(r, "sha256") {
+		t.Errorf("asserted digest must hold cosign, got %q", r)
+	}
+	if r := s.HoldReason("kubectl"); !strings.Contains(r, "update: false") {
+		t.Errorf("update: false must hold kubectl, got %q", r)
+	}
+	if r := s.HoldReason("trivy"); r != "" {
+		t.Errorf("trivy must be movable, got %q", r)
 	}
 }
