@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -20,8 +21,9 @@ type cratesIOResponse struct {
 		MaxVersion string `json:"max_version"`
 	} `json:"crate"`
 	Versions []struct {
-		Num    string `json:"num"`
-		Yanked bool   `json:"yanked"`
+		Num       string    `json:"num"`
+		Yanked    bool      `json:"yanked"`
+		CreatedAt time.Time `json:"created_at"`
 	} `json:"versions"`
 }
 
@@ -211,6 +213,7 @@ func (m *Resolver) resolveCrate(ctx context.Context, dep *supplychain.Dependency
 	for _, v := range resp.Versions {
 		if !v.Yanked {
 			nums = append(nums, v.Num)
+			setReleased(dep, v.Num, v.CreatedAt)
 		}
 	}
 	// Honor the DECLARED constraint (operator included), not a forced caret on the

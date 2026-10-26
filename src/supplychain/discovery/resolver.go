@@ -69,6 +69,7 @@ func (m *Resolver) ResolveFile(ctx context.Context, file lint.FileInfo) ([]suppl
 		return nil, err
 	}
 	m.correlateVulns(ctx, deps)
+	m.applyCooldowns(deps)
 	return deps, nil
 }
 
@@ -131,6 +132,7 @@ func Resolve(ctx context.Context, opts map[string]any, toolchains map[string]con
 	}
 
 	m.correlateVulns(ctx, all)
+	m.applyCooldowns(all)
 	return all, nil
 }
 

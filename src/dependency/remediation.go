@@ -18,7 +18,6 @@ const (
 	StateRemediated         RemediationState = "remediated"          // an applied update carried the fix
 	StateReachableUnapplied RemediationState = "reachable_unapplied" // fix reachable under policy but not applied (evaluate-only / apply gap)
 	StateBlockedByPolicy    RemediationState = "blocked_by_policy"   // fix exists but is excluded by declared policy — UNREMEDIABLE UNDER POLICY
-	StateBlockedByCooldown  RemediationState = "blocked_by_cooldown" // fix exists but held by min_release_age (reserved: cooldown data-dependent)
 	StateNoFix              RemediationState = "no_fix"              // no fixed-in version published upstream
 )
 
@@ -71,8 +70,6 @@ func EvaluateRemediation(deps []supplychain.Dependency, cfg UpdateConfig, result
 				switch {
 				case ok:
 					e.State = StateReachableUnapplied
-				case layer == PolicyCooldown:
-					e.State, e.BlockedBy, e.Detail = StateBlockedByCooldown, layer, detail
 				default:
 					e.State, e.BlockedBy, e.Detail = StateBlockedByPolicy, layer, detail
 				}
@@ -140,9 +137,6 @@ func RemediationSummaryMarkdown(evals []RemediationEvaluation) string {
 	section("⛔", "Unremediable under declared policy", StateBlockedByPolicy, func(e RemediationEvaluation) string {
 		return " → fix " + e.FixedIn + " excluded by " + string(e.BlockedBy) + " (" + e.Detail + ") — widen policy to remediate"
 	})
-	section("⏳", "Held by cooldown", StateBlockedByCooldown, func(e RemediationEvaluation) string {
-		return " → fix " + e.FixedIn + " held by cooldown"
-	})
 	section("⚠️", "Reachable but not applied", StateReachableUnapplied, func(e RemediationEvaluation) string {
 		return " → fix " + e.FixedIn + " reachable (enable remediate to apply)"
 	})
@@ -158,8 +152,6 @@ func (e RemediationEvaluation) Explain() string {
 		return "no fix available upstream"
 	case StateReachableUnapplied:
 		return "fix " + e.FixedIn + " reachable but not applied (enable remediate)"
-	case StateBlockedByCooldown:
-		return "fix " + e.FixedIn + " held by cooldown"
 	case StateBlockedByPolicy:
 		return "unremediable under declared policy — fix " + e.FixedIn + " excluded by " + string(e.BlockedBy) + " (" + e.Detail + ")"
 	default:

@@ -140,10 +140,18 @@ func walkAny(v reflect.Value, fn func(string) string) reflect.Value {
 // freshness lint module's options (its historical home + the resolver's read
 // path), so freshness recommendations match what deps will apply. Dependency's
 // value wins; when unset, any existing freshness-options value stands for
-// back-compat.
+// back-compat. toolchains.min_release_age is copied onto each wanted tool that sets
+// none of its own, so a tool's value is its effective cooldown.
 func propagateCooldown(cfg *Config) {
-	mra := strings.TrimSpace(cfg.Dependency.MinReleaseAge)
-	if mra == "" {
+	if section := cfg.Toolchains.MinReleaseAge; section != nil {
+		for name, tc := range cfg.Toolchains.Want {
+			if tc.MinReleaseAge == nil {
+				tc.MinReleaseAge = section
+				cfg.Toolchains.Want[name] = tc
+			}
+		}
+	}
+	if cfg.Dependency.MinReleaseAge == nil {
 		return
 	}
 	if cfg.Lint.Modules == nil {
@@ -153,7 +161,7 @@ func propagateCooldown(cfg *Config) {
 	if fm.Options == nil {
 		fm.Options = map[string]any{}
 	}
-	fm.Options["min_release_age"] = mra
+	fm.Options["min_release_age"] = *cfg.Dependency.MinReleaseAge
 	cfg.Lint.Modules["freshness"] = fm
 }
 

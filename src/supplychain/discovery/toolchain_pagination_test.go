@@ -21,12 +21,12 @@ func TestCollectMatchingReleaseTags(t *testing.T) {
 			append(repeatVer("1.29.0", 99), "1.26.5"), // must NOT be fetched
 		}
 		fetched := 0
-		tags := collectMatchingReleaseTags("1.26.x", func(p int) ([]string, error) {
+		tags := collectMatchingReleaseTags("1.26.x", func(p int) ([]string, bool, error) {
 			if p > len(pages) {
-				return nil, nil
+				return nil, false, nil
 			}
 			fetched++
-			return pages[p-1], nil
+			return pages[p-1], len(pages[p-1]) == releasesPerPage, nil
 		})
 		if got := version.SelectConstraint("1.26.x", tags); got != "1.26.7" {
 			t.Errorf("resolved %q, want 1.26.7", got)
@@ -42,12 +42,12 @@ func TestCollectMatchingReleaseTags(t *testing.T) {
 			append(repeatVer("1.29.0", 99), "1.26.7"), // match on page 2
 		}
 		fetched := 0
-		tags := collectMatchingReleaseTags("1.26.x", func(p int) ([]string, error) {
+		tags := collectMatchingReleaseTags("1.26.x", func(p int) ([]string, bool, error) {
 			if p > len(pages) {
-				return nil, nil
+				return nil, false, nil
 			}
 			fetched++
-			return pages[p-1], nil
+			return pages[p-1], len(pages[p-1]) == releasesPerPage, nil
 		})
 		if got := version.SelectConstraint("1.26.x", tags); got != "1.26.7" {
 			t.Errorf("resolved %q, want 1.26.7", got)
@@ -59,9 +59,9 @@ func TestCollectMatchingReleaseTags(t *testing.T) {
 
 	t.Run("nonexistent line → bounded by page cap", func(t *testing.T) {
 		fetched := 0
-		tags := collectMatchingReleaseTags("9.9.x", func(p int) ([]string, error) {
+		tags := collectMatchingReleaseTags("9.9.x", func(p int) ([]string, bool, error) {
 			fetched++
-			return repeatVer("1.30.0", 100), nil // always full, never matches
+			return repeatVer("1.30.0", 100), true, nil // always full, never matches
 		})
 		if got := version.SelectConstraint("9.9.x", tags); got != "" {
 			t.Errorf("resolved %q, want empty (no line)", got)
@@ -73,9 +73,9 @@ func TestCollectMatchingReleaseTags(t *testing.T) {
 
 	t.Run("partial page → stops (last page)", func(t *testing.T) {
 		fetched := 0
-		collectMatchingReleaseTags("9.9.x", func(p int) ([]string, error) {
+		collectMatchingReleaseTags("9.9.x", func(p int) ([]string, bool, error) {
 			fetched++
-			return repeatVer("1.30.0", 40), nil // < per-page → last
+			return repeatVer("1.30.0", 40), false, nil // < per-page → last
 		})
 		if fetched != 1 {
 			t.Errorf("fetched %d, want 1 (partial page is last)", fetched)

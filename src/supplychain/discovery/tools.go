@@ -6,14 +6,40 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
-// githubReleaseLatest is the response from GitHub's releases/latest endpoint.
-type githubReleaseLatest struct {
-	TagName string `json:"tag_name"`
+// githubRelease is one release from GitHub's releases API.
+type githubRelease struct {
+	TagName     string    `json:"tag_name"`
+	Draft       bool      `json:"draft"`
+	Prerelease  bool      `json:"prerelease"`
+	PublishedAt time.Time `json:"published_at"`
+}
+
+// fetchReleasePage fetches one page of owner/repo's releases (newest first) and returns
+// the published, non-prerelease versions on it, recording each one's release date on
+// dep, and whether the page was full (more may follow).
+func (m *Resolver) fetchReleasePage(ctx context.Context, dep *supplychain.Dependency, owner, repo string, page int) ([]string, bool, error) {
+	baseURL := m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com")
+	url := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=%d&page=%d", strings.TrimRight(baseURL, "/"), owner, repo, releasesPerPage, page)
+	var rels []githubRelease
+	if err := m.http.fetchJSON(ctx, url, &rels, m.cfg.Registries.GitHub); err != nil {
+		return nil, false, err
+	}
+	out := make([]string, 0, len(rels))
+	for _, r := range rels {
+		if r.TagName == "" || r.Draft || r.Prerelease {
+			continue
+		}
+		v := versionFromTag(r.TagName)
+		out = append(out, v)
+		setReleased(dep, v, r.PublishedAt)
+	}
+	return out, len(rels) == releasesPerPage, nil
 }
 
 // checkTools resolves pinned tool versions (ENV *_VERSION + GitHub URLs).
@@ -42,7 +68,7 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 		url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), owner, repo)
 		dep.SourceURL = url
 
-		var release githubReleaseLatest
+		var release githubRelease
 		if err := m.http.fetchJSON(ctx, url, &release, ep); err != nil {
 			deps = append(deps, dep)
 			continue
@@ -50,6 +76,10 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 
 		if release.TagName != "" {
 			dep.Latest = versionFromTag(release.TagName)
+			setReleased(&dep, dep.Latest, release.PublishedAt)
+		}
+		if !m.cooldownFor(dep).IsZero() {
+			_, _, _ = m.fetchReleasePage(ctx, &dep, owner, repo, 1) // dates the releases to step back to
 		}
 		deps = append(deps, dep)
 	}

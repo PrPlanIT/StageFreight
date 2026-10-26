@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // Toolchain resolution follows a three-responsibility split:
@@ -34,6 +36,11 @@ type ToolchainSection struct {
 	// constraint allows (default true). A tool's own update: overrides it. Independent
 	// of dependency.remediate, which governs the repo's own dependencies.
 	Update *bool `yaml:"update,omitempty"`
+
+	// MinReleaseAge is the release cooldown for toolchains, overriding
+	// dependency.min_release_age; a tool's own min_release_age overrides it. Same forms
+	// as dependency.min_release_age.
+	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 
 	// Retention governs how many resolved versions of each tool are RETAINED on the
 	// runner (keep_last newest per tool; unset = engine default 2). The pinned
@@ -72,8 +79,14 @@ func (s *ToolchainSection) UnmarshalYAML(node *yaml.Node) error {
 				return fmt.Errorf("toolchains.update: must be true or false")
 			}
 			s.Update = &b
+		case "min_release_age":
+			var c supplychain.Cooldown
+			if err := node.Content[i+1].Decode(&c); err != nil {
+				return fmt.Errorf("toolchains.%w", err)
+			}
+			s.MinReleaseAge = &c
 		default:
-			return fmt.Errorf("toolchains.%s: toolchains: was a flat tool→constraint map; nest the tool map under toolchains.want: (update: and retention: are the only other keys)", key)
+			return fmt.Errorf("toolchains.%s: toolchains: was a flat tool→constraint map; nest the tool map under toolchains.want: (update:, min_release_age: and retention: are the only other keys)", key)
 		}
 	}
 	return nil
@@ -122,6 +135,8 @@ type ToolConstraint struct {
 	// SHA256 is the operator-asserted artifact digest per os/arch, for an exact version.
 	// A declared digest holds the tool: the dependency update never rewrites it.
 	SHA256 map[string]string `yaml:"sha256,omitempty"`
+	// MinReleaseAge overrides toolchains.min_release_age for this tool; nil inherits it.
+	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 }
 
 // HoldReason reports why the dependency update must not move tool, or "" when it may: an
@@ -156,6 +171,7 @@ func (s ToolchainSection) UpdateEnabled(tool string) bool {
 //	go: {version: 1.26.x, update: false}  # explicit, held at its lock
 //	cosign: {version: 3.0.6, sha256: {linux/amd64: <hex>}}  # exact, digest asserted
 //	cargo-nextest: {version: 0.9.x, variant: musl}         # the musl build on any host
+//	trivy: {version: 0.x, min_release_age: 0}              # adopt releases immediately
 func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 	parsed, err := parseToolConstraint(node)
 	if err != nil {
@@ -167,7 +183,7 @@ func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 
 // parseToolConstraint is the shared normalization core: scalar-or-map → one
 // ToolConstraint. The map form's keys are `version` (Cargo convention; its value is a
-// version requirement), `update`, `variant` and `sha256`. A pre-lock inline `constraint`/`resolved` is
+// version requirement), `update`, `variant`, `sha256` and `min_release_age`. A pre-lock inline `constraint`/`resolved` is
 // silently ignored (node.Decode does not reject unknown keys) and superseded by the lock.
 func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	var t ToolConstraint
@@ -176,10 +192,11 @@ func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 		return t, nil
 	}
 	var raw struct {
-		Version string    `yaml:"version"`
-		Update  *bool     `yaml:"update"`
-		Variant string    `yaml:"variant"`
-		SHA256  yaml.Node `yaml:"sha256"`
+		Version       string                `yaml:"version"`
+		Update        *bool                 `yaml:"update"`
+		Variant       string                `yaml:"variant"`
+		SHA256        yaml.Node             `yaml:"sha256"`
+		MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age"`
 	}
 	if err := node.Decode(&raw); err != nil {
 		return t, err
@@ -187,6 +204,7 @@ func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	t.Constraint = raw.Version
 	t.Update = raw.Update
 	t.Variant = raw.Variant
+	t.MinReleaseAge = raw.MinReleaseAge
 	switch raw.SHA256.Kind {
 	case 0:
 	case yaml.MappingNode:

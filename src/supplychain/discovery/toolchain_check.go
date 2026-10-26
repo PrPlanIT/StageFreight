@@ -17,24 +17,24 @@ const (
 )
 
 // collectMatchingReleaseTags paginates release tags (GitHub returns them NEWEST-first)
-// until the constraint's line is FOUND, a page is exhausted, or the page cap is hit.
+// until the constraint's line is FOUND, the last page is read, or the page cap is hit.
 // Because releases are newest-first, the newest member of a line is its highest patch —
 // so once selection finds a match, older pages can only hold lower versions and we stop.
-// fetchPage returns the (v-stripped) tags for a 1-indexed page; an empty slice = no more.
-// Bounded so a nonexistent line cannot loop forever (the caller then sees no match →
-// unresolved). This replaces the prior single-page (100 release) cap.
-func collectMatchingReleaseTags(constraint string, fetchPage func(page int) ([]string, error)) []string {
+// fetchPage returns the (v-stripped) tags for a 1-indexed page and whether more pages
+// may follow. Bounded so a nonexistent line cannot loop forever (the caller then sees no
+// match → unresolved).
+func collectMatchingReleaseTags(constraint string, fetchPage func(page int) ([]string, bool, error)) []string {
 	var tags []string
 	for page := 1; page <= maxReleasePages; page++ {
-		pageTags, err := fetchPage(page)
-		if err != nil || len(pageTags) == 0 {
+		pageTags, more, err := fetchPage(page)
+		if err != nil {
 			break
 		}
 		tags = append(tags, pageTags...)
 		if version.SelectConstraint(constraint, tags) != "" {
 			break // found the line's newest (= highest) member
 		}
-		if len(pageTags) < releasesPerPage {
+		if !more {
 			break // partial page → last page
 		}
 	}
@@ -79,6 +79,10 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 			dep.Current = constraint
 		}
 
+		if wildcard {
+			dep.Constraint = constraint // the line; the cooldown steps back within it
+		}
+
 		switch def.ReleaseSourceKind() {
 		case "github":
 			ep := m.cfg.Registries.GitHub
@@ -86,29 +90,21 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 			if wildcard {
 				// Candidate set: the release list (PAGINATED — a wildcard's line may be
 				// older than the 100 most-recent releases). Selection: highest matching member.
-				listURL := fmt.Sprintf("%s/repos/%s/%s/releases", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
-				dep.SourceURL = listURL
-				tags := collectMatchingReleaseTags(constraint, func(page int) ([]string, error) {
-					pageURL := fmt.Sprintf("%s?per_page=%d&page=%d", listURL, releasesPerPage, page)
-					var rels []githubReleaseLatest
-					if err := m.http.fetchJSON(ctx, pageURL, &rels, ep); err != nil {
-						return nil, err
-					}
-					out := make([]string, 0, len(rels))
-					for _, r := range rels {
-						if r.TagName != "" {
-							out = append(out, versionFromTag(r.TagName))
-						}
-					}
-					return out, nil
+				dep.SourceURL = fmt.Sprintf("%s/repos/%s/%s/releases", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
+				tags := collectMatchingReleaseTags(constraint, func(page int) ([]string, bool, error) {
+					return m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, page)
 				})
 				dep.Current = version.SelectConstraint(constraint, tags) // resolved line member
 			} else {
 				url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
 				dep.SourceURL = url
-				var release githubReleaseLatest
+				var release githubRelease
 				if err := m.http.fetchJSON(ctx, url, &release, ep); err == nil && release.TagName != "" {
 					dep.Latest = versionFromTag(release.TagName)
+					setReleased(&dep, dep.Latest, release.PublishedAt)
+				}
+				if !m.cooldownFor(dep).IsZero() {
+					_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, 1) // dates the releases to step back to
 				}
 			}
 		case "k8s":
@@ -125,6 +121,10 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 			}
 			if latest, err := m.fetchKubectlChannel(ctx, "stable"); err == nil && latest != "" {
 				dep.Latest = latest
+			}
+			// The channels carry no dates; the project's GitHub releases do.
+			if def.GitHubOwner != "" && !m.cooldownFor(dep).IsZero() {
+				_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, 1)
 			}
 		default:
 			dep.SourceURL = "" // no upstream resolver; exact constraint stands alone

@@ -146,6 +146,15 @@ func (m *freshnessModule) depsToFindings(deps []supplychain.Dependency) []lint.F
 		}
 
 		if dep.Latest == "" || dep.Current == dep.Latest {
+			if dep.CooldownHeld != "" {
+				findings = append(findings, lint.Finding{
+					File:     dep.File,
+					Line:     dep.Line,
+					Module:   "freshness",
+					Severity: lint.SeverityInfo,
+					Message:  fmt.Sprintf("%s %s: %s held by min_release_age", dep.Name, dep.Current, dep.CooldownHeld),
+				})
+			}
 			continue
 		}
 
@@ -198,9 +207,13 @@ func (m *freshnessModule) depsToFindings(deps []supplychain.Dependency) []lint.F
 			finding.Message += fmt.Sprintf(" [%d CVE(s)]", n)
 		}
 
-		// Disclose a newer release withheld by the supply-chain cooldown.
+		// Disclose the cooldown's effect: a newer release withheld, or one adopted inside
+		// it because the dependency is vulnerable.
 		if dep.CooldownHeld != "" {
-			finding.Message += fmt.Sprintf(" [%s held: <%s cooldown]", dep.CooldownHeld, cfg.MinReleaseAge)
+			finding.Message += fmt.Sprintf(" [%s held by min_release_age]", dep.CooldownHeld)
+		}
+		if dep.CooldownBypassed != "" {
+			finding.Message += fmt.Sprintf(" [%s inside min_release_age: security fix]", dep.CooldownBypassed)
 		}
 
 		// Annotate group if a package rule assigns one.

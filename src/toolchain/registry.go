@@ -1,6 +1,10 @@
 package toolchain
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // ToolDef describes how to download and verify a tool.
 type ToolDef struct {
@@ -20,6 +24,13 @@ type ToolDef struct {
 	// stable channels). This is distinct from Source, which materializes the binary.
 	ReleaseSource string
 
+	// OSVEcosystem and OSVName identify the tool's own source package in the OSV
+	// vulnerability database ("Go" + module path, or "crates.io" + crate), so a release
+	// fixing an advisory in the tool is known as a security update. A Go module path is
+	// the v0/v1 path; OSV() adds the /vN suffix for later majors. Empty when advisories
+	// against the package would not describe the tool (kubectl's k8s.io/kubernetes).
+	OSVEcosystem, OSVName string
+
 	// Libcs lists the libc builds the tool publishes per platform ("gnu", "musl"); empty
 	// for a static build that runs on either.
 	Libcs []string
@@ -28,6 +39,21 @@ type ToolDef struct {
 	// (DownloadURL + Format) — the historical default. A non-nil Source (e.g. GoInstallSource)
 	// provisions by another means; DownloadURL/ChecksumURL/Format are then unused.
 	Source ToolSource
+}
+
+// OSV is the OSV package for version of the tool: ("", "") when it has none.
+func (d ToolDef) OSV(version string) (ecosystem, name string) {
+	if d.OSVEcosystem == "" {
+		return "", ""
+	}
+	name = d.OSVName
+	if d.OSVEcosystem == "Go" {
+		major := strings.SplitN(strings.TrimPrefix(version, "v"), ".", 2)[0]
+		if n, err := strconv.Atoi(major); err == nil && n >= 2 {
+			name = fmt.Sprintf("%s/v%d", name, n)
+		}
+	}
+	return d.OSVEcosystem, name
 }
 
 // Target is the platform a build is for. Libc is "" for a tool without libc builds.
@@ -98,11 +124,13 @@ func AllTools() []ToolDef {
 
 var registry = map[string]ToolDef{
 	"trivy": {
-		Name:        "trivy",
-		BinaryName:  "trivy",
-		DefaultVer:  "0.69.3",
-		GitHubOwner: "aquasecurity",
-		GitHubRepo:  "trivy",
+		Name:         "trivy",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/aquasecurity/trivy",
+		BinaryName:   "trivy",
+		DefaultVer:   "0.69.3",
+		GitHubOwner:  "aquasecurity",
+		GitHubRepo:   "trivy",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "64bit", "ARM64"); a != "" {
 				return fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_Linux-%s.tar.gz", ver, ver, a)
@@ -115,11 +143,13 @@ var registry = map[string]ToolDef{
 		Format: "tar.gz",
 	},
 	"syft": {
-		Name:        "syft",
-		BinaryName:  "syft",
-		DefaultVer:  "1.42.3",
-		GitHubOwner: "anchore",
-		GitHubRepo:  "syft",
+		Name:         "syft",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/anchore/syft",
+		BinaryName:   "syft",
+		DefaultVer:   "1.42.3",
+		GitHubOwner:  "anchore",
+		GitHubRepo:   "syft",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_linux_%s.tar.gz", ver, ver, a)
@@ -132,11 +162,13 @@ var registry = map[string]ToolDef{
 		Format: "tar.gz",
 	},
 	"grype": {
-		Name:        "grype",
-		BinaryName:  "grype",
-		DefaultVer:  "0.110.0",
-		GitHubOwner: "anchore",
-		GitHubRepo:  "grype",
+		Name:         "grype",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/anchore/grype",
+		BinaryName:   "grype",
+		DefaultVer:   "0.110.0",
+		GitHubOwner:  "anchore",
+		GitHubRepo:   "grype",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_linux_%s.tar.gz", ver, ver, a)
@@ -149,11 +181,13 @@ var registry = map[string]ToolDef{
 		Format: "tar.gz",
 	},
 	"osv-scanner": {
-		Name:        "osv-scanner",
-		BinaryName:  "osv-scanner",
-		DefaultVer:  "2.3.5",
-		GitHubOwner: "google",
-		GitHubRepo:  "osv-scanner",
+		Name:         "osv-scanner",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/google/osv-scanner",
+		BinaryName:   "osv-scanner",
+		DefaultVer:   "2.3.5",
+		GitHubOwner:  "google",
+		GitHubRepo:   "osv-scanner",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/google/osv-scanner/releases/download/v%s/osv-scanner_linux_%s", ver, a)
@@ -169,19 +203,23 @@ var registry = map[string]ToolDef{
 	// through GoInstallSource rather than a DownloadURL. It backs the Go reachability evidence
 	// contributor (call-graph analysis over the built module).
 	"govulncheck": {
-		Name:        "govulncheck",
-		BinaryName:  "govulncheck",
-		DefaultVer:  "1.5.0",
-		GitHubOwner: "golang",
-		GitHubRepo:  "vuln",
-		Source:      GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
+		Name:         "govulncheck",
+		OSVEcosystem: "Go",
+		OSVName:      "golang.org/x/vuln",
+		BinaryName:   "govulncheck",
+		DefaultVer:   "1.5.0",
+		GitHubOwner:  "golang",
+		GitHubRepo:   "vuln",
+		Source:       GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
 	},
 	"cosign": {
-		Name:        "cosign",
-		BinaryName:  "cosign",
-		DefaultVer:  "3.0.6",
-		GitHubOwner: "sigstore",
-		GitHubRepo:  "cosign",
+		Name:         "cosign",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/sigstore/cosign",
+		BinaryName:   "cosign",
+		DefaultVer:   "3.0.6",
+		GitHubOwner:  "sigstore",
+		GitHubRepo:   "cosign",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/sigstore/cosign/releases/download/v%s/cosign-linux-%s", ver, a)
@@ -194,11 +232,13 @@ var registry = map[string]ToolDef{
 		Format: "binary",
 	},
 	"flux": {
-		Name:        "flux",
-		BinaryName:  "flux",
-		DefaultVer:  "2.8.3",
-		GitHubOwner: "fluxcd",
-		GitHubRepo:  "flux2",
+		Name:         "flux",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/fluxcd/flux2",
+		BinaryName:   "flux",
+		DefaultVer:   "2.8.3",
+		GitHubOwner:  "fluxcd",
+		GitHubRepo:   "flux2",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/fluxcd/flux2/releases/download/v%s/flux_%s_linux_%s.tar.gz", ver, ver, a)
@@ -214,7 +254,9 @@ var registry = map[string]ToolDef{
 		Name:          "kubectl",
 		BinaryName:    "kubectl",
 		DefaultVer:    "1.34.2",
-		ReleaseSource: "k8s", // dl.k8s.io stable channels, not GitHub releases
+		ReleaseSource: "k8s",        // dl.k8s.io stable channels, not GitHub releases
+		GitHubOwner:   "kubernetes", // release dates only, for the cooldown
+		GitHubRepo:    "kubernetes",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/%s/kubectl", ver, a)
@@ -232,11 +274,13 @@ var registry = map[string]ToolDef{
 	// kustomize renders Flux build roots offline for the gitops audition gate.
 	// Release tags are prefixed "kustomize/" — %2F is the URL-encoded slash.
 	"kustomize": {
-		Name:        "kustomize",
-		BinaryName:  "kustomize",
-		DefaultVer:  "5.5.0",
-		GitHubOwner: "kubernetes-sigs",
-		GitHubRepo:  "kustomize",
+		Name:         "kustomize",
+		OSVEcosystem: "Go",
+		OSVName:      "sigs.k8s.io/kustomize/kustomize",
+		BinaryName:   "kustomize",
+		DefaultVer:   "5.5.0",
+		GitHubOwner:  "kubernetes-sigs",
+		GitHubRepo:   "kustomize",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/kustomize_v%s_linux_%s.tar.gz", ver, ver, a)
@@ -251,11 +295,13 @@ var registry = map[string]ToolDef{
 	// kubeconform schema-validates rendered manifests offline (built-ins + the
 	// datree CRD catalog) for the gitops audition gate.
 	"kubeconform": {
-		Name:        "kubeconform",
-		BinaryName:  "kubeconform",
-		DefaultVer:  "0.6.7",
-		GitHubOwner: "yannh",
-		GitHubRepo:  "kubeconform",
+		Name:         "kubeconform",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/yannh/kubeconform",
+		BinaryName:   "kubeconform",
+		DefaultVer:   "0.6.7",
+		GitHubOwner:  "yannh",
+		GitHubRepo:   "kubeconform",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/yannh/kubeconform/releases/download/v%s/kubeconform-linux-%s.tar.gz", ver, a)
@@ -274,12 +320,14 @@ var registry = map[string]ToolDef{
 	// publishes a .sha256 sidecar → verified against upstream like any tool. Either can
 	// be upgraded to a hard pin by toolchains.want.<tool>.sha256.
 	"cargo-llvm-cov": {
-		Name:        "cargo-llvm-cov",
-		BinaryName:  "cargo-llvm-cov",
-		DefaultVer:  "0.8.7",
-		GitHubOwner: "taiki-e",
-		GitHubRepo:  "cargo-llvm-cov",
-		Libcs:       []string{"gnu", "musl"},
+		Name:         "cargo-llvm-cov",
+		OSVEcosystem: "crates.io",
+		OSVName:      "cargo-llvm-cov",
+		BinaryName:   "cargo-llvm-cov",
+		DefaultVer:   "0.8.7",
+		GitHubOwner:  "taiki-e",
+		GitHubRepo:   "cargo-llvm-cov",
+		Libcs:        []string{"gnu", "musl"},
 		DownloadURL: func(ver string, t Target) string {
 			if tr := rustTriple(t); tr != "" {
 				return fmt.Sprintf("https://github.com/taiki-e/cargo-llvm-cov/releases/download/v%s/cargo-llvm-cov-%s.tar.gz", ver, tr)
@@ -289,12 +337,14 @@ var registry = map[string]ToolDef{
 		Format: "tar.gz",
 	},
 	"cargo-nextest": {
-		Name:        "cargo-nextest",
-		BinaryName:  "cargo-nextest",
-		DefaultVer:  "0.9.138",
-		GitHubOwner: "nextest-rs",
-		GitHubRepo:  "nextest",
-		Libcs:       []string{"gnu", "musl"},
+		Name:         "cargo-nextest",
+		OSVEcosystem: "crates.io",
+		OSVName:      "cargo-nextest",
+		BinaryName:   "cargo-nextest",
+		DefaultVer:   "0.9.138",
+		GitHubOwner:  "nextest-rs",
+		GitHubRepo:   "nextest",
+		Libcs:        []string{"gnu", "musl"},
 		DownloadURL: func(ver string, t Target) string {
 			if tr := rustTriple(t); tr != "" {
 				return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-%s.tar.gz", ver, ver, tr)

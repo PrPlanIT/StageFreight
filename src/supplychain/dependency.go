@@ -1,5 +1,7 @@
 package supplychain
 
+import "time"
+
 // Dependency is a version-pinned reference extracted from a project file.
 // It is the bridge type consumed by both lint reporting and future update
 // commands (à la Renovate managers).
@@ -77,10 +79,20 @@ type Dependency struct {
 	// up-to-date. StageFreight never claims freshness it failed to verify.
 	ResolutionError string
 
-	// CooldownHeld is a newer release that exists but is withheld by the MinReleaseAge
-	// supply-chain cooldown (younger than the configured window). Latest then points at the
-	// newest version old enough to adopt; this records what was held back, for disclosure.
+	// Released maps a version to when it was published, for versions newer than Current
+	// (and Current itself where known). Discovery fills it where the registry dates
+	// releases (npm, cargo, pip, gomod, GitHub releases, kubectl); empty elsewhere, and
+	// then the cooldown cannot be evaluated for the dependency.
+	Released map[string]time.Time
+
+	// CooldownHeld is a newer release withheld by the min_release_age cooldown. Latest
+	// and LatestEligible then point at the newest versions old enough to adopt; this
+	// records what was held back, for disclosure.
 	CooldownHeld string
+
+	// CooldownBypassed is a release adopted inside its cooldown because the dependency
+	// has a known vulnerability, for disclosure.
+	CooldownBypassed string
 
 	// Fields populated by the config/rule engine after resolution.
 	// Used by future update commands for MR grouping and automerge.

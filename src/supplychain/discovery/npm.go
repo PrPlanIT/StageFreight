@@ -12,8 +12,6 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
-
-	masterminds "github.com/Masterminds/semver/v3"
 )
 
 // npmFullDoc is the package document — dist-tags, the version list, and per-version
@@ -177,37 +175,22 @@ func stripNpmRange(ver string) string {
 	return strings.TrimSpace(ver)
 }
 
-// resolveNpmPackage queries the npm registry for the latest version. With a MinReleaseAge
-// cooldown configured, it recommends the newest STABLE release old enough to clear the
-// window instead of the bleeding edge — the supply-chain safeguard.
+// resolveNpmPackage queries the npm registry for the latest version, the version list,
+// and each version's publish time (for the cooldown).
 func (m *Resolver) resolveNpmPackage(ctx context.Context, dep *supplychain.Dependency) {
 	ep := m.cfg.registryEndpoint(supplychain.EcosystemNpm)
 	baseURL := m.cfg.registryURL(supplychain.EcosystemNpm, "https://registry.npmjs.org")
 
-	// Fetch the package document: dist-tags + the full version list (and per-version
-	// publish times, consulted only under a cooldown). The version list is required to
-	// resolve the in-range eligible target and hold out-of-range majors for review.
+	// Fetch the package document: dist-tags, the full version list, and per-version
+	// publish times. The version list is required to resolve the in-range eligible
+	// target and hold out-of-range majors for review.
 	url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), dep.Name)
 	dep.SourceURL = url
 	var doc npmFullDoc
 	if err := m.http.fetchJSON(ctx, url, &doc, ep); err != nil {
 		return
 	}
-
-	latest := doc.DistTags["latest"]
-	if m.cfg.minReleaseAge() > 0 {
-		// Cooldown active → newest stable version published before the cutoff.
-		if aged := agedLatestNpm(doc, m.clock().Add(-m.cfg.minReleaseAge())); aged != "" {
-			dep.Latest = aged
-			if latest != "" && latest != aged {
-				dep.CooldownHeld = latest // a newer release exists but is still within the cooldown
-			}
-		} else if latest != "" {
-			dep.Latest = latest // nothing aged enough yet (brand-new package) — don't regress
-		}
-	} else if latest != "" {
-		dep.Latest = latest
-	}
+	dep.Latest = doc.DistTags["latest"]
 
 	// In-range eligible target + version list, mirroring cargo.go: the newest version
 	// satisfying the DECLARED range. A higher out-of-range version is a
@@ -215,36 +198,12 @@ func (m *Resolver) resolveNpmPackage(ctx context.Context, dep *supplychain.Depen
 	nums := make([]string, 0, len(doc.Versions))
 	for v := range doc.Versions {
 		nums = append(nums, v)
+		if t, err := time.Parse(time.RFC3339, doc.Time[v]); err == nil {
+			setReleased(dep, v, t)
+		}
 	}
 	dep.LatestEligible = version.LatestSatisfying(dep.Constraint, nums)
 	dep.AvailableVersions = nums
-}
-
-// agedLatestNpm returns the highest STABLE version published at or before cutoff — the
-// newest release old enough to clear the cooldown. Empty if none qualify.
-func agedLatestNpm(doc npmFullDoc, cutoff time.Time) string {
-	best := ""
-	var bestV *masterminds.Version
-	for ver, ts := range doc.Time {
-		if ver == "created" || ver == "modified" {
-			continue
-		}
-		if _, real := doc.Versions[ver]; !real && len(doc.Versions) > 0 {
-			continue // a time entry with no matching version (defensive)
-		}
-		t, err := time.Parse(time.RFC3339, ts)
-		if err != nil || t.After(cutoff) {
-			continue // unparseable, or still inside the cooldown window
-		}
-		v := version.ParseVersion(ver)
-		if v == nil || v.Prerelease() != "" {
-			continue // stable releases only
-		}
-		if bestV == nil || v.GreaterThan(bestV) {
-			bestV, best = v, ver
-		}
-	}
-	return best
 }
 
 // findLineForJSON finds the line of dependency `key` within the given top-level

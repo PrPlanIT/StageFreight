@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -16,6 +17,11 @@ type pypiResponse struct {
 	Info struct {
 		Version string `json:"version"`
 	} `json:"info"`
+	// Releases maps each version to its uploaded files; the earliest upload dates it.
+	Releases map[string][]struct {
+		UploadTime time.Time `json:"upload_time_iso_8601"`
+		Yanked     bool      `json:"yanked"`
+	} `json:"releases"`
 }
 
 // checkPip parses requirements.txt / Pipfile and resolves latest versions via PyPI.
@@ -184,6 +190,18 @@ func (m *Resolver) resolvePyPI(ctx context.Context, dep *supplychain.Dependency)
 	}
 	if resp.Info.Version != "" {
 		dep.Latest = resp.Info.Version
+	}
+	for v, files := range resp.Releases {
+		var first time.Time
+		for _, f := range files {
+			if f.Yanked {
+				continue
+			}
+			if first.IsZero() || f.UploadTime.Before(first) {
+				first = f.UploadTime
+			}
+		}
+		setReleased(dep, v, first)
 	}
 }
 

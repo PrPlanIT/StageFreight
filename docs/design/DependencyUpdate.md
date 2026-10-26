@@ -133,7 +133,15 @@ StageFreight realizes the dependency-selection policy each ecosystem already dec
 
 ### CandidateSet
 
-Every consumer reads one evaluation. `Construct` (`src/dependency/candidate.go`) turns discovered facts plus config into a `CandidateSet`; `Admits(version)` is a predicate returning the admitting/excluding `PolicyLayer`: `pinned`, `native_constraint`, `ceiling` (`max_update`), `prerelease` (stable only unless the current version is a prerelease), `cooldown` (`min_release_age`). The update filter, freshness, and remediation evaluation all consume it; none re-derive policy. Policy layers only narrow — none widens the set to reach a fix.
+Every consumer reads one evaluation. `Construct` (`src/dependency/candidate.go`) turns discovered facts plus config into a `CandidateSet`; `Admits(version)` is a predicate returning the admitting/excluding `PolicyLayer`: `pinned`, `native_constraint`, `ceiling` (`max_update`), `prerelease` (stable only unless the current version is a prerelease). The update filter, freshness, and remediation evaluation all consume it; none re-derive policy. Policy layers only narrow — none widens the set to reach a fix.
+
+### Cooldown
+
+`min_release_age` holds back releases younger than a window — a scalar (`3d`) or per update size (`{major: 14d, minor: 7d, patch: 3d}`, with `default:` for sizes left out). It is set on `dependency:`, overridden for toolchains by `toolchains.min_release_age` and per tool by `toolchains.want.<tool>.min_release_age`. Discovery enforces it in one pass after vulnerability correlation (`src/supplychain/discovery/cooldown.go`), stepping `Latest` and `LatestEligible` back to the newest release old enough for its update size and dropping younger versions from `AvailableVersions`, so freshness and the update filter both see the held result. `CooldownHeld` discloses what was held.
+
+A dependency with a known vulnerability bypasses the cooldown, and `CooldownBypassed` discloses the young release adopted. Toolchains are correlated against OSV by their own source package (`ToolDef.OSVEcosystem`/`OSVName`), so a tool's security release bypasses it too. Because the bypass means the cooldown never blocks a fix, it is not a CandidateSet layer and has no remediation state.
+
+Release dates come from npm, crates.io, PyPI, the Go module proxy, and GitHub releases (drafts and prereleases skipped); kubectl's are read from the kubernetes/kubernetes releases. Container images are not covered: a registry dates a tag's last push, and a rebuilt tag would look perpetually young. A version with no known date counts as too young.
 
 `max_update` defaults to `major`, which imposes no ceiling beyond the native constraint. A new default gate must be a true no-op; a narrower ceiling is explicit opt-in.
 
@@ -146,7 +154,6 @@ Every consumer reads one evaluation. `Construct` (`src/dependency/candidate.go`)
 | `remediated` | an applied update carries the fix |
 | `reachable_unapplied` | the fix is admitted but not applied |
 | `blocked_by_policy` | a fix exists but declared policy excludes it — unremediable under declared policy |
-| `blocked_by_cooldown` | a fix exists but is held by `min_release_age` |
 | `no_fix` | no fixed-in version published |
 
 The invariant: every remediable vulnerability is remediated under the declared policy. A pin that blocks the only fix is reported as `blocked_by_policy` — never a silent skip and never an automatic widening. Severity comes from the advisory, state from remediation, and the explanation from policy. In MR mode the merge-request body carries these verdicts, with "unremediable under declared policy" as its own block. There is no auto-merge; a person merges.

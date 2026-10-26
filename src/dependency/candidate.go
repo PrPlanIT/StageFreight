@@ -17,7 +17,6 @@ const (
 	PolicyPinned           PolicyLayer = "pinned"            // toolchain governs the version (go replace)
 	PolicyNativeConstraint PolicyLayer = "native_constraint" // manifest operator (cargo =/~/^/range)
 	PolicyCeiling          PolicyLayer = "ceiling"           // max_update
-	PolicyCooldown         PolicyLayer = "cooldown"          // min_release_age (data-dependent)
 	PolicyPrerelease       PolicyLayer = "prerelease"        // stable-only unless current is prerelease
 )
 
@@ -68,9 +67,8 @@ func Construct(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter map
 // policy and, when not, the BINDING policy layer plus a human detail. Layers are
 // tested most-fundamental first, so the first rejection is the tightest bound. This is
 // what RemediationEvaluation will ask of an advisory's fixed-in ("is the fix reachable
-// under policy?"). Note: cooldown (min_release_age) is data-dependent — evaluable only
-// when per-version publish dates are available, which most ecosystems don't yet supply,
-// so it is not enforced here beyond its layer being defined for downstream use.
+// under policy?"). The min_release_age cooldown is not a layer here: discovery applies
+// it, and a vulnerable dependency bypasses it, so it never blocks a fix.
 func (cs CandidateSet) Admits(v string) (bool, PolicyLayer, string) {
 	dep := cs.Dep
 	// The toolchain already selected this dep's version (go replace) — nothing admitted.

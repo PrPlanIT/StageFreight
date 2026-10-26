@@ -81,7 +81,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 			}
 			if lock.Set(toolName, dep.Latest, toolchain.HostPlatformKey(toolName), sha) {
 				lockModified = true
-				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest)})
+				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest), CVEsFixed: fixedBy(dep, dep.Latest)})
 			}
 			continue
 		}
@@ -102,7 +102,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 		configModified = true
 		lock.Set(toolName, dep.Latest, toolchain.HostPlatformKey(toolName), sha)
 		lockModified = true
-		applied = append(applied, AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)})
+		applied = append(applied, AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest), CVEsFixed: fixedBy(dep, dep.Latest)})
 	}
 
 	var changedFiles []string
@@ -261,4 +261,15 @@ func lineValue(line string) string {
 		return strings.Trim(strings.TrimSpace(t[idx+1:]), `"'`)
 	}
 	return ""
+}
+
+// fixedBy lists dep's advisories that version ver fixes.
+func fixedBy(dep supplychain.Dependency, ver string) []string {
+	var ids []string
+	for _, v := range dep.Vulnerabilities {
+		if v.FixedIn != "" && version.CompareVersions(ver, v.FixedIn, dep.Ecosystem) >= 0 {
+			ids = append(ids, v.ID)
+		}
+	}
+	return ids
 }

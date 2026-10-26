@@ -5,15 +5,19 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // goProxyLatest is the JSON response from proxy.golang.org/{mod}/@latest.
 type goProxyLatest struct {
-	Version string `json:"Version"`
+	Version string    `json:"Version"`
+	Time    time.Time `json:"Time"`
 }
 
 // checkGoMod parses go.mod and resolves latest versions via proxy.golang.org.
@@ -167,24 +171,55 @@ func (m *Resolver) resolveGoModule(ctx context.Context, dep *supplychain.Depende
 	}
 	if resp.Version != "" {
 		dep.Latest = resp.Version
+		setReleased(dep, resp.Version, resp.Time)
 	}
 
-	// Under a patch-lock ceiling the deps layer needs the full version list to
-	// re-target to the newest patch of the current minor (proxy @latest only gives
-	// the single newest, which may be a minor). Gated behind FetchVersionLists so
-	// the default path makes no extra request. Best-effort: a list failure leaves
-	// AvailableVersions empty and the dep is simply held, as before.
-	if m.cfg.FetchVersionLists {
-		listURL := fmt.Sprintf("%s/%s/@v/list", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name))
-		if data, err := m.http.fetchBytes(ctx, listURL, ep); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				if v := strings.TrimSpace(line); v != "" {
-					dep.AvailableVersions = append(dep.AvailableVersions, v)
-				}
-			}
+	// The full version list serves a patch-lock ceiling (the deps layer re-targets to the
+	// newest patch of the current minor; @latest gives only the single newest) and a
+	// cooldown holding a young latest (stepping back needs the older releases). Fetched
+	// only then, so the default path makes no extra request. Best-effort: a list failure
+	// leaves the dep as resolved above.
+	young := !m.cfg.MinReleaseAge.IsZero() && m.clock().Sub(resp.Time) < m.cfg.MinReleaseAge.Longest()
+	if !m.cfg.FetchVersionLists && !young {
+		return
+	}
+	listURL := fmt.Sprintf("%s/%s/@v/list", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name))
+	data, err := m.http.fetchBytes(ctx, listURL, ep)
+	if err != nil {
+		return
+	}
+	var newer []string
+	for _, line := range strings.Split(string(data), "\n") {
+		v := strings.TrimSpace(line)
+		if v == "" {
+			continue
+		}
+		if m.cfg.FetchVersionLists {
+			dep.AvailableVersions = append(dep.AvailableVersions, v)
+		}
+		if !version.IsPrerelease(v) && compare(v, dep.Current, dep.Ecosystem) > 0 && v != resp.Version {
+			newer = append(newer, v)
+		}
+	}
+	if !young {
+		return
+	}
+	// Date the releases between Current and latest, newest first, so the cooldown can
+	// step back. Bounded: a module far behind has many, and only the newest few matter.
+	sort.Slice(newer, func(i, j int) bool { return compare(newer[i], newer[j], dep.Ecosystem) > 0 })
+	if len(newer) > maxDatedGoVersions {
+		newer = newer[:maxDatedGoVersions]
+	}
+	for _, v := range newer {
+		var info goProxyLatest
+		if err := m.http.fetchJSON(ctx, fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name), v), &info, ep); err == nil {
+			setReleased(dep, v, info.Time)
 		}
 	}
 }
+
+// maxDatedGoVersions bounds the per-version .info lookups a cooldown makes for one module.
+const maxDatedGoVersions = 20
 
 // escapeModPath applies the Go module proxy's case-encoding — every uppercase letter
 // becomes "!" followed by its lowercase form (e.g. "Masterminds" → "!masterminds") —

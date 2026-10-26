@@ -7,6 +7,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // OSV ecosystem identifiers mapped from our internal ecosystem constants.
@@ -19,7 +20,8 @@ var osvEcosystemMap = map[string]string{
 	supplychain.EcosystemAlpineAPK:     "Alpine",
 	supplychain.EcosystemDebianAPT:     "Debian",
 	supplychain.EcosystemDockerImage:   "", // no OSV ecosystem for container images
-	supplychain.EcosystemGitHubRelease: "", // tools checked via GitHub advisories, not OSV
+	supplychain.EcosystemGitHubRelease: "", // a Dockerfile-pinned release names no package
+	// toolchain: per tool, by its source package — see osvIdentity
 }
 
 // osvQueryRequest is the POST body for api.osv.dev/v1/query.
@@ -138,12 +140,13 @@ func (m *Resolver) correlateVulns(ctx context.Context, deps []supplychain.Depend
 		depIdx  int
 		version string
 		osvEco  string
+		osvName string
 	}
 	var queries []osvQueryRequest
 	var refs []qref
 	for i := range deps {
-		osvEco, ok := osvEcosystemMap[deps[i].Ecosystem]
-		if !ok || osvEco == "" {
+		osvEco, osvName := osvIdentity(deps[i])
+		if osvEco == "" {
 			continue
 		}
 		depVersion := strings.TrimPrefix(deps[i].Current, "v")
@@ -151,10 +154,10 @@ func (m *Resolver) correlateVulns(ctx context.Context, deps []supplychain.Depend
 			continue
 		}
 		queries = append(queries, osvQueryRequest{
-			Package: &osvPackage{Name: deps[i].Name, Ecosystem: osvEco},
+			Package: &osvPackage{Name: osvName, Ecosystem: osvEco},
 			Version: depVersion,
 		})
-		refs = append(refs, qref{depIdx: i, version: depVersion, osvEco: osvEco})
+		refs = append(refs, qref{depIdx: i, version: depVersion, osvEco: osvEco, osvName: osvName})
 	}
 	if len(queries) == 0 {
 		return
@@ -213,14 +216,27 @@ func (m *Resolver) correlateVulns(ctx context.Context, deps []supplychain.Depend
 				dep.VulnScanError = err.Error()
 				continue
 			}
-			m.applyVuln(dep, *v, refs[j].osvEco, refs[j].version)
+			m.applyVuln(dep, *v, refs[j].osvEco, refs[j].osvName, refs[j].version)
 		}
 	}
 }
 
+// osvIdentity is dep's package ecosystem and name in OSV, or ("", "") when OSV does not
+// cover it. A toolchain is looked up as its own source package (a Go module or crate),
+// so a release fixing an advisory in the tool counts as a security update.
+func osvIdentity(dep supplychain.Dependency) (ecosystem, name string) {
+	if dep.Ecosystem == supplychain.EcosystemToolchain {
+		if def, ok := toolchain.LookupTool(dep.Name); ok {
+			return def.OSV(dep.Current)
+		}
+		return "", ""
+	}
+	return osvEcosystemMap[dep.Ecosystem], dep.Name
+}
+
 // applyVuln filters one hydrated OSV advisory against the dependency and, if it is a
 // genuine, in-scope, unfixed vulnerability, appends it to dep.Vulnerabilities.
-func (m *Resolver) applyVuln(dep *supplychain.Dependency, v osvVuln, osvEco, depVersion string) {
+func (m *Resolver) applyVuln(dep *supplychain.Dependency, v osvVuln, osvEco, osvName, depVersion string) {
 	// Informational advisories (RUSTSEC unmaintained / unsound / notice) are not
 	// vulnerabilities — they carry no CVSS. Don't count them as CVEs or let
 	// severity_override escalate them to a blocking critical; osv-scanner already
@@ -237,7 +253,7 @@ func (m *Resolver) applyVuln(dep *supplychain.Dependency, v osvVuln, osvEco, dep
 		Aliases:  v.Aliases,
 		Summary:  v.Summary,
 		Severity: extractHighestSeverity(v.Severity),
-		FixedIn:  extractFixedVersion(v.Affected, dep.Name, osvEco),
+		FixedIn:  extractFixedVersion(v.Affected, osvName, osvEco),
 		Source:   "osv",
 	}
 	// Skip vulns already fixed in the installed version.

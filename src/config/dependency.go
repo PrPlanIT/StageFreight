@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/paths"
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 // DependencyHandoff controls what happens when dependency repair creates a new commit.
@@ -65,12 +66,15 @@ type DependencyConfig struct {
 
 	// MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is
 	// not recommended (freshness) nor applied (deps) — dodging the window in which
-	// a compromised or yanked release is briefly live. Accepts durations like
-	// "3d", "72h". Owned here as a supply-chain policy; the freshness lint module
-	// reads the SAME value so its recommendations match what deps will apply.
-	// Empty falls back to lint.modules.freshness.options.min_release_age (its
-	// historical home) for back-compat, then to disabled.
-	MinReleaseAge string `yaml:"min_release_age,omitempty"`
+	// a compromised or yanked release is briefly live. A duration ("3d", "72h") for
+	// every update, or per update size: {major: 14d, minor: 7d, patch: 3d} (a default:
+	// key covers sizes left out). A dependency with a known vulnerability bypasses it.
+	// Toolchains may override it (toolchains.min_release_age, then per tool). Enforced
+	// where the registry dates releases: npm, cargo, pip, Go modules, GitHub releases
+	// and kubectl; container images are not, since a registry dates a tag's last push,
+	// not its release. Unset falls back to lint.modules.freshness.options.min_release_age,
+	// then to no cooldown.
+	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 }
 
 // EffectivePolicy resolves the freshness scope, defaulting to "all". Lowercased
