@@ -264,20 +264,7 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 
 	// 6. Per-ecosystem activity — a row emerges ONLY for an ecosystem that had a
 	// candidate, reporting what actually happened (updated / skipped). No zero rows.
-	if applyEcosystems && len(gomodDeps) > 0 {
-		t0 = time.Now()
-		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, deps, repoRoot)
-		if err != nil {
-			steps = append(steps, depStep{label: "gomod", status: "fail", detail: err.Error(), dur: time.Since(t0)})
-			return result, fmt.Errorf("applying Go updates: %w", err)
-		}
-		steps = append(steps, ecosystemStep("gomod", applied, goSkipped, touchedDirs, time.Since(t0)))
-		result.Applied = append(result.Applied, applied...)
-		result.Skipped = append(result.Skipped, goSkipped...)
-		result.TouchedModuleDirs = touchedDirs
-		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
-	}
-
+	// Dockerfiles go first: a golang builder bump decides the Go the modules move to.
 	if applyEcosystems && len(dockerDeps) > 0 {
 		t0 = time.Now()
 		applied, dkSkipped, touchedFiles, err := applyDockerfileUpdates(dockerDeps, repoRoot)
@@ -288,6 +275,52 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		steps = append(steps, ecosystemStep("docker", applied, dkSkipped, nil, time.Since(t0)))
 		result.Applied = append(result.Applied, applied...)
 		result.Skipped = append(result.Skipped, dkSkipped...)
+		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+	}
+
+	// Go is decided ONCE for the pass, before any go command: the directive targets
+	// (builder bumps applied above, plus existing drift where go.mod lags its builder)
+	// and each module's declared Go make the plan, and directive sync, module updates
+	// and verify all run under it.
+	var syncResolved goDirectiveSyncResult
+	if hasAppliedGolangBuilderUpdate(result.Applied) {
+		syncResolved = collectGoDirectiveSyncTargets(repoRoot, result.Applied)
+	}
+	syncResolved = mergeGoDirectiveSyncResults(syncResolved, detectGoDirectiveDrift(repoRoot, deps))
+	var plan goPlan
+	if applyEcosystems {
+		if dirs := goModuleDirs(repoRoot, gomodDeps); len(dirs) > 0 || len(syncResolved.Targets) > 0 {
+			var err error
+			if plan, err = provisionGoPlan(repoRoot, planGoVersions(repoRoot, dirs, syncResolved)); err != nil {
+				steps = append(steps, depStep{label: "gomod", status: "fail", detail: err.Error()})
+				return result, err
+			}
+		}
+	}
+
+	// Sync go directives to their golang builders first, so module updates run against
+	// the directive they will be committed with.
+	if applyEcosystems && (len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0) {
+		t0 = time.Now()
+		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved, plan); err != nil {
+			steps = append(steps, depStep{label: "sync directives", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			return result, fmt.Errorf("syncing go directives: %w", err)
+		}
+		steps = append(steps, depStep{label: "sync directives", status: "ok", detail: fmt.Sprintf("%d target · %d conflicted", len(syncResolved.Targets), len(syncResolved.Conflicted)), dur: time.Since(t0)})
+		result.Toolchains = collectToolchainDepsFromResolved(syncResolved, result.Applied)
+	}
+
+	if applyEcosystems && len(gomodDeps) > 0 {
+		t0 = time.Now()
+		applied, goSkipped, touchedDirs, touchedFiles, err := applyGoUpdates(ctx, gomodDeps, deps, repoRoot, plan)
+		if err != nil {
+			steps = append(steps, depStep{label: "gomod", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+			return result, fmt.Errorf("applying Go updates: %w", err)
+		}
+		steps = append(steps, ecosystemStep("gomod", applied, goSkipped, touchedDirs, time.Since(t0)))
+		result.Applied = append(result.Applied, applied...)
+		result.Skipped = append(result.Skipped, goSkipped...)
+		result.TouchedModuleDirs = deduplicateAndSort(append(result.TouchedModuleDirs, touchedDirs...))
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
@@ -362,27 +395,6 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	// 5a. Normalize, deduplicate, and sort FilesChanged
 	result.FilesChanged = deduplicateAndSort(result.FilesChanged)
 
-	// 5b. Sync go directives to match golang builder versions.
-	// Two sources of sync targets, merged and deduped:
-	//   - Applied builder updates (Dockerfile golang image was bumped this run)
-	//   - Existing drift (Dockerfile already up-to-date but go.mod lags behind)
-	var syncResolved goDirectiveSyncResult
-	if hasAppliedGolangBuilderUpdate(result.Applied) {
-		syncResolved = collectGoDirectiveSyncTargets(repoRoot, result.Applied)
-	}
-	driftResolved := detectGoDirectiveDrift(repoRoot, deps)
-	syncResolved = mergeGoDirectiveSyncResults(syncResolved, driftResolved)
-
-	if applyEcosystems && (len(syncResolved.Targets) > 0 || len(syncResolved.Conflicted) > 0) {
-		t0 = time.Now()
-		if err := syncGoDirectivesFromResolved(ctx, repoRoot, result, syncResolved, nil); err != nil {
-			steps = append(steps, depStep{label: "sync directives", status: "fail", detail: err.Error(), dur: time.Since(t0)})
-			return result, fmt.Errorf("syncing go directives: %w", err)
-		}
-		steps = append(steps, depStep{label: "sync directives", status: "ok", detail: fmt.Sprintf("%d target · %d conflicted", len(syncResolved.Targets), len(syncResolved.Conflicted)), dur: time.Since(t0)})
-		result.Toolchains = collectToolchainDepsFromResolved(syncResolved, result.Applied)
-	}
-
 	// 5c. Repository reconciliation — make the repo internally consistent with
 	// constraints it already encodes (the go.mod `go` floor the golang builder must
 	// satisfy). Runs AFTER applies so it sees the final, post-tidy go directive; not
@@ -403,16 +415,12 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 	}
 
 	// 6. Verify — only run on Go module dirs that were actually updated
-	if cfg.Verify && len(result.TouchedModuleDirs) > 0 {
-		absDirs := make([]string, 0, len(result.TouchedModuleDirs))
-		for _, d := range result.TouchedModuleDirs {
-			absDirs = append(absDirs, filepath.Join(repoRoot, d))
-		}
+	if cfg.Verify && cfg.Vulncheck && len(result.TouchedModuleDirs) > 0 {
 		t0 = time.Now()
-		// Behavioral verification (go test) now belongs to the test subsystem — the
-		// cmd layer re-verifies the mutated tree via test.Verify (IntentDepReverify)
-		// and gates the auto-commit on it. deps keeps only the vuln scan here for now.
-		log, verifyErr := Verify(ctx, absDirs, repoRoot, false, cfg.Vulncheck)
+		// Behavioral verification (go test) belongs to the test subsystem — the cmd
+		// layer re-verifies the mutated tree via test.Verify (IntentDepReverify) and
+		// gates the auto-commit on it. deps runs only the vuln scan, under the plan.
+		log, verifyErr := verifyVulncheck(ctx, plan, repoRoot, result.TouchedModuleDirs)
 		status, detail := "ok", "govulncheck"
 		if verifyErr != nil {
 			status, detail = "fail", "govulncheck — "+verifyErr.Error()

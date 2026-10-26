@@ -6,95 +6,22 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
-	"github.com/PrPlanIT/StageFreight/src/output"
-	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
-	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
-
-// goRunner executes a go subcommand in the given directory.
-type goRunner func(ctx context.Context, dir string, args ...string) ([]byte, error)
-
-// resolveGoRunner resolves a Go toolchain via the StageFreight toolchain subsystem.
-// Downloads, verifies, and caches the binary if not already present.
-// No host assumptions. No DinD. No containers-for-tools.
-// resolveGoRunner is memoized per repo-root: a deps run resolves the Go toolchain
-// from several phases (apply, verify), but we resolve + render the provisioning ledger
-// exactly ONCE — a toolchain resolution is not a presentation event per call.
-var (
-	goRunnerMu   sync.Mutex
-	goRunnerMemo = map[string]goRunner{}
-)
-
-func resolveGoRunner(repoRoot string) (goRunner, error) {
-	goRunnerMu.Lock()
-	defer goRunnerMu.Unlock()
-	if r, ok := goRunnerMemo[repoRoot]; ok {
-		return r, nil
-	}
-	version := toolchain.ResolveGoVersion(".", repoRoot)
-	result, err := toolchain.Resolve(repoRoot, "go", version)
-	if err != nil {
-		return nil, fmt.Errorf("go toolchain: %w", err)
-	}
-	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(result, "dependency update")}, output.UseColor())
-	runner := goRunner(func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, result.Path, args...)
-		cmd.Dir = dir
-		cmd.Env = os.Environ()
-		return cmd.CombinedOutput()
-	})
-	goRunnerMemo[repoRoot] = runner
-	return runner, nil
-}
-
-var goVersionRunnerMemo = map[string]goRunner{}
-
-// resolveGoRunnerForVersion provisions a Go toolchain AT the requested version (not the
-// repo's current, possibly-older version) and returns a runner pinned to it via
-// GOTOOLCHAIN=local. A go directive can only be raised to X by a toolchain that is itself
-// >= X — otherwise `go mod tidy` fails or reverts the bump — so a directive sync to X must
-// execute under Go X. Memoized per (repoRoot, version).
-func resolveGoRunnerForVersion(repoRoot, version string) (goRunner, error) {
-	key := repoRoot + "\x00" + version
-	goRunnerMu.Lock()
-	defer goRunnerMu.Unlock()
-	if r, ok := goVersionRunnerMemo[key]; ok {
-		return r, nil
-	}
-	result, err := toolchain.Resolve(repoRoot, "go", version)
-	if err != nil {
-		return nil, fmt.Errorf("go toolchain %s: %w", version, err)
-	}
-	provision.Render(os.Stderr, []provision.Entry{provision.FromToolchain(result, "go directive sync")}, output.UseColor())
-	runner := goRunner(func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, result.Path, args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
-		return cmd.CombinedOutput()
-	})
-	goVersionRunnerMemo[key] = runner
-	return runner, nil
-}
 
 // applyGoUpdates applies Go module dependency updates. allDeps is the full resolved
 // dependency set (direct + indirect) used by the vuln remediator to identify responsible
 // direct parents and their compatible targets. Returns touched module dirs (repoRoot-
 // relative) as the 3rd value, and touched files (go.mod, go.sum per module) as the 4th —
 // only dirs/files where the update(s) succeeded.
-func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
+func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps []supplychain.Dependency, repoRoot string, plan goPlan) ([]AppliedUpdate, []SkippedDep, []string, []string, error) {
 	// Check for go.work — workspace mode uses -C with relative paths
-	hasWorkspace := false
-	if _, err := os.Stat(filepath.Join(repoRoot, "go.work")); err == nil {
-		hasWorkspace = true
-	}
+	hasWorkspace := hasGoWorkspace(repoRoot)
 
 	// Direct-dependency map for the vuln remediator: which Go modules are DIRECT (a
 	// parent-bump candidate for case-1 remediation) and their compatible update target.
@@ -129,11 +56,11 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 	var skipped []SkippedDep
 	touchedSet := make(map[string]struct{})
 
-	// Pre-filter BEFORE resolving any toolchain: drop content/tooling modules with no
-	// Go source. `go get`/`go mod tidy` would CORRUPT them — tidy deletes every require
-	// no Go file imports (a Hugo theme module's hextra is consumed by Hugo, never
-	// imported), so an "update" silently removes the dependency. And resolving a Go
-	// toolchain only to skip every candidate is wasted work.
+	// Drop content/tooling modules with no Go source. `go get`/`go mod tidy` would
+	// CORRUPT them — tidy deletes every require no Go file imports (a Hugo theme
+	// module's hextra is consumed by Hugo, never imported), so an "update" silently
+	// removes the dependency. goModuleDirs applies the same test, so the Go plan never
+	// provisions a toolchain for them.
 	var actionable []*moduleGroup
 	for _, group := range groupMap {
 		// Guard: module dir must be safely under repo root
@@ -149,18 +76,12 @@ func applyGoUpdates(ctx context.Context, deps []supplychain.Dependency, allDeps 
 		actionable = append(actionable, group)
 	}
 
-	// Nothing actually applies — don't resolve a Go toolchain at all.
-	if len(actionable) == 0 {
-		return applied, skipped, nil, nil, nil
-	}
-
-	runGo, err := resolveGoRunner(repoRoot)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	for _, group := range actionable {
 		modulePath := filepath.Join(repoRoot, group.dir)
+		runGo := plan.runner(group.dir)
+		if runGo == nil {
+			return applied, skipped, nil, nil, fmt.Errorf("no Go planned for module %s", group.dir)
+		}
 
 		goDir := modulePath
 		if hasWorkspace {
@@ -274,11 +195,11 @@ func hasAppliedGolangBuilderUpdate(applied []AppliedUpdate) bool {
 }
 
 // syncGoDirectivesFromResolved bumps go directives in go.mod files to match their
-// associated Dockerfile golang builder versions, using pre-computed sync targets.
-// runGo may be nil, in which case the Go toolchain is resolved internally; tests inject a
-// fake runner. Each module's directive is only recorded as applied when go.mod actually
-// changed on disk — a no-op edit is reported as a skip, never a phantom applied update.
-func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *UpdateResult, resolved goDirectiveSyncResult, runGo goRunner) error {
+// associated Dockerfile golang builder versions, using pre-computed sync targets, each
+// under the Go the plan chose for its module (at least the target). Each module's
+// directive is only recorded as applied when go.mod actually changed on disk — a no-op
+// edit is reported as a skip, never a phantom applied update.
+func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *UpdateResult, resolved goDirectiveSyncResult, plan goPlan) error {
 	// Surface conflicted modules as skipped entries with version details
 	for _, conflict := range resolved.Conflicted {
 		detail := fmt.Sprintf("conflicting golang builder versions in %s: %s (from %s)",
@@ -312,18 +233,9 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 		}
 
 		absDir := filepath.Join(repoRoot, t.ModuleDir)
-
-		// Raising the directive to t.GoVersion requires running under Go >= t.GoVersion;
-		// the repo's current (older) toolchain would make tidy fail or revert the bump.
-		// Provision a runner at the target version so the bump actually persists. Tests
-		// inject runGo to bypass provisioning.
-		run := runGo
+		run := plan.runner(t.ModuleDir)
 		if run == nil {
-			var err error
-			run, err = resolveGoRunnerForVersion(repoRoot, t.GoVersion)
-			if err != nil {
-				return err
-			}
+			return fmt.Errorf("no Go planned for module %s", t.ModuleDir)
 		}
 
 		changed, err := syncModuleGoDirective(ctx, absDir, modFile, t.GoVersion, run)
@@ -373,9 +285,31 @@ func syncGoDirectivesFromResolved(ctx context.Context, repoRoot string, result *
 		if !found {
 			result.TouchedModuleDirs = append(result.TouchedModuleDirs, t.ModuleDir)
 		}
+		// The commit takes exactly FilesChanged: a directive-only sync must name its files.
+		result.FilesChanged = append(result.FilesChanged, filepath.Join(t.ModuleDir, "go.mod"))
+		if _, err := os.Stat(filepath.Join(absDir, "go.sum")); err == nil {
+			result.FilesChanged = append(result.FilesChanged, filepath.Join(t.ModuleDir, "go.sum"))
+		}
 	}
 
 	return nil
+}
+
+// goModuleDirs is the set of module dirs the candidates' Go updates will run in: dirs
+// under the repo root that hold Go source (applyGoUpdates skips the rest).
+func goModuleDirs(repoRoot string, deps []supplychain.Dependency) []string {
+	seen := map[string]bool{}
+	var dirs []string
+	for _, dep := range deps {
+		dir := filepath.Dir(dep.File)
+		if seen[dir] || strings.HasPrefix(dir, "..") || filepath.IsAbs(dir) || !moduleHasGoFiles(filepath.Join(repoRoot, dir)) {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs
 }
 
 // syncModuleGoDirective edits one module's go directive to target (go mod edit + tidy)

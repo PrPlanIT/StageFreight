@@ -138,7 +138,7 @@ func (e *binaryEngine) ExecuteStep(ctx context.Context, step build.UniversalStep
 	// Resolve the Go toolchain via the StageFreight toolchain subsystem — the
 	// runtime CI image has no `go` on $PATH, so we can't exec it directly.
 	// Resolve downloads + caches a checksummed Go distribution on first use
-	// (cache hit thereafter). Mirrors dependency/apply_go.go:resolveGoRunner.
+	// (cache hit thereafter) at the version go.mod declares.
 	// rootDir = cwd, which is the job workspace during the build.
 	rootDir, _ := os.Getwd()
 	goVersion := toolchain.ResolveGoVersion(".", rootDir)

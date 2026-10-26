@@ -8,6 +8,15 @@ import (
 	"testing"
 )
 
+// planWith is a Go plan running every given module dir under run.
+func planWith(run goRunner, dirs ...string) goPlan {
+	p := goPlan{versions: map[string]string{}, runners: map[string]goRunner{"test": run}}
+	for _, d := range dirs {
+		p.versions[d] = "test"
+	}
+	return p
+}
+
 func writeGoMod(t *testing.T, dir, goVer string) string {
 	t.Helper()
 	p := filepath.Join(dir, "go.mod")
@@ -31,7 +40,7 @@ func TestSyncGoDirectives_NoChangeNotApplied(t *testing.T) {
 	result := &UpdateResult{}
 	resolved := goDirectiveSyncResult{Targets: []goDirectiveSyncTarget{{ModuleDir: ".", GoVersion: "1.26.9"}}}
 
-	if err := syncGoDirectivesFromResolved(context.Background(), dir, result, resolved, noop); err != nil {
+	if err := syncGoDirectivesFromResolved(context.Background(), dir, result, resolved, planWith(noop, ".")); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 	if len(result.Applied) != 0 {
@@ -63,7 +72,7 @@ func TestSyncGoDirectives_RealChangeApplied(t *testing.T) {
 	result := &UpdateResult{}
 	resolved := goDirectiveSyncResult{Targets: []goDirectiveSyncTarget{{ModuleDir: ".", GoVersion: "1.26.9"}}}
 
-	if err := syncGoDirectivesFromResolved(context.Background(), dir, result, resolved, effective); err != nil {
+	if err := syncGoDirectivesFromResolved(context.Background(), dir, result, resolved, planWith(effective, ".")); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 	if len(result.Applied) != 1 {
@@ -94,7 +103,7 @@ func TestSyncGoDirectives_AlreadyAtTarget(t *testing.T) {
 	result := &UpdateResult{}
 	resolved := goDirectiveSyncResult{Targets: []goDirectiveSyncTarget{{ModuleDir: ".", GoVersion: "1.26.9"}}}
 
-	if err := syncGoDirectivesFromResolved(context.Background(), dir, result, resolved, runner); err != nil {
+	if err := syncGoDirectivesFromResolved(context.Background(), dir, result, resolved, planWith(runner, ".")); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 	if called {

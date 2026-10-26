@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// Verify runs post-update verification (go test + govulncheck) on the
-// given module directories. moduleDirs should be absolute paths — only
-// dirs where updates were actually applied.
-func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests, runVulncheck bool) (string, error) {
+// verifyVulncheck runs govulncheck over the module dirs (repo-relative) an update
+// touched, each under the Go the pass's plan chose for it. Behavioral verification
+// (go test) belongs to the test subsystem, which re-verifies the mutated tree.
+func verifyVulncheck(ctx context.Context, plan goPlan, repoRoot string, moduleDirs []string) (string, error) {
 	var log strings.Builder
 	var firstErr error
 
@@ -32,46 +32,28 @@ func Verify(ctx context.Context, moduleDirs []string, repoRoot string, runTests,
 	}
 	sort.Strings(dirs)
 
-	var runGo goRunner
-	if runTests || runVulncheck {
-		var err error
-		runGo, err = resolveGoRunner(repoRoot)
-		if err != nil {
-			return "", fmt.Errorf("go toolchain: %w", err)
-		}
-	}
-
-	for _, dir := range dirs {
+	for _, rel := range dirs {
+		dir := filepath.Join(repoRoot, rel)
 		// A go.mod can exist purely for tooling — e.g. a Hugo theme module —
-		// with no Go packages. `go test ./...` / govulncheck on such a module are
-		// meaningless and exit non-zero; skip verification rather than fail the
-		// update. (Detected by walking for any .go source, so it doesn't depend on
-		// `go list` exit semantics.)
+		// with no Go packages. govulncheck on such a module is meaningless and exits
+		// non-zero; skip verification rather than fail the update. (Detected by
+		// walking for any .go source, so it doesn't depend on `go list` exit semantics.)
 		if !moduleHasGoFiles(dir) {
 			log.WriteString(fmt.Sprintf("=== %s: no Go packages (tooling/content module); verification skipped ===\n", dir))
 			continue
 		}
-
-		if runTests {
-			testLog, err := runGoTest(ctx, dir, runGo)
-			log.WriteString(fmt.Sprintf("=== go test ./... (%s) ===\n", dir))
-			log.WriteString(testLog)
-			log.WriteString("\n")
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("go test failed in %s: %w", dir, err)
-			}
+		runGo := plan.runner(rel)
+		if runGo == nil {
+			return log.String(), fmt.Errorf("no Go planned for module %s", rel)
 		}
-
-		if runVulncheck {
-			vulnLog, err := runGovulncheck(ctx, dir, runGo)
-			if vulnLog != "" {
-				log.WriteString(fmt.Sprintf("=== govulncheck ./... (%s) ===\n", dir))
-				log.WriteString(vulnLog)
-				log.WriteString("\n")
-			}
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("govulncheck failed in %s: %w", dir, err)
-			}
+		vulnLog, err := runGovulncheck(ctx, dir, runGo)
+		if vulnLog != "" {
+			log.WriteString(fmt.Sprintf("=== govulncheck ./... (%s) ===\n", dir))
+			log.WriteString(vulnLog)
+			log.WriteString("\n")
+		}
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("govulncheck failed in %s: %w", dir, err)
 		}
 	}
 
@@ -103,11 +85,6 @@ func moduleHasGoFiles(dir string) bool {
 		return nil
 	})
 	return found
-}
-
-func runGoTest(ctx context.Context, dir string, runGo goRunner) (string, error) {
-	out, err := runGo(ctx, dir, "test", "./...")
-	return string(out), err
 }
 
 const govulncheckModule = "golang.org/x/vuln/cmd/govulncheck@latest"
