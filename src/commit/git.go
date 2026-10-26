@@ -58,17 +58,20 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 		return nil, fmt.Errorf("opening worktree: %w", err)
 	}
 
-	// 0. Ensure the StageFreight namespace ignore file is present and current before
-	// staging. This is what makes the "ephemeral ignored, durable committed" guarantee
-	// UNIVERSAL: SF plants a self-contained .stagefreight/.gitignore in every repo it
-	// commits to, so no project needs a hand-edited root .gitignore. Stage it only when
-	// it changed, so ordinary commits are untouched and the file rides along exactly when
-	// it is first created or its durable allowlist changes.
-	if changed, werr := workspace.EnsureGitignore(g.RootDir); werr != nil {
-		return nil, fmt.Errorf("ensuring namespace gitignore: %w", werr)
-	} else if changed {
-		if _, aerr := wt.Add(filepath.Join(workspace.NamespaceDir, ".gitignore")); aerr != nil {
-			return nil, fmt.Errorf("staging namespace gitignore: %w", aerr)
+	// 0. In a repo StageFreight manages (.stagefreight.yml at its root), ensure the
+	// namespace ignore file is present and current before staging. This is what makes
+	// the "ephemeral ignored, durable committed" guarantee universal across managed
+	// repos: no project needs a hand-edited root .gitignore. Stage it only when it
+	// changed, so ordinary commits are untouched and the file rides along exactly when it
+	// is first created or its durable allowlist changes. A repo StageFreight does not
+	// manage gets exactly the paths committed and nothing of StageFreight's.
+	if _, serr := os.Stat(filepath.Join(g.RootDir, ".stagefreight.yml")); serr == nil {
+		if changed, werr := workspace.EnsureGitignore(g.RootDir); werr != nil {
+			return nil, fmt.Errorf("ensuring namespace gitignore: %w", werr)
+		} else if changed {
+			if _, aerr := wt.Add(filepath.Join(workspace.NamespaceDir, ".gitignore")); aerr != nil {
+				return nil, fmt.Errorf("staging namespace gitignore: %w", aerr)
+			}
 		}
 	}
 
