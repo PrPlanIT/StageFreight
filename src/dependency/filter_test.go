@@ -150,6 +150,7 @@ func TestSkipReasonCategories(t *testing.T) {
 	}{
 		{"indirect", func() supplychain.Dependency { d := gomod("1.2.3", "1.3.0"); d.Indirect = true; return d }(), UpdateConfig{}, SkipIndirect, "indirect dependency"},
 		{"up to date", gomod("1.2.3", "1.2.3"), UpdateConfig{}, SkipUpToDate, "up to date"},
+		{"cooldown held", func() supplychain.Dependency { d := gomod("1.2.3", "1.2.3"); d.CooldownHeld = "1.2.4"; return d }(), UpdateConfig{}, SkipCooldownHeld, "held by min_release_age (1.2.4 too recent)"},
 		{"ceiling", gomod("1.2.3", "1.3.0"), UpdateConfig{MaxUpdate: "patch"}, SkipCeilingExceeded, "exceeds max_update ceiling (patch)"},
 		{"security-only", gomod("1.2.3", "1.3.0"), UpdateConfig{Policy: "security"}, SkipSecurityOnly, "no CVE (security-only policy)"},
 	}

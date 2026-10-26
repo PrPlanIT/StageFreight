@@ -13,6 +13,9 @@ func TestVersionFromTag(t *testing.T) {
 		"5.8.1":                "5.8.1",  // already bare
 		"kustomize/v5.8.1-rc1": "5.8.1-rc1",
 		"api/v1.2.3":           "1.2.3", // any monorepo-style prefix
+		"cargo-nextest-0.9.1":  "0.9.1", // name-dash prefix (nextest)
+		"release-1.2.3-rc1":    "1.2.3-rc1",
+		"nightly":              "nightly",
 		"":                     "",
 	}
 	for tag, want := range cases {

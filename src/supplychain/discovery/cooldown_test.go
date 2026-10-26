@@ -87,7 +87,43 @@ func TestApplyCooldown(t *testing.T) {
 		}
 	})
 
-	t.Run("a vulnerable dependency bypasses the cooldown", func(t *testing.T) {
+	t.Run("an old enough release carrying the fix is preferred over the bypass", func(t *testing.T) {
+		dep := supplychain.Dependency{
+			Name: "x", Ecosystem: supplychain.EcosystemGoMod, Current: "1.2.0", Latest: "1.2.3",
+			Released:        map[string]time.Time{"1.2.3": ago(time.Hour), "1.2.2": ago(9 * day)},
+			Vulnerabilities: []supplychain.VulnInfo{{ID: "GHSA-1", FixedIn: "1.2.1"}},
+		}
+		applyCooldown(&dep, flat(3*day), now)
+		if dep.Latest != "1.2.2" || dep.CooldownBypassed != "" || dep.CooldownHeld != "1.2.3" {
+			t.Errorf("got latest %s bypassed %q held %q, want the aged fix 1.2.2", dep.Latest, dep.CooldownBypassed, dep.CooldownHeld)
+		}
+	})
+
+	t.Run("an advisory with no fix bypasses nothing", func(t *testing.T) {
+		dep := supplychain.Dependency{
+			Name: "x", Ecosystem: supplychain.EcosystemGoMod, Current: "1.2.0", Latest: "1.2.1",
+			Released:        map[string]time.Time{"1.2.1": ago(time.Hour)},
+			Vulnerabilities: []supplychain.VulnInfo{{ID: "GHSA-1"}},
+		}
+		applyCooldown(&dep, flat(3*day), now)
+		if dep.Latest != "1.2.0" || dep.CooldownBypassed != "" {
+			t.Errorf("got latest %s bypassed %q, want the young release held", dep.Latest, dep.CooldownBypassed)
+		}
+	})
+
+	t.Run("undated versions below a release past every window count as aged", func(t *testing.T) {
+		dep := supplychain.Dependency{
+			Name: "x", Ecosystem: supplychain.EcosystemGoMod, Current: "1.2.0", Latest: "1.2.9",
+			Released:          map[string]time.Time{"1.2.9": ago(time.Hour), "1.2.6": ago(30 * day)},
+			AvailableVersions: []string{"1.2.3", "1.2.6", "1.2.8", "1.2.9"},
+		}
+		applyCooldown(&dep, supplychain.Cooldown{Major: 14 * day, Minor: 7 * day, Patch: 3 * day}, now)
+		if !slices.Equal(dep.AvailableVersions, []string{"1.2.3", "1.2.6"}) {
+			t.Errorf("AvailableVersions = %v, want [1.2.3 1.2.6] (1.2.8 undated above the floor)", dep.AvailableVersions)
+		}
+	})
+
+	t.Run("a young release that alone carries the fix bypasses the cooldown", func(t *testing.T) {
 		dep := supplychain.Dependency{
 			Name: "x", Ecosystem: supplychain.EcosystemGoMod, Current: "1.2.0", Latest: "1.2.1",
 			Released:        map[string]time.Time{"1.2.1": ago(time.Hour)},

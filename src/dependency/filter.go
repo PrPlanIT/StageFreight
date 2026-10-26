@@ -155,6 +155,9 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// the tag is already latest, but the digest must be refreshed to the current one —
 	// a same-tag rebuild — so it must reach apply.)
 	if !vulnIndirect && !dep.LockPending && !dep.NeedsDigestRefresh() && dep.UpdateTarget() == dep.Current {
+		if dep.CooldownHeld != "" {
+			return SkipCooldownHeld, "held by min_release_age (" + dep.CooldownHeld + " too recent)"
+		}
 		if dep.MajorAvailable() {
 			return SkipMajorHeld, "major upgrade held — review (" + dep.Latest + " out of range)"
 		}

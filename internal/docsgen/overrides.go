@@ -159,6 +159,18 @@ var sectionOverrides = map[string]SectionOverride{
 
 // fieldOverrides maps docs-path keys to curated field documentation.
 var fieldOverrides = map[string]FieldOverride{
+	// ── supply-chain cooldown ────────────────────────────────────────────
+	"dependency.min_release_age": {
+		Notes: []string{
+			"`min_release_age` takes a duration for every update (`3d`, `2w`, `72h`) or one per update size: `{major: 14d, minor: 7d, patch: 3d}`, where `default:` covers sizes left out. `0` disables it.",
+			"A release that is the only one carrying a known vulnerability's fix bypasses the cooldown, and the bypass is reported. Container images are not held: a registry dates a tag's last push, not its release.",
+		},
+	},
+	"toolchains.min_release_age": {
+		Notes: []string{
+			"`min_release_age` overrides `dependency.min_release_age` for toolchains; `toolchains.want.<tool>.min_release_age` overrides it for one tool (e.g. `trivy: {version: 0.x, min_release_age: 0}`). Same forms as `dependency.min_release_age`.",
+		},
+	},
 	// ── lifecycle ────────────────────────────────────────────────────────
 	"lifecycle.mode": {
 		Description:   "Selects the lifecycle — which phase graph the pipeline runs. Empty defaults to `image`.",

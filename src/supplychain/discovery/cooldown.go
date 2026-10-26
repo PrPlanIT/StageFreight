@@ -30,8 +30,14 @@ func (m *Resolver) applyCooldowns(deps []supplychain.Dependency) {
 
 // applyCooldown steps Latest and LatestEligible back to the newest releases old enough
 // for their update size, and drops younger versions from AvailableVersions so a
-// max_update re-target cannot pick one. A version with no known release date counts as
-// too young. A dependency whose registry gives no dates is left alone.
+// max_update re-target cannot pick one. A dependency whose registry gives no dates is
+// left alone. An undated version counts as old enough only when it sorts at or below a
+// dated release already past every window; otherwise it counts as too young.
+//
+// Security fixes bypass the cooldown: when only a young release carries a known
+// vulnerability's fix, that release is kept and disclosed as CooldownBypassed. An old
+// enough release that also fixes it is preferred, and an advisory with no fix bypasses
+// nothing.
 func applyCooldown(dep *supplychain.Dependency, cd supplychain.Cooldown, now time.Time) {
 	if cd.IsZero() || len(dep.Released) == 0 || dep.Pinned != "" {
 		return
@@ -42,16 +48,23 @@ func applyCooldown(dep *supplychain.Dependency, cd supplychain.Cooldown, now tim
 		}
 		return version.DominantUpdateType(version.CompareDependencyVersions(dep.Current, v, dep.Ecosystem))
 	}
-	aged := func(v string) bool {
-		t, ok := dep.Released[v]
-		return ok && now.Sub(t) >= cd.Window(size(v))
-	}
-
-	if len(dep.Vulnerabilities) > 0 {
-		if t := dep.UpdateTarget(); t != "" && t != dep.Current && !aged(t) {
-			dep.CooldownBypassed = t
+	pastAll := "" // the highest stable release past every window
+	for v, t := range dep.Released {
+		if now.Sub(t) >= cd.Longest() && !version.IsPrerelease(v) && (pastAll == "" || compare(v, pastAll, dep.Ecosystem) > 0) {
+			pastAll = v
 		}
-		return
+	}
+	aged := func(v string) bool {
+		if t, ok := dep.Released[v]; ok {
+			return now.Sub(t) >= cd.Window(size(v))
+		}
+		return pastAll != "" && compare(v, pastAll, dep.Ecosystem) <= 0
+	}
+	fix := "" // the version fixing every advisory with a known fix
+	for _, v := range dep.Vulnerabilities {
+		if v.FixedIn != "" && (fix == "" || compare(v.FixedIn, fix, dep.Ecosystem) > 0) {
+			fix = v.FixedIn
+		}
 	}
 
 	// newestAged is the highest aged release at or below ceiling and above Current,
@@ -73,31 +86,45 @@ func applyCooldown(dep *supplychain.Dependency, cd supplychain.Cooldown, now tim
 		}
 		return best
 	}
+	// stepBack is what a young target t yields: the newest aged release below it, or t
+	// itself when only t (of the two) carries the fix.
+	stepBack := func(t string, constrained bool) string {
+		v := newestAged(t, constrained)
+		if fix != "" && compare(t, fix, dep.Ecosystem) >= 0 && (v == "" || compare(v, fix, dep.Ecosystem) < 0) {
+			dep.CooldownBypassed = t
+			return t
+		}
+		return v
+	}
 
 	held := ""
 	if t := dep.LatestEligible; t != "" && t != dep.Current && !aged(t) {
-		held = t
-		dep.LatestEligible = firstNonEmpty(newestAged(t, true), dep.Current)
+		if v := stepBack(t, true); v != t {
+			held = t
+			dep.LatestEligible = firstNonEmpty(v, dep.Current)
+		}
 	}
 	switch t := dep.Latest; {
 	case t == "" || aged(t):
 	case dep.LockPending:
 		// A first lock is born at the newest aged release; a line with none yet keeps
 		// its newest, since the tool must run at something.
-		if v := newestAged(t, true); v != "" {
+		if v := stepBack(t, true); v != "" && v != t {
 			held, dep.Latest, dep.Current = t, v, v
 		}
 	case t != dep.Current:
-		held = t
 		// Latest is the update target itself when there is no separate compatible one.
-		dep.Latest = firstNonEmpty(newestAged(t, dep.LatestEligible == ""), dep.LatestEligible, dep.Current)
+		if v := stepBack(t, dep.LatestEligible == ""); v != t {
+			held = t
+			dep.Latest = firstNonEmpty(v, dep.LatestEligible, dep.Current)
+		}
 	}
 	dep.CooldownHeld = held
 
 	if len(dep.AvailableVersions) > 0 {
 		kept := dep.AvailableVersions[:0:0]
 		for _, v := range dep.AvailableVersions {
-			if dep.Current == "" || compare(v, dep.Current, dep.Ecosystem) <= 0 || aged(v) {
+			if dep.Current == "" || compare(v, dep.Current, dep.Ecosystem) <= 0 || aged(v) || v == dep.CooldownBypassed {
 				kept = append(kept, v)
 			}
 		}

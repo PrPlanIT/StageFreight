@@ -28,6 +28,7 @@ const (
 	SkipFileUntracked     SkipCategory = "file_untracked"       // owning file not tracked by git
 	SkipDockerConstraint  SkipCategory = "docker_constraint"    // digest-pin / ARG / untagged / latest tag
 	SkipToolchainHeld     SkipCategory = "toolchain_held"       // toolchains update: false, or sha256 asserted
+	SkipCooldownHeld      SkipCategory = "cooldown_held"        // the newer release is inside min_release_age
 
 	// --- apply-layer decisions (apply_*.go) ---
 	SkipSourceUnresolvable SkipCategory = "source_unresolvable" // manifest line pattern not recognized

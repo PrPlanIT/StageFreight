@@ -120,6 +120,11 @@ type Selection struct {
 // host's), and its expected digest for that build: the config's sha256 when declared for
 // that exact version (a missing platform is an error), else the lock's.
 func Select(rootDir, tool string, desired map[string]config.ToolConstraint) (Selection, error) {
+	if rootDir != "" {
+		if _, err := ReadLock(rootDir); err != nil {
+			return Selection{}, err // an unreadable lock must not silently fall back to the default
+		}
+	}
 	ver, pinned := ResolveVersion(rootDir, tool, "", desired)
 	sel := Selection{Version: ver, Pinned: pinned}
 	c := desired[tool]

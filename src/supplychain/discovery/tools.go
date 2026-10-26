@@ -78,13 +78,20 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 			dep.Latest = versionFromTag(release.TagName)
 			setReleased(&dep, dep.Latest, release.PublishedAt)
 		}
-		if !m.cooldownFor(dep).IsZero() {
+		if m.inCooldown(dep, release.PublishedAt) {
 			_, _, _ = m.fetchReleasePage(ctx, &dep, owner, repo, 1) // dates the releases to step back to
 		}
 		deps = append(deps, dep)
 	}
 
 	return deps
+}
+
+// inCooldown reports whether a release published at t is young enough that dep's
+// cooldown may hold it — when the older releases' dates are worth fetching.
+func (m *Resolver) inCooldown(dep supplychain.Dependency, t time.Time) bool {
+	cd := m.cooldownFor(dep)
+	return !cd.IsZero() && m.clock().Sub(t) < cd.Longest()
 }
 
 // versionFromTag extracts the bare version from a GitHub release tag_name, matching
@@ -97,7 +104,16 @@ func versionFromTag(tag string) string {
 	if i := strings.LastIndex(tag, "/"); i >= 0 {
 		tag = tag[i+1:]
 	}
-	return strings.TrimPrefix(tag, "v")
+	tag = strings.TrimPrefix(tag, "v")
+	// A name-prefixed tag ("cargo-nextest-0.9.1") starts at its first "-<digit>".
+	if tag != "" && (tag[0] < '0' || tag[0] > '9') {
+		for i := 0; i+1 < len(tag); i++ {
+			if tag[i] == '-' && tag[i+1] >= '0' && tag[i+1] <= '9' {
+				return tag[i+1:]
+			}
+		}
+	}
+	return tag
 }
 
 // scanGitHubURLs reads a file looking for github.com/{owner}/{repo}/releases/download/

@@ -179,7 +179,7 @@ func (m *Resolver) resolveGoModule(ctx context.Context, dep *supplychain.Depende
 	// cooldown holding a young latest (stepping back needs the older releases). Fetched
 	// only then, so the default path makes no extra request. Best-effort: a list failure
 	// leaves the dep as resolved above.
-	young := !m.cfg.MinReleaseAge.IsZero() && m.clock().Sub(resp.Time) < m.cfg.MinReleaseAge.Longest()
+	young := resp.Version != "" && m.inCooldown(*dep, resp.Time)
 	if !m.cfg.FetchVersionLists && !young {
 		return
 	}
@@ -205,15 +205,20 @@ func (m *Resolver) resolveGoModule(ctx context.Context, dep *supplychain.Depende
 		return
 	}
 	// Date the releases between Current and latest, newest first, so the cooldown can
-	// step back. Bounded: a module far behind has many, and only the newest few matter.
+	// step back — stopping at the first one past every window, since anything older is
+	// older still. Bounded, for a module with a burst of young releases.
 	sort.Slice(newer, func(i, j int) bool { return compare(newer[i], newer[j], dep.Ecosystem) > 0 })
 	if len(newer) > maxDatedGoVersions {
 		newer = newer[:maxDatedGoVersions]
 	}
 	for _, v := range newer {
 		var info goProxyLatest
-		if err := m.http.fetchJSON(ctx, fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name), v), &info, ep); err == nil {
-			setReleased(dep, v, info.Time)
+		if err := m.http.fetchJSON(ctx, fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimRight(baseURL, "/"), escapeModPath(dep.Name), v), &info, ep); err != nil {
+			continue
+		}
+		setReleased(dep, v, info.Time)
+		if !m.inCooldown(*dep, info.Time) {
+			break
 		}
 	}
 }

@@ -1,6 +1,8 @@
 package toolchain
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,4 +68,20 @@ func TestSelect_Digest(t *testing.T) {
 			t.Errorf("a digest for 1.34.2 must not verify 1.34.5, got %q", sel.SHA256)
 		}
 	})
+}
+
+// TestSelect_UnreadableLockFails: an old-version lock fails selection rather than
+// silently running the built-in default.
+func TestSelect_UnreadableLockFails(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(LockPath(root)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(LockPath(root), []byte(`{"lockfileVersion": 1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Select(root, "trivy", map[string]config.ToolConstraint{"trivy": {Constraint: "0.x"}})
+	if err == nil || !strings.Contains(err.Error(), "lockfileVersion 1") {
+		t.Errorf("want the lock version error, got %v", err)
+	}
 }

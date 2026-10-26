@@ -52,7 +52,12 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 	// The machine-maintained resolution of each wildcard constraint lives in
 	// .stagefreight/toolchains.lock (read relative to cwd, the same repo-root assumption
 	// under which .stagefreight.yml is read). A missing lock yields an empty one.
-	lock, _ := toolchain.ReadLock("")
+	// A lock that can't be read (e.g. an older lockfileVersion) marks every toolchain
+	// unresolved with its reason, rather than reading as empty and re-resolving silently.
+	lock, lockErr := toolchain.ReadLock("")
+	if lockErr != nil {
+		lock = &toolchain.Lock{}
+	}
 
 	var deps []supplychain.Dependency
 
@@ -103,7 +108,7 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 					dep.Latest = versionFromTag(release.TagName)
 					setReleased(&dep, dep.Latest, release.PublishedAt)
 				}
-				if !m.cooldownFor(dep).IsZero() {
+				if m.inCooldown(dep, release.PublishedAt) {
 					_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, 1) // dates the releases to step back to
 				}
 			}
@@ -154,6 +159,9 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 		// declared line does not exist. Never render that as up-to-date.
 		if wildcard && dep.Current == "" {
 			dep.ResolutionError = fmt.Sprintf("no released version matches constraint %q", pin.Constraint)
+		}
+		if lockErr != nil {
+			dep.ResolutionError = lockErr.Error()
 		}
 
 		deps = append(deps, dep)
