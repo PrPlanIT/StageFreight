@@ -30,6 +30,7 @@ type SourceRequest struct {
 	Version    string
 	GOOS       string
 	GOARCH     string
+	Libc       string // libc build for tools that publish them; "" otherwise
 	RootDir    string // workspace root — for sources that resolve a sibling toolchain (go install needs go)
 	InstallDir string // the versioned dir; bin/ already created under it
 	BinPath    string // where the binary must end up (== <InstallDir>/bin/<binary>)
@@ -52,7 +53,11 @@ type releaseBinarySource struct{}
 
 func (releaseBinarySource) Materialize(req SourceRequest) (SourceResult, error) {
 	def := req.Def
-	sourceURL := def.DownloadURL(req.Version, req.GOOS, req.GOARCH)
+	target := Target{GOOS: req.GOOS, GOARCH: req.GOARCH, Libc: req.Libc}
+	sourceURL := def.DownloadURL(req.Version, target)
+	if sourceURL == "" {
+		return SourceResult{}, fmt.Errorf("%s publishes no build for %s", def.Name, PlatformKey(req.Libc))
+	}
 	downloadFilename := filepath.Base(sourceURL)
 
 	// Establish the trust source, strongest available first: an explicit config pin, then the
@@ -63,7 +68,7 @@ func (releaseBinarySource) Materialize(req SourceRequest) (SourceResult, error) 
 		expectedSHA, trust = req.PinnedSHA, TrustPinned
 	case def.ChecksumURL != nil:
 		var err error
-		expectedSHA, err = fetchChecksumFromURL(def.ChecksumURL(req.Version, req.GOOS, req.GOARCH), downloadFilename)
+		expectedSHA, err = fetchChecksumFromURL(def.ChecksumURL(req.Version, target), downloadFilename)
 		if err != nil {
 			return SourceResult{}, err
 		}

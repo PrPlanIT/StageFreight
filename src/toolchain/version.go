@@ -52,34 +52,96 @@ func ResolveVersion(rootDir, tool, requestedVersion string, desired map[string]c
 	return "", false
 }
 
-// Platform is the os/arch key of per-platform artifact digests.
-func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+// HostLibc is the running host's libc: "musl" or "gnu".
+func HostLibc() string {
+	if isMuslLibc() {
+		return "musl"
+	}
+	return "gnu"
+}
 
-// Selection is what to provision for a tool: the version, and the artifact digest the
-// download must match on this platform ("" verifies by upstream checksum or first use).
+// Variant is the libc build to use for def: requested when set (it must be one def
+// publishes), else the host's; "" for a tool without libc builds.
+func Variant(def ToolDef, requested string) (string, error) {
+	if len(def.Libcs) == 0 {
+		if requested != "" {
+			return "", fmt.Errorf("toolchain %s publishes no libc variants; remove variant: %s", def.Name, requested)
+		}
+		return "", nil
+	}
+	want := requested
+	if want == "" {
+		want = HostLibc()
+	}
+	for _, l := range def.Libcs {
+		if l == want {
+			return want, nil
+		}
+	}
+	if requested != "" {
+		return "", fmt.Errorf("toolchain %s publishes no %s build (has %v)", def.Name, requested, def.Libcs)
+	}
+	return def.Libcs[0], nil
+}
+
+// PlatformKey is the digest and cache key of a build on this host: os/arch, suffixed
+// -musl for a musl build.
+func PlatformKey(variant string) string {
+	key := runtime.GOOS + "/" + runtime.GOARCH
+	if variant == "musl" {
+		key += "-musl"
+	}
+	return key
+}
+
+// HostPlatformKey is PlatformKey for the build this host uses of tool.
+func HostPlatformKey(tool string) string {
+	def, ok := LookupTool(tool)
+	if !ok {
+		return PlatformKey("")
+	}
+	v, err := Variant(def, "")
+	if err != nil {
+		return PlatformKey("")
+	}
+	return PlatformKey(v)
+}
+
+// Selection is what to provision for a tool: the version, its libc build, and the
+// artifact digest the download must match ("" verifies by upstream checksum or first use).
 type Selection struct {
 	Version string
+	Variant string // libc build; "" for a tool without libc builds
 	SHA256  string
 	Pinned  bool // the version came from config intent; a failed resolve is fatal
 }
 
-// Select resolves tool's version (ResolveVersion) and its expected digest: the config's
-// sha256 for this platform when declared for that exact version (missing platform is an
-// error), else the lock's digest for that version on this platform.
+// Select resolves tool's version (ResolveVersion), its libc build (variant: or the
+// host's), and its expected digest for that build: the config's sha256 when declared for
+// that exact version (a missing platform is an error), else the lock's.
 func Select(rootDir, tool string, desired map[string]config.ToolConstraint) (Selection, error) {
 	ver, pinned := ResolveVersion(rootDir, tool, "", desired)
 	sel := Selection{Version: ver, Pinned: pinned}
-	if c, ok := desired[tool]; ok && len(c.SHA256) > 0 && c.Constraint == ver {
-		d, ok := c.SHA256[Platform()]
+	c := desired[tool]
+	if def, ok := LookupTool(tool); ok {
+		v, err := Variant(def, c.Variant)
+		if err != nil {
+			return sel, fmt.Errorf("toolchains.want.%s.variant: %w", tool, err)
+		}
+		sel.Variant = v
+	}
+	key := PlatformKey(sel.Variant)
+	if len(c.SHA256) > 0 && c.Constraint == ver {
+		d, ok := c.SHA256[key]
 		if !ok {
-			return sel, fmt.Errorf("toolchains.want.%s.sha256 declares no digest for %s", tool, Platform())
+			return sel, fmt.Errorf("toolchains.want.%s.sha256 declares no digest for %s", tool, key)
 		}
 		sel.SHA256 = d
 		return sel, nil
 	}
 	if rootDir != "" {
 		if lock, err := ReadLock(rootDir); err == nil {
-			sel.SHA256 = lock.Digest(tool, ver, Platform())
+			sel.SHA256 = lock.Digest(tool, ver, key)
 		}
 	}
 	return sel, nil

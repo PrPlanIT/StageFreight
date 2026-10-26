@@ -11,7 +11,7 @@ func TestResolveVersion_WildcardLock(t *testing.T) {
 	// rootDir, not in the config. Seed a lock, then resolve.
 	root := t.TempDir()
 	lock := &Lock{}
-	lock.Set("trivy", "0.69.3", Platform(), "") // wildcard trivy is locked to 0.69.3
+	lock.Set("trivy", "0.69.3", PlatformKey(""), "") // wildcard trivy is locked to 0.69.3
 	if err := WriteLock(root, lock); err != nil {
 		t.Fatalf("WriteLock: %v", err)
 	}

@@ -5,14 +5,14 @@ import "fmt"
 // ToolDef describes how to download and verify a tool.
 type ToolDef struct {
 	Name         string
-	BinaryName   string                                    // name of the binary file
-	DefaultVer   string                                    // default version if none specified
-	DownloadURL  func(version, goos, goarch string) string // archive or binary URL
-	ChecksumURL  func(version, goos, goarch string) string // checksum file URL
-	Format       string                                    // "tar.gz" or "binary"
-	ArchiveStrip string                                    // prefix to strip from tar entries (e.g. "go/")
-	GitHubOwner  string                                    // GitHub owner for release checking (e.g. "aquasecurity")
-	GitHubRepo   string                                    // GitHub repo for release checking (e.g. "trivy")
+	BinaryName   string                                // name of the binary file
+	DefaultVer   string                                // default version if none specified
+	DownloadURL  func(version string, t Target) string // archive or binary URL; "" when no build exists for t
+	ChecksumURL  func(version string, t Target) string // checksum file URL
+	Format       string                                // "tar.gz" or "binary"
+	ArchiveStrip string                                // prefix to strip from tar entries (e.g. "go/")
+	GitHubOwner  string                                // GitHub owner for release checking (e.g. "aquasecurity")
+	GitHubRepo   string                                // GitHub repo for release checking (e.g. "trivy")
 
 	// ReleaseSource names WHERE version discovery reads the release list — declared
 	// data, so the resolver dispatches on strategy, never on the tool's name: "github"
@@ -20,10 +20,47 @@ type ToolDef struct {
 	// stable channels). This is distinct from Source, which materializes the binary.
 	ReleaseSource string
 
+	// Libcs lists the libc builds the tool publishes per platform ("gnu", "musl"); empty
+	// for a static build that runs on either.
+	Libcs []string
+
 	// Source materializes the binary. When nil, the tool is a released-binary download
 	// (DownloadURL + Format) — the historical default. A non-nil Source (e.g. GoInstallSource)
 	// provisions by another means; DownloadURL/ChecksumURL/Format are then unused.
 	Source ToolSource
+}
+
+// Target is the platform a build is for. Libc is "" for a tool without libc builds.
+type Target struct {
+	GOOS, GOARCH, Libc string
+}
+
+// archToken maps GOARCH to a project's own amd64/arm64 naming; "" for any other arch.
+func archToken(goarch, amd64, arm64 string) string {
+	switch goarch {
+	case "amd64":
+		return amd64
+	case "arm64":
+		return arm64
+	}
+	return ""
+}
+
+// linuxArch is archToken for Linux builds only.
+func linuxArch(t Target, amd64, arm64 string) string {
+	if t.GOOS != "linux" {
+		return ""
+	}
+	return archToken(t.GOARCH, amd64, arm64)
+}
+
+// rustTriple is the Rust target triple for a Linux build, or "" when unsupported.
+func rustTriple(t Target) string {
+	arch := linuxArch(t, "x86_64", "aarch64")
+	if arch == "" || t.Libc == "" {
+		return ""
+	}
+	return arch + "-unknown-linux-" + t.Libc
 }
 
 // source returns the tool's materialization source: its explicit Source, or the default
@@ -66,10 +103,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "0.69.3",
 		GitHubOwner: "aquasecurity",
 		GitHubRepo:  "trivy",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_Linux-64bit.tar.gz", ver, ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "64bit", "ARM64"); a != "" {
+				return fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_Linux-%s.tar.gz", ver, ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_checksums.txt", ver, ver)
 		},
 		Format: "tar.gz",
@@ -80,10 +120,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "1.42.3",
 		GitHubOwner: "anchore",
 		GitHubRepo:  "syft",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_linux_amd64.tar.gz", ver, ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_linux_%s.tar.gz", ver, ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/anchore/syft/releases/download/v%s/syft_%s_checksums.txt", ver, ver)
 		},
 		Format: "tar.gz",
@@ -94,10 +137,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "0.110.0",
 		GitHubOwner: "anchore",
 		GitHubRepo:  "grype",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_linux_amd64.tar.gz", ver, ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_linux_%s.tar.gz", ver, ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/anchore/grype/releases/download/v%s/grype_%s_checksums.txt", ver, ver)
 		},
 		Format: "tar.gz",
@@ -108,10 +154,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "2.3.5",
 		GitHubOwner: "google",
 		GitHubRepo:  "osv-scanner",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/google/osv-scanner/releases/download/v%s/osv-scanner_linux_amd64", ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/google/osv-scanner/releases/download/v%s/osv-scanner_linux_%s", ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/google/osv-scanner/releases/download/v%s/osv-scanner_SHA256SUMS", ver)
 		},
 		Format: "binary",
@@ -133,10 +182,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "3.0.6",
 		GitHubOwner: "sigstore",
 		GitHubRepo:  "cosign",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/sigstore/cosign/releases/download/v%s/cosign-linux-amd64", ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/sigstore/cosign/releases/download/v%s/cosign-linux-%s", ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/sigstore/cosign/releases/download/v%s/cosign_checksums.txt", ver)
 		},
 		Format: "binary",
@@ -147,10 +199,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "2.8.3",
 		GitHubOwner: "fluxcd",
 		GitHubRepo:  "flux2",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/fluxcd/flux2/releases/download/v%s/flux_%s_linux_amd64.tar.gz", ver, ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/fluxcd/flux2/releases/download/v%s/flux_%s_linux_%s.tar.gz", ver, ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/fluxcd/flux2/releases/download/v%s/flux_%s_checksums.txt", ver, ver)
 		},
 		Format: "tar.gz",
@@ -160,11 +215,14 @@ var registry = map[string]ToolDef{
 		BinaryName:    "kubectl",
 		DefaultVer:    "1.34.2",
 		ReleaseSource: "k8s", // dl.k8s.io stable channels, not GitHub releases
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/amd64/kubectl", ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/%s/kubectl", ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/amd64/kubectl.sha256", ver)
+		ChecksumURL: func(ver string, t Target) string {
+			return fmt.Sprintf("https://dl.k8s.io/release/v%s/bin/linux/%s/kubectl.sha256", ver, linuxArch(t, "amd64", "arm64"))
 		},
 		Format: "binary",
 	},
@@ -176,10 +234,13 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "5.5.0",
 		GitHubOwner: "kubernetes-sigs",
 		GitHubRepo:  "kustomize",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/kustomize_v%s_linux_amd64.tar.gz", ver, ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/kustomize_v%s_linux_%s.tar.gz", ver, ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/checksums.txt", ver)
 		},
 		Format: "tar.gz",
@@ -192,27 +253,35 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "0.6.7",
 		GitHubOwner: "yannh",
 		GitHubRepo:  "kubeconform",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/yannh/kubeconform/releases/download/v%s/kubeconform-linux-amd64.tar.gz", ver)
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/yannh/kubeconform/releases/download/v%s/kubeconform-linux-%s.tar.gz", ver, a)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
+		ChecksumURL: func(ver string, t Target) string {
 			return fmt.Sprintf("https://github.com/yannh/kubeconform/releases/download/v%s/CHECKSUMS", ver)
 		},
 		Format: "tar.gz",
 	},
-	// Rust coverage/runner subcommands (musl static → fit the SF substrate).
+	// Rust coverage/runner subcommands, published per libc: the host's libc is used unless
+	// toolchains.want.<tool>.variant overrides it.
 	// cargo-llvm-cov publishes NO checksum upstream → resolves via TOFU: the fingerprint
 	// is established on first use, cached, and re-verified every run. cargo-nextest
 	// publishes a .sha256 sidecar → verified against upstream like any tool. Either can
-	// be upgraded to a hard pin by an explicit sha in toolchains.desired (optional).
+	// be upgraded to a hard pin by toolchains.want.<tool>.sha256.
 	"cargo-llvm-cov": {
 		Name:        "cargo-llvm-cov",
 		BinaryName:  "cargo-llvm-cov",
 		DefaultVer:  "0.8.7",
 		GitHubOwner: "taiki-e",
 		GitHubRepo:  "cargo-llvm-cov",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/taiki-e/cargo-llvm-cov/releases/download/v%s/cargo-llvm-cov-x86_64-unknown-linux-musl.tar.gz", ver)
+		Libcs:       []string{"gnu", "musl"},
+		DownloadURL: func(ver string, t Target) string {
+			if tr := rustTriple(t); tr != "" {
+				return fmt.Sprintf("https://github.com/taiki-e/cargo-llvm-cov/releases/download/v%s/cargo-llvm-cov-%s.tar.gz", ver, tr)
+			}
+			return ""
 		},
 		Format: "tar.gz",
 	},
@@ -222,11 +291,15 @@ var registry = map[string]ToolDef{
 		DefaultVer:  "0.9.138",
 		GitHubOwner: "nextest-rs",
 		GitHubRepo:  "nextest",
-		DownloadURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-x86_64-unknown-linux-musl.tar.gz", ver, ver)
+		Libcs:       []string{"gnu", "musl"},
+		DownloadURL: func(ver string, t Target) string {
+			if tr := rustTriple(t); tr != "" {
+				return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-%s.tar.gz", ver, ver, tr)
+			}
+			return ""
 		},
-		ChecksumURL: func(ver, goos, goarch string) string {
-			return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-x86_64-unknown-linux-musl.sha256", ver, ver)
+		ChecksumURL: func(ver string, t Target) string {
+			return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-%s.sha256", ver, ver, rustTriple(t))
 		},
 		Format: "tar.gz",
 	},

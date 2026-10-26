@@ -68,7 +68,7 @@ func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
 	if err != nil {
 		return false
 	}
-	_, err = toolchain.ResolvePinned(rootDir, "cosign", sel.Version, sel.SHA256)
+	_, err = toolchain.ResolvePinned(rootDir, "cosign", sel.Version, sel.Variant, sel.SHA256)
 	return err == nil
 }
 

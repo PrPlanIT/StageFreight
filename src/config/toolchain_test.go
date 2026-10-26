@@ -208,3 +208,30 @@ func TestToolchainSection_HoldReason(t *testing.T) {
 		t.Errorf("trivy must be movable, got %q", r)
 	}
 }
+
+func TestToolConstraint_Variant(t *testing.T) {
+	var m map[string]ToolConstraint
+	if err := yaml.Unmarshal([]byte("cargo-nextest: {version: 0.9.x, variant: musl}"), &m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if m["cargo-nextest"].Variant != "musl" || m["cargo-nextest"].Constraint != "0.9.x" {
+		t.Errorf("got %+v", m["cargo-nextest"])
+	}
+	validate := func(c ToolConstraint) error {
+		_, err := Validate(&Config{Version: 1, Toolchains: ToolchainSection{Want: ToolchainConfig{"cargo-nextest": c}}})
+		return err
+	}
+	if err := validate(ToolConstraint{Constraint: "0.9.x", Variant: "gnu"}); err != nil {
+		t.Errorf("gnu must validate, got %v", err)
+	}
+	if err := validate(ToolConstraint{Constraint: "0.9.x", Variant: "glibc"}); err == nil || !strings.Contains(err.Error(), "must be gnu or musl") {
+		t.Errorf("an unknown variant must fail, got %v", err)
+	}
+	hex := strings.Repeat("e", 64)
+	if err := validate(ToolConstraint{Constraint: "0.9.1", Variant: "musl", SHA256: map[string]string{"linux/amd64-musl": hex}}); err != nil {
+		t.Errorf("a -musl digest key must validate, got %v", err)
+	}
+	if err := validate(ToolConstraint{Constraint: "0.9.1", SHA256: map[string]string{"linux/amd64-glibc": hex}}); err == nil {
+		t.Error("an unknown key suffix must fail")
+	}
+}

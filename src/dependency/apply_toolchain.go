@@ -79,7 +79,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "could not derive pinned sha256 for " + dep.Latest})
 				continue
 			}
-			if lock.Set(toolName, dep.Latest, toolchain.Platform(), sha) {
+			if lock.Set(toolName, dep.Latest, toolchain.HostPlatformKey(toolName), sha) {
 				lockModified = true
 				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest)})
 			}
@@ -100,7 +100,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 		}
 		lines[verIdx] = rewriteVersion(lines[verIdx], verKey, dep.Latest)
 		configModified = true
-		lock.Set(toolName, dep.Latest, toolchain.Platform(), sha)
+		lock.Set(toolName, dep.Latest, toolchain.HostPlatformKey(toolName), sha)
 		lockModified = true
 		applied = append(applied, AppliedUpdate{Dep: dep, OldVer: dep.Current, NewVer: dep.Latest, UpdateType: updateType(dep.Current, dep.Latest)})
 	}

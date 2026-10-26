@@ -12,8 +12,8 @@ import (
 func TestSelect_Digest(t *testing.T) {
 	root := t.TempDir()
 	lock := &Lock{}
-	lock.Set("trivy", "0.76.1", Platform(), "lockdigest")
-	lock.Set("kubectl", "1.34.2", Platform(), "kubelockdigest")
+	lock.Set("trivy", "0.76.1", PlatformKey(""), "lockdigest")
+	lock.Set("kubectl", "1.34.2", PlatformKey(""), "kubelockdigest")
 	if err := WriteLock(root, lock); err != nil {
 		t.Fatalf("WriteLock: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestSelect_Digest(t *testing.T) {
 	})
 
 	t.Run("asserted digest wins over the lock", func(t *testing.T) {
-		desired := map[string]config.ToolConstraint{"kubectl": {Constraint: "1.34.2", SHA256: map[string]string{Platform(): "asserted"}}}
+		desired := map[string]config.ToolConstraint{"kubectl": {Constraint: "1.34.2", SHA256: map[string]string{PlatformKey(""): "asserted"}}}
 		sel, err := Select(root, "kubectl", desired)
 		if err != nil {
 			t.Fatalf("Select: %v", err)
@@ -42,8 +42,8 @@ func TestSelect_Digest(t *testing.T) {
 	t.Run("asserted digest missing this platform fails", func(t *testing.T) {
 		desired := map[string]config.ToolConstraint{"kubectl": {Constraint: "1.34.2", SHA256: map[string]string{"plan9/mips": "x"}}}
 		_, err := Select(root, "kubectl", desired)
-		if err == nil || !strings.Contains(err.Error(), Platform()) {
-			t.Errorf("must fail naming %s, got %v", Platform(), err)
+		if err == nil || !strings.Contains(err.Error(), PlatformKey("")) {
+			t.Errorf("must fail naming %s, got %v", PlatformKey(""), err)
 		}
 	})
 

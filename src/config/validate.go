@@ -755,9 +755,12 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if len(c.SHA256) > 0 && depversion.IsWildcardConstraint(constraint) {
 			errs = append(errs, fmt.Sprintf("%s.sha256: a digest identifies one artifact; it needs an exact version, not %q", tpath, constraint))
 		}
+		if c.Variant != "" && c.Variant != "gnu" && c.Variant != "musl" {
+			errs = append(errs, fmt.Sprintf("%s.variant: must be gnu or musl, not %q", tpath, c.Variant))
+		}
 		for platform, digest := range c.SHA256 {
 			if !platformKeyRE.MatchString(platform) {
-				errs = append(errs, fmt.Sprintf("%s.sha256.%s: key must be os/arch, e.g. linux/amd64", tpath, platform))
+				errs = append(errs, fmt.Sprintf("%s.sha256.%s: key must be os/arch, e.g. linux/amd64 (linux/amd64-musl for a musl build)", tpath, platform))
 			}
 			if !sha256HexRE.MatchString(digest) {
 				errs = append(errs, fmt.Sprintf("%s.sha256.%s: must be 64 lowercase hex characters", tpath, platform))
@@ -1305,6 +1308,6 @@ func validateOutputPath(p string, itemPath string) []string {
 }
 
 var (
-	platformKeyRE = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9]+$`)
+	platformKeyRE = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9]+(-musl)?$`)
 	sha256HexRE   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )

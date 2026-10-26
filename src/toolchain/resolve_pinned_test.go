@@ -27,12 +27,12 @@ func TestResolvePinned_VerifiesAssertedDigest(t *testing.T) {
 		Name:        "faketool",
 		BinaryName:  "faketool",
 		Format:      "binary",
-		DownloadURL: func(v, goos, goarch string) string { return srv.URL + "/faketool-" + v },
+		DownloadURL: func(v string, tg Target) string { return srv.URL + "/faketool-" + v + tg.Libc },
 	}
 
 	t.Run("mismatch refuses to install", func(t *testing.T) {
 		t.Setenv(paths.CacheRootEnv, t.TempDir())
-		_, err := resolveWithDef(t.TempDir(), def, "1.0.0", strings.Repeat("0", 64))
+		_, err := resolveWithDef(t.TempDir(), def, "1.0.0", "", strings.Repeat("0", 64))
 		if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 			t.Fatalf("a wrong asserted digest must fail with checksum mismatch, got %v", err)
 		}
@@ -40,7 +40,7 @@ func TestResolvePinned_VerifiesAssertedDigest(t *testing.T) {
 
 	t.Run("match installs with pinned trust", func(t *testing.T) {
 		t.Setenv(paths.CacheRootEnv, t.TempDir())
-		res, err := resolveWithDef(t.TempDir(), def, "1.0.0", good)
+		res, err := resolveWithDef(t.TempDir(), def, "1.0.0", "", good)
 		if err != nil {
 			t.Fatalf("matching digest must install: %v", err)
 		}

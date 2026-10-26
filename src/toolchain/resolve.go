@@ -101,16 +101,19 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 	if version == "" {
 		version = def.DefaultVer
 	}
-
-	return resolveWithDef(rootDir, def, version, "")
+	variant, err := Variant(def, "")
+	if err != nil {
+		return Result{}, err
+	}
+	return resolveWithDef(rootDir, def, version, variant, "")
 }
 
 // ResolvePinned is Resolve for tools whose integrity is a project-pinned SHA256
 // (Select: an asserted toolchains.want.<tool>.sha256, or the lock's digest), not an upstream checksum manifest —
 // e.g. cargo-llvm-cov, whose upstream ships BLAKE3. The downloaded artifact is
 // verified against sha256. An empty sha256 falls back to the tool's ChecksumURL,
-// so this is a strict superset of Resolve.
-func ResolvePinned(rootDir, tool, version, sha256 string) (Result, error) {
+// so this is a strict superset of Resolve. variant is the libc build ("" = the host's).
+func ResolvePinned(rootDir, tool, version, variant, sha256 string) (Result, error) {
 	if tool == "go" || tool == "rust" {
 		return Resolve(rootDir, tool, version) // distributions verify their own way
 	}
@@ -121,12 +124,17 @@ func ResolvePinned(rootDir, tool, version, sha256 string) (Result, error) {
 	if version == "" {
 		version = def.DefaultVer
 	}
-	return resolveWithDef(rootDir, def, version, sha256)
+	variant, err := Variant(def, variant)
+	if err != nil {
+		return Result{}, err
+	}
+	return resolveWithDef(rootDir, def, version, variant, sha256)
 }
 
-// FetchArtifactSHA256 downloads a tool's release artifact and returns its SHA256 —
-// the onboarding/deps derivation step that makes a pinned digest ecosystem-agnostic
-// (works whether upstream publishes SHA256, BLAKE3, or nothing at all).
+// FetchArtifactSHA256 downloads a tool's release artifact for this host (its platform and
+// libc) and returns its SHA256 — the onboarding/deps derivation step that makes a pinned
+// digest ecosystem-agnostic (works whether upstream publishes SHA256, BLAKE3, or nothing at
+// all). Its key is HostPlatformKey(tool).
 func FetchArtifactSHA256(tool, version string) (string, error) {
 	def, ok := LookupTool(tool)
 	if !ok {
@@ -138,7 +146,15 @@ func FetchArtifactSHA256(tool, version string) (string, error) {
 	if def.DownloadURL == nil {
 		return "", fmt.Errorf("toolchain %q has no downloadable artifact (provisioned via source)", tool)
 	}
-	archivePath, err := downloadToTemp(def.DownloadURL(version, runtime.GOOS, runtime.GOARCH))
+	variant, err := Variant(def, "")
+	if err != nil {
+		return "", err
+	}
+	url := def.DownloadURL(version, Target{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Libc: variant})
+	if url == "" {
+		return "", fmt.Errorf("toolchain %s publishes no build for %s", tool, PlatformKey(variant))
+	}
+	archivePath, err := downloadToTemp(url)
 	if err != nil {
 		return "", fmt.Errorf("fetch %s %s: %w", tool, version, err)
 	}
@@ -150,19 +166,28 @@ func FetchArtifactSHA256(tool, version string) (string, error) {
 // strongest first: pinnedSHA (explicit config fingerprint) → upstream ChecksumURL →
 // TOFU (no upstream claim; first-use trust, cached + re-verified every run). Every
 // outcome is recorded in Result.Trust — there is no silent unverified path.
-func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Result, error) {
+func resolveWithDef(rootDir string, def ToolDef, version, variant, pinnedSHA string) (Result, error) {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
+	// A musl build caches apart from the glibc one for the same version.
+	cacheVer := version
+	if variant == "musl" {
+		cacheVer += "-musl"
+	}
 
-	// Search all read roots for a valid cached install.
+	// Search all read roots for a valid cached install. An asserted digest must match the
+	// cached artifact's, or the cache entry is not trusted.
 	for _, root := range ReadRoots(rootDir) {
-		binPath := CacheBinPathIn(root, def.Name, version, def.BinaryName)
+		binPath := CacheBinPathIn(root, def.Name, cacheVer, def.BinaryName)
 		if _, err := os.Stat(binPath); err != nil {
 			continue
 		}
-		meta, metaErr := readMetadataFrom(root, def.Name, version)
+		meta, metaErr := readMetadataFrom(root, def.Name, cacheVer)
 		if metaErr != nil || meta.BinSHA256 == "" {
 			continue // no valid metadata — skip, don't delete (may be read-only)
+		}
+		if pinnedSHA != "" && meta.SHA256 != pinnedSHA {
+			continue
 		}
 		actual, hashErr := fileSHA256(binPath)
 		if hashErr != nil || actual != meta.BinSHA256 {
@@ -182,7 +207,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 
 	// No valid cache hit — download and install.
 	installRoot := InstallRoot(rootDir)
-	installDir := CacheDirIn(installRoot, def.Name, version)
+	installDir := CacheDirIn(installRoot, def.Name, cacheVer)
 
 	// Acquire install lock to prevent concurrent downloads
 	lock, err := AcquireInstallLock(installDir, 5*time.Minute)
@@ -192,10 +217,10 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 	defer ReleaseInstallLock(lock)
 
 	// Re-check cache after acquiring lock (another process may have installed)
-	binPath := CacheBinPathIn(installRoot, def.Name, version, def.BinaryName)
+	binPath := CacheBinPathIn(installRoot, def.Name, cacheVer, def.BinaryName)
 	if _, err := os.Stat(binPath); err == nil {
-		meta, metaErr := readMetadataFrom(installRoot, def.Name, version)
-		if metaErr == nil && meta.BinSHA256 != "" {
+		meta, metaErr := readMetadataFrom(installRoot, def.Name, cacheVer)
+		if metaErr == nil && meta.BinSHA256 != "" && (pinnedSHA == "" || meta.SHA256 == pinnedSHA) {
 			actual, hashErr := fileSHA256(binPath)
 			if hashErr == nil && actual == meta.BinSHA256 {
 				return Result{
@@ -224,6 +249,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 		Version:    version,
 		GOOS:       goos,
 		GOARCH:     goarch,
+		Libc:       variant,
 		RootDir:    rootDir,
 		InstallDir: installDir,
 		BinPath:    binPath,
@@ -252,13 +278,13 @@ func resolveWithDef(rootDir string, def ToolDef, version, pinnedSHA string) (Res
 	meta := Metadata{
 		Tool:      def.Name,
 		Version:   version,
-		Platform:  fmt.Sprintf("%s/%s", goos, goarch),
+		Platform:  PlatformKey(variant),
 		SourceURL: sr.SourceURL,
 		SHA256:    sr.SHA256,
 		BinSHA256: binSHA,
 		Trust:     sr.Trust,
 	}
-	if err := writeMetadataTo(installRoot, def.Name, version, meta); err != nil {
+	if err := writeMetadataTo(installRoot, def.Name, cacheVer, meta); err != nil {
 		os.RemoveAll(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: metadata write failed (install aborted): %w", def.Name, version, err)
 	}

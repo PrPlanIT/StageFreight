@@ -56,7 +56,7 @@ func ResolveSelection(ctx context.Context, rootDir, tool string, sel toolchain.S
 	if selErr != nil {
 		return toolchain.Result{}, selErr
 	}
-	res, err := toolchain.ResolvePinned(rootDir, tool, sel.Version, sel.SHA256)
+	res, err := toolchain.ResolvePinned(rootDir, tool, sel.Version, sel.Variant, sel.SHA256)
 	if err != nil {
 		return res, err
 	}
