@@ -27,7 +27,7 @@ func toolchainRepoFiles() map[string]string {
 
 func outdatedToolchainDeps() []supplychain.Dependency {
 	return []supplychain.Dependency{
-		{Name: "trivy", Current: "0.69.3", Latest: "0.76.1", Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml", AvailableVersions: []string{"0.69.3", "0.76.1"}},
+		{Name: "trivy", Constraint: "0.x", Current: "0.69.3", Latest: "0.76.1", Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml", AvailableVersions: []string{"0.69.3", "0.76.1"}},
 		{Name: "kubectl", Current: "1.34.2", Latest: "1.34.5", Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml", AvailableVersions: []string{"1.34.2", "1.34.5"}},
 	}
 }
@@ -130,5 +130,45 @@ func TestFlowMapVersion(t *testing.T) {
 		if got := flowMapVersion(in); got != want {
 			t.Errorf("flowMapVersion(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestUpdate_ToolchainsFromPresets: a tool whose want: comes from a preset has no line in
+// the repo's .stagefreight.yml. A wildcard still moves its lock; an exact preset pin is
+// reported as owned by the preset rather than edited.
+func TestUpdate_ToolchainsFromPresets(t *testing.T) {
+	stubArtifactDigest(t)
+	repo := initTestRepo(t, map[string]string{
+		"go.mod":            "module example.com/x\n\ngo 1.24\n",
+		".stagefreight.yml": "version: 1\ntoolchains:\n  preset: preset/toolchains.yml\n  want:\n    presets: [preset/toolchains-scanners.yml]\n",
+	})
+	deps := []supplychain.Dependency{
+		{Name: "trivy", Constraint: "x", Current: "0.76.1", Latest: "0.76.1", LockPending: true, Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml"},
+		{Name: "cosign", Current: "3.1.3", Latest: "3.1.4", Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml"},
+	}
+	before, _ := os.ReadFile(filepath.Join(repo, ".stagefreight.yml"))
+	res, err := Update(context.Background(), UpdateConfig{RootDir: repo, OutputDir: t.TempDir(), Ecosystems: []string{supplychain.EcosystemToolchain}}, deps)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := appliedNames(res); !got["trivy"] || got["cosign"] {
+		t.Fatalf("the preset wildcard must lock and the preset pin must not move, applied = %v", got)
+	}
+	lock, _ := os.ReadFile(filepath.Join(repo, ".stagefreight", "toolchains.lock"))
+	if !strings.Contains(string(lock), `"trivy"`) || !strings.Contains(string(lock), "0.76.1") {
+		t.Fatalf("the first lock must be born from a preset-declared tool, got:\n%s", lock)
+	}
+	after, _ := os.ReadFile(filepath.Join(repo, ".stagefreight.yml"))
+	if string(after) != string(before) {
+		t.Fatalf("a wildcard update must not touch the config, got:\n%s", after)
+	}
+	var owned bool
+	for _, s := range res.Skipped {
+		if s.Dep.Name == "cosign" && strings.Contains(s.Reason, "preset owns") {
+			owned = true
+		}
+	}
+	if !owned {
+		t.Fatalf("an exact preset pin must be reported as preset-owned, skipped = %+v", res.Skipped)
 	}
 }

@@ -13,10 +13,12 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
-// applyToolchainUpdates updates toolchain constraints in .stagefreight.yml.
-// Uses section-scoped line-level YAML editing to preserve file structure and comments.
-// Only edits constraint lines within the flat toolchains: section — never touches
-// identically-named keys elsewhere in the file.
+// applyToolchainUpdates moves toolchains to their update targets. What a tool wants comes
+// from the resolved config, carried on the dependency (a wildcard's range is its
+// Constraint), so a tool declared by a preset is updated like one written locally. A
+// wildcard moves the lock only; an exact pin is also rewritten in .stagefreight.yml, by
+// section-scoped line editing that keeps structure and comments — which is possible only
+// when the pin is written there and not in a preset.
 func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]AppliedUpdate, []SkippedDep, []string, error) {
 	configPath := filepath.Join(repoRoot, ".stagefreight.yml")
 	data, err := os.ReadFile(configPath)
@@ -39,29 +41,12 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 	configModified := false
 	lockModified := false
 
-	// Find the flat toolchains: section boundaries.
 	sectionStart, sectionEnd := findToolchainsSection(lines)
-	if sectionStart < 0 {
-		// No toolchains section — can't update
-		for _, dep := range deps {
-			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceUnresolvable, Reason: "no toolchains section in config"})
-		}
-		return nil, skipped, nil, nil
-	}
 
 	for _, dep := range deps {
 		toolName := dep.Name
 
-		// Locate the tool's constraint line within the toolchains section. The
-		// entry is either scalar shorthand (`trivy: "0.69.3"`) or a block map
-		// whose `version:` key carries the constraint.
-		verIdx, verKey, constraint := findToolEntry(lines, sectionStart, sectionEnd, toolName)
-		if verIdx < 0 {
-			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: "constraint line not found in toolchains section"})
-			continue
-		}
-
-		if version.IsWildcardConstraint(constraint) {
+		if version.IsWildcardConstraint(dep.Constraint) {
 			// The constraint (a range) stays in the config; only the resolved-LOCK moves.
 			// dep.Latest is the newest in-line member (the target). The PRIOR lock value is
 			// what moves — "" on a first lock, which reads as a birth, not a bump.
@@ -91,6 +76,16 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 		// now fails to derive aborts the bump rather than dropping the pin.
 		if dep.Latest == "" || dep.Latest == dep.Current {
 			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "up to date"})
+			continue
+		}
+		// The pin's line: scalar shorthand (`trivy: "0.69.3"`) or a block map whose
+		// `version:` key carries it.
+		verIdx, verKey := -1, ""
+		if sectionStart >= 0 {
+			verIdx, verKey, _ = findToolEntry(lines, sectionStart, sectionEnd, toolName)
+		}
+		if verIdx < 0 {
+			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipSourceMismatch, Reason: "pinned to " + dep.Current + " by a preset — the preset owns that version"})
 			continue
 		}
 		sha, keep := resolveLockDigest(lock, toolName, dep.Latest)
