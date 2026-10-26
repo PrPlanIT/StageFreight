@@ -136,7 +136,7 @@ repos:
     project: <string>   # project path on the forge (e.g., "{var:gitlab_group}/{var:repo}") · required
     roles: [<string>]   # ["primary"] | ["mirror"] | ["mirror", "publish-origin"] | []
     branches:   # branch identity (default, protected, etc.)
-      default: <string>   # Default is the default branch name (e.g., "main"). Required for primary.
+      default: <string>   # Default is the default branch name (e.g., "main"). Required for primary. On a mirror it is…
     worktree: <string>   # local working tree path (primary only)
     ref: <string>   # pinned ref for non-primary repos (governance, presets)
     sync:   # mirror sync domains
