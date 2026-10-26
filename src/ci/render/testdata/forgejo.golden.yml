@@ -114,6 +114,7 @@ jobs:
         run: |
           stagefreight ci run perform
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: perform
           include-hidden-files: true

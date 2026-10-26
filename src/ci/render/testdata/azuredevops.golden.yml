@@ -79,6 +79,7 @@ stages:
             displayName: perform
           - publish: .stagefreight/
             artifact: perform
+            condition: always()
   - stage: review
     dependsOn: [perform]
     jobs:

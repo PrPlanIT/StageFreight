@@ -160,7 +160,7 @@ func emitStage(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provi
 		}
 		fmt.Fprintf(buf, "          - publish: %s\n", pth)
 		fmt.Fprintf(buf, "            artifact: %s\n", name)
-		if j.Policy.WhenAlways {
+		if j.Policy.WhenAlways || j.Artifacts.WhenAlways {
 			buf.WriteString("            condition: always()\n")
 		}
 	}

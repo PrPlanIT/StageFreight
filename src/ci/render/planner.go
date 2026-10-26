@@ -62,6 +62,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// realistic perform→publish gap including a manual publish gate.
 					Paths:    []string{paths.Root + "/"},
 					ExpireIn: "1 day",
+					// A blocked or failed perform still hands narrate the ledger, so the
+					// failure is presented rather than lost.
+					WhenAlways: true,
 				},
 				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
 				// Reconcile/converge mutates live systems (flux, ansible
