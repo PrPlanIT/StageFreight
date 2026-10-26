@@ -58,10 +58,10 @@ type DependencyConfig struct {
 	// allow minor+patch), or "patch" (n.n.x — lock major and minor, allow patch
 	// only). Empty defaults to "major" — a NO-OP that imposes no ceiling beyond each
 	// ecosystem's native compatibility model (cargo/docker still hold out-of-range
-	// majors via their `^`/tag-line semantics; gomod/github-release/toolchain retain
-	// their prior auto-apply). Setting "minor"/"patch" is an explicit opt-in to hold
-	// majors (and minors). A security fix is applied even if it exceeds the ceiling
-	// (remediation floor).
+	// majors via their `^`/tag-line semantics; gomod/github-release retain their prior
+	// auto-apply). Setting "minor"/"patch" is an explicit opt-in to hold majors (and
+	// minors). A security fix is applied even if it exceeds the ceiling (remediation
+	// floor). Toolchains are not capped: their toolchains.want constraint is their bound.
 	MaxUpdate string `yaml:"max_update,omitempty"`
 
 	// MinReleaseAge is the supply-chain COOLDOWN: a release younger than this is
@@ -72,8 +72,7 @@ type DependencyConfig struct {
 	// Toolchains may override it (toolchains.min_release_age, then per tool). Enforced
 	// where the registry dates releases: npm, cargo, pip, Go modules, GitHub releases
 	// and kubectl; container images are not, since a registry dates a tag's last push,
-	// not its release. Unset falls back to lint.modules.freshness.options.min_release_age,
-	// then to no cooldown.
+	// not its release. Unset is no cooldown.
 	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 }
 

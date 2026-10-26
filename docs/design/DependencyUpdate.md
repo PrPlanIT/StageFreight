@@ -143,7 +143,7 @@ Security fixes bypass it. When a young release is the only one at or above a kno
 
 Release dates come from npm, crates.io, PyPI, the Go module proxy, and GitHub releases (drafts and prereleases skipped); kubectl's are read from the kubernetes/kubernetes releases. Older releases are dated only when the newest is still inside a window, and Go stops at the first one past every window. Container images are not covered: a registry dates a tag's last push, and a rebuilt tag would look perpetually young. An undated version counts as old enough only when it sorts at or below a release already past every window.
 
-`max_update` defaults to `major`, which imposes no ceiling beyond the native constraint. A new default gate must be a true no-op; a narrower ceiling is explicit opt-in.
+`max_update` defaults to `major`, which imposes no ceiling beyond the native constraint. A new default gate must be a true no-op; a narrower ceiling is explicit opt-in. It does not cap toolchains: `toolchains.want` is StageFreight's own manifest, so its constraint is the bound, and `min_release_age` paces the moves.
 
 ### Remediation Evaluation
 

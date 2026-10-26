@@ -21,10 +21,12 @@ func Normalize(cfg *Config) error {
 
 	// The supply-chain cooldown is OWNED by dependency.min_release_age but consumed
 	// by the freshness discovery resolver (which powers both the freshness lint
-	// module AND dependency updates). Propagate the owned value into the freshness
-	// module options — its historical home — so every consumer reads ONE value.
-	// Like Signing above, this runs before the vars short-circuit.
-	propagateCooldown(cfg)
+	// module AND dependency updates). Carry the owned value into the resolver's
+	// options so every consumer reads ONE value. Like Signing above, this runs before
+	// the vars short-circuit.
+	if err := propagateCooldown(cfg); err != nil {
+		return err
+	}
 
 	// Derive badge output paths from scribe.store + id (so a badge needs no output:
 	// line). Independent of {var:} templating — runs before the vars short-circuit.
@@ -136,13 +138,15 @@ func walkAny(v reflect.Value, fn func(string) string) reflect.Value {
 	}
 }
 
-// propagateCooldown copies the dependency-owned min_release_age into the
-// freshness lint module's options (its historical home + the resolver's read
-// path), so freshness recommendations match what deps will apply. Dependency's
-// value wins; when unset, any existing freshness-options value stands for
-// back-compat. toolchains.min_release_age is copied onto each wanted tool that sets
-// none of its own, so a tool's value is its effective cooldown.
-func propagateCooldown(cfg *Config) {
+// propagateCooldown carries dependency.min_release_age into the freshness resolver's
+// options, its read path, so freshness recommends what deps will apply. The options
+// key is not a config surface: setting it there is rejected. toolchains.min_release_age
+// is copied onto each wanted tool that sets none of its own, so a tool's value is its
+// effective cooldown.
+func propagateCooldown(cfg *Config) error {
+	if _, set := cfg.Lint.Modules["freshness"].Options["min_release_age"]; set {
+		return fmt.Errorf("lint.modules.freshness.options.min_release_age: moved to dependency.min_release_age")
+	}
 	if section := cfg.Toolchains.MinReleaseAge; section != nil {
 		for name, tc := range cfg.Toolchains.Want {
 			if tc.MinReleaseAge == nil {
@@ -152,7 +156,7 @@ func propagateCooldown(cfg *Config) {
 		}
 	}
 	if cfg.Dependency.MinReleaseAge == nil {
-		return
+		return nil
 	}
 	if cfg.Lint.Modules == nil {
 		cfg.Lint.Modules = map[string]ModuleConfig{}
@@ -163,6 +167,7 @@ func propagateCooldown(cfg *Config) {
 	}
 	fm.Options["min_release_age"] = *cfg.Dependency.MinReleaseAge
 	cfg.Lint.Modules["freshness"] = fm
+	return nil
 }
 
 // resolveValue is the single recursive traversal engine. Visits every reachable

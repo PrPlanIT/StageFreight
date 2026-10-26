@@ -188,7 +188,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	// held for review above regardless of ceiling (auto-applying a major is unsafe
 	// — e.g. a Go v2+ module-path change); this gate adds the tighter in-range
 	// caps, e.g. "patch" holds an in-range minor so only patches land.
-	if len(dep.Vulnerabilities) == 0 && updateTypeExceedsCeiling(updateType(dep.Current, dep.UpdateTarget()), cfg.MaxUpdate) {
+	if ceilingGoverns(dep) && updateTypeExceedsCeiling(updateType(dep.Current, dep.UpdateTarget()), cfg.MaxUpdate) {
 		// The natural target exceeds the ceiling. Re-target to the highest in-ceiling
 		// version if the registry lists one (e.g. patch-lock grabbing the newest patch
 		// of the current minor); only HOLD when no in-ceiling upgrade exists. The
@@ -268,6 +268,13 @@ func extractTag(image string) string {
 		return ""
 	}
 	return nameAndTag[colonIdx+1:]
+}
+
+// ceilingGoverns reports whether max_update caps dep. A vulnerable dep is exempt (the
+// remediation floor overrides the ceiling), and so is a toolchain: its toolchains.want
+// constraint is its bound, and min_release_age paces it.
+func ceilingGoverns(dep supplychain.Dependency) bool {
+	return len(dep.Vulnerabilities) == 0 && dep.Ecosystem != supplychain.EcosystemToolchain
 }
 
 // updateTypeExceedsCeiling reports whether an update of type ut (from

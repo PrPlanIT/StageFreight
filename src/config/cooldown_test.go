@@ -25,16 +25,14 @@ func TestPropagateCooldown(t *testing.T) {
 	}
 }
 
-// TestPropagateCooldownBackCompat: with dependency unset, an existing
-// freshness-options value stands (historical home still works).
-func TestPropagateCooldownBackCompat(t *testing.T) {
+// TestCooldownFreshnessOptionRejected: the cooldown has one home; setting it in the
+// freshness module options fails with the move.
+func TestCooldownFreshnessOptionRejected(t *testing.T) {
 	cfg := &Config{}
 	cfg.Lint.Modules = map[string]ModuleConfig{"freshness": {Options: map[string]any{"min_release_age": "7d"}}}
-	if err := Normalize(cfg); err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Lint.Modules["freshness"].Options["min_release_age"]; got != "7d" {
-		t.Errorf("freshness value must stand when dependency unset (back-compat), got %v", got)
+	err := Normalize(cfg)
+	if err == nil || !strings.Contains(err.Error(), "moved to dependency.min_release_age") {
+		t.Errorf("want the move error, got %v", err)
 	}
 }
 

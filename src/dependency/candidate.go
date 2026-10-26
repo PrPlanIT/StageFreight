@@ -54,7 +54,7 @@ func Construct(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter map
 	cs.Target = dep.UpdateTarget()
 	// A non-vulnerable candidate whose natural target exceeds the ceiling is kept only
 	// because an in-ceiling re-target exists — record it so the target is the lower version.
-	if len(dep.Vulnerabilities) == 0 {
+	if ceilingGoverns(dep) {
 		if t := ceilingRetarget(dep, cfg.MaxUpdate); t != "" {
 			cs.ResolvedTarget = t
 			cs.Target = t
@@ -79,9 +79,9 @@ func (cs CandidateSet) Admits(v string) (bool, PolicyLayer, string) {
 	if dep.Constraint != "" && !depversion.Satisfies(dep.Constraint, v) {
 		return false, PolicyNativeConstraint, dep.Constraint
 	}
-	// max_update ceiling — v's update-type from current must be within it. A vulnerable
-	// dep is exempt (the remediation floor overrides the ceiling), matching skipReason.
-	if len(dep.Vulnerabilities) == 0 && updateTypeExceedsCeiling(updateType(dep.Current, v), cs.cfg.MaxUpdate) {
+	// max_update ceiling — v's update-type from current must be within it. Vulnerable
+	// deps and toolchains are exempt (ceilingGoverns), matching skipReason.
+	if ceilingGoverns(dep) && updateTypeExceedsCeiling(updateType(dep.Current, v), cs.cfg.MaxUpdate) {
 		label := cs.cfg.MaxUpdate
 		if label == "" {
 			label = "major"
