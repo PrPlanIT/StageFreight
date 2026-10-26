@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 
@@ -235,7 +236,9 @@ func DetectVersionWithOpts(rootDir string, opts *VersioningOpts) (*VersionInfo, 
 	if err := checkTagSourceExclusivity(tags, sourceRes); err != nil {
 		return nil, err
 	}
-	emitNonSemverOrderingWarnings(tags, sourceRes)
+	for _, w := range nonSemverOrderingWarnings(tags, sourceRes, opts.BranchRules, func(tag string) (time.Time, bool) { return tagCommitTime(repo, tag) }) {
+		diag.Warn("%s", w)
+	}
 
 	// CI fast path: if the CI system provides an exact tag, trust it — but
 	// only if it parses as semver. Non-semver CI tags fall through to the
@@ -515,41 +518,71 @@ func checkTagSourceExclusivity(tags []string, sourceRes map[string]*regexp.Regex
 	return nil
 }
 
-// emitNonSemverOrderingWarnings warns when a tag source matches non-semver
-// tags. git's --sort=-v:refname is semver-aware, so non-semver tags may not
-// iterate in chronological or lexical order. The warning is operator
-// guidance; StageFreight does not reinterpret or re-sort.
-//
-// Routes through diag.Warn, not raw os.Stderr.
-func emitNonSemverOrderingWarnings(tags []string, sourceRes map[string]*regexp.Regexp) {
-	const sampleSize = 10
-	const exampleCount = 3
+// nonSemverOrderingWarnings reports base_from sources whose ordering picks the wrong
+// tag. Only a branch rule's base_from consumes tag order, and non-semver tags order
+// lexically, so a source is flagged only when it is on some base_from path, matches a
+// non-semver tag, and its first tag (the one base_from takes) is older than another tag
+// it matches. A source that only identifies tags, or whose names sort by date, is quiet.
+// StageFreight does not reinterpret or re-sort.
+func nonSemverOrderingWarnings(tags []string, sourceRes map[string]*regexp.Regexp, rules []BranchRule, committed func(tag string) (time.Time, bool)) []string {
+	ordered := map[string]bool{}
+	for _, r := range rules {
+		for _, id := range r.BaseFromIDs {
+			ordered[id] = true
+		}
+	}
+	var warnings []string
 	for id, re := range sourceRes {
+		if !ordered[id] {
+			continue
+		}
 		var matched []string
+		nonSemver := false
 		for _, tag := range tags {
 			if re.MatchString(tag) {
 				matched = append(matched, tag)
-				if len(matched) >= sampleSize {
-					break
-				}
+				nonSemver = nonSemver || !semverRe.MatchString(tag)
 			}
 		}
-		if len(matched) == 0 {
+		if !nonSemver {
 			continue
 		}
-		nonSemver := 0
-		for _, tag := range matched {
-			if !semverRe.MatchString(tag) {
-				nonSemver++
+		picked, pickedAt := matched[0], time.Time{}
+		if at, ok := committed(picked); ok {
+			pickedAt = at
+		} else {
+			continue
+		}
+		newest, newestAt := picked, pickedAt
+		for _, tag := range matched[1:] {
+			if at, ok := committed(tag); ok && at.After(newestAt) {
+				newest, newestAt = tag, at
 			}
 		}
-		if nonSemver > 0 {
-			n := exampleCount
-			if n > len(matched) {
-				n = len(matched)
-			}
-			diag.Warn("versioning: tag_source %q matches non-semver tags (sample: %v); git's semver-aware sort may not reflect chronological intent — consider zero-padding or a semver-compatible naming convention",
-				id, matched[:n])
+		if newest != picked {
+			warnings = append(warnings, fmt.Sprintf("versioning: base_from source %q takes %q, but %q is newer — non-semver tags order lexically, not by date; rename them so they sort (zero-padding or semver)", id, picked, newest))
 		}
 	}
+	sort.Strings(warnings)
+	return warnings
+}
+
+// tagCommitTime resolves a tag (lightweight or annotated) to its commit's time.
+func tagCommitTime(repo *git.Repository, tag string) (time.Time, bool) {
+	ref, err := repo.Tag(tag)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if obj, err := repo.TagObject(ref.Hash()); err == nil {
+		c, err := obj.Commit()
+		if err != nil {
+			return time.Time{}, false
+		}
+		return c.Committer.When, true
+	}
+	c, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return time.Time{}, false
+	}
+	return c.Committer.When, true
 }
