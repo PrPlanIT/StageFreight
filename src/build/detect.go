@@ -3,7 +3,8 @@ package build
 import (
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
 // Detection holds everything discovered about a repo's build capabilities.
@@ -143,48 +144,20 @@ func DetectRepo(rootDir string) (*Detection, error) {
 	return det, nil
 }
 
-// detectGitInfo reads basic git info from the repo.
+// detectGitInfo reads the current branch and origin URL through gitstate, so a linked
+// worktree (whose .git is a file pointing at the shared common dir) resolves the same
+// as a plain clone.
 func detectGitInfo(rootDir string) *GitInfo {
-	info := &GitInfo{}
-
-	// Read HEAD for current branch
-	headPath := filepath.Join(rootDir, ".git", "HEAD")
-	data, err := os.ReadFile(headPath)
+	repo, err := gitstate.OpenRepo(rootDir)
 	if err != nil {
 		return nil
 	}
-	head := strings.TrimSpace(string(data))
-	if strings.HasPrefix(head, "ref: refs/heads/") {
-		info.Branch = strings.TrimPrefix(head, "ref: refs/heads/")
+	info := &GitInfo{}
+	if head, err := repo.Head(); err == nil && head.Name().IsBranch() {
+		info.Branch = head.Name().Short()
 	}
-
-	// Read origin remote
-	configPath := filepath.Join(rootDir, ".git", "config")
-	configData, err := os.ReadFile(configPath)
-	if err == nil {
-		info.Remote = parseGitRemoteOrigin(string(configData))
+	if origin, err := repo.Remote("origin"); err == nil && len(origin.Config().URLs) > 0 {
+		info.Remote = origin.Config().URLs[0]
 	}
-
 	return info
-}
-
-// parseGitRemoteOrigin extracts the origin remote URL from git config.
-func parseGitRemoteOrigin(config string) string {
-	inOrigin := false
-	for _, line := range strings.Split(config, "\n") {
-		line = strings.TrimSpace(line)
-		if line == `[remote "origin"]` {
-			inOrigin = true
-			continue
-		}
-		if inOrigin {
-			if strings.HasPrefix(line, "[") {
-				break
-			}
-			if strings.HasPrefix(line, "url = ") {
-				return strings.TrimPrefix(line, "url = ")
-			}
-		}
-	}
-	return ""
 }
