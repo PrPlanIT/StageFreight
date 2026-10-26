@@ -605,19 +605,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		}
 	}
 
-	// Detect forge from git remote
-	remoteURL, err := detectRemoteURL(rootDir)
-	if err != nil {
-		return fmt.Errorf("detecting remote: %w", err)
-	}
-
-	provider := forge.DetectProvider(remoteURL)
-	if provider == forge.Unknown {
-		return fmt.Errorf("could not detect forge from remote URL: %s", remoteURL)
-	}
-
-	// Create forge client
-	forgeClient, err := newForgeClient(provider, remoteURL)
+	forgeClient, provider, err := primaryForgeClient(rootDir, req.Config)
 	if err != nil {
 		return err
 	}
@@ -721,6 +709,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	if req.CatalogLinks && provider == forge.GitLab {
 		for _, t := range req.Config.Targets {
 			if t.Kind == "gitlab-component" && t.Catalog {
+				remoteURL, _ := detectRemoteURL(rootDir)
 				catalogLink := buildCatalogLink(remoteURL, tag)
 				if catalogLink.URL != "" {
 					if err := forgeClient.AddReleaseLink(ctx, rel.ID, catalogLink); err != nil {
@@ -1294,6 +1283,33 @@ func detectRemoteURL(rootDir string) (string, error) {
 		return det.GitInfo.Remote, nil
 	}
 	return "", fmt.Errorf("no git remote URL found")
+}
+
+// primaryForgeClient builds the client for the primary repo. The declared primary
+// (repos + forges) supplies the provider, API endpoint and project; the git remote is
+// only a fallback for the provider, and CI environment for the project. So an IP or
+// SSH-alias remote, or a run outside CI, still reaches the right project.
+func primaryForgeClient(rootDir string, cfg *config.Config) (forge.Forge, forge.Provider, error) {
+	remoteURL, err := detectRemoteURL(rootDir)
+	if err != nil {
+		return nil, forge.Unknown, fmt.Errorf("detecting remote: %w", err)
+	}
+	provider, clientURL := resolveForgeProvider(remoteURL, cfg)
+	if provider == forge.Unknown {
+		return nil, forge.Unknown, fmt.Errorf("unknown forge provider for remote %s (set forges[].provider to declare it explicitly)", remoteURL)
+	}
+	fc, err := newForgeClient(provider, clientURL)
+	if err != nil {
+		return nil, provider, err
+	}
+	if cfg != nil {
+		if primary, perr := config.ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars); perr == nil && primary != nil {
+			if err := forge.SetProject(fc, primary.Project); err != nil {
+				return nil, provider, fmt.Errorf("primary repo %s: %w", primary.ID, err)
+			}
+		}
+	}
+	return fc, provider, nil
 }
 
 // newForgeClient creates a forge client from the detected provider and remote URL.

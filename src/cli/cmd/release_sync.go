@@ -60,13 +60,7 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 	w := os.Stdout
 	color := output.UseColor()
 
-	// Detect primary forge.
-	remoteURL, err := detectRemoteURL(rootDir)
-	if err != nil {
-		return fmt.Errorf("detecting remote: %w", err)
-	}
-	provider := forge.DetectProvider(remoteURL)
-	primaryClient, err := newForgeClient(provider, remoteURL)
+	primaryClient, provider, err := primaryForgeClient(rootDir, cfg)
 	if err != nil {
 		return fmt.Errorf("creating primary forge client: %w", err)
 	}

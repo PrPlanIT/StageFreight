@@ -431,3 +431,40 @@ func splitOwnerRepo(path string) (string, string, error) {
 	}
 	return owner, repo, nil
 }
+
+// SetProject points a client at a declared project ("owner/repo"; a GitLab path or ID),
+// replacing whatever its constructor read from CI environment. The declared location is
+// authoritative, and outside CI it is the only source.
+func SetProject(f Forge, project string) error {
+	if project == "" {
+		return nil
+	}
+	switch c := f.(type) {
+	case *GitLabForge:
+		c.ProjectID = project
+		return nil
+	case *GitHubForge:
+		owner, repo, err := splitOwnerRepo(project)
+		if err != nil {
+			return err
+		}
+		c.Owner, c.Repo = owner, repo
+	case *GiteaForge:
+		owner, repo, err := splitOwnerRepo(project)
+		if err != nil {
+			return err
+		}
+		c.Owner, c.Repo = owner, repo
+	case *ForgejoForge:
+		return SetProject(c.GiteaForge, project)
+	case *AzureDevOpsForge:
+		p, repo, err := splitOwnerRepo(project)
+		if err != nil {
+			return err
+		}
+		c.Project, c.Repo = p, repo
+	default:
+		return fmt.Errorf("set project: unsupported forge client %T", f)
+	}
+	return nil
+}

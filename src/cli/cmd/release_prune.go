@@ -54,18 +54,7 @@ func runReleasePrune(cmd *cobra.Command, args []string) error {
 	color := output.UseColor()
 	w := os.Stdout
 
-	// Detect forge
-	remoteURL, err := detectRemoteURL(rootDir)
-	if err != nil {
-		return fmt.Errorf("detecting remote: %w", err)
-	}
-
-	provider := forge.DetectProvider(remoteURL)
-	if provider == forge.Unknown {
-		return fmt.Errorf("could not detect forge from remote URL: %s", remoteURL)
-	}
-
-	forgeClient, err := newForgeClient(provider, remoteURL)
+	forgeClient, _, err := primaryForgeClient(rootDir, cfg)
 	if err != nil {
 		return err
 	}

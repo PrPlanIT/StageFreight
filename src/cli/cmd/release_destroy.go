@@ -63,12 +63,7 @@ func runReleaseDestroy(cmd *cobra.Command, args []string) error {
 	color := output.UseColor()
 
 	// Primary forge (the source of truth we're removing from first).
-	remoteURL, err := detectRemoteURL(rootDir)
-	if err != nil {
-		return fmt.Errorf("detecting remote: %w", err)
-	}
-	provider := forge.DetectProvider(remoteURL)
-	primaryClient, err := newForgeClient(provider, remoteURL)
+	primaryClient, provider, err := primaryForgeClient(rootDir, cfg)
 	if err != nil {
 		return fmt.Errorf("creating primary forge client: %w", err)
 	}
