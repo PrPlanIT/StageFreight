@@ -193,6 +193,19 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	if tag == "" {
 		tag = "v" + versionInfo.Version
 	}
+	// Releasing an existing tag that HEAD is not at (a backfill, or a past version
+	// re-released) describes that tag — its commit, version and prerelease — and is not
+	// the build being published, so it moves no rolling alias and prunes nothing.
+	pastTag := false
+	if req.Tag != "" {
+		if repo, oerr := gitstate.OpenRepo(rootDir); oerr == nil {
+			if sha, rerr := gitstate.ResolveRef(repo, req.Tag); rerr == nil {
+				if head, herr := gitstate.ResolveRef(repo, "HEAD"); herr == nil && head != sha {
+					versionInfo, pastTag = gitver.VersionOfTag(req.Tag, sha), true
+				}
+			}
+		}
+	}
 	name := req.Name
 	if name == "" {
 		name = tag
@@ -558,6 +571,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			ChangelogLimit: releaseFactLimit(req.Config, "changelog", config.DefaultChangelogLimit),
 			ProjectName:    detectProjectName(rootDir),
 			Version:        versionInfo.Version,
+			Tag:            tag,
 			SHA:            sha,
 			IsPrerelease:   isPrerelease,
 			ReleaseType:    releaseTypeLabel(relType),
@@ -723,7 +737,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 
 	// Auto-tagging: create rolling git tags for configured aliases on primary release target.
 	// These are lightweight git tags (not releases) — they point at the release tag.
-	if primaryRelease != nil && len(primaryRelease.Aliases) > 0 {
+	if primaryRelease != nil && len(primaryRelease.Aliases) > 0 && !pastTag {
 		currentTag := os.Getenv("CI_COMMIT_TAG")
 		// CRITICAL:
 		// tag_sources as map is ONLY for when.git_tags lookup on target conditions.
@@ -908,7 +922,10 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 	retStart := time.Now()
 	// The release phase retains only the primary; mirror retention runs in the terminal
 	// syncMirrors, after its reconcile projects this run's release so the count converges.
-	retOutcomes := applyChannelRetention(ctx, req.Config, forgeClient)
+	var retOutcomes []retOutcome
+	if !pastTag {
+		retOutcomes = applyChannelRetention(ctx, req.Config, forgeClient)
+	}
 	if len(retOutcomes) > 0 {
 		output.SectionStart(w, "sf_retention", "Retention")
 		retSec := output.NewSection(w, "Retention", time.Since(retStart), color)

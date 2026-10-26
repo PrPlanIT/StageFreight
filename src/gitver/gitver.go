@@ -446,6 +446,19 @@ func populateSemver(v *VersionInfo, m []string) {
 	}
 }
 
+// VersionOfTag is the version a release tag names, at its commit sha: a semver tag
+// parses as on the normal path; any other tag (an older scheme such as beta_v0.614) is
+// its own version, raw.
+func VersionOfTag(tag, sha string) *VersionInfo {
+	v := &VersionInfo{SHA: sha, IsRelease: true}
+	if m := semverRe.FindStringSubmatch(tag); m != nil {
+		populateSemver(v, m)
+		return v
+	}
+	v.Version, v.Base = tag, tag
+	return v
+}
+
 // renderVersionFormat substitutes placeholders in a version format template.
 // Supported: {base}, {sha}, {branch}
 func renderVersionFormat(format string, v *VersionInfo) string {

@@ -126,6 +126,7 @@ type NotesInput struct {
 	TagMessage     string                      // annotated tag message (optional, auto-detected if empty)
 	ProjectName    string                      // project name (auto-detected if empty)
 	Version        string                      // version string (auto-detected if empty)
+	Tag            string                      // the release's tag; heads the notes when it is a declared release tag
 	SHA            string                      // short commit hash (auto-detected if empty)
 	IsPrerelease   bool                        // true if version has prerelease suffix
 	ReleaseType    string                      // resolved semantic type label (latest/prerelease/stable); overrides IsPrerelease for the "Release type:" line
@@ -163,11 +164,32 @@ func GenerateNotes(input NotesInput) (string, error) {
 		}
 	}
 
+	// Notes ending at an explicit ref (a tag, usually) describe that ref: the ref is the
+	// version and its commit the SHA. Only notes ending at HEAD take HEAD's detected
+	// version — a past release's notes must never be labeled with today's build.
+	if input.ToRef != "HEAD" {
+		if input.Tag == "" {
+			input.Tag = input.ToRef
+		}
+		sha := ""
+		if repo, err := gitstate.OpenRepo(input.RepoDir); err == nil {
+			sha, _ = gitstate.ResolveRef(repo, input.ToRef)
+		}
+		v := gitver.VersionOfTag(input.ToRef, sha)
+		if input.Version == "" {
+			input.Version = v.Version
+			input.IsPrerelease = input.IsPrerelease || v.IsPrerelease
+		}
+		if input.SHA == "" && len(sha) >= 8 {
+			input.SHA = sha[:8]
+		}
+	}
+
 	// Auto-detect project metadata if not provided.
 	// Requires input.Config — without it, auto-detect is skipped and the
 	// caller is responsible for supplying Version/SHA directly.
 	if (input.ProjectName == "" || input.Version == "" || input.SHA == "") && input.Config != nil {
-		if vi, err := build.DetectVersion(input.RepoDir, input.Config); err == nil {
+		if vi, err := build.DetectVersion(input.RepoDir, input.Config); err == nil && input.ToRef == "HEAD" {
 			if input.Version == "" {
 				input.Version = vi.Version
 			}
@@ -668,12 +690,12 @@ func Categorize(commits []Commit) []CommitCategory {
 // defaultReleaseNotesBody is the shipped release-notes stencil body: the
 // natural language of the notes — hero lines, the security tile label, the
 // rule, the changelog wrapper — authored here, with {} filled by facts
-// ({project}, {version}, {sha}, {release.type}) and the conditional section
+// ({project}, {version}, {release.label}, {sha}, {release.type}) and the conditional section
 // widgets (which carry their own headings/wrappers and elide wholly with
 // their data). Override it by declaring a `release-notes` text stencil in
 // stencils: — reword the language, reorder or delete sections, add your own
 // markdown between them.
-const defaultReleaseNotesBody = "## 📦 {project} — `v{version}`\n" +
+const defaultReleaseNotesBody = "## 📦 {project} — `{release.label}`\n" +
 	"> **Release type:** {release.type} • **Commit:** `{sha}`\n" +
 	"\n" +
 	"**Security:** {release.security-tile}\n" +
@@ -692,6 +714,18 @@ const defaultReleaseNotesBody = "## 📦 {project} — `v{version}`\n" +
 	"{release.changelog}\n" +
 	"\n" +
 	"</details>\n"
+
+// releaseLabel names the release in its heading: its tag when that is a declared release
+// tag (v1.2.3, or an older scheme's beta_v0.614, as written), else "v" + the version (a dev
+// build, or a channel tag such as dev-1a2b3c4d).
+func releaseLabel(input NotesInput, version string) string {
+	for _, p := range input.TagPatterns {
+		if re, err := regexp.Compile(p); err == nil && input.Tag != "" && re.MatchString(input.Tag) {
+			return input.Tag
+		}
+	}
+	return "v" + version
+}
 
 // renderNotes composes the release body from facts + section widgets through
 // the release-notes stencil body (shipped default, or the config's override).
@@ -713,6 +747,7 @@ func renderNotes(input NotesInput, categories []CommitCategory, allCommits []Com
 		// Facts — data, one render.
 		"project":               project,
 		"version":               version,
+		"release.label":         releaseLabel(input, version),
 		"sha":                   input.SHA,
 		"release.type":          rtLabel,
 		"release.security-tile": input.SecurityTile,
