@@ -114,6 +114,7 @@ type Selection struct {
 	Variant string // libc build; "" for a tool without libc builds
 	SHA256  string
 	Pinned  bool // the version came from config intent; a failed resolve is fatal
+	Exact   bool // config declared this exact version (not a line tracked through the lock)
 }
 
 // Select resolves tool's version (ResolveVersion), its libc build (variant: or the
@@ -126,8 +127,8 @@ func Select(rootDir, tool string, desired map[string]config.ToolConstraint) (Sel
 		}
 	}
 	ver, pinned := ResolveVersion(rootDir, tool, "", desired)
-	sel := Selection{Version: ver, Pinned: pinned}
 	c := desired[tool]
+	sel := Selection{Version: ver, Pinned: pinned, Exact: pinned && c.Constraint == ver}
 	if def, ok := LookupTool(tool); ok {
 		v, err := Variant(def, c.Variant)
 		if err != nil {

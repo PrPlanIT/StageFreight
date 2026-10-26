@@ -42,10 +42,12 @@ type ToolchainSection struct {
 	// as dependency.min_release_age.
 	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 
-	// Retention governs how many resolved versions of each tool are RETAINED on the
-	// runner (keep_last newest per tool; unset = engine default 2). The pinned
-	// constraint's resolved version and the lock's resolution are always protected —
-	// retention rotates superseded residue, never declared intent.
+	// Retention governs which installed versions of each tool are RETAINED in the
+	// runner's shared cache (unset = engine default keep_last 2). Versions are ranked by
+	// when any repo last USED them, so a version another repo still runs survives this
+	// repo's prune. The policy is applied again to versions some repo declares exactly,
+	// ranked by that pinned use, so an older pin is kept beside the newest release. This
+	// repo's own pins are always protected — retention rotates residue nobody uses.
 	Retention RetentionPolicy `yaml:"retention,omitempty"`
 }
 

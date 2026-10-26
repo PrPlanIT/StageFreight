@@ -207,7 +207,7 @@ func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string
 	if err != nil {
 		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}
-	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", sel.Version, sel.Variant, sel.SHA256)
+	res, err := toolchain.ResolvePinned(rootDir, "cargo-llvm-cov", sel)
 	if err != nil {
 		return nil, fmt.Errorf("resolving cargo-llvm-cov: %w", err)
 	}

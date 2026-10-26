@@ -50,6 +50,14 @@ type Result struct {
 // Empty version uses ToolDef.DefaultVer.
 // No fallback. No stderr output — callers own presentation.
 func Resolve(rootDir, tool, version string) (Result, error) {
+	r, err := resolve(rootDir, tool, version)
+	if err == nil {
+		markUsed(rootDir, r, false)
+	}
+	return r, err
+}
+
+func resolve(rootDir, tool, version string) (Result, error) {
 	// Go and Rust are full DISTRIBUTIONS (not single binaries), so each has its own
 	// resolution path: verified official artifact, explicit install layout, no host
 	// fallback. Empty version defers to the language-specific default.
@@ -108,27 +116,36 @@ func Resolve(rootDir, tool, version string) (Result, error) {
 	return resolveWithDef(rootDir, def, version, variant, "")
 }
 
-// ResolvePinned is Resolve for tools whose integrity is a project-pinned SHA256
-// (Select: an asserted toolchains.want.<tool>.sha256, or the lock's digest), not an upstream checksum manifest —
-// e.g. cargo-llvm-cov, whose upstream ships BLAKE3. The downloaded artifact is
-// verified against sha256. An empty sha256 falls back to the tool's ChecksumURL,
-// so this is a strict superset of Resolve. variant is the libc build ("" = the host's).
-func ResolvePinned(rootDir, tool, version, variant, sha256 string) (Result, error) {
+// ResolvePinned is Resolve for a Selection: its version and libc build, verified
+// against its SHA256 (an asserted toolchains.want.<tool>.sha256, or the lock's digest)
+// rather than an upstream checksum manifest — e.g. cargo-llvm-cov, whose upstream ships
+// BLAKE3. An empty SHA256 falls back to the tool's ChecksumURL, so this is a strict
+// superset of Resolve. An exact selection marks the install pinned for retention.
+func ResolvePinned(rootDir, tool string, sel Selection) (Result, error) {
+	r, err := resolvePinned(rootDir, tool, sel)
+	if err == nil {
+		markUsed(rootDir, r, sel.Exact)
+	}
+	return r, err
+}
+
+func resolvePinned(rootDir, tool string, sel Selection) (Result, error) {
 	if tool == "go" || tool == "rust" {
-		return Resolve(rootDir, tool, version) // distributions verify their own way
+		return resolve(rootDir, tool, sel.Version) // distributions verify their own way
 	}
 	def, ok := LookupTool(tool)
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported toolchain %q", tool)
 	}
+	version := sel.Version
 	if version == "" {
 		version = def.DefaultVer
 	}
-	variant, err := Variant(def, variant)
+	variant, err := Variant(def, sel.Variant)
 	if err != nil {
 		return Result{}, err
 	}
-	return resolveWithDef(rootDir, def, version, variant, sha256)
+	return resolveWithDef(rootDir, def, version, variant, sel.SHA256)
 }
 
 // FetchArtifactSHA256 downloads a tool's release artifact for this host (its platform and
