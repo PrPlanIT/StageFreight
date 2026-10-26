@@ -391,11 +391,11 @@ test:
 
 toolchains:
   want:
-    trivy: "0.x"
-    syft: "1.x"
-    grype: "0.x"
-    osv-scanner: "2.x"
-    cosign: "3.x"
+    trivy: "x"
+    syft: "x"
+    grype: "x"
+    osv-scanner: "x"
+    cosign: "x"
   retention:
     keep_last: 2
 
