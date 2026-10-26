@@ -1488,7 +1488,7 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 		// PRUNES mirror releases absent from the desired set (opt-in, destructive).
 		if m.Sync.SyncsReleases() && len(primaryReleases) > 0 {
 			spec := m.Sync.Releases
-			desired := stagefreightsync.ScopedReleases(primaryReleases, spec, refCtx.Tag)
+			desired := stagefreightsync.ScopedReleases(primaryReleases, spec, appCfg.Git.Tags, refCtx.Tag)
 
 			mirrorClient, err := forge.NewFromAccessory(m.Provider, m.BaseURL, m.Project, m.Credentials)
 			if err != nil {

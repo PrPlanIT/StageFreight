@@ -318,54 +318,42 @@ func srcRelease2(src *fakeForge, tag string) DesiredRelease {
 	return d
 }
 
-// End-to-end: retention drives the mirror. 5 dev releases on the source; keep_last:3
-// produces a 3-release desired set; the reconciler prunes the 2 stale OURS releases
-// on the mirror (binaries included), never touching anything foreign.
-func TestBuildDesired_RetentionDrivesMirror(t *testing.T) {
+// The declared scope drives the mirror: a mirror holding SF-placed dev and stable
+// releases, re-scoped to only: [stable], prunes the dev ones and keeps the stable one.
+func TestScope_PrunesOutOfScopeReleases(t *testing.T) {
 	ctx := context.Background()
 	src, dst := newFake("src"), newFake("dst")
-	for i := 1; i <= 5; i++ {
-		srcRelease(src, fmt.Sprintf("dev-%08d", i), "notes", map[string][]byte{"app": []byte(fmt.Sprintf("v%d", i))})
+	for _, tag := range []string{"dev-00000001", "dev-00000002", "v1.0.0"} {
+		srcRelease(src, tag, "notes", map[string][]byte{"app": []byte(tag)})
 	}
-	templates := []string{"dev-{sha:8}"}
-
-	// ∞ policy → all 5 desired → mirror holds 5 (ours).
-	all, err := BuildDesiredReleases(ctx, src, templates, config.RetentionPolicy{})
+	rels, err := src.ListReleases(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 5 {
-		t.Fatalf("∞ retention → 5 desired, got %d", len(all))
+	all, err := DesiredFromReleases(ctx, src, rels)
+	if err != nil {
+		t.Fatal(err)
 	}
 	reconcile(t, src, dst, all, Options{})
-	if len(dst.rels) != 5 {
-		t.Fatalf("mirror should hold 5, has %d", len(dst.rels))
+	if len(dst.rels) != 3 {
+		t.Fatalf("mirror should hold 3, has %d", len(dst.rels))
 	}
 
-	// keep_last:3 → 3 desired → reconcile-prune removes the 2 oldest OURS releases.
-	desired, err := BuildDesiredReleases(ctx, src, templates, config.RetentionPolicy{KeepLast: 3})
+	spec := config.FacetSpec{Scope: "all", Only: []string{"stable"}}
+	sources := config.OrderedTagSources{{ID: "stable", Pattern: `^v\d+\.\d+\.\d+$`}, {ID: "dev", Pattern: `^dev-`}}
+	var scoped []forge.ReleaseInfo
+	for _, r := range rels {
+		if spec.ReleaseInScope(r.TagName, sources) {
+			scoped = append(scoped, r)
+		}
+	}
+	desired, err := DesiredFromReleases(ctx, src, scoped)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(desired) != 3 {
-		t.Fatalf("keep_last:3 → 3 desired, got %d", len(desired))
-	}
 	res := reconcile(t, src, dst, desired, Options{Prune: true})
-	if len(res.Pruned) != 2 {
-		t.Fatalf("expected 2 pruned, got %v", res.Pruned)
-	}
-	if len(dst.rels) != 3 {
-		t.Fatalf("mirror should be 3 after prune, has %d", len(dst.rels))
-	}
-	for _, tag := range []string{"dev-00000003", "dev-00000004", "dev-00000005"} {
-		if dst.rels[tag] == nil {
-			t.Fatalf("retained %s missing from mirror", tag)
-		}
-	}
-	for _, tag := range []string{"dev-00000001", "dev-00000002"} {
-		if dst.rels[tag] != nil {
-			t.Fatalf("%s should have been pruned from mirror", tag)
-		}
+	if len(res.Pruned) != 2 || dst.rels["v1.0.0"] == nil || dst.rels["dev-00000001"] != nil {
+		t.Fatalf("only the stable release should remain: pruned=%v mirror=%d", res.Pruned, len(dst.rels))
 	}
 }
 

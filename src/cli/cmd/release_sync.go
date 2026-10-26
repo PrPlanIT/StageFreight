@@ -10,6 +10,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/mirror"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/spf13/cobra"
 )
 
@@ -103,12 +104,17 @@ func runReleaseSync(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Compute this mirror's desired release set from the primary — every
-		// primary release, each with its file assets resolved for re-hosting —
-		// then converge the mirror to it with the reconciler engine: binaries
-		// carried (not notes-only), notes preserved, granular per-asset, and
-		// provenance-bounded (only ever touches releases SF placed there).
-		desired, err := mirror.BuildDesiredReleases(ctx, primaryClient, nil, config.RetentionPolicy{})
+		// This mirror's share of the primary's releases (the same scope the publish stage
+		// mirrors: only: tag sources, match: glob, drafts), each with its file assets
+		// resolved for re-hosting. A full reconcile, so scope current reads as all. Then
+		// converge the mirror with the reconciler engine: binaries carried, notes
+		// preserved, granular per-asset, and provenance-bounded (it only ever touches
+		// releases SF placed there; with prune, those now outside the scope go).
+		spec := *m.Sync.Releases
+		if spec.IsCurrent() {
+			spec.Scope = "all"
+		}
+		desired, err := mirror.DesiredFromReleases(ctx, primaryClient, stagefreightsync.ScopedReleases(primaryReleases, &spec, cfg.Git.Tags, ""))
 		if err != nil {
 			sec.Row("%s mirror:%s — failed to build desired set: %v", output.StatusIcon("failed", color), m.ID, err)
 			totalFailed++

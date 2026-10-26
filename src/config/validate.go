@@ -48,6 +48,25 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 
+	// A mirror's releases scope names tag sources and a glob; an unknown id or a bad glob
+	// would silently scope the mirror to nothing.
+	for _, r := range cfg.Repos {
+		rs := r.Sync.Releases
+		if rs == nil {
+			continue
+		}
+		for _, id := range rs.Only {
+			if !tagSourceIDs[id] {
+				errs = append(errs, fmt.Sprintf("repos.%s.sync.releases.only: %q is not a declared git.tags source", r.ID, id))
+			}
+		}
+		if rs.Match != "" {
+			if _, err := gopath.Match(rs.Match, ""); err != nil {
+				errs = append(errs, fmt.Sprintf("repos.%s.sync.releases.match: %q is not a valid glob: %v", r.ID, rs.Match, err))
+			}
+		}
+	}
+
 	// branch_builds: ordered slice validation.
 	// - id required, unique
 	// - default required and last

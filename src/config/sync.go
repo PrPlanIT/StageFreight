@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -322,4 +324,29 @@ func (s *SyncConfig) decodeMapping(node *yaml.Node) error {
 		}
 	}
 	return nil
+}
+
+// ReleaseInScope reports whether a release tag is inside this releases facet's declared
+// scope: one of the only: tag sources (when set) and the match: glob (when set). A tag
+// outside it is neither mirrored nor, if SF placed it there, kept on the mirror.
+func (f FacetSpec) ReleaseInScope(tag string, sources OrderedTagSources) bool {
+	if f.Match != "" {
+		if ok, _ := path.Match(f.Match, tag); !ok {
+			return false
+		}
+	}
+	if len(f.Only) == 0 {
+		return true
+	}
+	for _, id := range f.Only {
+		for _, ts := range sources {
+			if ts.ID != id {
+				continue
+			}
+			if re, err := regexp.Compile(ts.Pattern); err == nil && re.MatchString(tag) {
+				return true
+			}
+		}
+	}
+	return false
 }

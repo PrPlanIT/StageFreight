@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"fmt"
-	"path"
 	"path/filepath"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -11,11 +10,11 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
 
-// ScopedReleases filters primary releases to those a releases facet should
-// project. scope:current keeps only the current tag's release; drafts are
-// excluded unless spec.Drafts; a match glob restricts by tag name. all/exact
-// keep everything (minus filtered). Returns nil for a nil facet.
-func ScopedReleases(primary []forge.ReleaseInfo, spec *config.FacetSpec, currentTag string) []forge.ReleaseInfo {
+// ScopedReleases is a mirror's share of the primary's releases under its releases facet:
+// drafts only with drafts: true, tags inside the declared scope (only: tag sources and
+// match: glob, see FacetSpec.ReleaseInScope), and under scope current only the run's tag.
+// Both the publish stage and `release sync` mirror exactly this set.
+func ScopedReleases(primary []forge.ReleaseInfo, spec *config.FacetSpec, sources config.OrderedTagSources, currentTag string) []forge.ReleaseInfo {
 	if spec == nil {
 		return nil
 	}
@@ -24,10 +23,8 @@ func ScopedReleases(primary []forge.ReleaseInfo, spec *config.FacetSpec, current
 		if r.Draft && !spec.Drafts {
 			continue
 		}
-		if spec.Match != "" {
-			if ok, _ := path.Match(spec.Match, r.TagName); !ok {
-				continue
-			}
+		if !spec.ReleaseInScope(r.TagName, sources) {
+			continue
 		}
 		if spec.IsCurrent() && (currentTag == "" || r.TagName != currentTag) {
 			continue

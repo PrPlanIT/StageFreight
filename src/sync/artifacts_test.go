@@ -22,34 +22,34 @@ func relTags(rs []forge.ReleaseInfo) string {
 
 func TestScopedReleases_AllExcludesDrafts(t *testing.T) {
 	primary := []forge.ReleaseInfo{rel("v1", false), rel("v2", true), rel("v3", false)}
-	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "all"}, "")); got != "v1,v3" {
+	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "all"}, nil, "")); got != "v1,v3" {
 		t.Fatalf("scope:all should drop drafts, got %q", got)
 	}
 }
 
 func TestScopedReleases_DraftsIncluded(t *testing.T) {
 	primary := []forge.ReleaseInfo{rel("v1", false), rel("v2", true)}
-	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "all", Drafts: true}, "")); got != "v1,v2" {
+	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "all", Drafts: true}, nil, "")); got != "v1,v2" {
 		t.Fatalf("drafts:true should carry drafts, got %q", got)
 	}
 }
 
 func TestScopedReleases_Current(t *testing.T) {
 	primary := []forge.ReleaseInfo{rel("v1", false), rel("v2", false)}
-	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "current"}, "v2")); got != "v2" {
+	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "current"}, nil, "v2")); got != "v2" {
 		t.Fatalf("scope:current should keep only the run's tag, got %q", got)
 	}
 }
 
 func TestScopedReleases_Match(t *testing.T) {
 	primary := []forge.ReleaseInfo{rel("v1.0", false), rel("beta-1", false)}
-	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "all", Match: "v*"}, "")); got != "v1.0" {
+	if got := relTags(ScopedReleases(primary, &config.FacetSpec{Scope: "all", Match: "v*"}, nil, "")); got != "v1.0" {
 		t.Fatalf("match should filter by tag glob, got %q", got)
 	}
 }
 
 func TestScopedReleases_NilSpec(t *testing.T) {
-	if got := ScopedReleases([]forge.ReleaseInfo{rel("v1", false)}, nil, ""); got != nil {
+	if got := ScopedReleases([]forge.ReleaseInfo{rel("v1", false)}, nil, nil, ""); got != nil {
 		t.Fatalf("nil facet should return nil, got %v", got)
 	}
 }
