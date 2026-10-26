@@ -37,7 +37,11 @@ type RepoConfig struct {
 // protected branches, release branches, etc. — those stay on the repo
 // because they're topology, not versioning or promotion.
 type BranchesConfig struct {
-	// Default is the default branch name (e.g., "main"). Required for primary.
+	// Default is the default branch name (e.g., "main"). Required for primary. On a
+	// mirror it is projected: mirror sync sets that forge's default branch to it, so a
+	// mirror can land visitors on a different branch than the primary does (a legacy line
+	// kept as the public face while development moves on). Unset on a mirror leaves its
+	// default untouched.
 	Default string `yaml:"default,omitempty"`
 }
 

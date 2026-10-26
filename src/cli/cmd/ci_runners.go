@@ -1482,6 +1482,14 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 			}
 		}
 
+		// 1b. Default branch: a mirror that declares branches.default lands visitors there,
+		// which may differ from the primary's (a legacy line kept as the public face while
+		// development moves on). Set after the ref push, so the branch exists.
+		if want := m.DefaultBranch; want != "" && !readOnly {
+			icon, detail := projectDefaultBranch(ctx, *m, want)
+			rep.add(icon, "default", "%s", detail)
+		}
+
 		// 2. Release reconciliation (if enabled), honoring the releases facet
 		// scope: all/exact project every release (drafts excluded unless drafts:true,
 		// match glob applies), current projects only the run's tag. exact additionally
