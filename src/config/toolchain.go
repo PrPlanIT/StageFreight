@@ -30,6 +30,11 @@ type ToolchainSection struct {
 	// gitops), not CI-specific.
 	Want ToolchainConfig `yaml:"want,omitempty"`
 
+	// Update lets the dependency update move each tool to the newest version its
+	// constraint allows (default true). A tool's own update: overrides it. Independent
+	// of dependency.remediate, which governs the repo's own dependencies.
+	Update *bool `yaml:"update,omitempty"`
+
 	// Retention governs how many resolved versions of each tool are RETAINED on the
 	// runner (keep_last newest per tool; unset = engine default 2). The pinned
 	// constraint's resolved version and the lock's resolution are always protected —
@@ -61,8 +66,14 @@ func (s *ToolchainSection) UnmarshalYAML(node *yaml.Node) error {
 			if err := node.Content[i+1].Decode(&s.Retention); err != nil {
 				return fmt.Errorf("toolchains.retention: %w", err)
 			}
+		case "update":
+			var b bool
+			if err := node.Content[i+1].Decode(&b); err != nil {
+				return fmt.Errorf("toolchains.update: must be true or false")
+			}
+			s.Update = &b
 		default:
-			return fmt.Errorf("toolchains.%s: toolchains: was a flat tool→constraint map; nest the tool map under toolchains.want: (retention: is the only other key)", key)
+			return fmt.Errorf("toolchains.%s: toolchains: was a flat tool→constraint map; nest the tool map under toolchains.want: (update: and retention: are the only other keys)", key)
 		}
 	}
 	return nil
@@ -103,13 +114,28 @@ func (c *ToolchainConfig) UnmarshalYAML(node *yaml.Node) error {
 // key is `version`.
 type ToolConstraint struct {
 	Constraint string `yaml:"version,omitempty"`
+	// Update overrides toolchains.update for this tool; nil inherits it.
+	Update *bool `yaml:"update,omitempty"`
+}
+
+// UpdateEnabled reports whether the dependency update may move tool: its own update:,
+// else the section's, else true.
+func (s ToolchainSection) UpdateEnabled(tool string) bool {
+	if c, ok := s.Want[tool]; ok && c.Update != nil {
+		return *c.Update
+	}
+	if s.Update != nil {
+		return *s.Update
+	}
+	return true
 }
 
 // UnmarshalYAML accepts two input forms and normalizes them to the internal Constraint —
 // it answers only "what did the user write", performing no semantic validation:
 //
-//	go: 1.26.x               # scalar shorthand
-//	go: {version: 1.26.x}    # explicit
+//	go: 1.26.x                            # scalar shorthand
+//	go: {version: 1.26.x}                 # explicit
+//	go: {version: 1.26.x, update: false}  # explicit, held at its lock
 func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 	parsed, err := parseToolConstraint(node)
 	if err != nil {
@@ -120,8 +146,8 @@ func (t *ToolConstraint) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // parseToolConstraint is the shared normalization core: scalar-or-map → one
-// ToolConstraint. The map form's only key is `version` (Cargo convention); its value is a
-// version requirement. A pre-lock inline `constraint`/`resolved`/`sha256` is silently
+// ToolConstraint. The map form's keys are `version` (Cargo convention; its value is a
+// version requirement) and `update`. A pre-lock inline `constraint`/`resolved`/`sha256` is silently
 // ignored (node.Decode does not reject unknown keys) and superseded by the lock.
 func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	var t ToolConstraint
@@ -131,10 +157,12 @@ func parseToolConstraint(node *yaml.Node) (ToolConstraint, error) {
 	}
 	var raw struct {
 		Version string `yaml:"version"`
+		Update  *bool  `yaml:"update"`
 	}
 	if err := node.Decode(&raw); err != nil {
 		return t, err
 	}
 	t.Constraint = raw.Version
+	t.Update = raw.Update
 	return t, nil
 }

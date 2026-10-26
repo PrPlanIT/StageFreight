@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/paths"
@@ -97,7 +98,7 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 			skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "could not derive pinned sha256 for " + dep.Latest})
 			continue
 		}
-		lines[verIdx] = leadIndent(lines[verIdx]) + fmt.Sprintf(`%s: "%s"`, verKey, dep.Latest)
+		lines[verIdx] = rewriteVersion(lines[verIdx], verKey, dep.Latest)
 		configModified = true
 		lock.Set(toolName, dep.Latest, sha)
 		lockModified = true
@@ -178,17 +179,38 @@ func findToolEntry(lines []string, start, end int, toolName string) (verIdx int,
 	return -1, "", ""
 }
 
-// flowMapVersion unwraps an inline `{version: X}` flow map to X; any other value
+// flowVersionRE matches the version entry of an inline flow map, whatever its sibling keys.
+var flowVersionRE = regexp.MustCompile(`(\bversion:\s*)("[^"]*"|'[^']*'|[^,}\s]+)`)
+
+// flowMapVersion unwraps an inline `{version: X, …}` flow map to X; any other value
 // passes through as the constraint itself.
 func flowMapVersion(v string) string {
 	if !strings.HasPrefix(v, "{") {
 		return v
 	}
-	inner := strings.TrimSuffix(strings.TrimPrefix(v, "{"), "}")
-	if idx := strings.Index(inner, ":"); idx >= 0 {
-		return strings.Trim(strings.TrimSpace(inner[idx+1:]), `"' `)
+	m := flowVersionRE.FindStringSubmatch(v)
+	if m == nil {
+		return ""
 	}
-	return ""
+	return strings.Trim(m[2], `"'`)
+}
+
+// rewriteVersion replaces only the version value on a toolchain line — scalar, block
+// `version:` or inline flow map — keeping sibling keys and any trailing comment.
+func rewriteVersion(line, key, ver string) string {
+	indent := leadIndent(line)
+	body := strings.TrimPrefix(line, indent)
+	comment := ""
+	if c := strings.Index(body, " #"); c >= 0 {
+		comment = body[c:]
+		body = body[:c]
+	}
+	value := strings.TrimSpace(strings.TrimPrefix(body, key+":"))
+	if strings.HasPrefix(value, "{") {
+		value = flowVersionRE.ReplaceAllString(value, `${1}"`+ver+`"`)
+		return indent + key + ": " + value + comment
+	}
+	return indent + fmt.Sprintf(`%s: "%s"`, key, ver) + comment
 }
 
 func leadIndent(line string) string   { return line[:leadIndentWidth(line)] }
@@ -214,13 +236,16 @@ func findToolConstraintLine(lines []string, keyIdx, keyIndent, sectionEnd int) (
 	return -1, ""
 }
 
+// fetchArtifactSHA256 downloads a release to digest it; tests replace it.
+var fetchArtifactSHA256 = toolchain.FetchArtifactSHA256
+
 // resolveLockDigest fetches the artifact digest for tool@ver to record in the lock.
 // keep=false means the fetch failed AND the tool was already digest-pinned — the caller
 // must abort rather than drop the pin (transactional). keep=true (sha may be "") means
 // proceed: either the fetch succeeded, or the tool was never digest-pinned and verifies
 // via its upstream checksum manifest instead of a recorded digest.
 func resolveLockDigest(lock *toolchain.Lock, tool, ver string) (sha string, keep bool) {
-	if s, err := toolchain.FetchArtifactSHA256(tool, ver); err == nil {
+	if s, err := fetchArtifactSHA256(tool, ver); err == nil {
 		return s, true
 	}
 	if e, ok := lock.Get(tool); ok && e.SHA256 != "" {

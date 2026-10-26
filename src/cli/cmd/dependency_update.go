@@ -196,6 +196,8 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 		Policy:     depPolicy,
 		MaxUpdate:  depMaxUpdate,
 		Ignore:     mapIgnores(cfg.Dependency.Ignore),
+
+		ToolchainUpdate: cfg.Toolchains.UpdateEnabled,
 	}
 
 	if depDryRun {

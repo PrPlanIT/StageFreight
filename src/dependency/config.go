@@ -19,6 +19,9 @@ type UpdateConfig struct {
 	MaxUpdate  string       // update-type CEILING: "major" | "minor" (default) | "patch"
 	Ignore     []VulnIgnore // accepted-risk advisory suppressions (id/reason/until)
 	Writer     io.Writer    // section-card output target (default os.Stderr); the deps progress card renders here
+	// ToolchainUpdate reports whether a toolchain may be moved (toolchains.update),
+	// independent of DryRun; nil allows every toolchain.
+	ToolchainUpdate func(tool string) bool
 }
 
 // VulnIgnore is a single accepted-risk advisory suppression. Mirrors config's

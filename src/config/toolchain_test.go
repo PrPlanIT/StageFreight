@@ -105,3 +105,48 @@ func TestToolConstraintToolNameError(t *testing.T) {
 		t.Errorf("error must name the tool 'helm', got %v", err)
 	}
 }
+
+// TestToolchainSection_Update: the section's update: and a tool's own update: cascade —
+// the tool's wins, then the section's, then true.
+func TestToolchainSection_Update(t *testing.T) {
+	parse := func(y string) ToolchainSection {
+		t.Helper()
+		var s ToolchainSection
+		if err := yaml.Unmarshal([]byte(y), &s); err != nil {
+			t.Fatalf("decode %q: %v", y, err)
+		}
+		return s
+	}
+
+	unset := parse("want:\n  trivy: 0.x\n")
+	if !unset.UpdateEnabled("trivy") || !unset.UpdateEnabled("not-declared") {
+		t.Error("update must default to true")
+	}
+
+	off := parse("update: false\nwant:\n  trivy: 0.x\n  kubectl: {version: 1.34.x, update: true}\n  flux:\n    version: 2.8.x\n")
+	if off.UpdateEnabled("trivy") {
+		t.Error("section update: false must hold a tool with no override")
+	}
+	if !off.UpdateEnabled("kubectl") {
+		t.Error("a tool's update: true must override the section's false")
+	}
+	if off.UpdateEnabled("flux") {
+		t.Error("a block-form tool without update: must inherit the section")
+	}
+	if off.Want["kubectl"].Constraint != "1.34.x" {
+		t.Errorf("flow map with update: must still yield its version, got %q", off.Want["kubectl"].Constraint)
+	}
+
+	perTool := parse("want:\n  cosign:\n    version: 3.0.6\n    update: false\n")
+	if perTool.UpdateEnabled("cosign") {
+		t.Error("a tool's update: false must hold it when the section is unset")
+	}
+}
+
+func TestToolchainSection_UpdateMustBeBool(t *testing.T) {
+	var s ToolchainSection
+	err := yaml.Unmarshal([]byte("update: sometimes\nwant:\n  trivy: 0.x\n"), &s)
+	if err == nil || !strings.Contains(err.Error(), "toolchains.update") {
+		t.Errorf("a non-boolean update: must fail naming toolchains.update, got %v", err)
+	}
+}

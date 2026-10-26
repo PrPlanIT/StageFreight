@@ -291,9 +291,20 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
-	if applyEcosystems && len(toolchainDeps) > 0 {
+	// Toolchains follow toolchains.update, not remediate: a held tool is reported, not moved.
+	var tcHeld []SkippedDep
+	tcMovable := toolchainDeps[:0:0]
+	for _, d := range toolchainDeps {
+		if cfg.ToolchainUpdate == nil || cfg.ToolchainUpdate(d.Name) {
+			tcMovable = append(tcMovable, d)
+		} else {
+			tcHeld = append(tcHeld, SkippedDep{Dep: d, Category: SkipToolchainHeld, Reason: "toolchains update: false"})
+		}
+	}
+	result.Skipped = append(result.Skipped, tcHeld...)
+	if len(tcMovable) > 0 {
 		t0 = time.Now()
-		applied, tcSkipped, touchedFiles, err := applyToolchainUpdates(toolchainDeps, repoRoot)
+		applied, tcSkipped, touchedFiles, err := applyToolchainUpdates(tcMovable, repoRoot)
 		if err != nil {
 			steps = append(steps, depStep{label: "toolchain", status: "fail", detail: err.Error(), dur: time.Since(t0)})
 			return result, fmt.Errorf("applying toolchain updates: %w", err)

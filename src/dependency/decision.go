@@ -27,6 +27,7 @@ const (
 	SkipUnresolved        SkipCategory = "unresolved"           // latest could not be verified
 	SkipFileUntracked     SkipCategory = "file_untracked"       // owning file not tracked by git
 	SkipDockerConstraint  SkipCategory = "docker_constraint"    // digest-pin / ARG / untagged / latest tag
+	SkipToolchainHeld     SkipCategory = "toolchain_held"       // toolchains update: false
 
 	// --- apply-layer decisions (apply_*.go) ---
 	SkipSourceUnresolvable SkipCategory = "source_unresolvable" // manifest line pattern not recognized
