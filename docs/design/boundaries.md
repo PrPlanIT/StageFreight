@@ -11,7 +11,7 @@ These are enforced by convention; violations should be caught in code review.
 | `src/cli/cmd` | CLI adapters only — flag parsing, Cobra wiring, CI runner orchestration | everything |
 | `src/build/docker` | Docker/buildx adapter: CLI execution, cosign signing, image inspection, buildx parsing, crucible engine, Dockerfile inventory; plus build orchestration (detect → plan → execute → publish) | build (parent), artifact, config, credentials, diag, output, pipeline, postbuild, registry |
 | `src/build/pipeline` | Generic in-process phase runner and PipelineContext | artifact, build, config |
-| `src/cistate` | Cross-job file-based state ledger (pipeline.json) | ci |
+| `src/cistate` | Cross-job state ledger: per-subsystem fragments, merged into pipeline.json | ci |
 | `src/postbuild` | Post-build integration glue (badges, retention, harbor, readme) | artifact, build, pipeline, registry |
 | `src/registry` | Registry client + operational integration (verification, retention, referrers) | artifact, config, credentials, diag, retention |
 | `src/build` | Shared build foundation: engine interfaces, plan/step/result, provenance model, OCI labeling, detection, tags, version | config, gitver; credentials/diag in execution paths |

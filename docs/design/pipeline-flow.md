@@ -9,9 +9,12 @@ decides.
 
 ## The ledger and its three consumers
 
-Phases run as separate jobs (fresh checkout each); the shared truth is
-`.stagefreight/pipeline.json` (`cistate.State`, `src/cistate/state.go`). Each phase records a
-`SubsystemState`; downstream phases READ the ledger. Three consumers, three needs:
+Phases run as separate jobs (fresh checkout each). Each subsystem's outcome travels as its own
+fragment, `.stagefreight/subsystems/<name>.json`; `ReadState` reads the local
+`.stagefreight/pipeline.json` (`cistate.State`, `src/cistate/state.go`) and overlays every
+fragment by name, so artifact downloads union instead of clobbering. Downstream phases READ that
+ledger. Review scans a carried artifact only when it was built for the pipeline's commit
+(`SF_CI_SHA`); otherwise it fails closed. Three consumers, three needs:
 
 - **StageFreight (control)** — reads the ledger to decide proceed/skip/deny. The *only*
   consumer that influences behaviour.
