@@ -4,22 +4,12 @@
 
 - CRITICAL RULES:
   - STAY ON TASK when following directions. NO BAND AID, NO WORK AROUNDS. If you think we need to give up or regroup, ASK. Don't make the call on your own to find alternative solutions or shortcuts.
-  - I want things done exactly how I ask. If you want to offer an alternative, conversation should stop till I tell you if I agree/disagree.
-  - **NEVER use `git commit`** — always use `stagefreight commit`. The binary is at `/usr/local/bin/stagefreight`.
+  - I want things done exactly how I ask. If you want to offer an alternative, mention it once in one sentence, then do it the way I asked.
+  - **NEVER use `git commit`** — always use `stagefreight commit`. Run `~/.local/bin/stagefreight`, kept current with `stagefreight update --dev`.
   - **NEVER use `git tag`** — always use `stagefreight tag`. Supports `--minor`, `--patch`, `--major`, `--push`, `-y`. Enforces version policy and generates release highlights.
 
 - Building & Testing:
   - **NO LOCAL GO TOOLCHAIN** — StageFreight dogfoods itself, all operations run in containers. Never run `go build`, `go mod tidy`, `go vet`, etc. locally.
-  - **Always `docker pull` first** to get the latest image — stale local images cause confusing errors.
-  - **Container invocation pattern** (use for ALL stagefreight commands):
-    ```bash
-    docker pull docker.io/prplanit/stagefreight:latest-dev
-    docker run --rm -v "$PWD":/src -w /src \
-      docker.io/prplanit/stagefreight:latest-dev \
-      sh -c 'git config --global --add safe.directory /src && stagefreight <command>'
-    ```
-    - `safe.directory` is required because the container runs as a different user than the host mount owner — git refuses to operate without it.
-    - Add `-v /var/run/docker.sock:/var/run/docker.sock` for commands that need Docker (e.g., `docker build`).
   - `--dry-run` to verify plan resolution without building. `--local` to load into daemon without pushing.
   - **CI pipeline** (`.gitlab-ci.yml`): Same dogfood approach — CI image is the latest dev. `stagefreight docker build` handles detect → lint → plan → build → push → retention.
 
