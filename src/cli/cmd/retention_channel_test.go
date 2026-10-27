@@ -22,6 +22,9 @@ func TestForgeStoreDelete_PruneTags(t *testing.T) {
 			calls = append(calls, "del-tag")
 		case r.Method == "DELETE" && strings.Contains(r.URL.Path, "/releases/"):
 			calls = append(calls, "del-release")
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/releases/"):
+			_, _ = w.Write([]byte(`{"assets":{"links":[]}}`))
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	}))

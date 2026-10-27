@@ -13,13 +13,20 @@ import (
 )
 
 // TestRefreshRollingRelease verifies the rolling-alias refresh deletes the old
-// release, recreates it, and re-uploads assets — and that a second run is
-// idempotent (DeleteRelease tolerates a missing release on the first run; the
-// sequence repeats cleanly).
+// release and the upload its asset link points at, recreates it, and re-uploads
+// assets — and that a second run is idempotent (DeleteRelease tolerates a missing
+// release on the first run; the sequence repeats cleanly). Deleting the old upload
+// is what keeps every refresh from leaving its asset stored forever.
 func TestRefreshRollingRelease(t *testing.T) {
 	var seq []string
+	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/releases/latest-dev"):
+			_, _ = w.Write([]byte(`{"assets":{"links":[{"url":"` + srvURL + `/g/p/uploads/0123456789abcdef0123456789abcdef/dwiz.zip"}]}}`))
+		case r.Method == "DELETE" && strings.Contains(r.URL.Path, "/uploads/"):
+			seq = append(seq, "delete-upload")
+			w.WriteHeader(http.StatusNoContent)
 		case r.Method == "DELETE" && strings.Contains(r.URL.Path, "/releases/"):
 			seq = append(seq, "delete-release")
 			w.WriteHeader(http.StatusOK)
@@ -38,6 +45,7 @@ func TestRefreshRollingRelease(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
+	srvURL = srv.URL
 
 	dir := t.TempDir()
 	asset := filepath.Join(dir, "dwiz.zip")
@@ -51,7 +59,7 @@ func TestRefreshRollingRelease(t *testing.T) {
 			t.Fatalf("refresh: %v", err)
 		}
 	}
-	const want = "delete-release,create-release,upload,link"
+	const want = "delete-release,delete-upload,create-release,upload,link"
 
 	run()
 	if got := strings.Join(seq, ","); got != want {

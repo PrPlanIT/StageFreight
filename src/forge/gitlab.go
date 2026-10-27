@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -566,9 +567,70 @@ func (g *GitLabForge) ListReleases(ctx context.Context) ([]ReleaseInfo, error) {
 	return all, nil
 }
 
+// DeleteRelease removes the release and every project upload its links point at.
+// GitLab keeps an uploaded file after the release that linked it is deleted, so
+// deleting the release alone would leave each asset stored forever. The links are
+// read first: once the release is gone nothing records which uploads it owned.
 func (g *GitLabForge) DeleteRelease(ctx context.Context, tagName string) error {
 	releaseURL := g.apiURL(fmt.Sprintf("/releases/%s", url.PathEscape(tagName)))
-	return g.doJSON(ctx, "DELETE", releaseURL, nil, nil)
+	var rel struct {
+		Assets struct {
+			Links []struct {
+				URL string `json:"url"`
+			} `json:"links"`
+		} `json:"assets"`
+	}
+	if err := g.doJSON(ctx, "GET", releaseURL, nil, &rel); err != nil {
+		return err
+	}
+	if err := g.doJSON(ctx, "DELETE", releaseURL, nil, nil); err != nil {
+		return err
+	}
+	var errs []error
+	for _, l := range rel.Assets.Links {
+		if err := g.deleteLinkedUpload(ctx, l.URL); err != nil {
+			errs = append(errs, fmt.Errorf("release %s: %w", tagName, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// deleteLinkedUpload deletes the project upload a release link points at. A link
+// that is not one of this project's uploads (a package, a registry reference,
+// another host) is not a file stored here and is left alone. Not-found is success:
+// the file is already gone. The error names the file so a failure is never silent.
+func (g *GitLabForge) deleteLinkedUpload(ctx context.Context, linkURL string) error {
+	secret, filename, ok := g.uploadRef(linkURL)
+	if !ok {
+		return nil
+	}
+	err := g.doJSON(ctx, "DELETE", g.apiURL("/uploads/"+secret+"/"+url.PathEscape(filename)), nil, nil)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("delete upload %s: %w", linkURL, err)
+	}
+	return nil
+}
+
+// uploadRef extracts the secret and file name from a project upload URL, as
+// UploadAsset links it: <base>/<namespace>/<project>/uploads/<secret>/<filename>.
+func (g *GitLabForge) uploadRef(linkURL string) (secret, filename string, ok bool) {
+	u, err := url.Parse(linkURL)
+	if err != nil || config.HostOf(linkURL) != config.HostOf(g.BaseURL) {
+		return "", "", false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 3 || parts[len(parts)-3] != "uploads" {
+		return "", "", false
+	}
+	secret, filename = parts[len(parts)-2], parts[len(parts)-1]
+	if secret == "" || filename == "" || strings.Trim(secret, "0123456789abcdef") != "" {
+		return "", "", false
+	}
+	return secret, filename, true
 }
 
 func (g *GitLabForge) CreateTag(ctx context.Context, tagName, ref string) error {
@@ -771,9 +833,20 @@ func (g *GitLabForge) DownloadReleaseAsset(ctx context.Context, asset ReleaseAss
 	return resp.Body, nil
 }
 
+// DeleteReleaseAsset removes the link and the project upload behind it, for the
+// same reason as DeleteRelease: GitLab keeps the file after its link is gone.
 func (g *GitLabForge) DeleteReleaseAsset(ctx context.Context, releaseID, assetID string) error {
-	return g.doJSON(ctx, "DELETE",
-		g.apiURL(fmt.Sprintf("/releases/%s/assets/links/%s", url.PathEscape(releaseID), assetID)), nil, nil)
+	linkURL := g.apiURL(fmt.Sprintf("/releases/%s/assets/links/%s", url.PathEscape(releaseID), assetID))
+	var link struct {
+		URL string `json:"url"`
+	}
+	if err := g.doJSON(ctx, "GET", linkURL, nil, &link); err != nil {
+		return err
+	}
+	if err := g.doJSON(ctx, "DELETE", linkURL, nil, nil); err != nil {
+		return err
+	}
+	return g.deleteLinkedUpload(ctx, link.URL)
 }
 
 // UpdateRelease converges name and description. GitLab Releases carry no native
