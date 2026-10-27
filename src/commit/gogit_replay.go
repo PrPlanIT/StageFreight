@@ -36,7 +36,7 @@ const sfGeneratedTrailer = "X-StageFreight-Generated: true"
 //
 // Hooks are NOT run during replay — replay commits are machine-generated
 // re-applications; running hooks again would double-execute side effects.
-func Replay(session *gitstate.SyncSession) (err error) {
+func Replay(session *gitstate.SyncSession) error {
 	repo := session.Repo()
 	state := session.State()
 
@@ -61,7 +61,7 @@ func Replay(session *gitstate.SyncSession) (err error) {
 
 	// Uncommitted work is NOT a pre-condition failure, as with git rebase --autostash:
 	// the replay writes only the paths that differ between HEAD and the replayed head
-	// and refuses (step 5) only if one of those holds uncommitted work.
+	// and refuses (step 6) only if one of those holds uncommitted work.
 
 	originalHEAD := state.HeadHash
 
@@ -202,8 +202,19 @@ func Replay(session *gitstate.SyncSession) (err error) {
 		return fmt.Errorf("the rebase would overwrite or remove %s, which git does not track here — move them aside, then retry", strings.Join(owned, ", "))
 	}
 
-	// 7. Move the branch to the verified head and check out only the differing paths.
+	// 7. Move the branch to the verified head — compare-and-swap, so a commit made since
+	// we read the branch is never orphaned — then check out only the differing paths.
 	// A failure puts those paths and the branch back on the original HEAD.
+	branch, err := repo.Head()
+	if err != nil {
+		return fmt.Errorf("resolving branch: %w", err)
+	}
+	if err := repo.Storer.CheckAndSetReference(
+		plumbing.NewHashReference(branch.Name(), tip),
+		plumbing.NewHashReference(branch.Name(), originalHEAD),
+	); err != nil {
+		return fmt.Errorf("the branch moved during the replay — retry: %w", err)
+	}
 	if err := checkoutPaths(wt, tip, written); err != nil {
 		if rerr := checkoutPaths(wt, originalHEAD, written); rerr != nil {
 			return fmt.Errorf("checking out the replayed head: %w (rolling back to %s also failed: %v)", err, short(originalHEAD), rerr)
@@ -211,6 +222,9 @@ func Replay(session *gitstate.SyncSession) (err error) {
 		return fmt.Errorf("checking out the replayed head: %w", err)
 	}
 
+	if err := session.Refresh(); err != nil {
+		return fmt.Errorf("refreshing state after replay: %w", err)
+	}
 	// Push is the executor's responsibility — Replay() owns only the rebase. The Upload
 	// operation that follows Replay in the plan graph performs the push after Replay returns.
 	return nil

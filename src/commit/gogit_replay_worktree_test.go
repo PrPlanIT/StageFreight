@@ -562,29 +562,98 @@ func TestReplay_RefusesWhenBranchMoved(t *testing.T) {
 	}
 }
 
-// The same file changed on both sides is a rebase conflict, reported as one (not as
-// corruption) before anything is written.
+// The same file changed differently on both sides is a rebase conflict, reported as
+// one (not as corruption) before anything is written.
 func TestReplay_ReportsUpstreamOverlapAsConflict(t *testing.T) {
-	for name, upstream := range map[string]string{"different change": "upstream edit", "same change": "local edit"} {
-		t.Run(name, func(t *testing.T) {
-			r := newReplayTestRepo(t)
-			r.advanceRemote(t, "README.md", upstream)
-			r.addSFCommit(t, "README.md", "local edit", "feat: edit readme")
-			before := headHash(t, r.localDir)
+	r := newReplayTestRepo(t)
+	r.advanceRemote(t, "README.md", "upstream edit")
+	r.addSFCommit(t, "README.md", "local edit", "feat: edit readme")
+	before := headHash(t, r.localDir)
 
-			session := openSession(t, r.localDir)
-			must(t, session.Fetch("origin"))
-			err := Replay(session)
-			if err == nil || !strings.Contains(err.Error(), "upstream also changed README.md") {
-				t.Fatalf("want a conflict naming README.md, got %v", err)
-			}
-			if strings.Contains(err.Error(), "corruption") {
-				t.Errorf("a conflict must not read as corruption: %v", err)
-			}
-			if after := headHash(t, r.localDir); after != before {
-				t.Errorf("refusal must not move the branch: %s -> %s", before, after)
-			}
-		})
+	session := openSession(t, r.localDir)
+	must(t, session.Fetch("origin"))
+	err := Replay(session)
+	if err == nil || !strings.Contains(err.Error(), "upstream also changed README.md") {
+		t.Fatalf("want a conflict naming README.md, got %v", err)
+	}
+	if strings.Contains(err.Error(), "corruption") {
+		t.Errorf("a conflict must not read as corruption: %v", err)
+	}
+	if after := headHash(t, r.localDir); after != before {
+		t.Errorf("refusal must not move the branch: %s -> %s", before, after)
+	}
+}
+
+// A local commit whose exact change upstream already carries is dropped, as git does.
+func TestReplay_DropsAlreadyAppliedCommit(t *testing.T) {
+	r := newReplayTestRepo(t)
+	r.advanceRemote(t, "README.md", "same edit")
+	r.addSFCommit(t, "README.md", "same edit", "feat: edit readme")
+	r.addSFCommit(t, "local.txt", "local content", "feat: local change")
+
+	session := openSession(t, r.localDir)
+	must(t, session.Fetch("origin"))
+	if err := Replay(session); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	repo, err := git.PlainOpen(r.localDir)
+	must(t, err)
+	head, err := repo.Head()
+	must(t, err)
+	c, err := repo.CommitObject(head.Hash())
+	must(t, err)
+	if !strings.HasPrefix(c.Message, "feat: local change") {
+		t.Errorf("head should be the replayed local change, got %q", c.Message)
+	}
+	parent, err := c.Parent(0)
+	must(t, err)
+	if strings.HasPrefix(parent.Message, "feat: edit readme") {
+		t.Error("the already-applied commit must be dropped, not replayed")
+	}
+}
+
+// A repo .gitignore negation outranks a global ignore rule, as in git, so the operator's
+// file it re-includes is protected.
+func TestIgnoreMatcher_RepoRulesOutrankGlobal(t *testing.T) {
+	home, xdg, root := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	writeTestFile(t, xdg, "git/ignore", "*.local\n")
+	writeTestFile(t, root, ".gitignore", "!config/app.local\n")
+	repo, err := git.PlainInit(root, false)
+	must(t, err)
+	m, err := ignoreMatcher(repo, root)
+	must(t, err)
+	if m.Match([]string{"config", "app.local"}, false) {
+		t.Error("the repo negation must re-include config/app.local")
+	}
+	if !m.Match([]string{"other.local"}, false) {
+		t.Error("other.local stays ignored by the global rule")
+	}
+}
+
+// An ignored, untracked symlinked directory in the way of an upstream path is the
+// operator's: the checkout would replace the link, so the replay refuses.
+func TestReplay_RefusesThroughIgnoredSymlinkDir(t *testing.T) {
+	r := newReplayTestRepo(t)
+	r.addSFCommit(t, ".gitignore", "/data\n", "chore: ignore data")
+	r.pushMain(t)
+	r.advanceRemote(t, "data/README", "upstream adds data/README")
+	r.addSFCommit(t, "local.txt", "local content", "feat: local change")
+	target := t.TempDir()
+	writeTestFile(t, target, "README", "outside the repo")
+	must(t, os.Symlink(target, filepath.Join(r.localDir, "data")))
+
+	session := openSession(t, r.localDir)
+	must(t, session.Fetch("origin"))
+	if err := Replay(session); err == nil || !strings.Contains(err.Error(), "remove data, which") {
+		t.Fatalf("replay must refuse up front, naming the data link; got %v", err)
+	}
+	if fi, err := os.Lstat(filepath.Join(r.localDir, "data")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the operator's data symlink must survive, got %v (%v)", fi, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(target, "README")); string(got) != "outside the repo" {
+		t.Errorf("the link target changed: %q", got)
 	}
 }
 

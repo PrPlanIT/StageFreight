@@ -52,6 +52,9 @@ func replayOnto(repo *git.Repository, c *object.Commit, tip plumbing.Hash, flat 
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("diffing commit %s: %w", short(c.Hash), err)
 	}
+	if len(changes) > 0 && alreadyApplied(changes, flat) {
+		return tip, nil // upstream already carries this exact change; git drops it too
+	}
 	if overlap := upstreamOverlap(changes, flat); len(overlap) > 0 {
 		return plumbing.ZeroHash, &gitstate.ErrReplayUnsafe{Reasons: []string{fmt.Sprintf(
 			"%s %q: upstream also changed %s — rebase by hand", short(c.Hash), firstLine(c.Message), strings.Join(overlap, ", "))}}
@@ -90,6 +93,24 @@ func replayOnto(repo *git.Repository, c *object.Commit, tip plumbing.Hash, flat 
 		return plumbing.ZeroHash, &ErrReplayCorruption{Commit: short(c.Hash), Expected: changeSignatures(changes), Actual: changeSignatures(replayed)}
 	}
 	return newHash, nil
+}
+
+// alreadyApplied reports that tip already holds every end state the change-set lands.
+func alreadyApplied(changes object.Changes, tip map[string]object.TreeEntry) bool {
+	for _, ch := range changes {
+		if ch.From.Name != "" && ch.From.Name != ch.To.Name {
+			if _, ok := tip[ch.From.Name]; ok {
+				return false
+			}
+		}
+		if ch.To.Name != "" {
+			e, ok := tip[ch.To.Name]
+			if !ok || e.Hash != ch.To.TreeEntry.Hash || e.Mode != ch.To.TreeEntry.Mode {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // upstreamOverlap lists paths where tip no longer matches what the change expects to
@@ -241,7 +262,9 @@ func operatorCollisions(repo *git.Repository, repoRoot string, head map[string]o
 				return nil
 			})
 		case err == nil:
-			if !tracked(p) && !matcher.Match(strings.Split(p, "/"), false) {
+			if link := untrackedSymlinkAncestor(repoRoot, p, tracked); link != "" {
+				found[link] = true // the checkout would replace the link with a directory
+			} else if !tracked(p) && !matcher.Match(strings.Split(p, "/"), false) {
 				found[p] = true
 			}
 		case !os.IsNotExist(err) && !errors.Is(err, syscall.ENOTDIR):
@@ -262,33 +285,31 @@ func operatorCollisions(repo *git.Repository, repoRoot string, head map[string]o
 	return sortedKeys(found), nil
 }
 
-// ignoreMatcher matches what git ignores here: the repo's .gitignore files and
-// .git/info/exclude, core.excludesFile (repo, then global config), git's default
-// global ignore ($XDG_CONFIG_HOME/git/ignore) when none is set, and system excludes.
+// ignoreMatcher matches what git ignores here. Patterns go in git's increasing
+// priority: the one core.excludesFile in effect (repo config, else global, else system,
+// else git's default $XDG_CONFIG_HOME/git/ignore), then .git/info/exclude and the
+// .gitignore files, which win.
 func ignoreMatcher(repo *git.Repository, repoRoot string) (gitignore.Matcher, error) {
-	patterns, err := gitignore.ReadPatterns(osfs.New(repoRoot), nil)
-	if err != nil {
-		return nil, fmt.Errorf("reading ignore patterns: %w", err)
-	}
+	var patterns []gitignore.Pattern
 	root := osfs.New("/")
 	excludesFile := ""
 	if cfg, err := repo.Config(); err == nil && cfg.Raw != nil {
 		excludesFile = cfg.Raw.Section("core").Option("excludesfile")
 	}
-	switch {
-	case excludesFile != "":
-		patterns = append(patterns, readIgnoreFile(expandHome(excludesFile))...)
-	default:
-		if global, err := gitignore.LoadGlobalPatterns(root); err == nil && len(global) > 0 {
-			patterns = append(patterns, global...)
-		} else {
-			patterns = append(patterns, readIgnoreFile(xdgGitIgnore())...)
-		}
+	if excludesFile != "" {
+		patterns = readIgnoreFile(expandHome(excludesFile))
+	} else if global, err := gitignore.LoadGlobalPatterns(root); err == nil && len(global) > 0 {
+		patterns = global
+	} else if system, err := gitignore.LoadSystemPatterns(root); err == nil && len(system) > 0 {
+		patterns = system
+	} else {
+		patterns = readIgnoreFile(xdgGitIgnore())
 	}
-	if system, err := gitignore.LoadSystemPatterns(root); err == nil {
-		patterns = append(patterns, system...)
+	repoPatterns, err := gitignore.ReadPatterns(osfs.New(repoRoot), nil)
+	if err != nil {
+		return nil, fmt.Errorf("reading ignore patterns: %w", err)
 	}
-	return gitignore.NewMatcher(patterns), nil
+	return gitignore.NewMatcher(append(patterns, repoPatterns...)), nil
 }
 
 // readIgnoreFile parses an ignore file; a missing or unreadable file adds nothing.
@@ -328,6 +349,18 @@ func expandHome(p string) string {
 		}
 	}
 	return p
+}
+
+// untrackedSymlinkAncestor returns the nearest parent directory of p that is a symlink
+// git does not track, or "".
+func untrackedSymlinkAncestor(repoRoot, p string, tracked func(string) bool) string {
+	for dir := parentPath(p); dir != ""; dir = parentPath(dir) {
+		fi, err := os.Lstat(filepath.Join(repoRoot, filepath.FromSlash(dir)))
+		if err == nil && fi.Mode()&os.ModeSymlink != 0 && !tracked(dir) {
+			return dir
+		}
+	}
+	return ""
 }
 
 // submoduleAt reports a directory that is a checked-out submodule (it holds .git).
