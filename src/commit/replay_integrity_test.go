@@ -8,6 +8,8 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
 // TestReplayNestedPathsNotCorrupted reproduces the exact data-corruption scenario:
@@ -64,7 +66,7 @@ func TestReplayNestedPathsNotCorrupted(t *testing.T) {
 	aCommit, _ := repo.CommitObject(aHash)
 	uCommit, _ := repo.CommitObject(uHash)
 	uTree, _ := uCommit.Tree()
-	flat, err := flattenTree(uTree)
+	flat, err := gitstate.FlattenTree(uTree)
 	if err != nil {
 		t.Fatal(err)
 	}

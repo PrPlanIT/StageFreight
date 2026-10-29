@@ -342,7 +342,11 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 
 	if !appCfg.Dependency.Enabled {
 		// Deps disabled is an operator choice, not a failure — the subject is shippable.
-		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true}))
+		refused := watchUpstream(ctx, appCfg, rootDir)
+		if _, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir); refused == "" {
+			refused = syncRefused
+		}
+		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: refused, NothingToBuild: scheduledSkip(appCfg)}))
 		fmt.Println("  dependency update disabled in config")
 		for tool := range appCfg.Toolchains.Want {
 			if appCfg.Toolchains.HoldReason(tool) == "" {
@@ -357,7 +361,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// (Blocking) and narrate/publish/forge project (Replacement, Reason). Fail-closed: the zero
 	// value blocks, so any early return below records a blocking contract unless a field was
 	// explicitly cleared. The defer fires on EVERY exit path — no gate can be bypassed.
-	in := auditionInputs{}
+	in := auditionInputs{NothingToBuild: scheduledSkip(appCfg)}
 	defer func() { recordAuditionContract(rootDir, deriveAuditionContract(in)) }()
 
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
@@ -366,6 +370,17 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	in.RunnerHealthy = true
 	if err := runConfigPhase(rootDir); err != nil {
 		return fmt.Errorf("deps subsystem: %w", err)
+	}
+
+	// Fork mode: watch the declared upstream, and refuse a track-mode release whose version
+	// upstream never published — before anything is built.
+	in.UpstreamRefused = watchUpstream(ctx, appCfg, rootDir)
+	// Upstream sync: join upstream's newest release into our branch. When it pushes, the new
+	// commit's pipeline runs the dependency update; this run leaves it alone (below) so two
+	// writers never push onto a branch that was just rewritten.
+	syncPushed, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir)
+	if in.UpstreamRefused == "" {
+		in.UpstreamRefused = syncRefused
 	}
 
 	// Discover dependencies ONCE for the whole audition — a single Snapshot shared,
@@ -462,6 +477,14 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 				fmt.Printf("  deps: fetched %d advisories from prior security scan\n", len(advisories))
 			}
 		}
+	}
+
+	if syncPushed {
+		recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+			Name: "deps", Attempted: true, Completed: true, Skipped: true, Outcome: "skipped",
+			Reason: "upstream sync moved the branch; its pipeline runs the dependency update",
+		})
+		return nil
 	}
 
 	// Run dependency update via the same code path as the CLI command, reusing the
@@ -721,6 +744,8 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		}
 	}
 
+	deps, ecosystems, finishUpstream := joinUpstreamPins(ctx, appCfg, rootDir, deps, ecosystems)
+
 	output.SectionEnd(w, "sf_deps_resolve")
 
 	// Build update config
@@ -754,6 +779,7 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		return result, fmt.Errorf("dependency update: %w", err)
 	}
 
+	finishUpstream(result, updateCfg.DryRun)
 	return result, nil
 }
 
@@ -2589,4 +2615,13 @@ func relTargetLinks(cfg *config.Config, kind string) bool {
 		return t.CatalogLinks
 	}
 	return t.RegistryLinks
+}
+
+// scheduledSkip is the reason a scheduled run builds nothing (its schedules say build:
+// changes), or "" when it builds.
+func scheduledSkip(appCfg *config.Config) string {
+	if config.ScheduledRunBuilds(appCfg) {
+		return ""
+	}
+	return fmt.Sprintf("scheduled run (%s, build: changes) — anything it changed is built by the pipeline its push starts", strings.Join(config.CISchedules(), ", "))
 }

@@ -36,6 +36,9 @@ type FreshnessConfig struct {
 	FetchVersionLists bool `json:"fetch_version_lists"`
 }
 
+// minReleaseAge is the longest configured cooldown window — the conservative age a release
+// must reach before this layer adopts it, read from the structured supply-chain Cooldown.
+func (c FreshnessConfig) minReleaseAge() time.Duration { return c.MinReleaseAge.Longest() }
 // VulnConfig controls vulnerability correlation via the OSV database.
 //
 // .stagefreight.yml example:

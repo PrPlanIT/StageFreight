@@ -37,6 +37,7 @@ var persistentEntries = []string{
 	"preset-cache/",           // resolved config presets, committed for reproducibility
 	paths.InventoryName + "/", // k8s-inventory lifecycle manifests: cross-run memory, not run output
 	"toolchains.lock",         // machine-maintained toolchain resolved-lock (durable state)
+	"upstream.lock",           // upstream versions first seen, the cooldown clock (durable state)
 }
 
 // GitignorePath is the managed ignore file — INSIDE the namespace, never root.

@@ -10,7 +10,7 @@ import (
 // omitted-when: = always default.
 func TestNotificationEligibility(t *testing.T) {
 	elig := func(when WhenConditions, outcome, event, branch string) bool {
-		return NotificationEligibility(when, outcome, event, branch, "", "", nil, nil).Eligible
+		return NotificationEligibility(when, outcome, nil, event, branch, "", "", nil, nil).Eligible
 	}
 
 	// Omitted when: → always.
@@ -151,4 +151,17 @@ func TestValidate_LLM(t *testing.T) {
 		Scribe: ScribeConfig{Files: OrderedFiles{{ID: "r", File: "README.md", Items: []string{"wrap"}}}},
 	}
 	fails(tainted, "dispatch-only")
+}
+
+func TestNotificationEligibility_Signals(t *testing.T) {
+	when := WhenConditions{{Signals: []string{SignalUpdatesAvailable}}}
+	if NotificationEligibility(when, "success", nil, "schedule", "main", "", "", nil, nil).Eligible {
+		t.Fatal("a run that raised no signal must not match signals:")
+	}
+	if !NotificationEligibility(when, "success", []string{SignalVersionMismatch, SignalUpdatesAvailable}, "schedule", "main", "", "", nil, nil).Eligible {
+		t.Fatal("a run that raised updates-available must match, whatever its outcome")
+	}
+	if NotificationEligibility(when, "success", []string{SignalVersionMismatch}, "schedule", "main", "", "", nil, nil).Eligible {
+		t.Fatal("a run that raised only other signals must not match")
+	}
 }

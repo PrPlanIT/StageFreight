@@ -74,6 +74,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	}
 	type distArtifact struct {
 		name, digest, verifySkip string
+		gate                     string // the gate that refused it, when not layout verification
 		tags                     []distTag
 	}
 	var dists []distArtifact
@@ -92,6 +93,9 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	// tags that actually pushed. Publish owns post-distribution registry actions.
 	type scanKey struct{ host, path string }
 	scanTags := map[scanKey][]string{}
+
+	evidence := newEvidenceGate(appCfg)
+	defer evidence.record(rootDir)
 
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
@@ -140,6 +144,14 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 				failures = append(failures, fmt.Sprintf("%s: %s", a.Name, reason))
 				continue
 			}
+		}
+
+		// Evidence gate: the image must contain the version the release claims
+		// (upstream.evidence). Probed on the exact bytes about to be distributed.
+		if reason := evidence.check(a.Name, layoutDir, string(a.Digest)); reason != "" {
+			dists = append(dists, distArtifact{name: a.Name, digest: string(a.Digest), verifySkip: reason, gate: "version evidence"})
+			failures = append(failures, fmt.Sprintf("%s: %s", a.Name, reason))
+			continue
 		}
 
 		dist := distArtifact{name: a.Name, digest: string(a.Digest)}
@@ -239,7 +251,11 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		if d.verifySkip != "" {
 			sec.Separator()
 			sec.Row("NOT DISTRIBUTED")
-			sec.Row("%s  content-store layout failed verification", output.StatusIcon("failed", color))
+			if d.gate != "" {
+				sec.Row("%s  refused by the %s gate", output.StatusIcon("failed", color), d.gate)
+			} else {
+				sec.Row("%s  content-store layout failed verification", output.StatusIcon("failed", color))
+			}
 			sec.Row("%-10s%s", "reason", d.verifySkip)
 			sec.Close()
 			continue

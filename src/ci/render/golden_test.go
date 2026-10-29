@@ -31,6 +31,12 @@ func canonicalPipeline() model.Pipeline {
 				{Pattern: `^v?\d+\.\d+\.\d+$`},
 				{Pattern: `^tmp-.*`, Exclude: true},
 			},
+			DefaultBranch: "main",
+		},
+		// Two cadences, the first shared by two schedule ids (one run fires them both).
+		Schedules: []model.Schedule{
+			{Cron: "17 4 * * *", IDs: []string{"nightly", "deps"}},
+			{Cron: "42 6 * * 1", IDs: []string{"weekly-rebuild"}},
 		},
 		Jobs: []model.Job{
 			{

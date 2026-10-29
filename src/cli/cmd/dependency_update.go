@@ -164,6 +164,8 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 		return &ExitError{Code: exitUpdateFail, Err: fmt.Errorf("resolving dependencies: %w", err)}
 	}
 
+	deps, depEcosystems, finishUpstream := joinUpstreamPins(ctx, cfg, rootDir, deps, depEcosystems)
+
 	resolveElapsed := time.Since(start)
 	sec := output.NewSection(w, "Resolve", resolveElapsed, color)
 	sec.Row("%-16s%d", "files scanned", len(files))
@@ -210,6 +212,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 	updateStart := time.Now()
 
 	result, err := dependency.Update(ctx, updateCfg, deps)
+	finishUpstream(result, updateCfg.DryRun)
 	updateElapsed := time.Since(updateStart)
 
 	// Defense-in-depth: Update() should always return non-nil result,

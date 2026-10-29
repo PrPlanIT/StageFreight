@@ -138,7 +138,7 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 
 	if !nothingToCommit {
 		// 4. Resolve author identity: local config → global config → built-in defaults
-		sig := resolveAuthorSignature(repo)
+		sig := ResolveAuthorSignature(repo)
 
 		// 5. Build full commit message including SF trailer
 		msg := plan.Message(conventional)
@@ -203,9 +203,9 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 	return result, nil
 }
 
-// resolveAuthorSignature reads user.name and user.email from git config.
+// ResolveAuthorSignature reads user.name and user.email from git config.
 // Resolution order: local repo config → global config → built-in defaults.
-func resolveAuthorSignature(repo *git.Repository) object.Signature {
+func ResolveAuthorSignature(repo *git.Repository) object.Signature {
 	name, email := "stagefreight", "stagefreight@localhost"
 
 	if cfg, err := repo.Config(); err == nil {

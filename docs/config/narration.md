@@ -41,6 +41,10 @@ elides when its domain recorded nothing):
 | `changelog.` | `count` · `range` |
 | `reconcile.` (gitops) | `total` · `succeeded` · `failed` · `declined` · `backend` · `units` · `cluster` · `failures` |
 | `ansible.` (hosts) | `total` · `converged` · `changed` · `unreachable` · `failed` |
+| `upstream.` | `source` · `latest` · `ours` · `mismatched` · `unparsed` · `signals` (the claimed source; plus `{upstream.<id>.latest}` and `{upstream.<id>.mirror_behind}` per source) |
+| `schedules.` | `managed` · `changes` · `signals` (GitLab schedule reconcile) |
+| `evidence.` | `checked` · `mismatched` · `signals` (release version probes, publish) |
+| `sync.` | `target` · `result` · `conflicts` · `held` · `overridden` · `signals` (upstream sync) |
 | `retention.` | `pruned` |
 
 Every recorded domain additionally serves `{domain.outcome}` and
@@ -116,6 +120,14 @@ Dispatch rules worth knowing:
 - **`when:` is the one grammar** — the same `events`/`branches`/`git_tags`
   conditions used everywhere, extended with the `outcomes:` dimension
   (`success` | `failure` | `warning`). Omitted `when:` = always.
+- **`signals:` gates on what the run found**, independent of its outcome: a
+  green run can still have found that upstream released something new. A
+  condition with `signals:` matches only a run that raised at least one of them —
+  `updates-available`, `version-mismatch`, `upstream-unreachable`, `mirror-behind` (see
+  [Upstream](upstream.md)), `sync-conflict`, `schedule-inactive` (see
+  [Schedules](schedules.md)).
+- **`schedules:` gates on which schedule fired the run** — ids from the
+  top-level `schedules:` block.
 - **Empty bodies skip** — a notification whose rendered body is empty (every
   line elided) does not ping anyone.
 - **`max_length` trims at line boundaries** and always preserves the

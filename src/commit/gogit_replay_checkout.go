@@ -64,7 +64,7 @@ func replayOnto(repo *git.Repository, c *object.Commit, tip plumbing.Hash, flat 
 		return plumbing.ZeroHash, &gitstate.ErrReplayUnsafe{Reasons: []string{fmt.Sprintf(
 			"%s %q: %s would be both a file and a directory — rebase by hand", short(c.Hash), firstLine(c.Message), strings.Join(clash, ", "))}}
 	}
-	treeHash, err := writeTreeFromFlat(repo, flat)
+	treeHash, err := gitstate.WriteTreeFromFlat(repo, flat)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("writing replayed tree: %w", err)
 	}

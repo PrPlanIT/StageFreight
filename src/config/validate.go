@@ -372,13 +372,19 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		errs = append(errs, terrs...)
 
 		// When block validation
-		werrs := validateWhen(t.When, tpath, cfg.Git.Tags, cfg.Git.Branches)
+		werrs := validateWhen(t.When, tpath, cfg.Git.Tags, cfg.Git.Branches, cfg.Schedules)
 		errs = append(errs, werrs...)
 		// outcomes: is the notification dimension of when: — a publish target's
 		// eligibility is evaluated before a run outcome exists.
 		for _, w := range t.When {
 			if len(w.Outcomes) > 0 {
 				errs = append(errs, fmt.Sprintf("%s.when.outcomes: not valid on publish targets (outcomes: gates notifications)", tpath))
+				break
+			}
+		}
+		for _, w := range t.When {
+			if len(w.Signals) > 0 {
+				errs = append(errs, fmt.Sprintf("%s.when.signals: not valid on publish targets (signals: gates notifications)", tpath))
 				break
 			}
 		}
@@ -501,13 +507,18 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if n.URL == "" {
 			errs = append(errs, fmt.Sprintf("%s: url is required", npath))
 		}
-		errs = append(errs, validateWhen(n.When, npath, cfg.Git.Tags, cfg.Git.Branches)...)
+		errs = append(errs, validateWhen(n.When, npath, cfg.Git.Tags, cfg.Git.Branches, cfg.Schedules)...)
 		for _, w := range n.When {
 			for _, o := range w.Outcomes {
 				switch o {
 				case "success", "failure", "warning":
 				default:
 					errs = append(errs, fmt.Sprintf("%s.when.outcomes: unknown outcome %q (success | failure | warning)", npath, o))
+				}
+			}
+			for _, sig := range w.Signals {
+				if !validSignals[sig] {
+					errs = append(errs, fmt.Sprintf("%s.when.signals: unknown signal %q (%s)", npath, sig, strings.Join(SignalNames(), " | ")))
 				}
 			}
 		}
@@ -789,6 +800,8 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	errs = append(errs, validateLifecycle(cfg)...)
 	errs = append(errs, validateAnsible(cfg)...)
+	errs = append(errs, validateUpstream(cfg)...)
+	errs = append(errs, validateSchedules(cfg)...)
 	errs = append(errs, validateInventoryCategories(cfg)...)
 	errs = append(errs, validateExposureRules(cfg)...)
 	errs = append(errs, validateInventoryGroups(cfg)...)
@@ -1126,8 +1139,20 @@ func validateTarget(t TargetConfig, path string, buildIDs map[string]bool, regis
 }
 
 // validateWhen checks the when block for valid pattern references and events.
-func validateWhen(conditions WhenConditions, path string, tagSources []TagSourceConfig, branches map[string]string) []string {
+func validateWhen(conditions WhenConditions, path string, tagSources []TagSourceConfig, branches map[string]string, schedules OrderedSchedules) []string {
 	var errs []string
+
+	scheduleIDs := make(map[string]bool, len(schedules))
+	for _, s := range schedules {
+		scheduleIDs[s.ID] = true
+	}
+	for _, w := range conditions {
+		for _, id := range w.Schedules {
+			if !scheduleIDs[id] {
+				errs = append(errs, fmt.Sprintf("%s.when.schedules: unknown schedule %q (not in schedules)", path, id))
+			}
+		}
+	}
 
 	// Build tag source id set for when.git_tags reference validation.
 	tagSourceIDs := make(map[string]bool, len(tagSources))

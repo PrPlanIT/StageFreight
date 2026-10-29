@@ -54,6 +54,7 @@ type Dependency struct {
 	Ecosystem string // one of the Ecosystem* constants below
 	File      string // relative path from repo root
 	Line      int    // line number of the pinned version
+	Column    int    // byte offset of the pinned value within its line, where the ecosystem records one (upstream pins)
 	Indirect  bool   // e.g. go.mod // indirect
 	SourceURL string // registry/API URL that was queried
 	Binding   string // editable anchor used by source-specific updaters (e.g. ENV var name)
@@ -169,4 +170,5 @@ const (
 	EcosystemAlpineAPK     = "alpine-apk"
 	EcosystemDebianAPT     = "debian-apt"
 	EcosystemPip           = "pip"
+	EcosystemUpstream      = "upstream" // a declared upstream's pins (upstream.sources.<id>.pins)
 )

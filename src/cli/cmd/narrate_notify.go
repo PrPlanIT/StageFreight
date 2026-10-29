@@ -21,6 +21,7 @@ import (
 func dispatchNotifications(appCfg *config.Config, rootDir string, st *cistate.State) {
 	outcome := outcomeWord(st.PipelineStatus())
 	failed := outcome == "failure"
+	signals := st.Signals()
 
 	tagPolicies := make(map[string]string, len(appCfg.Git.Tags))
 	for _, ts := range appCfg.Git.Tags {
@@ -28,7 +29,7 @@ func dispatchNotifications(appCfg *config.Config, rootDir string, st *cistate.St
 	}
 
 	for _, n := range appCfg.Notifications {
-		if r := config.NotificationEligibility(n.When, outcome, config.CIEvent(), config.CIBranch(), config.CITag(), config.CIProvider(), tagPolicies, appCfg.Git.Branches); !r.Eligible {
+		if r := config.NotificationEligibility(n.When, outcome, signals, config.CIEvent(), config.CIBranch(), config.CITag(), config.CIProvider(), tagPolicies, appCfg.Git.Branches); !r.Eligible {
 			continue
 		}
 

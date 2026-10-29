@@ -19,6 +19,17 @@ type Pipeline struct {
 	// Jobs is an ordered list of pipeline jobs. Ordering determines emit order.
 	// The graph is structurally stable across all lifecycle modes.
 	Jobs []Job
+
+	// Schedules are the distinct cadences the forge fires, H already resolved. A run fired by
+	// one sees SF_CI_SCHEDULE=<its ids, comma-separated>. Forges whose schedules live in the
+	// CI file (Actions, Azure) render them; GitLab's are API state, reconciled at runtime.
+	Schedules []Schedule
+}
+
+// Schedule is one cadence to materialize: a UTC 5-field cron and the schedule ids it fires.
+type Schedule struct {
+	Cron string
+	IDs  []string
 }
 
 // PipelineDefaults are pipeline-level settings shared across all jobs.
@@ -37,6 +48,10 @@ type PipelineDefaults struct {
 	// GitLab: workflow.auto_cancel.on_new_commit.
 	// GitHub: concurrency group with cancel-in-progress.
 	CancelSuperseded bool
+
+	// DefaultBranch is the primary repo's default branch, where scheduled runs fire. Forges
+	// whose schedule syntax names a branch (Azure) need it; "" when undeclared.
+	DefaultBranch string
 
 	// CIContext indicates this pipeline requires StageFreight CI context
 	// hydration. Each emitter injects the appropriate mechanism:

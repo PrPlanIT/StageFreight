@@ -32,6 +32,7 @@ var autoUpdatableEcosystems = map[string]bool{
 	supplychain.EcosystemAlpineAPK: true,
 	supplychain.EcosystemDebianAPT: true,
 	supplychain.EcosystemPip:       true, // requirements.txt exact pins (apply_pip.go); Pipfile/poetry skipped there
+	supplychain.EcosystemUpstream:  true, // declared upstream pins (apply_upstream.go)
 }
 
 // FilterUpdateCandidates separates deps into actionable candidates and skipped.

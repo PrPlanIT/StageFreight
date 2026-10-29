@@ -137,7 +137,7 @@ func Replay(session *gitstate.SyncSession) error {
 	if err != nil {
 		return fmt.Errorf("loading upstream tree: %w", err)
 	}
-	flat, err := flattenTree(upstreamTree)
+	flat, err := gitstate.FlattenTree(upstreamTree)
 	if err != nil {
 		return fmt.Errorf("flattening upstream tree: %w", err)
 	}
@@ -176,7 +176,7 @@ func Replay(session *gitstate.SyncSession) error {
 		return fmt.Errorf("diffing onto the replayed head: %w", err)
 	}
 	written := changePathSet(toFinal)
-	head, err := flattenTree(originalTree)
+	head, err := gitstate.FlattenTree(originalTree)
 	if err != nil {
 		return fmt.Errorf("flattening HEAD tree: %w", err)
 	}
