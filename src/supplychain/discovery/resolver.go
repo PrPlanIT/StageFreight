@@ -16,10 +16,12 @@ import (
 // registry lookups, and vulnerability correlation. It holds no lint
 // dependency beyond lint.FileInfo, the resolver input type.
 type Resolver struct {
-	cfg     FreshnessConfig
-	http    *httpClient
-	desired map[string]config.ToolConstraint
-	now     func() time.Time // injectable clock for cooldown evaluation; nil → time.Now
+	cfg              FreshnessConfig
+	http             *httpClient
+	desired          map[string]config.ToolConstraint
+	registries       []config.RegistryConfig // top-level registries: the single source of truth
+	imageRegistryRef string                  // dependency.registry — which registry image tags are read from
+	now              func() time.Time        // injectable clock for cooldown evaluation; nil → time.Now
 }
 
 // NewResolver constructs a Resolver with default configuration.
@@ -110,9 +112,11 @@ func isDockerfile(base string) bool {
 // and returns raw Dependency structs with vulnerabilities correlated.
 // opts is passed to Configure; nil uses FreshnessConfig defaults. toolchains is the
 // config's toolchains.want; without it no toolchain constraint is resolved or locked.
-func Resolve(ctx context.Context, opts map[string]any, toolchains map[string]config.ToolConstraint, files []lint.FileInfo) ([]supplychain.Dependency, error) {
+func Resolve(ctx context.Context, opts map[string]any, toolchains map[string]config.ToolConstraint, files []lint.FileInfo, registries []config.RegistryConfig, imageRegistryRef string) ([]supplychain.Dependency, error) {
 	m := NewResolver()
 	m.SetToolchainDesired(toolchains)
+	m.registries = registries
+	m.imageRegistryRef = imageRegistryRef
 	if opts != nil {
 		if err := m.Configure(opts); err != nil {
 			return nil, err
@@ -144,8 +148,8 @@ func Resolve(ctx context.Context, opts map[string]any, toolchains map[string]con
 // exactly once and pass the result down explicitly. Resolve remains the
 // entry point for standalone callers (e.g. `stagefreight dependency update`)
 // that don't need a shared Snapshot; Discover wraps it so both stay in sync.
-func Discover(ctx context.Context, opts map[string]any, toolchains map[string]config.ToolConstraint, files []lint.FileInfo) (*supplychain.Snapshot, error) {
-	deps, err := Resolve(ctx, opts, toolchains, files)
+func Discover(ctx context.Context, opts map[string]any, toolchains map[string]config.ToolConstraint, files []lint.FileInfo, registries []config.RegistryConfig, imageRegistryRef string) (*supplychain.Snapshot, error) {
+	deps, err := Resolve(ctx, opts, toolchains, files, registries, imageRegistryRef)
 	if err != nil {
 		return nil, err
 	}
