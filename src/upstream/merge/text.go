@@ -32,6 +32,11 @@ func splitLines(s string) []string {
 // hunks lists the changes that turn base into other, in base order.
 func hunks(base, other []string) []hunk {
 	dmp := diffmatchpatch.New()
+	// No deadline: the default 1s DiffTimeout makes DiffMain return a
+	// non-minimal, time-dependent edit script on large inputs, so the same
+	// merge yields a different blob (and commit hash) between runs. Sync
+	// idempotency depends on this being deterministic, so always run to optimal.
+	dmp.DiffTimeout = 0
 	a, b, lines := dmp.DiffLinesToChars(strings.Join(base, ""), strings.Join(other, ""))
 	diffs := dmp.DiffCharsToLines(dmp.DiffMain(a, b, false), lines)
 	var out []hunk
