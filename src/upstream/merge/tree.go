@@ -168,7 +168,10 @@ func mergeBlobs(repo *git.Repository, be object.TreeEntry, inB bool, oe, te obje
 		return plumbing.ZeroHash, false, err
 	}
 	for _, data := range [][]byte{base, ours, theirs} {
-		if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
+		// Scan the whole blob, not just the first 8000 bytes (git's diff sniff): this path
+		// writes a merged blob, so a file that looks like text up front but is binary later
+		// must be refused, never line-merged into a corrupted result.
+		if bytes.IndexByte(data, 0) >= 0 {
 			return plumbing.ZeroHash, false, nil
 		}
 	}

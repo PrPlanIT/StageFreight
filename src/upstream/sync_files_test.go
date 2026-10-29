@@ -135,3 +135,26 @@ func TestFilePolicy_LastMatchWins(t *testing.T) {
 		t.Error("StageFreight's own files cannot be handed to upstream")
 	}
 }
+
+// TestSyncFiles_BinaryBlobPastSniffIsNotMerged guards the whole-blob scan: a file that is text
+// for the first 8000 bytes (git's binary-sniff window) but has a NUL after must be treated as
+// binary and refused, not line-merged into a corrupted blob — even though the edits below do
+// not overlap and would otherwise merge cleanly.
+func TestSyncFiles_BinaryBlobPastSniffIsNotMerged(t *testing.T) {
+	repo, _ := git.Init(memory.NewStorage(), nil)
+	var head strings.Builder
+	for head.Len() <= 8000 {
+		head.WriteString("filler line\n")
+	}
+	h := head.String()
+	base := mk(t, repo, map[string]string{"asset": h + "\x00top\nmid\nbottom\n"}, "base")
+	up := mk(t, repo, map[string]string{"asset": h + "\x00top\nmid\nBOTTOM\n"}, "up", base)
+	ours := mk(t, repo, map[string]string{"asset": h + "\x00TOP\nmid\nbottom\n"}, "ours", base)
+	plan, err := PlanSync(repo, ours, up, opts(config.SyncMerge))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Result != SyncConflict {
+		t.Fatalf("a binary file changed on both sides must conflict, not merge: %+v", plan)
+	}
+}
