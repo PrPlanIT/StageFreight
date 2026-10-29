@@ -59,9 +59,9 @@ func (l *Lock) source(id string) *LockSource {
 }
 
 // Observe records the versions newer than our pin as seen now (keeping earlier sightings) and
-// drops versions no longer newer. It returns when each version was first seen and whether
-// the lock changed.
-func (l *Lock) Observe(id string, newer []string, now time.Time) (firstSeen map[string]time.Time, changed bool) {
+// drops versions no longer newer. It returns when each version was first seen, any versions
+// whose stored timestamp was corrupt and had to be reset, and whether the lock changed.
+func (l *Lock) Observe(id string, newer []string, now time.Time) (firstSeen map[string]time.Time, healed []string, changed bool) {
 	src := l.source(id)
 	keep := map[string]bool{}
 	firstSeen = map[string]time.Time{}
@@ -75,7 +75,13 @@ func (l *Lock) Observe(id string, newer []string, now time.Time) (firstSeen map[
 		}
 		t, err := time.Parse(time.RFC3339, at)
 		if err != nil {
+			// A corrupt timestamp was silently reset to now every run, so the cooldown never
+			// elapsed and the version never bumped. Heal it — reset to now once, conservatively
+			// restarting the cooldown — and report it so the caller surfaces the reset loudly.
 			t = now
+			src.FirstSeen[v] = now.UTC().Format(time.RFC3339)
+			healed = append(healed, v)
+			changed = true
 		}
 		firstSeen[v] = t
 	}
@@ -85,7 +91,8 @@ func (l *Lock) Observe(id string, newer []string, now time.Time) (firstSeen map[
 			changed = true
 		}
 	}
-	return firstSeen, changed
+	sort.Strings(healed)
+	return firstSeen, healed, changed
 }
 
 // Write writes the lock deterministically, dropping sources with nothing recorded.

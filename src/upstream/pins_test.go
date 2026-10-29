@@ -79,14 +79,14 @@ func TestLock(t *testing.T) {
 		t.Fatalf("a missing lock is empty: %+v %v", l, err)
 	}
 	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	if _, changed := l.Observe("core", []string{"2.21.6", "2.22.0"}, t0); !changed {
+	if _, _, changed := l.Observe("core", []string{"2.21.6", "2.22.0"}, t0); !changed {
 		t.Fatal("first sightings change the lock")
 	}
-	seen, changed := l.Observe("core", []string{"2.22.0"}, t0.Add(48*time.Hour))
+	seen, _, changed := l.Observe("core", []string{"2.22.0"}, t0.Add(48*time.Hour))
 	if !changed || !seen["2.22.0"].Equal(t0) {
 		t.Fatalf("an earlier sighting is kept and a passed version pruned: %v changed=%v", seen, changed)
 	}
-	if _, changed := l.Observe("core", []string{"2.22.0"}, t0.Add(72*time.Hour)); changed {
+	if _, _, changed := l.Observe("core", []string{"2.22.0"}, t0.Add(72*time.Hour)); changed {
 		t.Fatal("nothing new, nothing changed")
 	}
 	if err := l.Write(root); err != nil {

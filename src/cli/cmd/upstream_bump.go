@@ -175,8 +175,11 @@ func pickTarget(newer []upstream.Release, lock *upstream.Lock, id string, age ti
 			raws = append(raws, r.Raw)
 		}
 	}
-	seen, ch := lock.Observe(id, raws, now)
+	seen, healed, ch := lock.Observe(id, raws, now)
 	*changed = *changed || ch
+	if len(healed) > 0 {
+		fmt.Printf("  upstream: %s reset corrupt cooldown timestamp(s) in the lock: %v\n", id, healed)
+	}
 	for i := range newer {
 		at := newer[i].Published
 		if at.IsZero() {
@@ -233,7 +236,10 @@ func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string
 		}
 		for _, a := range result.Applied {
 			if a.Dep.Ecosystem == supplychain.EcosystemUpstream {
-				if _, ch := lock.Observe(a.Dep.Group, afterBump[a.Dep.Group], now); ch {
+				if _, healed, ch := lock.Observe(a.Dep.Group, afterBump[a.Dep.Group], now); ch {
+					if len(healed) > 0 {
+						fmt.Printf("  upstream: %s reset corrupt cooldown timestamp(s) in the lock: %v\n", a.Dep.Group, healed)
+					}
 					lockChanged = true
 				}
 			}
