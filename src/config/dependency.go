@@ -28,6 +28,11 @@ type DependencyCIConfig struct {
 type DependencyConfig struct {
 	Preset  string                 `yaml:"preset,omitempty"`
 	Enabled bool                   `yaml:"enabled"`
+	// Registry names a top-level registries[].id to read image base tags from — the single
+	// source of truth, by reference (the same way buildcache.registry and publish targets
+	// reference one). Routes e.g. a ghcr.io base's tag lookup through a pull-through proxy.
+	// Empty → image tags come from the Docker Hub web API.
+	Registry string `yaml:"registry,omitempty"`
 	Output  string                 `yaml:"output"`
 	Scope   DependencyScopeConfig  `yaml:"scope"`
 	Commit  DependencyCommitConfig `yaml:"commit"`

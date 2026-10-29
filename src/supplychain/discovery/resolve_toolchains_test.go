@@ -25,7 +25,7 @@ func TestResolve_DiscoversToolchainConstraints(t *testing.T) {
 	files := []lint.FileInfo{{Path: ".stagefreight.yml"}}
 	want := map[string]config.ToolConstraint{"trivy": {Constraint: "0.x"}}
 
-	deps, err := Resolve(context.Background(), opts, want, files)
+	deps, err := Resolve(context.Background(), opts, want, files, nil, "")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestResolve_DiscoversToolchainConstraints(t *testing.T) {
 		t.Fatalf("trivy not discovered; deps = %+v", deps)
 	}
 
-	none, err := Resolve(context.Background(), opts, nil, files)
+	none, err := Resolve(context.Background(), opts, nil, files, nil, "")
 	if err != nil {
 		t.Fatalf("Resolve without toolchains: %v", err)
 	}

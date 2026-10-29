@@ -158,7 +158,7 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve dependencies
-	deps, err := discovery.Resolve(ctx, withVersionLists(freshnessOpts, depMaxUpdate), cfg.Toolchains.Want, files)
+	deps, err := discovery.Resolve(ctx, withVersionLists(freshnessOpts, depMaxUpdate), cfg.Toolchains.Want, files, cfg.Registries, cfg.Dependency.Registry)
 	if err != nil {
 		output.SectionEnd(w, "sf_deps_resolve")
 		return &ExitError{Code: exitUpdateFail, Err: fmt.Errorf("resolving dependencies: %w", err)}

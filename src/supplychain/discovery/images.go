@@ -90,34 +90,39 @@ func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supp
 		Binding:   binding,
 	}
 
-	// Fetch tags — use custom registry if configured, else Docker Hub public API.
-	ep := m.cfg.registryEndpoint(supplychain.EcosystemDockerImage)
-	defaultURL := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, repo)
-	url := m.cfg.registryURL(supplychain.EcosystemDockerImage, defaultURL)
-	if url != defaultURL {
-		// Custom registry: use v2 tags/list endpoint.
-		url = strings.TrimRight(url, "/") + fmt.Sprintf("/%s/%s/tags/list", namespace, repo)
-	}
-	dep.SourceURL = url
-
+	// Fetch tags. A repo that references a top-level registry (dependency.registry) whose
+	// provider speaks the OCI distribution API reads them there — reusing that registry's own
+	// credentials — which is how a ghcr.io base routes through a Harbor pull-through proxy.
+	// Everything else falls back to the Docker Hub web API.
 	var tags []string
-	pageURL := url
-	for page := 0; page < maxTagPages && pageURL != ""; page++ {
-		var resp dockerHubTagsResponse
-		if err := m.http.fetchJSON(ctx, pageURL, &resp, ep); err != nil {
-			if page == 0 {
-				// First page failed — network errors are non-fatal.
-				return dep
+	if reg := m.imageRegistry(); reg != nil && ociProviders[reg.Provider] {
+		t, src, err := m.ociTags(ctx, reg, image)
+		if err != nil {
+			// A registry miss is non-fatal — the dep is left unresolved, never wrong.
+			return dep
+		}
+		tags, dep.SourceURL = t, src
+	} else {
+		url := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, repo)
+		dep.SourceURL = url
+		pageURL := url
+		for page := 0; page < maxTagPages && pageURL != ""; page++ {
+			var resp dockerHubTagsResponse
+			if err := m.http.fetchJSON(ctx, pageURL, &resp); err != nil {
+				if page == 0 {
+					// First page failed — network errors are non-fatal.
+					return dep
+				}
+				break
 			}
-			break
-		}
-		for _, r := range resp.Results {
-			tags = append(tags, r.Name)
-		}
-		if resp.Next != nil {
-			pageURL = *resp.Next
-		} else {
-			pageURL = ""
+			for _, r := range resp.Results {
+				tags = append(tags, r.Name)
+			}
+			if resp.Next != nil {
+				pageURL = *resp.Next
+			} else {
+				pageURL = ""
+			}
 		}
 	}
 
