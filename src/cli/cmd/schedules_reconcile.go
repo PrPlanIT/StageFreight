@@ -204,6 +204,11 @@ func reconcileSchedules(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		}
 	}
 
+	if len(desired) == 0 && len(changes) == 0 && len(inactive) == 0 {
+		// Nothing declared, nothing owned, nothing to do: stay silent instead of emitting a
+		// "0 in sync" line and a telemetry row on every publish across the whole fleet.
+		return
+	}
 	if len(changes) == 0 {
 		fmt.Printf("  schedules: %d in sync\n", len(desired))
 	} else {
