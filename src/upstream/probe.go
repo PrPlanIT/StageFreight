@@ -79,9 +79,17 @@ func clean(p string) string {
 	return strings.TrimPrefix(path.Clean("/"+p), "/")
 }
 
-// readFiles reads the wanted regular files from the flattened image filesystem, following one
-// level of symlink (e.g. /etc/os-release → ../usr/lib/os-release).
+// readFiles reads the wanted regular files from the flattened image filesystem, chasing
+// symlinks (e.g. /etc/os-release → ../usr/lib/os-release) across however many hops a chain
+// takes. It guards against cycles so a self- or mutually-referential link fails loud instead
+// of recursing until the stack overflows.
 func readFiles(img v1.Image, want map[string]bool) (map[string][]byte, error) {
+	return readFilesChase(img, want, map[string]bool{})
+}
+
+// readFilesChase is readFiles carrying the set of link targets already followed higher in the
+// chain, so a target that reappears is a cycle rather than more chain to resolve.
+func readFilesChase(img v1.Image, want, chased map[string]bool) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	links := map[string]string{}
 	err := walk(img, func(h *tar.Header, r io.Reader) error {
@@ -112,7 +120,16 @@ func readFiles(img v1.Image, want map[string]bool) (map[string][]byte, error) {
 	for _, t := range links {
 		targets[t] = true
 	}
-	resolved, err := readFiles(img, targets)
+	// A target already followed higher in the chain is a cycle, not more chain; stop loud.
+	for t := range targets {
+		if chased[t] {
+			return nil, fmt.Errorf("symlink cycle while resolving %q", t)
+		}
+	}
+	for t := range targets {
+		chased[t] = true
+	}
+	resolved, err := readFilesChase(img, targets, chased)
 	if err != nil {
 		return nil, err
 	}

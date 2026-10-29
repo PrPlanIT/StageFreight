@@ -110,3 +110,37 @@ func TestUpstreamPart(t *testing.T) {
 		}
 	}
 }
+
+// TestProbeSymlinkChainAndCycle covers multi-hop symlink chains, two files sharing one target,
+// and the cycle guard that keeps a self- or mutually-referential link from recursing until the
+// stack overflows.
+func TestProbeSymlinkChainAndCycle(t *testing.T) {
+	// A two-hop chain resolves to the file at the end.
+	chain := image(t, nil,
+		entry{name: "usr/share/app/VERSION", body: "app version 4.19.5\n"},
+		entry{name: "etc/app-version-1", link: "../usr/share/app/VERSION"},
+		entry{name: "etc/app-version", link: "app-version-1"},
+	)
+	if got, err := Probe(chain, config.UpstreamProbe{File: "/etc/app-version"}); err != nil || got != "4.19.5" {
+		t.Fatalf("chain: got %q, %v; want 4.19.5", got, err)
+	}
+
+	// Two files pointing at the same target both resolve — a shared target is not a cycle.
+	shared := image(t, nil,
+		entry{name: "usr/share/app/VERSION", body: "app version 4.19.5\n"},
+		entry{name: "etc/a", link: "../usr/share/app/VERSION"},
+		entry{name: "etc/b", link: "../usr/share/app/VERSION"},
+	)
+	if got, err := Probe(shared, config.UpstreamProbe{File: "/etc/a"}); err != nil || got != "4.19.5" {
+		t.Fatalf("shared target: got %q, %v; want 4.19.5", got, err)
+	}
+
+	// A mutual cycle fails loud instead of hanging.
+	cyc := image(t, nil,
+		entry{name: "etc/loop", link: "loop-2"},
+		entry{name: "etc/loop-2", link: "loop"},
+	)
+	if _, err := Probe(cyc, config.UpstreamProbe{File: "/etc/loop"}); err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("cycle: err = %v, want a cycle error", err)
+	}
+}
