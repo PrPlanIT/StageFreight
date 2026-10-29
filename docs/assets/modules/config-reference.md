@@ -628,6 +628,7 @@ Dependency holds configuration for the dependency update subsystem.
 dependency:
   preset: <string>
   enabled: false   # required
+  registry: <string>   # Registry names a top-level registries[].id to read image base tags from — the single source of…
   output: <string>   # required
   scope:   # required
     go_modules: false   # required
