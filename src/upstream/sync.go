@@ -36,6 +36,7 @@ type SyncPlan struct {
 	Conflicts  []string // paths (and, for a rebase, the commit) that could not be joined
 	Held       []string // upstream changed these; the fork's version was kept (take: fork)
 	Overridden []string // the fork's edits to these were replaced by upstream's (take: upstream)
+	Dropped    []string // fork commits that became empty after a rebase (already upstream, or fully held/overridden)
 	Reason     string
 }
 
@@ -120,8 +121,13 @@ func PlanSync(repo *git.Repository, head, target plumbing.Hash, opts SyncOptions
 			return SyncPlan{}, err
 		}
 		res, err := merge.Trees(repo, trees[0], trees[1], trees[2], policy, true)
-		if err != nil || len(res.Conflicts) > 0 {
-			return SyncPlan{Result: SyncConflict, Conflicts: res.Conflicts, Reason: "upstream's changes overlap ours"}, err
+		if err != nil {
+			// A hard failure (blob read, storage) is not a content conflict — keep them
+			// distinct so the caller does not open a spurious conflict MR for an I/O fault.
+			return SyncPlan{}, err
+		}
+		if len(res.Conflicts) > 0 {
+			return SyncPlan{Result: SyncConflict, Conflicts: res.Conflicts, Reason: "upstream's changes overlap ours"}, nil
 		}
 		h, err := writeCommit(repo, &object.Commit{
 			Author: opts.Sig, Committer: opts.Sig, Message: opts.MergeMessage, TreeHash: res.Tree,
@@ -189,7 +195,10 @@ func replay(repo *git.Repository, base, head, target *object.Commit, policy merg
 		plan.Held = union(plan.Held, res.Held)
 		plan.Overridden = union(plan.Overridden, res.Overridden)
 		if res.Tree == tip.TreeHash {
-			continue // upstream already contains this change
+			// The commit's net change is already in tip — upstream had it, or every edit was
+			// held/overridden. Record it so a dropped fork commit is visible, not silent.
+			plan.Dropped = append(plan.Dropped, fmt.Sprintf("%s %s", c.Hash.String()[:9], firstLine(c.Message)))
+			continue
 		}
 		h, err := writeCommit(repo, &object.Commit{
 			Author: c.Author, Committer: c.Committer, Message: c.Message, TreeHash: res.Tree,

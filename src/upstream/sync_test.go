@@ -126,6 +126,9 @@ func TestPlanSync_PatchUpstreamAlreadyHasIsDropped(t *testing.T) {
 	if plan.Result != SyncSynced || plan.NewHead != v2 {
 		t.Fatalf("a patch upstream took is dropped; we land on the release itself: %+v", plan)
 	}
+	if len(plan.Dropped) != 1 {
+		t.Fatalf("the dropped fork commit should be recorded, got %v", plan.Dropped)
+	}
 }
 
 func TestPlanSync_FastForwardAndMirror(t *testing.T) {

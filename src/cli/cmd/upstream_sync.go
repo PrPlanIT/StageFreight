@@ -137,6 +137,10 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 		facts["overridden"] = strings.Join(plan.Overridden, ",")
 		fmt.Printf("  sync: took upstream's version of %s over the fork's edits\n", strings.Join(plan.Overridden, ", "))
 	}
+	if len(plan.Dropped) > 0 {
+		facts["dropped"] = strings.Join(plan.Dropped, ",")
+		fmt.Printf("  sync: dropped %d fork commit(s) that became empty after sync: %s\n", len(plan.Dropped), strings.Join(plan.Dropped, "; "))
+	}
 	switch plan.Result {
 	case upstream.SyncInSync:
 		record("success", fmt.Sprintf("%s in sync with %s %s", branch, src.ID, label))
