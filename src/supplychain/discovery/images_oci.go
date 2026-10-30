@@ -32,6 +32,34 @@ func (m *Resolver) imageRegistry() *config.RegistryConfig {
 	return config.FindRegistryByID(m.registries, m.imageRegistryRef)
 }
 
+// isDockerHub reports whether an image reference resolves to Docker Hub — no registry host, or
+// an explicit docker.io / index.docker.io. go-containerregistry fills in the default registry
+// when the reference carries no host, so a bare "golang" or "prplanit/x" is Docker Hub and a
+// host-qualified "ghcr.io/owner/repo" is not.
+func isDockerHub(image string) bool {
+	repo, err := name.NewRepository(image)
+	if err != nil {
+		return true // let the Docker Hub namespace split handle an unparseable ref, as before
+	}
+	return repo.RegistryStr() == name.DefaultRegistry
+}
+
+// ociTagsCanonical lists an image's tags over its OWN registry's OCI distribution API,
+// anonymously — the same client and path the upstream watcher uses. The reference already names
+// its registry host, so this is the canonical enumeration surface: a pull-through proxy only
+// knows the tags it has cached, so it can never be asked to list what is NEW upstream.
+func ociTagsCanonical(ctx context.Context, image string) ([]string, string, error) {
+	repo, err := name.NewRepository(image)
+	if err != nil {
+		return nil, "", err
+	}
+	tags, err := remote.List(repo, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
+	if err != nil {
+		return nil, "", fmt.Errorf("list %s: %w", repo.Name(), err)
+	}
+	return tags, "https://" + repo.Name() + "/tags/list", nil
+}
+
 // repoPath drops a leading registry host from an image reference, leaving the repository path
 // the target registry expects: "ghcr.io/element-hq/synapse" → "element-hq/synapse", while
 // "element-hq/synapse" and "library/nginx" pass through. A first segment is a host when it

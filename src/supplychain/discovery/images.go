@@ -90,19 +90,30 @@ func (m *Resolver) resolveImage(ctx context.Context, filePath string, stage supp
 		Binding:   binding,
 	}
 
-	// Fetch tags. A repo that references a top-level registry (dependency.registry) whose
-	// provider speaks the OCI distribution API reads them there — reusing that registry's own
-	// credentials — which is how a ghcr.io base routes through a Harbor pull-through proxy.
-	// Everything else falls back to the Docker Hub web API.
+	// Fetch tags. An explicit dependency.registry whose provider speaks the OCI distribution
+	// API reads them there, reusing that registry's credentials — an override for a registry
+	// that mirrors a full catalog. Otherwise an image that carries its own registry host
+	// (ghcr.io, quay.io, lscr.io, …) is listed over THAT host's OCI distribution API — the
+	// canonical enumeration surface, as the upstream watcher lists it. Only a true Docker Hub
+	// image falls to the Docker Hub web API. A pull-through proxy is deliberately not an
+	// enumeration default: it knows only its cached tags, never what is new upstream.
 	var tags []string
-	if reg := m.imageRegistry(); reg != nil && ociProviders[reg.Provider] {
+	reg := m.imageRegistry()
+	switch {
+	case reg != nil && ociProviders[reg.Provider]:
 		t, src, err := m.ociTags(ctx, reg, image)
 		if err != nil {
 			// A registry miss is non-fatal — the dep is left unresolved, never wrong.
 			return dep
 		}
 		tags, dep.SourceURL = t, src
-	} else {
+	case !isDockerHub(image):
+		t, src, err := ociTagsCanonical(ctx, image)
+		if err != nil {
+			return dep
+		}
+		tags, dep.SourceURL = t, src
+	default:
 		url := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, repo)
 		dep.SourceURL = url
 		pageURL := url
