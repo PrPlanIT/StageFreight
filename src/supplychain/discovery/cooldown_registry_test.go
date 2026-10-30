@@ -52,7 +52,7 @@ func TestGoModCooldown(t *testing.T) {
 
 	m := cooldownResolver(t, "go", srv.URL)
 	dep := supplychain.Dependency{Name: "example.com/mod", Ecosystem: supplychain.EcosystemGoMod, Current: "v1.2.0"}
-	m.resolveGoModule(context.Background(), &dep)
+	m.resolveGoModule(context.Background(), &dep, "")
 	applyCooldown(&dep, m.cfg.MinReleaseAge, now)
 
 	if dep.Latest != "v1.2.3" || dep.CooldownHeld != "v1.2.5" {
