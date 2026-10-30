@@ -100,11 +100,12 @@ type Dependency struct {
 	Group     string // assigned group name from package rules
 	Automerge bool   // whether this dep's MR should automerge
 
-	// ResolvedTarget, when set by the deps layer, is a ceiling-constrained update
-	// target that OVERRIDES the natural UpdateTarget(). It lets a max_update ceiling
-	// re-target to a lower in-range version — e.g. patch-lock choosing the newest
-	// patch of the current minor instead of holding — rather than skipping the dep
-	// entirely. Empty means "use the natural target". Never set by discovery.
+	// ResolvedTarget, when set by the deps layer, OVERRIDES the natural UpdateTarget().
+	// Two layers set it: a max_update ceiling re-targets to a lower in-range version —
+	// e.g. patch-lock choosing the newest patch of the current minor instead of holding
+	// — rather than skipping the dep entirely; and upstream track authority sets it to
+	// the latest upstream GA within the tracked major (see TrackGoverned). Empty means
+	// "use the natural target". Never set by discovery.
 	ResolvedTarget string
 
 	// ResolvedDigest is the registry manifest digest ("sha256:…") of the update
@@ -118,6 +119,14 @@ type Dependency struct {
 	// digest refresh (a CVE rebuild republished under the same version tag). Empty for
 	// non-digest-pinned deps.
 	PinnedDigest string
+
+	// TrackGoverned marks the base a fork follows under upstream.version.track: the
+	// dependency IS the tracked upstream (the Dockerfile FROM for the tracked image).
+	// Its version is the authority of the fork's release, so max_update does not cap it
+	// — the fork advances to upstream's latest GA within the tracked major. A newer
+	// major is still held for review (MajorAvailable), and the escape hatch to adopt it
+	// is upstream.version.track: <source>@<major>. Set by the deps layer, never discovery.
+	TrackGoverned bool
 }
 
 // NeedsDigestRefresh reports a digest-pinned image whose currently-pinned digest is

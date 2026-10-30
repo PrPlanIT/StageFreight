@@ -226,6 +226,12 @@ func lockRel() string { return strings.TrimPrefix(upstream.LockPath(""), "/") }
 func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, ecosystems []string) ([]supplychain.Dependency, []string, func(*dependency.UpdateResult, bool)) {
 	now := time.Now()
 	upDeps, lock, lockChanged, afterBump := upstreamPinDeps(ctx, appCfg, rootDir, now)
+	// A track-governed base is an implicit pin on the Dockerfile FROM: annotate it on the
+	// discovered deps (in place, before withoutShadowed copies them) so it rides the same
+	// cooldown lock and finish.
+	if annotateTrackedBase(ctx, appCfg, rootDir, deps, now, lock) {
+		lockChanged = true
+	}
 	if len(upDeps) > 0 {
 		deps = append(withoutShadowed(deps, upDeps), upDeps...)
 		if len(ecosystems) > 0 {

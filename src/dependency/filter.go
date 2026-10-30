@@ -273,9 +273,11 @@ func extractTag(image string) string {
 
 // ceilingGoverns reports whether max_update caps dep. A vulnerable dep is exempt (the
 // remediation floor overrides the ceiling), and so is a toolchain: its toolchains.want
-// constraint is its bound, and min_release_age paces it.
+// constraint is its bound, and min_release_age paces it. A track-governed base is exempt
+// too: its version IS the fork's release, bounded by the tracked major and paced by
+// min_release_age, so max_update — which scopes ordinary deps — never applies to it.
 func ceilingGoverns(dep supplychain.Dependency) bool {
-	return len(dep.Vulnerabilities) == 0 && dep.Ecosystem != supplychain.EcosystemToolchain
+	return len(dep.Vulnerabilities) == 0 && dep.Ecosystem != supplychain.EcosystemToolchain && !dep.TrackGoverned
 }
 
 // updateTypeExceedsCeiling reports whether an update of type ut (from

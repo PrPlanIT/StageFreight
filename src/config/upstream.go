@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -375,7 +376,11 @@ type UpstreamRewrite struct {
 // none set means own.
 type UpstreamVersion struct {
 	// Track names the source whose version our release IS. A release naming a version that
-	// source never released is refused.
+	// source never released is refused. For an image source this also makes that upstream's
+	// version the authority for the fork's base image: the base advances to upstream's
+	// latest GA within the tracked major, and a newer major is held for review. The form
+	// track: <source>@<major> pins a major line — the escape hatch to adopt a new major
+	// (synapse@2 from a 1.x base) or to stay on one.
 	Track string `yaml:"track,omitempty"`
 
 	// Continue names the source whose numbering our own lineage continues (a dormant or
@@ -535,15 +540,41 @@ const (
 // Declared reports whether any upstream source is declared.
 func (u UpstreamConfig) Declared() bool { return len(u.Sources) > 0 }
 
-// Mode returns the version mode and, for track and continue, the source id it names.
+// Mode returns the version mode and, for track and continue, the source id it names. A
+// track line pins "id@N"; the id alone is returned here (the pinned major is TrackLine).
 func (v UpstreamVersion) Mode() (mode, source string) {
 	switch {
 	case v.Track != "":
-		return UpstreamVersionTrack, v.Track
+		id, _, _ := splitTrackLine(v.Track)
+		return UpstreamVersionTrack, id
 	case v.Continue != "":
 		return UpstreamVersionContinue, v.Continue
 	}
 	return UpstreamVersionOwn, ""
+}
+
+// TrackLine reports the major version line pinned by the track: id@N escape hatch. pinned
+// is false for a plain track: id, which follows the base's current major — read from the
+// base itself, not declared here. Pinning a line adopts a new major (id@2 from a 1.x base)
+// or holds on one even once a newer major ships.
+func (v UpstreamVersion) TrackLine() (major int, pinned bool) {
+	if v.Track == "" {
+		return 0, false
+	}
+	_, major, pinned = splitTrackLine(v.Track)
+	return major, pinned
+}
+
+// splitTrackLine splits a track value "id" or "id@N" into the source id and, when a major
+// line is pinned, that major. A non-integer suffix is not a line pin (validateUpstream
+// rejects it), so the whole value is returned as the id and surfaces as an unknown source.
+func splitTrackLine(s string) (id string, major int, pinned bool) {
+	if at := strings.LastIndex(s, "@"); at >= 0 {
+		if n, err := strconv.Atoi(s[at+1:]); err == nil {
+			return s[:at], n, true
+		}
+	}
+	return s, 0, false
 }
 
 // validateUpstream checks the upstream: block.
@@ -661,6 +692,13 @@ func validateUpstream(cfg *Config) []string {
 	claimed, declared := ids[src]
 	if src != "" && !declared {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is not a declared source (upstream.sources)", mode, src))
+	}
+	if v.Track != "" {
+		if at := strings.LastIndex(v.Track, "@"); at >= 0 {
+			if n, err := strconv.Atoi(v.Track[at+1:]); err != nil || n < 0 {
+				errs = append(errs, fmt.Sprintf("upstream.version.track: %q — a pinned line is track: <source>@<major> with a whole-number major, e.g. %s@1", v.Track, v.Track[:at]))
+			}
+		}
 	}
 	if declared && claimed.EffectiveLifecycle() == LifecycleGone {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is gone, so no release of ours can be checked against it — use own", mode, src))

@@ -80,12 +80,41 @@ func TestUpstream_Validation(t *testing.T) {
 		"bad since":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Since: "soon"}}, "is not a semver version"},
 		"bad scheme":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Scheme: "calver"}}}, "unknown version scheme"},
 		"bad rewrite":    {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Rewrite: []UpstreamRewrite{{From: "("}}}}}}, "select.rewrite[0].from"},
+		"bad track line": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a@x"}}, "a pinned line is track:"},
 	}
 	for name, c := range cases {
 		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")
 		if !strings.Contains(errs, c.want) {
 			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
 		}
+	}
+}
+
+func TestUpstream_TrackLine(t *testing.T) {
+	cases := []struct {
+		track      string
+		wantSrc    string
+		wantMajor  int
+		wantPinned bool
+	}{
+		{"synapse", "synapse", 0, false},
+		{"synapse@1", "synapse", 1, true},
+		{"synapse@2", "synapse", 2, true},
+		{"", "", 0, false},
+	}
+	for _, c := range cases {
+		v := UpstreamVersion{Track: c.track}
+		if _, src := v.Mode(); c.track != "" && src != c.wantSrc {
+			t.Errorf("%q: Mode src=%q, want %q", c.track, src, c.wantSrc)
+		}
+		if major, pinned := v.TrackLine(); major != c.wantMajor || pinned != c.wantPinned {
+			t.Errorf("%q: TrackLine=(%d,%v), want (%d,%v)", c.track, major, pinned, c.wantMajor, c.wantPinned)
+		}
+	}
+	// A valid pinned line on a declared source validates clean.
+	u := UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "synapse", Image: "ghcr.io/x/synapse"}}, Version: UpstreamVersion{Track: "synapse@1"}}
+	if errs := validateUpstream(&Config{Upstream: u}); len(errs) != 0 {
+		t.Errorf("track: synapse@1 should validate; got %v", errs)
 	}
 }
 

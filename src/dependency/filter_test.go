@@ -62,6 +62,37 @@ func TestFilterUpdateCandidates_PolicyMatrix(t *testing.T) {
 	}
 }
 
+// TestTrackGovernedBypassesCeiling locks the fork-mode core: a track-governed base (the
+// Dockerfile FROM for the tracked upstream) advances to its ResolvedTarget — upstream's
+// latest GA in the tracked major — even when that is a minor jump under max_update: patch.
+// The only difference between the two deps is TrackGoverned, isolating the ceiling exemption.
+func TestTrackGovernedBypassesCeiling(t *testing.T) {
+	base := func(governed bool) supplychain.Dependency {
+		return supplychain.Dependency{
+			Name:           "ghcr.io/element-hq/synapse:v1.162.0@sha256:abc",
+			Ecosystem:      supplychain.EcosystemDockerImage,
+			File:           "Dockerfile",
+			Current:        "v1.162.0",
+			LatestEligible: "v1.162.0", // discovery pins eligible to the 1.162 minor line
+			Latest:         "v1.164.1", // awareness: a newer minor exists
+			ResolvedTarget: "v1.164.1", // track authority's within-major target
+			TrackGoverned:  governed,
+		}
+	}
+	tracked := map[string]bool{"Dockerfile": true}
+	cfg := UpdateConfig{MaxUpdate: "patch", Policy: "all"}
+
+	cands, skipped := FilterUpdateCandidates([]supplychain.Dependency{base(true)}, cfg, tracked)
+	if len(cands) != 1 || cands[0].UpdateTarget() != "v1.164.1" {
+		t.Fatalf("track-governed base must advance to v1.164.1; cands=%+v skipped=%+v", cands, skipped)
+	}
+
+	// Control: identical dep, not track-governed → the minor jump is capped by max_update.
+	if c, s := FilterUpdateCandidates([]supplychain.Dependency{base(false)}, cfg, tracked); len(s) != 1 || s[0].Category != SkipCeilingExceeded {
+		t.Fatalf("ungoverned base must be held by the patch ceiling; cands=%+v skipped=%+v", c, s)
+	}
+}
+
 func TestUpdateTypeExceedsCeiling(t *testing.T) {
 	cases := []struct {
 		ut, ceiling string

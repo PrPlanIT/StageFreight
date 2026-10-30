@@ -60,6 +60,23 @@ func ociTagsCanonical(ctx context.Context, image string) ([]string, string, erro
 	return tags, "https://" + repo.Name() + "/tags/list", nil
 }
 
+// ManifestDigestCanonical resolves the manifest digest ("sha256:…") of image:tag over the
+// image's OWN registry's OCI distribution API, anonymously — the digest counterpart of
+// ociTagsCanonical. A digest-pinned base bumped to a new tag must re-pin to THAT tag's digest
+// from the canonical host; the Docker Hub manifest API (FetchManifestDigest's default) cannot
+// answer for a ghcr.io/quay.io/lscr.io image.
+func ManifestDigestCanonical(ctx context.Context, image, tag string) (string, error) {
+	ref, err := name.NewTag(image + ":" + tag)
+	if err != nil {
+		return "", err
+	}
+	desc, err := remote.Head(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
+	if err != nil {
+		return "", fmt.Errorf("head %s: %w", ref.Name(), err)
+	}
+	return desc.Digest.String(), nil
+}
+
 // repoPath drops a leading registry host from an image reference, leaving the repository path
 // the target registry expects: "ghcr.io/element-hq/synapse" → "element-hq/synapse", while
 // "element-hq/synapse" and "library/nginx" pass through. A first segment is a host when it
