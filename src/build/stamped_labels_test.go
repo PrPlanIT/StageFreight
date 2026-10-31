@@ -15,7 +15,7 @@ func TestStampedLabelsAreRefusedAsEvidence(t *testing.T) {
 	labels := ImageLabels(ImageLabelInput{
 		PlanHash: "plan", SFVersion: "1.2.3", Commit: "abc", Mode: "standard", Created: "", Description: "d",
 		Title: "t", Source: "s", URL: "u", Documentation: "doc", Licenses: "MIT", Vendor: "ven", Authors: "a <a@x>",
-		BaseName: "ghcr.io/x/y:1", BaseDigest: "sha256:deadbeef", Maintenance: "tracked",
+		BaseName: "ghcr.io/x/y:1", BaseDigest: "sha256:deadbeef", Maintenance: "tracked", BuildNumber: "7",
 	})
 	for key := range labels {
 		if !slices.Contains(config.StampedLabels, key) {

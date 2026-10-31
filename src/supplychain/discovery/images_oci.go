@@ -103,6 +103,34 @@ func ManifestCreatedCanonical(ctx context.Context, image, tag string) (time.Time
 	return cf.Created.Time, nil
 }
 
+// ManifestLabelsCanonical reads image:tag's OCI config labels from the image's OWN registry,
+// anonymously — the label counterpart of ManifestCreatedCanonical. A reference the registry does
+// not serve (404) returns an empty map and a nil error: a not-yet-published tag has no prior
+// labels, which is the natural "first build" case, not a failure. Any other error (transient, a
+// 5xx, a rate limit, auth) is returned, so the caller can degrade deliberately rather than read a
+// momentary fault as "no prior build."
+func ManifestLabelsCanonical(ctx context.Context, image, tag string) (map[string]string, error) {
+	ref, err := name.NewTag(image + ":" + tag)
+	if err != nil {
+		return nil, err
+	}
+	img, err := remote.Image(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
+	if err != nil {
+		if IsManifestNotFound(err) {
+			return map[string]string{}, nil
+		}
+		return nil, fmt.Errorf("image %s: %w", ref.Name(), err)
+	}
+	cf, err := img.ConfigFile()
+	if err != nil {
+		return nil, fmt.Errorf("config %s: %w", ref.Name(), err)
+	}
+	if cf == nil || cf.Config.Labels == nil {
+		return map[string]string{}, nil
+	}
+	return cf.Config.Labels, nil
+}
+
 // IsManifestNotFound reports whether err is a registry's definite "this reference does not
 // exist" — a 404 from the distribution API — as opposed to a transient failure (a timeout, a
 // 5xx, a rate limit) that says nothing about whether the reference exists. A reachability check

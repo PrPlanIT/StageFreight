@@ -148,6 +148,7 @@ var StampedLabels = []string{
 	"org.stagefreight.build.mode",
 	"org.stagefreight.plan.sha256",
 	"org.stagefreight.maintenance",
+	"org.stagefreight.build.number",
 }
 
 // Probe package managers.

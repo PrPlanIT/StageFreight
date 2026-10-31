@@ -1,10 +1,13 @@
 package docker
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +17,12 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 )
+
+// readPublishedLabels reads the OCI config labels off a live published tag. A package var so
+// tests can stub the network; bound to the anonymous canonical-registry reader.
+var readPublishedLabels = discovery.ManifestLabelsCanonical
 
 func init() {
 	domains.RegisterContributor(func() domains.Contributor { return &crucibleContributor{} })
@@ -378,6 +386,55 @@ func baseImageLineage(det *build.Detection) (name, digest string) {
 	return from, ""
 }
 
+// resolveBuildNumber returns org.stagefreight.build.number for the shipped image: a monotonic
+// count of CONTENT revisions of this version. It reads the currently-published version tag's
+// content identity (plan.sha256 + base.digest) and its build.number; when THIS build's content
+// matches, the number is reused (a cosmetic rebuild is the same content revision), and only a
+// real content change advances it. A version tag not yet published starts at 1. On a transient
+// read failure the number cannot be determined safely, so it is omitted (returned "") and logged
+// loudly rather than guessed — build.number is advisory metadata, not the integrity anchor, and a
+// guessed value would corrupt the count for every downstream observer.
+func (c *crucibleContributor) resolveBuildNumber(ctx context.Context, w io.Writer, plan *build.BuildPlan, planHash, baseDigest, version string) string {
+	image, tag := publishedVersionRef(plan, version)
+	if image == "" || tag == "" {
+		return "" // no registry version tag to count from
+	}
+	labels, err := readPublishedLabels(ctx, image, tag)
+	if err != nil {
+		fmt.Fprintf(w, "    %-9s build.number omitted — could not read %s:%s (%v)\n", "docker", image, tag, err)
+		return ""
+	}
+	prior, _ := strconv.Atoi(labels[build.LabelBuildNumber])
+	if prior <= 0 {
+		return "1" // first published (or first numbered) build of this version
+	}
+	if labels[build.LabelPlanHash] == planHash && labels[build.LabelBaseDigest] == baseDigest {
+		return strconv.Itoa(prior) // same content revision — reuse
+	}
+	return strconv.Itoa(prior + 1)
+}
+
+// publishedVersionRef finds the registry image ref (host/path) and the version tag to read the
+// currently-published build from — the first registry target carrying a tag equal to the version
+// (with or without a leading v). The version tag is the stable identity, so it names the prior
+// build of THIS version (a rolling alias like latest might point at a different version).
+// Returns empties when no target carries the version tag.
+func publishedVersionRef(plan *build.BuildPlan, version string) (image, tag string) {
+	bare := strings.TrimPrefix(version, "v")
+	want := map[string]bool{version: true, "v" + bare: true, bare: true}
+	for _, step := range plan.Steps {
+		for _, rt := range step.Registries {
+			host := strings.TrimRight(strings.TrimPrefix(strings.TrimPrefix(rt.URL, "https://"), "http://"), "/")
+			for _, tg := range rt.Tags {
+				if want[tg] {
+					return host + "/" + rt.Path, tg
+				}
+			}
+		}
+	}
+	return "", ""
+}
+
 // crucibleStepOutput decides how the verified-artifact build step emits its image.
 // --local ALWAYS loads into the local daemon and NEVER pushes — that is the whole point of
 // --local, and its omission was the "tag is needed when pushing to registry" bug where a
@@ -420,8 +477,9 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		// re-tags this image digest-preserved WITHOUT re-stamping, so these are the labels
 		// that reach the registry — they must be correct here.
 		sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
-		build.InjectLabels(publishPlan, build.ImageLabels(
-			c.imageLabelInput(rc.Config, publishPlan, "crucible-verified", sfVer, sfCommit)))
+		in := c.imageLabelInput(rc.Config, publishPlan, "crucible-verified", sfVer, sfCommit)
+			in.BuildNumber = c.resolveBuildNumber(ctx, w, publishPlan, in.PlanHash, in.BaseDigest, sfVer)
+			build.InjectLabels(publishPlan, build.ImageLabels(in))
 
 		loginFailed := false
 		if !transport && !rc.Local {

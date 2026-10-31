@@ -18,7 +18,7 @@ func TestImageLabelsOmitsAbsentFields(t *testing.T) {
 	}
 	for _, absent := range []string{
 		LabelTitle, LabelSource, LabelURL, LabelDocumentation, LabelLicenses,
-		LabelVendor, LabelAuthors, LabelBaseName, LabelBaseDigest, LabelMaintenance, LabelDescription,
+		LabelVendor, LabelAuthors, LabelBaseName, LabelBaseDigest, LabelMaintenance, LabelDescription, LabelBuildNumber,
 	} {
 		if _, ok := labels[absent]; ok {
 			t.Errorf("ImageLabels stamped %q with no source value", absent)
@@ -32,10 +32,11 @@ func TestImageLabelsSetsPresentFields(t *testing.T) {
 		PlanHash: "plan", SFVersion: "1.2.3", Commit: "abc", Mode: "standard", Created: "2026-10-31T00:00:00Z",
 		Description: " desc ", Title: "Title", Source: "https://git/x/y", URL: "https://site",
 		Documentation: "https://docs", Licenses: "MIT", Vendor: "homelabhd", Authors: "Me <me@x>",
-		BaseName: "ghcr.io/x/y:1.2.3", BaseDigest: "sha256:deadbeef", Maintenance: "pinned",
+		BaseName: "ghcr.io/x/y:1.2.3", BaseDigest: "sha256:deadbeef", Maintenance: "pinned", BuildNumber: "7",
 	}
 	labels := ImageLabels(in)
 	want := map[string]string{
+		LabelBuildNumber:   "7",
 		LabelDescription:   "desc", // trimmed
 		LabelTitle:         "Title",
 		LabelSource:        "https://git/x/y",

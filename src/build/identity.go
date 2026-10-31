@@ -42,6 +42,13 @@ const (
 	// (a point-in-time snapshot, not kept fresh). Stamped only on forks; absent on a
 	// repo that declares no upstream, where the posture is N/A.
 	LabelMaintenance = "org.stagefreight.maintenance"
+
+	// BuildNumber is the monotonic count of CONTENT revisions of this version — the
+	// human-visible rebuild signal that the version tag deliberately does not carry. It
+	// advances only when the build's content identity (plan.sha256 + base.digest) differs
+	// from the currently-published build of the same version, so a cosmetic rebuild keeps
+	// the same number. Absent when there is no published version tag to count from.
+	LabelBuildNumber = "org.stagefreight.build.number"
 )
 
 // WithDescription stamps org.opencontainers.image.description from the project's declared
@@ -113,6 +120,10 @@ type ImageLabelInput struct {
 
 	// Maintenance posture — "tracked" | "pinned"; omitted when empty (not a fork).
 	Maintenance string
+
+	// BuildNumber — the content-revision counter; omitted when empty (no published
+	// version tag to count from, or the read to determine it failed).
+	BuildNumber string
 }
 
 // ImageLabels assembles the complete OCI + StageFreight label set for a build, layering the
@@ -140,6 +151,7 @@ func ImageLabels(in ImageLabelInput) map[string]string {
 	set(LabelBaseName, in.BaseName)
 	set(LabelBaseDigest, in.BaseDigest)
 	set(LabelMaintenance, in.Maintenance)
+	set(LabelBuildNumber, in.BuildNumber)
 	return labels
 }
 
