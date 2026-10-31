@@ -11,6 +11,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
+	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
 // annotateTrackedBase makes upstream.version.track the authority for the fork's base image.
@@ -78,6 +79,17 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 	if l.err != nil {
 		fmt.Printf("  upstream: %s base not advanced: %v\n", src, l.err)
 		return false
+	}
+
+	// Reachability (read-only, empirical): the tag the maintainer pinned on the FROM must be a
+	// tag this registry actually serves. A digest-pinned base still builds when its tag string
+	// 404s — the digest carries the pull — so this never blocks; but a pinned tag the registry
+	// does not have is a dead reference that any tag-resolving tool trips over, hidden behind the
+	// digest. Surface it. No style is asserted: the registry is the sole authority on which tag
+	// strings exist, so the check asks it directly, and when the pin is absent it names the form
+	// the registry does serve for the same version — evidence, not a prescribed convention.
+	if w := baseTagWarning(ctx, src, dep.Current, cur, l.releases); w != "" {
+		fmt.Println(w)
 	}
 
 	// Releases strictly newer than the base, within the tracked major (newest first).
@@ -160,6 +172,36 @@ func dateTrackCandidates(ctx context.Context, image string, rels []upstream.Rele
 		}
 		rels[i].Published = t
 	}
+}
+
+// baseTagWarning returns the warning for a tracked base whose pinned FROM tag is not a tag its
+// registry serves, or "" when the pin resolves. It asks the registry whether that exact string
+// resolves; a 404 is the registry's definite "I do not have this", and only then is there a
+// warning — a transient failure is not evidence a pin is dead and is passed over in silence (the
+// listing step already reports an unreachable registry). When the pin is dead it names the form
+// the registry does serve for the same version, read from the listing already in hand: data,
+// never a v-or-no-v rule. Returning the message rather than printing it keeps the check unit-
+// testable; the caller prints it so the audition log carries it loudly.
+func baseTagWarning(ctx context.Context, src upstream.Source, pinned string, v scheme.Version, releases []upstream.Release) string {
+	_, err := resolveImageDigest(ctx, src.Location, pinned)
+	if err == nil || !discovery.IsManifestNotFound(err) {
+		return ""
+	}
+	if served := servedTagFor(releases, v); served != "" {
+		return fmt.Sprintf("  upstream: %s base tag %q is a dead reference — %s does not serve it; it serves this version as %q (the pin builds by digest, but its tag resolves to nothing)", src.ID, pinned, src.Location, served)
+	}
+	return fmt.Sprintf("  upstream: %s base tag %q is a dead reference — %s does not serve it (the pin builds by digest, but its tag resolves to nothing)", src.ID, pinned, src.Location)
+}
+
+// servedTagFor returns the literal tag the registry serves for exactly this version, read from
+// the listing already fetched, or "" when none matches — pure data, no network and no style rule.
+func servedTagFor(releases []upstream.Release, v scheme.Version) string {
+	for i := range releases {
+		if releases[i].Version.Compare(v) == 0 {
+			return releases[i].Tag
+		}
+	}
+	return ""
 }
 
 // resolveImageDigest resolves a tag's manifest digest from the image's canonical registry.

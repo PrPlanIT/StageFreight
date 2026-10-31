@@ -2,8 +2,12 @@ package cmd
 
 import (
 	"context"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -51,6 +55,20 @@ func stubDigest(t *testing.T, fn func(context.Context, string, string) (string, 
 	return func() { resolveImageDigest = prev }
 }
 
+// stubDigestByTag resolves every tag to "sha256:"+tag, so a test asserts which tag's digest was
+// written (the digest encodes it) without caring about call order, and no tracked-base run
+// reaches the network — every run now also probes the registry for the pinned tag's reachability.
+func stubDigestByTag(t *testing.T) func() {
+	t.Helper()
+	return stubDigest(t, func(_ context.Context, _, tag string) (string, error) {
+		return "sha256:" + tag, nil
+	})
+}
+
+// notFoundErr is a registry's definite 404, what remote.Head returns for a tag the registry does
+// not serve — the only error baseTagWarning acts on.
+func notFoundErr() error { return &transport.Error{StatusCode: http.StatusNotFound} }
+
 // stubCreated swaps the canonical image-creation-time resolver for a test double; the returned
 // func restores it.
 func stubCreated(t *testing.T, fn func(context.Context, string, string) (time.Time, error)) func() {
@@ -81,6 +99,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 	t.Run("advances to the latest GA in the current major", func(t *testing.T) {
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "1.164.1", "1.163.0", "1.162.0")
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
 		if !deps[0].TrackGoverned || deps[0].ResolvedTarget != "v1.164.1" {
@@ -91,6 +110,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 	t.Run("holds a newer major, advances within the current one", func(t *testing.T) {
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "2.0.0", "1.164.1", "1.162.0")
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
 		if deps[0].ResolvedTarget != "v1.164.1" {
@@ -101,6 +121,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 	t.Run("@major escape hatch adopts the pinned major", func(t *testing.T) {
 		cfg := trackCfg("synapse@2")
 		seedListing(t, cfg, "2.1.0", "2.0.0", "1.164.1")
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.164.1")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
 		if deps[0].ResolvedTarget != "v2.1.0" {
@@ -111,6 +132,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 	t.Run("already at the major's latest → no target, still governed", func(t *testing.T) {
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "1.164.1", "1.162.0")
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.164.1")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
 		if deps[0].ResolvedTarget != "" || !deps[0].TrackGoverned {
@@ -121,18 +143,13 @@ func TestAnnotateTrackedBase(t *testing.T) {
 	t.Run("digest-pinned base re-pins to the new tag's digest", func(t *testing.T) {
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "1.164.1", "1.162.0")
-		defer stubDigest(t, func(_ context.Context, image, tag string) (string, error) {
-			if image != "ghcr.io/element-hq/synapse" || tag != "v1.164.1" {
-				t.Fatalf("digest resolved for %s:%s", image, tag)
-			}
-			return "sha256:new164", nil
-		})()
+		defer stubDigestByTag(t)() // returns sha256:<tag>, so the digest proves which tag it came from
 		dep := synapseBase("v1.162.0")
 		dep.PinnedDigest = "sha256:old162"
 		deps := []supplychain.Dependency{dep}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
-		if deps[0].ResolvedTarget != "v1.164.1" || deps[0].ResolvedDigest != "sha256:new164" {
-			t.Fatalf("got target=%q digest=%q (want v1.164.1, sha256:new164)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
+		if deps[0].ResolvedTarget != "v1.164.1" || deps[0].ResolvedDigest != "sha256:v1.164.1" {
+			t.Fatalf("got target=%q digest=%q (want v1.164.1, sha256:v1.164.1)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
 		}
 	})
 
@@ -142,18 +159,13 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		// tag the registry actually serves (v1.164.1), not the reconstructed 1.164.1.
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "1.164.1", "1.162.0")
-		defer stubDigest(t, func(_ context.Context, image, tag string) (string, error) {
-			if tag != "v1.164.1" {
-				t.Fatalf("digest must be resolved from upstream's real tag v1.164.1, got %s:%s", image, tag)
-			}
-			return "sha256:new164", nil
-		})()
+		defer stubDigestByTag(t)() // sha256:<tag>: the digest proves it came from the v-tag, not 1.164.1
 		dep := synapseBase("1.162.0") // no v
 		dep.PinnedDigest = "sha256:old162"
 		deps := []supplychain.Dependency{dep}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
-		if deps[0].ResolvedTarget != "1.164.1" || deps[0].ResolvedDigest != "sha256:new164" {
-			t.Fatalf("got target=%q digest=%q (want 1.164.1 — no-v style preserved — and sha256:new164)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
+		if deps[0].ResolvedTarget != "1.164.1" || deps[0].ResolvedDigest != "sha256:v1.164.1" {
+			t.Fatalf("got target=%q digest=%q (want 1.164.1 — no-v style preserved — and sha256:v1.164.1 — digest from the real v-tag)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
 		}
 	})
 
@@ -202,6 +214,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
 			return now.Add(-30 * 24 * time.Hour), nil
 		})()
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
 		if deps[0].ResolvedTarget != "v1.164.1" {
@@ -216,6 +229,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
 			return now.Add(-24 * time.Hour), nil // a day old, inside the 7d window
 		})()
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
 		if deps[0].ResolvedTarget != "" || deps[0].CooldownHeld != "v1.164.1" {
@@ -231,6 +245,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
 			return now.Add(-2 * time.Hour), nil
 		})()
+		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
 		if deps[0].ResolvedTarget != "v1.164.1" {
@@ -246,6 +261,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		defer stubCreated(t, func(context.Context, string, string) (time.Time, error) {
 			return time.Time{}, nil
 		})()
+		defer stubDigestByTag(t)()
 		// The lock already saw 1.164.1 a month ago, so the first-sighting fallback frees it.
 		old := now.Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
 		lock := &upstream.Lock{Sources: []upstream.LockSource{{ID: "synapse", FirstSeen: map[string]string{"1.164.1": old}}}}
@@ -253,6 +269,52 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, lock)
 		if deps[0].ResolvedTarget != "v1.164.1" {
 			t.Fatalf("an undated image must fall back to the lock's first-sighting; target=%q (want v1.164.1)", deps[0].ResolvedTarget)
+		}
+	})
+}
+
+// TestBaseTagWarning covers the read-only reachability check: it warns only on the registry's
+// definite 404, names the served form of the pinned version (evidence, not a prescribed style),
+// and stays silent on a pin the registry serves or on a transient failure — which is not evidence
+// a pin is dead.
+func TestBaseTagWarning(t *testing.T) {
+	cfg := trackCfg("synapse")
+	srcs, err := upstream.Sources(cfg.Upstream)
+	if err != nil || len(srcs) == 0 {
+		t.Fatalf("sources: %v", err)
+	}
+	src := srcs[0]
+	cur, err := src.Select.Scheme.Parse("1.162.0")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	releases := releasesOf(t, "1.164.1", "1.162.0") // the registry serves these as v1.164.1, v1.162.0
+
+	t.Run("a dead tag warns and names the served form", func(t *testing.T) {
+		defer stubDigest(t, func(context.Context, string, string) (string, error) {
+			return "", notFoundErr()
+		})()
+		w := baseTagWarning(context.Background(), src, "1.162.0", cur, releases)
+		if !strings.Contains(w, `"1.162.0"`) || !strings.Contains(w, `"v1.162.0"`) {
+			t.Fatalf("want a warning naming the dead pin (1.162.0) and the served form (v1.162.0); got %q", w)
+		}
+	})
+
+	t.Run("a tag the registry serves is silent", func(t *testing.T) {
+		defer stubDigest(t, func(context.Context, string, string) (string, error) {
+			return "sha256:ok", nil
+		})()
+		if w := baseTagWarning(context.Background(), src, "v1.162.0", cur, releases); w != "" {
+			t.Fatalf("a resolvable tag must not warn; got %q", w)
+		}
+	})
+
+	t.Run("a transient failure is silent — not evidence the pin is dead", func(t *testing.T) {
+		defer stubDigest(t, func(context.Context, string, string) (string, error) {
+			return "", context.DeadlineExceeded
+		})()
+		if w := baseTagWarning(context.Background(), src, "1.162.0", cur, releases); w != "" {
+			t.Fatalf("a transient error must not be read as a dead pin; got %q", w)
 		}
 	})
 }

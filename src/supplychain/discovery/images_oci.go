@@ -2,13 +2,16 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
@@ -98,6 +101,16 @@ func ManifestCreatedCanonical(ctx context.Context, image, tag string) (time.Time
 		return time.Time{}, fmt.Errorf("config %s: %w", ref.Name(), err)
 	}
 	return cf.Created.Time, nil
+}
+
+// IsManifestNotFound reports whether err is a registry's definite "this reference does not
+// exist" — a 404 from the distribution API — as opposed to a transient failure (a timeout, a
+// 5xx, a rate limit) that says nothing about whether the reference exists. A reachability check
+// must act only on the definite answer: a momentary network fault is not evidence that a pin is
+// dead, and must never be read as such.
+func IsManifestNotFound(err error) bool {
+	var te *transport.Error
+	return errors.As(err, &te) && te.StatusCode == http.StatusNotFound
 }
 
 // repoPath drops a leading registry host from an image reference, leaving the repository path

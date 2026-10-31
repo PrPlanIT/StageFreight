@@ -147,6 +147,13 @@ applied on its own); adopt or hold a major line with the escape hatch `track: <s
 pin re-pins to the real `v1.2.3` manifest's digest), and the bump is held if that digest cannot be
 resolved — never a new tag left on an old digest.
 
+StageFreight also **checks that the tag you pinned is one the registry actually serves**, and warns
+when it is not: a digest-pinned `FROM` still builds when its tag string resolves to nothing (the
+digest carries the pull), but a dead tag is a reference other tools trip over, hidden behind the
+digest. The check asks the registry directly and, when the pin is absent, names the form the
+registry *does* serve for that version — it states what exists, it never prescribes a `v` or its
+absence. (A momentary registry failure is not read as a dead pin.)
+
 ```yaml
 upstream:
   sources:
