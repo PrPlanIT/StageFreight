@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -75,6 +76,28 @@ func ManifestDigestCanonical(ctx context.Context, image, tag string) (string, er
 		return "", fmt.Errorf("head %s: %w", ref.Name(), err)
 	}
 	return desc.Digest.String(), nil
+}
+
+// ManifestCreatedCanonical reads image:tag's creation time from the image's OWN registry,
+// anonymously — the config's created field (org.opencontainers.image.created). For a
+// track-governed base this is the tag's real publish time, the cooldown clock that frees the
+// follow from StageFreight's first-sighting of the tag. A reproducible-build image zeroes this
+// field (Unix epoch); the caller reads a zero or epoch time as "no date" and falls back to
+// first-sighting.
+func ManifestCreatedCanonical(ctx context.Context, image, tag string) (time.Time, error) {
+	ref, err := name.NewTag(image + ":" + tag)
+	if err != nil {
+		return time.Time{}, err
+	}
+	img, err := remote.Image(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("image %s: %w", ref.Name(), err)
+	}
+	cf, err := img.ConfigFile()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("config %s: %w", ref.Name(), err)
+	}
+	return cf.Created.Time, nil
 }
 
 // repoPath drops a leading registry host from an image reference, leaving the repository path

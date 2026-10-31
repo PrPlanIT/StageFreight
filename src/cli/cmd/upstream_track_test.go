@@ -51,6 +51,21 @@ func stubDigest(t *testing.T, fn func(context.Context, string, string) (string, 
 	return func() { resolveImageDigest = prev }
 }
 
+// stubCreated swaps the canonical image-creation-time resolver for a test double; the returned
+// func restores it.
+func stubCreated(t *testing.T, fn func(context.Context, string, string) (time.Time, error)) func() {
+	t.Helper()
+	prev := resolveImageCreated
+	resolveImageCreated = fn
+	return func() { resolveImageCreated = prev }
+}
+
+// cooldown builds a follow cooldown of a single window (every size the same), as a maintainer's
+// scalar min_release_age: 3d does.
+func cooldown(d time.Duration) *supplychain.Cooldown {
+	return &supplychain.Cooldown{Major: d, Minor: d, Patch: d}
+}
+
 func synapseBase(tag string) supplychain.Dependency {
 	return supplychain.Dependency{
 		Name:      "ghcr.io/element-hq/synapse:" + tag + "@sha256:abc",
@@ -147,6 +162,76 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
 		if deps[0].TrackGoverned || deps[0].ResolvedTarget != "" {
 			t.Fatalf("a git-source track must not govern a base image; got governed=%v target=%q", deps[0].TrackGoverned, deps[0].ResolvedTarget)
+		}
+	})
+}
+
+// TestAnnotateTrackedBase_FollowCooldown covers the follow cooldown: it ages a tracked base off
+// the release's real image-creation time, honours the dedicated upstream.version.min_release_age
+// knob over the general dependency cooldown, and falls back to the lock's first-sighting only for
+// an upstream tag whose image carries no date.
+func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
+	now := time.Now()
+
+	t.Run("a release older than the follow window adopts on its real date", func(t *testing.T) {
+		cfg := trackCfg("synapse")
+		cfg.Upstream.Version.MinReleaseAge = cooldown(7 * 24 * time.Hour)
+		seedListing(t, cfg, "1.164.1", "1.162.0")
+		// Every tag's image was built a month ago — genuinely past the 7d window.
+		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
+			return now.Add(-30 * 24 * time.Hour), nil
+		})()
+		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
+		if deps[0].ResolvedTarget != "v1.164.1" {
+			t.Fatalf("a month-old release must adopt despite a 7d follow window; target=%q (want v1.164.1)", deps[0].ResolvedTarget)
+		}
+	})
+
+	t.Run("a release younger than the follow window is held", func(t *testing.T) {
+		cfg := trackCfg("synapse")
+		cfg.Upstream.Version.MinReleaseAge = cooldown(7 * 24 * time.Hour)
+		seedListing(t, cfg, "1.164.1", "1.162.0")
+		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
+			return now.Add(-24 * time.Hour), nil // a day old, inside the 7d window
+		})()
+		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
+		if deps[0].ResolvedTarget != "" || deps[0].CooldownHeld != "v1.164.1" {
+			t.Fatalf("a day-old release must be held by the 7d window; target=%q held=%q", deps[0].ResolvedTarget, deps[0].CooldownHeld)
+		}
+	})
+
+	t.Run("the follow knob overrides the general dependency cooldown", func(t *testing.T) {
+		cfg := trackCfg("synapse")
+		cfg.Dependency.MinReleaseAge = cooldown(30 * 24 * time.Hour) // general policy would hold it
+		cfg.Upstream.Version.MinReleaseAge = cooldown(time.Hour)     // but the fork chases upstream
+		seedListing(t, cfg, "1.164.1", "1.162.0")
+		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
+			return now.Add(-2 * time.Hour), nil
+		})()
+		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
+		if deps[0].ResolvedTarget != "v1.164.1" {
+			t.Fatalf("the dedicated follow knob (1h) must win over dependency.min_release_age (30d); target=%q", deps[0].ResolvedTarget)
+		}
+	})
+
+	t.Run("an undated image falls back to the lock's first-sighting", func(t *testing.T) {
+		cfg := trackCfg("synapse")
+		cfg.Upstream.Version.MinReleaseAge = cooldown(7 * 24 * time.Hour)
+		seedListing(t, cfg, "1.164.1", "1.162.0")
+		// A reproducible-build image zeroes its creation time → no real date.
+		defer stubCreated(t, func(context.Context, string, string) (time.Time, error) {
+			return time.Time{}, nil
+		})()
+		// The lock already saw 1.164.1 a month ago, so the first-sighting fallback frees it.
+		old := now.Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+		lock := &upstream.Lock{Sources: []upstream.LockSource{{ID: "synapse", FirstSeen: map[string]string{"1.164.1": old}}}}
+		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, lock)
+		if deps[0].ResolvedTarget != "v1.164.1" {
+			t.Fatalf("an undated image must fall back to the lock's first-sighting; target=%q (want v1.164.1)", deps[0].ResolvedTarget)
 		}
 	})
 }

@@ -3,8 +3,11 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 func decodeUpstream(t *testing.T, src string) (UpstreamConfig, error) {
@@ -81,6 +84,7 @@ func TestUpstream_Validation(t *testing.T) {
 		"bad scheme":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Scheme: "calver"}}}, "unknown version scheme"},
 		"bad rewrite":    {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Rewrite: []UpstreamRewrite{{From: "("}}}}}}, "select.rewrite[0].from"},
 		"bad track line": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a@x"}}, "a pinned line is track:"},
+		"follow age without track": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Image: "ghcr.io/x/y"}}, Version: UpstreamVersion{MinReleaseAge: &supplychain.Cooldown{Patch: 72 * time.Hour}}}, "min_release_age: only meaningful with version.track"},
 	}
 	for name, c := range cases {
 		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")

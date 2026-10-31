@@ -133,6 +133,35 @@ upstream:
 
 Validation names any docker build that has neither.
 
+## Following a base image
+
+When `track:` names an **image** source, that upstream's version is also the authority for the
+fork's base image: the Dockerfile `FROM` for the tracked image advances to upstream's latest GA
+**within the base's current major**, regardless of `dependency.max_update` — shipping that
+version is the fork's whole reason to exist, so the ceiling that scopes ordinary dependencies
+does not cap it. A newer **major** is held for review (it surfaces as an available upgrade, never
+applied on its own); adopt or hold a major line with the escape hatch `track: <source>@<major>`
+(e.g. `synapse@2`). A digest-pinned `FROM` is re-pinned to the new tag's digest from the image's
+own registry, and the bump is held if that digest cannot be resolved — never a new tag left on an
+old digest.
+
+```yaml
+upstream:
+  sources:
+    synapse: { image: ghcr.io/element-hq/synapse }
+  version:
+    track: synapse
+    min_release_age: 3d    # follow an upstream GA once it is this old; optional
+```
+
+**Follow cooldown.** `version.min_release_age` is how old an upstream GA must be before the fork
+follows it onto the base, aged from the release's **real** publish time — the tag's image
+creation time read from its own registry — so a tag already weeks old is adopted at once rather
+than waiting from when StageFreight first saw it. An image that zeroes that field falls back to
+the first-sighting clock in `.stagefreight/upstream.lock`. It governs **only the tracked base**,
+so a fork can chase or hold upstream without touching its other dependencies' cooldown; unset, it
+inherits `dependency.min_release_age`; `0` follows the instant upstream publishes.
+
 ## Pins — moving with upstream
 
 A source's `pins` are the places its version is pinned. When upstream releases, the

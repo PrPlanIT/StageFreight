@@ -91,11 +91,16 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 		}
 	}
 
-	// The base is the authority — never capped by max_update — but paced by min_release_age.
+	// The base is the authority — never capped by max_update — but paced by the follow
+	// cooldown. When a cooldown applies, date each candidate by its own image's creation time
+	// so the follow ages from the release's real publish time (an upstream tag already weeks
+	// old is adopted at once), not from when StageFreight first saw the tag; an image that
+	// zeroes that field falls back to the lock's first-sighting inside pickTarget. With no
+	// cooldown the dates are irrelevant, so the network lookups are skipped entirely.
 	dep.TrackGoverned = true
-	var age time.Duration
-	if appCfg.Dependency.MinReleaseAge != nil {
-		age = appCfg.Dependency.MinReleaseAge.Longest()
+	age := trackReleaseAge(appCfg)
+	if age > 0 {
+		dateTrackCandidates(ctx, src.Location, newer)
 	}
 	target, held := pickTarget(newer, lock, src.ID, age, now, &lockChanged)
 	switch {
@@ -117,14 +122,49 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 		fmt.Printf("  upstream: %s base %s → %s (upstream latest in %d.x)\n", src.ID, dep.Current, newTag, major)
 	case held != nil:
 		dep.CooldownHeld = upstream.RepinValue(dep.Current, held.Raw)
-		fmt.Printf("  upstream: %s base %s held by min_release_age (%s)\n", src.ID, held.Raw, appCfg.Dependency.MinReleaseAge)
+		fmt.Printf("  upstream: %s base %s held %s by the follow cooldown\n", src.ID, held.Raw, age)
 	}
 	return lockChanged
+}
+
+// trackReleaseAge is how old an upstream GA must be before the fork follows it onto the base
+// image: the dedicated upstream.version.min_release_age when set, else the general
+// dependency.min_release_age. Zero means follow the instant upstream publishes.
+func trackReleaseAge(appCfg *config.Config) time.Duration {
+	if a := appCfg.Upstream.Version.MinReleaseAge; a != nil {
+		return a.Longest()
+	}
+	if a := appCfg.Dependency.MinReleaseAge; a != nil {
+		return a.Longest()
+	}
+	return 0
+}
+
+// dateTrackCandidates stamps each still-undated release with its image's creation time from the
+// tracked image's own registry, so the follow cooldown ages from the release's real publish
+// time. A lookup that fails, or an image that zeroes the field (a reproducible build, at or
+// before the Unix epoch), leaves the candidate undated — pickTarget then falls back to the
+// lock's first-sighting for it.
+func dateTrackCandidates(ctx context.Context, image string, rels []upstream.Release) {
+	for i := range rels {
+		if !rels[i].Published.IsZero() {
+			continue
+		}
+		t, err := resolveImageCreated(ctx, image, rels[i].Tag)
+		if err != nil || t.Unix() <= 0 {
+			continue
+		}
+		rels[i].Published = t
+	}
 }
 
 // resolveImageDigest resolves a tag's manifest digest from the image's canonical registry.
 // A package var so tests can stub the network.
 var resolveImageDigest = discovery.ManifestDigestCanonical
+
+// resolveImageCreated resolves a tag's image creation time from the image's canonical registry,
+// the follow cooldown's real-date clock. A package var so tests can stub the network.
+var resolveImageCreated = discovery.ManifestCreatedCanonical
 
 // imageRepo returns the repository of a Docker image reference — the Name with any tag and
 // digest removed (host/path) — the form an upstream.sources image is declared as.

@@ -228,7 +228,17 @@ func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string
 	upDeps, lock, lockChanged, afterBump := upstreamPinDeps(ctx, appCfg, rootDir, now)
 	// A track-governed base is an implicit pin on the Dockerfile FROM: annotate it on the
 	// discovered deps (in place, before withoutShadowed copies them) so it rides the same
-	// cooldown lock and finish.
+	// cooldown lock and finish. Its follow cooldown can be set (upstream.version.min_release_age)
+	// when no pins have one, so the lock may not exist yet — it is the first-sighting fallback
+	// for an upstream tag whose image carries no date; read it so that fallback has somewhere
+	// to record.
+	if lock == nil && trackReleaseAge(appCfg) > 0 {
+		var err error
+		if lock, err = upstream.ReadLock(rootDir); err != nil {
+			fmt.Printf("  upstream: cannot read %s, cooldown starts over: %v\n", upstream.LockPath(""), err)
+			lock = &upstream.Lock{}
+		}
+	}
 	if annotateTrackedBase(ctx, appCfg, rootDir, deps, now, lock) {
 		lockChanged = true
 	}

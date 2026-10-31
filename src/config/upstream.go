@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
@@ -391,6 +392,19 @@ type UpstreamVersion struct {
 	// default when neither track nor continue is set.
 	Own *struct{} `yaml:"own,omitempty"`
 
+	// MinReleaseAge is the FOLLOW cooldown for a tracked base image: how old an upstream GA
+	// must be before this fork follows it onto the Dockerfile FROM. track makes the
+	// upstream's version the fork's; this says the fork waits until that release has had
+	// time to settle, aged from the release's real publish time — the tag's image creation
+	// time read from its own registry — so a tag already weeks old is adopted at once, not
+	// delayed from when StageFreight first saw it. A reproducible-build image that zeroes
+	// that field falls back to the first-sighting clock in .stagefreight/upstream.lock. A
+	// duration ("3d", "72h") or the per-size map; 0 follows the instant upstream publishes.
+	// Unset inherits dependency.min_release_age. It governs ONLY the tracked base, so a fork
+	// can chase or hold upstream without touching its other dependencies' cooldown.
+	// Meaningful only with track.
+	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
+
 	// Since is the cutover tag: only release tags at or after this version are judged, so a
 	// mode change never reinterprets older tags.
 	Since string `yaml:"since,omitempty"`
@@ -699,6 +713,9 @@ func validateUpstream(cfg *Config) []string {
 				errs = append(errs, fmt.Sprintf("upstream.version.track: %q — a pinned line is track: <source>@<major> with a whole-number major, e.g. %s@1", v.Track, v.Track[:at]))
 			}
 		}
+	}
+	if v.MinReleaseAge != nil && mode != UpstreamVersionTrack {
+		errs = append(errs, "upstream.version.min_release_age: only meaningful with version.track — it is how old an upstream release must be before the fork follows it onto the base image")
 	}
 	if declared && claimed.EffectiveLifecycle() == LifecycleGone {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is gone, so no release of ours can be checked against it — use own", mode, src))

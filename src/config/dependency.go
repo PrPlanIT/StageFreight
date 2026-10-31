@@ -76,8 +76,11 @@ type DependencyConfig struct {
 	// key covers sizes left out). A dependency with a known vulnerability bypasses it.
 	// Toolchains may override it (toolchains.min_release_age, then per tool). Enforced
 	// where the registry dates releases: npm, cargo, pip, Go modules, GitHub releases
-	// and kubectl; container images are not, since a registry dates a tag's last push,
-	// not its release. Unset is no cooldown.
+	// and kubectl; ordinary container images are not, since a registry dates a tag's last
+	// push, not its release. The exception is a base image a fork follows under
+	// upstream.version.track, dated by that tag's own image creation time; its follow
+	// cooldown is upstream.version.min_release_age, which inherits this value when unset.
+	// Unset is no cooldown.
 	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 }
 
