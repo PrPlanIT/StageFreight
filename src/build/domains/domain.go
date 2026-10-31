@@ -165,8 +165,12 @@ type (
 // must verify. The run ORs the needs of the ACTIVE contributors — so standalone
 // `build binary` (binary only) does not demand docker, while perform (crucible
 // active) does. Contributors needing nothing special omit this interface.
+//
+// NeedsBuild is an image build: a Docker daemon OR a remote buildkitd reached
+// through buildx satisfies it. NeedsDocker is the daemon itself (running images).
 type SubstrateNeeds interface {
 	NeedsDocker() bool
+	NeedsBuild() bool
 	NeedsCrucible() bool
 }
 

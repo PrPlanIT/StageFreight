@@ -73,8 +73,10 @@ func (c *crucibleContributor) Applies(rc *domains.RunContext) bool {
 	return false
 }
 
-// SubstrateNeeds: crucible always needs Docker with crucible-strength thresholds.
+// SubstrateNeeds: crucible always needs Docker (it runs the images it built to
+// prove them) with crucible-strength thresholds.
 func (c *crucibleContributor) NeedsDocker() bool   { return true }
+func (c *crucibleContributor) NeedsBuild() bool    { return true }
 func (c *crucibleContributor) NeedsCrucible() bool { return true }
 
 // Detect resolves the crucible run identity (run id, tags, backend) and detects
@@ -478,8 +480,8 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		// that reach the registry — they must be correct here.
 		sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
 		in := c.imageLabelInput(rc.Config, publishPlan, "crucible-verified", sfVer, sfCommit)
-			in.BuildNumber = c.resolveBuildNumber(ctx, w, publishPlan, in.PlanHash, in.BaseDigest, sfVer)
-			build.InjectLabels(publishPlan, build.ImageLabels(in))
+		in.BuildNumber = c.resolveBuildNumber(ctx, w, publishPlan, in.PlanHash, in.BaseDigest, sfVer)
+		build.InjectLabels(publishPlan, build.ImageLabels(in))
 
 		loginFailed := false
 		if !transport && !rc.Local {

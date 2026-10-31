@@ -40,3 +40,21 @@ func applyImageBuildStrategy(plan *build.BuildPlan, transport, local, retainViaC
 		}
 	}
 }
+
+// daemonLoadSteps returns the first tag of each image step that loads into a
+// Docker daemon (--load). A runner without a daemon, building on a remote
+// buildkitd, cannot run those; transport with content-store retention has none.
+func daemonLoadSteps(plan *build.BuildPlan) []string {
+	var tags []string
+	for _, step := range plan.Steps {
+		if !step.Load {
+			continue
+		}
+		tag := "(untagged)"
+		if len(step.Tags) > 0 {
+			tag = step.Tags[0]
+		}
+		tags = append(tags, tag)
+	}
+	return tags
+}

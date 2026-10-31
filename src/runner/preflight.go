@@ -55,7 +55,8 @@ type SubstrateFacts struct {
 	DockerSocket         string  `json:"docker_socket"` // path if found, "" if absent
 	DockerAvailable      bool    `json:"docker_available"`
 	DindDetected         bool    `json:"dind_detected"`
-	BuildKitAvailable    bool    `json:"buildkit_available"` // = DockerAvailable (modern Docker ships BuildKit)
+	BuildKitAvailable    bool    `json:"buildkit_available"` // Docker's BuildKit, or a standalone buildkitd
+	BuildKitHost         string  `json:"buildkit_host"`      // reachable remote buildkitd (BUILDKIT_HOST), "" if none
 	BuildxAvailable      bool    `json:"buildx_available"`
 	DiskFreeMB           int64   `json:"disk_free_mb"` // .stagefreight filesystem
 	TmpFreeMB            int64   `json:"tmp_free_mb"`
@@ -97,6 +98,7 @@ type ExecutionReport struct {
 // Options controls Layer 2 policy only — never Layer 1 fact collection.
 type Options struct {
 	DockerRequired bool  // true = docker absence is hard_fail; false = info
+	BuildRequired  bool  // true = no build substrate (docker, or remote BuildKit + buildx) is hard_fail
 	IsCrucible     bool  // doubles disk/memory warn thresholds
 	DiskWarnMB     int64 // 0 = default (2048)
 	DiskFailMB     int64 // 0 = default (512)
@@ -215,8 +217,11 @@ func CollectFacts(rootDir string) SubstrateFacts {
 
 	// BuildKit availability: Docker ships BuildKit, but BuildKit can also be available
 	// standalone (pure buildkitd, remote builder, buildkitd sidecar without Docker).
-	// Probe independently so the two facts are not conflated.
-	facts.BuildKitAvailable = facts.DockerAvailable || probeBuildKit()
+	// Probe independently so the two facts are not conflated. A remote buildkitd is
+	// proven the way the build reaches it (BUILDKIT_HOST + client PKI + a listening
+	// endpoint), so it needs neither a daemon nor buildctl in the image.
+	facts.BuildKitHost = RemoteBuildKit()
+	facts.BuildKitAvailable = facts.DockerAvailable || facts.BuildKitHost != "" || probeBuildKit()
 
 	// Buildx: CLI plugin or standalone binary. The path/PATH checks below are cheap
 	// fast-paths but incomplete — they only see $HOME/.docker and $PATH, missing the
@@ -234,7 +239,9 @@ func CollectFacts(rootDir string) SubstrateFacts {
 	}
 	// Authoritative fallback: let docker resolve the plugin across ALL its search dirs,
 	// independent of $HOME — proves the capability the way a build will actually use it.
-	if !facts.BuildxAvailable && facts.DockerAvailable {
+	// `docker buildx version` needs only the CLI, so it runs with or without a daemon:
+	// a daemonless runner builds through buildx's remote driver.
+	if !facts.BuildxAvailable {
 		facts.BuildxAvailable = probeBuildx()
 	}
 
@@ -379,6 +386,25 @@ func EvaluateHealth(facts SubstrateFacts, opts Options) ([]Finding, HealthGrade)
 		})
 	} else {
 		findings = append(findings, Finding{ID: "docker_absent", Status: "ok", Severity: dockerSeverity})
+	}
+
+	// build substrate — hard_fail when BuildRequired. An image build needs a Docker
+	// daemon, or a remote buildkitd that buildx reaches through its remote driver.
+	if opts.BuildRequired {
+		if facts.DockerAvailable || (facts.BuildKitHost != "" && facts.BuildxAvailable) {
+			findings = append(findings, Finding{ID: "build_substrate_absent", Status: "ok", Severity: "hard_fail"})
+		} else {
+			detail := "no docker daemon, and no remote BuildKit (BUILDKIT_HOST) with buildx"
+			if facts.BuildKitHost != "" {
+				detail = "remote BuildKit at " + facts.BuildKitHost + " but docker buildx is not available"
+			}
+			findings = append(findings, Finding{
+				ID:       "build_substrate_absent",
+				Status:   "fail",
+				Detail:   detail,
+				Severity: "hard_fail",
+			})
+		}
 	}
 
 	// disk low — warn

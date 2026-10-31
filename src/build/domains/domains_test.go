@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // ── mock contributors ────────────────────────────────────────────────────────
@@ -29,8 +30,8 @@ func (d detectOnly) Detect(rc *RunContext) (Contribution, error) {
 // fullContrib participates in every domain plus the optional interfaces.
 type fullContrib struct {
 	mockBase
-	docker, crucible bool
-	concluded        *bool
+	docker, build, crucible bool
+	concluded               *bool
 }
 
 func (f fullContrib) Detect(rc *RunContext) (Contribution, error) {
@@ -49,6 +50,7 @@ func (f fullContrib) Publish(rc *RunContext) (Contribution, error) {
 	return Contribution{Status: "success"}, nil
 }
 func (f fullContrib) NeedsDocker() bool       { return f.docker }
+func (f fullContrib) NeedsBuild() bool        { return f.build }
 func (f fullContrib) NeedsCrucible() bool     { return f.crucible }
 func (f fullContrib) Conclude(rc *RunContext) { *f.concluded = true }
 
@@ -121,6 +123,34 @@ func TestSubstrateNeedsOptional(t *testing.T) {
 	// fullContrib does.
 	if _, ok := interface{}(fullContrib{}).(SubstrateNeeds); !ok {
 		t.Fatal("fullContrib should satisfy SubstrateNeeds")
+	}
+}
+
+// TestSubstrateOptions pins how the run turns contributor needs into Executor
+// policy: an image build alone requires a build substrate but NOT the Docker
+// daemon (so a daemonless runner with remote BuildKit can run perform), while
+// the crucible, which runs its images, still requires the daemon.
+func TestSubstrateOptions(t *testing.T) {
+	image := fullContrib{mockBase: mockBase{"image", 15, true}, build: true}
+	crucible := fullContrib{mockBase: mockBase{"crucible", 20, true}, docker: true, build: true, crucible: true}
+	plain := detectOnly{mockBase{"plain", 5, true}}
+
+	cases := []struct {
+		name   string
+		active []Contributor
+		want   runner.Options
+	}{
+		{"image build only: build substrate, no daemon", []Contributor{image}, runner.Options{BuildRequired: true}},
+		{"crucible: daemon and build", []Contributor{crucible}, runner.Options{DockerRequired: true, BuildRequired: true, IsCrucible: true}},
+		{"image + crucible: daemon wins", []Contributor{image, crucible}, runner.Options{DockerRequired: true, BuildRequired: true, IsCrucible: true}},
+		{"no substrate needs", []Contributor{plain}, runner.Options{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := substrateOptions(c.active); got != c.want {
+				t.Errorf("substrateOptions = %+v, want %+v", got, c.want)
+			}
+		})
 	}
 }
 

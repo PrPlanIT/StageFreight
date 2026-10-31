@@ -159,6 +159,68 @@ func TestEvaluateHealth_DockerAbsent_NotRequired(t *testing.T) {
 	}
 }
 
+// TestEvaluateHealth_BuildSubstrate pins both build paths so neither can regress
+// alone: an image build (BuildRequired) is satisfied by a Docker daemon, OR by a
+// remote buildkitd plus buildx with no daemon at all. Anything less is a hard
+// failure, and DockerRequired (the crucible, which runs images) still demands
+// the daemon even when remote BuildKit is present.
+func TestEvaluateHealth_BuildSubstrate(t *testing.T) {
+	base := SubstrateFacts{
+		WorkdirReadable:      true,
+		StagefreightWritable: true,
+		DiskFreeMB:           10000,
+		TmpFreeMB:            5000,
+		MemAvailableMB:       -1,
+		InodePctFree:         -1,
+	}
+	const remote = "tcp://buildkitd.optcp-ci-runners.svc:1234"
+
+	cases := []struct {
+		name      string
+		docker    bool
+		bkHost    string
+		buildx    bool
+		opts      Options
+		want      HealthGrade
+		substrate string // build_substrate_absent status; "" = finding not expected
+	}{
+		{"daemon path: docker present", true, "", true, Options{BuildRequired: true}, Healthy, "ok"},
+		{"daemon path: docker present, no buildx probe needed", true, "", false, Options{BuildRequired: true}, Healthy, "ok"},
+		{"daemonless path: remote BuildKit + buildx", false, remote, true, Options{BuildRequired: true}, Healthy, "ok"},
+		{"daemonless: remote BuildKit without buildx", false, remote, false, Options{BuildRequired: true}, Unhealthy, "fail"},
+		{"neither daemon nor remote BuildKit", false, "", true, Options{BuildRequired: true}, Unhealthy, "fail"},
+		{"crucible still needs the daemon with remote BuildKit", false, remote, true, Options{DockerRequired: true, BuildRequired: true}, Unhealthy, "ok"},
+		{"no build needed: nothing to check", false, "", false, Options{}, Healthy, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := base
+			f.DockerAvailable = c.docker
+			f.BuildKitHost = c.bkHost
+			f.BuildKitAvailable = c.docker || c.bkHost != ""
+			f.BuildxAvailable = c.buildx
+			findings, grade := EvaluateHealth(f, c.opts)
+			if grade != c.want {
+				t.Errorf("grade = %q, want %q", grade, c.want)
+			}
+			var got *Finding
+			for i := range findings {
+				if findings[i].ID == "build_substrate_absent" {
+					got = &findings[i]
+				}
+			}
+			switch {
+			case c.substrate == "" && got != nil:
+				t.Errorf("unexpected build_substrate_absent finding: %+v", *got)
+			case c.substrate != "" && got == nil:
+				t.Fatal("expected build_substrate_absent finding, none found")
+			case got != nil && (got.Status != c.substrate || got.Severity != "hard_fail"):
+				t.Errorf("build_substrate_absent = %s/%s, want %s/hard_fail", got.Status, got.Severity, c.substrate)
+			}
+		})
+	}
+}
+
 func TestEvaluateHealth_DegradedMemory(t *testing.T) {
 	facts := SubstrateFacts{
 		WorkdirReadable:      true,

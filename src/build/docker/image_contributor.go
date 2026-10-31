@@ -43,9 +43,11 @@ type imageContributor struct {
 func (c *imageContributor) Name() string { return "image" }
 func (c *imageContributor) Order() int   { return 15 } // between binary(10) and crucible(20)
 
-// NeedsDocker: a plain image build needs Docker, but not crucible-strength
+// A plain image build needs a build substrate — a Docker daemon or a remote
+// buildkitd through buildx — not the daemon itself, and not crucible-strength
 // thresholds (there is no 2-pass self-proof).
-func (c *imageContributor) NeedsDocker() bool   { return true }
+func (c *imageContributor) NeedsDocker() bool   { return false }
+func (c *imageContributor) NeedsBuild() bool    { return true }
 func (c *imageContributor) NeedsCrucible() bool { return false }
 
 func (c *imageContributor) Applies(rc *domains.RunContext) bool {
@@ -164,6 +166,15 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 	transport := rc.Store != nil && rc.Store.Transport()
 	retainViaCAS := rc.Store != nil && rc.Store.RequiresOCIExport()
 	applyImageBuildStrategy(c.plan, transport, rc.Local, retainViaCAS)
+	if probeDinD() == nil {
+		if loads := daemonLoadSteps(c.plan); len(loads) > 0 {
+			return domains.Contribution{Status: "failed", Summary: "needs a Docker daemon"}, fmt.Errorf(
+				"image %s loads into a Docker daemon (--load), and this runner has none: "+
+					"it builds on remote BuildKit, which pushes or exports but cannot load. "+
+					"Build with transport and a content store, or run on a runner with Docker",
+				strings.Join(loads, ", "))
+		}
+	}
 
 	// Recycle binaries from earlier binary builds into the docker context (copy-pre-
 	// built Dockerfiles) before buildx runs. Binary builds (Order 10) have completed.

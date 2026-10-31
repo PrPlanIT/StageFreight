@@ -62,19 +62,8 @@ func Run(rc *RunContext) error {
 	active := applicable(rc)
 
 	// ── Executor (run-level, once; strictness from active contributors) ──
-	dockerRequired, isCrucible := false, false
-	for _, c := range active {
-		if s, ok := c.(SubstrateNeeds); ok {
-			if s.NeedsDocker() {
-				dockerRequired = true
-			}
-			if s.NeedsCrucible() {
-				isCrucible = true
-			}
-		}
-	}
 	if r := pipeline.ExecutorPreflightWithWriter(rc.Writer, rc.RootDir,
-		runner.Options{DockerRequired: dockerRequired, IsCrucible: isCrucible}, rc.Color); r.Health == runner.Unhealthy {
+		substrateOptions(active), rc.Color); r.Health == runner.Unhealthy {
 		return fmt.Errorf("perform: substrate unhealthy")
 	}
 
@@ -248,4 +237,18 @@ func finalizeManifests(rc *RunContext) error {
 		return fmt.Errorf("writing results manifest: %w", err)
 	}
 	return nil
+}
+
+// substrateOptions ORs the substrate needs of the active contributors into the
+// Executor policy for the run.
+func substrateOptions(active []Contributor) runner.Options {
+	var opts runner.Options
+	for _, c := range active {
+		if s, ok := c.(SubstrateNeeds); ok {
+			opts.DockerRequired = opts.DockerRequired || s.NeedsDocker()
+			opts.BuildRequired = opts.BuildRequired || s.NeedsBuild()
+			opts.IsCrucible = opts.IsCrucible || s.NeedsCrucible()
+		}
+	}
+	return opts
 }

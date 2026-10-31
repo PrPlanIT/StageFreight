@@ -2,9 +2,9 @@ package docker
 
 import (
 	"fmt"
-	"net"
 	"os"
-	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // Backend represents a resolved build execution backend.
@@ -69,10 +69,7 @@ func ResolveBackendWithConfig(caps BackendCapabilities, configBackend string) (*
 
 // probeBuildkit checks if a persistent buildkitd is available.
 func probeBuildkit() *Backend {
-	bkCertPath := os.Getenv("BUILDKIT_CERT_PATH")
-	if bkCertPath == "" {
-		bkCertPath = "/buildkit-certs"
-	}
+	bkCertPath := runner.BuildKitCertPath()
 
 	// Cert presence is the discovery signal.
 	if _, err := os.Stat(bkCertPath + "/ca.pem"); err != nil {
@@ -84,8 +81,10 @@ func probeBuildkit() *Backend {
 		endpoint = "tcp://buildkitd:1234"
 	}
 
-	// Verify reachable (TCP probe, not full TLS — EnsureBuilder does the real check).
-	if !tcpReachable("buildkitd", 1234) {
+	// Verify reachable at the endpoint BUILDKIT_HOST names (TCP probe, not full
+	// TLS — EnsureBuilder does the real check).
+	addr, ok := runner.TCPEndpointAddr(endpoint)
+	if !ok || !runner.TCPReachable(addr) {
 		return nil
 	}
 
@@ -114,8 +113,9 @@ func probeDinD() *Backend {
 
 	certPath := os.Getenv("DOCKER_CERT_PATH")
 
-	// TCP probe for remote Docker.
-	if !tcpReachable("dind", 2376) {
+	// TCP probe for remote Docker, at the endpoint DOCKER_HOST names.
+	addr, ok := runner.TCPEndpointAddr(dockerHost)
+	if !ok || !runner.TCPReachable(addr) {
 		return nil
 	}
 
@@ -125,16 +125,6 @@ func probeDinD() *Backend {
 		CertPath: certPath,
 		Healthy:  true,
 	}
-}
-
-// tcpReachable checks if a host:port is reachable within 2 seconds.
-func tcpReachable(host string, port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 2*time.Second)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 // IsBuildkit returns true if this backend is a persistent buildkitd.
