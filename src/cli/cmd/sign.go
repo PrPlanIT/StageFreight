@@ -11,6 +11,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/security"
 	"github.com/PrPlanIT/StageFreight/src/sign"
 	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
@@ -136,6 +137,18 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 			stmtPath, predPath, provSHA = sp, pp, sha
 		}
 
+		// Supply-chain predicates (SBOM, scan) attested onto each image alongside the provenance
+		// when this profile attests. Resolved up front so a configured-but-missing SBOM fails
+		// BEFORE any signing — the same fail-loud contract resolveSignProvenance follows.
+		var supplyPreds []security.AttestPredicate
+		if !signSkipImages && plan.Attestation {
+			sp, err := security.AttestablePredicates(cfg.Security.OutputDir, cfg.Security.Enabled && cfg.Security.SBOMEnabled)
+			if err != nil {
+				return err
+			}
+			supplyPreds = sp
+		}
+
 		// 2. Published images — cosign attaches ANOTHER signature to the same
 		//    immutable digest (the registry holds multiple); record an additional
 		//    attestation outcome. The recorded digest is signed verbatim, so there is
@@ -170,6 +183,26 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 							VerifiedDigest: im.digest, TrustEvidence: ev,
 						}})
 				fmt.Printf("  ✓ %s (provenance attested)\n", im.digestRef)
+			}
+
+			// Additive supply-chain attestations: the SBOM and scan result bound to this exact
+			// digest. Each is a first-class predicate attestation recorded under the provenance-
+			// attestation outcome (all are in-toto predicate attestations, told apart by
+			// PredicateType) — distinct from the signature above and from the SLSA provenance.
+			for _, sp := range supplyPreds {
+				ev := evidence()
+				if err := cosign.Attest(cmd.Context(), rootDir, cfg.Toolchains.Want, im.digestRef, plan, env,
+					sign.SignOptions{PredicatePath: sp.Path, PredicateType: sp.PredicateType}); err != nil {
+					return fmt.Errorf("attesting %s onto %s: %w", sp.Name, im.digestRef, err)
+				}
+				appendOutcome(results, im.artifactID, im.name, "docker",
+					artifact.Outcome{Type: artifact.OutcomeTypeProvenanceAttestation, Target: im.target,
+						ProvenanceAttestation: &artifact.ProvenanceAttestationOutcome{
+							Status: artifact.OutcomeSuccess, Kind: "cosign", PredicateType: sp.PredicateType,
+							ProvenancePath: sp.Path, AttestationRef: im.digestRef,
+							VerifiedDigest: im.digest, TrustEvidence: ev,
+						}})
+				fmt.Printf("  ✓ %s (%s attested)\n", im.digestRef, sp.Name)
 			}
 		}
 

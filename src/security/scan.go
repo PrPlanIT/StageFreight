@@ -226,7 +226,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 		} else {
 			toolchain.Report(sw, trivyResult)
 			// Trivy JSON scan
-			jsonPath := cfg.OutputDir + "/security-scan.json"
+			jsonPath := cfg.OutputDir + "/" + ScanTrivyFile
 			if err := runTrivy(ctx, trivyResult.Path, cfg.ImageRef, "json", jsonPath, trivyCacheDir); err != nil {
 				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy", Version: trivyResult.Version})
 				result.Partial = true
@@ -313,14 +313,14 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 			return nil, fmt.Errorf("syft toolchain resolve failed: %w", syftErr)
 		}
 		toolchain.Report(sw, syftResult)
-		spdxPath := cfg.OutputDir + "/sbom.spdx.json"
+		spdxPath := cfg.OutputDir + "/" + SBOMSPDXFile
 		spdxErr := runSyft(ctx, syftResult.Path, cfg.ImageRef, "spdx-json", spdxPath)
 		if spdxErr == nil {
 			result.Artifacts = append(result.Artifacts, spdxPath)
 			if err := writeSBOMSubject(cfg.OutputDir, SBOMSubject{Build: cfg.BuildID, Ref: cfg.ImageRef}); err != nil {
 				diag.Warn("could not record the SBOM's build: %v", err)
 			}
-			cdxPath := cfg.OutputDir + "/sbom.cyclonedx.json"
+			cdxPath := cfg.OutputDir + "/" + SBOMCycloneDXFile
 			if err := runSyft(ctx, syftResult.Path, cfg.ImageRef, "cyclonedx-json", cdxPath); err != nil {
 				output.SectionEnd(sw, "sf_syft_raw")
 				return nil, fmt.Errorf("syft cyclonedx: %w", err)
