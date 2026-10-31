@@ -411,3 +411,31 @@ func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
 		t.Errorf("transparency should be disclosed yes:\n%s", out)
 	}
 }
+
+// TestSectionImages_RendersBuildNumber proves the content-delta rebuild counter rides on the
+// image-ref header beside the digest it describes — the forensic anchor of the rolling-tag model —
+// and only for a row that actually carries one.
+func TestSectionImages_RendersBuildNumber(t *testing.T) {
+	out := sectionImages(NotesInput{Images: []ImageRow{
+		{
+			RegistryLabel: "Docker Hub",
+			ImageRef:      "docker.io/prplanit/stagefreight",
+			Tags:          []ResolvedTag{{Name: "1.164.1"}},
+			DigestRef:     "docker.io/prplanit/stagefreight@sha256:75225fc",
+			BuildNumber:   "3",
+		},
+		{
+			RegistryLabel: "Harbor",
+			ImageRef:      "cr.pcfae.com/prplanit/stagefreight",
+			Tags:          []ResolvedTag{{Name: "1.164.1"}},
+			DigestRef:     "cr.pcfae.com/prplanit/stagefreight@sha256:abcdef0",
+		},
+	}})
+
+	if !strings.Contains(out, "**docker.io/prplanit/stagefreight** — build #3") {
+		t.Errorf("build number not surfaced beside the digest:\n%s", out)
+	}
+	if strings.Contains(out, "**cr.pcfae.com/prplanit/stagefreight** — build #") {
+		t.Errorf("an unstamped row must not render a build-number suffix:\n%s", out)
+	}
+}

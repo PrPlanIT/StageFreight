@@ -27,6 +27,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/retention"
 	"github.com/PrPlanIT/StageFreight/src/scribe"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/spf13/cobra"
 )
@@ -400,9 +401,20 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 						URL:  rt.TagURL(t),
 					})
 				}
-				var digestRef string
+				var digestRef, buildNumber string
 				if g.digest != "" {
 					digestRef = g.host + "/" + g.path + "@" + g.digest
+					// Read the content-delta rebuild counter back off THIS digest (not the version
+					// tag, which is a moving pointer in the rolling model) so the release body can
+					// name which rebuild of the line this digest is. A transient registry read
+					// failure degrades to an unstamped row with a loud warning — it must never fail
+					// an otherwise-valid release, and must never be swallowed silently.
+					image := g.host + "/" + g.path
+					if labels, err := discovery.ManifestLabelsForDigest(ctx, image, g.digest); err != nil {
+						diag.Warn("release notes: could not read build number from %s@%s: %v", image, g.digest, err)
+					} else {
+						buildNumber = labels[build.LabelBuildNumber]
+					}
 				}
 				imageRows = append(imageRows, release.ImageRow{
 					RegistryLabel: rt.DisplayName(),
@@ -411,6 +423,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 					Label:         labelByBuildID[g.artifactName],
 					Tags:          tags,
 					DigestRef:     digestRef,
+					BuildNumber:   buildNumber,
 					SBOM:          g.sbom,
 					Provenance:    g.prov,
 					Signature:     g.sig,

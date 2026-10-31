@@ -70,6 +70,7 @@ type ImageRow struct {
 	Label         string        // optional human group label (build.label); empty → group header is the image name
 	Tags          []ResolvedTag // resolved tags with URLs
 	DigestRef     string        // host/path@sha256:... (for pull command)
+	BuildNumber   string        // org.stagefreight.build.number — content-delta rebuild counter for this digest (empty = unstamped)
 	SBOM          string        // pull ref for SBOM artifact
 	Provenance    string        // pull ref for provenance artifact
 	Signature     string        // pull ref for signature artifact
@@ -937,7 +938,7 @@ func sectionImages(input NotesInput) string {
 	// Digest pull commands and artifact links
 	hasExtras := false
 	for _, img := range input.Images {
-		if img.DigestRef != "" || img.SBOM != "" || img.Provenance != "" || img.Signature != "" {
+		if img.DigestRef != "" || img.BuildNumber != "" || img.SBOM != "" || img.Provenance != "" || img.Signature != "" {
 			hasExtras = true
 			break
 		}
@@ -945,10 +946,18 @@ func sectionImages(input NotesInput) string {
 	if hasExtras {
 		b.WriteString("<details>\n<summary>Digest pull commands & supply chain artifacts</summary>\n\n")
 		for _, img := range input.Images {
-			if img.DigestRef == "" && img.SBOM == "" && img.Provenance == "" && img.Signature == "" {
+			if img.DigestRef == "" && img.BuildNumber == "" && img.SBOM == "" && img.Provenance == "" && img.Signature == "" {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("**%s**\n", img.ImageRef))
+			// The build number rides on the image-ref header, beside the digest it describes: in the
+			// rolling-tag model the version tag is a moving pointer, so a downstream observer reading
+			// this release learns which rebuild of the line this digest is — the audit identity is the
+			// digest and its build number, never the tag string.
+			if img.BuildNumber != "" {
+				b.WriteString(fmt.Sprintf("**%s** — build #%s\n", img.ImageRef, img.BuildNumber))
+			} else {
+				b.WriteString(fmt.Sprintf("**%s**\n", img.ImageRef))
+			}
 			if img.DigestRef != "" {
 				b.WriteString(fmt.Sprintf("```\ndocker pull %s\n```\n", img.DigestRef))
 			}

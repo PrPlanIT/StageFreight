@@ -114,6 +114,27 @@ func ManifestLabelsCanonical(ctx context.Context, image, tag string) (map[string
 	if err != nil {
 		return nil, err
 	}
+	return manifestConfigLabels(ctx, ref)
+}
+
+// ManifestLabelsForDigest reads image@digest's OCI config labels from the image's OWN registry,
+// anonymously — the digest-pinned counterpart of ManifestLabelsCanonical. Where the tag read
+// answers "what does this line currently carry," this answers "what does exactly THIS content
+// carry," which is the read forensics needs: the label must describe the immutable digest, never a
+// tag that may already have rolled off it.
+func ManifestLabelsForDigest(ctx context.Context, image, digest string) (map[string]string, error) {
+	ref, err := name.NewDigest(image + "@" + digest)
+	if err != nil {
+		return nil, err
+	}
+	return manifestConfigLabels(ctx, ref)
+}
+
+// manifestConfigLabels reads the OCI config labels of a resolved reference (tag or digest),
+// anonymously. A reference the registry does not serve (404) returns an empty map and a nil error
+// — an absence, not a fault; any other error is returned so the caller can degrade deliberately
+// rather than read a momentary failure as "no labels."
+func manifestConfigLabels(ctx context.Context, ref name.Reference) (map[string]string, error) {
 	img, err := remote.Image(ref, remote.WithContext(ctx), remote.WithAuth(authn.Anonymous))
 	if err != nil {
 		if IsManifestNotFound(err) {
