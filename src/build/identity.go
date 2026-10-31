@@ -19,6 +19,29 @@ const (
 	LabelDescription = "org.opencontainers.image.description"
 	LabelBuildMode   = "org.stagefreight.build.mode"
 	LabelPlanHash    = "org.stagefreight.plan.sha256"
+
+	// Conventional OCI image annotations, stamped from the repo's own identity
+	// (metadata / org / primary coordinate) and from the Dockerfile FROM. A serious
+	// builder emits the full predefined set — but only from a truthful source: each
+	// label is omitted when its source is absent (SF never invents one).
+	LabelTitle         = "org.opencontainers.image.title"
+	LabelSource        = "org.opencontainers.image.source"
+	LabelURL           = "org.opencontainers.image.url"
+	LabelDocumentation = "org.opencontainers.image.documentation"
+	LabelLicenses      = "org.opencontainers.image.licenses"
+	LabelVendor        = "org.opencontainers.image.vendor"
+	LabelAuthors       = "org.opencontainers.image.authors"
+
+	// Fork lineage: the exact upstream manifest this image was built FROM. base.name is
+	// the FROM ref (minus any digest); base.digest is the pinned digest when the FROM
+	// carries one. Together they prove "upstream X + our layer" from the image alone.
+	LabelBaseName   = "org.opencontainers.image.base.name"
+	LabelBaseDigest = "org.opencontainers.image.base.digest"
+
+	// Maintenance posture: "tracked" (a maintained fork line, kept fresh) or "pinned"
+	// (a point-in-time snapshot, not kept fresh). Stamped only on forks; absent on a
+	// repo that declares no upstream, where the posture is N/A.
+	LabelMaintenance = "org.stagefreight.maintenance"
 )
 
 // WithDescription stamps org.opencontainers.image.description from the project's declared
@@ -58,6 +81,65 @@ func StandardLabels(planHash, sfVersion, commit, mode, createdRFC3339 string) ma
 		mode = "standard"
 	}
 	labels[LabelBuildMode] = mode
+	return labels
+}
+
+// ImageLabelInput carries the fully-resolved label values for one build. Every field is a
+// plain string so the build package stays free of a config dependency: the caller — which has
+// the *config.Config in scope — resolves each value from its one truthful source (metadata, org
+// identity, the primary coordinate, the Dockerfile FROM) and leaves a field empty when that
+// source is absent. ImageLabels then omits that label rather than inventing one.
+type ImageLabelInput struct {
+	// Core — the always-present provenance set (fed to StandardLabels/WithDescription).
+	PlanHash    string
+	SFVersion   string
+	Commit      string
+	Mode        string // build mode: crucible-candidate | crucible-verify | crucible-verified | standard
+	Created     string
+	Description string
+
+	// Conventional OCI annotations — each omitted when empty.
+	Title         string
+	Source        string
+	URL           string
+	Documentation string
+	Licenses      string
+	Vendor        string
+	Authors       string
+
+	// Fork lineage — the FROM ref and its pinned digest; each omitted when empty.
+	BaseName   string
+	BaseDigest string
+
+	// Maintenance posture — "tracked" | "pinned"; omitted when empty (not a fork).
+	Maintenance string
+}
+
+// ImageLabels assembles the complete OCI + StageFreight label set for a build, layering the
+// conventional image.* annotations, the fork-lineage pair, and the maintenance posture onto the
+// core StandardLabels. It is the single stamping surface — the lockstep evidence test exercises
+// it, so every key it can emit is registered in config.StampedLabels. A field left empty is
+// omitted: StageFreight never invents a label for a source the repo did not declare.
+func ImageLabels(in ImageLabelInput) map[string]string {
+	labels := WithDescription(
+		StandardLabels(in.PlanHash, in.SFVersion, in.Commit, in.Mode, in.Created),
+		in.Description,
+	)
+	set := func(key, val string) {
+		if v := strings.TrimSpace(val); v != "" {
+			labels[key] = v
+		}
+	}
+	set(LabelTitle, in.Title)
+	set(LabelSource, in.Source)
+	set(LabelURL, in.URL)
+	set(LabelDocumentation, in.Documentation)
+	set(LabelLicenses, in.Licenses)
+	set(LabelVendor, in.Vendor)
+	set(LabelAuthors, in.Authors)
+	set(LabelBaseName, in.BaseName)
+	set(LabelBaseDigest, in.BaseDigest)
+	set(LabelMaintenance, in.Maintenance)
 	return labels
 }
 

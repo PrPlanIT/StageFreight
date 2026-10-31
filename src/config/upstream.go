@@ -127,16 +127,27 @@ func EffectiveOnMismatch(v string) string {
 const DefaultProbeMatch = `(?P<version>\d+(?:\.\d+)+[0-9A-Za-z.+\-]*)`
 
 // StampedLabels are the OCI labels StageFreight writes on every image it builds. They state the
-// build's own claims (the version being built, its commit, its time), so they can never be
-// evidence of what the image contains. Kept in lockstep with build.StandardLabels by a test in
-// the build package.
+// build's own claims (the version being built, its commit, its time, its identity/lineage), so
+// they can never be evidence of what the image contains — a version-evidence probe on one of
+// these would always agree with the tag and prove nothing. Kept in lockstep with
+// build.ImageLabels (which subsumes build.StandardLabels) by a test in the build package.
 var StampedLabels = []string{
 	"org.opencontainers.image.created",
 	"org.opencontainers.image.revision",
 	"org.opencontainers.image.version",
 	"org.opencontainers.image.description",
+	"org.opencontainers.image.title",
+	"org.opencontainers.image.source",
+	"org.opencontainers.image.url",
+	"org.opencontainers.image.documentation",
+	"org.opencontainers.image.licenses",
+	"org.opencontainers.image.vendor",
+	"org.opencontainers.image.authors",
+	"org.opencontainers.image.base.name",
+	"org.opencontainers.image.base.digest",
 	"org.stagefreight.build.mode",
 	"org.stagefreight.plan.sha256",
+	"org.stagefreight.maintenance",
 }
 
 // Probe package managers.

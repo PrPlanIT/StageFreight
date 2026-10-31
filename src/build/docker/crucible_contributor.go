@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -206,8 +207,8 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		pass1Plan.Steps[i].Registries = nil
 		pass1Plan.Steps[i].CacheTo = nil
 	}
-	build.InjectLabels(pass1Plan, build.WithDescription(build.StandardLabels(
-		build.NormalizeBuildPlan(pass1Plan), sfVer, sfCommit, "crucible-candidate", c.created), c.description))
+	build.InjectLabels(pass1Plan, build.ImageLabels(
+		c.imageLabelInput(rc.Config, pass1Plan, "crucible-candidate", sfVer, sfCommit)))
 
 	_, pass1Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Build (pass 1: candidate)", pass1Plan, c.candidateTag)
@@ -232,8 +233,8 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		pass2Plan.Steps[i].Registries = nil
 		pass2Plan.Steps[i].CacheTo = nil
 	}
-	build.InjectLabels(pass2Plan, build.WithDescription(build.StandardLabels(
-		build.NormalizeBuildPlan(pass2Plan), sfVer, sfCommit, "crucible-verify", c.created), c.description))
+	build.InjectLabels(pass2Plan, build.ImageLabels(
+		c.imageLabelInput(rc.Config, pass2Plan, "crucible-verify", sfVer, sfCommit)))
 
 	_, pass2Err := executeBuildPass(ctx, w, color, rc.Verbose, c.req.Stderr,
 		"Rebuild (pass 2: self-proof)", pass2Plan, c.verifyTag)
@@ -298,6 +299,85 @@ func (c *crucibleContributor) Verify(rc *domains.RunContext) (domains.Contributi
 	}, nil
 }
 
+// imageLabelInput resolves the complete OCI + StageFreight label set for a build pass from the
+// repo's own config and detected Dockerfile. Each conventional label is taken from its one
+// truthful source — metadata for title/licenses/docs/url, the org identity for vendor/authors,
+// the primary coordinate for source, the final-stage FROM for base lineage — and left empty when
+// that source is absent, so build.ImageLabels omits it (SF never invents a label).
+func (c *crucibleContributor) imageLabelInput(cfg *config.Config, plan *build.BuildPlan, mode, sfVer, sfCommit string) build.ImageLabelInput {
+	in := build.ImageLabelInput{
+		PlanHash:    build.NormalizeBuildPlan(plan),
+		SFVersion:   sfVer,
+		Commit:      sfCommit,
+		Mode:        mode,
+		Created:     c.created,
+		Description: c.description,
+	}
+	if cfg != nil {
+		m := cfg.Metadata
+		in.Title = m.Title
+		in.Licenses = m.License
+		in.Documentation = m.DocsURL
+		in.URL = m.Website
+		in.Source = config.PrimaryURL(cfg)
+		for _, org := range cfg.Orgs {
+			if org.ID == m.Org {
+				in.Authors = org.Maintainer
+				in.Vendor = org.ID
+				break
+			}
+		}
+		in.Maintenance = maintenanceLabel(cfg.Upstream)
+	}
+	in.BaseName, in.BaseDigest = baseImageLineage(c.det)
+	return in
+}
+
+// maintenanceLabel maps the upstream.version posture to the image's maintenance label: a tracked
+// line is kept fresh (CVE rebuilds for the life of the line); anything else is a pinned
+// point-in-time snapshot, not kept fresh. Empty on a repo that declares no upstream — the posture
+// is N/A for a non-fork, so the label is omitted rather than claiming a snapshot that isn't one.
+func maintenanceLabel(u config.UpstreamConfig) string {
+	if !u.Declared() {
+		return ""
+	}
+	if mode, _ := u.Version.Mode(); mode == config.UpstreamVersionTrack {
+		return "tracked"
+	}
+	return "pinned"
+}
+
+// baseImageLineage returns the final-stage FROM reference (minus any digest) and that digest when
+// the FROM is digest-pinned — the org.opencontainers.image.base.* pair. Parsing only, no network:
+// a FROM without a digest yields an empty digest and the label is dropped. The runtime base is the
+// last stage of the first detected Dockerfile; when that stage builds FROM an earlier stage (a
+// multi-stage alias, not an external image) there is no external lineage to state, so both are
+// dropped. (Per-step base lineage for a multi-image repo is a later refinement — labels inject
+// uniformly across a plan's steps.)
+func baseImageLineage(det *build.Detection) (name, digest string) {
+	if det == nil || len(det.Dockerfiles) == 0 {
+		return "", ""
+	}
+	stages := det.Dockerfiles[0].Stages
+	if len(stages) == 0 {
+		return "", ""
+	}
+	aliases := make(map[string]bool, len(stages))
+	for _, s := range stages {
+		if s.Name != "" {
+			aliases[s.Name] = true
+		}
+	}
+	from := stages[len(stages)-1].BaseImage
+	if from == "" || aliases[from] {
+		return "", ""
+	}
+	if i := strings.LastIndex(from, "@"); i >= 0 {
+		return from[:i], from[i+1:]
+	}
+	return from, ""
+}
+
 // crucibleStepOutput decides how the verified-artifact build step emits its image.
 // --local ALWAYS loads into the local daemon and NEVER pushes — that is the whole point of
 // --local, and its omission was the "tag is needed when pushing to registry" bug where a
@@ -340,8 +420,8 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		// re-tags this image digest-preserved WITHOUT re-stamping, so these are the labels
 		// that reach the registry — they must be correct here.
 		sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
-		build.InjectLabels(publishPlan, build.WithDescription(build.StandardLabels(
-			build.NormalizeBuildPlan(publishPlan), sfVer, sfCommit, "crucible-verified", c.created), c.description))
+		build.InjectLabels(publishPlan, build.ImageLabels(
+			c.imageLabelInput(rc.Config, publishPlan, "crucible-verified", sfVer, sfCommit)))
 
 		loginFailed := false
 		if !transport && !rc.Local {
