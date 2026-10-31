@@ -304,6 +304,32 @@ probe like any hand-cut release. `release: manual` leaves tagging to a person
 new tag. The tag spawns a release pipeline only if it matches a declared `git.tags` release
 pattern.
 
+## Image identity — audit by digest, not tag
+
+A fork's image **version tag rolls.** The tag (`1.164.1`) names the line, not one build: when a
+dependency patches a vulnerability, the rebuilt image re-pushes that same tag and the release is
+re-cut in place, so the latest upstream version *plus the fix* always lives at the version
+downstream already asked for. There is no `1.164.1-2` revision tag — semver reads a hyphen suffix
+as a *prerelease below* `1.164.1`, Renovate mis-tracks it, and a fourth version segment drifts
+identity. The rebuild counter lives in a **label**, off the tag.
+
+So the audit identity of a specific build is the **digest**, never the tag string:
+
+- The digest (`@sha256:…`) is immutable and content-addressed — the one reference that cannot be
+  re-pointed.
+- It carries, as OCI labels, `org.opencontainers.image.revision` (the exact source commit),
+  `org.stagefreight.plan.sha256` (the content-aware build fingerprint), and
+  `org.stagefreight.build.number` (which rebuild of the line this is — a counter that advances only
+  when the content changes, so a rebuild that changed nothing manufactures no churn).
+- When the signing profile attests (see [signing](signing.md)), the digest also carries a cosign
+  attestation — SLSA provenance, the SBOM, and the vulnerability scan — bound to those exact bytes.
+
+**The contract, for downstream observers:** pin by digest and verify the digest's attestation, not
+the tag. The tag is a maintained pointer to the current good build of the line; the digest and its
+attestation are the forensic record of one build. Every re-cut release records the build number
+beside each digest in its body, so the moving tag always resolves back to a build you can name and
+verify.
+
 ## Signals
 
 What the watcher finds is raised as signals, which notifications select with
