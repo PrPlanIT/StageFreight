@@ -105,15 +105,19 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 	target, held := pickTarget(newer, lock, src.ID, age, now, &lockChanged)
 	switch {
 	case target != nil:
+		// Write the tag in the maintainer's own style: RepinValue keeps a leading v, or its
+		// absence, exactly as the FROM pins it — both are valid and the fork chooses, so the
+		// engine never rewrites one into the other. The DIGEST, though, is resolved from
+		// upstream's ACTUAL tag (target.Tag), which is what the registry serves: a FROM pinned
+		// without the v still re-pins to the real (v-tagged) manifest's digest, not to a
+		// reconstructed tag that may not exist on the registry at all.
 		newTag := upstream.RepinValue(dep.Current, target.Raw)
-		// A digest-pinned base must re-pin to the NEW tag's digest from the image's own
-		// registry. Fail closed: if the digest can't be resolved, do not bump — a tag-only
-		// bump would leave the old digest, writing a corrupt new-tag@old-digest pin. The
-		// next run retries.
 		if dep.PinnedDigest != "" {
-			digest, err := resolveImageDigest(ctx, src.Location, newTag)
+			// Fail closed: without the digest do not bump — a tag-only bump would leave the old
+			// digest, writing a corrupt new-tag@old-digest pin. The next run retries.
+			digest, err := resolveImageDigest(ctx, src.Location, target.Tag)
 			if err != nil {
-				fmt.Printf("  upstream: %s base %s → %s held: could not resolve the new tag's digest: %v\n", src.ID, dep.Current, newTag, err)
+				fmt.Printf("  upstream: %s base %s → %s held: could not resolve %s's digest: %v\n", src.ID, dep.Current, newTag, target.Tag, err)
 				return lockChanged
 			}
 			dep.ResolvedDigest = digest

@@ -141,9 +141,11 @@ fork's base image: the Dockerfile `FROM` for the tracked image advances to upstr
 version is the fork's whole reason to exist, so the ceiling that scopes ordinary dependencies
 does not cap it. A newer **major** is held for review (it surfaces as an available upgrade, never
 applied on its own); adopt or hold a major line with the escape hatch `track: <source>@<major>`
-(e.g. `synapse@2`). A digest-pinned `FROM` is re-pinned to the new tag's digest from the image's
-own registry, and the bump is held if that digest cannot be resolved — never a new tag left on an
-old digest.
+(e.g. `synapse@2`). The `FROM` tag is rewritten in whatever style you pinned it — with a leading
+`v` or without, both valid, the fork's choice, never rewritten into the other. A digest-pinned
+`FROM` has its digest re-resolved from the tag upstream's registry actually serves (so a `1.2.3`
+pin re-pins to the real `v1.2.3` manifest's digest), and the bump is held if that digest cannot be
+resolved — never a new tag left on an old digest.
 
 ```yaml
 upstream:

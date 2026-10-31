@@ -136,6 +136,27 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		}
 	})
 
+	t.Run("a no-v base keeps its style but resolves the digest from upstream's real v-tag", func(t *testing.T) {
+		// The real synapse case: FROM pins 1.162.0 (no v), while ghcr publishes only v-tags.
+		// The written tag stays no-v (the maintainer's choice); the digest must come from the
+		// tag the registry actually serves (v1.164.1), not the reconstructed 1.164.1.
+		cfg := trackCfg("synapse")
+		seedListing(t, cfg, "1.164.1", "1.162.0")
+		defer stubDigest(t, func(_ context.Context, image, tag string) (string, error) {
+			if tag != "v1.164.1" {
+				t.Fatalf("digest must be resolved from upstream's real tag v1.164.1, got %s:%s", image, tag)
+			}
+			return "sha256:new164", nil
+		})()
+		dep := synapseBase("1.162.0") // no v
+		dep.PinnedDigest = "sha256:old162"
+		deps := []supplychain.Dependency{dep}
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		if deps[0].ResolvedTarget != "1.164.1" || deps[0].ResolvedDigest != "sha256:new164" {
+			t.Fatalf("got target=%q digest=%q (want 1.164.1 — no-v style preserved — and sha256:new164)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
+		}
+	})
+
 	t.Run("fail-closed: unresolved digest holds the bump (no corrupt pin)", func(t *testing.T) {
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "1.164.1", "1.162.0")
