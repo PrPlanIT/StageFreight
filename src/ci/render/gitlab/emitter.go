@@ -5,7 +5,8 @@
 //
 // Forge-specific lowering:
 //   - RoutingSpec.Labels → tags:
-//   - CapabilitySpec.Docker → .transport variables (DOCKER_HOST, TLS, certs)
+//   - CapabilitySpec.Docker → nothing: the runner provides the build engine
+//     (DOCKER_HOST or BUILDKIT_HOST in its environment), auto-detected at runtime
 //   - CapabilitySpec.OIDC → id_tokens.STAGEFREIGHT_OIDC
 //   - PipelineDefaults.CIContext → before_script exporting SF_CI_* from CI_*
 //   - PipelineDefaults.CancelSuperseded → workflow.auto_cancel.on_new_commit
@@ -102,14 +103,6 @@ func Emit(p model.Pipeline) ([]byte, error) {
 		}
 	}
 
-	// ── transport anchor ───────────────────────────────────────────────────
-	if needsTransport(p) {
-		buf.WriteString("\n.transport: &transport\n")
-		buf.WriteString("  DOCKER_HOST: \"tcp://dind:2376\"\n")
-		buf.WriteString("  DOCKER_TLS_VERIFY: \"1\"\n")
-		buf.WriteString("  DOCKER_CERT_PATH: \"/certs/client\"\n")
-	}
-
 	// ── default ────────────────────────────────────────────────────────────
 	buf.WriteString("\ndefault:\n")
 	fmt.Fprintf(&buf, "  image: %s\n", p.Defaults.Image)
@@ -157,8 +150,8 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 		}
 	}
 
-	// variables (git depth + transport)
-	hasVars := j.Source.FullClone || j.Source.Submodules || j.Capabilities.Docker
+	// variables (git depth + submodules)
+	hasVars := j.Source.FullClone || j.Source.Submodules
 	if hasVars {
 		buf.WriteString("  variables:\n")
 		if j.Source.FullClone {
@@ -168,9 +161,6 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 			// recursive, not normal: a submodule with its own submodules is still a
 			// missing directory to the build that needs it.
 			buf.WriteString("    GIT_SUBMODULE_STRATEGY: recursive\n")
-		}
-		if j.Capabilities.Docker {
-			buf.WriteString("    <<: *transport\n")
 		}
 	}
 
@@ -242,14 +232,4 @@ func ciContextExports() []string {
 // quotes double (YAML's escape).
 func ruleRegex(pattern string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(pattern, "/", `\/`), "'", "''")
-}
-
-// needsTransport returns true if any job requires Docker capability.
-func needsTransport(p model.Pipeline) bool {
-	for _, j := range p.Jobs {
-		if j.Capabilities.Docker {
-			return true
-		}
-	}
-	return false
 }

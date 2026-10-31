@@ -24,9 +24,8 @@
 //     audience request. The STAGEFREIGHT_OIDC contract needs a service-connection
 //     -backed token step; this backend emits a marked placeholder, not a working
 //     fetch.
-//   - docker: Azure's hosted agents have Docker on the host; a container job needs
-//     the host socket or a self-hosted agent. The transport env is emitted but the
-//     daemon wiring is environment-specific.
+//   - docker: not injected. The agent provides the build engine (host socket, or
+//     DOCKER_HOST / BUILDKIT_HOST on a self-hosted agent), auto-detected at runtime.
 //   - artifact path: download restores under $(Pipeline.Workspace)/<name>; mapping
 //     it back onto the workspace .stagefreight/ tree is a refinement.
 package azurepipelines
@@ -125,12 +124,6 @@ func emitStage(buf *bytes.Buffer, j model.Job, def model.PipelineDefaults, provi
 			fmt.Fprintf(buf, "            - %s\n", l)
 		}
 	}
-	// docker transport env (caveat: daemon wiring is agent-specific)
-	if j.Capabilities.Docker {
-		buf.WriteString("        variables:\n")
-		buf.WriteString("          DOCKER_HOST: tcp://localhost:2375\n")
-	}
-
 	buf.WriteString("        steps:\n")
 
 	// checkout (full clone when requested)

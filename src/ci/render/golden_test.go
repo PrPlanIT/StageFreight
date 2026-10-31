@@ -230,11 +230,13 @@ func TestGoldensValidYAML(t *testing.T) {
 	}
 }
 
-// TestActionsNoInjectedDind asserts the Actions family does NOT inject a dind
-// service or DOCKER_HOST — the build engine is deferred to the runner. GitLab keeps
-// its own transport anchor.
-func TestActionsNoInjectedDind(t *testing.T) {
-	for _, forge := range []string{"github", "gitea", "forgejo"} {
+// TestNoInjectedBuildEngine asserts no forge injects a dind service or
+// DOCKER_HOST: the build engine is deferred to the runner, which declares a
+// daemon (DOCKER_HOST) or a remote buildkitd (BUILDKIT_HOST) in its own
+// environment. A pipeline-wide DOCKER_HOST overrides that and breaks every
+// runner without the named daemon.
+func TestNoInjectedBuildEngine(t *testing.T) {
+	for _, forge := range []string{"github", "gitea", "forgejo", "gitlab", "azuredevops"} {
 		out, err := Emit(forge, canonicalPipeline())
 		if err != nil {
 			t.Fatalf("%s: %v", forge, err)
@@ -246,13 +248,5 @@ func TestActionsNoInjectedDind(t *testing.T) {
 		if strings.Contains(s, "DOCKER_HOST") {
 			t.Errorf("%s injects DOCKER_HOST — should defer to the runner's auto-detected engine", forge)
 		}
-	}
-	// GitLab still provisions its transport (its runner exposes a resolvable dind).
-	gl, err := Emit("gitlab", canonicalPipeline())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(gl), "DOCKER_HOST") {
-		t.Error("gitlab should keep its transport anchor")
 	}
 }

@@ -47,8 +47,6 @@ stages:
       - job: audition
         container: ci
         continueOnError: true
-        variables:
-          DOCKER_HOST: tcp://localhost:2375
         steps:
           - checkout: self
             fetchDepth: 0
@@ -74,8 +72,6 @@ stages:
           demands:
             - self-hosted
             - docker
-        variables:
-          DOCKER_HOST: tcp://localhost:2375
         steps:
           - checkout: self
             fetchDepth: 0
@@ -102,8 +98,6 @@ stages:
       - job: review
         container: ci
         continueOnError: true
-        variables:
-          DOCKER_HOST: tcp://localhost:2375
         steps:
           - checkout: self
           - download: current
