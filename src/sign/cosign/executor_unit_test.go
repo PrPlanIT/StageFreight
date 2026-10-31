@@ -48,6 +48,20 @@ func TestSignEnv_KeyIsHermetic(t *testing.T) {
 	}
 }
 
+// The kms class forwards TRANSIT_SECRET_ENGINE_PATH so a Vault transit signer can
+// reach a purpose-named mount (cosign hardcodes transit/keys/ and reads the mount
+// only from this var); the hermetic key class must still NOT see it.
+func TestSignEnv_KMSForwardsTransitMount(t *testing.T) {
+	t.Setenv("TRANSIT_SECRET_ENGINE_PATH", "cosign-signer")
+	n, val := countPrefix(signEnv(sign.SignPlan{TrustClass: sign.ClassKMS}), "TRANSIT_SECRET_ENGINE_PATH=")
+	if n != 1 || val != "cosign-signer" {
+		t.Errorf("kms must forward TRANSIT_SECRET_ENGINE_PATH=cosign-signer, got n=%d val=%q", n, val)
+	}
+	if k, _ := countPrefix(signEnv(sign.SignPlan{TrustClass: sign.ClassKey}), "TRANSIT_SECRET_ENGINE_PATH="); k != 0 {
+		t.Error("key class is hermetic — TRANSIT_SECRET_ENGINE_PATH must not leak into it")
+	}
+}
+
 // Hardware passes the full host env (device/pinentry need it) + COSIGN_YES.
 func TestSignEnv_HardwarePassesFullEnv(t *testing.T) {
 	t.Setenv("SF_TEST_LEAK", "present")

@@ -141,9 +141,14 @@ var oidcEnvPrefixes = []string{
 	"ACTIONS_ID_TOKEN_REQUEST_", "CI_JOB_JWT", "SIGSTORE_ID_TOKEN",
 }
 
-// kmsEnvPrefixes: the major cloud-provider credential namespaces a KMS signer needs.
+// kmsEnvPrefixes: the major cloud-provider credential namespaces a KMS signer
+// needs, plus TRANSIT_SECRET_ENGINE_PATH so a Vault transit signer can address a
+// non-default (purpose-named) transit mount. cosign hardcodes the transit/keys/
+// prefix and reads the mount name ONLY from this var, so a key under a mount other
+// than the default "transit" is unreachable unless it reaches the subprocess.
 var kmsEnvPrefixes = []string{
 	"COSIGN_", "AWS_", "GOOGLE_", "GCP_", "CLOUDSDK_", "AZURE_", "VAULT_",
+	"TRANSIT_SECRET_ENGINE_PATH",
 }
 
 // dockerConfigEnv returns a DOCKER_CONFIG entry pointing at the registry
