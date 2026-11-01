@@ -15,7 +15,7 @@
 version: 1
 
 # ── Roadmap (not yet implemented) ──────────────────────────────
-# mirror_of: gitlab.prplanit.com/precisionplanit/my-project
+# mirror_of: git.optcp.com/precisionplanit/my-project
 #
 # docs:
 #   readme_sync: [dockerhub]

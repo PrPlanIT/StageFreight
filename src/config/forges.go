@@ -7,7 +7,7 @@ import "fmt"
 type ForgeConfig struct {
 	ID          string `yaml:"id"`                    // unique identifier (e.g., "prplanit-gitlab")
 	Provider    string `yaml:"provider"`              // gitlab, github, gitea
-	URL         string `yaml:"url"`                   // base URL (e.g., "https://gitlab.prplanit.com")
+	URL         string `yaml:"url"`                   // base URL (e.g., "https://git.optcp.com")
 	Credentials string `yaml:"credentials,omitempty"` // env var prefix for token resolution
 }
 

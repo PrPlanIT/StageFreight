@@ -35,9 +35,9 @@ func TestResolveForgeProvider(t *testing.T) {
 			// heuristic returns Unknown for. This is exactly the dungeon case.
 			name:         "configured provider overrides unclassifiable IP remote",
 			remoteURL:    ipRemote,
-			cfg:          cfgWithForge("gitlab", "https://gitlab.prplanit.com"),
+			cfg:          cfgWithForge("gitlab", "https://git.optcp.com"),
 			wantProvider: forge.GitLab,
-			wantURL:      "https://gitlab.prplanit.com", // configured API endpoint, not the IP
+			wantURL:      "https://git.optcp.com", // configured API endpoint, not the IP
 		},
 		{
 			name:         "no config falls back to URL heuristic",
