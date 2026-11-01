@@ -1,6 +1,9 @@
 package postbuild
 
 import (
+	"bytes"
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -150,5 +153,46 @@ func TestHasRetention_NoRegistries(t *testing.T) {
 
 	if HasRetention(plan) {
 		t.Error("HasRetention() = true for step with no registries; want false")
+	}
+}
+
+// TestRunRetentionSection_DaemonPaths pins local retention on both runner kinds:
+// with a Docker daemon the local registry client runs (the test host has no
+// docker binary, so its listing errors), and on a daemonless runner the target
+// is skipped by name with no client call and no error.
+func TestRunRetentionSection_DaemonPaths(t *testing.T) {
+	plan := &build.BuildPlan{Steps: []build.BuildStep{{
+		Registries: []build.RegistryTarget{{
+			URL:       "local",
+			Path:      "prplanit/example",
+			Provider:  "local",
+			Retention: config.RetentionPolicy{KeepLast: 5},
+		}},
+	}}}
+
+	cases := []struct {
+		name               string
+		daemon             bool
+		wantSkip, wantCall bool
+	}{
+		{"daemon: local client runs", true, false, true},
+		{"daemonless: skipped, no client call", false, true, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			saved := dockerDaemonAvailable
+			t.Cleanup(func() { dockerDaemonAvailable = saved })
+			dockerDaemonAvailable = func() bool { return c.daemon }
+
+			var buf bytes.Buffer
+			RunRetentionSection(context.Background(), &buf, false, false, plan)
+			out := buf.String()
+			if got := strings.Contains(out, "skipped prplanit/example: no Docker daemon"); got != c.wantSkip {
+				t.Errorf("skip line present = %v, want %v\n%s", got, c.wantSkip, out)
+			}
+			if got := strings.Contains(out, "ERROR: local/prplanit/example"); got != c.wantCall {
+				t.Errorf("local client called = %v, want %v\n%s", got, c.wantCall, out)
+			}
+		})
 	}
 }

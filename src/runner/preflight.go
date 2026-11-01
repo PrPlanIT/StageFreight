@@ -180,40 +180,7 @@ func CollectFacts(rootDir string) SubstrateFacts {
 	}
 
 	// ── Docker detection (always runs — unconditional by design) ──────────────
-	//
-	// Docker may be accessible via a local unix socket OR a remote TCP endpoint
-	// (DinD service containers, remote daemons, etc.).
-	// Detection strategy differs by case:
-	//   - TCP (DOCKER_HOST=tcp://...): no local socket exists; prove via docker info
-	//   - Unix socket: stat + open for permission check
-	//
-	// Capability is proven, not inferred from socket presence alone.
-	dockerHostEnv := os.Getenv("DOCKER_HOST")
-
-	if strings.HasPrefix(dockerHostEnv, "tcp://") {
-		// Remote/service-container Docker daemon.
-		// Socket probing is not applicable — prove by running docker info.
-		facts.DockerSocket = dockerHostEnv
-		if probeDockerDaemon() {
-			facts.DockerAvailable = true
-		}
-	} else {
-		socketPath := "/var/run/docker.sock"
-		if strings.HasPrefix(dockerHostEnv, "unix://") {
-			socketPath = strings.TrimPrefix(dockerHostEnv, "unix://")
-		}
-		if _, err := os.Stat(socketPath); err == nil {
-			facts.DockerSocket = socketPath
-			// Prove via the daemon, NOT os.Open: open(2) on a unix socket returns ENXIO
-			// ("no such device or address") — you connect() a socket, you don't open() it.
-			// probeDockerDaemon runs `docker info` over this socket (DOCKER_HOST default or
-			// unix://), the same capability proof the tcp:// branch uses. The previous
-			// os.Open falsely reported docker absent on GitHub's auto-mounted host socket.
-			if probeDockerDaemon() {
-				facts.DockerAvailable = true
-			}
-		}
-	}
+	facts.DockerSocket, facts.DockerAvailable = DockerDaemon()
 
 	// BuildKit availability: Docker ships BuildKit, but BuildKit can also be available
 	// standalone (pure buildkitd, remote builder, buildkitd sidecar without Docker).
@@ -506,6 +473,31 @@ func fmtMB(mb int64) string {
 		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
 	}
 	return fmt.Sprintf("%d MB", mb)
+}
+
+// DockerDaemon reports the Docker endpoint in play and whether a daemon answers
+// on it. Docker may be reached via a local unix socket OR a remote TCP endpoint
+// (DinD service containers, remote daemons):
+//   - TCP (DOCKER_HOST=tcp://...): no local socket exists; prove via docker info
+//   - Unix socket: stat, then prove via docker info
+//
+// Capability is proven, not inferred from socket presence alone. The endpoint is
+// returned whenever one is configured or present, even if nothing answers.
+func DockerDaemon() (endpoint string, available bool) {
+	dockerHostEnv := os.Getenv("DOCKER_HOST")
+	if strings.HasPrefix(dockerHostEnv, "tcp://") {
+		return dockerHostEnv, probeDockerDaemon()
+	}
+	socketPath := "/var/run/docker.sock"
+	if strings.HasPrefix(dockerHostEnv, "unix://") {
+		socketPath = strings.TrimPrefix(dockerHostEnv, "unix://")
+	}
+	if _, err := os.Stat(socketPath); err != nil {
+		return "", false
+	}
+	// Prove via the daemon, NOT os.Open: open(2) on a unix socket returns ENXIO
+	// ("no such device or address") — you connect() a socket, you don't open() it.
+	return socketPath, probeDockerDaemon()
 }
 
 // probeDockerDaemon runs docker info to verify daemon reachability.

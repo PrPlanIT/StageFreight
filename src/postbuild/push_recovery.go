@@ -9,8 +9,8 @@ import (
 )
 
 // PushFailure carries structured context about a failed push operation.
-// Both multi-platform (BuildWithLayers) and single-platform (PushTags)
-// paths produce this type for recovery classification.
+// Every in-build push (BuildWithLayers, single- or multi-platform) produces this
+// type for recovery classification.
 type PushFailure struct {
 	Err      error  // the original error
 	ExitCode int    // process exit code (1 if not determinable)

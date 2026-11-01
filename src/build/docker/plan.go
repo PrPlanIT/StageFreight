@@ -7,7 +7,7 @@ import (
 // applyImageBuildStrategy sets each image step's Load/Push from platform shape +
 // flags. Invariant: under transport, publish is the sole distributor — steps never
 // push, and a daemon copy is loaded only when the bytes aren't already CAS-retained
-// (retainViaCAS); multi-platform pushes directly since buildx can't --load it.
+// (retainViaCAS). Without transport, a step with registries pushes in-build.
 func applyImageBuildStrategy(plan *build.BuildPlan, transport, local, retainViaCAS bool) {
 	for i := range plan.Steps {
 		step := &plan.Steps[i]
@@ -33,10 +33,8 @@ func applyImageBuildStrategy(plan *build.BuildPlan, transport, local, retainViaC
 			if !IsMultiPlatform(*step) && !retainViaCAS {
 				step.Load = true
 			}
-		case IsMultiPlatform(*step):
-			step.Push = true
 		default:
-			step.Load = true
+			step.Push = true
 		}
 	}
 }

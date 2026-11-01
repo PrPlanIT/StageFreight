@@ -10,6 +10,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // HasRetention returns true if any LOCAL-daemon registry has retention configured.
@@ -72,6 +73,13 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 		for _, reg := range step.Registries {
 			if reg.Provider != "local" || !reg.Retention.Active() {
 				continue // remote registry retention runs in publish, not perform
+			}
+			// Local retention prunes the build daemon's images; a daemonless runner
+			// (remote BuildKit) holds none, so there is nothing to prune.
+			if !dockerDaemonAvailable() {
+				fmt.Fprintf(w, "  skipped %s: no Docker daemon on this runner\n", reg.Path)
+				totalSkipped++
+				continue
 			}
 
 			client, err := registry.NewRegistry(reg.Provider, reg.URL, reg.Credentials)
@@ -154,4 +162,10 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 	}
 
 	return summary, retElapsed
+}
+
+// dockerDaemonAvailable reports whether a Docker daemon answers on this runner.
+var dockerDaemonAvailable = func() bool {
+	_, ok := runner.DockerDaemon()
+	return ok
 }

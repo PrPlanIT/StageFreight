@@ -1,10 +1,8 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -394,62 +392,6 @@ func (bx *Buildx) buildArgs(step build.BuildStep) []string {
 	args = append(args, context)
 
 	return args
-}
-
-// PushError is the structured error from a failed docker push.
-// Implements error — PushTags return type stays (int, error).
-type PushError struct {
-	Tag      string // fully qualified ref that failed
-	ExitCode int    // process exit code (1 if not determinable)
-	Stderr   string // stderr from the failed push only
-	Cause    error  // underlying exec error
-}
-
-func (e *PushError) Error() string {
-	return fmt.Sprintf("docker push %s: %v", e.Tag, e.Cause)
-}
-
-func (e *PushError) Unwrap() error { return e.Cause }
-
-// PushTags pushes already-loaded local images to their remote registries.
-// Used in single-platform load-then-push strategy where buildx builds with
-// --load first, then we push each remote tag explicitly.
-//
-// Returns the count of successfully pushed tags and the first error encountered.
-// On full success: (len(tags), nil). On failure: (N, *PushError) where tags[:N]
-// succeeded and tags[N] failed. Callers can retry with tags[pushed:].
-func (bx *Buildx) PushTags(ctx context.Context, tags []string) (int, error) {
-	for i, tag := range tags {
-		if bx.Verbose {
-			fmt.Fprintf(bx.Stderr, "exec: docker push %s\n", tag)
-		}
-
-		cmd := exec.CommandContext(ctx, "docker", "push", tag)
-		cmd.Stdout = bx.Stdout
-
-		// Capture per-push stderr while still forwarding to bx.Stderr
-		var perPushBuf bytes.Buffer
-		if bx.Stderr != nil {
-			cmd.Stderr = io.MultiWriter(bx.Stderr, &perPushBuf)
-		} else {
-			cmd.Stderr = &perPushBuf
-		}
-
-		if err := cmd.Run(); err != nil {
-			exitCode := 1
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				exitCode = exitErr.ExitCode()
-			}
-			return i, &PushError{
-				Tag:      tag,
-				ExitCode: exitCode,
-				Stderr:   perPushBuf.String(),
-				Cause:    err,
-			}
-		}
-	}
-	return len(tags), nil
 }
 
 // IsMultiPlatform returns true if the step targets more than one platform.

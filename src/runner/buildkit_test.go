@@ -95,3 +95,29 @@ func TestBuildKitCertPath_Default(t *testing.T) {
 		t.Errorf("default cert path = %q, want /buildkit-certs", got)
 	}
 }
+
+// TestDockerDaemon pins the endpoint DockerDaemon reports on each kind of host:
+// a tcp DOCKER_HOST is reported even when nothing answers, a unix socket only
+// when present, and no daemon is claimed where none answers.
+func TestDockerDaemon(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "docker.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name, host, wantEndpoint string
+	}{
+		{"tcp endpoint, nothing answering", "tcp://127.0.0.1:1", "tcp://127.0.0.1:1"},
+		{"unix socket present, nothing answering", "unix://" + sock, sock},
+		{"unix socket absent", "unix://" + filepath.Join(t.TempDir(), "absent.sock"), ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", c.host)
+			endpoint, ok := DockerDaemon()
+			if endpoint != c.wantEndpoint || ok {
+				t.Errorf("DockerDaemon() = %q, %v; want %q, false", endpoint, ok, c.wantEndpoint)
+			}
+		})
+	}
+}

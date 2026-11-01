@@ -11,8 +11,8 @@ import (
 // TestBuildArgs_TransportRetainEmitsNoPush is the structural safety property the
 // whole "publish is the sole distributor" invariant rests on, asserted at the
 // ONLY place a registry write originates in crucible perform: buildArgs. Crucible
-// mode routes exclusively through executeBuildPass → BuildWithLayers → buildArgs;
-// it never reaches the executePhase PushTags path. So if buildArgs emits no
+// mode routes exclusively through executeBuildPass → BuildWithLayers → buildArgs.
+// So if buildArgs emits no
 // `--push` for a retain-shaped step (Push=false + OCILayoutDir set — exactly what
 // the transport branch of the crucible publish pass produces), then no registry
 // mutation is REACHABLE from perform under transport, regardless of what any log
