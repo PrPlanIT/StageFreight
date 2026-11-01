@@ -128,7 +128,7 @@ narrator:
         color: auto
         font: monofur
         output: ".stagefreight/badges/build.svg"
-        link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
+        link: "https://git.optcp.com/{var:gitlab_group}/{var:repo}/-/pipelines"
 
       - id: badge.license
         kind: badge
@@ -205,7 +205,7 @@ narrator:
           mode: replace
           inline: true
         shield: "badge/GitLab-source-FC6D26?logo=gitlab"
-        link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}"
+        link: "https://git.optcp.com/{var:gitlab_group}/{var:repo}"
 
       - id: project.go-report
         kind: props
