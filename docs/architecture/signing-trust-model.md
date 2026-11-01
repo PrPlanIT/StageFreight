@@ -620,7 +620,7 @@ anywhere. The operator workflow:
 ephemeral key → sign → log to Rekor → verify against the Fulcio root + expected identity. The issuer is
 **GitLab CI ID tokens** (`id_tokens:`, workload identity — same family as GitLab→k8s/Vault auth) for
 unattended CI, or **ZITADEL** for human-attributed signing. **Public Fulcio trusts only public issuers
-(gitlab.com, GitHub, Google) — never `gitlab.prplanit.com`/ZITADEL** — so self-hosted keyless REQUIRES
+(gitlab.com, GitHub, Google) — never `git.optcp.com`/ZITADEL** — so self-hosted keyless REQUIRES
 a private Sigstore trusting your issuers, with the renderer pointed at *those* URLs (O.4-B).
 
 ### O.3 Always-on signing — the default, and why it's honest

@@ -17,7 +17,7 @@ import (
 
 // GitLabForge implements the Forge interface for GitLab instances.
 type GitLabForge struct {
-	BaseURL    string // e.g., "https://gitlab.prplanit.com"
+	BaseURL    string // e.g., "https://git.optcp.com"
 	Token      string // private token or job token
 	ProjectID  string // numeric ID or "group/project" URL-encoded path
 	isJobToken bool   // true when Token came from CI_JOB_TOKEN

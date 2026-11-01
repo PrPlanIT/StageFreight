@@ -37,7 +37,7 @@ func RenderSealedConfig(seal SealMeta, config map[string]any) ([]byte, error) {
 
 // SealMeta holds provenance info for the generated header.
 type SealMeta struct {
-	SourceRepo string // e.g., "https://gitlab.prplanit.com/PrPlanIT/MaintenancePolicy"
+	SourceRepo string // e.g., "https://git.optcp.com/PrPlanIT/MaintenancePolicy"
 	SourceRef  string // e.g., "v1.0.0" or commit SHA
 	ClusterID  string // e.g., "docker-services"
 }

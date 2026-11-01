@@ -143,7 +143,7 @@ type Factory interface {
 // Used by governance reconciler for cross-repo operations.
 type BasicFactory struct {
 	ProviderName string // "gitlab", "github", "gitea"
-	BaseURL      string // e.g., "https://gitlab.prplanit.com"
+	BaseURL      string // e.g., "https://git.optcp.com"
 	CredPrefix   string // credential env var prefix
 }
 
