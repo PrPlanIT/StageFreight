@@ -24,6 +24,15 @@ type SigningConfig struct {
 	AutoProvision bool                   `yaml:"auto_provision,omitempty"` // explicit consent to create/manage a Tier-0 identity
 	StateDir      StateDir               `yaml:"state_dir,omitempty"`      // where persistent signing material lives
 	Profiles      OrderedSigningProfiles `yaml:"profiles,omitempty"`       // id→profile map
+
+	// DefaultProfile is the profile a target signs under when it names no
+	// signing_profile of its own — the fleet-wide default, declared once and
+	// overridable per target. Empty keeps the built-in `legacy` key default.
+	// Resolution precedence is: target's signing_profile → this default → legacy.
+	// It applies to targets that sign published images; blob/checksum signing stays
+	// explicit-only (it never rides a default), preserving today's conservative
+	// no-auto-sign-blobs behavior.
+	DefaultProfile string `yaml:"default_profile,omitempty"`
 }
 
 // StateDir locates the durable, operator-chosen home for persistent signing
@@ -82,6 +91,13 @@ func ValidateSigningConfig(c SigningConfig) []string {
 	}
 	if c.AutoProvision && !c.StateDir.Configured() {
 		errs = append(errs, "signing.auto_provision is true but signing.state_dir is not configured — there is nowhere to persist a Tier-0 identity (an ephemeral key would break trust continuity every run)")
+	}
+	// A declared default must resolve to a profile (the reserved `legacy` id always
+	// does). Fail at config load, not when the first unqualified target tries to sign.
+	if c.DefaultProfile != "" && c.DefaultProfile != legacySigningProfileID {
+		if FindSigningProfileByID(c.Profiles, c.DefaultProfile) == nil {
+			errs = append(errs, fmt.Sprintf("signing.default_profile %q is not defined under signing.profiles", c.DefaultProfile))
+		}
 	}
 	return errs
 }

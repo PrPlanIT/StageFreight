@@ -544,7 +544,9 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	// default never auto-signs blobs).
 	var profile *config.ResolvedSigningProfile
 	if t.SigningProfile != "" {
-		p, err := config.ResolveSigningProfileForTarget(t, rc.Config.SigningSetup.Profiles)
+		// Blobs/checksums sign ONLY under an explicit profile (or consented Tier-0) —
+		// they never inherit the fleet default, so pass no default here on purpose.
+		p, err := config.ResolveSigningProfileForTarget(t, rc.Config.SigningSetup.Profiles, "")
 		if err != nil {
 			diag.Warn("checksum signing for %s: %v", t.ID, err)
 			return "", nil

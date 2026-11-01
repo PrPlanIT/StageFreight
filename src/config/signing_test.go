@@ -55,17 +55,29 @@ func TestResolveSigningProfileForTarget(t *testing.T) {
 		{ID: "rel", Requires: StringOrList{"hardware"}, PhysicalPresence: "required", NonExportable: "required", TransparencyLog: &yes},
 	})
 
-	// no signing_profile → synthesized legacy (single path, never nil)
-	if r, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t"}, profiles); err != nil || r.ID != "legacy" || r.Class != TrustKey {
+	// no signing_profile, no default → synthesized legacy (single path, never nil)
+	if r, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t"}, profiles, ""); err != nil || r.ID != "legacy" || r.Class != TrustKey {
 		t.Errorf("empty should resolve to legacy/key: %+v %v", r, err)
 	}
 	// explicit ref → resolves, assurance keywords flatten to booleans
-	if r, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t", SigningProfile: "rel"}, profiles); err != nil || r.Class != TrustHardware || !r.PhysicalPresence || !r.NonExportable {
+	if r, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t", SigningProfile: "rel"}, profiles, ""); err != nil || r.Class != TrustHardware || !r.PhysicalPresence || !r.NonExportable {
 		t.Errorf("rel resolution wrong: %+v %v", r, err)
 	}
 	// unknown ref → error
-	if _, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t", SigningProfile: "nope"}, profiles); err == nil {
+	if _, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t", SigningProfile: "nope"}, profiles, ""); err == nil {
 		t.Error("unknown signing_profile must error")
+	}
+	// no signing_profile but a fleet default → the default wins over legacy
+	if r, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t"}, profiles, "rel"); err != nil || r.ID != "rel" || r.Class != TrustHardware {
+		t.Errorf("default should resolve to rel: %+v %v", r, err)
+	}
+	// the target's own profile overrides the fleet default
+	if r, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t", SigningProfile: "rel"}, profiles, "nope"); err != nil || r.ID != "rel" {
+		t.Errorf("target profile must override default: %+v %v", r, err)
+	}
+	// an unknown default (on an unqualified target) → error
+	if _, err := ResolveSigningProfileForTarget(TargetConfig{ID: "t"}, profiles, "nope"); err == nil {
+		t.Error("unknown default_profile must error")
 	}
 }
 

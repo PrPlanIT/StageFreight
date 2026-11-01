@@ -44,4 +44,17 @@ func TestValidateSigningConfig(t *testing.T) {
 	if errs := ValidateSigningConfig(SigningConfig{StateDir: StateDir{Type: "bad"}}); len(errs) == 0 {
 		t.Error("invalid state_dir type must error")
 	}
+	// default_profile must name a defined profile (or the reserved `legacy`).
+	if errs := ValidateSigningConfig(SigningConfig{DefaultProfile: "ghost"}); len(errs) == 0 {
+		t.Error("default_profile naming an undefined profile must error")
+	}
+	if errs := ValidateSigningConfig(SigningConfig{DefaultProfile: "legacy"}); len(errs) != 0 {
+		t.Errorf("default_profile: legacy is always valid: %v", errs)
+	}
+	if errs := ValidateSigningConfig(SigningConfig{
+		DefaultProfile: "rel",
+		Profiles:       OrderedSigningProfiles{{ID: "rel", Requires: StringOrList{"kms"}, KMS: &KMSTrust{Ref: "k"}}},
+	}); len(errs) != 0 {
+		t.Errorf("default_profile naming a defined profile must be valid: %v", errs)
+	}
 }

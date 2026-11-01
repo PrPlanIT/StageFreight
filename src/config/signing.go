@@ -224,13 +224,17 @@ func (r *ResolvedSigningProfile) IsLegacyDefault() bool {
 }
 
 // ResolveSigningProfileForTarget returns the resolved profile a target signs
-// under. No signing_profile → the synthesized `legacy` profile (single path,
-// never nil for a signable target). A set-but-unknown reference is an error.
-// Mirrors ResolveRegistryForTarget.
-func ResolveSigningProfileForTarget(t TargetConfig, profiles []SigningProfile) (*ResolvedSigningProfile, error) {
+// under. Precedence: the target's own signing_profile, else the fleet
+// defaultProfileID (signing.default_profile) when set, else the synthesized
+// `legacy` profile (single path, never nil for a signable target). A set-but-unknown
+// reference — on the target or the default — is an error. Mirrors ResolveRegistryForTarget.
+func ResolveSigningProfileForTarget(t TargetConfig, profiles []SigningProfile, defaultProfileID string) (*ResolvedSigningProfile, error) {
 	id := t.SigningProfile
 	if id == "" {
-		id = legacySigningProfileID
+		id = defaultProfileID // fleet default when the target names none
+	}
+	if id == "" {
+		id = legacySigningProfileID // no target profile and no configured default
 	}
 	p := FindSigningProfileByID(profiles, id)
 	if p == nil {
