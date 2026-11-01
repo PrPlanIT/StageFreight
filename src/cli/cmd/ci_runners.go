@@ -1456,8 +1456,8 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	if hasReleaseSyncMirror {
 		primaryURL := config.PrimaryURL(appCfg)
 		if primaryURL != "" {
-			provider := forge.DetectProvider(primaryURL)
-			pc, clientErr := newForgeClient(provider, primaryURL)
+			provider, clientURL := resolveForgeProvider(primaryURL, appCfg)
+			pc, clientErr := newForgeClient(provider, clientURL)
 			if clientErr == nil {
 				primaryClient = pc
 				rels, listErr := pc.ListReleases(ctx)

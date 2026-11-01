@@ -81,3 +81,73 @@ func TestResolveForgeProvider(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveGovernanceForgeFromConfig locks in the same authority order for governance:
+// a declared provider resolves a forge whose hostname doesn't name its software, and the
+// URL heuristic remains the fallback only when no usable provider is declared.
+func TestResolveGovernanceForgeFromConfig(t *testing.T) {
+	withProject := func(provider, url string) *config.Config {
+		c := cfgWithForge(provider, url)
+		c.Repos[0].Project = "PrPlanIT/MaintenancePolicy"
+		return c
+	}
+
+	tests := []struct {
+		name         string
+		cfg          *config.Config
+		wantProvider string
+		wantBase     string
+		wantCred     string
+		wantErr      bool
+	}{
+		{
+			name:         "declared provider on a neutral hostname",
+			cfg:          withProject("gitlab", "https://git.optcp.com"),
+			wantProvider: "gitlab",
+			wantBase:     "https://git.optcp.com",
+			wantCred:     "GITLAB",
+		},
+		{
+			name:         "declared provider on a hostname the heuristic also knows",
+			cfg:          withProject("github", "https://github.com"),
+			wantProvider: "github",
+			wantBase:     "https://github.com",
+			wantCred:     "GITHUB",
+		},
+		{
+			name:         "invalid declared provider falls back to the URL heuristic",
+			cfg:          withProject("bogus", "https://gitlab.example.com"),
+			wantProvider: "gitlab",
+			wantBase:     "https://gitlab.example.com",
+			wantCred:     "GITLAB",
+		},
+		{
+			name:    "invalid declared provider on a neutral hostname still errors",
+			cfg:     withProject("bogus", "https://git.optcp.com"),
+			wantErr: true,
+		},
+		{
+			name:    "no primary configured",
+			cfg:     &config.Config{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider, base, cred, err := resolveGovernanceForgeFromConfig(tt.cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("want error, got provider=%q base=%q", provider, base)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if provider != tt.wantProvider || base != tt.wantBase || cred != tt.wantCred {
+				t.Errorf("got (%q, %q, %q), want (%q, %q, %q)", provider, base, cred, tt.wantProvider, tt.wantBase, tt.wantCred)
+			}
+		})
+	}
+}

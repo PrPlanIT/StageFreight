@@ -128,7 +128,7 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 	// Phase 2: Plan distribution.
 	vlog("\nPlanning distribution for %d repos...\n", totalRepos)
 
-	_, _, sourceIdentity, parseErr := config.ParseForgeURL(source.RepoURL)
+	_, sourceIdentity, parseErr := config.SplitForgeURL(source.RepoURL)
 	if parseErr != nil {
 		return fmt.Errorf("parsing governance source URL: %w", parseErr)
 	}
@@ -277,12 +277,20 @@ func resolveGovernanceSourceFromOpts(opts GovernanceReconcileOpts) (governance.G
 }
 
 // resolveGovernanceForgeFromConfig reads forge identity from the standard sources.primary config.
+// The primary forge's declared provider wins over guessing it from the URL's hostname, so a
+// forge on a host that doesn't name its software (git.example.com) still resolves.
 func resolveGovernanceForgeFromConfig(appCfg *config.Config) (provider, baseURL, credPrefix string, err error) {
 	if appCfg == nil || config.PrimaryURL(appCfg) == "" {
 		return "", "", "", fmt.Errorf("sources.primary.url not configured")
 	}
 
-	provider, baseURL, _, err = config.ParseForgeURL(config.PrimaryURL(appCfg))
+	primary, _ := config.ResolvePrimary(appCfg.Repos, appCfg.Forges, appCfg.Vars)
+	if primary != nil && forge.ParseProvider(primary.Provider) != forge.Unknown {
+		provider = string(forge.ParseProvider(primary.Provider))
+		baseURL, _, err = config.SplitForgeURL(config.PrimaryURL(appCfg))
+	} else {
+		provider, baseURL, _, err = config.ParseForgeURL(config.PrimaryURL(appCfg))
+	}
 	if err != nil {
 		return "", "", "", fmt.Errorf("parsing sources.primary.url: %w", err)
 	}

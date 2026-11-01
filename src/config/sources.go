@@ -91,6 +91,20 @@ func ForgeLinkBase(provider, baseURL, projectID, branch string) (string, error) 
 	}
 }
 
+// SplitForgeURL splits a full repository URL into its base URL and project path
+// without guessing the provider, for callers that only need the project's identity.
+func SplitForgeURL(rawURL string) (baseURL, projectID string, err error) {
+	u, err := url.Parse(strings.TrimRight(rawURL, "/"))
+	if err != nil {
+		return "", "", fmt.Errorf("invalid URL %q: %w", rawURL, err)
+	}
+	path := strings.TrimPrefix(u.Path, "/")
+	if path == "" {
+		return "", "", fmt.Errorf("URL %q has no project path", rawURL)
+	}
+	return u.Scheme + "://" + u.Host, path, nil
+}
+
 // ParseForgeURL detects forge provider from a full repository URL,
 // extracts base URL and project ID.
 // Examples:
@@ -98,15 +112,11 @@ func ForgeLinkBase(provider, baseURL, projectID, branch string) (string, error) 
 //	"https://github.com/PrPlanIT/StageFreight"       → github, "https://github.com", "PrPlanIT/StageFreight"
 //	"https://gitlab.prplanit.com/SoFMeRight/dungeon" → gitlab, "https://gitlab.prplanit.com", "SoFMeRight/dungeon"
 func ParseForgeURL(rawURL string) (provider, baseURL, projectID string, err error) {
-	u, err := url.Parse(strings.TrimRight(rawURL, "/"))
+	base, path, err := SplitForgeURL(rawURL)
 	if err != nil {
-		return "", "", "", fmt.Errorf("invalid URL %q: %w", rawURL, err)
+		return "", "", "", err
 	}
-	path := strings.TrimPrefix(u.Path, "/")
-	if path == "" {
-		return "", "", "", fmt.Errorf("URL %q has no project path", rawURL)
-	}
-	base := u.Scheme + "://" + u.Host
+	u, _ := url.Parse(base)
 	if strings.Contains(u.Host, "github.com") {
 		return "github", base, path, nil
 	}
