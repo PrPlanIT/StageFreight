@@ -255,7 +255,7 @@ signing:
         identity: <string>
       kms:
         ref: <string>   # required
-        broker: <string>
+        provider: <string>
         role: <string>
       pkcs11:   # hardware transport selector (optional; absent = FIDO2 --sk)
         ref: <string>   # required
@@ -265,6 +265,7 @@ signing:
       attestation: false   # Attestation also emits a provenance attestation alongside the signature.
       enforce: false   # Enforce makes a signing failure fatal to the phase (default: best-effort — warn + record a failed…
       allow_fallback: false   # AllowFallback permits an explicitly-configured signer that fails to resolve to fall back to the…
+  default_profile: <string>   # DefaultProfile is the profile a target signs under when it names no signing_profile of its own —…
 ```
 
 > `enabled: false` disables ALL signing regardless of profiles/keys.
@@ -280,16 +281,16 @@ signing:
 <a id="config-secrets" name="config-secrets"></a>
 ### secrets
 
-Secrets declares secret brokers (Vault/OpenBao): the shared OIDC-auth kernel a job uses to obtain short-lived credentials. KMS signing consumes a broker session today; job secret composition will consume the same kernel later. Deployment specifics bind at runtime via SF_SECRETS_<ID>_*, never here.
+Secrets declares secret providers (Vault/OpenBao): the shared OIDC-auth kernel a job uses to obtain short-lived credentials. KMS signing consumes a provider session today; job secret composition will consume the same kernel later. Deployment specifics bind at runtime via SF_SECRETS_<ID>_*, never here.
 
 ```yaml
 secrets:
-  brokers:   # Brokers is the set of declared brokers, referenced by id from a kms profile's broker field. A…
-    - id: <string>   # logical ref; → SF_SECRETS_<ID>_* at runtime · required
+  providers:   # Providers is the set of declared providers, referenced by id from a kms profile's provider field.…
+    <id>:   # entry key = the unique id
       kind: <string>   # protocol family: "vault" (OpenBao speaks vault) · required
       auth:   # how a job proves identity (default: oidc)
         method: <string>   # Method is "oidc" (present the job's forge OIDC id_token — the default) or "token" (the operator…
-        audience: <string>   # Audience is the OIDC aud the broker's role binds and the CI job mints. Empty defaults to…
+        audience: <string>   # Audience is the OIDC aud the provider's role binds and the CI job mints. Empty defaults to…
 ```
 
 ---
