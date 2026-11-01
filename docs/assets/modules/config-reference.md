@@ -11,6 +11,7 @@
 - [`orgs`](#config-orgs)
 - [`metadata`](#config-metadata)
 - [`signing`](#config-signing)
+- [`secrets`](#config-secrets)
 - [`git`](#config-git)
 - [`builds`](#config-builds)
 - [`publish`](#config-publish)
@@ -237,6 +238,8 @@ signing:
         identity: <string>
       kms:
         ref: <string>   # required
+        broker: <string>
+        role: <string>
       pkcs11:   # hardware transport selector (optional; absent = FIDO2 --sk)
         ref: <string>   # required
       physical_presence: <string>   # Assurance properties (hardware-class ONLY; enforced in validation). The value is the keyword…
@@ -256,6 +259,25 @@ signing:
 ---
 
 <!-- --8<-- [end:signing] -->
+<!-- --8<-- [start:secrets] -->
+<a id="config-secrets" name="config-secrets"></a>
+### secrets
+
+Secrets declares secret brokers (Vault/OpenBao): the shared OIDC-auth kernel a job uses to obtain short-lived credentials. KMS signing consumes a broker session today; job secret composition will consume the same kernel later. Deployment specifics bind at runtime via SF_SECRETS_<ID>_*, never here.
+
+```yaml
+secrets:
+  brokers:   # Brokers is the set of declared brokers, referenced by id from a kms profile's broker field. A…
+    - id: <string>   # logical ref; → SF_SECRETS_<ID>_* at runtime · required
+      kind: <string>   # protocol family: "vault" (OpenBao speaks vault) · required
+      auth:   # how a job proves identity (default: oidc)
+        method: <string>   # Method is "oidc" (present the job's forge OIDC id_token — the default) or "token" (the operator…
+        audience: <string>   # Audience is the OIDC aud the broker's role binds and the CI job mints. Empty defaults to…
+```
+
+---
+
+<!-- --8<-- [end:secrets] -->
 <!-- --8<-- [start:git] -->
 <a id="config-git" name="config-git"></a>
 ### git

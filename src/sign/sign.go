@@ -59,6 +59,15 @@ type SignPlan struct {
 	KMSRef    string // kms class: a logical ref, bound to a URI by the renderer
 	PKCS11Ref string // hardware class: a logical ref → pkcs11: URI via SF_PKCS11_<REF> (absent = FIDO2 --sk)
 
+	// ── Broker binding (kms class; realized by the secrets/broker subsystem, not
+	// the renderer) ── BrokerRef names a secrets.broker to authenticate to via the
+	// job's OIDC identity before signing, installing the backend credential (e.g.
+	// VAULT_TOKEN) into the environment the renderer's env-forwarding then reads.
+	// Empty = ambient credential. These are logical refs, bound to an address/role
+	// at runtime via SF_SECRETS_<BROKER>_* — never a URL or role string here.
+	BrokerRef  string
+	BrokerRole string
+
 	// ── Execution modifier (kept distinct so policy logic never leaks here) ──
 	Attestation bool // also emit a provenance attestation
 }
@@ -102,6 +111,8 @@ func Compile(p *config.ResolvedSigningProfile) SignPlan {
 		KeyRef:      p.KeyRef,
 		KMSRef:      p.KMSRef,
 		PKCS11Ref:   p.PKCS11Ref,
+		BrokerRef:   p.BrokerRef,
+		BrokerRole:  p.BrokerRole,
 	}
 	// Physical presence is a hardware property; non-exportability holds for hardware
 	// AND kms (a KMS/Vault-transit key never leaves the service), so a kms profile

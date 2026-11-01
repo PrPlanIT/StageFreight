@@ -722,6 +722,10 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	errs = append(errs, ValidateTargetSigningProfileRefs(cfg.Targets, cfg.SigningSetup.Profiles)...)
 	errs = append(errs, ValidateSigningConfig(cfg.SigningSetup)...)
 
+	// ── Secret brokers (the auth kernel) + the kms→broker cross-ref ──────
+	errs = append(errs, ValidateSecretsConfig(cfg.Secrets)...)
+	errs = append(errs, ValidateSigningBrokerRefs(cfg.SigningSetup.Profiles, cfg.Secrets.Brokers)...)
+
 	// ── Test suites ──────────────────────────────────────────────────────
 	// Own schema (NOT lint's ModuleConfig). tool ∈ {go,rust,script}; script
 	// requires command and go|rust forbid it; gate ∈ {"",perform,advisory}

@@ -58,6 +58,12 @@ type Config struct {
 	// encoded in the framework.
 	SigningSetup SigningConfig `yaml:"signing,omitempty"`
 
+	// Secrets declares secret brokers (Vault/OpenBao): the shared OIDC-auth kernel a
+	// job uses to obtain short-lived credentials. KMS signing consumes a broker session
+	// today; job secret composition will consume the same kernel later. Deployment
+	// specifics bind at runtime via SF_SECRETS_<ID>_*, never here.
+	Secrets SecretsConfig `yaml:"secrets,omitempty"`
+
 	// Git is the git: cluster and the single source for ref interpretation: named
 	// branch patterns (git.branches), tag patterns (git.tags), and versioning rules
 	// (git.versioning). Consumers read cfg.Git.Branches / cfg.Git.Tags /

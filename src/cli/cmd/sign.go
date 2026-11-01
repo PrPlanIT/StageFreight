@@ -11,6 +11,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/secrets/broker"
 	"github.com/PrPlanIT/StageFreight/src/security"
 	"github.com/PrPlanIT/StageFreight/src/sign"
 	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
@@ -70,6 +71,13 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 		plan := sign.Compile(profile)
 		if !sign.Enabled(plan) {
 			return fmt.Errorf("profile %q does not resolve to a usable signer (e.g. an unset key reference)", signProfileID)
+		}
+		// Establish the broker session a kms plan requires (installs VAULT_* into the
+		// environment the renderer's env-forwarding reads). No-op unless kms + broker.
+		if plan.TrustClass == sign.ClassKMS && plan.BrokerRef != "" {
+			if err := broker.EnsureSession(cmd.Context(), cfg.Secrets.Brokers, plan.BrokerRef, plan.BrokerRole); err != nil {
+				return err
+			}
 		}
 		env := envForClass(plan)
 

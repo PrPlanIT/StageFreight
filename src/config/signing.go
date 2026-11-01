@@ -65,8 +65,18 @@ type OIDCTrust struct {
 
 // KMSTrust is a LOGICAL key ref (e.g. "release-signing-key"), bound to a concrete
 // URI only at render time — never a cosign URI, so policy stays provider-portable.
+//
+// Broker (optional) names a secrets.broker the job authenticates to via its OIDC
+// identity to obtain the short-lived credential the KMS backend needs (e.g. a
+// VAULT_TOKEN for a hashivault:// key). Absent → the credential is expected to be
+// ambient (the pre-broker behaviour). Role (optional) is the broker role ref,
+// defaulting to Ref; it binds to a concrete role name at runtime via
+// SF_SECRETS_<BROKER>_ROLE_<ROLE>. Neither names an address, mount, or role string —
+// the same provider-portable discipline as Ref.
 type KMSTrust struct {
-	Ref string `yaml:"ref"`
+	Ref    string `yaml:"ref"`
+	Broker string `yaml:"broker,omitempty"`
+	Role   string `yaml:"role,omitempty"`
 }
 
 // PKCS11Trust selects the PKCS#11 transport for a `hardware` profile via a LOGICAL
@@ -193,6 +203,8 @@ type ResolvedSigningProfile struct {
 	Class            string
 	KeyRef           string
 	KMSRef           string
+	BrokerRef        string // kms: secrets.broker id to open a session with (empty = ambient creds)
+	BrokerRole       string // kms: broker role ref (defaults to KMSRef when a broker is named)
 	PKCS11Ref        string
 	OIDCIssuer       string
 	OIDCIdentity     string
@@ -267,6 +279,11 @@ func resolveSigningProfile(p *SigningProfile) *ResolvedSigningProfile {
 	}
 	if p.KMS != nil {
 		r.KMSRef = p.KMS.Ref
+		r.BrokerRef = p.KMS.Broker
+		r.BrokerRole = p.KMS.Role
+		if r.BrokerRef != "" && r.BrokerRole == "" {
+			r.BrokerRole = p.KMS.Ref // default the role ref to the key ref
+		}
 	}
 	if p.PKCS11 != nil {
 		r.PKCS11Ref = p.PKCS11.Ref
@@ -289,6 +306,22 @@ func ValidateTargetSigningProfileRefs(targets []TargetConfig, profiles []Signing
 		}
 		if FindSigningProfileByID(profiles, t.SigningProfile) == nil {
 			errs = append(errs, fmt.Sprintf("targets[%s]: signing_profile %q not found", t.ID, t.SigningProfile))
+		}
+	}
+	return errs
+}
+
+// ValidateSigningBrokerRefs checks that each kms profile naming a broker references a
+// broker declared under secrets.brokers — the cross-block tie between a signing profile
+// and the auth kernel it leans on. Mirrors ValidateTargetRegistryRefs.
+func ValidateSigningBrokerRefs(profiles []SigningProfile, brokers []BrokerConfig) []string {
+	var errs []string
+	for _, p := range profiles {
+		if p.KMS == nil || strings.TrimSpace(p.KMS.Broker) == "" {
+			continue
+		}
+		if FindBrokerByID(brokers, p.KMS.Broker) == nil {
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: kms.broker %q is not declared under secrets.brokers", p.ID, p.KMS.Broker))
 		}
 	}
 	return errs
