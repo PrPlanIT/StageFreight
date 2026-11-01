@@ -21,7 +21,7 @@ providers:
   # GitLab — primary source of truth
   - name: gitlab-prplanit
     type: gitlab
-    url: https://gitlab.prplanit.com
+    url: https://git.optcp.com
     token: ${GITLAB_TOKEN}
     orgs: [precisionplanit, components]
     defaults:

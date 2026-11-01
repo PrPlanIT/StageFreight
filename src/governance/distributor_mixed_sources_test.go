@@ -19,7 +19,7 @@ func TestDistribution_MixedSourcesEachRetainItsOwnIdentity(t *testing.T) {
 		ID: "hlhd-docker",
 		Config: map[string]any{
 			"version": 1,
-			"forges":  map[string]any{"gitlab": map[string]any{"provider": "gitlab", "url": "https://gitlab.prplanit.com", "credentials": "GITLAB"}},
+			"forges":  map[string]any{"gitlab": map[string]any{"provider": "gitlab", "url": "https://git.optcp.com", "credentials": "GITLAB"}},
 			// A: unqualified — governance supplies provenance
 			"commit": map[string]any{"preset": "preset/commit.yml"},
 			// B: arbitrary URL
@@ -39,7 +39,7 @@ func TestDistribution_MixedSourcesEachRetainItsOwnIdentity(t *testing.T) {
 	PresetSourceFetcher = demoFetcher{}
 	defer func() { PresetSourceFetcher = prev }()
 
-	ps := PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy"}
+	ps := PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://git.optcp.com", ProjectID: "PrPlanIT/MaintenancePolicy"}
 	plans, err := PlanDistribution(gov, loader, nil, nil, ps, "PrPlanIT/MaintenancePolicy")
 	if err != nil {
 		t.Fatalf("PlanDistribution: %v", err)
@@ -57,7 +57,7 @@ func TestDistribution_MixedSourcesEachRetainItsOwnIdentity(t *testing.T) {
 	// Only the unqualified reference gains governance's provenance; every declared
 	// source survives verbatim.
 	for _, want := range []string{
-		"preset: https://gitlab.prplanit.com/PrPlanIT/MaintenancePolicy//preset/commit.yml",
+		"preset: https://git.optcp.com/PrPlanIT/MaintenancePolicy//preset/commit.yml",
 		"preset: https://policies.example.org/security.yml",
 		"preset: github:OtherOrg/presets//release.yml@main",
 		"preset: github:OtherOrg/presets//lint.yml@refs/tags/v2",
@@ -71,7 +71,7 @@ func TestDistribution_MixedSourcesEachRetainItsOwnIdentity(t *testing.T) {
 	// Each retained under its own identity — two sources sharing a filename cannot
 	// collide, and a foreign source is seeded so the satellite has a fallback.
 	for _, want := range []string{
-		".stagefreight/preset-cache/https-gitlab.prplanit.com/PrPlanIT/MaintenancePolicy/preset/commit.yml",
+		".stagefreight/preset-cache/https-git.optcp.com/PrPlanIT/MaintenancePolicy/preset/commit.yml",
 		".stagefreight/preset-cache/https-policies.example.org/security.yml",
 		".stagefreight/preset-cache/github-OtherOrg/presets-main/release.yml",
 		".stagefreight/preset-cache/github-OtherOrg/presets-refs/tags/v2/lint.yml",

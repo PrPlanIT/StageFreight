@@ -18,7 +18,7 @@ func TestRenderShield_LinkResolvesPathFact(t *testing.T) {
 	dir := t.TempDir()
 	yml := `version: 1
 forges:
-  gitlab: { provider: gitlab, url: "https://gitlab.prplanit.com", credentials: GITLAB, default_path: "{org}/{repo}" }
+  gitlab: { provider: gitlab, url: "https://git.optcp.com", credentials: GITLAB, default_path: "{org}/{repo}" }
 orgs:
   PrPlanIT: { maintainer: "PrPlanIT <x@y>", aliases: { handle: prplanit } }
 metadata:
@@ -31,7 +31,7 @@ stencils:
     label: GitLab
     message: source
     color: "#FC6D26"
-    link: "https://gitlab.prplanit.com/{path.gitlab}"
+    link: "https://git.optcp.com/{path.gitlab}"
   ver:
     render: shield
     label: StageFreight
@@ -55,7 +55,7 @@ stencils:
 	if strings.Contains(got, "{path.gitlab}") {
 		t.Errorf("shield link left {path.gitlab} unresolved:\n%s", got)
 	}
-	if !strings.Contains(got, "gitlab.prplanit.com/PrPlanIT/MaintenancePolicy") {
+	if !strings.Contains(got, "git.optcp.com/PrPlanIT/MaintenancePolicy") {
 		t.Errorf("shield link did not resolve to the derived path:\n%s", got)
 	}
 

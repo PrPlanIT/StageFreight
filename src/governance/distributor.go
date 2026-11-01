@@ -18,7 +18,7 @@ import (
 // Injected into satellite .stagefreight.yml so repos can resolve presets independently.
 type PresetSourceInfo struct {
 	Provider  string // "gitlab", "github", "gitea"
-	ForgeURL  string // HTTPS base URL (e.g., "https://gitlab.prplanit.com")
+	ForgeURL  string // HTTPS base URL (e.g., "https://git.optcp.com")
 	ProjectID string // "org/repo" or "org/group/repo"
 }
 

@@ -25,7 +25,7 @@ func TestPrimaryForgeClient_DeclaredPrimaryOutsideCI(t *testing.T) {
 	if _, err := r.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{"ssh://git@10.30.1.123:2424/PrPlanIT/DisplayWizard.git"}}); err != nil {
 		t.Fatal(err)
 	}
-	cfg := cfgWithForge("gitlab", "https://gitlab.prplanit.com")
+	cfg := cfgWithForge("gitlab", "https://git.optcp.com")
 	cfg.Repos[0].Project = "PrPlanIT/DisplayWizard"
 
 	fc, provider, err := primaryForgeClient(repo, cfg)
@@ -36,7 +36,7 @@ func TestPrimaryForgeClient_DeclaredPrimaryOutsideCI(t *testing.T) {
 	if provider != forge.GitLab || !ok {
 		t.Fatalf("got %s %T, want a GitLab client", provider, fc)
 	}
-	if gl.BaseURL != "https://gitlab.prplanit.com" || gl.ProjectID != "PrPlanIT/DisplayWizard" {
+	if gl.BaseURL != "https://git.optcp.com" || gl.ProjectID != "PrPlanIT/DisplayWizard" {
 		t.Fatalf("client at %q project %q, want the declared endpoint and project", gl.BaseURL, gl.ProjectID)
 	}
 }

@@ -175,7 +175,7 @@ badges:
     color: auto
     font: monofur
     output: ".stagefreight/badges/build.svg"
-    link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
+    link: "https://git.optcp.com/{var:gitlab_group}/{var:repo}/-/pipelines"
 ```
 
 Proposal B — key=id=text, `output` derived, render settings default:
@@ -185,7 +185,7 @@ badges:
   defaults: { font: monofur, color: auto }           # shared; per-badge fields override
   build:
     value: "{env:BUILD_STATUS}"
-    link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines"
+    link: "https://git.optcp.com/{var:gitlab_group}/{var:repo}/-/pipelines"
   license:
     value: "AGPL-3.0-only"
     color: "#310937"
@@ -370,7 +370,7 @@ manifest:                                # build-evidence data bus (builds → n
 
 # Can have variants of a forge for diff creds. It serves as unique forge accounts? Perhaps inferring github would be nice. Not having to declare. Same with registries.
 forges:
-  gitlab: { provider: gitlab, url: "https://gitlab.prplanit.com", credentials: GITLAB }
+  gitlab: { provider: gitlab, url: "https://git.optcp.com", credentials: GITLAB }
   github: { provider: github, url: "https://github.com",          credentials: GITHUB }
 
 repos:
@@ -513,7 +513,7 @@ scribe:                                  # generate content into files + commit 
   #    text would break YAML / force a duplicate key. Both forms are accepted; examples below always encode explicit.
   content:
     # ── inline source → render: badge (the DEFAULT — SF resolves {vars}, draws the SVG locally) ──
-    build:            { label: build,      message: "{env:BUILD_STATUS}",           color: auto,      font: monofur,                 link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}/-/pipelines" }
+    build:            { label: build,      message: "{env:BUILD_STATUS}",           color: auto,      font: monofur,                 link: "https://git.optcp.com/{var:gitlab_group}/{var:repo}/-/pipelines" }
     license:          { label: license,    message: "{project.license}",            color: "#310937", font: monofur,                 link: LICENSE }
     release:          { label: release,    message: "v{base}",                      color: "#74ecbe", font: dejavu-sans, font_size: 11, link: "https://github.com/{var:github_org}/{var:github_repo}/releases" }
     updated:          { label: updated,    message: "{env:BUILD_DATE}",             color: "#236144", font: dejavu-sans, font_size: 11 }
@@ -528,7 +528,7 @@ scribe:                                  # generate content into files + commit 
     donate:           { render: shield, message: donate,  color: "#FF5E5B", logo: ko-fi,          logoColor: white, link: "https://ko-fi.com/T6T41IT163" }
     sponsor:          { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logoColor: white, link: "https://github.com/sponsors/{var:github_org}" }
     github:           { render: shield, label: GitHub, message: source, color: "#181717", logo: github,                  link: "https://github.com/{var:github_org}/{var:github_repo}" }
-    gitlab:           { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab,                  link: "https://gitlab.prplanit.com/{var:gitlab_group}/{var:repo}" }
+    gitlab:           { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab,                  link: "https://git.optcp.com/{var:gitlab_group}/{var:repo}" }
     docker:           { render: shield, label: Docker, message: "{var:org}/{var:repo}", color: "#2496ED", logo: docker, logoColor: white, link: "https://hub.docker.com/r/{var:org}/{var:repo}" }
     # ── named producers · type: = the SOURCE — self-contained; repo/module resolve from repos: (override repo: <id>) ──
     go-report:        { type: goreportcard }                    # render: image (fixed — setting render: is an error)

@@ -22,7 +22,7 @@ func TestPlanDistribution_BrandedEntryDistributesMetadata(t *testing.T) {
 				"forges": map[string]any{
 					"gitlab": map[string]any{
 						"provider": "gitlab",
-						"url":      "https://gitlab.prplanit.com",
+						"url":      "https://git.optcp.com",
 					},
 					"github": map[string]any{
 						"provider": "github",
@@ -53,7 +53,7 @@ func TestPlanDistribution_BrandedEntryDistributesMetadata(t *testing.T) {
 		nil, // no forge reader → every file is a create
 		PresetSourceInfo{
 			Provider:  "gitlab",
-			ForgeURL:  "https://gitlab.prplanit.com",
+			ForgeURL:  "https://git.optcp.com",
 			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",
@@ -127,7 +127,7 @@ func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 				"forges": map[string]any{
 					"gitlab": map[string]any{
 						"provider": "gitlab",
-						"url":      "https://gitlab.prplanit.com",
+						"url":      "https://git.optcp.com",
 					},
 					"github": map[string]any{
 						"provider": "github",
@@ -149,7 +149,7 @@ func TestPlanDistribution_ConcretizesRepos(t *testing.T) {
 	}
 
 	plans, err := PlanDistribution(gov, fakeLoader{}, nil, nil,
-		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
+		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://git.optcp.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
 		"PrPlanIT/MaintenancePolicy")
 	requireNoError(t, err)
 
@@ -202,7 +202,7 @@ func TestPlanDistribution_RepoSettingsOverlay(t *testing.T) {
 			Config: map[string]any{
 				"version": 1,
 				"forges": map[string]any{
-					"gitlab": map[string]any{"provider": "gitlab", "url": "https://gitlab.prplanit.com"},
+					"gitlab": map[string]any{"provider": "gitlab", "url": "https://git.optcp.com"},
 					"github": map[string]any{"provider": "github", "url": "https://github.com"},
 				},
 				"orgs": map[string]any{"PrPlanIT": map[string]any{"maintainer": "P <p@example.com>", "aliases": map[string]any{"github": "PrPlanIT"}}},
@@ -220,7 +220,7 @@ func TestPlanDistribution_RepoSettingsOverlay(t *testing.T) {
 		}},
 	}
 	plans, err := PlanDistribution(gov, fakeLoader{}, nil, nil,
-		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
+		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://git.optcp.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
 		"PrPlanIT/MaintenancePolicy")
 	requireNoError(t, err)
 	var parsed struct {
@@ -263,7 +263,7 @@ func TestPlanDistribution_CachesComposedPresets(t *testing.T) {
 				"forges": map[string]any{
 					"gitlab": map[string]any{
 						"provider": "gitlab",
-						"url":      "https://gitlab.prplanit.com",
+						"url":      "https://git.optcp.com",
 					},
 				},
 				"stencils": map[string]any{
@@ -310,7 +310,7 @@ func TestPlanDistribution_CachesPerRepoOverridePresets(t *testing.T) {
 				"forges": map[string]any{
 					"gitlab": map[string]any{
 						"provider": "gitlab",
-						"url":      "https://gitlab.prplanit.com",
+						"url":      "https://git.optcp.com",
 					},
 				},
 				"git": map[string]any{"preset": "preset/git.yml"},
@@ -376,7 +376,7 @@ func TestPlanDistribution_RejectsUnloadableRender(t *testing.T) {
 				"forges": map[string]any{
 					"gitlab": map[string]any{
 						"provider": "gitlab",
-						"url":      "https://gitlab.prplanit.com",
+						"url":      "https://git.optcp.com",
 					},
 					"github": map[string]any{
 						"provider": "github",
@@ -407,7 +407,7 @@ func TestPlanDistribution_RejectsUnloadableRender(t *testing.T) {
 	_, err := PlanDistribution(
 		gov, fakeLoader{}, nil, nil,
 		PresetSourceInfo{
-			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
+			Provider: "gitlab", ForgeURL: "https://git.optcp.com",
 			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",
@@ -437,7 +437,7 @@ func TestPlanDistribution_AcceptsValidRender(t *testing.T) {
 				"forges": map[string]any{
 					"gitlab": map[string]any{
 						"provider": "gitlab",
-						"url":      "https://gitlab.prplanit.com",
+						"url":      "https://git.optcp.com",
 					},
 					"github": map[string]any{
 						"provider": "github",
@@ -468,7 +468,7 @@ func TestPlanDistribution_AcceptsValidRender(t *testing.T) {
 	if _, err := PlanDistribution(
 		gov, fakeLoader{}, nil, nil,
 		PresetSourceInfo{
-			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
+			Provider: "gitlab", ForgeURL: "https://git.optcp.com",
 			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",
@@ -491,7 +491,7 @@ func ciGovFixture(forges []any) *GovernanceConfig {
 				"version": 1,
 				"ci":      ci,
 				"forges": map[string]any{
-					"gitlab": map[string]any{"provider": "gitlab", "url": "https://gitlab.prplanit.com"},
+					"gitlab": map[string]any{"provider": "gitlab", "url": "https://git.optcp.com"},
 					"github": map[string]any{"provider": "github", "url": "https://github.com"},
 				},
 				"builds": map[string]any{"image": map[string]any{"kind": "docker"}},
@@ -506,7 +506,7 @@ func planCIFixture(t *testing.T, gov *GovernanceConfig) (DistributionPlan, error
 	plans, err := PlanDistribution(
 		gov, fakeLoader{}, nil, nil,
 		PresetSourceInfo{
-			Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com",
+			Provider: "gitlab", ForgeURL: "https://git.optcp.com",
 			ProjectID: "PrPlanIT/MaintenancePolicy",
 		},
 		"PrPlanIT/MaintenancePolicy",

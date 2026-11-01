@@ -12,7 +12,7 @@ import (
 // in repos:.
 type ProducerCoords struct {
 	Provider string // github, gitlab, gitea, forgejo
-	Host     string // github.com, gitlab.prplanit.com, ...
+	Host     string // github.com, git.optcp.com, ...
 	Project  string // owner/name
 	Module   string // host/owner/name (Go module path)
 }

@@ -101,7 +101,7 @@ Forges declares git hosts as an id→forge map (provider, URL, credentials).
 forges:
   <id>:   # entry key = the unique id
     provider: <string>   # gitlab, github, gitea · one of: gitlab, github, gitea, forgejo, azuredevops · required
-    url: <string>   # base URL (e.g., "https://gitlab.prplanit.com") · required
+    url: <string>   # base URL (e.g., "https://git.optcp.com") · required
     credentials: <string>   # env var prefix for token resolution
     default_path: <string>   # default project path template (e.g. "{org}/{repo}"), for {path.<id>}
 ```

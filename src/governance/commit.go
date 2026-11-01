@@ -32,7 +32,7 @@ type FileCommit struct {
 // Idempotent: skips repos where all files are unchanged.
 // Returns error if ANY repo failed.
 // source is the host-qualified control-repo location that governs these plans, e.g.
-// "gitlab.prplanit.com/PrPlanIT/MaintenancePolicy".
+// "git.optcp.com/PrPlanIT/MaintenancePolicy".
 func CommitDistribution(plans []DistributionPlan, forge ForgeClient, source string, dryRun bool) ([]CommitResult, error) {
 	var results []CommitResult
 	var anyError bool

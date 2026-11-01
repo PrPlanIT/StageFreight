@@ -12,8 +12,8 @@ import (
 // already shows its files, and both varied per reconcile, so no two messages matched
 // and release notes rendered a row per reconcile instead of one collapsed entry.
 func TestReconcileMessageShape(t *testing.T) {
-	got := buildCommitMessage("gitlab.prplanit.com/PrPlanIT/MaintenancePolicy")
-	want := "chore: governance reconcile from gitlab.prplanit.com/PrPlanIT/MaintenancePolicy\n\nGoverned-By: StageFreight\n"
+	got := buildCommitMessage("git.optcp.com/PrPlanIT/MaintenancePolicy")
+	want := "chore: governance reconcile from git.optcp.com/PrPlanIT/MaintenancePolicy\n\nGoverned-By: StageFreight\n"
 	if got != want {
 		t.Errorf("got:\n%q\nwant:\n%q", got, want)
 	}
@@ -42,7 +42,7 @@ func TestReconcileMessageDedupesButKeepsHost(t *testing.T) {
 	if buildCommitMessage("h/o/r") != buildCommitMessage("h/o/r") {
 		t.Error("same source must give identical text")
 	}
-	if buildCommitMessage("gitlab.prplanit.com/PrPlanIT/MP") == buildCommitMessage("github.com/PrPlanIT/MP") {
+	if buildCommitMessage("git.optcp.com/PrPlanIT/MP") == buildCommitMessage("github.com/PrPlanIT/MP") {
 		t.Error("different hosts must remain distinguishable")
 	}
 	if strings.Count(buildCommitMessage("h/o/r"), "\n") != 3 {

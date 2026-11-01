@@ -32,7 +32,7 @@ func TestUnreadableRepoIsNeverPlannedAsCreate(t *testing.T) {
 			Config: map[string]any{
 				"version": 1,
 				"forges": map[string]any{
-					"gitlab": map[string]any{"provider": "gitlab", "url": "https://gitlab.prplanit.com"},
+					"gitlab": map[string]any{"provider": "gitlab", "url": "https://git.optcp.com"},
 				},
 			},
 			Repos: ProfileCatalog{{ID: "apt-cacher-ng", At: "HomeLabHD/apt-cacher-ng"}},
@@ -40,7 +40,7 @@ func TestUnreadableRepoIsNeverPlannedAsCreate(t *testing.T) {
 	}
 
 	plans, err := PlanDistribution(gov, fakeLoader{}, nil, hiddenRepoForge{},
-		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://gitlab.prplanit.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
+		PresetSourceInfo{Provider: "gitlab", ForgeURL: "https://git.optcp.com", ProjectID: "PrPlanIT/MaintenancePolicy"},
 		"PrPlanIT/MaintenancePolicy")
 	requireNoError(t, err)
 

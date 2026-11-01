@@ -77,7 +77,7 @@ builds:
 forges:
   gitlab:
     provider: gitlab
-    url: "https://gitlab.prplanit.com"
+    url: "https://git.optcp.com"
     credentials: GITLAB
     # {path.gitlab}/{path.github} resolve from these, so the shared stencils link at
     # this repo instead of rendering their tokens literally.
@@ -500,7 +500,7 @@ stencils:
     message: "{env:BUILD_STATUS}"
     color: auto
     font: monofur
-    link: "https://gitlab.prplanit.com/{path.gitlab}/-/pipelines"
+    link: "https://git.optcp.com/{path.gitlab}/-/pipelines"
   license:
     label: license
     message: "{metadata.license}"
@@ -558,7 +558,7 @@ stencils:
 
   # ── inline shields (shields.io draws from the composed verbs; no %2F juggling) ──
   repo-gh: { render: shield, label: GitHub, message: mirror, color: "#181717", logo: github, link: "https://github.com/{path.github}" }
-  repo-gl: { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab, link: "https://gitlab.prplanit.com/{path.gitlab}" }
+  repo-gl: { render: shield, label: GitLab, message: source, color: "#FC6D26", logo: gitlab, link: "https://git.optcp.com/{path.gitlab}" }
   donate:  { render: shield, message: donate,  color: "#FF5E5B", logo: ko-fi,          logo_color: white, link: "https://ko-fi.com/T6T41IT163" }
   sponsor: { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logo_color: white, link: "https://github.com/sponsors/{org.github}" }
   ghcr:    { render: shield, label: GHCR,   message: "{path.ghcr}",      color: "#181717", logo: github, logo_color: white, link: "https://github.com/{path.github}/pkgs/container/{slug.lower}" }

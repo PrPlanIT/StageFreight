@@ -3,7 +3,7 @@
 > **Repository Lifecycle Steward**
 > A daemon that watches over your entire repo portfolio and actively maintains it.
 
-StageFreight is evolving from a GitLab CI component with bash scripts into a platform-agnostic **Repository Lifecycle Steward**. This document captures the full vision — from the Go CLI rewrite through daemon mode — absorbing the [prplangit concept](https://gitlab.prplanit.com/precisionplanit/dungeon/-/blob/main/docs/Ideas.md) under the StageFreight brand.
+StageFreight is evolving from a GitLab CI component with bash scripts into a platform-agnostic **Repository Lifecycle Steward**. This document captures the full vision — from the Go CLI rewrite through daemon mode — absorbing the [prplangit concept](https://git.optcp.com/precisionplanit/dungeon/-/blob/main/docs/Ideas.md) under the StageFreight brand.
 
 ---
 
@@ -153,7 +153,7 @@ $ stagefreight init
 Detected:
   Language:    Go (go.mod)
   Dockerfile:  ./Dockerfile (multistage: builder, production, dev)
-  Provider:    GitLab (gitlab.prplanit.com)
+  Provider:    GitLab (git.optcp.com)
   CI:          .gitlab-ci.yml (existing — will not modify)
   Registry:    registry.prplanit.com/tools/my-app (from CI variables)
 
@@ -177,7 +177,7 @@ Generated .stagefreight.yml:
 
 Creating branch stagefreight/init...
 Opening MR against main...
-  → https://gitlab.prplanit.com/precisionplanit/my-app/-/merge_requests/42
+  → https://git.optcp.com/precisionplanit/my-app/-/merge_requests/42
 
 $ stagefreight init --local   # alternative: just write the file, no git operations
 Write .stagefreight.yml? [Y/n]
@@ -253,7 +253,7 @@ build:
 
 # Or even thinner — use the StageFreight GitLab component
 include:
-  - component: gitlab.prplanit.com/components/stagefreight/docker-build@main
+  - component: git.optcp.com/components/stagefreight/docker-build@main
 ```
 
 Each CI job can be migrated independently. Replace the `release_notes` job first. Then `docker build`. Then `security scan`. The rest of the pipeline stays exactly as it is. No big bang rewrite.
@@ -3337,7 +3337,7 @@ Attestation:
   digest: sha256:abc123...
   tag: 1.2.3
   source_commit: def456...
-  source_repo: gitlab.prplanit.com/precisionplanit/myapp
+  source_repo: git.optcp.com/precisionplanit/myapp
   build_date: 2026-02-22T14:30:00Z
   builder: stagefreight v1.3.0
   deps_verified: true
@@ -3476,7 +3476,7 @@ docker:
     # Optional constraints:
     max_image_age: 30d                # reject images older than 30 days (forces rebuilds)
     allowed_repos:                    # only allow images from these source repos
-      - gitlab.prplanit.com/precisionplanit/*
+      - git.optcp.com/precisionplanit/*
       - github.com/sofmeright/*
     allowed_registries:               # only allow pulls from these registries
       - docker.io/prplanit/*
@@ -3560,7 +3560,7 @@ version: 1
 # Source-of-truth declaration (overrides daemon mirror patterns)
 source: true                    # this repo IS the source of truth
 # OR:
-# mirror_of: gitlab.prplanit.com/precisionplanit/my-project  # this is a mirror
+# mirror_of: git.optcp.com/precisionplanit/my-project  # this is a mirror
 
 release:
   notes: true
@@ -3652,7 +3652,7 @@ What the `stagefreight serve` pod reads on startup. Defines provider connections
 providers:
   - name: gitlab-prplanit
     type: gitlab
-    url: https://gitlab.prplanit.com
+    url: https://git.optcp.com
     token: ${GITLAB_TOKEN}
     orgs: [precisionplanit, components]
     defaults:
@@ -3808,7 +3808,7 @@ inherit:
 
 # downstream/.stagefreight.yml
 inherit:
-  from: https://gitlab.prplanit.com/precisionplanit/wireframe
+  from: https://git.optcp.com/precisionplanit/wireframe
   pin: main                    # track main branch of wireframe
   override:
     metadata:

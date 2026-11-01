@@ -305,7 +305,7 @@ Features — stencils: shared text-composition library (breaking) · scribe: bui
 Fixes — badge reproducible subset · docs-site build
 Docs/chore — forge-portable README + screenshots · mkdocs relocation · deps
 
-[→ open pipeline](https://gitlab.prplanit.com/37/-/pipelines/1234)
+[→ open pipeline](https://git.optcp.com/37/-/pipelines/1234)
 ```
 
 **Failed** — you see EXACTLY what broke, without opening the forge:
@@ -322,7 +322,7 @@ Docs/chore — forge-portable README + screenshots · mkdocs relocation · deps
 
 Failed at **review** — 3 tests failed; nothing shipped.
 
-[→ open pipeline](https://gitlab.prplanit.com/37/-/pipelines/1234)
+[→ open pipeline](https://git.optcp.com/37/-/pipelines/1234)
 ```
 
 ### The critical data this needs (the honest gap)

@@ -110,7 +110,7 @@ func SplitForgeURL(rawURL string) (baseURL, projectID string, err error) {
 // Examples:
 //
 //	"https://github.com/PrPlanIT/StageFreight"       → github, "https://github.com", "PrPlanIT/StageFreight"
-//	"https://gitlab.prplanit.com/SoFMeRight/dungeon" → gitlab, "https://gitlab.prplanit.com", "SoFMeRight/dungeon"
+//	"https://git.optcp.com/SoFMeRight/dungeon" → gitlab, "https://git.optcp.com", "SoFMeRight/dungeon"
 func ParseForgeURL(rawURL string) (provider, baseURL, projectID string, err error) {
 	base, path, err := SplitForgeURL(rawURL)
 	if err != nil {

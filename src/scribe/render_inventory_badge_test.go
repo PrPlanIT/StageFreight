@@ -44,7 +44,7 @@ func TestRenderShield_InventoryCountResolvesFromManifest(t *testing.T) {
 
 	yml := `version: 1
 forges:
-  gitlab: { provider: gitlab, url: "https://gitlab.prplanit.com", credentials: GITLAB, default_path: "{org}/{repo}" }
+  gitlab: { provider: gitlab, url: "https://git.optcp.com", credentials: GITLAB, default_path: "{org}/{repo}" }
 orgs:
   PrPlanIT: { maintainer: "PrPlanIT <x@y>", aliases: { handle: prplanit } }
 metadata:

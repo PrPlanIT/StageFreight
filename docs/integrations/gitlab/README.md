@@ -132,5 +132,5 @@ settings fall outside the stack:
 
 ## Example
 
-[`HomeLabHD/ansible`](https://gitlab.prplanit.com/HomeLabHD/ansible) publishes a reusable GitLab
+[`HomeLabHD/ansible`](https://git.optcp.com/HomeLabHD/ansible) publishes a reusable GitLab
 CI component with StageFreight via `kind: gitlab-component`.

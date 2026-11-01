@@ -10,7 +10,7 @@
 - **Forge** — a hosting provider (`gitlab`, `github`, …) under `forges:`, with a base URL + credentials.
 - **Repo** — a forge project under `repos:`, with `roles:`. Roles span **two orthogonal axes**:
   - **Authority** — `primary` (the **source of truth**; releases are *authored* here) vs `mirror` (*shadows* the primary; never the source).
-  - **Public availability** — `publish-origin`: **the forge external, unauthenticated users actually reach.** This is a **contract**, not a badge convenience: *anything that must resolve for the public* — release **binaries**, badge SVGs, raw README/media, download links — **must exist here, or those requests 404.** In SF, `primary` is `gitlab.prplanit.com` (internal, **not publicly reachable**) and `github-mirror` is `publish-origin` (public). The axes are independent: a publicly-reachable primary could itself be `publish-origin`.
+  - **Public availability** — `publish-origin`: **the forge external, unauthenticated users actually reach.** This is a **contract**, not a badge convenience: *anything that must resolve for the public* — release **binaries**, badge SVGs, raw README/media, download links — **must exist here, or those requests 404.** In SF, `primary` is `git.optcp.com` (internal, **not publicly reachable**) and `github-mirror` is `publish-origin` (public). The axes are independent: a publicly-reachable primary could itself be `publish-origin`.
 - **Registry** (`registries:`) and **pages provider** are *other* destination types — out of scope here; this doc is refs + releases only.
 
 ## 2. Distribution is THREE independent planes
@@ -27,7 +27,7 @@ A release on the primary is P2 **+** P3 together. A faithful mirror must carry *
 
 ### The publish-origin contract — why P3 is non-negotiable
 
-The planes aren't equally optional, and the reason is `publish-origin` (§1). The **primary is internal** — GitLab (`gitlab.prplanit.com`) does not serve external, unauthenticated users. The **publish-origin (the public mirror) is the only forge the outside world can reach.** So the contract is:
+The planes aren't equally optional, and the reason is `publish-origin` (§1). The **primary is internal** — GitLab (`git.optcp.com`) does not serve external, unauthenticated users. The **publish-origin (the public mirror) is the only forge the outside world can reach.** So the contract is:
 
 > **Every publicly-referenced artifact must resolve on `publish-origin`, or it 404s for the public.**
 
@@ -56,7 +56,7 @@ Two destination surfaces feed P2/P3:
 
 Inspecting a live GitLab release settles this: **there is no P3 "translation" and no embed subsystem.** The generated release **body** is already **forge-agnostic** — an Image-Availability table linking the *registries* (Docker Hub, Harbor, GHCR), digest `docker pull …@sha256:…` commands, a Downloads table by *filename + size + SHA-256*, checksums, highlights. **Not one GitLab-specific URL.** It renders on GitHub byte-identically and correctly, because the generator is registry-centric, not forge-centric.
 
-The only forge-specific, externally-unreachable thing is in `assets.links`: the **binary tarballs**, hosted as GitLab **upload URLs** (`gitlab.prplanit.com/-/project/37/uploads/…`).
+The only forge-specific, externally-unreachable thing is in `assets.links`: the **binary tarballs**, hosted as GitLab **upload URLs** (`git.optcp.com/-/project/37/uploads/…`).
 
 So crossing GitLab→GitHub is exactly **two moves**:
 
