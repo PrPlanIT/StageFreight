@@ -1,4 +1,4 @@
-package broker
+package provider
 
 import (
 	"bytes"
@@ -19,7 +19,7 @@ import (
 // so the common case needs one fewer variable.
 const defaultVaultLoginPath = "jwt"
 
-// vaultLoginTimeout bounds the login round-trip; a hung broker must not stall the job.
+// vaultLoginTimeout bounds the login round-trip; a hung provider must not stall the job.
 const vaultLoginTimeout = 30 * time.Second
 
 // ensureVaultSession logs into Vault/OpenBao over its JWT auth method, presenting the
@@ -32,31 +32,31 @@ const vaultLoginTimeout = 30 * time.Second
 // prior call in the same run and the auth: token mode where the operator supplies the
 // token ambiently. Every failure is loud: a missing binding or a login that yields no
 // token is an error, never a silent empty session.
-func ensureVaultSession(ctx context.Context, b config.BrokerConfig, roleRef string) error {
+func ensureVaultSession(ctx context.Context, b config.ProviderConfig, roleRef string) error {
 	if os.Getenv("VAULT_TOKEN") != "" {
 		return nil // session already established / ambient token supplied
 	}
 
 	addr := strings.TrimRight(os.Getenv(envName(b.ID, "ADDR")), "/")
 	if addr == "" {
-		return fmt.Errorf("secret broker %q: %s is not set (the Vault/OpenBao address)", b.ID, envName(b.ID, "ADDR"))
+		return fmt.Errorf("secret provider %q: %s is not set (the Vault/OpenBao address)", b.ID, envName(b.ID, "ADDR"))
 	}
 
 	// auth: token means the operator supplies VAULT_TOKEN ambiently. Reaching here with
 	// none set (the check above) is a misconfiguration — surface it, do not sign tokenless.
-	if b.Auth.Method == config.BrokerAuthToken {
-		return fmt.Errorf("secret broker %q: auth.method is %q but VAULT_TOKEN is not present in the environment", b.ID, config.BrokerAuthToken)
+	if b.Auth.Method == config.ProviderAuthToken {
+		return fmt.Errorf("secret provider %q: auth.method is %q but VAULT_TOKEN is not present in the environment", b.ID, config.ProviderAuthToken)
 	}
 
 	idToken := os.Getenv("STAGEFREIGHT_OIDC")
 	if idToken == "" {
-		return fmt.Errorf("secret broker %q: no OIDC id_token in the environment (STAGEFREIGHT_OIDC) — the signing job must mint one", b.ID)
+		return fmt.Errorf("secret provider %q: no OIDC id_token in the environment (STAGEFREIGHT_OIDC) — the signing job must mint one", b.ID)
 	}
 
 	roleVar := envName(b.ID, "ROLE_"+normRef(roleRef))
 	role := os.Getenv(roleVar)
 	if role == "" {
-		return fmt.Errorf("secret broker %q: %s is not set (the Vault role for ref %q)", b.ID, roleVar, roleRef)
+		return fmt.Errorf("secret provider %q: %s is not set (the Vault role for ref %q)", b.ID, roleVar, roleRef)
 	}
 
 	loginPath := os.Getenv(envName(b.ID, "LOGIN"))
@@ -66,19 +66,19 @@ func ensureVaultSession(ctx context.Context, b config.BrokerConfig, roleRef stri
 
 	token, err := vaultJWTLogin(ctx, addr, loginPath, role, idToken)
 	if err != nil {
-		return fmt.Errorf("secret broker %q: Vault login failed: %w", b.ID, err)
+		return fmt.Errorf("secret provider %q: Vault login failed: %w", b.ID, err)
 	}
 	if token == "" {
-		return fmt.Errorf("secret broker %q: Vault login returned no client token", b.ID)
+		return fmt.Errorf("secret provider %q: Vault login returned no client token", b.ID)
 	}
 
 	// Install the session for the rest of the process. The existing signEnv forwards
 	// VAULT_* into cosign; nothing in the signing core learns about this package.
 	if err := os.Setenv("VAULT_ADDR", addr); err != nil {
-		return fmt.Errorf("secret broker %q: setting VAULT_ADDR: %w", b.ID, err)
+		return fmt.Errorf("secret provider %q: setting VAULT_ADDR: %w", b.ID, err)
 	}
 	if err := os.Setenv("VAULT_TOKEN", token); err != nil {
-		return fmt.Errorf("secret broker %q: setting VAULT_TOKEN: %w", b.ID, err)
+		return fmt.Errorf("secret provider %q: setting VAULT_TOKEN: %w", b.ID, err)
 	}
 	return nil
 }

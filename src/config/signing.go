@@ -66,17 +66,17 @@ type OIDCTrust struct {
 // KMSTrust is a LOGICAL key ref (e.g. "release-signing-key"), bound to a concrete
 // URI only at render time — never a cosign URI, so policy stays provider-portable.
 //
-// Broker (optional) names a secrets.broker the job authenticates to via its OIDC
+// Provider (optional) names a secrets.provider the job authenticates to via its OIDC
 // identity to obtain the short-lived credential the KMS backend needs (e.g. a
 // VAULT_TOKEN for a hashivault:// key). Absent → the credential is expected to be
-// ambient (the pre-broker behaviour). Role (optional) is the broker role ref,
+// ambient (the pre-provider behaviour). Role (optional) is the provider role ref,
 // defaulting to Ref; it binds to a concrete role name at runtime via
-// SF_SECRETS_<BROKER>_ROLE_<ROLE>. Neither names an address, mount, or role string —
+// SF_SECRETS_<PROVIDER>_ROLE_<ROLE>. Neither names an address, mount, or role string —
 // the same provider-portable discipline as Ref.
 type KMSTrust struct {
-	Ref    string `yaml:"ref"`
-	Broker string `yaml:"broker,omitempty"`
-	Role   string `yaml:"role,omitempty"`
+	Ref      string `yaml:"ref"`
+	Provider string `yaml:"provider,omitempty"`
+	Role     string `yaml:"role,omitempty"`
 }
 
 // PKCS11Trust selects the PKCS#11 transport for a `hardware` profile via a LOGICAL
@@ -203,8 +203,8 @@ type ResolvedSigningProfile struct {
 	Class            string
 	KeyRef           string
 	KMSRef           string
-	BrokerRef        string // kms: secrets.broker id to open a session with (empty = ambient creds)
-	BrokerRole       string // kms: broker role ref (defaults to KMSRef when a broker is named)
+	ProviderRef      string // kms: secrets.provider id to open a session with (empty = ambient creds)
+	ProviderRole     string // kms: provider role ref (defaults to KMSRef when a provider is named)
 	PKCS11Ref        string
 	OIDCIssuer       string
 	OIDCIdentity     string
@@ -279,10 +279,10 @@ func resolveSigningProfile(p *SigningProfile) *ResolvedSigningProfile {
 	}
 	if p.KMS != nil {
 		r.KMSRef = p.KMS.Ref
-		r.BrokerRef = p.KMS.Broker
-		r.BrokerRole = p.KMS.Role
-		if r.BrokerRef != "" && r.BrokerRole == "" {
-			r.BrokerRole = p.KMS.Ref // default the role ref to the key ref
+		r.ProviderRef = p.KMS.Provider
+		r.ProviderRole = p.KMS.Role
+		if r.ProviderRef != "" && r.ProviderRole == "" {
+			r.ProviderRole = p.KMS.Ref // default the role ref to the key ref
 		}
 	}
 	if p.PKCS11 != nil {
@@ -311,17 +311,17 @@ func ValidateTargetSigningProfileRefs(targets []TargetConfig, profiles []Signing
 	return errs
 }
 
-// ValidateSigningBrokerRefs checks that each kms profile naming a broker references a
-// broker declared under secrets.brokers — the cross-block tie between a signing profile
+// ValidateSigningProviderRefs checks that each kms profile naming a provider references a
+// provider declared under secrets.providers — the cross-block tie between a signing profile
 // and the auth kernel it leans on. Mirrors ValidateTargetRegistryRefs.
-func ValidateSigningBrokerRefs(profiles []SigningProfile, brokers []BrokerConfig) []string {
+func ValidateSigningProviderRefs(profiles []SigningProfile, providers []ProviderConfig) []string {
 	var errs []string
 	for _, p := range profiles {
-		if p.KMS == nil || strings.TrimSpace(p.KMS.Broker) == "" {
+		if p.KMS == nil || strings.TrimSpace(p.KMS.Provider) == "" {
 			continue
 		}
-		if FindBrokerByID(brokers, p.KMS.Broker) == nil {
-			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: kms.broker %q is not declared under secrets.brokers", p.ID, p.KMS.Broker))
+		if FindProviderByID(providers, p.KMS.Provider) == nil {
+			errs = append(errs, fmt.Sprintf("signing.profiles[%s]: kms.provider %q is not declared under secrets.providers", p.ID, p.KMS.Provider))
 		}
 	}
 	return errs

@@ -11,7 +11,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/secrets/broker"
+	"github.com/PrPlanIT/StageFreight/src/secrets/provider"
 	"github.com/PrPlanIT/StageFreight/src/sign"
 	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
@@ -39,7 +39,7 @@ type SigningContext struct {
 // explicit-profile no-downgrade), surfaced unchanged. sign.go does NOT use this: a
 // human-chosen profile compiles directly with no Tier-0 fallback, so it builds a
 // SigningContext itself and shares only Evidence().
-func ResolveSigningContext(ctx context.Context, cfg config.SigningConfig, brokers []config.BrokerConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolConstraint, now string) (SigningContext, error) {
+func ResolveSigningContext(ctx context.Context, cfg config.SigningConfig, providers []config.ProviderConfig, profile *config.ResolvedSigningProfile, rootDir, repoRoot string, desired map[string]config.ToolConstraint, now string) (SigningContext, error) {
 	plan, tier, doSign, err := EffectiveSigner(ctx, cfg, profile, rootDir, repoRoot, desired, now)
 	if err != nil {
 		return SigningContext{}, err
@@ -47,13 +47,13 @@ func ResolveSigningContext(ctx context.Context, cfg config.SigningConfig, broker
 	if !doSign {
 		return SigningContext{}, nil
 	}
-	// Establish the broker session a kms plan requires BEFORE building the env: the
-	// broker installs VAULT_* into the process environment, which signEnv then forwards
+	// Establish the provider session a kms plan requires BEFORE building the env: the
+	// provider installs VAULT_* into the process environment, which signEnv then forwards
 	// into cosign (the env itself carries no token). A no-op unless the plan is kms with
-	// a broker ref, and idempotent across targets. A required login that fails is fatal
+	// a provider ref, and idempotent across targets. A required login that fails is fatal
 	// here — enforce turns it into a blocked publish, never a silent unsigned ship.
-	if plan.TrustClass == sign.ClassKMS && plan.BrokerRef != "" {
-		if err := broker.EnsureSession(ctx, brokers, plan.BrokerRef, plan.BrokerRole); err != nil {
+	if plan.TrustClass == sign.ClassKMS && plan.ProviderRef != "" {
+		if err := provider.EnsureSession(ctx, providers, plan.ProviderRef, plan.ProviderRole); err != nil {
 			return SigningContext{}, err
 		}
 	}

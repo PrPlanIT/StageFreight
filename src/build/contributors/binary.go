@@ -553,7 +553,7 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Brokers, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
+	sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Providers, profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
 	if serr != nil {
 		return "", serr // FATAL (continuity / state-dir guard)
 	}

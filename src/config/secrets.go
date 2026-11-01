@@ -5,87 +5,84 @@ import (
 	"strings"
 )
 
-// Secrets declares secret brokers — backends that issue short-lived credentials to a
-// CI job authenticated by the job's OWN OIDC identity. A broker is the shared auth
-// kernel: KMS signing consumes a session today (signing.profiles[].kms.broker), and
-// job secret composition will consume the same kernel later. It is deliberately
-// backend-agnostic and carries NO deployment specifics — the address, auth mount, and
-// roles bind at runtime via SF_SECRETS_<ID>_* (the same discipline as SF_KMS_<REF>),
-// so a profile stays portable and core never learns a vault URL, mount, or role string.
-// See the design note: stagefreight-scratchpad/design/secret-broker.md.
+// Secrets declares secret providers — backends that issue short-lived credentials to a
+// CI job authenticated by the job's OWN OIDC identity. A provider is the shared auth
+// kernel: KMS signing consumes a session today (signing.profiles[].kms.provider), and
+// job secret composition will consume the same kernel later (secrets.reads, alongside
+// providers). It is deliberately backend-agnostic and carries NO deployment specifics —
+// the address, auth mount, and roles bind at runtime via SF_SECRETS_<ID>_* (the same
+// discipline as SF_KMS_<REF>), so a profile stays portable and core never learns a vault
+// URL, mount, or role string. See the design note:
+// stagefreight-scratchpad/design/secret-provider.md.
 type SecretsConfig struct {
-	// Brokers is the set of declared brokers, referenced by id from a kms profile's
-	// broker field. A sequence (not a map) — order is immaterial and ids are unique.
-	Brokers []BrokerConfig `yaml:"brokers,omitempty"`
+	// Providers is the set of declared providers, referenced by id from a kms profile's
+	// provider field. Authored as an id → provider map (the id is the key), the same
+	// shape as every other collection in the schema.
+	Providers OrderedProviders `yaml:"providers,omitempty"`
 }
 
-// BrokerConfig is one named broker: a logical id, the protocol family that selects a
-// backend, and how a job authenticates to it. Nothing here names an address, a role,
-// or a mount — those are runtime-bound.
-type BrokerConfig struct {
-	ID   string     `yaml:"id"`             // logical ref; → SF_SECRETS_<ID>_* at runtime
-	Kind string     `yaml:"kind"`           // protocol family: "vault" (OpenBao speaks vault)
-	Auth BrokerAuth `yaml:"auth,omitempty"` // how a job proves identity (default: oidc)
+// ProviderConfig is one named provider: a logical id (the map key), the protocol family
+// that selects a backend, and how a job authenticates to it. Nothing here names an
+// address, a role, or a mount — those are runtime-bound.
+type ProviderConfig struct {
+	ID   string       `yaml:"-"`              // from the map key; → SF_SECRETS_<ID>_* at runtime
+	Kind string       `yaml:"kind"`           // protocol family: "vault" (OpenBao speaks vault)
+	Auth ProviderAuth `yaml:"auth,omitempty"` // how a job proves identity (default: oidc)
 }
 
-// BrokerAuth is how a job authenticates to a broker.
-type BrokerAuth struct {
+// ProviderAuth is how a job authenticates to a provider.
+type ProviderAuth struct {
 	// Method is "oidc" (present the job's forge OIDC id_token — the default) or "token"
 	// (the operator supplies ambient credentials, e.g. VAULT_TOKEN already in env).
 	Method string `yaml:"method,omitempty"`
-	// Audience is the OIDC aud the broker's role binds and the CI job mints. Empty
+	// Audience is the OIDC aud the provider's role binds and the CI job mints. Empty
 	// defaults to "stagefreight", reusing the id_token the signing job already emits.
 	// Consumed by the CI emitter (to mint a non-default audience), not by the login.
 	Audience string `yaml:"audience,omitempty"`
 }
 
-// Broker kinds and auth methods — the only valid values.
+// Provider kinds and auth methods — the only valid values.
 const (
-	BrokerKindVault = "vault" // HashiCorp Vault / OpenBao
+	ProviderKindVault = "vault" // HashiCorp Vault / OpenBao
 
-	BrokerAuthOIDC  = "oidc"
-	BrokerAuthToken = "token"
+	ProviderAuthOIDC  = "oidc"
+	ProviderAuthToken = "token"
 )
 
-var validBrokerKinds = map[string]bool{BrokerKindVault: true}
-var validBrokerAuthMethods = map[string]bool{BrokerAuthOIDC: true, BrokerAuthToken: true}
+var validProviderKinds = map[string]bool{ProviderKindVault: true}
+var validProviderAuthMethods = map[string]bool{ProviderAuthOIDC: true, ProviderAuthToken: true}
 
-// DefaultBrokerAudience is the OIDC audience a broker login uses when none is declared
+// DefaultProviderAudience is the OIDC audience a provider login uses when none is declared
 // — the same audience the perform job already mints (STAGEFREIGHT_OIDC).
-const DefaultBrokerAudience = "stagefreight"
+const DefaultProviderAudience = "stagefreight"
 
-// FindBrokerByID returns the broker with this id, or nil.
-func FindBrokerByID(brokers []BrokerConfig, id string) *BrokerConfig {
-	for i := range brokers {
-		if brokers[i].ID == id {
-			return &brokers[i]
+// FindProviderByID returns the provider with this id, or nil.
+func FindProviderByID(providers []ProviderConfig, id string) *ProviderConfig {
+	for i := range providers {
+		if providers[i].ID == id {
+			return &providers[i]
 		}
 	}
 	return nil
 }
 
-// ValidateSecretsConfig validates the broker declarations: non-empty unique ids, a
-// known kind, and a known auth method (empty = oidc default). It is the single
-// validation layer for the secrets block.
+// ValidateSecretsConfig validates the provider declarations: a non-empty id (the map
+// key), a known kind, and a known auth method (empty = oidc default). It is the single
+// validation layer for the secrets block. Uniqueness is structural — the id is the map
+// key, so duplicates cannot occur.
 func ValidateSecretsConfig(s SecretsConfig) []string {
 	var errs []string
-	seen := map[string]bool{}
-	for i, b := range s.Brokers {
-		where := fmt.Sprintf("secrets.brokers[%d]", i)
-		if strings.TrimSpace(b.ID) == "" {
-			errs = append(errs, where+": an entry has an empty id")
-		} else {
-			where = fmt.Sprintf("secrets.brokers[%s]", b.ID)
-			if seen[b.ID] {
-				errs = append(errs, where+": duplicate id")
-			}
-			seen[b.ID] = true
+	for _, p := range s.Providers {
+		where := fmt.Sprintf("secrets.providers[%s]", p.ID)
+		if strings.TrimSpace(p.ID) == "" {
+			errs = append(errs, "secrets.providers: an entry has an empty id")
+			where = "secrets.providers[]"
 		}
-		if !validBrokerKinds[b.Kind] {
-			errs = append(errs, fmt.Sprintf("%s: unknown kind %q (known: %s)", where, b.Kind, BrokerKindVault))
+		if !validProviderKinds[p.Kind] {
+			errs = append(errs, fmt.Sprintf("%s: unknown kind %q (known: %s)", where, p.Kind, ProviderKindVault))
 		}
-		if b.Auth.Method != "" && !validBrokerAuthMethods[b.Auth.Method] {
-			errs = append(errs, fmt.Sprintf("%s: unknown auth.method %q (expected %q or %q)", where, b.Auth.Method, BrokerAuthOIDC, BrokerAuthToken))
+		if p.Auth.Method != "" && !validProviderAuthMethods[p.Auth.Method] {
+			errs = append(errs, fmt.Sprintf("%s: unknown auth.method %q (expected %q or %q)", where, p.Auth.Method, ProviderAuthOIDC, ProviderAuthToken))
 		}
 	}
 	return errs

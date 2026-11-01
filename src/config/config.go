@@ -58,8 +58,8 @@ type Config struct {
 	// encoded in the framework.
 	SigningSetup SigningConfig `yaml:"signing,omitempty"`
 
-	// Secrets declares secret brokers (Vault/OpenBao): the shared OIDC-auth kernel a
-	// job uses to obtain short-lived credentials. KMS signing consumes a broker session
+	// Secrets declares secret providers (Vault/OpenBao): the shared OIDC-auth kernel a
+	// job uses to obtain short-lived credentials. KMS signing consumes a provider session
 	// today; job secret composition will consume the same kernel later. Deployment
 	// specifics bind at runtime via SF_SECRETS_<ID>_*, never here.
 	Secrets SecretsConfig `yaml:"secrets,omitempty"`

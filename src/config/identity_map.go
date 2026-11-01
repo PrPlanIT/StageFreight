@@ -121,6 +121,19 @@ func (o *OrderedSigningProfiles) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// OrderedProviders is secrets.providers — an id→provider map (key becomes
+// ProviderConfig.ID).
+type OrderedProviders []ProviderConfig
+
+func (o *OrderedProviders) UnmarshalYAML(n *yaml.Node) error {
+	v, err := decodeIDMap(n, func(p *ProviderConfig, id string) { p.ID = id })
+	if err != nil {
+		return fmt.Errorf("secrets.providers: %w", err)
+	}
+	*o = v
+	return nil
+}
+
 // IDMap is the marker every Ordered* id→entry map type implements — the
 // compile-checked contract that the type is a Go slice DECODING as a YAML map
 // keyed by entry id. Consumers that must know the YAML shape (the docs
@@ -135,6 +148,7 @@ func (OrderedOrgs) isIDMap()             {}
 func (OrderedBuilds) isIDMap()           {}
 func (OrderedTestSuites) isIDMap()       {}
 func (OrderedSigningProfiles) isIDMap()  {}
+func (OrderedProviders) isIDMap()        {}
 func (OrderedTagSources) isIDMap()       {}
 func (OrderedBranchBuilds) isIDMap()     {}
 func (OrderedTargets) isIDMap()          {}

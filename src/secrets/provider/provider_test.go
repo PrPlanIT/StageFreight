@@ -1,4 +1,4 @@
-package broker
+package provider
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
-func vaultBroker() []config.BrokerConfig {
-	return []config.BrokerConfig{{ID: "openbao", Kind: config.BrokerKindVault, Auth: config.BrokerAuth{Method: config.BrokerAuthOIDC}}}
+func vaultProvider() []config.ProviderConfig {
+	return []config.ProviderConfig{{ID: "openbao", Kind: config.ProviderKindVault, Auth: config.ProviderAuth{Method: config.ProviderAuthOIDC}}}
 }
 
 // cleanVaultEnv forces a clean, auto-restored VAULT_* so EnsureSession's os.Setenv
@@ -54,19 +54,19 @@ func fakeVault(t *testing.T, token string) (*httptest.Server, *struct {
 	return srv, seen
 }
 
-func TestEnsureSession_NoBrokerRef_NoOp(t *testing.T) {
+func TestEnsureSession_NoProviderRef_NoOp(t *testing.T) {
 	cleanVaultEnv(t)
-	if err := EnsureSession(context.Background(), vaultBroker(), "", ""); err != nil {
-		t.Fatalf("empty broker ref must be a no-op, got %v", err)
+	if err := EnsureSession(context.Background(), vaultProvider(), "", ""); err != nil {
+		t.Fatalf("empty provider ref must be a no-op, got %v", err)
 	}
 	if os.Getenv("VAULT_TOKEN") != "" {
 		t.Error("no-op must not set VAULT_TOKEN")
 	}
 }
 
-func TestEnsureSession_UnknownBroker_Errors(t *testing.T) {
+func TestEnsureSession_UnknownProvider_Errors(t *testing.T) {
 	cleanVaultEnv(t)
-	err := EnsureSession(context.Background(), vaultBroker(), "nope", "r")
+	err := EnsureSession(context.Background(), vaultProvider(), "nope", "r")
 	if err == nil || !strings.Contains(err.Error(), "not declared") {
 		t.Fatalf("want a 'not declared' error, got %v", err)
 	}
@@ -80,7 +80,7 @@ func TestEnsureVaultSession_HappyPath(t *testing.T) {
 	t.Setenv("SF_SECRETS_OPENBAO_ROLE_COSIGN_HOMELABHD", "stagefreight-cosign-homelabhd")
 	t.Setenv("STAGEFREIGHT_OIDC", "the-id-token")
 
-	if err := EnsureSession(context.Background(), vaultBroker(), "openbao", "cosign-homelabhd"); err != nil {
+	if err := EnsureSession(context.Background(), vaultProvider(), "openbao", "cosign-homelabhd"); err != nil {
 		t.Fatalf("login should succeed: %v", err)
 	}
 	if got := os.Getenv("VAULT_TOKEN"); got != "s.good" {
@@ -107,7 +107,7 @@ func TestEnsureVaultSession_DefaultLoginPath(t *testing.T) {
 	// no SF_SECRETS_OPENBAO_LOGIN → defaults to "jwt"
 	t.Setenv("SF_SECRETS_OPENBAO_ROLE_R", "role-r")
 	t.Setenv("STAGEFREIGHT_OIDC", "tok")
-	if err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r"); err != nil {
+	if err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r"); err != nil {
 		t.Fatalf("login should succeed: %v", err)
 	}
 	if seen.Path != "/v1/auth/jwt/login" {
@@ -120,7 +120,7 @@ func TestEnsureVaultSession_Idempotent(t *testing.T) {
 	t.Setenv("VAULT_TOKEN", "already") // a live session / ambient token
 	// Deliberately set NO address: if the function tried to log in it would error;
 	// idempotency must short-circuit before any env lookup or network call.
-	if err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r"); err != nil {
+	if err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r"); err != nil {
 		t.Fatalf("an existing VAULT_TOKEN must short-circuit, got %v", err)
 	}
 	if os.Getenv("VAULT_TOKEN") != "already" {
@@ -132,7 +132,7 @@ func TestEnsureVaultSession_MissingAddr_Errors(t *testing.T) {
 	cleanVaultEnv(t)
 	t.Setenv("STAGEFREIGHT_OIDC", "tok")
 	t.Setenv("SF_SECRETS_OPENBAO_ROLE_R", "role-r")
-	err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r")
+	err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r")
 	if err == nil || !strings.Contains(err.Error(), "_ADDR") {
 		t.Fatalf("missing address must fail loud, got %v", err)
 	}
@@ -142,7 +142,7 @@ func TestEnsureVaultSession_MissingRole_Errors(t *testing.T) {
 	cleanVaultEnv(t)
 	t.Setenv("SF_SECRETS_OPENBAO_ADDR", "http://vault.invalid")
 	t.Setenv("STAGEFREIGHT_OIDC", "tok")
-	err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r")
+	err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r")
 	if err == nil || !strings.Contains(err.Error(), "ROLE_R") {
 		t.Fatalf("missing role var must fail loud, got %v", err)
 	}
@@ -153,7 +153,7 @@ func TestEnsureVaultSession_MissingIDToken_Errors(t *testing.T) {
 	t.Setenv("SF_SECRETS_OPENBAO_ADDR", "http://vault.invalid")
 	t.Setenv("SF_SECRETS_OPENBAO_ROLE_R", "role-r")
 	t.Setenv("STAGEFREIGHT_OIDC", "")
-	err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r")
+	err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r")
 	if err == nil || !strings.Contains(err.Error(), "STAGEFREIGHT_OIDC") {
 		t.Fatalf("missing id_token must fail loud, got %v", err)
 	}
@@ -161,10 +161,10 @@ func TestEnsureVaultSession_MissingIDToken_Errors(t *testing.T) {
 
 func TestEnsureVaultSession_TokenAuthWithoutToken_Errors(t *testing.T) {
 	cleanVaultEnv(t)
-	brokers := []config.BrokerConfig{{ID: "openbao", Kind: config.BrokerKindVault, Auth: config.BrokerAuth{Method: config.BrokerAuthToken}}}
+	providers := []config.ProviderConfig{{ID: "openbao", Kind: config.ProviderKindVault, Auth: config.ProviderAuth{Method: config.ProviderAuthToken}}}
 	t.Setenv("SF_SECRETS_OPENBAO_ADDR", "http://vault.invalid")
-	err := EnsureSession(context.Background(), brokers, "openbao", "r")
-	if err == nil || !strings.Contains(err.Error(), config.BrokerAuthToken) {
+	err := EnsureSession(context.Background(), providers, "openbao", "r")
+	if err == nil || !strings.Contains(err.Error(), config.ProviderAuthToken) {
 		t.Fatalf("auth:token with no ambient VAULT_TOKEN must fail loud, got %v", err)
 	}
 }
@@ -175,7 +175,7 @@ func TestEnsureVaultSession_LoginNoToken_Errors(t *testing.T) {
 	t.Setenv("SF_SECRETS_OPENBAO_ADDR", srv.URL)
 	t.Setenv("SF_SECRETS_OPENBAO_ROLE_R", "role-r")
 	t.Setenv("STAGEFREIGHT_OIDC", "tok")
-	err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r")
+	err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r")
 	if err == nil || !strings.Contains(err.Error(), "no client token") {
 		t.Fatalf("an empty client token must fail loud, got %v", err)
 	}
@@ -191,7 +191,7 @@ func TestEnsureVaultSession_LoginHTTPError_Errors(t *testing.T) {
 	t.Setenv("SF_SECRETS_OPENBAO_ADDR", srv.URL)
 	t.Setenv("SF_SECRETS_OPENBAO_ROLE_R", "role-r")
 	t.Setenv("STAGEFREIGHT_OIDC", "tok")
-	err := EnsureSession(context.Background(), vaultBroker(), "openbao", "r")
+	err := EnsureSession(context.Background(), vaultProvider(), "openbao", "r")
 	if err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("a non-200 login must fail loud with the status, got %v", err)
 	}

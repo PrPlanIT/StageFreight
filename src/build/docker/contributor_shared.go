@@ -101,7 +101,7 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 			}
 			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
 			tgt := byEndpoint[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
-			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Brokers, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
+			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Providers, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
@@ -202,7 +202,7 @@ func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string
 			endpoint := host + "/" + tgt.Registry.Path
 			digestRef := endpoint + "@" + string(art.Digest)
 			st := byEndpoint[endpoint]
-			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Brokers, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
+			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Providers, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
 			if serr != nil {
 				return serr // FATAL (continuity / state-dir guard)
 			}
