@@ -6,7 +6,7 @@ detect → lint → build → push → scan → release → retention pipeline.
 
 ```yaml
 include:
-  - component: gitlab.prplanit.com/components/stagefreight/stagefreight@main
+  - component: git.optcp.com/components/stagefreight/stagefreight@main
     inputs:
       security_scan: true
       release_enabled: true

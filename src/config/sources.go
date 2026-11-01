@@ -116,7 +116,7 @@ func ForgeLinkBase(provider, baseURL, projectID, branch string) (string, error) 
 // Examples:
 //
 //	"https://github.com/PrPlanIT/StageFreight"       → github, "https://github.com", "PrPlanIT/StageFreight"
-//	"https://gitlab.prplanit.com/SoFMeRight/dungeon" → gitlab, "https://gitlab.prplanit.com", "SoFMeRight/dungeon"
+//	"https://git.optcp.com/SoFMeRight/dungeon" → gitlab, "https://git.optcp.com", "SoFMeRight/dungeon"
 func ParseForgeURL(rawURL string) (provider, baseURL, projectID string, err error) {
 	u, err := url.Parse(strings.TrimRight(rawURL, "/"))
 	if err != nil {
