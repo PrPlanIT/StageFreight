@@ -79,6 +79,6 @@ with `release.catalog_links` / `--catalog-links`). Two consequences:
 
 ## Example
 
-See [`HomeLabHD/ansible`](https://gitlab.prplanit.com/HomeLabHD/ansible) for a real
+See [`HomeLabHD/ansible`](https://git.optcp.com/HomeLabHD/ansible) for a real
 project that publishes a reusable GitLab CI component with StageFreight via
 `kind: gitlab-component`.
