@@ -23,7 +23,7 @@ import (
 
 // FailureDetail captures operator-meaningful error context for the Exit Reason section.
 type FailureDetail struct {
-	Command  string // "docker push cr.pcfae.com/prplanit/stagefreight:dev-ff98a93"
+	Command  string // "docker push cr.optcp.com/prplanit/stagefreight:dev-ff98a93"
 	ExitCode int    // 1
 	Reason   string // "HTTP 500 (registry)"
 	Stderr   string // raw stderr for --verbose

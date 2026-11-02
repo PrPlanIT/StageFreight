@@ -298,7 +298,7 @@ ollama + a prompt → a brief, targeted push.
 **Tests**     ✓  142 passed, 0 failed · 78.4% coverage
 **Security**  ✓  Trivy + Grype: 0 blocking (3 low) · SBOM generated
 **Build**     ✓  stagefreight · linux/amd64, arm64 → `sha256:75225fc`
-**Publish**   ✓  `dev-6efb5ca`, `latest-dev` → docker.io · ghcr.io · cr.pcfae.com · release cut
+**Publish**   ✓  `dev-6efb5ca`, `latest-dev` → docker.io · ghcr.io · cr.optcp.com · release cut
 
 **Changes** (18 since `dev-a5870b7`)
 Features — stencils: shared text-composition library (breaking) · scribe: build-fed compose + DAG scheduler

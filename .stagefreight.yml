@@ -3,7 +3,7 @@ version: 1
 ci:
   # Runtime pull location: the docker.io pull-through mirror serving
   # docker.io/prplanit/stagefreight:latest-dev (where the narrate image lands).
-  image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev
+  image: docker.cr.optcp.com/prplanit/stagefreight:latest-dev
 
 vars:
   org: prplanit
@@ -115,7 +115,7 @@ registries:
 
   harbor:
     provider: harbor
-    url: cr.pcfae.com
+    url: cr.optcp.com
     credentials: HARBOR
     default_path: "{org.docker}/{repo}"
 
@@ -563,7 +563,7 @@ stencils:
   sponsor: { render: shield, message: sponsor, color: "#EA4AAA", logo: githubsponsors, logo_color: white, link: "https://github.com/sponsors/{org.github}" }
   ghcr:    { render: shield, label: GHCR,   message: "{path.ghcr}",      color: "#181717", logo: github, logo_color: white, link: "https://github.com/{path.github}/pkgs/container/{slug.lower}" }
   docker:  { render: shield, label: Docker, message: "{path.dockerhub}", color: "#2496ED", logo: docker, logo_color: white, link: "https://hub.docker.com/r/{path.dockerhub}" }
-  harbor:  { render: shield, label: Harbor, message: "{path.harbor}",    color: "#60b932", link: "https://cr.pcfae.com/harbor/projects" }
+  harbor:  { render: shield, label: Harbor, message: "{path.harbor}",    color: "#60b932", link: "https://cr.optcp.com/harbor/projects" }
   stagefreight: { render: shield, label: StageFreight, message: "{stagefreight.version}", color: "#310937", logo: readthedocs, logo_color: white, link: "https://stagefreight.prplanit.com" }
 
   # ── named producers · repo/module resolve from repos: publish-origin (github-mirror); no params ──

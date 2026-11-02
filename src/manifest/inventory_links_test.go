@@ -9,7 +9,7 @@ func TestBaseImageWebURL(t *testing.T) {
 		"FROM docker.io/library/nginx:1.27":          "https://hub.docker.com/_/nginx",
 		"FROM ghcr.io/prplanit/static-site:v1":       "https://github.com/prplanit/static-site/pkgs/container/static-site",
 		"FROM quay.io/prometheus/node-exporter:v1.8": "https://quay.io/repository/prometheus/node-exporter",
-		"FROM cr.pcfae.com/prplanit/thing:latest":    "", // private registry → no public link
+		"FROM cr.optcp.com/prplanit/thing:latest":    "", // private registry → no public link
 		"FROM --platform=linux/amd64 alpine:3.23":    "https://hub.docker.com/_/alpine",
 		"FROM golang:1.26-alpine AS build":           "https://hub.docker.com/_/golang",
 		"FROM prplanit/static-site@sha256:abc":       "https://hub.docker.com/r/prplanit/static-site",

@@ -314,7 +314,7 @@ lifecycle: image                         # root mode selector: image | gitops | 
 # description + license auto-detected — license ← LICENSE file ({project.license}), description ← publish-origin repo. Declare at root only to override.
 
 ci:                                      # runner block — image + routing (cohesive; image un-hoisted from root)
-  image: docker.cr.pcfae.com/prplanit/stagefreight:latest-dev   # per-build image: overrides
+  image: docker.cr.optcp.com/prplanit/stagefreight:latest-dev   # per-build image: overrides
   # routing: {}                          # optional: per-phase runner placement → GitLab tags / GitHub runs-on
 
 vars:
@@ -389,7 +389,7 @@ repos:
 
 registries:
   dockerhub: { provider: docker, url: docker.io,   credentials: DOCKER, default_path: "{var:org}/{var:repo}" }
-  harbor:    { provider: harbor, url: cr.pcfae.com, credentials: HARBOR, default_path: "{var:org}/{var:repo}" }
+  harbor:    { provider: harbor, url: cr.optcp.com, credentials: HARBOR, default_path: "{var:org}/{var:repo}" }
   ghcr:      { provider: ghcr,   url: ghcr.io,      credentials: GHCR,   default_path: "{var:org}/{var:repo}" }
 
 signing:                                 # signing subsystem — operational switch + trust profiles (was signing + signing_profiles, merged)

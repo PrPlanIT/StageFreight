@@ -45,7 +45,7 @@ func TestOCIManifestSizeAndPlatformPick(t *testing.T) {
 func TestOCIHost(t *testing.T) {
 	for in, want := range map[string]string{
 		"ghcr.io":               "ghcr.io",
-		"https://cr.pcfae.com/": "cr.pcfae.com",
+		"https://cr.optcp.com/": "cr.optcp.com",
 		"http://localhost:5000": "localhost:5000",
 		"  docker.io  ":         "docker.io",
 	} {

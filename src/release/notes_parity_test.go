@@ -40,7 +40,7 @@ func parityFullInput() (NotesInput, []CommitCategory, []Commit) {
 			},
 			{
 				RegistryLabel: "Harbor",
-				ImageRef:      "cr.pcfae.com/prplanit/stagefreight",
+				ImageRef:      "cr.optcp.com/prplanit/stagefreight",
 				Tags:          []ResolvedTag{{Name: "v0.7.0"}},
 			},
 		},

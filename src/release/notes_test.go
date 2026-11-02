@@ -426,16 +426,16 @@ func TestSectionImages_RendersBuildNumber(t *testing.T) {
 		},
 		{
 			RegistryLabel: "Harbor",
-			ImageRef:      "cr.pcfae.com/prplanit/stagefreight",
+			ImageRef:      "cr.optcp.com/prplanit/stagefreight",
 			Tags:          []ResolvedTag{{Name: "1.164.1"}},
-			DigestRef:     "cr.pcfae.com/prplanit/stagefreight@sha256:abcdef0",
+			DigestRef:     "cr.optcp.com/prplanit/stagefreight@sha256:abcdef0",
 		},
 	}})
 
 	if !strings.Contains(out, "**docker.io/prplanit/stagefreight** — build #3") {
 		t.Errorf("build number not surfaced beside the digest:\n%s", out)
 	}
-	if strings.Contains(out, "**cr.pcfae.com/prplanit/stagefreight** — build #") {
+	if strings.Contains(out, "**cr.optcp.com/prplanit/stagefreight** — build #") {
 		t.Errorf("an unstamped row must not render a build-number suffix:\n%s", out)
 	}
 }

@@ -65,7 +65,7 @@ So crossing GitLab→GitHub is exactly **two moves**:
 
 Registry links need **nothing** — they're already markdown in the portable body, pointing straight at the registries. No link-asset plumbing, no public-filter, no exposure model, no morphing. The subsystem those would have required does not get built.
 
-*(One cosmetic wrinkle: the internal `cr.pcfae.com`/Harbor row is a markdown link an external clicker can't reach. **Kept** for verbatim consistency — it's labeled internal, with Docker Hub/GHCR public rows beside it. Stripping it would require per-forge bodies — the forge-specific complexity we're deliberately avoiding.)*
+*(One cosmetic wrinkle: the internal `cr.optcp.com`/Harbor row is a markdown link an external clicker can't reach. **Kept** for verbatim consistency — it's labeled internal, with Docker Hub/GHCR public rows beside it. Stripping it would require per-forge bodies — the forge-specific complexity we're deliberately avoiding.)*
 
 ## 5. The gaps (current → target)
 

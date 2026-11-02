@@ -74,7 +74,7 @@ func TestImageFamilyAndProject(t *testing.T) {
 		{"gitlab/gitlab-runner", "ci-infra", ""},
 		{"moby/buildkit", "ci-infra", ""},
 		{"prplanit/hasteward", "other", "hasteward"},
-		{"docker.cr.pcfae.com/library/rust", "other", ""}, // base image, no project
+		{"docker.cr.optcp.com/library/rust", "other", ""}, // base image, no project
 		{"alpine", "other", ""},
 	}
 	for _, c := range cases {

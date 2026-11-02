@@ -42,7 +42,7 @@ func FetchOCITagInfo(ctx context.Context, host, path string, tags []string, cred
 }
 
 // ociHost strips any scheme/trailing slash so config URLs like "ghcr.io" and
-// "https://cr.pcfae.com/" both yield a bare host for /v2 URL construction.
+// "https://cr.optcp.com/" both yield a bare host for /v2 URL construction.
 func ociHost(h string) string {
 	h = strings.TrimSpace(h)
 	h = strings.TrimPrefix(h, "https://")

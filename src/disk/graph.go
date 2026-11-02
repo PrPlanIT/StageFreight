@@ -29,7 +29,7 @@ func (f Flag) Has(x Flag) bool { return f&x != 0 }
 // Empty fields mean "not attributable on this dimension".
 type Attribution struct {
 	Project  string // dragonfly, stagefreight, jetpack
-	Registry string // ghcr.io, cr.pcfae.com, docker.io
+	Registry string // ghcr.io, cr.optcp.com, docker.io
 	Runtime  string // cache-mount, docker-host, docker-dind, repo-tree
 	Tool     string // go, rust, trivy
 }

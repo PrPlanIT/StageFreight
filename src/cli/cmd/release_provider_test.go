@@ -21,7 +21,7 @@ func TestProviderFromHostTokensNeverPanicURLBuilders(t *testing.T) {
 		"harbor.example.com":  "harbor",
 		"team.jfrog.io":       "jfrog",
 		"quay.io":             "quay",
-		"cr.pcfae.com":        "generic", // host doesn't reveal it's Harbor → neutral fallback, not a crash
+		"cr.optcp.com":        "generic", // host doesn't reveal it's Harbor → neutral fallback, not a crash
 		"some.unknown.host":   "generic",
 	}
 	for host, prov := range want {

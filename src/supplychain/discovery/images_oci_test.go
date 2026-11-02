@@ -29,7 +29,7 @@ func TestRepoPath(t *testing.T) {
 }
 
 func TestImageRegistryResolution(t *testing.T) {
-	regs := []config.RegistryConfig{{ID: "ghcr-proxy", Provider: "ghcr", URL: "https://ghcr.cr.pcfae.com"}}
+	regs := []config.RegistryConfig{{ID: "ghcr-proxy", Provider: "ghcr", URL: "https://ghcr.cr.optcp.com"}}
 	if (&Resolver{}).imageRegistry() != nil {
 		t.Error("no dependency.registry ref should resolve to nil (Docker Hub fallback)")
 	}

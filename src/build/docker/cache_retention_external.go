@@ -35,7 +35,7 @@ func enforceExternalRetention(ctx context.Context, ext config.ExternalCacheConfi
 		return result
 	}
 
-	// Parse registry URL and path from the ref (e.g., "cr.pcfae.com/prplanit/stagefreight").
+	// Parse registry URL and path from the ref (e.g., "cr.optcp.com/prplanit/stagefreight").
 	parts := strings.SplitN(targetRef, "/", 2)
 	if len(parts) != 2 {
 		result.Errors = append(result.Errors, fmt.Sprintf("invalid registry ref %q", targetRef))
