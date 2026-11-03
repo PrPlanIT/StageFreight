@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/retention"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -23,20 +25,69 @@ type ActionResult struct {
 	Items   []string // what was (or would be) removed, human-labeled
 	Freed   int64    // bytes freed (0 in dry-run and for daemon-side prunes that don't report)
 	Skipped string   // non-fatal reason the action did nothing ("no docker daemon", …)
+	Note    string   // how the action was narrowed, when it ran partially
 	Err     error
 }
+
+// busyColdAge is how long a cache entry must have gone unused to be evicted while another
+// run holds the cache. Go refreshes a build-cache entry's mtime on use once it is an hour
+// old, so nothing a running build reads is this cold.
+const busyColdAge = 24 * time.Hour
 
 // Execute runs (confirm=true) or previews (confirm=false) the planned actions.
 // Every executor fails toward leaving things alone: an artifact it cannot positively
 // enumerate under its policy is not touched.
 func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult {
 	out := make([]ActionResult, 0, len(actions))
-	for _, a := range actions {
+	held := map[string]bool{} // cache roots taken exclusively for this pass
+	busy := map[string]bool{} // cache roots another run is using
+	var releases []func()
+	releaseAll := func() {
+		for _, rel := range releases {
+			rel()
+		}
+		releases = nil
+	}
+	defer releaseAll()
+	lastLocked := -1
+	for i, a := range actions {
+		if a.LockRoot != "" {
+			lastLocked = i
+		}
+	}
+	for i, a := range actions {
 		r := ActionResult{Action: a}
+		if confirm && a.LockRoot != "" && !held[a.LockRoot] && !busy[a.LockRoot] {
+			if release, ok := paths.ExclusiveCacheRoot(a.LockRoot); ok {
+				held[a.LockRoot] = true
+				releases = append(releases, release)
+			} else {
+				busy[a.LockRoot] = true
+			}
+		}
+		cold := confirm && a.LockRoot != "" && busy[a.LockRoot]
+		if cold {
+			r.Note = "cache in use by another StageFreight run — only entries unused for 24h"
+		}
 		switch a.Kind {
 		case KindEvictDir:
-			r.Items, r.Freed, r.Err = evictDir(a.Path, a.MaxAge, a.MaxSize, confirm)
+			if cold {
+				r.Items, r.Freed, r.Err = evictDir(a.Path, max(a.MaxAge, busyColdAge), 0, confirm)
+			} else {
+				r.Items, r.Freed, r.Err = evictDir(a.Path, a.MaxAge, a.MaxSize, confirm)
+			}
+		case KindGoBuildCache:
+			minAge := time.Duration(0)
+			if cold {
+				minAge = busyColdAge
+			}
+			r.Items, r.Freed, r.Err = evictGoBuildCache(a.Path, a.MaxSize, minAge, confirm)
 		case KindToolchains:
+			if cold {
+				r.Note = ""
+				r.Skipped = "cache in use by another StageFreight run — a toolchain may be in use"
+				break
+			}
 			cands, err := toolchain.PlanVersionRetention(a.Path, a.Policy, a.Pins)
 			if err != nil {
 				r.Skipped = "no toolchain cache"
@@ -45,7 +96,7 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 			for _, c := range cands {
 				r.Items = append(r.Items, c.Tool+"/"+c.Version)
 				if confirm {
-					if err := os.RemoveAll(c.Dir); err != nil {
+					if err := removeAllWritable(c.Dir); err != nil {
 						r.Err = err
 					}
 				}
@@ -60,6 +111,11 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 			r.Items, r.Skipped, r.Err = pruneHostResidue(ctx, a, confirm)
 		}
 		out = append(out, r)
+		// The cache root is released as soon as its last action is done, never held through
+		// the daemon-side prunes that follow.
+		if i == lastLocked {
+			releaseAll()
+		}
 	}
 	return out
 }
@@ -99,7 +155,7 @@ func evictDir(dir string, maxAge time.Duration, maxSize int64, confirm bool) (it
 		freed += e.size
 		total -= e.size
 		if confirm {
-			if rmErr := os.RemoveAll(e.path); rmErr != nil {
+			if rmErr := removeAllWritable(e.path); rmErr != nil {
 				err = rmErr
 			}
 		}
@@ -123,6 +179,75 @@ func evictDir(dir string, maxAge time.Duration, maxSize int64, confirm bool) (it
 			}
 			evict(e)
 		}
+	}
+	return items, freed, err
+}
+
+// removeAllWritable is os.RemoveAll that first makes directories writable: Go's module
+// cache is read-only.
+func removeAllWritable(path string) error {
+	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o755)
+		}
+		return nil
+	})
+	return os.RemoveAll(path)
+}
+
+// evictGoBuildCache trims GOCACHE to maxSize by evicting entry files least recently used
+// first (Go refreshes an entry's mtime on use). Go's top-level files are kept.
+func evictGoBuildCache(dir string, maxSize int64, minAge time.Duration, confirm bool) (items []string, freed int64, err error) {
+	prefixes, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		return nil, 0, nil // absent subsystem — nothing to do
+	}
+	type entry struct {
+		path  string
+		size  int64
+		mtime time.Time
+	}
+	var all []entry
+	var total int64
+	for _, p := range prefixes {
+		if !p.IsDir() || len(p.Name()) != 2 {
+			continue
+		}
+		files, ferr := os.ReadDir(filepath.Join(dir, p.Name()))
+		if ferr != nil {
+			continue
+		}
+		for _, f := range files {
+			info, ierr := f.Info()
+			if ierr != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			all = append(all, entry{filepath.Join(dir, p.Name(), f.Name()), info.Size(), info.ModTime()})
+			total += info.Size()
+		}
+	}
+	if maxSize <= 0 || total <= maxSize {
+		return nil, 0, nil
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].mtime.Before(all[j].mtime) }) // least recently used first
+	var count int
+	cutoff := time.Now().Add(-minAge)
+	for _, e := range all {
+		if total <= maxSize || (minAge > 0 && e.mtime.After(cutoff)) {
+			break // least recently used first: once one is too recent, the rest are too
+		}
+		if confirm {
+			if rmErr := os.Remove(e.path); rmErr != nil && !os.IsNotExist(rmErr) {
+				err = rmErr
+				continue
+			}
+		}
+		freed += e.size
+		total -= e.size
+		count++
+	}
+	if count > 0 {
+		items = []string{fmt.Sprintf("%d least-recently-used entries (%s)", count, humanBytes(freed))}
 	}
 	return items, freed, err
 }
@@ -427,7 +552,15 @@ func firstLine(out string) string {
 
 // pruneHostResidue runs the AUTHORIZED generic residue prunes (dangling layers,
 // exited containers) with the declared age window.
+// dockerDaemon reports whether a Docker daemon answers; a variable so tests can stand
+// in for either runner kind.
+var dockerDaemon = runner.DockerDaemon
+
 func pruneHostResidue(ctx context.Context, a Action, confirm bool) (items []string, skipped string, err error) {
+	// Host residue lives in a Docker daemon; without one there is none.
+	if _, ok := dockerDaemon(); !ok {
+		return nil, "no docker daemon reachable", nil
+	}
 	until := dockerDuration(a.Until) // docker has no day unit; SF's vocabulary does
 	if until == "" {
 		return nil, "unparseable age in cleanup policy: " + a.Until, nil

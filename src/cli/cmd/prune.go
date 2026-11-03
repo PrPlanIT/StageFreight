@@ -83,6 +83,9 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 				}
 			}
 			freed += r.Freed
+			if r.Note != "" {
+				sec.Row("  %s", r.Note)
+			}
 			if r.Err != nil {
 				failed++
 				sec.Row("  ⚠ %v", r.Err)

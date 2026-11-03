@@ -120,7 +120,16 @@ func ScratchRelDir() string { return filepath.Join(Root, ScratchName) }
 // touch the filesystem; an explicit path or env is trusted as-is (the operator asked for
 // it). The probed dir is created — the mount is supplied empty and the XDG cache is the
 // native home we want to establish.
+//
+// The resolved root is held shared for the rest of the process (HoldCacheRoot), so a
+// concurrent run's disk GC leaves it alone.
 func ResolveCacheRoot(explicit string) string {
+	root := resolveCacheRoot(explicit)
+	HoldCacheRoot(root)
+	return root
+}
+
+func resolveCacheRoot(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}

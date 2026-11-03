@@ -46,6 +46,7 @@ type Kind string
 
 const (
 	KindEvictDir       Kind = "evict-dir"       // age→size eviction of a cache subsystem dir
+	KindGoBuildCache   Kind = "go-build-cache"  // per-entry LRU of the Go build cache (GOCACHE)
 	KindToolchains     Kind = "toolchains"      // keep-N toolchain versions (policy grammar)
 	KindImageStream    Kind = "image-stream"    // SF's own published generations, local daemon
 	KindBuildkit       Kind = "buildkit"        // sf-builder cache via `docker buildx prune`
@@ -60,6 +61,10 @@ type Action struct {
 	Label  string // human label ("cache/go/build", "toolchains", …)
 	Path   string // filesystem dir (evict-dir / toolchains root)
 	Reason string
+
+	// LockRoot is the cache root a namespace action evicts from; Execute runs the action
+	// only while holding that root exclusively (paths.ExclusiveCacheRoot).
+	LockRoot string
 
 	MaxAge  time.Duration          // evict-dir: entries older are evicted
 	MaxSize int64                  // evict-dir: then oldest-first down to this
@@ -130,7 +135,7 @@ func Plan(cfg *config.Config, opts Options) []Action {
 				switch sub {
 				case "go":
 					actions = append(actions,
-						Action{Kind: KindEvictDir, Class: ClassNamespace, Label: "cache/go/build",
+						Action{Kind: KindGoBuildCache, Class: ClassNamespace, Label: "cache/go/build",
 							Path: filepath.Join(dir, "build"), MaxSize: goBuildMaxSize,
 							Reason: "go build cache over size cap (rebuildable)"},
 						Action{Kind: KindEvictDir, Class: ClassNamespace, Label: "cache/go/downloads",
@@ -189,6 +194,9 @@ func Plan(cfg *config.Config, opts Options) []Action {
 				}
 			}
 			actions = append(actions, a)
+		}
+		for i := range actions {
+			actions[i].LockRoot = opts.CacheRoot
 		}
 	}
 

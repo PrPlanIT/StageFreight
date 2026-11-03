@@ -50,6 +50,9 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 			sec.Row("♻ %-28s %d item(s) [%s]", r.Action.Label, len(r.Items), r.Action.Class)
 		}
 		freed += r.Freed
+		if r.Note != "" {
+			sec.Row("  %s", r.Note)
+		}
 		if r.Err != nil {
 			sec.Row("  ⚠ %v", r.Err) // disclosed, never fatal
 		}
