@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/runner"
 	"github.com/PrPlanIT/StageFreight/src/runtime"
 )
 
@@ -26,6 +26,16 @@ type ComposeBackend struct {
 	drifted []DriftResult
 	stamps  *HashStamps
 	secrets SecretsProvider
+	daemon  func() bool // whether a local Docker daemon answers; nil = runner.DockerDaemon
+}
+
+// localDaemon reports whether this runner has a Docker daemon for a LocalTransport.
+func (c *ComposeBackend) localDaemon() bool {
+	if c.daemon != nil {
+		return c.daemon()
+	}
+	_, ok := runner.DockerDaemon()
+	return ok
 }
 
 func (c *ComposeBackend) Name() string { return "compose" }
@@ -67,11 +77,6 @@ func (c *ComposeBackend) Validate(ctx context.Context, cfg *config.Config, rctx 
 	}
 	c.secrets = sp
 
-	// Validate docker compose available
-	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker CLI not found in PATH")
-	}
-
 	return nil
 }
 
@@ -90,9 +95,13 @@ func (c *ComposeBackend) Prepare(ctx context.Context, cfg *config.Config, rctx *
 		return fmt.Errorf("no targets resolved from selector groups %v", dcfg.Targets.Selector.Groups)
 	}
 
-	// Resolve transports for each target.
+	// Resolve transports for each target. A docker_local target needs this runner's
+	// daemon; SSH targets need only ssh.
 	for i := range targets {
 		targets[i].Transport = ResolveTransport(targets[i])
+		if _, local := targets[i].Transport.(*LocalTransport); local && !c.localDaemon() {
+			return fmt.Errorf("target %s is local (docker_local), and this runner has no Docker daemon — reconcile it from a runner with one, or reach the host over SSH", targets[i].Name)
+		}
 	}
 	c.targets = targets
 
@@ -145,9 +154,12 @@ func (c *ComposeBackend) Plan(ctx context.Context, cfg *config.Config, rctx *run
 			continue
 		}
 
-		// Resolve transport for Tier 2 drift check (may be nil for read-only).
-		transport := c.resolveTransportForStack(DockerPlanMeta{Scope: stack.Scope})
+		// Resolve transport for the Tier 2 drift check; without one, Tier 1 decides.
+		transport, terr := c.resolveTransportForStack(DockerPlanMeta{Scope: stack.Scope})
 		dr := DetectDrift(ctx, stack, rctx.RepoRoot, stamps, c.secrets, transport)
+		if terr != nil && !dr.Drifted {
+			dr.Reason = fmt.Sprintf("Tier 2 unavailable: %v", terr)
+		}
 		order++
 
 		action := "noop"
@@ -314,7 +326,11 @@ func (c *ComposeBackend) Execute(ctx context.Context, plan *runtime.LifecyclePla
 		}
 
 		meta := ParseDockerPlanMeta(pa.Metadata)
-		transport := c.resolveTransportForStack(meta)
+		transport, terr := c.resolveTransportForStack(meta)
+		if terr != nil {
+			results = append(results, runtime.ActionResult{Name: pa.Name, Success: false, Message: terr.Error()})
+			continue
+		}
 
 		switch pa.Action {
 		case "up":
@@ -404,15 +420,18 @@ func (c *ComposeBackend) Cleanup(rctx *runtime.RuntimeContext) {
 	// Transport cleanup via rctx.Resolved.Cleanup()
 }
 
-// resolveTransportForStack finds the transport for a stack's scope host.
-func (c *ComposeBackend) resolveTransportForStack(meta DockerPlanMeta) HostTransport {
+// resolveTransportForStack finds the transport for a stack's scope host. A scope
+// that is not a target host (a group) uses this runner's daemon, and refuses without one.
+func (c *ComposeBackend) resolveTransportForStack(meta DockerPlanMeta) (HostTransport, error) {
 	for _, t := range c.targets {
 		if t.Name == meta.Scope {
-			return t.Transport
+			return t.Transport, nil
 		}
 	}
-	// Fallback: local transport (scope might be a group, not a host)
-	return &LocalTransport{}
+	if !c.localDaemon() {
+		return nil, fmt.Errorf("stack scope %q is not a declared target host, and this runner has no Docker daemon to run it on", meta.Scope)
+	}
+	return &LocalTransport{}, nil
 }
 
 // deployStack builds a staged bundle and typed StackAction, then delegates to transport.

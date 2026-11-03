@@ -101,7 +101,10 @@ func (l *LocalTransport) execLocalInDir(ctx context.Context, dir string, cmd str
 func (l *LocalTransport) InspectStack(ctx context.Context, project string) (StackInspection, error) {
 	filter := fmt.Sprintf("label=com.docker.compose.project=%s", project)
 	psResult := l.execLocal(ctx, "docker", "ps", "-aq", "--filter", filter)
-	if !psResult.Success || strings.TrimSpace(psResult.Stdout) == "" {
+	if !psResult.Success {
+		return StackInspection{}, fmt.Errorf("listing containers: %s", strings.TrimSpace(psResult.Stderr))
+	}
+	if strings.TrimSpace(psResult.Stdout) == "" {
 		return StackInspection{Project: project}, nil
 	}
 	ids := strings.Fields(strings.TrimSpace(psResult.Stdout))
@@ -213,7 +216,10 @@ func (s *SSHTransport) ExecuteAction(ctx context.Context, action StackAction) (E
 func (s *SSHTransport) InspectStack(ctx context.Context, project string) (StackInspection, error) {
 	filter := fmt.Sprintf("label=com.docker.compose.project=%s", project)
 	psResult := s.sshExecResult(ctx, "docker", "ps", "-aq", "--filter", filter)
-	if !psResult.Success || strings.TrimSpace(psResult.Stdout) == "" {
+	if !psResult.Success {
+		return StackInspection{}, fmt.Errorf("listing containers on %s: %s", s.Host, strings.TrimSpace(psResult.Stderr))
+	}
+	if strings.TrimSpace(psResult.Stdout) == "" {
 		return StackInspection{Project: project}, nil
 	}
 	ids := strings.Fields(strings.TrimSpace(psResult.Stdout))

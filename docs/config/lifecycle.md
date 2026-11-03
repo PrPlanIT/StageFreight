@@ -26,7 +26,7 @@ converge in the same reconcile pass. Future host/infra backends join this page t
 ## Ansible host convergence
 
 The `ansible:` subsystem converges **hosts** the way gitops converges clusters: a declared
-playbook LIBRARY, executed inside a pinned execution image, on every perform reconcile. Two
+playbook LIBRARY, executed in a pinned execution image, on every perform reconcile. Two
 lanes, one backend:
 
 - **Converge plays** (`converge: true`) run in CI, in declared order, fail-loud — any failed
@@ -43,6 +43,12 @@ default: [`docker.io/hlhd/ansible`](https://hub.docker.com/r/hlhd/ansible); brin
 pointing `image:` elsewhere. Pin a version tag — updates ride the deps engine's docker-image
 tag-line semantics.
 
+The image needs a Docker daemon to run in. On a runner without one (a rootless Kubernetes
+runner), the plays run with the job's own `ansible-playbook` instead, and the key is held by a
+private `ssh-agent` rather than written to disk — so that job's image must ship ansible, its
+collections, `ssh-agent` and `ssh-add`. The results box names which runtime ran (`image` or
+`native`). With neither a daemon nor ansible in the job, reconcile refuses before it starts.
+
 **Trust posture.** The SSH key resolves from `<PREFIX>_SSH_KEY` (raw PEM) or
 `<PREFIX>_SSH_KEY_B64` (base64 — the single-line form a masked variable can hold, mirroring
 `<NAME>_CA_B64`); store it masked + **protected** so unprotected-ref pipelines never receive
@@ -52,10 +58,12 @@ setup. Host-key verification is always strict against the repo-committed `ssh.kn
 serialization group (`resource_group` on GitLab) so two pipelines queue rather than race a
 cordon/drain.
 
-**Audition lint.** `lint.modules.ansible` runs ansible-lint from the same execution image over
-exactly the declared plays — undeclared ansible files stay quiet until they join the library.
-Severities are graduated (blocker/critical → warning, rest informational): adopting the module
-never hard-fails an audition on style rules.
+**Audition lint.** `lint.modules.ansible` runs ansible-lint where the plays run (the execution
+image, or the job's own `ansible-lint` without a daemon) over exactly the declared plays —
+undeclared ansible files stay quiet until they join the library. Severities are graduated
+(blocker/critical → warning, rest informational): adopting the module never hard-fails an
+audition on style rules. When ansible-lint can't run at all, the audition shows a warning
+naming the unlinted plays and why.
 
 **Facts.** Converge results record as the `ansible` subsystem: `{ansible.converged}`,
 `{ansible.total}`, `{ansible.changed}`, `{ansible.unreachable}` — and the shipped summary

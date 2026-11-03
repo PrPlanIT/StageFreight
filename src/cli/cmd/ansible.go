@@ -33,7 +33,8 @@ var ansibleRunCmd = &cobra.Command{
 	Short: "Run one declared playbook by id",
 	Long: `Run a single playbook from the ansible: library — the ONLY way a
 converge: false runbook executes. CI never reaches runbooks; this verb is the
-human lane, with the same execution image, strict host-key posture, and
+human lane, with the same runtime (the execution image, or the job's own
+ansible where there is no Docker daemon), strict host-key posture, and
 --check plan preview as the converge set.
 
 Examples:
@@ -186,13 +187,16 @@ func ansibleLiveStream(playID string) io.WriteCloser {
 	return output.OpenLogGroup(os.Stdout, "sf_ansible_"+playID, fmt.Sprintf("ansible: %s (live)", playID))
 }
 
-// renderAnsibleRun renders the per-play results box: image identity, then one
-// row per play with its host rollup; failures tail their output.
+// renderAnsibleRun renders the per-play results box: the runtime's identity, then
+// one row per play with its host rollup; failures tail their output.
 func renderAnsibleRun(w *os.File, backend *ansible.Backend, rctx *runtime.RuntimeContext, elapsed time.Duration) {
 	color := output.UseColor()
 	sec := output.NewSection(w, "Ansible", elapsed, color)
 	if backend.ImageRef() != "" {
 		sec.Row("image  %s", backend.ImageRef())
+	}
+	if backend.NativeIdentity() != "" {
+		sec.Row("native  %s", backend.NativeIdentity())
 	}
 
 	plays := backend.PlayResults()

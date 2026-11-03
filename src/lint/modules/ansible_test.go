@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -55,12 +56,10 @@ func TestAnsibleLint_InertWithoutLibrary(t *testing.T) {
 	}
 }
 
-// TestAnsibleLint_SubstrateDegradesToInfo pins the fail-soft contract: a
-// missing substrate is one visible Info finding, never an audition failure —
-// hard substrate errors belong to the converge phase.
-func TestAnsibleLint_SubstrateDegradesToInfo(t *testing.T) {
+// Lint that cannot run yields one Warning naming why, never an Info or a failure.
+func TestAnsibleLint_UnrunLintWarns(t *testing.T) {
 	m := &ansibleModule{run: func(context.Context, string, string, []string) ([]byte, error) {
-		return nil, context.DeadlineExceeded
+		return nil, errors.New("ansible-lint has nowhere to run")
 	}}
 	m.SetAnsibleConfig(config.AnsibleConfig{
 		Image:     "docker.io/hlhd/ansible:v2.20.4",
@@ -68,10 +67,12 @@ func TestAnsibleLint_SubstrateDegradesToInfo(t *testing.T) {
 	})
 	findings, err := m.CheckAll(context.Background(), nil)
 	if err != nil {
-		t.Fatalf("substrate failure must not error the lint: %v", err)
+		t.Fatalf("an unrun lint must not error the audition: %v", err)
 	}
-	if len(findings) != 1 || findings[0].Severity != lint.SeverityInfo || !strings.Contains(findings[0].Message, "skipped") {
-		t.Fatalf("want one Info skip finding, got %+v", findings)
+	if len(findings) != 1 || findings[0].Severity != lint.SeverityWarning ||
+		!strings.Contains(findings[0].Message, "1 declared playbook(s) unlinted") ||
+		!strings.Contains(findings[0].Message, "nowhere to run") {
+		t.Fatalf("want one Warning naming the unlinted plays and why, got %+v", findings)
 	}
 }
 

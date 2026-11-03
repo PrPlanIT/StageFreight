@@ -8,7 +8,8 @@ import (
 )
 
 // AnsibleConfig defines the ansible host-convergence subsystem: a library of
-// declared playbooks executed inside a containerized ansible runtime. It is
+// declared playbooks executed in the declared execution image or by the job's own
+// ansible. It is
 // presence-gated (any converge playbook activates the perform-phase backend)
 // and deliberately independent of lifecycle.mode — ansible runs alongside
 // gitops/governance, never instead of them.

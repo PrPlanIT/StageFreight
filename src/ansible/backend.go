@@ -1,7 +1,7 @@
 // Package ansible implements the host-convergence lifecycle backend: declared
-// playbooks executed inside a containerized ansible runtime (the execution
-// image) against SSH-managed hosts. The package returns DATA — plans, recaps,
-// aggregates; all terminal rendering belongs to cli/cmd.
+// playbooks executed against SSH-managed hosts, in the declared execution image or
+// by the job's own ansible. The package returns DATA — plans, recaps, aggregates; all terminal rendering
+// belongs to cli/cmd.
 package ansible
 
 import (
@@ -30,27 +30,20 @@ func init() {
 	})
 }
 
-// Container-side paths. The workspace is COPIED in (docker cp — works against
-// any docker endpoint, local socket or remote daemon, where bind mounts
-// resolve on the daemon's filesystem and silently come up empty). The key
-// lives on a container-private tmpfs, streamed over stdin at start — it never
-// touches a filesystem outside the container's RAM.
-const (
-	containerWorkdir   = "/work"
-	containerSecretDir = "/run/sf"
-	containerKeyPath   = containerSecretDir + "/key"
-)
-
-// Backend implements runtime.LifecycleBackend for containerized ansible.
+// Backend implements runtime.LifecycleBackend for ansible.
 //
 // Scope defaults to the config's converge set (perform reconcile). SelectPlay
 // narrows it to one named entry — the `ansible run <id>` path, which is also
 // the ONLY way a converge:false runbook ever executes.
 type Backend struct {
-	cfg         *config.Config // captured at Validate; Execute composes container args from it
-	dockerBin   string
+	cfg         *config.Config   // captured at Validate; Execute composes the play from it
+	probe       func() substrate // job-environment probe; nil = probeSubstrate
+	runtime     Runtime
+	dockerBin   string // image runtime: the docker CLI
+	nativeBin   string // native runtime: ansible-playbook in the job environment
+	nativeID    string // native runtime: the ansible-playbook identity recorded at Validate
 	imageRef    string // config reference
-	imageID     string // resolved digest/ID recorded at Validate
+	imageID     string // resolved digest/ID recorded at Validate (image runtime)
 	keyMaterial []byte // (decrypted) private key, held in process memory only
 	plays       []config.AnsiblePlaybook
 	extraVars   []string // -e key=val passthrough (run verb)
@@ -77,8 +70,19 @@ func (b *Backend) PlayResults() []PlayResult { return b.results }
 // Aggregate returns the unique-host rollup feeding the ansible.* facts.
 func (b *Backend) Aggregate() Aggregate { return AggregateResults(b.results) }
 
-// ImageRef returns the resolved execution image reference (for trust display).
-func (b *Backend) ImageRef() string { return b.imageRef }
+// Runtime returns where the plays run, resolved at Validate.
+func (b *Backend) Runtime() Runtime { return b.runtime }
+
+// ImageRef returns the execution image reference (for trust display); empty for a native run.
+func (b *Backend) ImageRef() string {
+	if b.runtime == RuntimeNative {
+		return ""
+	}
+	return b.imageRef
+}
+
+// NativeIdentity returns the native ansible-playbook's path and version.
+func (b *Backend) NativeIdentity() string { return b.nativeID }
 
 // ImageID returns the image identity recorded at Validate.
 func (b *Backend) ImageID() string { return b.imageID }
@@ -121,8 +125,8 @@ func (b *Backend) Capabilities() []runtime.Capability {
 	}
 }
 
-// Validate resolves the execution substrate: docker, the pinned execution
-// image (pulled if absent, identity recorded), and the declared files.
+// Validate resolves where the plays run, records that runtime's identity, and
+// checks the declared files.
 func (b *Backend) Validate(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
 	b.cfg = cfg
 	a := cfg.Ansible
@@ -132,26 +136,43 @@ func (b *Backend) Validate(ctx context.Context, cfg *config.Config, rctx *runtim
 	if len(b.plays) == 0 {
 		return fmt.Errorf("no ansible playbooks in scope")
 	}
-
-	dockerBin, err := exec.LookPath("docker")
-	if err != nil {
-		return fmt.Errorf("docker unavailable: ansible runs in the execution image (%s)", a.Image)
-	}
-	b.dockerBin = dockerBin
 	b.imageRef = a.Image
 
-	// Resolve the image: local inspect first, pull on miss, then record the
-	// identity actually used — the digest is the trust statement.
-	if _, err := b.docker(ctx, "image", "inspect", "--format", "{{.Id}}", a.Image); err != nil {
-		if out, perr := b.docker(ctx, "pull", a.Image); perr != nil {
-			return fmt.Errorf("execution image %s unavailable: %s", a.Image, firstLine(out))
-		}
+	probe := b.probe
+	if probe == nil {
+		probe = probeSubstrate
 	}
-	id, err := b.docker(ctx, "image", "inspect", "--format", "{{.Id}}", a.Image)
+	sub := probe()
+	rt, err := selectRuntime(sub, "ansible-playbook", a.Image)
 	if err != nil {
-		return fmt.Errorf("execution image %s: inspect failed after pull", a.Image)
+		return err
 	}
-	b.imageID = strings.TrimSpace(id)
+	b.runtime = rt
+
+	switch rt {
+	case RuntimeImage:
+		b.dockerBin = sub.dockerBin
+		// Resolve the image: local inspect first, pull on miss, then record the
+		// identity actually used — the digest is the trust statement.
+		if _, err := b.docker(ctx, "image", "inspect", "--format", "{{.Id}}", a.Image); err != nil {
+			if out, perr := b.docker(ctx, "pull", a.Image); perr != nil {
+				return fmt.Errorf("execution image %s unavailable: %s", a.Image, firstLine(out))
+			}
+		}
+		id, err := b.docker(ctx, "image", "inspect", "--format", "{{.Id}}", a.Image)
+		if err != nil {
+			return fmt.Errorf("execution image %s: inspect failed after pull", a.Image)
+		}
+		b.imageID = strings.TrimSpace(id)
+	case RuntimeNative:
+		for _, tool := range []string{"ssh-agent", "ssh-add"} {
+			if sub.look(tool) == "" {
+				return fmt.Errorf("ansible-playbook runs natively here, and holding the SSH key in memory needs %s, which this job's environment does not have", tool)
+			}
+		}
+		b.nativeBin = sub.look("ansible-playbook")
+		b.nativeID = toolIdentity(ctx, b.nativeBin)
+	}
 
 	if _, err := os.Stat(filepath.Join(rctx.RepoRoot, a.Inventory)); err != nil {
 		return fmt.Errorf("ansible.inventory %s: %w", a.Inventory, err)
@@ -169,7 +190,8 @@ func (b *Backend) Validate(ctx context.Context, cfg *config.Config, rctx *runtim
 
 // Prepare resolves the SSH identity: the key from <PREFIX>_SSH_KEY
 // (decrypted via <PREFIX>_SSH_KEY_PASSPHRASE when set) is validated and held
-// in process memory — no tmpfile; it reaches each play container over stdin.
+// in process memory — no tmpfile; it reaches each play container over stdin,
+// or a native play's private ssh-agent.
 // Also validates every play's groups against the inventory so an empty
 // --limit fails here, not silently inside ansible.
 func (b *Backend) Prepare(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext) error {
@@ -286,64 +308,10 @@ func (b *Backend) Cleanup(rctx *runtime.RuntimeContext) {
 	// Key tmpfile removal is registered via rctx.Resolved.AddCleanup in Prepare.
 }
 
-// runPlay executes one playbook inside the execution image and parses its
-// recap. Three-step container flow — create, cp, start — so the workspace is
-// a per-run copy streamed over the docker API (endpoint-agnostic: a remote
-// daemon never sees this filesystem, so bind mounts are off the table) and
-// the key is piped over stdin onto a container-private tmpfs.
+// runPlay executes one playbook in the resolved runtime and parses its recap.
 func (b *Backend) runPlay(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext, p config.AnsiblePlaybook, check bool) PlayResult {
-	a := cfg.Ansible
 	res := PlayResult{ID: p.ID, Path: p.Path, Check: check}
 
-	playCmd := []string{
-		"ansible-playbook",
-		"-i", a.Inventory,
-		p.Path,
-		"--limit", strings.Join(p.Groups, ":"),
-		"-u", a.SSH.User,
-		"--private-key", containerKeyPath,
-	}
-	if check {
-		playCmd = append(playCmd, "--check", "--diff")
-	}
-	for _, ev := range b.extraVars {
-		playCmd = append(playCmd, "-e", ev)
-	}
-	// The key arrives on stdin before the workspace cd — cat's EOF is the
-	// signal the material is fully landed on the tmpfs.
-	script := "umask 077 && cat > " + containerKeyPath +
-		" && cd " + containerWorkdir +
-		" && exec " + shellJoin(playCmd)
-
-	createArgs := []string{
-		"create", "-i",
-		"--tmpfs", containerSecretDir + ":rw,mode=0700",
-		"-e", "ANSIBLE_HOST_KEY_CHECKING=True",
-		"-e", "ANSIBLE_SSH_COMMON_ARGS=-o UserKnownHostsFile=" + path.Join(containerWorkdir, a.SSH.KnownHosts) + " -o StrictHostKeyChecking=yes",
-		"-e", "ANSIBLE_FORCE_COLOR=0",
-		"--entrypoint", "/bin/sh",
-		a.Image, "-c", script,
-	}
-	out, err := b.docker(ctx, createArgs...)
-	if err != nil {
-		res.ExitCode = -1
-		res.Output = "container create failed: " + strings.TrimSpace(out)
-		return res
-	}
-	cid := strings.TrimSpace(out)
-	defer b.docker(context.WithoutCancel(ctx), "rm", "-f", cid)
-
-	// Workspace copy. The destination must NOT pre-exist so docker cp applies
-	// its contents-into-new-directory semantics (that's why the container has
-	// no -w and the script cd's instead).
-	if out, err := b.docker(ctx, "cp", rctx.RepoRoot, cid+":"+containerWorkdir); err != nil {
-		res.ExitCode = -1
-		res.Output = "workspace copy failed: " + strings.TrimSpace(out)
-		return res
-	}
-
-	cmd := exec.CommandContext(ctx, b.dockerBin, "start", "-a", "-i", cid)
-	cmd.Stdin = bytes.NewReader(b.keyMaterial)
 	// Tee, don't buffer: a converge runs for many minutes per node, and a
 	// silent log is indistinguishable from a hung one. The capture buffer
 	// stays authoritative for recap parsing.
@@ -354,23 +322,103 @@ func (b *Backend) runPlay(ctx context.Context, cfg *config.Config, rctx *runtime
 		sink = b.stream(p.ID)
 		dest = io.MultiWriter(&buf, sink)
 	}
-	cmd.Stdout = dest
-	cmd.Stderr = dest
-	runErr := cmd.Run()
+
+	var code int
+	var err error
+	if b.runtime == RuntimeNative {
+		code, err = b.runPlayNative(ctx, cfg, rctx, p, check, dest)
+	} else {
+		code, err = b.runPlayImage(ctx, cfg, rctx, p, check, dest)
+	}
 	if sink != nil {
 		sink.Close()
 	}
 	res.Output = buf.String()
-	if runErr != nil {
-		if ee, ok := runErr.(*exec.ExitError); ok {
-			res.ExitCode = ee.ExitCode()
-		} else {
-			res.ExitCode = -1
-			res.Output += "\n" + runErr.Error()
-		}
+	res.ExitCode = code
+	if err != nil {
+		res.ExitCode = -1
+		res.Output += err.Error()
+		return res
 	}
 	res.Hosts = ParseRecap(res.Output)
 	return res
+}
+
+// playArgs is the ansible-playbook argv for one play; keyPath is empty when an
+// ssh-agent holds the key.
+func (b *Backend) playArgs(a config.AnsibleConfig, p config.AnsiblePlaybook, check bool, keyPath string) []string {
+	args := []string{
+		"-i", a.Inventory,
+		p.Path,
+		"--limit", strings.Join(p.Groups, ":"),
+		"-u", a.SSH.User,
+	}
+	if keyPath != "" {
+		args = append(args, "--private-key", keyPath)
+	}
+	if check {
+		args = append(args, "--check", "--diff")
+	}
+	for _, ev := range b.extraVars {
+		args = append(args, "-e", ev)
+	}
+	return args
+}
+
+// playEnv is the ansible environment for a play: strict host-key checking
+// against the committed known_hosts file.
+func playEnv(knownHosts string) []string {
+	return []string{
+		"ANSIBLE_HOST_KEY_CHECKING=True",
+		"ANSIBLE_SSH_COMMON_ARGS=-o UserKnownHostsFile=" + knownHosts + " -o StrictHostKeyChecking=yes",
+		"ANSIBLE_FORCE_COLOR=0",
+	}
+}
+
+// runPlayImage runs the play in the execution image; the key is piped onto a tmpfs.
+func (b *Backend) runPlayImage(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext, p config.AnsiblePlaybook, check bool, out io.Writer) (int, error) {
+	a := cfg.Ansible
+	playCmd := append([]string{"ansible-playbook"}, b.playArgs(a, p, check, containerKeyPath)...)
+	// The key arrives on stdin before the workspace cd — cat's EOF is the
+	// signal the material is fully landed on the tmpfs.
+	script := "umask 077 && cat > " + containerKeyPath +
+		" && cd " + containerWorkdir +
+		" && exec " + shellJoin(playCmd)
+
+	flags := []string{"--tmpfs", containerSecretDir + ":rw,mode=0700"}
+	for _, e := range playEnv(path.Join(containerWorkdir, a.SSH.KnownHosts)) {
+		flags = append(flags, "-e", e)
+	}
+	return imageRun{
+		dockerBin:   b.dockerBin,
+		image:       a.Image,
+		workspace:   rctx.RepoRoot,
+		createFlags: flags,
+		script:      script,
+		stdin:       bytes.NewReader(b.keyMaterial),
+		stdout:      out,
+		stderr:      out,
+	}.run(ctx)
+}
+
+// runPlayNative runs the play with the job's own ansible-playbook and a private ssh-agent.
+func (b *Backend) runPlayNative(ctx context.Context, cfg *config.Config, rctx *runtime.RuntimeContext, p config.AnsiblePlaybook, check bool, out io.Writer) (int, error) {
+	a := cfg.Ansible
+	agent, err := startKeyAgent(ctx, b.keyMaterial)
+	if err != nil {
+		return -1, err
+	}
+	defer agent.stop()
+
+	env := append(playEnv(filepath.Join(rctx.RepoRoot, a.SSH.KnownHosts)), "SSH_AUTH_SOCK="+agent.sock)
+	return nativeRun{
+		bin:       b.nativeBin,
+		args:      b.playArgs(a, p, check, ""),
+		workspace: rctx.RepoRoot,
+		env:       env,
+		stdout:    out,
+		stderr:    out,
+	}.run(ctx)
 }
 
 // shellJoin renders argv as a single-quoted /bin/sh command string.

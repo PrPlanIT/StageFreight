@@ -5,21 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 
+	"github.com/PrPlanIT/StageFreight/src/ansible"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 )
 
 func init() {
-	lint.Register("ansible", func() lint.Module { return &ansibleModule{run: runAnsibleLint} })
+	lint.Register("ansible", func() lint.Module { return &ansibleModule{run: ansible.Lint} })
 }
 
-// ansibleModule wraps ansible-lint, run from the repo's ansible EXECUTION IMAGE
-// (the same image that converges — so lint sees the exact collections and
-// ansible-core the plays run with). Whole-repo: ansible-lint boots once over
-// the DECLARED play library, not per file — undeclared ansible files are not
-// linted, which keeps legacy trees quiet until their plays are declared.
+// ansibleModule wraps ansible-lint, run where the plays converge (ansible.Lint).
+// Whole-repo: ansible-lint boots once over the DECLARED play library, not per
+// file — undeclared ansible files are not linted, which keeps legacy trees quiet
+// until their plays are declared.
 //
 // Severity posture is deliberately graduated for v1: ansible-lint blocker/
 // critical map to Warning and everything else to Info, so adopting the module
@@ -41,10 +40,9 @@ func (m *ansibleModule) Check(ctx context.Context, file lint.FileInfo) ([]lint.F
 	return nil, fmt.Errorf("ansible is a whole-repo module; the engine must call CheckAll, not Check")
 }
 
-// CheckAll lints the declared play library in one containerized ansible-lint
-// run. No declared playbooks → inert. A missing substrate (no docker, image
-// unavailable) degrades to a single visible Info finding instead of failing
-// the audition — the converge phase, not lint, owns hard substrate errors.
+// CheckAll lints the declared play library in one ansible-lint run. No declared
+// playbooks → inert. When lint cannot run, one Warning names why; the converge
+// phase, not lint, owns hard substrate errors.
 func (m *ansibleModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]lint.Finding, error) {
 	if len(m.cfg.Playbooks) == 0 {
 		return nil, nil
@@ -62,38 +60,11 @@ func (m *ansibleModule) CheckAll(ctx context.Context, files []lint.FileInfo) ([]
 	if err != nil {
 		return []lint.Finding{{
 			File: ".stagefreight.yml", Line: 1, Module: m.Name(),
-			Severity: lint.SeverityInfo,
-			Message:  fmt.Sprintf("ansible-lint skipped: %v", err),
+			Severity: lint.SeverityWarning,
+			Message:  fmt.Sprintf("ansible-lint did not run — %d declared playbook(s) unlinted: %v", len(plays), err),
 		}}, nil
 	}
 	return parseAnsibleLintJSON(out)
-}
-
-// runAnsibleLint executes ansible-lint from the execution image. Exit code 2
-// means "violations found" — a successful run with content; other non-zero
-// codes are execution failures.
-func runAnsibleLint(ctx context.Context, image, rootDir string, playbooks []string) ([]byte, error) {
-	dockerBin, err := exec.LookPath("docker")
-	if err != nil {
-		return nil, fmt.Errorf("docker unavailable (execution image %s)", image)
-	}
-	args := []string{
-		"run", "--rm",
-		"-v", rootDir + ":/work",
-		"-w", "/work",
-		"--entrypoint", "ansible-lint",
-		image,
-		"--format", "json", "--nocolor",
-	}
-	args = append(args, playbooks...)
-	out, err := exec.CommandContext(ctx, dockerBin, args...).Output()
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 2 {
-			return out, nil // violations found — the output IS the result
-		}
-		return nil, fmt.Errorf("ansible-lint run failed: %v", err)
-	}
-	return out, nil
 }
 
 // ansibleLintIssue is one entry of ansible-lint's codeclimate-style JSON output.
