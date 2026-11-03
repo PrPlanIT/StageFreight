@@ -114,7 +114,11 @@ func executeBuildPass(ctx context.Context, w io.Writer, color, verbose bool, std
 	renderBuildLayers(sec, result.Steps, color)
 	if resultTag != "" {
 		sec.Separator()
-		sec.Row("result  %s", resultTag)
+		if len(plan.Steps) > 0 && plan.Steps[0].OCILayoutDir != "" && !plan.Steps[0].Load {
+			sec.Row("result  %s (OCI layout %s)", resultTag, plan.Steps[0].OCILayoutDir)
+		} else {
+			sec.Row("result  %s", resultTag)
+		}
 	} else {
 		// Disposition rendered by execution shape: a retained step (transport:
 		// Push=false + OCILayoutDir) prints only a deferral note — it contacted no
@@ -166,7 +170,7 @@ func checkStatusIcon(status string, color bool) string {
 	switch status {
 	case "match":
 		return output.StatusIcon("success", color)
-	case "differs":
+	case "differs", "missing":
 		return output.StatusIcon("failed", color)
 	case "info":
 		return output.StatusIcon("warning", color)

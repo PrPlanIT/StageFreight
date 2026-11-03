@@ -54,6 +54,11 @@ type crucibleContributor struct {
 	builderInfo   BuilderInfo
 	cacheTo       []build.CacheRef
 
+	// workDir holds the pass layouts and extracted binaries; one layout per step per pass.
+	workDir          string
+	candidateLayouts []string
+	verifyLayouts    []string
+
 	buildAttempted bool // crucible reached its self-build (gates the Verdict)
 	cruciblePassed bool
 	verification   *CrucibleVerification
@@ -73,9 +78,8 @@ func (c *crucibleContributor) Applies(rc *domains.RunContext) bool {
 	return false
 }
 
-// SubstrateNeeds: crucible always needs Docker (it runs the images it built to
-// prove them) with crucible-strength thresholds.
-func (c *crucibleContributor) NeedsDocker() bool   { return true }
+// SubstrateNeeds: an image build (Docker daemon or remote BuildKit) at crucible thresholds.
+func (c *crucibleContributor) NeedsDocker() bool   { return false }
 func (c *crucibleContributor) NeedsBuild() bool    { return true }
 func (c *crucibleContributor) NeedsCrucible() bool { return true }
 
@@ -111,7 +115,7 @@ func (c *crucibleContributor) Detect(rc *domains.RunContext) (domains.Contributi
 	// Resolve the backend now; its facts (mode/passes/tags/backend) fold into the
 	// Build box as a subsection rather than a standalone Crucible Context panel.
 	backend, backendErr := ResolveBackendWithConfig(BackendCapabilities{
-		Build: true, Run: true, Filesystem: true,
+		Build: true,
 	}, rc.Config.BuildCache.Builder.Backend)
 	if backendErr != nil {
 		return domains.Contribution{}, fmt.Errorf("crucible: no coherent backend: %w", backendErr)
@@ -182,7 +186,12 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 
 	// Resolve builder + cache — no standalone Builder/Cache panels; their essential
 	// facts fold into the Build box (next) as a subsection.
-	c.builderInfo = ResolveBuilderInfo(EnsureBuilderWithBackend(rc.Config.BuildCache.Builder, c.backend))
+	builder := EnsureBuilderWithBackend(rc.Config.BuildCache.Builder, c.backend)
+	if err := builder.Err(); err != nil {
+		row := fmt.Sprintf("%-9s crucible builder     %s", "docker", output.StatusIcon("failed", color))
+		return domains.Contribution{Rows: []string{row}, Status: "failed", Summary: "builder unavailable"}, err
+	}
+	c.builderInfo = ResolveBuilderInfo(builder)
 	pc := &pipeline.PipelineContext{Ctx: ctx, RootDir: c.rootDir, Config: rc.Config, Writer: w, Color: color, Verbose: rc.Verbose}
 	cacheInfo := ResolveCacheInfo(pc)
 
@@ -208,15 +217,14 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 		_, c.cacheTo = BuildCacheFlags(rc.Config.BuildCache, cacheRepoID, cacheBranch, rc.Config.Registries, rc.Config.Vars)
 	}
 
+	c.workDir = filepath.Join(c.rootDir, ".stagefreight", "crucible-"+c.runID)
+
 	// ── Pass 1 (candidate) ──
-	pass1Plan := clonePlan(c.plan)
-	for i := range pass1Plan.Steps {
-		pass1Plan.Steps[i].Tags = []string{c.candidateTag}
-		pass1Plan.Steps[i].Load = true
-		pass1Plan.Steps[i].Push = false
-		pass1Plan.Steps[i].Registries = nil
-		pass1Plan.Steps[i].CacheTo = nil
+	pass1Plan, layouts, err := crucibleBuildPassPlan(c.plan, c.candidateTag, filepath.Join(c.workDir, "candidate"))
+	if err != nil {
+		return domains.Contribution{Status: "failed", Summary: "pass 1 candidate failed"}, err
 	}
+	c.candidateLayouts = layouts
 	build.InjectLabels(pass1Plan, build.ImageLabels(
 		c.imageLabelInput(rc.Config, pass1Plan, "crucible-candidate", sfVer, sfCommit)))
 
@@ -235,14 +243,11 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 	fmt.Fprintln(w, "    ══════════════════════════════════════════════════════════════")
 	fmt.Fprintln(w)
 
-	pass2Plan := clonePlan(c.plan)
-	for i := range pass2Plan.Steps {
-		pass2Plan.Steps[i].Tags = []string{c.verifyTag}
-		pass2Plan.Steps[i].Load = true
-		pass2Plan.Steps[i].Push = false
-		pass2Plan.Steps[i].Registries = nil
-		pass2Plan.Steps[i].CacheTo = nil
+	pass2Plan, layouts, err := crucibleBuildPassPlan(c.plan, c.verifyTag, filepath.Join(c.workDir, "verify"))
+	if err != nil {
+		return domains.Contribution{Status: "failed", Summary: "pass 2 self-proof failed"}, err
 	}
+	c.verifyLayouts = layouts
 	build.InjectLabels(pass2Plan, build.ImageLabels(
 		c.imageLabelInput(rc.Config, pass2Plan, "crucible-verify", sfVer, sfCommit)))
 
@@ -282,15 +287,20 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 	return domains.Contribution{Rows: rows, Status: status, Summary: summary}, nil
 }
 
-// Verify compares the candidate and self-proof images. Trust-critical: calls
-// VerifyCrucible verbatim. Returns the verification rows for the Verify domain.
+// Verify compares the candidate and self-proof layouts step by step; a comparison
+// that cannot be made fails the run.
 func (c *crucibleContributor) Verify(rc *domains.RunContext) (domains.Contribution, error) {
 	if !c.cruciblePassed {
 		return domains.Contribution{Skip: true}, nil
 	}
-	verification, err := VerifyCrucible(rc.Ctx, c.candidateTag, c.verifyTag)
+	verification, err := verifyCrucibleSteps(rc.Ctx, c.plan, c.candidateLayouts, c.verifyLayouts, c.workDir)
 	if err != nil {
-		verification = &CrucibleVerification{TrustLevel: build.TrustViable}
+		c.verification = &CrucibleVerification{
+			ArtifactChecks: []CrucibleCheck{{Name: "verification", Status: "error", Detail: err.Error()}},
+			TrustLevel:     build.TrustViable,
+		}
+		row := fmt.Sprintf("%-9s verification  %s  %v", "docker", output.StatusIcon("failed", rc.Color), err)
+		return domains.Contribution{Rows: []string{row}, Status: "failed", Summary: "verification could not run"}, err
 	}
 	c.verification = verification
 
@@ -470,9 +480,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 			load, push := crucibleStepOutput(rc.Local, transport)
 			publishPlan.Steps[i].Load = load
 			publishPlan.Steps[i].Push = push
-			if push {
-				publishPlan.Steps[i].CacheTo = c.cacheTo
-			}
+			publishPlan.Steps[i].CacheTo = exportableCacheTo(c.cacheTo, push)
 		}
 		// Same source-of-truth stamp as the build passes: the shipped artifact's labels
 		// name the repo under build, not the orchestrator. Promotion (publish_promote.go)
@@ -546,6 +554,11 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		return domains.Contribution{Rows: rows, Status: "failed", Summary: "crucible failed"},
 			fmt.Errorf("crucible: self-build failed")
 	}
+	if c.verification != nil && c.verification.HasHardFailure() {
+		rows := append([]string{fmt.Sprintf("%-9s publish blocked — verification failed", "docker")}, provRows...)
+		return domains.Contribution{Rows: rows, Status: "failed", Summary: "verification failed"},
+			fmt.Errorf("crucible: verification failed — the self-proof does not match the candidate")
+	}
 	if publishPassed && publishResult != nil {
 		pushed := 0
 		for _, step := range publishResult.Steps {
@@ -561,6 +574,13 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		}
 		rows := append([]string{detail}, storeRows...)
 		rows = append(rows, provRows...)
+		// Under transport, publish attests the artifact as it promotes it.
+		if transport {
+			if rc.Config.SigningSetup.SigningEnabled() {
+				rows = append(rows, deferredAttestationRow)
+			}
+			return domains.Contribution{Rows: rows, Status: "success", Summary: "verified artifact"}, nil
+		}
 		// Attest the just-written provenance to each published image under the same
 		// trust tier that signed it. Fail-loud: a configured attestation must not
 		// silently degrade, so a fatal error fails the verified-artifact publish.
@@ -570,7 +590,8 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 		return domains.Contribution{Rows: rows, Status: "success", Summary: "verified artifact"}, nil
 	}
 	rows := append([]string{fmt.Sprintf("%-9s publish blocked", "docker")}, provRows...)
-	return domains.Contribution{Rows: rows, Status: "failed", Summary: "publish failed after verification"}, nil
+	return domains.Contribution{Rows: rows, Status: "failed", Summary: "publish failed after verification"},
+		fmt.Errorf("crucible: the verified artifact was not built or retained")
 }
 
 // Conclude renders the Crucible Verdict — the run's final word, AFTER the
@@ -593,12 +614,77 @@ func (c *crucibleContributor) Conclude(rc *domains.RunContext) {
 			"This build now leads the tribe.")
 	}
 
-	// The candidate + verify images are Perform-owned execution intermediates —
-	// never published (the verify artifact is re-tagged to its real release tags
-	// during Publish, which has already run by Conclude), never retained, never
-	// referenced by users. Remove them here: Conclude fires on BOTH the success and
-	// build-failure paths, so every exit is covered. Best-effort — a leftover image
-	// must never downgrade the verdict. Without this the temp tags accumulated
-	// ~644 MB/run on the builder (CleanupCrucibleImages existed but had no caller).
-	_ = CleanupCrucibleImages(rc.Ctx, c.candidateTag, c.verifyTag)
+	// The candidate + verify layouts (and the binaries extracted from them) are
+	// Conclude runs on every exit, so the pass intermediates are removed here.
+	if c.workDir != "" {
+		if err := os.RemoveAll(c.workDir); err != nil {
+			fmt.Fprintf(rc.Writer, "    %-9s crucible work dir %s not removed: %v\n", "docker", c.workDir, err)
+		}
+	}
+}
+
+// crucibleBuildPassPlan makes every step export only its own OCI layout under dir
+// (no load, push, registry targets or cache export) and returns those dirs in step order.
+func crucibleBuildPassPlan(plan *build.BuildPlan, tag, dir string) (*build.BuildPlan, []string, error) {
+	pass := clonePlan(plan)
+	layouts := make([]string, len(pass.Steps))
+	for i := range pass.Steps {
+		layoutDir := filepath.Join(dir, strconv.Itoa(i))
+		if err := os.MkdirAll(layoutDir, 0o755); err != nil {
+			return nil, nil, fmt.Errorf("crucible: creating pass layout dir: %w", err)
+		}
+		pass.Steps[i].Tags = []string{tag}
+		pass.Steps[i].Load = false
+		pass.Steps[i].Push = false
+		pass.Steps[i].Registries = nil
+		pass.Steps[i].CacheTo = nil
+		pass.Steps[i].OCILayoutDir = layoutDir
+		layouts[i] = layoutDir
+	}
+	return pass, layouts, nil
+}
+
+// verifyCrucibleSteps verifies each step's layout pair; the run's trust level is the
+// lowest any step reached.
+func verifyCrucibleSteps(ctx context.Context, plan *build.BuildPlan, candidate, verify []string, workDir string) (*CrucibleVerification, error) {
+	if len(candidate) != len(plan.Steps) || len(verify) != len(plan.Steps) {
+		return nil, fmt.Errorf("crucible: %d step(s) planned but %d candidate and %d self-proof layout(s) built",
+			len(plan.Steps), len(candidate), len(verify))
+	}
+	merged := &CrucibleVerification{}
+	for i, step := range plan.Steps {
+		v, err := VerifyCrucible(ctx, candidate[i], verify[i], workDir)
+		if err != nil {
+			return nil, fmt.Errorf("step %s: %w", step.Name, err)
+		}
+		if len(plan.Steps) == 1 {
+			return v, nil
+		}
+		for _, ck := range v.ArtifactChecks {
+			ck.Detail = step.Name + ": " + ck.Detail
+			merged.ArtifactChecks = append(merged.ArtifactChecks, ck)
+		}
+		for _, ck := range v.ExecutionChecks {
+			ck.Detail = step.Name + ": " + ck.Detail
+			merged.ExecutionChecks = append(merged.ExecutionChecks, ck)
+		}
+		if merged.TrustLevel == "" || trustRank(v.TrustLevel) < trustRank(merged.TrustLevel) {
+			merged.TrustLevel = v.TrustLevel
+		}
+	}
+	return merged, nil
+}
+
+// trustRank orders the crucible trust levels from weakest to strongest.
+func trustRank(level string) int {
+	switch level {
+	case build.TrustReproducible:
+		return 3
+	case build.TrustDeterministic:
+		return 2
+	case build.TrustConsistent:
+		return 1
+	default:
+		return 0
+	}
 }
