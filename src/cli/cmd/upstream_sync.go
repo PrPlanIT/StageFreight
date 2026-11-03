@@ -15,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
 )
 
@@ -50,10 +51,19 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	}
 	branch := ciCtx.DefaultBranch
 	facts := map[string]string{}
+	var syncRows [][2]string // (label, text) detail rows for the Upstream (sync) section
 	sub := cistate.SubsystemState{Name: "sync", Attempted: true, Completed: true, AllowFailure: true, Outcome: "success", Results: facts}
 	record := func(outcome, reason string) {
 		sub.Outcome, sub.Reason = outcome, reason
-		fmt.Printf("  sync: %s\n", reason)
+		sec := upstreamSection()
+		if facts["target"] != "" {
+			sec.Row("%-14s%s", "sync onto", facts["target"])
+		}
+		for _, r := range syncRows {
+			sec.Row("%-14s%s", r[0], r[1])
+		}
+		sec.Row("%-14s%s %s", "result", output.StatusIcon(outcome, output.UseColor()), reason)
+		sec.Close()
 		recordSubsystemOutcome(rootDir, sub)
 	}
 
@@ -109,7 +119,7 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	}
 	if sy.Shadow != "" {
 		if err := session.Push("origin", "+"+syncUpstreamCommit.String()+":refs/heads/"+sy.Shadow, false); err != nil {
-			fmt.Printf("  sync: shadow branch %s not updated: %v\n", sy.Shadow, err)
+			syncRows = append(syncRows, [2]string{"shadow", sy.Shadow + " not updated: " + err.Error()})
 		}
 	}
 
@@ -131,15 +141,15 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 		// Upstream moved on in these; the fork keeps its version (take: fork). Said every
 		// time, so a held file never silently misses an upstream fix.
 		facts["held"] = strings.Join(plan.Held, ",")
-		fmt.Printf("  sync: kept the fork's version of %s (upstream %s changed them)\n", strings.Join(plan.Held, ", "), label)
+		syncRows = append(syncRows, [2]string{"held", "kept the fork's version of " + strings.Join(plan.Held, ", ")})
 	}
 	if len(plan.Overridden) > 0 {
 		facts["overridden"] = strings.Join(plan.Overridden, ",")
-		fmt.Printf("  sync: took upstream's version of %s over the fork's edits\n", strings.Join(plan.Overridden, ", "))
+		syncRows = append(syncRows, [2]string{"overridden", "took upstream's version of " + strings.Join(plan.Overridden, ", ")})
 	}
 	if len(plan.Dropped) > 0 {
 		facts["dropped"] = strings.Join(plan.Dropped, ",")
-		fmt.Printf("  sync: dropped %d fork commit(s) that became empty after sync: %s\n", len(plan.Dropped), strings.Join(plan.Dropped, "; "))
+		syncRows = append(syncRows, [2]string{"dropped", fmt.Sprintf("%d fork commit(s) that became empty: %s", len(plan.Dropped), strings.Join(plan.Dropped, "; "))})
 	}
 	switch plan.Result {
 	case upstream.SyncInSync:

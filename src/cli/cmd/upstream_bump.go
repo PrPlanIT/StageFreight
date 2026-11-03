@@ -85,6 +85,7 @@ func readPins(rootDir string, cs config.UpstreamSource, sch scheme.Scheme) (pins
 // hold.
 func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string, now time.Time) (deps []supplychain.Dependency, lock *upstream.Lock, lockChanged bool, afterBump map[string][]string) {
 	afterBump = map[string][]string{}
+	var rows [][2]string // (label, text) rows for the Upstream section, rendered once at the end
 	u := appCfg.Upstream
 	sources, err := upstream.Sources(u)
 	if err != nil {
@@ -96,7 +97,7 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 	}
 	if age > 0 {
 		if lock, err = upstream.ReadLock(rootDir); err != nil {
-			fmt.Printf("  upstream: cannot read %s, cooldown starts over: %v\n", upstream.LockPath(""), err)
+			rows = append(rows, [2]string{"lock", "unreadable, cooldown starts over: " + err.Error()})
 			lock = &upstream.Lock{}
 		}
 	}
@@ -107,12 +108,12 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 		src := sources[i]
 		pins, current, err := readPins(rootDir, cs, src.Select.Scheme)
 		if err != nil {
-			fmt.Printf("  upstream: %s pins not moved: %v\n", src, err)
+			rows = append(rows, [2]string{cs.ID, "pins not moved: " + err.Error()})
 			continue
 		}
 		l := listUpstream(ctx, src)
 		if l.err != nil {
-			fmt.Printf("  upstream: %s pins not moved: %v\n", src, l.err)
+			rows = append(rows, [2]string{cs.ID, "pins not moved: " + l.err.Error()})
 			continue
 		}
 		var newer []upstream.Release
@@ -153,10 +154,19 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 		}
 		switch {
 		case target != nil:
-			fmt.Printf("  upstream: %s pins %s → %s\n", src, current, target.Raw)
+			rows = append(rows, [2]string{cs.ID, fmt.Sprintf("%s → %s  (bump)", current, target.Raw)})
 		case held != nil:
-			fmt.Printf("  upstream: %s %s held by min_release_age (%s)\n", src, held.Raw, appCfg.Dependency.MinReleaseAge)
+			rows = append(rows, [2]string{cs.ID, fmt.Sprintf("hold %s — within min_release_age (%s)", held.Raw, appCfg.Dependency.MinReleaseAge)})
+		default:
+			rows = append(rows, [2]string{cs.ID, fmt.Sprintf("current %s — no newer release", current)})
 		}
+	}
+	if len(rows) > 0 {
+		sec := upstreamSection()
+		for _, r := range rows {
+			sec.Row("%-14s%s", r[0], r[1])
+		}
+		sec.Close()
 	}
 	return deps, lock, lockChanged, afterBump
 }

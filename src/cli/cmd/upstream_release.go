@@ -12,6 +12,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/release"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
 	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
@@ -44,23 +45,32 @@ func autoReleaseUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 			continue
 		}
 		src := sources[i]
+		sec := upstreamSection()
+		sec.Row("%-14s%s", "tracking", src.String())
 		tag, reason := autoReleaseTag(ctx, appCfg, rootDir, cs, src, ciCtx.SHA)
 		if tag == "" {
 			if reason != "" {
-				fmt.Printf("  upstream: no release cut — %s\n", reason)
+				sec.Row("%-14s%s", "release", "none cut — "+reason)
+			} else {
+				sec.Row("%-14s%s", "release", "none — already released")
 			}
+			sec.Close()
 			return
 		}
 		msg := fmt.Sprintf("- Upstream %s released %s", src.ID, strings.TrimPrefix(tag, "v"))
 		if err := release.CreateAnnotatedTag(rootDir, tag, ciCtx.SHA, msg); err != nil {
-			fmt.Printf("  upstream: release %s not cut: %v\n", tag, err)
+			sec.Row("%-14s%s %s", "release", output.StatusIcon("failed", output.UseColor()), tag+" not cut: "+err.Error())
+			sec.Close()
 			return
 		}
 		if err := release.PushTag(rootDir, "origin", tag, appCfg); err != nil {
-			fmt.Printf("  upstream: release %s created but not pushed: %v\n", tag, err)
+			sec.Row("%-14s%s %s", "release", output.StatusIcon("failed", output.UseColor()), tag+" created but not pushed: "+err.Error())
+			sec.Close()
 			return
 		}
-		fmt.Printf("  upstream: released %s on %s (upstream %s)\n", tag, ciCtx.SHA[:min(9, len(ciCtx.SHA))], src.ID)
+		sec.Row("%-14s%s %s cut on %s", "release", output.StatusIcon("success", output.UseColor()), tag, ciCtx.SHA[:min(9, len(ciCtx.SHA))])
+		sec.Row("%-14s%s", "", "version-as-claim: image proven to contain "+strings.TrimPrefix(tag, "v"))
+		sec.Close()
 		return
 	}
 }
