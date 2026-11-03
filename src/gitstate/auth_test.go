@@ -177,3 +177,48 @@ func TestGitUsernameForProvider(t *testing.T) {
 		}
 	}
 }
+
+// TestPushWillTriggerPipeline covers the handoff-honesty detector: a GitLab push with only
+// the CI job token does NOT start a new pipeline, so a build-worthy bump pushed that way
+// must be reported as non-triggering (republish-blocked); a real token or a non-GitLab
+// forge triggers normally.
+func TestPushWillTriggerPipeline(t *testing.T) {
+	const glURL = "https://gitlab.example.com/org/repo.git"
+
+	t.Run("gitlab with configured token triggers", func(t *testing.T) {
+		clearGitCredEnv(t)
+		t.Setenv("GL_TOKEN", "pat-secret")
+		cfg := cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://gitlab.example.com", Credentials: "GL"})
+		if ok, reason := PushWillTriggerPipeline(glURL, cfg); !ok {
+			t.Errorf("a configured token must trigger a pipeline, got false (%s)", reason)
+		}
+	})
+
+	t.Run("gitlab job-token push does NOT trigger", func(t *testing.T) {
+		clearGitCredEnv(t)
+		t.Setenv("CI_JOB_TOKEN", "job-token")
+		t.Setenv("CI_SERVER_HOST", "gitlab.example.com")
+		cfg := cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://gitlab.example.com", Credentials: "GL"})
+		ok, reason := PushWillTriggerPipeline(glURL, cfg)
+		if ok {
+			t.Error("a CI-job-token push must NOT be reported as triggering a pipeline")
+		}
+		if reason == "" {
+			t.Error("a non-triggering push must carry a reason")
+		}
+	})
+
+	t.Run("non-gitlab forge is not subject to the rule", func(t *testing.T) {
+		clearGitCredEnv(t)
+		cfg := cfgWithForges(config.ForgeConfig{Provider: "github", URL: "https://github.com", Credentials: "GH"})
+		if ok, _ := PushWillTriggerPipeline("https://github.com/org/repo.git", cfg); !ok {
+			t.Error("non-gitlab forges are not subject to the job-token rule")
+		}
+	})
+
+	t.Run("nil config does not block", func(t *testing.T) {
+		if ok, _ := PushWillTriggerPipeline(glURL, nil); !ok {
+			t.Error("nil cfg must not block")
+		}
+	})
+}

@@ -67,16 +67,16 @@ func TestAutoReleaseTag(t *testing.T) {
 	}
 
 	seed("2.21.6", "2.21.5")
-	if tag, reason := autoReleaseTag(t.Context(), root, cs, src, head.String()); tag != "v2.21.6" {
+	if tag, reason := autoReleaseTag(t.Context(), &config.Config{}, root, cs, src, head.String()); tag != "v2.21.6" {
 		t.Fatalf("pins name an unreleased-by-us upstream release: tag=%q reason=%q", tag, reason)
 	}
 	repo.CreateTag("v2.21.6", head, nil)
-	if tag, reason := autoReleaseTag(t.Context(), root, cs, src, head.String()); tag != "" || reason != "" {
+	if tag, reason := autoReleaseTag(t.Context(), &config.Config{}, root, cs, src, head.String()); tag != "" || reason != "" {
 		t.Fatalf("already released: tag=%q reason=%q", tag, reason)
 	}
 	repo.DeleteTag("v2.21.6")
 	seed("2.21.5")
-	if tag, reason := autoReleaseTag(t.Context(), root, cs, src, head.String()); tag != "" || reason == "" {
+	if tag, reason := autoReleaseTag(t.Context(), &config.Config{}, root, cs, src, head.String()); tag != "" || reason == "" {
 		t.Fatalf("pins naming a version upstream never released must not be tagged: tag=%q reason=%q", tag, reason)
 	}
 	_ = plumbing.ZeroHash
@@ -105,5 +105,44 @@ func TestMirrorBehind(t *testing.T) {
 	seed(origin, upstreamListing{err: fmt.Errorf("unreachable")})
 	if got := mirrorBehind(t.Context(), mirror, ours); got != "" {
 		t.Fatalf("an unreachable origin is not a lag: got %q", got)
+	}
+}
+
+// TestAutoReleaseTag_ImageBase covers an image-base fork whose version lives on the Dockerfile
+// FROM with NO explicit upstream.pins (the shape that silently stopped cutting GA tags). The
+// FROM tag must be read back and released, guarded against a version upstream never published.
+func TestAutoReleaseTag_ImageBase(t *testing.T) {
+	root := t.TempDir()
+	repo, _ := git.PlainInit(root, false)
+	os.WriteFile(filepath.Join(root, "Dockerfile"),
+		[]byte("FROM ghcr.io/element-hq/synapse:v1.163.2@sha256:abc\nRUN true\n"), 0o644)
+	head := mkCommit(t, repo, "pin base")
+
+	sem, _ := scheme.Get(scheme.Semver)
+	src := upstream.Source{ID: "synapse", Kind: config.UpstreamKindImage, Location: "ghcr.io/element-hq/synapse",
+		Select: upstream.Selection{Tags: regexp.MustCompile(`^v(?P<version>\d+\.\d+\.\d+)$`), Scheme: sem}}
+	cs := config.UpstreamSource{ID: "synapse", Image: "ghcr.io/element-hq/synapse"} // NO Pins
+	appCfg := &config.Config{Builds: config.OrderedBuilds{{ID: "image", Kind: "docker", Dockerfile: "Dockerfile"}}}
+	seed := func(raws ...string) {
+		listingMu.Lock()
+		listings[listingKey(src)] = upstreamListing{releases: releasesOf(t, raws...)}
+		listingMu.Unlock()
+	}
+
+	// FROM pins 1.163.2, which upstream released and we have not tagged → cut v1.163.2.
+	seed("1.164.2", "1.163.2", "1.162.0")
+	if tag, reason := autoReleaseTag(t.Context(), appCfg, root, cs, src, head.String()); tag != "v1.163.2" {
+		t.Fatalf("image base pinned to 1.163.2 must release v1.163.2: tag=%q reason=%q", tag, reason)
+	}
+	// Already tagged → nothing (a rebuild of the same version).
+	repo.CreateTag("v1.163.2", head, nil)
+	if tag, reason := autoReleaseTag(t.Context(), appCfg, root, cs, src, head.String()); tag != "" || reason != "" {
+		t.Fatalf("already released: tag=%q reason=%q", tag, reason)
+	}
+	repo.DeleteTag("v1.163.2")
+	// FROM pins a version upstream never released → refuse (reason, no tag).
+	seed("1.162.0")
+	if tag, reason := autoReleaseTag(t.Context(), appCfg, root, cs, src, head.String()); tag != "" || reason == "" {
+		t.Fatalf("a base pinned to a version upstream never released must not be tagged: tag=%q reason=%q", tag, reason)
 	}
 }

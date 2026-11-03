@@ -604,6 +604,29 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 			in.Replacement = commitResult.SHA
 		}
 
+		// Handoff honesty (direct mode): the republish depends on the pushed commit triggering
+		// a NEW pipeline — this run does not build the bump it just committed. Verify that will
+		// actually happen instead of assuming it. A push authenticated with a forge CI job token
+		// does not start a pipeline, so the bump would land and silently never republish; surface
+		// it loudly and raise republish-blocked rather than reporting a clean handoff that never
+		// occurred. MR mode is exempt (the MR is the handoff; a human merges it).
+		if botBranch == "" && commitResult != nil && commitResult.Pushed && !commitResult.NoOp {
+			sha := commitResult.SHA
+			if len(sha) > 8 {
+				sha = sha[:8]
+			}
+			if ok, reason := gitstate.PushWillTriggerPipeline(ciCtx.RepoURL, appCfg); ok {
+				fmt.Printf("  deps: committed %s and pushed — expecting a build pipeline to run on it and republish\n", sha)
+			} else {
+				fmt.Fprintf(os.Stderr, "  deps: ⚠ committed %s and pushed, but %s\n", sha, reason)
+				if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
+					st.MergeSubsystemResults("deps", map[string]string{cistate.SignalsKey: config.SignalRepublishBlocked})
+				}); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+				}
+			}
+		}
+
 		// MR mode: open merge request after successful push to bot branch
 		if commitResult != nil && !commitResult.NoOp && commitResult.Pushed && botBranch != "" {
 			target := appCfg.Dependency.Commit.MR.TargetBranch
@@ -2623,5 +2646,5 @@ func scheduledSkip(appCfg *config.Config) string {
 	if config.ScheduledRunBuilds(appCfg) {
 		return ""
 	}
-	return fmt.Sprintf("scheduled run (%s, build: changes) — anything it changed is built by the pipeline its push starts", strings.Join(config.CISchedules(), ", "))
+	return fmt.Sprintf("scheduled run (%s, build: changes) — it watches and commits only; the deps step reports any bump and whether its pipeline will run", strings.Join(config.CISchedules(), ", "))
 }

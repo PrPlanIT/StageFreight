@@ -112,7 +112,7 @@ func TestSyncUpstream_RebaseOntoNewRelease(t *testing.T) {
 	srcs, _ := upstream.Sources(cfg.Upstream)
 	wr0, _ := git.PlainOpen(work)
 	wr0.Fetch(&git.FetchOptions{RemoteName: "origin", Force: true})
-	if tag, reason := autoReleaseTag(t.Context(), work, cfg.Upstream.Sources[0], srcs[0], c.Hash.String()); tag != "v1.1.0" {
+	if tag, reason := autoReleaseTag(t.Context(), cfg, work, cfg.Upstream.Sources[0], srcs[0], c.Hash.String()); tag != "v1.1.0" {
 		t.Fatalf("auto-release tag = %q (%s), want v1.1.0", tag, reason)
 	}
 

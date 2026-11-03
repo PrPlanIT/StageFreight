@@ -338,6 +338,11 @@ const (
 	SignalSyncConflict = "sync-conflict"
 	// SignalMirrorBehind: a mirror source has not caught up with a release its origin made.
 	SignalMirrorBehind = "mirror-behind"
+	// SignalRepublishBlocked: a build-worthy change (dependency/base bump, upstream sync) was
+	// committed and pushed, but no build pipeline will run on it — so it will not republish.
+	// The common cause is a push authenticated with a forge CI job token, which does not start
+	// a pipeline. Raised loudly instead of assuming the handoff fired.
+	SignalRepublishBlocked = "republish-blocked"
 )
 
 var validSignals = map[string]bool{
@@ -347,11 +352,12 @@ var validSignals = map[string]bool{
 	SignalScheduleInactive:    true,
 	SignalSyncConflict:        true,
 	SignalMirrorBehind:        true,
+	SignalRepublishBlocked:    true,
 }
 
 // SignalNames lists the signal vocabulary, for messages and docs.
 func SignalNames() []string {
-	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict, SignalMirrorBehind}
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict, SignalMirrorBehind, SignalRepublishBlocked}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

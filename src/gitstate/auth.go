@@ -178,6 +178,39 @@ func gitlabCIJobToken(destHost string) string {
 	return ""
 }
 
+// PushWillTriggerPipeline reports whether a git push to remoteURL will cause the forge to
+// start a NEW pipeline on the pushed commit. The handoff that republishes a committed
+// change — a dependency/base bump, an upstream sync — depends on this being true: the
+// committing run defers the build to the pipeline that commit triggers.
+//
+// GitLab does NOT start a pipeline for a push authenticated with the CI job token
+// (loop-prevention), so a bump pushed that way lands in the branch and never republishes.
+// We detect exactly that: provider gitlab, no configured PAT/project-token for the forge,
+// and the host-bound CI job token in play. The caller surfaces the gap loudly rather than
+// assuming the handoff fired. Reason is non-empty only when the result is false.
+//
+// Every other case returns true: a configured token (PAT/project/group access token)
+// triggers normally. NOTE scope: only GitLab's job-token non-trigger is detected today.
+// GitHub has an analogous rule (a push authed with GITHUB_TOKEN does not start a workflow);
+// detecting that needs different signals and is not yet covered, so a GitHub job-token push
+// still returns true here — a known gap to close, not a claim it always triggers.
+func PushWillTriggerPipeline(remoteURL string, cfg *config.Config) (bool, string) {
+	if cfg == nil {
+		return true, ""
+	}
+	forge := config.ForgeForURL(remoteURL, cfg.Forges, cfg.Vars)
+	if forge == nil || forge.Provider != "gitlab" {
+		return true, ""
+	}
+	if credentials.ResolvePrefix(forge.Credentials).Secret != "" {
+		return true, "" // a real token (PAT/project/group) triggers a pipeline on push
+	}
+	if gitlabCIJobToken(config.HostOf(remoteURL)) != "" {
+		return false, "pushed with the GitLab CI job token, which does not start a new pipeline — the commit will not build or republish until the forge credential is a project/group access token"
+	}
+	return true, ""
+}
+
 // TransportPreference expresses who owns the Git transport for a remote. It is the
 // centralized output of credential resolution — transport SELECTION consumes it
 // and never re-scans the environment in another package.
