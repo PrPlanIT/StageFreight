@@ -159,7 +159,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		// tag the registry actually serves (v1.164.1), not the reconstructed 1.164.1.
 		cfg := trackCfg("synapse")
 		seedListing(t, cfg, "1.164.1", "1.162.0")
-		defer stubDigestByTag(t)() // sha256:<tag>: the digest proves it came from the v-tag, not 1.164.1
+		defer stubDigestByTag(t)()    // sha256:<tag>: the digest proves it came from the v-tag, not 1.164.1
 		dep := synapseBase("1.162.0") // no v
 		dep.PinnedDigest = "sha256:old162"
 		deps := []supplychain.Dependency{dep}

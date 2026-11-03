@@ -20,7 +20,7 @@ func TestGoVersionSatisfies(t *testing.T) {
 		{"1.26.10", "1.27.0", false}, // the gateway-api case: a newer-Go dep is not satisfiable
 		{"1.27.0", "1.27.0", true},
 		{"1.27.1", "1.27.0", true},
-		{"1.27", "1.27.0", true},  // missing patch counts as zero
+		{"1.27", "1.27.0", true}, // missing patch counts as zero
 		{"1.26.10", "1.26.9", true},
 		{"1.26.9", "1.26.10", false},
 		{"go1.27", "1.26", true}, // tolerate a go-prefix
