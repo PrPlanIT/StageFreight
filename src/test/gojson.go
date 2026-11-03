@@ -18,6 +18,11 @@ type goTestEvent struct {
 	Test    string  `json:"Test"`
 	Elapsed float64 `json:"Elapsed"`
 	Output  string  `json:"Output"`
+
+	// Compiler errors arrive as "build-output" events keyed by ImportPath; the package's
+	// "fail" event names the failed build in FailedBuild.
+	ImportPath  string `json:"ImportPath"`
+	FailedBuild string `json:"FailedBuild"`
 }
 
 // parseGoTest consumes a `go test -json` stream into per-package results (in first-
@@ -66,16 +71,26 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 		// A package that failed without a failing test = a build/compile failure;
 		// surface its package-level output so the structured view still says why.
 		if a.pr.Status == StatusFailed && len(a.pr.Failures) == 0 && a.pkgOut != nil {
-			a.pr.Failures = append(a.pr.Failures, TestFailure{Name: "(build/run)", Output: a.pkgOut.String()})
+			a.pr.Failures = append(a.pr.Failures, TestFailure{Name: buildRunFailure, Output: a.pkgOut.String()})
 		}
 	}
 
-	var topLevel strings.Builder // package-less output: top-level go test errors (exec, etc.) that carry no Package
+	var topLevel strings.Builder              // package-less output: top-level go test errors (exec, etc.) that carry no Package
+	buildOut := map[string]*strings.Builder{} // compiler output per build ImportPath
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
 		var e goTestEvent
 		if json.Unmarshal(sc.Bytes(), &e) != nil {
+			continue
+		}
+		if e.Action == "build-output" {
+			b := buildOut[e.ImportPath]
+			if b == nil {
+				b = &strings.Builder{}
+				buildOut[e.ImportPath] = b
+			}
+			b.WriteString(e.Output)
 			continue
 		}
 		if e.Package == "" {
@@ -102,6 +117,12 @@ func parseGoTest(r io.Reader, modulePath string, synopses map[string]string, onD
 				notifyDone(onDone, a.pr)
 			case "fail":
 				a.pr.Status, a.pr.Duration = StatusFailed, secs(e.Elapsed)
+				if b := buildOut[e.FailedBuild]; e.FailedBuild != "" && b != nil {
+					if a.pkgOut == nil {
+						a.pkgOut = &strings.Builder{}
+					}
+					a.pkgOut.WriteString(b.String())
+				}
 				finalize(a)
 				notifyDone(onDone, a.pr)
 			case "skip":
@@ -283,6 +304,33 @@ func injectAfter(argv []string, i int, v string) []string {
 	out = append(out, v)
 	out = append(out, argv[i+1:]...)
 	return out
+}
+
+// buildRunFailure names the failure of a package that failed without a failing test:
+// it did not compile, or its test binary did not run.
+const buildRunFailure = "(build/run)"
+
+// maxCompileErrLines caps the compiler errors shown per package.
+const maxCompileErrLines = 10
+
+// compileErrLines returns up to max compiler error lines from a package's build
+// output, dropping go's "# pkg" headers and FAIL lines.
+func compileErrLines(output string, max int) []string {
+	var lines []string
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "FAIL") {
+			continue
+		}
+		if len(line) > 160 {
+			line = line[:157] + "..."
+		}
+		lines = append(lines, line)
+		if len(lines) == max {
+			break
+		}
+	}
+	return lines
 }
 
 // firstErrLine returns the first meaningful line of a failing test's output (the

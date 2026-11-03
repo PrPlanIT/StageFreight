@@ -50,7 +50,7 @@ func init() {
 	lintCmd.Flags().StringSliceVar(&lintNoModule, "no-module", nil, "skip these modules (comma-separated)")
 	lintCmd.Flags().BoolVar(&lintNoCache, "no-cache", false, "disable cache (clear and rescan)")
 	lintCmd.Flags().BoolVar(&lintAll, "all", false, "scan all files (shorthand for --level full)")
-	lintCmd.Flags().BoolVar(&lintFixSafe, "fix-safe", false, "auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files")
+	lintCmd.Flags().BoolVar(&lintFixSafe, "fix-safe", false, "auto-apply proven-safe fixes (trailing whitespace, final newline, gofmt) to authored files")
 	lintCmd.Flags().BoolVar(&lintDryRun, "dry-run", false, "with --fix-safe: preview what would change without writing")
 	lintCmd.Flags().BoolVar(&lintBaseline, "baseline", false, "diff against the merge-base: mark newly-introduced non-text artifacts and findings")
 
@@ -321,6 +321,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		enabled := map[string]bool{
 			"trailing-whitespace": on(rc.TrailingWhitespace),
 			"final-newline":       on(rc.FinalNewline),
+			"gofmt":               on(rc.Gofmt),
 		}
 		sum, ferr := lint.ApplyRemediations(findings, rootDir, enabled, lintDryRun)
 		if ferr != nil {

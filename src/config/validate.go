@@ -763,6 +763,15 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, fmt.Sprintf("%s: unknown gate %q (supported: perform, advisory)", tpath, s.Gate))
 		}
 
+		switch s.Vet {
+		case "", "all", "off":
+			if s.Vet != "" && s.Tool != TestToolGo {
+				errs = append(errs, fmt.Sprintf("%s: vet applies to tool go, not %q", tpath, s.Tool))
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("%s: unknown vet %q (supported: all, off; unset runs go test's own subset)", tpath, s.Vet))
+		}
+
 		if s.CoverageMin != nil {
 			if s.Coverage == nil || !*s.Coverage {
 				errs = append(errs, fmt.Sprintf("%s: coverage_min requires coverage: true", tpath))

@@ -12,14 +12,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var testGate string
+var (
+	testGate     string
+	testPackages []string
+	testRun      string
+)
 
 var testCmd = &cobra.Command{
 	Use:   "test [suite-id...]",
 	Short: "Run the project's test suites (go test / cargo test / custom)",
 	Long: `Run StageFreight test suites locally — the SAME suites, resolved the same way,
 the CI audition phase runs. No arguments runs all suites; pass suite ids to run a
-subset, or --gate to filter by lifecycle tier.
+subset, or --gate to filter by lifecycle tier. --pkg and --run narrow the go and
+python suites to some packages or tests (go test -run / pytest -k) for a fast
+edit-test loop; their declared flags still apply, and coverage floors are lifted.
 
 Suites are auto-synthesized from your builds when none are declared in .stagefreight.yml
 (a go builder → "go test ./..."; a rust builder → "cargo test").`,
@@ -28,6 +34,8 @@ Suites are auto-synthesized from your builds when none are declared in .stagefre
 
 func init() {
 	cliflag.EnumVar(testCmd.Flags(), &testGate, "gate", []string{"perform", "advisory"}, "", "run only suites with this gate")
+	testCmd.Flags().StringSliceVar(&testPackages, "pkg", nil, "test only these packages (go: ./src/runner/...; python: test paths)")
+	testCmd.Flags().StringVar(&testRun, "run", "", "test only tests matching this (go: -run regex; python: -k expression)")
 	rootCmd.AddCommand(testCmd)
 }
 
@@ -41,6 +49,14 @@ func runTestCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	suites = filterSuites(suites, args, testGate)
+	sel := test.Selection{Packages: testPackages, Run: testRun}
+	suites, skipped := test.Narrow(suites, sel)
+	for _, id := range skipped {
+		fmt.Printf("  test: skipped suite %s — --pkg/--run narrow go and python suites only\n", id)
+	}
+	if !sel.Empty() && len(suites) > 0 {
+		fmt.Println("  test: narrowed run — coverage floors are not enforced")
+	}
 	if len(suites) == 0 {
 		fmt.Println("  test: no suites to run")
 		return nil

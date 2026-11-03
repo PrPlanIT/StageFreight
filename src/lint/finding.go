@@ -99,7 +99,7 @@ type Finding struct {
 // between detect and fix) is skipped, never misapplied. Mutates only with proof, the
 // mirror of "classification only relaxes with proof."
 type Remediation struct {
-	Kind        string // "trailing-whitespace" | "final-newline"
+	Kind        string // "trailing-whitespace" | "final-newline" | "gofmt"
 	Start, End  int
 	Expected    string // bytes that must currently occupy [Start:End], or the CAS skips
 	Replacement string

@@ -27,6 +27,19 @@ func TestGoArgv_FullFlagProjection(t *testing.T) {
 	}
 }
 
+// vet projects to go test's own -vet flag; unset leaves go test's high-confidence subset.
+func TestGoArgv_Vet(t *testing.T) {
+	for vet, want := range map[string][]string{
+		"all": {"go", "test", "-vet=all", "./..."},
+		"off": {"go", "test", "-vet=off", "./..."},
+		"":    {"go", "test", "./..."},
+	} {
+		if got := goArgv(config.TestSuite{Tool: config.TestToolGo, Vet: vet}); !reflect.DeepEqual(got, want) {
+			t.Errorf("vet %q: goArgv = %v, want %v", vet, got, want)
+		}
+	}
+}
+
 func TestGoArgv_DefaultsToDotDotDot(t *testing.T) {
 	got := goArgv(config.TestSuite{Tool: config.TestToolGo})
 	want := []string{"go", "test", "./..."}

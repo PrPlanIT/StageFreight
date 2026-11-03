@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
@@ -19,13 +20,17 @@ import (
 
 // realizeSubstrate provisions the native capabilities the suites need (git for
 // tests that exec git, a C toolchain for cgo/-race) — TEST TIME only, the shipped
-// image stays minimal. Returns the realized outcomes for structured reporting.
+// image stays minimal. Returns the realized outcomes for structured reporting. A
+// capability that can't be realized is warned by name; the suites still run.
 func realizeSubstrate(ctx context.Context, suites []ResolvedSuite) []substrate.Realized {
 	needs := substrateNeeds(suites)
 	if len(needs) == 0 {
 		return nil
 	}
-	realized, _ := substrate.NewRealizer(toolchain.SubstrateCacheDir()).Realize(ctx, needs)
+	realized, err := substrate.NewRealizer(toolchain.SubstrateCacheDir()).Realize(ctx, needs)
+	if err != nil {
+		diag.Warn("%v", err)
+	}
 	return realized
 }
 
@@ -172,7 +177,7 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 		if len(pkgs) == 0 {
 			// compile error / unrecognized output — keep the section honest.
 			fp := PackageResult{Rel: "cargo test", Status: StatusFailed, Coverage: -1,
-				Failures: []TestFailure{{Name: "(build/run)", Output: raw.String()}}}
+				Failures: []TestFailure{{Name: buildRunFailure, Output: raw.String()}}}
 			sr.Packages = []PackageResult{fp}
 			if onPkg != nil {
 				onPkg(fp)

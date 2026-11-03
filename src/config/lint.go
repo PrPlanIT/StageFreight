@@ -130,6 +130,7 @@ type ProvenanceConfig struct {
 type RemediationConfig struct {
 	TrailingWhitespace *bool `yaml:"trailing_whitespace,omitempty"` // default ON under --fix-safe
 	FinalNewline       *bool `yaml:"final_newline,omitempty"`       // default ON under --fix-safe
+	Gofmt              *bool `yaml:"gofmt,omitempty"`               // default ON under --fix-safe
 }
 
 // LintCacheConfig controls lint result cache lifecycle.

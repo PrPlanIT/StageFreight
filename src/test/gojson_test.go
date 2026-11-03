@@ -80,3 +80,33 @@ func TestParseGoTest_CapturesPackagelessError(t *testing.T) {
 		t.Errorf("second return must capture the package-less error; got %q", top)
 	}
 }
+
+// A compile error (build-output events) reaches the failing package's failure output.
+func TestParseGoTest_SurfacesCompileErrors(t *testing.T) {
+	const stream = `{"ImportPath":"x/foo [x/foo.test]","Action":"build-output","Output":"# x/foo [x/foo.test]\n"}
+{"ImportPath":"x/foo [x/foo.test]","Action":"build-output","Output":"foo/bar.go:12:2: undefined: Missing\n"}
+{"ImportPath":"x/foo [x/foo.test]","Action":"build-fail"}
+{"Action":"start","Package":"x/foo"}
+{"Action":"output","Package":"x/foo","Output":"FAIL\tx/foo [build failed]\n"}
+{"Action":"fail","Package":"x/foo","Elapsed":0,"FailedBuild":"x/foo [x/foo.test]"}
+`
+	pkgs, _ := parseGoTest(strings.NewReader(stream), "x", nil, nil)
+	if len(pkgs) != 1 || pkgs[0].Status != StatusFailed {
+		t.Fatalf("pkgs = %+v", pkgs)
+	}
+	if len(pkgs[0].Failures) != 1 || !strings.Contains(pkgs[0].Failures[0].Output, "foo/bar.go:12:2: undefined: Missing") {
+		t.Fatalf("failure should carry the compiler error, got %+v", pkgs[0].Failures)
+	}
+}
+
+func TestCompileErrLines(t *testing.T) {
+	out := "# x/foo [x/foo.test]\nfoo/bar.go:12:2: undefined: Missing\n\nfoo/baz.go:3:1: syntax error\nFAIL\tx/foo [build failed]\n"
+	got := compileErrLines(out, 10)
+	want := []string{"foo/bar.go:12:2: undefined: Missing", "foo/baz.go:3:1: syntax error"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got := compileErrLines(out, 1); len(got) != 1 {
+		t.Fatalf("max not honored: %q", got)
+	}
+}

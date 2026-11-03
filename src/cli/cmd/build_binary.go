@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -37,7 +39,7 @@ func init() {
 	buildBinaryCmd.Flags().StringSliceVar(&bbPlatforms, "platform", nil, "override platforms (comma-separated)")
 	buildBinaryCmd.Flags().StringVar(&bbBuildID, "build", "", "build specific entry by ID (default: all)")
 	buildBinaryCmd.Flags().BoolVar(&bbDryRun, "dry-run", false, "show plan without executing")
-	buildBinaryCmd.Flags().StringVar(&bbOutputDir, "output-dir", "", "override output directory")
+	buildBinaryCmd.Flags().StringVar(&bbOutputDir, "output-dir", "", "also copy the built binaries here, as <os>-<arch>/<name> (they still land in "+build.DistDir+")")
 
 	buildCmd.AddCommand(buildBinaryCmd)
 }
@@ -69,5 +71,67 @@ func runBuildBinaryDomains(cmd *cobra.Command, args []string) error {
 		Outputs:   &outputs,
 		RB:        rb,
 	}
-	return domains.Run(rc)
+	if err := domains.Run(rc); err != nil {
+		return err
+	}
+	if bbOutputDir == "" || bbDryRun {
+		return nil
+	}
+	exported, err := exportBinaries(rootDir, bbOutputDir, outputs.Artifacts)
+	if err != nil {
+		return err
+	}
+	for _, p := range exported {
+		fmt.Fprintf(os.Stdout, "  exported %s\n", p)
+	}
+	return nil
+}
+
+// exportBinaries copies each built binary into dir as <os>-<arch>/<name>. The dist copy
+// stays: release, sign and publish read it there.
+func exportBinaries(rootDir, dir string, arts []artifact.Artifact) ([]string, error) {
+	var exported []string
+	for _, a := range arts {
+		if a.Kind != "binary" || a.Binary == nil || a.Binary.Path == "" {
+			continue
+		}
+		src := a.Binary.Path
+		if !filepath.IsAbs(src) {
+			src = filepath.Join(rootDir, src)
+		}
+		dest := filepath.Join(dir, a.Binary.OS+"-"+a.Binary.Arch, filepath.Base(src))
+		if err := copyExecutableFile(src, dest); err != nil {
+			return exported, fmt.Errorf("exporting %s to %s: %w", a.Name, dest, err)
+		}
+		exported = append(exported, dest)
+	}
+	if len(exported) == 0 {
+		return nil, fmt.Errorf("--output-dir %s: the build produced no binaries to export", dir)
+	}
+	return exported, nil
+}
+
+// copyExecutableFile copies src to dest (creating dest's directory) with src's mode.
+func copyExecutableFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

@@ -58,6 +58,7 @@ type TestSuite struct {
 	Race        *bool    `yaml:"race,omitempty"`         // -race
 	Coverage    *bool    `yaml:"coverage,omitempty"`     // -coverprofile
 	CoverageMin *float64 `yaml:"coverage_min,omitempty"` // gate: fail the suite if statement coverage < this %
+	Vet         string   `yaml:"vet,omitempty"`          // -vet=all|off (unset: go test's own high-confidence subset)
 
 	// ── Rust (native `cargo test` flag projections) ─────────────────────────
 	Workspace *bool    `yaml:"workspace,omitempty"` // --workspace

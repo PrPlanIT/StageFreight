@@ -145,6 +145,12 @@ func renderPackageRow(sec *output.Section, p PackageResult, color bool) {
 	if p.Status == StatusFailed {
 		for _, f := range p.Failures {
 			sec.Row("      └ %s", f.Name)
+			if f.Name == buildRunFailure {
+				for _, line := range compileErrLines(f.Output, maxCompileErrLines) {
+					sec.Row("        %s", line)
+				}
+				continue
+			}
 			if line := firstErrLine(f.Output); line != "" {
 				sec.Row("        %s", line)
 			}

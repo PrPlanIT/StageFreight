@@ -20,6 +20,10 @@ type ResolvedSuite struct {
 	CoverageMin float64 // gate threshold %; 0 = none
 	Synthesized bool
 	Provenance  string // human note (synthesized suites): why / from which build
+
+	// decl is the suite's declaration (synthesized suites get the equivalent minimal
+	// one), kept so a Selection can re-project the argv through the same flag builder.
+	decl config.TestSuite
 }
 
 // Resolve turns the test config (+ builds) into executable suites. When the
@@ -90,13 +94,14 @@ func synthesize(cfg *config.Config, rootDir string) []ResolvedSuite {
 			Dir:         dir,
 			Synthesized: true,
 			Provenance:  fmt.Sprintf("synthesized from build %q (%s, module %s)", b.ID, builder, relTo(rootDir, dir)),
+			decl:        config.TestSuite{ID: fmt.Sprintf("%s-default-%s", builder, b.ID), Tool: config.TestTool(builder)},
 		})
 	}
 	return out
 }
 
 func resolveSuite(s config.TestSuite, rootDir string) (ResolvedSuite, error) {
-	rs := ResolvedSuite{ID: s.ID, Tool: s.Tool, Gate: s.EffectiveGate(), Dir: rootDir, Coverage: boolVal(s.Coverage)}
+	rs := ResolvedSuite{ID: s.ID, Tool: s.Tool, Gate: s.EffectiveGate(), Dir: rootDir, Coverage: boolVal(s.Coverage), decl: s}
 	if s.CoverageMin != nil {
 		rs.CoverageMin = *s.CoverageMin
 	}
@@ -153,6 +158,9 @@ func goArgv(s config.TestSuite) []string {
 	}
 	if boolVal(s.Race) {
 		argv = append(argv, "-race")
+	}
+	if s.Vet != "" {
+		argv = append(argv, "-vet="+s.Vet)
 	}
 	if boolVal(s.Coverage) {
 		argv = append(argv, "-cover")
