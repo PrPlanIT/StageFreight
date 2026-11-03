@@ -38,8 +38,8 @@ GitLab-specific constraints:
 
 ## Runner
 
-Self-hosted runner as a Docker Compose stack. Two variants; the only difference is BuildKit and
-its build cache:
+Self-hosted runner as a Docker Compose stack, or on Kubernetes ([below](#kubernetes-executor)).
+Two Compose variants; the only difference is BuildKit and its build cache:
 
 | Stack | Services | Deploy when |
 |---|---|---|
@@ -85,6 +85,27 @@ Start with `docker compose up -d`, or sync it from a GitOps stack manager — th
 config is inlined as Compose `configs:`, so nothing needs to be staged on the host (requires
 Docker Compose v2.23+). Registration runs once, when `config.toml` is absent; to apply changed
 registration flags, remove `/opt/docker/gitlab-runner/config/config.toml` and redeploy.
+
+### Kubernetes executor
+
+StageFreight also runs on GitLab's Kubernetes executor with no Docker daemon: non-root job
+pods, a read-only root filesystem, and a buildkitd for image builds. Give the job pods:
+
+| Need | Provide |
+|---|---|
+| Image builds | A buildkitd the jobs can reach: `BUILDKIT_HOST=tcp://<buildkitd>:1234`, plus its client certs (`ca.pem`, `cert.pem`, `key.pem`) at `/buildkit-certs` (or `BUILDKIT_CERT_PATH`). Builds go through buildx's remote driver. |
+| Caches | A ReadWriteMany volume at `/stagefreight` (`SF_CACHE_ROOT=/stagefreight`). It keeps toolchains, Go caches and scanner databases across jobs; without it every job downloads them again. StageFreight's disk GC bounds it, and never evicts while another job is using it. |
+| Scratch | Writable `HOME`, `/tmp` and build directory, on a volume (a generic ephemeral volume per job keeps job data off the node's disk). |
+| Memory | Enough for the audition's test run. The Executor panel reports headroom under the job's own memory limit. |
+
+Without a daemon, everything runs as it does on a Docker runner:
+- Images build into the content store and publish promotes, signs and attests them.
+- A `kind: command` (or builder-image) step runs inside the job when its image is the CI image, and as a BuildKit build otherwise.
+- A crucible build verifies both passes from OCI layouts.
+- Ansible converge runs natively when the job image ships `ansible-playbook` and `ssh-agent`; otherwise reconcile is refused at preflight.
+
+Two things need a daemon and are skipped or refused without one: `provider: local` registries,
+and Compose `docker_local` targets.
 
 ### Cluster authentication (GitOps)
 

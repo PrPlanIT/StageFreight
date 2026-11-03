@@ -57,7 +57,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
 - **Backends:** Docker **buildx/BuildKit** (`docker buildx build`, OCI-layout export, digest capture), native **Go** + **Rust (cargo)** toolchains, and **7 containerized language builders** — Node/Electron, .NET (per-RID self-contained), JVM (Java/Kotlin/Scala/Groovy/Clojure → jar via Maven/Gradle), Python (wheel/sdist or PyInstaller), C/C++ (CMake/Meson/Make), Elixir (mix release), Android (signed APK) — plus a `kind: command` **escape-hatch builder** (any image/command, declared `outputs[]`). Governed Go SDK download — see §11. buildkitd or DinD host. **Cross-compile:** free-form GOOS/GOARCH for Go; per-RID/image for container builders where the toolchain supports it; **Rust is host-only**.
-- **Crucible** = two passes: pass-1 gestation (`--output type=oci`, never pushed), pass-2 re-runs the candidate natively and **diffs the bytes** to prove the image is reproducible. Almost no CI platform does this for you — by hand you'd build twice, extract artifacts, and compare digests across a coherent backend.
+- **Crucible** = two passes on one backend: a candidate and a self-proof rebuild, each exported as an OCI layout (never loaded, never pushed). StageFreight then **diffs the bytes** from disk — binary hash, the extracted binary's `version`, image digest, build-graph label — to prove the image is reproducible, with no Docker daemon needed. Almost no CI platform does this for you — by hand you'd build twice, extract artifacts, and compare digests across a coherent backend.
 - **Otherwise:** hand-write `docker buildx` invocations, parse `--metadata-file`/digest output, manage `--cache-from`/`--cache-to`, and (for binaries) a build matrix per OS/arch with ldflags version injection.
 - **Tutorials:** [docker/build-push-action](https://github.com/docker/build-push-action) · [buildx cache](https://docs.docker.com/build/cache/backends/) · [goreleaser builds](https://goreleaser.com/customization/builds/) · [reproducible-builds.org](https://reproducible-builds.org/)
 - **Since:** binary build engine + caching shipped through v0.6.1 (Go caches on the `/stagefreight` mount, commit `12b8806`; cache-state row `67d916f`). Crucible: ≤ v0.6.0 *(TODO: pin commit)*.
@@ -159,7 +159,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 | Delta-only (changed-files) linting | ✅ | ➕ paths-filter | ➕ rules:changes | ➕ pre-commit | Med |
 | Cache-aware lint with TTL eviction | ✅ | ➕ cache action | ➕ cache: | ➕ pre-commit | Med |
 | Built-in modules (secrets, tabs, line endings, freshness…) | ✅ | ➕ many actions | ➕ many | ✅ pre-commit/megalinter | Med |
-| ansible-lint from the execution image, over declared plays only (graduated severities) 🚧 | ✅ | ➕ action | ➕ | ✅ ansible-lint | Low |
+| ansible-lint from the execution image (or the job's own ansible-lint without a daemon), over declared plays only (graduated severities) 🚧 | ✅ | ➕ action | ➕ | ✅ ansible-lint | Low |
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
@@ -295,7 +295,7 @@ StageFreight is consolidating — and where that dedicated tool is still the str
 
 <details><summary>Backends · how you'd otherwise do it · tutorials · since</summary>
 
-- **Backends:** the forge as a **render target** — five wired emitters (`gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`), each forge-native with golden tests; git (commits), Flux/Argo + Kubernetes (gitops), Docker (compose drift), ansible-in-a-container (host convergence — the execution image owns the runtime + collections).
+- **Backends:** the forge as a **render target** — five wired emitters (`gitlab`, `github`, `gitea`, `forgejo`, `azuredevops`), each forge-native with golden tests; git (commits), Flux/Argo + Kubernetes (gitops), Docker (compose drift), ansible (host convergence — the execution image owns the runtime + collections; a daemonless runner uses the job's own ansible).
 - **Ansible vs AWX/Semaphore:** those give you a web UI, run history, and schedules — but as another stateful service to operate. SF ties convergence to the commit that changed the intent (Renovate bumps a pin → merge → nodes roll → phone ping), with a trust posture (pinned execution image, committed known_hosts, forge-protected key) neither ships. Runbooks (`converge: false`) are declared-but-CI-unreachable: lint + `--check` preview, human-run only.
 - **Portability / no lock-in:** `render.Emit(forge, …)` dispatches to all five from one forge-neutral pipeline model, so the *same* `.stagefreight.yml` renders `.gitlab-ci.yml`, GitHub Actions workflows, Gitea/Forgejo, or Azure pipelines. To migrate CI hosts by hand you'd rewrite every pipeline in the new vendor's YAML dialect; here it's `stagefreight ci render <forge> --write`. (Azure DevOps is experimental.)
 - **`ci render` is unusual:** instead of you maintaining `.gitlab-ci.yml`/workflows by hand, SF generates them from `.stagefreight.yml`. The thing other tools assume you write, SF treats as output. (Caveat from real use: because it's generated + dogfooded, a CI-skeleton or config-schema change can require regeneration — see KnownIssues.)

@@ -36,7 +36,7 @@ and link it from the release — see [GitLab → CI/CD Catalog components](gitla
 
 Each forge page carries its own runner/agent setup:
 
-- [GitLab](gitlab/README.md#runner) — Compose (runner + BuildKit + DinD).
+- [GitLab](gitlab/README.md#runner) — Compose (runner + BuildKit + DinD), or the [Kubernetes executor](gitlab/README.md#kubernetes-executor) (no daemon; remote BuildKit).
 - [Azure DevOps](azuredevops/README.md) — Kubernetes agent (buildkitd + DinD).
 - [GitHub / Gitea / Forgejo](actions/README.md) — GitHub-hosted works as-is; a self-hosted
   Actions runner guide is pending.

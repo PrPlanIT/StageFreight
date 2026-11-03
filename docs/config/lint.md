@@ -37,6 +37,7 @@ database) and use TTL-based caching.
 | `unicode` | enabled | Dangerous Unicode (see below) |
 | `yaml` | enabled | YAML syntax errors |
 | `lineendings` | enabled | Inconsistent line endings |
+| `gofmt` | enabled | Go files not gofmt-formatted (`--fix-safe` formats them) |
 | `freshness` | enabled | Out-of-date dependencies + correlated CVEs (TTL-cached) |
 | `vulnerabilities` | enabled | Advisories against lockfiles (TTL-cached; `osv` is a deprecated alias) |
 

@@ -26,8 +26,9 @@ builds:
 
 ## Crucible mode
 
-`build_mode: crucible` performs a self-proving rebuild — the image is built twice and its
-layers are compared to verify reproducibility.
+`build_mode: crucible` performs a self-proving rebuild — the image is built twice and the
+two builds are compared (binary, version, image digest, build graph) to verify
+reproducibility. It runs the same on a Docker daemon or a remote BuildKit.
 
 ```yaml
 builds:

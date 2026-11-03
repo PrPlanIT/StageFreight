@@ -22,9 +22,9 @@
   - Config: `src/config/` — parsed from `.stagefreight.yml`
 
 - Build Strategy:
-  - **Single-platform**: `--load` into daemon → `docker push` each remote tag. Image exists locally AND remotely. Both local and remote retention work.
-  - **Multi-platform**: `--push` directly (buildx limitation). No local copy. Remote retention only.
-  - `provider: local` registries: images stay in the Docker daemon only. Retention prunes via `docker rmi`.
+  - **CI (transport)**: perform builds and exports an OCI layout into the content store — no push, no `--load`, no Docker daemon. Review scans that layout; publish promotes it to each registry tag (digest-preserving, go-containerregistry), then signs/attests the promoted digest. Works the same on a Docker runner and on a daemonless one (remote BuildKit via `BUILDKIT_HOST`, e.g. a Kubernetes executor).
+  - **`stagefreight docker build` (no transport)**: a step with registries pushes in-build (`--push`); a registry-less step `--load`s into the daemon; `--local` loads, never pushes.
+  - `provider: local` registries: images stay in the Docker daemon only. Retention prunes via `docker rmi`; a daemonless runner skips it.
 
 - Retention:
   - Restic-style additive policies: `keep_last`, `keep_daily`, `keep_weekly`, `keep_monthly`, `keep_yearly`
