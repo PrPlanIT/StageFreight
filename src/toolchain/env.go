@@ -1,6 +1,9 @@
 package toolchain
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // CleanEnv returns a minimal execution environment for toolchain-resolved binaries.
 // No implicit PATH. No host leakage. All tools are invoked by absolute path.
@@ -24,4 +27,20 @@ func CleanEnv() []string {
 	}
 
 	return env
+}
+
+// RegistryAuthEnv returns DOCKER_CONFIG pointing at the caller's registry credentials
+// (an explicit DOCKER_CONFIG, else ~/.docker when it holds a config.json), or nil.
+// CleanEnv's HOME=/tmp would otherwise hide them.
+func RegistryAuthEnv() []string {
+	if dc, ok := os.LookupEnv("DOCKER_CONFIG"); ok && dc != "" {
+		return []string{"DOCKER_CONFIG=" + dc}
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		cfgDir := filepath.Join(home, ".docker")
+		if _, err := os.Stat(filepath.Join(cfgDir, "config.json")); err == nil {
+			return []string{"DOCKER_CONFIG=" + cfgDir}
+		}
+	}
+	return nil
 }

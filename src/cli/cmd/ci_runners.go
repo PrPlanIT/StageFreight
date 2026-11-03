@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/ansible"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/auditionproof"
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -365,7 +366,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	defer func() { recordAuditionContract(rootDir, deriveAuditionContract(in)) }()
 
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("deps subsystem: substrate unhealthy")
+		return fmt.Errorf("deps subsystem: substrate unhealthy: %s", r.HardFailures())
 	}
 	in.RunnerHealthy = true
 	if err := runConfigPhase(rootDir); err != nil {
@@ -807,6 +808,11 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 }
 
 // ── security runner ──────────────────────────────────────────────────────────
+
+// securitySubstrate is what the security scan needs of its runner: no Docker daemon and
+// no build engine.
+var securitySubstrate = runner.Options{}
+
 func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	secAllowFailure := !appCfg.Security.IsRequired()
 	rootDir := resolveWorkspace(ciCtx)
@@ -896,9 +902,11 @@ func securityRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	// run, so the artifact is UNREVIEWED. Record it as a failure (not a silent
 	// return) so publish's authorization gate denies distribution of bytes that
 	// were never actually evaluated.
-	if r := executorCheck(rootDir, runner.Options{DockerRequired: true}); r.Health == runner.Unhealthy {
-		recordSecurity("failed", "substrate unhealthy — security scan could not run")
-		return fmt.Errorf("security subsystem: substrate unhealthy")
+	// The scan reads an OCI layout or a registry, never a Docker daemon.
+	if r := executorCheck(rootDir, securitySubstrate); r.Health == runner.Unhealthy {
+		reason := "substrate unhealthy — security scan could not run: " + r.HardFailures()
+		recordSecurity("failed", reason)
+		return fmt.Errorf("security subsystem: %s", reason)
 	}
 
 	// Mark attempted before running scan
@@ -980,7 +988,7 @@ func scribeRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	rootDir := resolveWorkspace(ciCtx)
 
 	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("scribe subsystem: substrate unhealthy")
+		return fmt.Errorf("scribe subsystem: substrate unhealthy: %s", r.HardFailures())
 	}
 
 	// Resolve BUILD_STATUS from pipeline state (badges render it). Missing = default failing.
@@ -1114,7 +1122,7 @@ func releaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIConte
 	rootDir := resolveWorkspace(ciCtx)
 
 	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("release subsystem: substrate unhealthy")
+		return fmt.Errorf("release subsystem: substrate unhealthy: %s", r.HardFailures())
 	}
 
 	// run_from gate — controls mutation authority for release.
@@ -1915,7 +1923,8 @@ func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	rootDir := resolveWorkspace(ciCtx)
 
 	healthy := true
-	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
+	report := executorPreflight(rootDir, runner.Options{DockerRequired: false})
+	if report.Health == runner.Unhealthy {
 		healthy = false
 	}
 
@@ -1925,7 +1934,7 @@ func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICont
 	var err error
 	switch {
 	case !healthy:
-		err = fmt.Errorf("validate subsystem: substrate unhealthy")
+		err = fmt.Errorf("validate subsystem: substrate unhealthy: %s", report.HardFailures())
 	default:
 		if cfgErr := runConfigPhase(rootDir); cfgErr != nil {
 			err = fmt.Errorf("validate subsystem: %w", cfgErr)
@@ -2280,6 +2289,13 @@ func recordSubsystemOutcome(rootDir string, s cistate.SubsystemState) {
 }
 
 // ── reconcile runner ────────────────────────────────────────────────────────
+
+// reconcileSubstrate is what reconcile needs of its runner: a Docker daemon only for host
+// convergence when the job has no ansible-playbook of its own.
+func reconcileSubstrate(hasAnsible bool, convergeNeedsDocker func() bool) runner.Options {
+	return runner.Options{DockerRequired: hasAnsible && convergeNeedsDocker()}
+}
+
 func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	start := time.Now()
 
@@ -2294,8 +2310,8 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 
 	rootDir := resolveWorkspace(ciCtx)
 
-	if r := executorCheck(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("reconcile subsystem: substrate unhealthy")
+	if r := executorCheck(rootDir, reconcileSubstrate(hasAnsible, ansible.ConvergeNeedsDocker)); r.Health == runner.Unhealthy {
+		return fmt.Errorf("reconcile subsystem: substrate unhealthy: %s", r.HardFailures())
 	}
 
 	// Ansible host convergence FIRST — hosts are the substrate; converge the

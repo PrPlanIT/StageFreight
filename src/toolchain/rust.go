@@ -290,10 +290,12 @@ func installRustDist(archivePath, installDir, version, triple string) error {
 
 	// Rust's install.sh shells out to bash, but the minimal SF image ships only
 	// busybox sh — so realize bash via substrate (apk-backed, cached; TEST/BUILD
-	// time only, never in the image) before running it. Best-effort: on a non-apk
-	// host (dev) NewRealizer is a no-op that trusts the ambient bash.
-	_, _ = substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
-		[]substrate.Need{{Capability: "bash", Reason: "rust-toolchain-install-script", Source: "install.sh"}})
+	// time only, never in the image) before running it. On a non-apk host (dev)
+	// NewRealizer is a no-op that trusts the ambient bash.
+	if _, err := substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
+		[]substrate.Need{{Capability: "bash", Reason: "rust-toolchain-install-script", Source: "install.sh"}}); err != nil {
+		return fmt.Errorf("installing rust: %w", err)
+	}
 
 	script := filepath.Join(tmp, fmt.Sprintf("rust-%s-%s", version, triple), "install.sh")
 	cmd := exec.Command("sh", script,
@@ -339,8 +341,10 @@ func EnsureRustLlvmTools(cargoPath, version string) error {
 		return fmt.Errorf("extract llvm-tools: %w", err)
 	}
 	// install.sh shells to bash (see installRustDist) — realize it via substrate.
-	_, _ = substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
-		[]substrate.Need{{Capability: "bash", Reason: "rust-component-install-script", Source: "install.sh"}})
+	if _, err := substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
+		[]substrate.Need{{Capability: "bash", Reason: "rust-component-install-script", Source: "install.sh"}}); err != nil {
+		return fmt.Errorf("installing llvm-tools: %w", err)
+	}
 	script := filepath.Join(tmp, fmt.Sprintf("llvm-tools-%s-%s", version, triple), "install.sh")
 	if out, err := exec.Command("sh", script, "--prefix="+prefix, "--disable-ldconfig").CombinedOutput(); err != nil {
 		return fmt.Errorf("llvm-tools install.sh: %w\n%s", err, strings.TrimSpace(string(out)))

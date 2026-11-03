@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
@@ -70,60 +69,6 @@ func BannerPhase() Phase {
 	}
 }
 
-// ExecutorPreflightPhase runs execution substrate checks and renders the Executor section.
-// This is the DomainExecution panel — it absorbs Pipeline ID, Runner name,
-// engine detection, and substrate health from the former ContextBlock.
-//
-// Skip conditions: crucible child pass (pass-2 substrate is not meaningful to report).
-func ExecutorPreflightPhase(opts runner.Options) Phase {
-	return Phase{
-		Name: "executor",
-		Run: func(pc *PipelineContext) (*PhaseResult, error) {
-			if build.IsCrucibleChild() {
-				return &PhaseResult{Name: "executor", Status: "skipped", Summary: "crucible child"}, nil
-			}
-
-			start := time.Now()
-			report := runner.Run(pc.RootDir, opts)
-
-			RenderExecutorSection(pc.Writer, report, opts, pc.Color, time.Since(start))
-
-			if err := cistate.UpdateState(pc.RootDir, func(st *cistate.State) {
-				st.Runner = report
-			}); err != nil {
-				diag.Warn("executor preflight: state write failed: %v", err)
-			}
-
-			switch report.Health {
-			case runner.Unhealthy:
-				return &PhaseResult{
-					Name:    "runner",
-					Status:  "failed",
-					Summary: "substrate unhealthy",
-				}, fmt.Errorf("executor preflight: substrate unhealthy — pipeline aborted")
-			case runner.Degraded:
-				var warnCount int
-				for _, f := range report.Findings {
-					if f.Status == "fail" || f.Status == "warn" {
-						warnCount++
-					}
-				}
-				return &PhaseResult{
-					Name:    "runner",
-					Status:  "warning",
-					Summary: fmt.Sprintf("%d warning(s)", warnCount),
-				}, nil
-			default:
-				return &PhaseResult{Name: "executor", Status: "success"}, nil
-			}
-		},
-	}
-}
-
-// renderRunnerSection renders the DomainExecution panel box.
-// Row order is fixed: identity → separator → substrate → separator → health → [findings].
-// Rule 8: substrate rows always present when fact exists.
-// Rule 10: info-severity findings never appear as finding rows.
 // ExecutorPreflightWithWriter is the exported equivalent of the cmd-package
 // executorPreflight helper, for callers that own their own io.Writer (e.g. crucible).
 // Runs substrate assessment, renders the Executor panel to w, persists to cistate.
@@ -140,6 +85,9 @@ func ExecutorPreflightWithWriter(w io.Writer, rootDir string, opts runner.Option
 
 // RenderExecutorSection renders the DomainExecution panel box.
 // Exported for callers that need to render without running preflight (e.g. tests).
+// Row order is fixed: identity → separator → substrate → separator → health → [findings].
+// Rule 8: substrate rows always present when fact exists.
+// Rule 10: info-severity findings never appear as finding rows.
 func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runner.Options, color bool, elapsed time.Duration) {
 	sec := output.NewSection(w, "Executor", elapsed, color)
 
@@ -199,6 +147,9 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 	if f.MemAvailableMB >= 0 {
 		memIcon := runnerFindingIcon(report.Findings, color, "memory_low")
 		memVal = formatRunnerMB(f.MemAvailableMB) + " " + memIcon
+		if f.MemLimitMB > 0 {
+			memVal = formatRunnerMB(f.MemAvailableMB) + " of " + formatRunnerMB(f.MemLimitMB) + " " + memIcon
+		}
 	}
 	cpuVal := "-"
 	if f.CPULoadAvg1 >= 0 {
@@ -210,7 +161,7 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 	sec.Row("%-12s%-20s%-10s%s", "docker",
 		formatRunnerDockerStatus(f.DockerAvailable, opts.DockerRequired, color),
 		"buildkit",
-		formatRunnerBuildkitStatus(f.BuildKitAvailable, opts.DockerRequired, color))
+		formatRunnerBuildkitStatus(f.BuildKitAvailable, opts.BuildRequired, color))
 
 	// dind + buildx — always rendered; both are informational (no icon — Rule 10)
 	dindLabel := "not detected"

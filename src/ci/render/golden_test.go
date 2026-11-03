@@ -44,7 +44,7 @@ func canonicalPipeline() model.Pipeline {
 				Commands:     []string{"stagefreight ci run audition"},
 				Source:       model.SourceSpec{FullClone: true},
 				Artifacts:    model.ArtifactSpec{Paths: []string{".stagefreight/"}, ExpireIn: "1 week"},
-				Capabilities: model.CapabilitySpec{Docker: true, ForgeAPI: true},
+				Capabilities: model.CapabilitySpec{ForgeAPI: true},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
@@ -53,15 +53,14 @@ func canonicalPipeline() model.Pipeline {
 				Source:       model.SourceSpec{FullClone: true},
 				Artifacts:    model.ArtifactSpec{Paths: []string{".stagefreight/"}, ExpireIn: "1 day", WhenAlways: true},
 				Routing:      model.RoutingSpec{Labels: []string{"self-hosted", "docker"}},
-				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
+				Capabilities: model.CapabilitySpec{OIDC: true},
 				Policy:       model.PolicySpec{Serialize: "perform"},
 			},
 			{
 				Name: "review", Stage: "review", Needs: []string{"perform"},
-				Commands:     []string{"stagefreight ci run review"},
-				Artifacts:    model.ArtifactSpec{Paths: []string{".stagefreight/security/"}, ExpireIn: "1 week"},
-				Capabilities: model.CapabilitySpec{Docker: true},
-				Policy:       model.PolicySpec{AllowFailure: true},
+				Commands:  []string{"stagefreight ci run review"},
+				Artifacts: model.ArtifactSpec{Paths: []string{".stagefreight/security/"}, ExpireIn: "1 week"},
+				Policy:    model.PolicySpec{AllowFailure: true},
 			},
 			{
 				Name: "publish", Stage: "publish", Needs: []string{"perform", "review"},

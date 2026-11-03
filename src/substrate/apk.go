@@ -36,6 +36,10 @@ var capabilityProbe = map[string]string{
 	"bash":        "bash",
 }
 
+// geteuid is the process's effective uid; a variable so tests can stand in for a
+// non-root runner.
+var geteuid = os.Geteuid
+
 // apkRealizer is the bootstrap backend: Alpine apk with a persistent package cache.
 type apkRealizer struct {
 	cacheDir string
@@ -73,6 +77,13 @@ func (r *apkRealizer) Realize(ctx context.Context, needs []Need) ([]Realized, er
 	}
 	sort.Strings(toInstall)
 
+	// apk needs root: a non-root runner names the missing capabilities instead.
+	if uid := geteuid(); uid != 0 {
+		return realized, fmt.Errorf("substrate: %s needs %s, which is not in this image and cannot be installed here: "+
+			"this runner runs as uid %d, and apk installs as root — add the packages (%s) to the CI image",
+			needSources(needs), missingCapabilities(realized), uid, strings.Join(toInstall, " "))
+	}
+
 	args := []string{"add", "--no-progress"}
 	if r.cacheDir != "" {
 		if err := os.MkdirAll(r.cacheDir, 0o755); err == nil {
@@ -95,6 +106,33 @@ func (r *apkRealizer) Realize(ctx context.Context, needs []Need) ([]Realized, er
 		}
 	}
 	return realized, nil
+}
+
+// missingCapabilities names the capabilities that were not already present.
+func missingCapabilities(realized []Realized) string {
+	var caps []string
+	for _, r := range realized {
+		if !r.Present {
+			caps = append(caps, r.Need.Capability)
+		}
+	}
+	return strings.Join(caps, ", ")
+}
+
+// needSources names who asked for the needs ("install.sh", "cargo", …), deduplicated.
+func needSources(needs []Need) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range needs {
+		if n.Source != "" && !seen[n.Source] {
+			seen[n.Source] = true
+			out = append(out, n.Source)
+		}
+	}
+	if len(out) == 0 {
+		return "the build"
+	}
+	return strings.Join(out, ", ")
 }
 
 // apkVersions returns best-effort installed versions, e.g. build-base → "0.5-r3".

@@ -155,9 +155,6 @@ type RoutingSpec struct {
 // CapabilitySpec declares what execution substrate a job requires.
 // Emitters use these to inject the appropriate services and variables.
 type CapabilitySpec struct {
-	// Docker indicates this job requires Docker daemon access (DinD).
-	Docker bool
-
 	// OIDC indicates this job requires an OIDC identity token.
 	// GitLab emitter adds id_tokens.STAGEFREIGHT_OIDC.
 	OIDC bool

@@ -1,8 +1,10 @@
 package substrate
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +63,40 @@ func TestInferRustNeeds_GitForBuildRs(t *testing.T) {
 	}
 	if _, ok := capabilityPackages["git"]; !ok {
 		t.Error("git capability must have a backend mapping")
+	}
+}
+
+// A non-root runner reports a missing capability by name and never runs apk.
+func TestApkRealizer_NonRootRunner(t *testing.T) {
+	old := geteuid
+	t.Cleanup(func() { geteuid = old })
+	geteuid = func() int { return 1000 }
+
+	r := &apkRealizer{}
+	_, err := r.Realize(context.Background(), []Need{{Capability: "cmake", Reason: "native-crate", Source: "aws-lc-sys"}})
+	if err == nil {
+		t.Skip("cmake is already present in this image — nothing to install")
+	}
+	for _, want := range []string{"aws-lc-sys", "cmake", "uid 1000", "CI image"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
+	}
+}
+
+func TestApkRealizer_PresentCapabilityNeedsNoInstall(t *testing.T) {
+	old := geteuid
+	t.Cleanup(func() { geteuid = old })
+	geteuid = func() int { return 1000 }
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "perl"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	realized, err := (&apkRealizer{}).Realize(context.Background(), []Need{{Capability: "perl", Source: "test"}})
+	if err != nil || len(realized) != 1 || !realized[0].Present {
+		t.Fatalf("present capability: realized=%+v err=%v", realized, err)
 	}
 }

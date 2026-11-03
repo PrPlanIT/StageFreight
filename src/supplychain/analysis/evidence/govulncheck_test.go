@@ -2,6 +2,9 @@ package evidence
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,4 +87,37 @@ func TestGoReachability_CorrelatesByAlias(t *testing.T) {
 	if !ok || r.State != ReachUnreachable {
 		t.Fatalf("expected join via GO-alias → unreachable evidence, got %v (ok=%v)", res[discovered.Ref()], ok)
 	}
+}
+
+// fakeGovulncheck puts a `govulncheck` on PATH running script.
+func fakeGovulncheck(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "govulncheck"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A run that dies partway is an error naming how it died, never a parsed stream.
+func TestRunGovulncheck_FailedRunsAreErrors(t *testing.T) {
+	t.Run("killed mid-stream", func(t *testing.T) {
+		fakeGovulncheck(t, `echo '{"finding":{"osv":"GO-2024-0001","trace":[{"module":"m"}]}}'; kill -9 $$`)
+		if _, err := runGovulncheck(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "killed") {
+			t.Fatalf("err = %v, want a killed run reported", err)
+		}
+	})
+	t.Run("exited non-zero", func(t *testing.T) {
+		fakeGovulncheck(t, `echo "loading packages: go.mod not found" >&2; exit 1`)
+		if _, err := runGovulncheck(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "go.mod not found") {
+			t.Fatalf("err = %v, want the exit and its stderr", err)
+		}
+	})
+	t.Run("complete run", func(t *testing.T) {
+		fakeGovulncheck(t, `echo '{"finding":{"osv":"GO-2024-0001","trace":[{"module":"m"}]}}'`)
+		out, err := runGovulncheck(context.Background(), "")
+		if err != nil || len(out) == 0 {
+			t.Fatalf("out=%q err=%v, want the stream", out, err)
+		}
+	})
 }

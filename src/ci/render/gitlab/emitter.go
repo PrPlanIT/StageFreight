@@ -5,8 +5,6 @@
 //
 // Forge-specific lowering:
 //   - RoutingSpec.Labels → tags:
-//   - CapabilitySpec.Docker → nothing: the runner provides the build engine
-//     (DOCKER_HOST or BUILDKIT_HOST in its environment), auto-detected at runtime
 //   - CapabilitySpec.OIDC → id_tokens.STAGEFREIGHT_OIDC
 //   - PipelineDefaults.CIContext → before_script exporting SF_CI_* from CI_*
 //   - PipelineDefaults.CancelSuperseded → workflow.auto_cancel.on_new_commit

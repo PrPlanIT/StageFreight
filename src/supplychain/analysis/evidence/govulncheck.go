@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
+	"syscall"
+
+	"github.com/PrPlanIT/StageFreight/src/runner"
 )
 
 // GoReachability is the govulncheck-backed reachability contributor for the "go" ecosystem —
@@ -114,9 +119,8 @@ func findingEvidence(f *govulnFinding) ReachabilityEvidence {
 	return ev
 }
 
-// runGovulncheck invokes govulncheck -json over the module at dir. govulncheck exits non-zero
-// when vulnerabilities are found — that is not a run error, so we parse whatever JSON it wrote;
-// only an empty output signals a genuine failure.
+// runGovulncheck runs govulncheck -json over the module at dir. -json exits 0 with or
+// without findings, so any other exit is a failed run whose output is never parsed.
 func runGovulncheck(ctx context.Context, dir string) ([]byte, error) {
 	bin, err := exec.LookPath("govulncheck")
 	if err != nil {
@@ -126,11 +130,51 @@ func runGovulncheck(ctx context.Context, dir string) ([]byte, error) {
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	_ = cmd.Run()
+	var out, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &stderr
+	oomBefore, _ := runner.OOMKills()
+	if err := cmd.Run(); err != nil {
+		return nil, govulncheckFailure(err, stderr.String(), oomBefore)
+	}
 	if out.Len() == 0 {
 		return nil, fmt.Errorf("govulncheck produced no output")
 	}
 	return out.Bytes(), nil
+}
+
+// govulncheckFailure explains a failed run: killed by the kernel for memory (the job's cgroup
+// recorded an OOM kill while it ran), killed by another signal, or exited with an error.
+func govulncheckFailure(err error, stderr string, oomBefore int64) error {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return fmt.Errorf("govulncheck: %w", err)
+	}
+	if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		if after, ok := runner.OOMKills(); ok && after > oomBefore {
+			limit := "the job's"
+			if mb := runner.MemoryLimitMB(); mb > 0 {
+				limit = fmt.Sprintf("the job's %d MB", mb)
+			}
+			return fmt.Errorf("govulncheck was killed: out of memory under %s limit — reachability needs more memory for this module", limit)
+		}
+		return fmt.Errorf("govulncheck was killed by %s", ws.Signal())
+	}
+	if tail := lastLines(stderr, 3); tail != "" {
+		return fmt.Errorf("govulncheck exited %d: %s", exitErr.ExitCode(), tail)
+	}
+	return fmt.Errorf("govulncheck exited %d", exitErr.ExitCode())
+}
+
+// lastLines returns the last n non-empty lines of s, joined by "; ".
+func lastLines(s string, n int) string {
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "; ")
 }

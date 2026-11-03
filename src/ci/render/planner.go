@@ -46,7 +46,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// the ledger, forge-agnostically, not on the forge dropping the artifact.
 					WhenAlways: true,
 				},
-				Capabilities: model.CapabilitySpec{Docker: true, ForgeAPI: true},
+				Capabilities: model.CapabilitySpec{ForgeAPI: true},
 				Policy:       model.PolicySpec{AllowFailure: true},
 			},
 			{
@@ -68,7 +68,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// failure is presented rather than lost.
 					WhenAlways: true,
 				},
-				Capabilities: model.CapabilitySpec{Docker: true, OIDC: true},
+				Capabilities: model.CapabilitySpec{OIDC: true},
 				// Reconcile/converge mutates live systems (flux, ansible
 				// cordon/drain): concurrent pipelines must queue behind one
 				// perform, never race it.
@@ -106,8 +106,7 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// recorded failure.
 					WhenAlways: true,
 				},
-				Capabilities: model.CapabilitySpec{Docker: true},
-				Policy:       model.PolicySpec{AllowFailure: true},
+				Policy: model.PolicySpec{AllowFailure: true},
 			},
 			{
 				Name:     "publish",

@@ -32,6 +32,7 @@ type ScanConfig struct {
 	FailOnCritical   bool                             // fail if critical vulns found
 	ImageRef         string                           // image reference or tarball path to scan
 	BuildID          string                           // the build that produced ImageRef, when known
+	FromRegistry     bool                             // ImageRef is a published reference: scan it from its registry, never a local copy
 	OCILayoutDir     string                           // OCI layout DIRECTORY to scan (content-store path). When set, takes precedence over ImageRef: scanners read the layout directly (trivy --input, grype oci-dir:) with no daemon or registry. This is how review scans the exact bytes carried from perform via the content store.
 	OutputDir        string                           // directory for scan artifacts
 	RootDir          string                           // workspace root for toolchain resolution
@@ -163,6 +164,10 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	if cfg.OCILayoutDir != "" {
 		cfg.ImageRef = ociLayoutPrefix + cfg.OCILayoutDir
 	}
+	scanTarget := cfg.ImageRef
+	if cfg.FromRegistry && cfg.OCILayoutDir == "" {
+		scanTarget = registryRefPrefix + cfg.ImageRef
+	}
 
 	// Best-effort engine version (silent capture, no stdout/stderr connection).
 	result.EngineVersion = buildEngineVersion()
@@ -227,14 +232,14 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 			toolchain.Report(sw, trivyResult)
 			// Trivy JSON scan
 			jsonPath := cfg.OutputDir + "/" + ScanTrivyFile
-			if err := runTrivy(ctx, trivyResult.Path, cfg.ImageRef, "json", jsonPath, trivyCacheDir); err != nil {
+			if err := runTrivy(ctx, trivyResult.Path, scanTarget, "json", jsonPath, trivyCacheDir); err != nil {
 				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "trivy", Version: trivyResult.Version})
 				result.Partial = true
 				diag.Warn("trivy scan failed: %v", err)
 			} else {
 				// Trivy SARIF scan
 				sarifPath := cfg.OutputDir + "/vulnerability-report.sarif"
-				if err := runTrivy(ctx, trivyResult.Path, cfg.ImageRef, "sarif", sarifPath, trivyCacheDir); err != nil {
+				if err := runTrivy(ctx, trivyResult.Path, scanTarget, "sarif", sarifPath, trivyCacheDir); err != nil {
 					diag.Warn("trivy SARIF generation failed (continuing): %v", err)
 				} else {
 					result.Artifacts = append(result.Artifacts, sarifPath)
@@ -266,7 +271,7 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 		} else {
 			toolchain.Report(sw, grypeResult)
 			grypeJSON := cfg.OutputDir + "/security-scan-grype.json"
-			if err := runGrype(ctx, grypeResult.Path, cfg.ImageRef, "json", grypeJSON, grypeCacheDir); err != nil {
+			if err := runGrype(ctx, grypeResult.Path, scanTarget, "json", grypeJSON, grypeCacheDir); err != nil {
 				result.ScannersFailed = append(result.ScannersFailed, ScannerInfo{Name: "grype", Version: grypeResult.Version})
 				result.Partial = true
 				diag.Warn("grype scan failed (continuing without Grype): %v", err)
@@ -314,14 +319,14 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 		}
 		toolchain.Report(sw, syftResult)
 		spdxPath := cfg.OutputDir + "/" + SBOMSPDXFile
-		spdxErr := runSyft(ctx, syftResult.Path, cfg.ImageRef, "spdx-json", spdxPath)
+		spdxErr := runSyft(ctx, syftResult.Path, scanTarget, "spdx-json", spdxPath)
 		if spdxErr == nil {
 			result.Artifacts = append(result.Artifacts, spdxPath)
 			if err := writeSBOMSubject(cfg.OutputDir, SBOMSubject{Build: cfg.BuildID, Ref: cfg.ImageRef}); err != nil {
 				diag.Warn("could not record the SBOM's build: %v", err)
 			}
 			cdxPath := cfg.OutputDir + "/" + SBOMCycloneDXFile
-			if err := runSyft(ctx, syftResult.Path, cfg.ImageRef, "cyclonedx-json", cdxPath); err != nil {
+			if err := runSyft(ctx, syftResult.Path, scanTarget, "cyclonedx-json", cdxPath); err != nil {
 				output.SectionEnd(sw, "sf_syft_raw")
 				return nil, fmt.Errorf("syft cyclonedx: %w", err)
 			}
@@ -646,10 +651,19 @@ func runTrivy(ctx context.Context, binPath, imageRef, format, output, cacheDir s
 	}
 	args = appendTrivyTarget(args, imageRef)
 	cmd := exec.CommandContext(ctx, binPath, args...)
-	cmd.Env = toolchain.CleanEnv()
+	cmd.Env = scannerEnv(imageRef)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// scannerEnv is CleanEnv, plus registry credentials when the target is an image reference.
+func scannerEnv(target string) []string {
+	env := toolchain.CleanEnv()
+	if !strings.HasPrefix(target, ociLayoutPrefix) {
+		env = append(env, toolchain.RegistryAuthEnv()...)
+	}
+	return env
 }
 
 // ociLayoutPrefix marks a scan target as an OCI layout directory rather than an
@@ -659,28 +673,37 @@ func runTrivy(ctx context.Context, binPath, imageRef, format, output, cacheDir s
 // a separate flag threaded through every call site.
 const ociLayoutPrefix = "oci-layout:"
 
-// appendTrivyTarget appends the scan target to trivy args, using --input <dir>
-// for an OCI layout (trivy reads the layout directly, no daemon/registry) or a
-// bare image reference otherwise.
+// registryRefPrefix marks a scan target as a published reference, read from its registry.
+const registryRefPrefix = "registry-ref:"
+
+// appendTrivyTarget appends the scan target to trivy args: --input <dir> for an OCI
+// layout, --image-src remote for a published reference, otherwise the target as given
+// (trivy resolves a tarball, a local image or a registry ref itself).
 func appendTrivyTarget(args []string, target string) []string {
 	if dir, ok := strings.CutPrefix(target, ociLayoutPrefix); ok {
 		return append(args, "--input", dir)
 	}
+	if ref, ok := strings.CutPrefix(target, registryRefPrefix); ok {
+		return append(args, "--image-src", "remote", ref)
+	}
 	return append(args, target)
 }
 
-// grypeTarget translates a scan target to grype's source syntax: oci-dir:<dir>
-// for an OCI layout, or the bare image reference otherwise.
+// grypeTarget translates a scan target to grype's (and syft's) source syntax: oci-dir:<dir>
+// for an OCI layout, registry:<ref> for a published reference, otherwise as given.
 func grypeTarget(target string) string {
 	if dir, ok := strings.CutPrefix(target, ociLayoutPrefix); ok {
 		return "oci-dir:" + dir
+	}
+	if ref, ok := strings.CutPrefix(target, registryRefPrefix); ok {
+		return "registry:" + ref
 	}
 	return target
 }
 
 func runSyft(ctx context.Context, binPath, imageRef, format, output string) error {
 	cmd := exec.CommandContext(ctx, binPath, grypeTarget(imageRef), "-o", format, "-v")
-	cmd.Env = toolchain.CleanEnv()
+	cmd.Env = scannerEnv(imageRef)
 	outFile, err := os.Create(output)
 	if err != nil {
 		return err
@@ -769,7 +792,7 @@ func parseTrivyVulnerabilities(jsonPath string, result *ScanResult) error {
 func runGrype(ctx context.Context, binPath, imageRef, format, output, cacheDir string) error {
 	args := []string{grypeTarget(imageRef), "-o", format, "--file", output, "-v"}
 	cmd := exec.CommandContext(ctx, binPath, args...)
-	env := toolchain.CleanEnv()
+	env := scannerEnv(imageRef)
 	if cacheDir != "" {
 		env = append(env, "GRYPE_DB_CACHE_DIR="+cacheDir)
 	}

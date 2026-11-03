@@ -60,7 +60,8 @@ type SubstrateFacts struct {
 	BuildxAvailable      bool    `json:"buildx_available"`
 	DiskFreeMB           int64   `json:"disk_free_mb"` // .stagefreight filesystem
 	TmpFreeMB            int64   `json:"tmp_free_mb"`
-	MemAvailableMB       int64   `json:"mem_available_mb"` // -1 if unsupported (non-Linux)
+	MemAvailableMB       int64   `json:"mem_available_mb"` // lower of the cgroup headroom and node MemAvailable; -1 if unsupported
+	MemLimitMB           int64   `json:"mem_limit_mb"`     // cgroup memory limit; -1 if unlimited or unsupported
 	CPULoadAvg1          float64 `json:"cpu_load_avg1"`    // -1 if unsupported
 	StagefreightWritable bool    `json:"stagefreight_writable"`
 	WorkdirReadable      bool    `json:"workdir_readable"`
@@ -175,6 +176,7 @@ func ResolveInvocationID(engine ExecutionEngine, identity RunnerIdentity) string
 func CollectFacts(rootDir string) SubstrateFacts {
 	facts := SubstrateFacts{
 		MemAvailableMB: -1,
+		MemLimitMB:     -1,
 		CPULoadAvg1:    -1,
 		InodePctFree:   -1,
 	}
@@ -255,6 +257,8 @@ func CollectFacts(rootDir string) SubstrateFacts {
 	}
 
 	// ── Memory (Linux only) ───────────────────────────────────────────────────
+	// /proc/meminfo is the node's; a container is killed at its cgroup limit, so the
+	// headroom is the lower of the two.
 	if runtime.GOOS == "linux" {
 		if data, err := os.ReadFile("/proc/meminfo"); err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
@@ -267,6 +271,12 @@ func CollectFacts(rootDir string) SubstrateFacts {
 					}
 					break
 				}
+			}
+		}
+		if limitMB, headroomMB, ok := cgroupMemory(cgroupRoot); ok {
+			facts.MemLimitMB = limitMB
+			if facts.MemAvailableMB < 0 || headroomMB < facts.MemAvailableMB {
+				facts.MemAvailableMB = headroomMB
 			}
 		}
 	}
@@ -400,10 +410,15 @@ func EvaluateHealth(facts SubstrateFacts, opts Options) ([]Finding, HealthGrade)
 
 	// memory low — warn (advisory only; container envs often misreport)
 	if facts.MemAvailableMB >= 0 && facts.MemAvailableMB < memWarn {
+		detail := fmt.Sprintf("%s available — below %s recommended", fmtMB(facts.MemAvailableMB), fmtMB(memWarn))
+		if facts.MemLimitMB > 0 {
+			detail = fmt.Sprintf("%s available of a %s limit — below %s recommended",
+				fmtMB(facts.MemAvailableMB), fmtMB(facts.MemLimitMB), fmtMB(memWarn))
+		}
 		findings = append(findings, Finding{
 			ID:       "memory_low",
 			Status:   "warn",
-			Detail:   fmt.Sprintf("%s available — below %s recommended", fmtMB(facts.MemAvailableMB), fmtMB(memWarn)),
+			Detail:   detail,
 			Severity: "warn",
 		})
 	} else if facts.MemAvailableMB >= 0 {
@@ -458,6 +473,18 @@ func Run(rootDir string, opts Options) ExecutionReport {
 		Findings:     findings,
 		Health:       health,
 	}
+}
+
+// HardFailures names the hard_fail findings that failed, as "id: detail" joined by
+// "; " — what made the substrate Unhealthy. Empty when none failed.
+func (r ExecutionReport) HardFailures() string {
+	var parts []string
+	for _, f := range r.Findings {
+		if f.Status == "fail" && f.Severity == "hard_fail" {
+			parts = append(parts, f.ID+": "+f.Detail)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // evaluateBool produces a finding for a boolean fact.

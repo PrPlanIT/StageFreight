@@ -400,6 +400,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		ImageRef:         imageRef,
 		BuildID:          target.BuildID,
 		OCILayoutDir:     ociLayoutDir,
+		FromRegistry:     target.Source != security.TargetExplicit && target.Source != security.TargetPositionalArg,
 		OutputDir:        req.OutputDir,
 		RootDir:          req.RootDir,
 		ToolchainDesired: req.Config.Toolchains.Want,

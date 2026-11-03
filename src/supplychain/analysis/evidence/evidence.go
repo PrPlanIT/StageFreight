@@ -14,7 +14,11 @@
 // touching the pipeline. Evidence is DATA — a contributor never decides policy.
 package evidence
 
-import "context"
+import (
+	"context"
+
+	"github.com/PrPlanIT/StageFreight/src/diag"
+)
 
 // Vulnerability is a normalized finding from the discovery layer — the join identity every
 // contributor enriches. Kept minimal on purpose: each scanner maps its native output into this.
@@ -122,7 +126,9 @@ func (r *Registry) Enrich(ctx context.Context, target Target, vulns []Vulnerabil
 		}
 		ev, err := c.Contribute(ctx, target, supported)
 		if err != nil {
-			continue // fail-closed: a failed contributor adds nothing, never a downgrade
+			// Fail-closed: a failed contributor adds nothing, never a downgrade.
+			diag.Warn("%s evidence not assessed for %d vulnerabilit(ies): %v", c.Name(), len(supported), err)
+			continue
 		}
 		for ref, e := range ev {
 			byRef[ref] = append(byRef[ref], e)
