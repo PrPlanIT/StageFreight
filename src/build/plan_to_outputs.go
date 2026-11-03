@@ -84,13 +84,18 @@ func PlanToOutputs(plan *BuildPlan, opts PlanToOutputsOpts) (artifact.OutputsMan
 				for _, reg := range step.Registries {
 					tags := make([]string, len(reg.Tags))
 					copy(tags, reg.Tags)
+					var profileID string
+					if reg.SigningProfile != nil {
+						profileID = reg.SigningProfile.ID
+					}
 					targets = append(targets, artifact.Target{
 						Kind: "registry",
 						Registry: &artifact.RegistryTarget{
-							Host:       reg.URL,
-							Path:       reg.Path,
-							Tags:       tags,
-							NativeScan: reg.NativeScan,
+							Host:           reg.URL,
+							Path:           reg.Path,
+							Tags:           tags,
+							NativeScan:     reg.NativeScan,
+							SigningProfile: profileID,
 						},
 					})
 				}

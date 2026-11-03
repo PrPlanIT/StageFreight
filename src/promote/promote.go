@@ -182,3 +182,30 @@ func imageForDigest(idx v1.ImageIndex, want v1.Hash) (v1.Image, error) {
 	}
 	return nil, fmt.Errorf("promote: sub-index %s has no platform image entry", want)
 }
+
+// IsIndex reports whether the layout entry with wantDigest is an image index. Read from
+// the bytes: buildx wraps even one platform in an index when it adds attestations.
+func IsIndex(layoutDir, wantDigest string) (bool, error) {
+	p, err := layout.FromPath(layoutDir)
+	if err != nil {
+		return false, fmt.Errorf("promote: opening OCI layout %s: %w", layoutDir, err)
+	}
+	idx, err := p.ImageIndex()
+	if err != nil {
+		return false, fmt.Errorf("promote: reading layout index: %w", err)
+	}
+	im, err := idx.IndexManifest()
+	if err != nil {
+		return false, fmt.Errorf("promote: reading index manifest: %w", err)
+	}
+	want, err := v1.NewHash(wantDigest)
+	if err != nil {
+		return false, fmt.Errorf("promote: parsing recorded digest %q: %w", wantDigest, err)
+	}
+	for _, desc := range im.Manifests {
+		if desc.Digest == want {
+			return desc.MediaType.IsIndex(), nil
+		}
+	}
+	return false, fmt.Errorf("promote: recorded digest %s is not an entry in the layout index", wantDigest)
+}

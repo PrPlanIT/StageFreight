@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/build"
+	builddocker "github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -19,6 +21,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
 	"github.com/PrPlanIT/StageFreight/src/promote"
 	"github.com/PrPlanIT/StageFreight/src/registry"
+	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 )
 
 // promoteArtifacts is the publish-phase distribution step: it pushes each
@@ -80,6 +83,7 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 	var dists []distArtifact
 
 	var failures []string
+	var signPrepErrs []error
 
 	// Provenance gate input: the commit the source under build resolves to — the value
 	// StandardLabels stamped into org.opencontainers.image.revision at build time. promote
@@ -96,6 +100,11 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 
 	evidence := newEvidenceGate(appCfg)
 	defer evidence.record(rootDir)
+
+	// Endpoints a tag actually reached, signed once promotion finishes.
+	var toSign []builddocker.PublishedImage
+	authDirs := newRegistryAuthDirs(appCfg)
+	defer authDirs.cleanup()
 
 	for _, a := range outputs.Artifacts {
 		if a.Kind != "docker" || a.Digest == "" {
@@ -156,11 +165,13 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 
 		dist := distArtifact{name: a.Name, digest: string(a.Digest)}
 		artifactID := artifact.NewArtifactID(a.Kind, a.Name)
+		var reached []promotedEndpoint
 		for _, t := range a.Targets {
 			if t.Kind != "registry" || t.Registry == nil {
 				continue
 			}
 			auth := resolvePromoteAuth(appCfg, t.Registry.Host)
+			ep := promotedEndpoint{host: t.Registry.Host, path: t.Registry.Path, profileID: t.Registry.SigningProfile}
 			for _, tag := range t.Registry.Tags {
 				ref := t.Registry.Host + "/" + t.Registry.Path + ":" + tag
 				target := &artifact.OutcomeTarget{
@@ -208,9 +219,25 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 				})
 				recordedResults = true
 				promoted++
+				ep.tags = append(ep.tags, tag)
+			}
+			if len(ep.tags) > 0 {
+				reached = append(reached, ep)
 			}
 		}
 		dists = append(dists, dist)
+		if len(reached) > 0 {
+			images, sErr := signingImages(appCfg, artifactID, string(a.Digest), layoutDir, reached, authDirs.dirFor)
+			if sErr != nil {
+				signPrepErrs = append(signPrepErrs, fmt.Errorf("%s: preparing signing: %w", a.Name, sErr))
+			}
+			toSign = append(toSign, images...)
+		}
+	}
+
+	signResults, attested, signErr := signPromoted(ctx, appCfg, rootDir, rb, toSign)
+	if len(signResults) > 0 || len(attested) > 0 {
+		recordedResults = true
 	}
 
 	// Post-distribution: trigger each successfully-pushed native-scan registry's
@@ -298,6 +325,8 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		sec.Close()
 	}
 
+	renderSigning(w, signResults, attested, color)
+
 	// Structured publish facts ({publish.tags}/{publish.registries}) for the stencil
 	// language — recorded by the phase that performed the distribution.
 	if len(pubTags) > 0 {
@@ -325,15 +354,130 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 			return promoted, untargeted, fmt.Errorf("writing publication results manifest: %w", wErr)
 		}
 	}
+	// The Distribution box already rendered the per-target evidence; the error carries
+	// only the verdicts: failed tags, signing that could not be prepared, fatal signing.
+	var errs []error
 	if len(failures) > 0 {
-		// Partial distribution: the Distribution box has already rendered the
-		// per-target evidence and published.json records the half-published
-		// state for an idempotent re-run — the error carries only the verdict,
-		// never a second copy of the dump.
-		return promoted, untargeted, fmt.Errorf("%d of %d tag(s) failed to publish",
-			len(failures), promoted+len(failures))
+		errs = append(errs, fmt.Errorf("%d of %d tag(s) failed to publish", len(failures), promoted+len(failures)))
 	}
-	return promoted, untargeted, nil
+	errs = append(errs, signPrepErrs...)
+	errs = append(errs, signErr)
+	return promoted, untargeted, errors.Join(errs...)
+}
+
+// promotedEndpoint is a registry endpoint promotion reached, its tags and signing profile.
+type promotedEndpoint struct {
+	host, path, profileID string
+	tags                  []string
+}
+
+// signingImages turns promoted endpoints into PublishedImages: profile from outputs,
+// multi-arch from the layout, credentials from authDir.
+func signingImages(appCfg *config.Config, id artifact.ArtifactID, digest, layoutDir string, eps []promotedEndpoint, authDir func(host string) (string, error)) ([]builddocker.PublishedImage, error) {
+	multiArch, err := promote.IsIndex(layoutDir, digest)
+	if err != nil {
+		return nil, err
+	}
+	var out []builddocker.PublishedImage
+	for _, ep := range eps {
+		profile, err := config.ResolveSigningProfileForTarget(config.TargetConfig{SigningProfile: ep.profileID},
+			appCfg.SigningSetup.Profiles, appCfg.SigningSetup.DefaultProfile)
+		if err != nil {
+			return out, fmt.Errorf("%s/%s: %w", ep.host, ep.path, err)
+		}
+		dir, err := authDir(ep.host)
+		if err != nil {
+			return out, fmt.Errorf("%s/%s: %w", ep.host, ep.path, err)
+		}
+		out = append(out, builddocker.PublishedImage{
+			ArtifactID: id, Host: ep.host, Path: ep.path, Tags: ep.tags,
+			Digest: digest, MultiArch: multiArch, Profile: profile, AuthDir: dir,
+		})
+	}
+	return out, nil
+}
+
+// publishSigner signs and attests promoted images; tests substitute it.
+var publishSigner = builddocker.CosignSigner
+
+// signPromoted signs the promoted images, then attests the provenance perform wrote
+// when a profile opted in; absent or ambiguous provenance is then fatal.
+func signPromoted(ctx context.Context, appCfg *config.Config, rootDir string, rb *build.ResultsBuilder, images []builddocker.PublishedImage) ([]builddocker.SignResult, []string, error) {
+	if len(images) == 0 {
+		return nil, nil, nil
+	}
+	results, err := publishSigner.SignPublished(ctx, appCfg, rootDir, rb, images)
+	if err != nil {
+		return results, nil, err
+	}
+	want, err := builddocker.AttestationRequested(ctx, appCfg, rootDir, images)
+	if err != nil || !want {
+		return results, nil, err
+	}
+	stmt, _, _, err := resolveSignProvenance(rootDir)
+	if err != nil {
+		return results, nil, err
+	}
+	attested, err := publishSigner.AttestPublished(ctx, appCfg, rootDir, rb, images, stmt)
+	return results, attested, err
+}
+
+// renderSigning shows what publish signed and attested, beneath the distribution.
+func renderSigning(w io.Writer, results []builddocker.SignResult, attested []string, color bool) {
+	if len(results) == 0 && len(attested) == 0 {
+		return
+	}
+	sec := output.NewSection(w, "Signing (publish)", 0, color)
+	for _, r := range results {
+		switch {
+		case r.Signed:
+			sec.Row("%s  signed %s", output.StatusIcon("success", color), r.Ref)
+		case r.Err != nil:
+			sec.Row("%s  NOT signed %s — %v", output.StatusIcon("failed", color), r.Ref, r.Err)
+		default:
+			sec.Row("%s  NOT signed %s — %s", output.StatusIcon("warning", color), r.Ref, r.Skipped)
+		}
+	}
+	for _, ref := range attested {
+		sec.Row("%s  provenance attested %s", output.StatusIcon("success", color), ref)
+	}
+	sec.Close()
+}
+
+// registryAuthDirs writes a DOCKER_CONFIG per registry host from promotion's credentials.
+type registryAuthDirs struct {
+	cfg      *config.Config
+	dirs     map[string]string
+	cleanups []func()
+}
+
+func newRegistryAuthDirs(cfg *config.Config) *registryAuthDirs {
+	return &registryAuthDirs{cfg: cfg, dirs: map[string]string{}}
+}
+
+// dirFor returns host's auth dir, "" when none is configured.
+func (r *registryAuthDirs) dirFor(host string) (string, error) {
+	if d, ok := r.dirs[host]; ok {
+		return d, nil
+	}
+	user, secret, ok := promoteCredential(r.cfg, host)
+	if !ok {
+		r.dirs[host] = ""
+		return "", nil
+	}
+	dir, cleanup, err := cosign.WriteRegistryAuth(host, user, secret)
+	if err != nil {
+		return "", err
+	}
+	r.cleanups = append(r.cleanups, cleanup)
+	r.dirs[host] = dir
+	return dir, nil
+}
+
+func (r *registryAuthDirs) cleanup() {
+	for _, c := range r.cleanups {
+		c()
+	}
 }
 
 // hasRegistryTarget reports whether an artifact carries at least one registry
@@ -353,6 +497,15 @@ func hasRegistryTarget(targets []artifact.Target) bool {
 // go-containerregistry Authenticator. Returns nil (anonymous / ambient
 // keychain) when no matching credentials are configured.
 func resolvePromoteAuth(appCfg *config.Config, host string) authn.Authenticator {
+	user, secret, ok := promoteCredential(appCfg, host)
+	if !ok {
+		return nil
+	}
+	return authn.FromConfig(authn.AuthConfig{Username: user, Password: secret})
+}
+
+// promoteCredential resolves host's registry credentials for promotion and signing alike.
+func promoteCredential(appCfg *config.Config, host string) (user, secret string, ok bool) {
 	normHost := registry.NormalizeHost(host)
 	for _, reg := range appCfg.Registries {
 		if reg.Credentials == "" {
@@ -365,12 +518,9 @@ func resolvePromoteAuth(appCfg *config.Config, host string) authn.Authenticator 
 		if !cred.IsSet() {
 			continue
 		}
-		return authn.FromConfig(authn.AuthConfig{
-			Username: cred.User,
-			Password: cred.Secret,
-		})
+		return cred.User, cred.Secret, true
 	}
-	return nil
+	return "", "", false
 }
 
 // findRegistryByHost returns the configured registry whose URL matches host (or

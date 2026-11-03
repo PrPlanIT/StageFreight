@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
@@ -15,12 +14,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
-	"github.com/PrPlanIT/StageFreight/src/sign"
-	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
-	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -62,186 +57,69 @@ func buildRetainRecord(rc *domains.RunContext, plan *build.BuildPlan, label stri
 	return result, storeRows, pushed, nil
 }
 
-// signImages signs each successfully published image digest under its target's
-// resolved signing profile. Unlike blob signing, the `legacy` default DOES sign
-// images when COSIGN_KEY resolves — preserving implicit image signing. Best-effort
-// and loud: a failure is recorded as a failed attestation outcome and warned, but
-// never aborts the build; whether a missing signature blocks a release is Publish's
-// policy. Signing belongs to Publish — this is that step within the publish phase.
+// signImages signs the images perform pushed in-build; under transport there are none.
 func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.StepResult) error {
-	cfg := rc.Config.SigningSetup
-	if !cfg.SigningEnabled() {
-		return nil // global kill switch — no signing this run
-	}
-
-	// Index each registry endpoint's profile + multi-arch flag by host/path —
-	// the join key back from a buildx PushObservation to its lowered target.
-	type sigTarget struct {
-		profile   *config.ResolvedSigningProfile
-		multiArch bool
-	}
-	// Key by the NORMALIZED host (scheme/case/trailing-slash stripped) so the
-	// lookup matches the buildx-observed obs.Host, which is already normalized. A
-	// raw-URL key here silently dropped signing for any non-bare registry URL —
-	// bypassing even enforce. Both sides go through the same normalizer.
-	byEndpoint := map[string]sigTarget{}
-	for _, st := range plan.Steps {
-		for _, reg := range st.Registries {
-			byEndpoint[normalizeRegistryHost(reg.URL)+"/"+reg.Path] = sigTarget{reg.SigningProfile, len(st.Platforms) > 1}
-		}
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	var unsigned []string
+	endpoints := signingEndpoints(plan)
+	var images []PublishedImage
 	for _, step := range steps {
 		artifactID := artifact.NewArtifactID("docker", step.Name)
 		for _, obs := range step.Publications {
 			if obs.Digest == "" {
 				continue
 			}
-			digestRef := obs.Host + "/" + obs.Path + "@" + obs.Digest
-			tgt := byEndpoint[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
-			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Providers, tgt.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
-			if serr != nil {
-				return serr // FATAL (continuity / state-dir guard)
-			}
-			if !sc.DoSign {
-				unsigned = append(unsigned, digestRef)
-				continue
-			}
-			target := &artifact.OutcomeTarget{Kind: "registry", Host: obs.Host, Path: obs.Path, Tag: obs.Tag}
-			evidence := sc.Evidence(now)
-			err := cosign.SignImage(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Want, digestRef, sc.Plan, sc.Env, sign.SignOptions{MultiArch: tgt.multiArch})
-			if err != nil {
-				diag.Warn("image signing %s: %v", digestRef, err)
-				rc.RB.Record(artifactID, artifact.Outcome{
-					Type: artifact.OutcomeTypeAttestation, Target: target,
-					Attestation: &artifact.AttestationOutcome{
-						Status: artifact.OutcomeFailed, Kind: "cosign",
-						VerifiedDigest: obs.Digest, TrustEvidence: evidence, Error: err.Error(),
-					},
-				})
-				if tgt.profile != nil && tgt.profile.Enforce {
-					return fmt.Errorf("signing image %s (enforce): %w", digestRef, err)
-				}
-				continue
-			}
-			rc.RB.Record(artifactID, artifact.Outcome{
-				Type: artifact.OutcomeTypeAttestation, Target: target,
-				Attestation: &artifact.AttestationOutcome{
-					Status: artifact.OutcomeSuccess, Kind: "cosign",
-					SignatureRef: digestRef, VerifiedDigest: obs.Digest, TrustEvidence: evidence,
-				},
+			tgt := endpoints[normalizeRegistryHost(obs.Host)+"/"+obs.Path]
+			images = append(images, PublishedImage{
+				ArtifactID: artifactID, Host: obs.Host, Path: obs.Path, Tags: []string{obs.Tag},
+				Digest: obs.Digest, MultiArch: tgt.multiArch, Profile: tgt.profile,
 			})
 		}
 	}
-
-	// Visible advisory: signing is enabled but one or more published images got NO
-	// signer — naming EACH so a partially-signed set is never silently shipped (the
-	// operator believing signing is on). Per-image signing FAILURES warn separately.
-	if len(unsigned) > 0 {
-		diag.Warn("signing is enabled but %d published image(s) were NOT signed (%s): %s",
-			len(unsigned), autosign.InactiveReason(cfg), strings.Join(unsigned, ", "))
-	}
-	return nil
+	_, err := CosignSigner.SignPublished(rc.Ctx, rc.Config, rc.RootDir, rc.RB, images)
+	return err
 }
 
-// attestImages cryptographically attaches the build-provenance predicate to each
-// published image digest (cosign attest), authorized by the SAME trust tier that
-// signed the artifact — so "signed, with provenance attested by that tier" is a
-// genuine end-to-end statement, not two unrelated acts. It runs in Publish, AFTER
-// writeBuildProvenance, because the predicate is born there; signImages (Build)
-// cannot attest a file that does not yet exist.
-//
-// Discipline:
-//   - Only profiles that opted in (attestation: true) attest.
-//   - For an opted-in image, a MISSING provenance file is FATAL (lock 1): an enabled
-//     attestation that silently produces nothing is aspirational metadata, not an
-//     enforced integrity guarantee — same no-silent-degrade principle as signing.
-//   - Manifest-sourced from rc.Outputs.Artifacts; no post-hoc registry enumeration
-//     (lock 5). The predicate's path + sha256 are recorded (lock 2).
-//   - Binary artifacts carry no provenance, so they are honestly absent here — there
-//     is nothing to attach, and nothing is claimed.
-func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string) error {
-	cfg := rc.Config.SigningSetup
-	if !cfg.SigningEnabled() {
-		return nil // global kill switch
-	}
+// signingEndpoint is a registry endpoint's resolved signing profile + multi-arch flag.
+type signingEndpoint struct {
+	profile   *config.ResolvedSigningProfile
+	multiArch bool
+}
 
-	// profile + multi-arch by NORMALIZED endpoint — identical join to signImages,
-	// so an image's attestation resolves to the same signer that signed it.
-	type sigTarget struct {
-		profile   *config.ResolvedSigningProfile
-		multiArch bool
-	}
-	byEndpoint := map[string]sigTarget{}
+// signingEndpoints indexes each endpoint's signing profile by normalized host/path,
+// the key a push observation or outputs target joins on; a raw URL would not match.
+func signingEndpoints(plan *build.BuildPlan) map[string]signingEndpoint {
+	out := map[string]signingEndpoint{}
 	for _, st := range plan.Steps {
 		for _, reg := range st.Registries {
-			byEndpoint[normalizeRegistryHost(reg.URL)+"/"+reg.Path] = sigTarget{reg.SigningProfile, len(st.Platforms) > 1}
+			out[normalizeRegistryHost(reg.URL)+"/"+reg.Path] = signingEndpoint{reg.SigningProfile, len(st.Platforms) > 1}
 		}
 	}
+	return out
+}
 
-	// The provenance file is a full in-toto Statement, but cosign attest --predicate
-	// wants only the predicate BODY (cosign re-frames it with the IMAGE digest as the
-	// subject — which is exactly right for an image attestation). Extract the predicate
-	// ONCE; one predicate covers the whole build, so every image attests the same bytes.
-	// provSHA records the canonical statement's identity (lock 2), not the derived body.
-	predPath, provSHA, provExists := build.ExtractPredicate(provPath)
-
-	now := time.Now().UTC().Format(time.RFC3339)
+// attestImages attests provenance to the images perform pushed in-build. It runs after
+// writeBuildProvenance; callers skip it under transport. Images come from
+// rc.Outputs.Artifacts, never registry enumeration.
+func attestImages(rc *domains.RunContext, plan *build.BuildPlan, provPath string) error {
+	endpoints := signingEndpoints(plan)
+	var images []PublishedImage
 	for _, art := range rc.Outputs.Artifacts {
 		if art.Kind != "docker" || art.Digest == "" {
 			continue // binaries/archives have no image digest + no provenance to attach
 		}
-		artifactID := artifact.NewArtifactID("docker", art.Name)
 		for _, tgt := range art.Targets {
 			if tgt.Registry == nil {
 				continue
 			}
 			host := normalizeRegistryHost(tgt.Registry.Host)
-			endpoint := host + "/" + tgt.Registry.Path
-			digestRef := endpoint + "@" + string(art.Digest)
-			st := byEndpoint[endpoint]
-			sc, serr := autosign.ResolveSigningContext(rc.Ctx, cfg, rc.Config.Secrets.Providers, st.profile, rc.RootDir, rc.RootDir, rc.Config.Toolchains.Want, now)
-			if serr != nil {
-				return serr // FATAL (continuity / state-dir guard)
-			}
-			if !sc.DoSign || !sc.Plan.Attestation {
-				continue // no signer for this endpoint, or the profile did not opt into attestation
-			}
-			if !provExists {
-				return fmt.Errorf("attestation is enabled for %s but build provenance %q is missing or unreadable — refusing to silently skip", digestRef, provPath)
-			}
-			target := &artifact.OutcomeTarget{Kind: "registry", Host: tgt.Registry.Host, Path: tgt.Registry.Path}
-			evidence := sc.Evidence(now)
-			opts := sign.SignOptions{MultiArch: st.multiArch, PredicatePath: predPath, PredicateType: "slsaprovenance"}
-			err := cosign.Attest(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Want, digestRef, sc.Plan, sc.Env, opts)
-			if err != nil {
-				diag.Warn("provenance attestation %s: %v", digestRef, err)
-				rc.RB.Record(artifactID, artifact.Outcome{
-					Type: artifact.OutcomeTypeProvenanceAttestation, Target: target,
-					ProvenanceAttestation: &artifact.ProvenanceAttestationOutcome{
-						Status: artifact.OutcomeFailed, Kind: "cosign", PredicateType: "slsaprovenance",
-						ProvenancePath: provPath, ProvenanceSHA: provSHA, VerifiedDigest: string(art.Digest),
-						TrustEvidence: evidence, Error: err.Error(),
-					},
-				})
-				if st.profile != nil && st.profile.Enforce {
-					return fmt.Errorf("attesting provenance %s (enforce): %w", digestRef, err)
-				}
-				continue
-			}
-			rc.RB.Record(artifactID, artifact.Outcome{
-				Type: artifact.OutcomeTypeProvenanceAttestation, Target: target,
-				ProvenanceAttestation: &artifact.ProvenanceAttestationOutcome{
-					Status: artifact.OutcomeSuccess, Kind: "cosign", PredicateType: "slsaprovenance",
-					ProvenancePath: provPath, ProvenanceSHA: provSHA, AttestationRef: digestRef,
-					VerifiedDigest: string(art.Digest), TrustEvidence: evidence,
-				},
+			ep := endpoints[host+"/"+tgt.Registry.Path]
+			images = append(images, PublishedImage{
+				ArtifactID: artifact.NewArtifactID("docker", art.Name), Host: host, Path: tgt.Registry.Path,
+				Digest: string(art.Digest), MultiArch: ep.multiArch, Profile: ep.profile,
 			})
 		}
 	}
-	return nil
+	_, err := CosignSigner.AttestPublished(rc.Ctx, rc.Config, rc.RootDir, rc.RB, images, provPath)
+	return err
 }
 
 // runPostBuildRetention enforces cache retention (buildkit/local/external) and

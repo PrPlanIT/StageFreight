@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -32,7 +31,7 @@ func SignImage(ctx context.Context, rootDir string, desired map[string]config.To
 		args = append(args, "--recursive")
 	}
 	args = append(args, digestRef)
-	return run(ctx, rootDir, desired, plan, "sign", args)
+	return run(ctx, rootDir, desired, plan, "sign", args, opts.RegistryAuthDir)
 }
 
 // Attest binds a predicate to an image digest ref per the plan. The predicate
@@ -46,8 +45,11 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolC
 	if err != nil {
 		return fmt.Errorf("cosign attest: %w", err)
 	}
+	if opts.MultiArch {
+		args = append(args, "--recursive")
+	}
 	args = append(args, "--predicate", opts.PredicatePath, "--type", opts.PredicateType, digestRef)
-	return run(ctx, rootDir, desired, plan, "attest", args)
+	return run(ctx, rootDir, desired, plan, "attest", args, opts.RegistryAuthDir)
 }
 
 // SignBlob signs a detached blob (e.g. SHA256SUMS) per the plan, writing the
@@ -59,7 +61,7 @@ func SignBlob(ctx context.Context, rootDir string, desired map[string]config.Too
 		return fmt.Errorf("cosign sign-blob: %w", err)
 	}
 	args = append(args, "--output-signature", sigPath, blobPath)
-	return run(ctx, rootDir, desired, plan, "sign-blob", args)
+	return run(ctx, rootDir, desired, plan, "sign-blob", args, "")
 }
 
 // Available reports whether cosign can be resolved via the toolchain.
@@ -74,7 +76,8 @@ func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
 
 // run resolves cosign and execs it with the rendered args and a class-appropriate
 // environment. The sole exec point; warnings carry cosign's stderr for diagnosis.
-func run(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, op string, args []string) error {
+// registryAuthDir, when set, is the op's DOCKER_CONFIG (withRegistryAuth).
+func run(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, op string, args []string, registryAuthDir string) error {
 	sel, selErr := toolchain.Select(rootDir, "cosign", desired)
 	result, err := provision.ResolveSelection(ctx, rootDir, "cosign", sel, selErr, "artifact signing")
 	if err != nil {
@@ -84,13 +87,22 @@ func run(ctx context.Context, rootDir string, desired map[string]config.ToolCons
 		return fmt.Errorf("cosign %s: toolchain resolve: %w", op, err)
 	}
 	cmd := exec.CommandContext(ctx, result.Path, args...)
-	cmd.Env = signEnv(plan)
+	cmd.Env = withRegistryAuth(signEnv(plan), registryAuthDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		diag.Warn("cosign %s failed: %s", op, strings.TrimSpace(string(out)))
 		return fmt.Errorf("cosign %s: %w", op, err)
 	}
 	return nil
+}
+
+// withRegistryAuth appends DOCKER_CONFIG=dir, overriding signEnv's (os/exec keeps the
+// last duplicate). Empty dir leaves env unchanged.
+func withRegistryAuth(env []string, dir string) []string {
+	if dir == "" {
+		return env
+	}
+	return append(env, "DOCKER_CONFIG="+dir)
 }
 
 // signEnv builds the process environment for a cosign invocation, per trust class:
@@ -113,7 +125,7 @@ func signEnv(plan sign.SignPlan) []string {
 	// `docker login` is found. Harmless for blob signing (which ignores it).
 	// Registry auth is transport, NOT signing input — this never weakens the
 	// hermeticity of the signing material itself.
-	env = append(env, dockerConfigEnv()...)
+	env = append(env, toolchain.RegistryAuthEnv()...)
 	switch plan.TrustClass {
 	case sign.ClassKey:
 		// A cosign key is always password-encrypted (even with an empty password).
@@ -149,23 +161,6 @@ var oidcEnvPrefixes = []string{
 var kmsEnvPrefixes = []string{
 	"COSIGN_", "AWS_", "GOOGLE_", "GCP_", "CLOUDSDK_", "AZURE_", "VAULT_",
 	"TRANSIT_SECRET_ENGINE_PATH",
-}
-
-// dockerConfigEnv returns a DOCKER_CONFIG entry pointing at the registry
-// credentials a cosign image operation needs, or nil when none can be located.
-// An explicit DOCKER_CONFIG wins; otherwise the caller's real ~/.docker is used
-// iff it actually holds a config.json (a prior `docker login`).
-func dockerConfigEnv() []string {
-	if dc, ok := os.LookupEnv("DOCKER_CONFIG"); ok && dc != "" {
-		return []string{"DOCKER_CONFIG=" + dc}
-	}
-	if home := os.Getenv("HOME"); home != "" {
-		cfgDir := filepath.Join(home, ".docker")
-		if _, err := os.Stat(filepath.Join(cfgDir, "config.json")); err == nil {
-			return []string{"DOCKER_CONFIG=" + cfgDir}
-		}
-	}
-	return nil
 }
 
 func forwardByPrefix(prefixes []string) []string {

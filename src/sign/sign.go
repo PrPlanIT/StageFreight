@@ -77,6 +77,9 @@ type SignOptions struct {
 	MultiArch     bool
 	PredicatePath string
 	PredicateType string // attestation predicate type (e.g. "slsaprovenance"); caller-set, never executor-defaulted
+
+	// RegistryAuthDir is a DOCKER_CONFIG dir with the target registry's credentials ("" = ambient).
+	RegistryAuthDir string
 }
 
 // SignerRef returns the signer identity material a plan signs under, for

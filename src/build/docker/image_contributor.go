@@ -186,7 +186,11 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 	// ensure it). The backend resolves the post-build retention path (buildkit
 	// prune vs local); a failed resolve leaves it nil and runPostBuildRetention
 	// falls back to local retention.
-	c.builderInfo = ResolveBuilderInfo(EnsureBuilder(rc.Config.BuildCache.Builder))
+	builder := EnsureBuilder(rc.Config.BuildCache.Builder)
+	if err := builder.Err(); err != nil {
+		return domains.Contribution{Status: "failed", Summary: "builder unavailable"}, err
+	}
+	c.builderInfo = ResolveBuilderInfo(builder)
 	c.backend, _ = ResolveBackendWithConfig(BackendCapabilities{
 		Build: true, Run: true, Filesystem: true,
 	}, rc.Config.BuildCache.Builder.Backend)
@@ -230,6 +234,9 @@ func (c *imageContributor) Build(rc *domains.RunContext) (domains.Contribution, 
 		rows = append(rows, fmt.Sprintf("%-9s %-28s %s  %s", "image", step.Name, output.StatusIcon("success", rc.Color), state))
 	}
 	rows = append(rows, storeRows...)
+	if transport && rc.Config.SigningSetup.SigningEnabled() {
+		rows = append(rows, deferredSigningRow)
+	}
 
 	summary := fmt.Sprintf("%d image(s)", len(result.Steps))
 	switch {
@@ -285,7 +292,14 @@ func (c *imageContributor) Publish(rc *domains.RunContext) (domains.Contribution
 	})
 	// Provenance is born here; attest it to each published image digest under the
 	// same trust tier that signed the artifact. Fail-loud (a configured attestation
-	// must not silently degrade), so a fatal attestation error fails Publish.
+	// must not silently degrade), so a fatal attestation error fails Publish. Under
+	// transport, publish attests the images as it promotes them.
+	if rc.Store != nil && rc.Store.Transport() {
+		if rc.Config.SigningSetup.SigningEnabled() {
+			provRows = append(provRows, deferredAttestationRow)
+		}
+		return domains.Contribution{Rows: provRows, Status: "success", Summary: "provenance"}, nil
+	}
 	if err := attestImages(rc, c.plan, provPath); err != nil {
 		return domains.Contribution{Rows: provRows, Status: "error", Summary: "provenance"}, err
 	}

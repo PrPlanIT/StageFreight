@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 func TestPlanToOutputsDockerStep(t *testing.T) {
@@ -315,5 +316,25 @@ func TestPlanToOutputsPure(t *testing.T) {
 	}
 	if a.Checksum != b.Checksum {
 		t.Fatalf("checksum non-deterministic: %s vs %s", a.Checksum, b.Checksum)
+	}
+}
+
+// Each registry target carries its resolved signing profile ID; one without carries none.
+func TestPlanToOutputsCarriesSigningProfile(t *testing.T) {
+	plan := &BuildPlan{Steps: []BuildStep{{
+		Name: "app", Output: OutputImage, Dockerfile: "Dockerfile", Context: ".", Platforms: []string{"linux/amd64"},
+		Registries: []RegistryTarget{
+			{URL: "cr.optcp.com", Path: "org/app", Tags: []string{"v1"}, SigningProfile: &config.ResolvedSigningProfile{ID: "release"}},
+			{URL: "ghcr.io", Path: "org/app", Tags: []string{"v1"}},
+		},
+	}}}
+	out, err := PlanToOutputs(plan, PlanToOutputsOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := out.Artifacts[0].Targets
+	if targets[0].Registry.SigningProfile != "release" || targets[1].Registry.SigningProfile != "" {
+		t.Fatalf("signing profiles = %q, %q; want release, empty",
+			targets[0].Registry.SigningProfile, targets[1].Registry.SigningProfile)
 	}
 }

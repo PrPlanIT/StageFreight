@@ -188,6 +188,9 @@ type RegistryTarget struct {
 	Path       string   `json:"path"`
 	Tags       []string `json:"tags"`
 	NativeScan bool     `json:"nativeScan,omitempty"` // trigger the registry's built-in scan after a successful push (Publish-owned)
+
+	// SigningProfile is the signing.profiles id published images sign under ("" = legacy default).
+	SigningProfile string `json:"signingProfile,omitempty"`
 }
 
 // ForgeReleaseAssetTarget describes a forge release asset destination
