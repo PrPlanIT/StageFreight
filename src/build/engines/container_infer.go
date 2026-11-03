@@ -44,12 +44,8 @@ type inferredBuild struct {
 	Command    string
 	Output     string
 	ForwardEnv []string // host env vars (CI secrets) to pass into the container
-	// CacheSubdir locates the builder's package-manager store under the SF cache root
-	// (e.g. ["node","pnpm-store"]) — content-addressed, safe to reuse across runs — and
-	// CacheEnv is the env var pointing the tool at the in-container mount of it (e.g.
-	// PNPM_STORE_DIR). Empty when the builder has no cacheable store. The engine bridges
-	// the host cache dir into the build container (bind-mount or docker cp); a miss just
-	// yields a cold build.
+	// CacheSubdir names the builder's package-manager store (e.g. ["node","pnpm-store"]);
+	// CacheEnv is the env var pointing the tool at it. Empty: no cacheable store.
 	CacheSubdir []string
 	CacheEnv    string
 }

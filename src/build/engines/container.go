@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
@@ -21,8 +20,8 @@ import (
 )
 
 // The containerized-build engine runs a build COMMAND inside a declared container
-// IMAGE (repo mounted) and captures the produced artifact — a file OR a directory
-// tree — for languages StageFreight doesn't compile natively. engineNameFor(<b>)
+// IMAGE (the repo staged in) and captures the produced artifact — a file OR a
+// directory tree — for languages StageFreight doesn't compile natively. engineNameFor(<b>)
 // resolves to "binary-<b>", so each builder routes here and rides the binary
 // contributor's orchestration + archiving. One engine, one substrate; each language
 // is a small convention (inferBuild) on top. node was first; elixir rides the same
@@ -111,6 +110,9 @@ func (e *containerEngine) Plan(ctx context.Context, cfg build.BuildConfig) ([]bu
 				ForwardEnv:  inf.ForwardEnv,
 				CacheSubdir: inf.CacheSubdir,
 				CacheEnv:    inf.CacheEnv,
+
+				InJob:         cfg.JobImage != "" && image == cfg.JobImage,
+				BuildxBuilder: cfg.BuildxBuilder,
 			},
 		})
 	}
@@ -124,20 +126,6 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// cacheBindMountable reports whether the build cache can be bind-mounted into the
-// container instead of copied — true when the daemon shares our filesystem (a local
-// unix socket), so a `-v` mount resolves to the same path we wrote. Under DinD the
-// daemon is a separate host, so the default is the docker-cp bridge; an operator who
-// has mounted the SF cache into the DinD service at the same path can force the
-// zero-copy mount with SF_CONTAINER_CACHE_BIND=1.
-func cacheBindMountable() bool {
-	if os.Getenv("SF_CONTAINER_CACHE_BIND") == "1" {
-		return true
-	}
-	h := strings.TrimSpace(os.Getenv("DOCKER_HOST"))
-	return h == "" || strings.HasPrefix(h, "unix://")
-}
-
 func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) (*build.UniversalStepResult, error) {
 	meta, ok := step.Meta.(ContainerMeta)
 	if !ok {
@@ -147,142 +135,239 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 
 	rootDir, _ := os.Getwd()
 
-	// The container engine is daemon-agnostic. It does NOT bind-mount the workspace:
-	// a `-v` mount resolves against the *daemon's* filesystem, which under DinD is a
-	// separate host from the job checkout, so the produced artifact never lands where
-	// the pipeline looks. Instead we `docker cp` the repo INTO a created container,
-	// run the command, then `docker cp` the produced artifact back OUT onto the host.
-	// Both stream over the daemon API, so this works with a local OR a remote/DinD
-	// daemon (Crucible's buildkit-cert plumbing is still not needed here).
-	const containerRoot = "/workspace"
+	// Either way only the artifact comes back; nothing else the command writes reaches the workspace.
+	run := runOnBuildKit
+	if meta.InJob {
+		run = runInJob
+	}
+	if err := run(ctx, rootDir, meta); err != nil {
+		return nil, err
+	}
+
+	artifacts, err := collectArtifacts(rootDir, meta.Artifact)
+	if err != nil {
+		return nil, err
+	}
+
+	// binary_name is what the binary-archive target names the file inside the
+	// archive; use the produced artifact's basename (e.g. the .exe filename).
+	binaryName := filepath.Base(artifacts[0].Path)
+
+	return &build.UniversalStepResult{
+		Artifacts: artifacts,
+		Metadata:  map[string]string{"image": meta.Image, "binary_name": binaryName},
+		Metrics:   build.StepMetrics{Duration: time.Since(start)},
+	}, nil
+}
+
+// runInJob runs the command in this job (its image is the job's image) in a scratch
+// copy of the workspace, then lands the artifact.
+func runInJob(ctx context.Context, rootDir string, meta ContainerMeta) error {
+	scratch, err := os.MkdirTemp("", "stagefreight-command-")
+	if err != nil {
+		return fmt.Errorf("container engine: scratch workspace: %w", err)
+	}
+	defer os.RemoveAll(scratch)
+	if err := copyPath(rootDir, scratch, scratch); err != nil {
+		return fmt.Errorf("container engine: staging workspace: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", meta.Command)
+	cmd.Dir = scratch
+	if meta.WorkDir != "" {
+		cmd.Dir = filepath.Join(scratch, meta.WorkDir)
+	}
+	cmd.Env = inJobEnv(meta)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("command build failed (in this job, image %s): %w\n%s", meta.Image, err, string(out))
+	}
+	return landArtifact(scratch, rootDir, meta.Artifact)
+}
+
+// runOnBuildKit runs the step as a BuildKit build on the run's buildx builder and
+// exports only the artifact (type=local).
+func runOnBuildKit(ctx context.Context, rootDir string, meta ContainerMeta) error {
+	builder, err := build.EnsureBuildxBuilder(meta.BuildxBuilder)
+	if err != nil {
+		return fmt.Errorf("container engine: %s runs on a BuildKit builder, and none is usable: %w", meta.Image, err)
+	}
+
+	defDir, err := os.MkdirTemp("", "stagefreight-command-")
+	if err != nil {
+		return fmt.Errorf("container engine: build definition dir: %w", err)
+	}
+	defer os.RemoveAll(defDir)
+
+	extractRel := artifactExtractRel(meta.Artifact)
+	dockerfile := filepath.Join(defDir, "Dockerfile")
+	if err := os.WriteFile(dockerfile, []byte(commandDockerfile(meta, extractRel)), 0o644); err != nil {
+		return fmt.Errorf("container engine: writing build definition: %w", err)
+	}
+	// An empty Dockerfile-specific ignore file overrides the repo's .dockerignore: the command sees the whole repo.
+	if err := os.WriteFile(dockerfile+".dockerignore", nil, 0o644); err != nil {
+		return fmt.Errorf("container engine: writing build definition: %w", err)
+	}
+	outDir := filepath.Join(defDir, "out")
+
+	out, err := exec.CommandContext(ctx, "docker", commandBuildArgs(builder, dockerfile, outDir, rootDir, meta)...).CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), fmt.Sprintf("%q: not found", path.Join(containerRoot, extractRel))) {
+			return fmt.Errorf("container engine: no artifact at %q after the build\n%s", meta.Artifact, string(out))
+		}
+		return fmt.Errorf("container build failed (%s on builder %s): %w\n%s", meta.Image, builder, err, string(out))
+	}
+	return landArtifact(outDir, rootDir, meta.Artifact)
+}
+
+// containerRoot is where the repo is staged inside the step's image.
+const containerRoot = "/workspace"
+
+// commandDockerfile is the BuildKit definition of a containerized step; the final
+// scratch stage holds only the artifact. CI secrets are secret mounts, never layers.
+func commandDockerfile(meta ContainerMeta, extractRel string) string {
 	workdir := containerRoot
 	if meta.WorkDir != "" {
 		workdir = path.Join(containerRoot, meta.WorkDir)
 	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "FROM %s AS build\n", meta.Image)
+	fmt.Fprintf(&b, "COPY . %s\n", containerRoot)
+	fmt.Fprintf(&b, "WORKDIR %s\n", workdir)
+	for _, k := range sortedKeys(meta.Env) {
+		fmt.Fprintf(&b, "ARG %s\n", k)
+	}
+	var mounts []string
+	if len(meta.CacheSubdir) > 0 && meta.CacheEnv != "" {
+		target := "/" + meta.CacheSubdir[len(meta.CacheSubdir)-1]
+		fmt.Fprintf(&b, "ENV %s=%s\n", meta.CacheEnv, target)
+		mounts = append(mounts, fmt.Sprintf("--mount=type=cache,id=stagefreight-%s,target=%s",
+			strings.Join(meta.CacheSubdir, "-"), target))
+	}
+	for _, name := range forwardedEnv(meta.ForwardEnv) {
+		mounts = append(mounts, fmt.Sprintf("--mount=type=secret,id=%s,env=%s", name, name))
+	}
+	cmd, _ := json.Marshal([]string{"sh", "-c", meta.Command})
+	b.WriteString("RUN ")
+	for _, m := range mounts {
+		b.WriteString(m + " ")
+	}
+	b.Write(cmd)
+	b.WriteString("\n")
+	src, _ := json.Marshal(path.Join(containerRoot, extractRel))
+	dst, _ := json.Marshal(path.Join("/", extractRel))
+	fmt.Fprintf(&b, "FROM scratch\nCOPY --from=build [%s, %s]\n", src, dst)
+	return b.String()
+}
 
-	// Persistent package-manager cache (best-effort). Reuse a content-addressed store
-	// across CI runs instead of re-downloading every dependency. It lives under the SF
-	// cache root beside the Go/Rust caches (e.g. /stagefreight/cache/node/pnpm-store) and
-	// is bridged into the build container: bind-mounted when the daemon shares our
-	// filesystem (zero-copy), else docker-cp'd in and back out under DinD. ANY failure
-	// degrades to a cold build — never fatal. No-op when no persistent cache mount exists
-	// (ContainerCacheDir returns ""), e.g. local dev.
-	var cacheHostDir, cacheContainerDir string
-	bindCache := false
+// commandBuildArgs is the buildx invocation for a containerized step; it names the builder explicitly.
+func commandBuildArgs(builder, dockerfile, outDir, rootDir string, meta ContainerMeta) []string {
+	args := []string{"buildx", "build", "--builder", builder, "--progress=plain",
+		"--file", dockerfile, "--output", "type=local,dest=" + outDir}
+	for _, k := range sortedKeys(meta.Env) {
+		args = append(args, "--build-arg", k+"="+meta.Env[k])
+	}
+	for _, name := range forwardedEnv(meta.ForwardEnv) {
+		args = append(args, "--secret", "id="+name+",env="+name)
+	}
+	return append(args, rootDir)
+}
+
+// forwardedEnv is the subset of the named host vars that are actually set, in order.
+// inJobBaseEnv is what an in-job command inherits from the job: what a shell and its
+// tools need to run, never the job's credentials.
+var inJobBaseEnv = []string{
+	"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TZ",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+}
+
+// inJobEnv is an in-job command's environment: the base, the step's forwarded secrets,
+// its declared env and its cache dir — the same inputs the BuildKit path gets.
+func inJobEnv(meta ContainerMeta) []string {
+	var env []string
+	for _, n := range inJobBaseEnv {
+		if v, ok := os.LookupEnv(n); ok {
+			env = append(env, n+"="+v)
+		}
+	}
+	for _, n := range forwardedEnv(meta.ForwardEnv) {
+		env = append(env, n+"="+os.Getenv(n))
+	}
+	for _, k := range sortedKeys(meta.Env) {
+		env = append(env, k+"="+meta.Env[k])
+	}
 	if len(meta.CacheSubdir) > 0 && meta.CacheEnv != "" {
 		if d := toolchain.ContainerCacheDir(meta.CacheSubdir...); d != "" {
-			cacheHostDir = d
-			cacheContainerDir = "/" + meta.CacheSubdir[len(meta.CacheSubdir)-1]
-			bindCache = cacheBindMountable()
+			env = append(env, meta.CacheEnv+"="+d)
 		}
 	}
+	return env
+}
 
-	// create (not run) so the container survives for the artifact cp-out; forward env
-	// the same way — declared Env, plus named host vars (CI secrets) when actually set.
-	createArgs := []string{"create", "-w", workdir}
-	if cacheContainerDir != "" {
-		createArgs = append(createArgs, "-e", meta.CacheEnv+"="+cacheContainerDir)
-		if bindCache {
-			createArgs = append(createArgs, "-v", cacheHostDir+":"+cacheContainerDir)
+func forwardedEnv(names []string) []string {
+	var set []string
+	for _, n := range names {
+		if _, ok := os.LookupEnv(n); ok {
+			set = append(set, n)
 		}
 	}
-	for k, v := range meta.Env {
-		createArgs = append(createArgs, "-e", k+"="+v)
-	}
-	for _, name := range meta.ForwardEnv {
-		if v, ok := os.LookupEnv(name); ok {
-			createArgs = append(createArgs, "-e", name+"="+v)
-		}
-	}
-	createArgs = append(createArgs, meta.Image, "sh", "-c", meta.Command)
+	return set
+}
 
-	// A cold pull of a large builder image (electron/wine images are ~3–4 GiB) on a
-	// disk-tight runner is the usual cause of a create failure. If the image isn't
-	// already cached AND free disk is low, warn BEFORE the create so the eventual
-	// failure isn't a surprise — the runner preflight green-lights on free disk alone
-	// without knowing the image's size.
-	cached := imageCached(ctx, meta.Image)
-	if !cached {
-		if free := freeDiskGiB(rootDir); free >= 0 && free < 5 {
-			fmt.Fprintf(os.Stderr, "  warning: build image %s is not cached and only %.1f GiB is free on the runner — a large image pull may exhaust disk; pre-cache the image or pin this step to a larger runner\n", meta.Image, free)
-		}
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
+	return keys
+}
 
-	idOut, err := exec.CommandContext(ctx, "docker", createArgs...).Output()
-	if err != nil {
-		// Surface the docker stderr (Cmd.Output captures it into ExitError.Stderr), so a
-		// bare "exit status 1" carries the real reason (e.g. "no space left on device").
-		hint := ""
-		if !cached {
-			hint = fmt.Sprintf("\nhint: %s was not cached, so this is a pull failure — commonly the runner is out of disk (free space / pre-cache the image / use a larger runner), or a registry auth/network problem", meta.Image)
-		}
-		return nil, fmt.Errorf("container engine: docker create (%s): %w%s%s", meta.Image, err, stderrTail(err), hint)
+// artifactExtractRel is the path to carry out for an artifact: itself, or a glob's fixed leading directory.
+func artifactExtractRel(artifact string) string {
+	if strings.ContainsAny(artifact, "*?[") {
+		return globBaseDir(artifact)
 	}
-	containerID := strings.TrimSpace(string(idOut))
-	defer exec.Command("docker", "rm", "-f", containerID).Run()
+	return artifact
+}
 
-	// Stage the repo into the container at the workspace root. The trailing "/." copies
-	// the source directory's CONTENTS into /workspace whether or not it pre-exists —
-	// and `-w` pre-creates it, which would otherwise nest the repo under /workspace/<base>.
-	if out, cerr := exec.CommandContext(ctx, "docker", "cp", rootDir+"/.", containerID+":"+containerRoot).CombinedOutput(); cerr != nil {
-		return nil, fmt.Errorf("container engine: staging workspace into container: %w\n%s", cerr, string(out))
+// landArtifact copies the artifact from srcRoot onto the workspace at its in-repo path.
+func landArtifact(srcRoot, rootDir, artifact string) error {
+	rel := artifactExtractRel(artifact)
+	src := filepath.Join(srcRoot, rel)
+	if _, err := os.Lstat(src); err != nil {
+		return fmt.Errorf("container engine: no artifact at %q after the build", artifact)
 	}
-
-	// Seed the dependency cache into the container (DinD/cp path only — a bind-mount is
-	// already live). Best-effort: `docker cp <dir> :/` lands it at /<basename> =
-	// cacheContainerDir; a miss just yields a cold install the cp-out below still persists.
-	if cacheHostDir != "" && !bindCache {
-		_ = exec.CommandContext(ctx, "docker", "cp", cacheHostDir, containerID+":/").Run()
-	}
-
-	// Run the build command.
-	if out, rerr := exec.CommandContext(ctx, "docker", "start", "-a", containerID).CombinedOutput(); rerr != nil {
-		return nil, fmt.Errorf("container build failed (%s): %w\n%s", meta.Image, rerr, string(out))
-	}
-
-	// Persist the (possibly grown) dependency cache back to the host store — DinD/cp path
-	// only; a bind-mount already wrote through. Best-effort and content-addressed, so a
-	// partial copy only costs a future re-download, never correctness.
-	if cacheHostDir != "" && !bindCache {
-		_ = exec.CommandContext(ctx, "docker", "cp", containerID+":"+cacheContainerDir, filepath.Dir(cacheHostDir)).Run()
-	}
-
-	// Copy the produced artifact back onto the host at its in-repo path, so the rest
-	// of the pipeline (archive, transport) reads it exactly as before. The output is a
-	// glob (an installer: release/*.exe), a single file, or a directory tree (dist/).
-	// docker cp can't glob, so for a glob artifact we extract its fixed leading
-	// directory and let the host-side glob below resolve the pattern within it.
-	extractRel := meta.Artifact
-	if strings.ContainsAny(meta.Artifact, "*?[") {
-		extractRel = globBaseDir(meta.Artifact)
-	}
-	hostDest := filepath.Join(rootDir, extractRel)
+	hostDest := filepath.Join(rootDir, rel)
 	if err := os.MkdirAll(filepath.Dir(hostDest), 0o755); err != nil {
-		return nil, fmt.Errorf("container engine: preparing artifact dir: %w", err)
+		return fmt.Errorf("container engine: preparing artifact dir: %w", err)
 	}
-	_ = os.RemoveAll(hostDest) // deterministic landing: DEST must not pre-exist
-	if out, xerr := exec.CommandContext(ctx, "docker", "cp", containerID+":"+path.Join(containerRoot, extractRel), hostDest).CombinedOutput(); xerr != nil {
-		return nil, fmt.Errorf("container engine: no artifact at %q after the build: %w\n%s", meta.Artifact, xerr, string(out))
+	if err := os.RemoveAll(hostDest); err != nil { // deterministic landing
+		return fmt.Errorf("container engine: clearing %s: %w", hostDest, err)
 	}
+	if err := copyPath(src, hostDest, ""); err != nil {
+		return fmt.Errorf("container engine: landing artifact %q: %w", artifact, err)
+	}
+	return nil
+}
 
-	// Resolve the produced artifact(s) on the host now. A tree is one artifact; the
-	// archive walks it.
-	artifactPath := meta.Artifact
+// collectArtifacts resolves the landed artifact(s): a glob, a file, or one directory tree.
+func collectArtifacts(rootDir, artifact string) ([]build.ProducedArtifact, error) {
+	artifactPath := artifact
 	if !filepath.IsAbs(artifactPath) {
 		artifactPath = filepath.Join(rootDir, artifactPath)
 	}
 	var matches []string
-	if strings.ContainsAny(meta.Artifact, "*?[") {
+	if strings.ContainsAny(artifact, "*?[") {
 		m, gerr := filepath.Glob(artifactPath)
 		if gerr != nil {
-			return nil, fmt.Errorf("container engine: bad artifact glob %q: %w", meta.Artifact, gerr)
+			return nil, fmt.Errorf("container engine: bad artifact glob %q: %w", artifact, gerr)
 		}
 		matches = m
 	} else if _, serr := os.Stat(artifactPath); serr == nil {
 		matches = []string{artifactPath}
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("container engine: no artifact at %q after the build", meta.Artifact)
+		return nil, fmt.Errorf("container engine: no artifact at %q after the build", artifact)
 	}
 	sort.Strings(matches)
 
@@ -308,20 +393,63 @@ func (e *containerEngine) ExecuteStep(ctx context.Context, step build.UniversalS
 		}
 		artifacts = append(artifacts, build.ProducedArtifact{Path: m, Type: "binary", Size: info.Size(), SHA256: sum})
 	}
+	return artifacts, nil
+}
 
-	// binary_name is what the binary-archive target names the file inside the
-	// archive; use the produced artifact's basename (e.g. the .exe filename).
-	binaryName := filepath.Base(artifacts[0].Path)
+// copyPath copies a file, symlink or tree, keeping modes and links. Never a hardlink:
+// the command may rewrite files in place. skip is a path not to descend into.
+func copyPath(src, dst, skip string) error {
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if skip != "" && p == skip {
+			return filepath.SkipDir
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		switch mode := info.Mode(); {
+		case mode&os.ModeSymlink != 0:
+			link, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		case mode.IsDir():
+			return os.MkdirAll(target, mode.Perm()|0o700)
+		case mode.IsRegular():
+			return copyFileMode(p, target, mode.Perm())
+		default:
+			return nil // sockets, devices, pipes: not repo content
+		}
+	})
+}
 
-	return &build.UniversalStepResult{
-		Artifacts: artifacts,
-		Metadata:  map[string]string{"image": meta.Image, "binary_name": binaryName},
-		Metrics:   build.StepMetrics{Duration: time.Since(start)},
-	}, nil
+func copyFileMode(src, dst string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // globBaseDir returns the longest leading path of a glob pattern that contains no
-// wildcard, so the concrete subtree can be docker-cp'd out before host-side globbing
+// wildcard, so the concrete subtree can be carried out before host-side globbing
 // resolves the pattern within it. "release/*.exe" -> "release"; "*.exe" -> ".".
 func globBaseDir(pattern string) string {
 	var base []string
@@ -362,34 +490,4 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// stderrTail returns the captured stderr of a failed exec, newline-prefixed, or "".
-// Cmd.Output() populates ExitError.Stderr when Cmd.Stderr is nil, so this recovers the
-// real diagnostic (e.g. "no space left on device") that would otherwise be lost behind
-// a bare "exit status 1".
-func stderrTail(err error) string {
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		if s := strings.TrimSpace(string(ee.Stderr)); s != "" {
-			return "\n" + s
-		}
-	}
-	return ""
-}
-
-// imageCached reports whether the image already exists on the target daemon, so no
-// pull happens on create (a cold pull is the risky, disk-hungry path).
-func imageCached(ctx context.Context, image string) bool {
-	return exec.CommandContext(ctx, "docker", "image", "inspect", image).Run() == nil
-}
-
-// freeDiskGiB returns the free space (GiB) on dir's filesystem, or -1 if unknown. Uses
-// the same syscall.Statfs the runner preflight uses.
-func freeDiskGiB(dir string) float64 {
-	var st syscall.Statfs_t
-	if syscall.Statfs(dir, &st) != nil {
-		return -1
-	}
-	return float64(st.Bavail) * float64(st.Bsize) / (1 << 30)
 }

@@ -44,6 +44,9 @@ type binaryContributor struct {
 	// composing the item into the worktree before the build that bakes it executes.
 	renderFirst []string
 	renderAfter map[string][]string
+
+	// needsBuildKit is set in Applies, before the run's Executor check reads it.
+	needsBuildKit bool
 }
 
 // engineNameFor maps a build's `builder` to its engine dispatch key. Empty defaults
@@ -60,12 +63,56 @@ func (b *binaryContributor) Name() string { return "binary" }
 func (b *binaryContributor) Order() int   { return 10 }
 
 func (b *binaryContributor) Applies(rc *domains.RunContext) bool {
+	applies := false
 	for _, bld := range rc.Config.Builds {
-		if bld.Kind == "binary" || bld.Kind == "command" {
-			return true
+		if bld.Kind != "binary" && bld.Kind != "command" {
+			continue
+		}
+		applies = true
+		if rc.BuildID != "" && bld.ID != rc.BuildID {
+			continue
+		}
+		if needsBuildKit(bld, rc.Config.CI.Image, jobImage(rc.Config)) {
+			b.needsBuildKit = true
 		}
 	}
-	return false
+	return applies
+}
+
+func (b *binaryContributor) NeedsDocker() bool   { return false }
+func (b *binaryContributor) NeedsBuild() bool    { return b.needsBuildKit }
+func (b *binaryContributor) NeedsCrucible() bool { return false }
+
+// containerBuilders are the builders the container engine runs.
+var containerBuilders = map[string]bool{
+	"node": true, "elixir": true, "dotnet": true, "c": true,
+	"python": true, "jvm": true, "android": true,
+}
+
+// needsBuildKit reports whether a build runs as a BuildKit build (a containerized step not on the job's image).
+func needsBuildKit(bld config.BuildConfig, ciImage, job string) bool {
+	image := bld.Image
+	switch {
+	case bld.Kind == "command":
+		if image == "" {
+			image = ciImage
+		}
+	case bld.Kind == "binary" && containerBuilders[bld.Builder]:
+	default:
+		return false
+	}
+	return job == "" || image != job
+}
+
+// jobImage is the image this CI job runs in (CI_JOB_IMAGE, else ci.image), or "" outside CI.
+func jobImage(cfg *config.Config) string {
+	if os.Getenv("SF_CI_PROVIDER") == "" {
+		return ""
+	}
+	if img := strings.TrimSpace(os.Getenv("CI_JOB_IMAGE")); img != "" {
+		return img
+	}
+	return cfg.CI.Image
 }
 
 // Detect resolves the binary engine, the version, and the binary builds.
@@ -136,6 +183,8 @@ func (b *binaryContributor) Plan(rc *domains.RunContext) (domains.Contribution, 
 		if cfg.Kind == "command" && cfg.Image == "" {
 			cfg.Image = rc.Config.CI.Image
 		}
+		cfg.JobImage = jobImage(rc.Config)
+		cfg.BuildxBuilder = rc.Config.BuildCache.Builder
 		if rc.Local {
 			cfg.Platforms = []build.Target{{OS: runtime.GOOS, Arch: runtime.GOARCH}}
 		}
@@ -674,8 +723,7 @@ func toBuildConfig(b config.BuildConfig, v *gitver.VersionInfo, rootDir string) 
 	// raw (possibly empty) values so the engine can tell "unset" and fill defaults.
 	command, output := b.BuilderCommand(), b.OutputName()
 	builder := b.Builder
-	switch b.Builder {
-	case "node", "elixir", "dotnet", "c", "python", "jvm", "android":
+	if containerBuilders[b.Builder] {
 		command, output = string(b.Command), b.Output
 	}
 	// kind: command — no builder, no inference: the command + first output's source

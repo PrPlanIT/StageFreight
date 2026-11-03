@@ -89,8 +89,7 @@ func cacheDir(elem ...string) string {
 // ContainerCacheDir returns a persistent cache dir for a containerized builder — a
 // sibling of the Go/Rust caches under the same mount (e.g. node/pnpm-store) — created,
 // or "" when no persistent mount is available (local dev), in which case the containerized
-// build runs cold. The container engine bridges the returned host path into the build
-// container (bind-mount when the daemon shares our filesystem, else docker cp).
+// build runs cold. A step built on BuildKit keeps its store in a cache mount instead.
 func ContainerCacheDir(elem ...string) string {
 	return cacheDir(elem...)
 }
