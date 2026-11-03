@@ -61,7 +61,7 @@ type VulnConfig struct {
 //
 //	registries:
 //	  docker:
-//	    url: "https://jcr.pcfae.com/v2"
+//	    url: "https://cr.optcp.com/v2"
 //	    auth_env: "JCR_TOKEN"
 //	  go:
 //	    url: "https://goproxy.company.com"
@@ -82,7 +82,7 @@ type RegistryConfig struct {
 
 // RegistryEndpoint is a custom registry URL with optional auth.
 type RegistryEndpoint struct {
-	URL     string `json:"url"`      // base URL (e.g. "https://jcr.pcfae.com/v2")
+	URL     string `json:"url"`      // base URL (e.g. "https://cr.optcp.com/v2")
 	AuthEnv string `json:"auth_env"` // env var name holding auth token (Bearer)
 }
 
