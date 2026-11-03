@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 // EngineV2 is the universal engine interface for all build types.
@@ -69,6 +71,12 @@ type BuildConfig struct {
 	// INSIDE Image (repo mounted); Output is the produced-artifact glob. Lets SF
 	// ship things it can't compile natively (e.g. an Electron .exe via wine).
 	Image string
+
+	// JobImage is the image this CI job runs in ("" outside CI); a step on that image runs in the job.
+	JobImage string
+
+	// BuildxBuilder is the buildx builder containerized steps build on.
+	BuildxBuilder config.BuilderConfig
 }
 
 var (

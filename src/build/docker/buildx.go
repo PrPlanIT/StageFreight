@@ -549,19 +549,3 @@ func ParseMetadataDigest(metadataFile string) (string, error) {
 	}
 	return meta.Digest, nil
 }
-
-// EnsureBuilder checks that a buildx builder is available and creates one if needed.
-func (bx *Buildx) EnsureBuilder(ctx context.Context) error {
-	// Check if default builder exists
-	cmd := exec.CommandContext(ctx, "docker", "buildx", "inspect")
-	if err := cmd.Run(); err != nil {
-		// Create a builder
-		create := exec.CommandContext(ctx, "docker", "buildx", "create", "--use", "--name", "stagefreight")
-		create.Stdout = bx.Stderr
-		create.Stderr = bx.Stderr
-		if createErr := create.Run(); createErr != nil {
-			return fmt.Errorf("creating buildx builder: %w", createErr)
-		}
-	}
-	return nil
-}

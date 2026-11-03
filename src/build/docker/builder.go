@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
+	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 )
@@ -34,6 +36,21 @@ type BuilderInfo struct {
 	ParseFailed       bool
 }
 
+// Err reports why a builder cannot build, with its own output; nil when it bootstrapped.
+func (b BuilderInfo) Err() error {
+	if b.BootstrapOK {
+		return nil
+	}
+	status := b.Status
+	if status == "" {
+		status = "bootstrap failed"
+	}
+	if detail := strings.TrimSpace(b.RawOutput); detail != "" {
+		return fmt.Errorf("buildx builder %s: %s: %s", b.Name, status, detail)
+	}
+	return fmt.Errorf("buildx builder %s: %s", b.Name, status)
+}
+
 // GCRule is a parsed BuildKit garbage collection policy rule.
 type GCRule struct {
 	Scope        string // "source/cachemount/git", "general cache", etc.
@@ -42,6 +59,21 @@ type GCRule struct {
 	MaxUsed      string
 	Reserved     string
 	MinFree      string
+}
+
+// The container engine runs its BuildKit builds on this same builder.
+func init() {
+	build.RegisterBuildxBuilder(func(cfg config.BuilderConfig) (string, error) {
+		return usableBuilder(EnsureBuilder(cfg))
+	})
+}
+
+// usableBuilder returns the builder's name, or BuilderInfo.Err.
+func usableBuilder(info BuilderInfo) (string, error) {
+	if err := info.Err(); err != nil {
+		return "", err
+	}
+	return info.Name, nil
 }
 
 // EnsureBuilder creates the Docker context and buildx builder from config,
@@ -80,8 +112,15 @@ func EnsureBuilderWithBackend(cfg config.BuilderConfig, backend *Backend) Builde
 		if result.BootstrapOK {
 			return result
 		}
-		fmt.Fprintf(os.Stderr, "builder: buildkitd bootstrap failed, trying DinD\n")
-		// Fall through to docker-container driver.
+		// Fall back to a Docker daemon only when one answers; otherwise the remote failure is the result.
+		if probeDinD() == nil {
+			if result.Status == "" {
+				result.Status = "remote buildkitd bootstrap failed"
+			}
+			return result
+		}
+		diag.Warn("builder: remote buildkitd at %s failed, building on the Docker daemon instead: %s",
+			backend.Endpoint, strings.TrimSpace(result.RawOutput))
 	}
 
 	// DinD or local docker — docker-container driver.
