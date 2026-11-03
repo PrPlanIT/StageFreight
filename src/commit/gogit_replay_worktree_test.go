@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
@@ -349,7 +350,7 @@ func TestReplay_LeavesUntrackedOnIntermediatePath(t *testing.T) {
 	wt, _ := r.repo.Worktree()
 	_, err := wt.Remove("tmp/gen.txt")
 	must(t, err)
-	testCommit(t, wt, "feat: drop gen\n\n"+sfGeneratedTrailer)
+	testCommit(t, wt, "feat: drop gen\n\n"+config.GeneratedByTrailer)
 	writeTestFile(t, r.localDir, "tmp/gen.txt", "operator's own file")
 
 	session := openSession(t, r.localDir)
@@ -420,7 +421,7 @@ func TestReplay_LeavesUntrackedOnLocallyDeletedPath(t *testing.T) {
 	wt, _ := r.repo.Worktree()
 	_, err := wt.Remove("p.txt")
 	must(t, err)
-	testCommit(t, wt, "feat: drop p\n\n"+sfGeneratedTrailer)
+	testCommit(t, wt, "feat: drop p\n\n"+config.GeneratedByTrailer)
 	writeTestFile(t, r.localDir, "p.txt", "operator's new p")
 
 	session := openSession(t, r.localDir)
@@ -478,7 +479,7 @@ func TestReplay_RefusesFileDirClash(t *testing.T) {
 	must(t, os.RemoveAll(filepath.Join(r.localDir, "a")))
 	writeTestFile(t, r.localDir, "a", "a is a file locally\n")
 	gitIn(t, r.localDir, "add", "-A")
-	gitIn(t, r.localDir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "feat: a becomes a file\n\n"+sfGeneratedTrailer)
+	gitIn(t, r.localDir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "feat: a becomes a file\n\n"+config.GeneratedByTrailer)
 	before := headHash(t, r.localDir)
 
 	session := openSession(t, r.localDir)

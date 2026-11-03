@@ -12,11 +12,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 )
 
-const sfGeneratedTrailer = "X-StageFreight-Generated: true"
-
 // Replay rebases local commits onto upstream using controlled tree replay.
-// It is NOT a raw git rebase — it replays only SF-generated commits via
-// explicit tree diffing with full integrity verification at each step.
+// It is NOT a raw git rebase — it replays commits via explicit tree diffing with
+// full integrity verification at each step.
 //
 // Algorithm:
 //  0. Pre-conditions: HEAD attached, upstream configured → fail fast, no mutation
@@ -234,9 +232,8 @@ func Replay(session *gitstate.SyncSession) error {
 // Collects ALL violations before returning — no short-circuit.
 //
 // Gate is structural only: merge commits and non-linear chains cannot be
-// deterministically replayed by diff application. Authorship markers (e.g.
-// SF-generated trailer) are NOT gate conditions — historical commits and CI
-// commits that predate the trailer are replayable by the same mechanism.
+// deterministically replayed by diff application. Authorship trailers are not
+// gate conditions.
 func validateReplayGate(commits []*object.Commit, mergeBase plumbing.Hash) []string {
 	var violations []string
 	for i, c := range commits {

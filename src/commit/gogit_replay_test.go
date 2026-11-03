@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	git "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
@@ -60,7 +61,7 @@ func newReplayTestRepo(t *testing.T) *replayTestRepo {
 	wt, _ := repo.Worktree()
 	writeTestFile(t, localDir, "README.md", "initial")
 	wt.Add("README.md")
-	testCommit(t, wt, "chore: initial commit\n\nX-StageFreight-Generated: true")
+	testCommit(t, wt, "chore: initial commit\n\n"+config.GeneratedByTrailer)
 
 	// Add remote and set upstream tracking
 	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
@@ -106,7 +107,7 @@ func (r *replayTestRepo) addSFCommit(t *testing.T, filename, content, message st
 	writeTestFile(t, r.localDir, filename, content)
 	wt.Add(filename)
 	hash, err := wt.Commit(
-		message+"\n\n"+sfGeneratedTrailer,
+		message+"\n\n"+config.GeneratedByTrailer,
 		commitOpts("sf-author"),
 	)
 	if err != nil {
@@ -129,7 +130,7 @@ func (r *replayTestRepo) advanceRemote(t *testing.T, filename, content string) {
 	cloneWt, _ := clone.Worktree()
 	writeTestFile(t, cloneDir, filename, content)
 	cloneWt.Add(filename)
-	testCommit(t, cloneWt, "chore: remote advance\n\nX-StageFreight-Generated: true")
+	testCommit(t, cloneWt, "chore: remote advance\n\n"+config.GeneratedByTrailer)
 	if err := clone.Push(&git.PushOptions{RemoteName: "origin"}); err != nil {
 		t.Fatalf("push remote advance: %v", err)
 	}
@@ -207,7 +208,7 @@ func TestReplay_MultiFileModify(t *testing.T) {
 	writeTestFile(t, r.localDir, "b.txt", "file b")
 	wt.Add("a.txt")
 	wt.Add("b.txt")
-	testCommit(t, wt, fmt.Sprintf("feat: add multiple files\n\n%s", sfGeneratedTrailer))
+	testCommit(t, wt, fmt.Sprintf("feat: add multiple files\n\n%s", config.GeneratedByTrailer))
 
 	session := openSession(t, r.localDir)
 	if err := session.Fetch("origin"); err != nil {
@@ -259,7 +260,7 @@ func TestReplay_DeleteFile(t *testing.T) {
 	// Now delete the file in a local SF commit
 	wt, _ := r.repo.Worktree()
 	wt.Remove("todelete.txt")
-	testCommit(t, wt, fmt.Sprintf("fix: remove file\n\n%s", sfGeneratedTrailer))
+	testCommit(t, wt, fmt.Sprintf("fix: remove file\n\n%s", config.GeneratedByTrailer))
 
 	session := openSession(t, r.localDir)
 	if err := session.Fetch("origin"); err != nil {
@@ -287,7 +288,7 @@ func TestReplay_BinaryFile(t *testing.T) {
 
 	wt, _ := r.repo.Worktree()
 	wt.Add("data.bin")
-	testCommit(t, wt, fmt.Sprintf("feat: add binary file\n\n%s", sfGeneratedTrailer))
+	testCommit(t, wt, fmt.Sprintf("feat: add binary file\n\n%s", config.GeneratedByTrailer))
 
 	session := openSession(t, r.localDir)
 	if err := session.Fetch("origin"); err != nil {
@@ -309,7 +310,7 @@ func TestReplay_EmptyCommit(t *testing.T) {
 	// Create an empty commit (no changes, message only)
 	wt, _ := r.repo.Worktree()
 	hash, err := wt.Commit(
-		"chore: empty commit\n\n"+sfGeneratedTrailer,
+		"chore: empty commit\n\n"+config.GeneratedByTrailer,
 		&git.CommitOptions{
 			AllowEmptyCommits: true,
 			Author: &object.Signature{
@@ -442,13 +443,13 @@ func TestReplay_GateRejects_MergeCommit(t *testing.T) {
 	}
 	writeTestFile(t, r.localDir, "feature.txt", "feature")
 	wt.Add("feature.txt")
-	testCommit(t, wt, "feat: feature\n\n"+sfGeneratedTrailer)
+	testCommit(t, wt, "feat: feature\n\n"+config.GeneratedByTrailer)
 
 	// Checkout main and create another commit
 	wt.Checkout(&git.CheckoutOptions{Branch: "refs/heads/main"})
 	writeTestFile(t, r.localDir, "main.txt", "main")
 	wt.Add("main.txt")
-	testCommit(t, wt, "feat: main\n\n"+sfGeneratedTrailer)
+	testCommit(t, wt, "feat: main\n\n"+config.GeneratedByTrailer)
 
 	// Merge feature into main (creates merge commit — cannot have trailer verification issue here
 	// because merge commits have 2 parents, which is what we're testing)
@@ -462,7 +463,7 @@ func TestReplay_GateRejects_MergeCommit(t *testing.T) {
 	// merge introduces no file changes — AllowEmptyCommits lets go-git record the
 	// two-parent commit anyway, which is exactly the merge shape the gate rejects.
 	mergeHash, err := wt.Commit(
-		"Merge branch 'feature'\n\n"+sfGeneratedTrailer,
+		"Merge branch 'feature'\n\n"+config.GeneratedByTrailer,
 		&git.CommitOptions{
 			Author:            &object.Signature{Name: "test", Email: "test@test", When: time.Now()},
 			Parents:           []plumbing.Hash{mainCommit.Hash, featureCommit.Hash},
@@ -529,12 +530,12 @@ func TestReplay_GateDoesNotMutate(t *testing.T) {
 	}
 	writeTestFile(t, r.localDir, "feature.txt", "feature")
 	wt.Add("feature.txt")
-	testCommit(t, wt, "feat: feature\n\n"+sfGeneratedTrailer)
+	testCommit(t, wt, "feat: feature\n\n"+config.GeneratedByTrailer)
 
 	wt.Checkout(&git.CheckoutOptions{Branch: "refs/heads/main"})
 	writeTestFile(t, r.localDir, "main.txt", "main")
 	wt.Add("main.txt")
-	testCommit(t, wt, "feat: main\n\n"+sfGeneratedTrailer)
+	testCommit(t, wt, "feat: main\n\n"+config.GeneratedByTrailer)
 
 	featureRef, _ := repo.Reference(plumbing.NewBranchReferenceName("feature"), true)
 	mainRef, _ := repo.Head()
@@ -544,7 +545,7 @@ func TestReplay_GateDoesNotMutate(t *testing.T) {
 	// Two-parent merge commit. The worktree tree already matches main's HEAD,
 	// so AllowEmptyCommits is required to record the merge shape the gate rejects.
 	if _, err := wt.Commit(
-		"Merge branch 'feature'\n\n"+sfGeneratedTrailer,
+		"Merge branch 'feature'\n\n"+config.GeneratedByTrailer,
 		&git.CommitOptions{
 			Author:            &object.Signature{Name: "test", Email: "test@test", When: time.Now()},
 			Parents:           []plumbing.Hash{mainCommit.Hash, featureCommit.Hash},

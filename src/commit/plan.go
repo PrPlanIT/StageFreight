@@ -76,12 +76,8 @@ func (p Plan) Subject(conventional bool) string {
 	return subject
 }
 
-// Message renders the full commit message (subject + optional body + trailers).
-// The SF-generated trailer is always appended so the replay gate can identify and safely
-// rebase these commits. When SkipCI is set (a generated-artifact refresh — docs/narrate/
-// deps), the CI-skip trailer is added too: StageFreight's rendered trigger rules skip a
-// NEW pipeline for such a commit on a branch, while tags always build — replacing the
-// blunt [skip ci] subject token with a signal we own and interpret across forge + local.
+// Message renders the full commit message: subject, optional body, and the provenance
+// trailer of a generated commit (config.OriginTrailer: Generated-By or Updated-By).
 func (p Plan) Message(conventional bool) string {
 	msg := p.Subject(conventional)
 	if p.Body != "" {

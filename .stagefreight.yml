@@ -456,7 +456,7 @@ scribe:
     # skip-ci keeps it from entering the lifecycle and spawning a follow-up
     # pipeline that auto-cancels the scribe which produced it. (Repos that ship docs IN
     # the image — e.g. FAIRER-pages — keep this false: there a docs change is a
-    # real build input.) Broader X-StageFreight-Generated-keyed policy is TODO.
+    # real build input.)
     skip_ci: true
 
 # Identity for the fact-based stencils below: {path.ghcr}, {path.github},
