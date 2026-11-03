@@ -97,6 +97,14 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 						paths.Ephemeral("", "subsystems") + "/",
 					},
 					ExpireIn: "1 week",
+					// review is allow_failure (a failed security gate must not abort the run
+					// before narrate reports), so its artifact MUST upload even when it fails —
+					// the scan evidence (SARIF/SBOM/security.json + reports) matters MOST exactly
+					// then, and publish's authorization gate plus narrate's receipts both read this
+					// fragment. Without when:always a failed review drops the artifact and every
+					// downstream job dies on a missing "review" artifact instead of acting on the
+					// recorded failure.
+					WhenAlways: true,
 				},
 				Capabilities: model.CapabilitySpec{Docker: true},
 				Policy:       model.PolicySpec{AllowFailure: true},
@@ -116,6 +124,10 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 					// line elided.
 					Paths:    []string{paths.Ephemeral("", "subsystems") + "/"},
 					ExpireIn: "1 week",
+					// publish is allow_failure, so its fragment must survive a failed (or
+					// authorization-blocked) publish for narrate to report what did and did not
+					// ship. Same invariant as review: an allow_failure producer uploads when:always.
+					WhenAlways: true,
 				},
 				// OIDC: scribe's k8s-inventory region authenticates to the cluster via
 				// the STAGEFREIGHT_OIDC id_token, same as perform's reconcile.

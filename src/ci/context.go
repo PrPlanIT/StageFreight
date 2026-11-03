@@ -15,6 +15,7 @@ type CIContext struct {
 	Event         string // push, tag, merge_request, schedule
 	Branch        string // current branch (empty on tags)
 	Tag           string // current tag (empty on branches)
+	Ref           string // full ref the event points at (refs/heads/x, refs/tags/x, refs/pull/N/merge) — authoritative for checkout
 	SHA           string // full commit SHA
 	DefaultBranch string // repo default branch name
 	RepoURL       string // repository URL
@@ -45,6 +46,7 @@ func ResolveContext() *CIContext {
 		Event:         os.Getenv("SF_CI_EVENT"),
 		Branch:        os.Getenv("SF_CI_BRANCH"),
 		Tag:           os.Getenv("SF_CI_TAG"),
+		Ref:           os.Getenv("SF_CI_REF"),
 		SHA:           os.Getenv("SF_CI_SHA"),
 		DefaultBranch: os.Getenv("SF_CI_DEFAULT_BRANCH"),
 		RepoURL:       os.Getenv("SF_CI_REPO_URL"),

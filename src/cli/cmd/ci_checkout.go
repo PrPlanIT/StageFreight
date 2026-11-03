@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	git "github.com/go-git/go-git/v5"
+	gogitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/spf13/cobra"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
@@ -53,8 +55,13 @@ func runCICheckout(cmd *cobra.Command, args []string) error {
 		dir = "."
 	}
 
-	// Resolve the CI ref: a tag build clones the tag, otherwise the branch. Single-
-	// branch keeps the clone to that ref's history (the SHA lives in it).
+	// Resolve the CI ref the event points at. SF_CI_REF, when the forge supplies it, is
+	// authoritative — it is the exact ref the run is for (refs/heads/x on a push, refs/tags/x
+	// on a tag, refs/pull/N/merge on a pull request). We only need its branch/tag SHAPE to
+	// choose a clone strategy; the pull-request case can't be reconstructed from a branch
+	// name (ref_name is "<N>/merge", which is not a branch), which is why it must be carried
+	// as a full ref and fetched as one.
+	fullRef := plumbing.ReferenceName(strings.TrimSpace(ciCtx.Ref))
 	var ref plumbing.ReferenceName
 	switch {
 	case ciCtx.Tag != "":
@@ -81,6 +88,16 @@ func runCICheckout(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("checkout: resolving auth: %w", err)
 	}
 
+	// A pull-request run points at a ref that is neither a branch nor a tag
+	// (refs/pull/N/merge). go-git's single-branch clone builds its fetch refspec as
+	// "+refs/heads/<short>:…" — it cannot fetch a pull ref, so cloning it as a branch
+	// fails with "couldn't find remote ref refs/heads/N/merge". Fetch the ref explicitly
+	// by its full name instead, then pin the SHA. The forge advertises the pull ref
+	// (GitHub/Gitea/Forgejo all do), so this resolves the merge commit the run is for.
+	if needsExplicitRefFetch(fullRef) {
+		return checkoutExplicitRef(ctx, dir, ciCtx, auth, fullRef)
+	}
+
 	cloneOpts := &git.CloneOptions{URL: ciCtx.RepoURL, Auth: auth}
 	if ref != "" {
 		cloneOpts.ReferenceName = ref
@@ -103,6 +120,70 @@ func runCICheckout(cmd *cobra.Command, args []string) error {
 		if err := wt.Checkout(&git.CheckoutOptions{Hash: plumbing.NewHash(ciCtx.SHA)}); err != nil {
 			return fmt.Errorf("checkout: pinning %s: %w", ciCtx.SHA, err)
 		}
+	}
+
+	fmt.Println("  checkout: workspace materialized")
+	return nil
+}
+
+// needsExplicitRefFetch reports whether a full ref must be fetched by its explicit
+// refspec rather than cloned as a branch/tag. True only for a non-empty ref that is
+// neither a branch (refs/heads/*) nor a tag (refs/tags/*) — in practice a pull-request
+// merge ref (refs/pull/N/merge), which go-git's single-branch clone cannot fetch. A
+// branch/tag ref, or an empty ref (forges that don't export SF_CI_REF), takes the
+// proven clone path driven by ciCtx.Branch/Tag.
+func needsExplicitRefFetch(ref plumbing.ReferenceName) bool {
+	return ref != "" && !ref.IsBranch() && !ref.IsTag()
+}
+
+// checkoutExplicitRef materializes a workspace from a full ref that go-git's clone
+// cannot fetch as a branch or tag — a pull-request merge ref (refs/pull/N/merge). It
+// initializes an empty repo, fetches exactly that ref by its full name, and checks out
+// the run's SHA (the merge commit the forge advertises as the ref tip). A pull run
+// always carries SHA; if it is somehow absent we fall back to the fetched ref tip.
+func checkoutExplicitRef(ctx context.Context, dir string, ciCtx *ci.CIContext, auth transport.AuthMethod, fullRef plumbing.ReferenceName) error {
+	fmt.Printf("  checkout: cloning %s (%s) via go-git\n", ciCtx.RepoURL, fullRef)
+
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		return fmt.Errorf("checkout: init %s: %w", dir, err)
+	}
+	remote, err := repo.CreateRemote(&gogitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{ciCtx.RepoURL},
+	})
+	if err != nil {
+		return fmt.Errorf("checkout: remote: %w", err)
+	}
+
+	// Fetch the pull ref by its full name into a local ref of the same name — mirroring it
+	// 1:1 rather than mapping through refs/heads or refs/remotes, which the pull ref has no
+	// place in. The run's SHA lives at this ref's tip.
+	refspec := gogitconfig.RefSpec(fmt.Sprintf("+%s:%s", fullRef, fullRef))
+	if err := remote.FetchContext(ctx, &git.FetchOptions{
+		RefSpecs: []gogitconfig.RefSpec{refspec},
+		Auth:     auth,
+	}); err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("checkout: fetch %s: %w", fullRef, err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("checkout: worktree: %w", err)
+	}
+
+	co := &git.CheckoutOptions{}
+	if ciCtx.SHA != "" {
+		co.Hash = plumbing.NewHash(ciCtx.SHA)
+	} else {
+		fetched, refErr := repo.Reference(fullRef, true)
+		if refErr != nil {
+			return fmt.Errorf("checkout: resolving %s: %w", fullRef, refErr)
+		}
+		co.Hash = fetched.Hash()
+	}
+	if err := wt.Checkout(co); err != nil {
+		return fmt.Errorf("checkout: pinning %s: %w", co.Hash, err)
 	}
 
 	fmt.Println("  checkout: workspace materialized")

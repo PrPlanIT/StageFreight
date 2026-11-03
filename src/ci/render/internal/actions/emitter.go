@@ -114,9 +114,18 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 
 	stages := orderStages(p)
 	producers := map[string]bool{}
+	// optional marks a producer whose job may fail without failing the run (allow_failure):
+	// on failure it can produce nothing (or be authorization-blocked before writing its
+	// ledger fragment), so a downstream download of its artifact must tolerate absence —
+	// otherwise an always-run consumer (narrate) dies at the download step instead of
+	// reporting the upstream failure. Pairs with the producer itself uploading if: always().
+	optional := map[string]bool{}
 	for _, j := range p.Jobs {
 		if len(j.Artifacts.Paths) > 0 {
 			producers[j.Name] = true
+			if j.Policy.AllowFailure {
+				optional[j.Name] = true
+			}
 		}
 	}
 
@@ -125,13 +134,13 @@ func Emit(p model.Pipeline, d Dialect) ([]byte, error) {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
-		emitJob(&buf, j, p, d, stages, producers)
+		emitJob(&buf, j, p, d, stages, producers, optional)
 	}
 
 	return buf.Bytes(), nil
 }
 
-func emitJob(buf *bytes.Buffer, j model.Job, p model.Pipeline, d Dialect, stages stageOrder, producers map[string]bool) {
+func emitJob(buf *bytes.Buffer, j model.Job, p model.Pipeline, d Dialect, stages stageOrder, producers, optional map[string]bool) {
 	def := p.Defaults
 	needs := effectiveNeeds(j, stages)
 
@@ -266,6 +275,14 @@ func emitJob(buf *bytes.Buffer, j model.Job, p model.Pipeline, d Dialect, stages
 	for _, n := range needs {
 		if producers[n] {
 			buf.WriteString("      - uses: actions/download-artifact@v4\n")
+			// An optional (allow_failure) producer may not have uploaded an artifact — it can
+			// fail or be authorization-blocked before writing one. download-artifact@v4 hard-
+			// errors on a missing artifact, which would kill this job (fatally for narrate, the
+			// always-run reporter). Tolerate the absence so the consumer still runs; it unions
+			// whatever fragments arrived and reports the gap rather than dying on it.
+			if optional[n] {
+				buf.WriteString("        continue-on-error: true\n")
+			}
 			buf.WriteString("        with:\n")
 			fmt.Fprintf(buf, "          name: %s\n", n)
 			// Extract into .stagefreight/, NOT the workspace root. upload-artifact stores
@@ -381,7 +398,15 @@ func ciContextExports(provider string, schedules []model.Schedule) []string {
 	lines := []string{
 		fmt.Sprintf(`echo "SF_CI_PROVIDER=%s"`, provider),
 		`echo "SF_CI_EVENT=${{ github.event_name }}"`,
-		`echo "SF_CI_BRANCH=${{ github.ref_name }}"`,
+		// On a pull_request, github.ref_name is "<N>/merge" (not a branch) and github.ref_name
+		// as a branch name is meaningless — use github.head_ref, the PR's real source branch, so
+		// SF_CI_BRANCH stays a truthful branch name on every event (empty on tags; head_ref is
+		// empty off pull_request, so the fallback restores the pushed branch).
+		`echo "SF_CI_BRANCH=${{ github.head_ref || github.ref_name }}"`,
+		// The full ref the event actually points at — authoritative for checkout. On a push it is
+		// refs/heads/<branch>, on a tag refs/tags/<tag>, on a pull_request refs/pull/<N>/merge
+		// (which cannot be reconstructed from a branch name). checkout fetches this ref verbatim.
+		`echo "SF_CI_REF=${{ github.ref }}"`,
 		`echo "SF_CI_TAG=${{ github.ref_type == 'tag' && github.ref_name || '' }}"`,
 		`echo "SF_CI_SHA=${{ github.sha }}"`,
 		`echo "SF_CI_DEFAULT_BRANCH=${{ github.event.repository.default_branch }}"`,

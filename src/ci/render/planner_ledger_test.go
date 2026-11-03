@@ -25,3 +25,26 @@ func TestPlan_StateRootCarriersUploadOnFailure(t *testing.T) {
 		}
 	}
 }
+
+// Every allow_failure producer uploads its artifacts even on failure. An allow_failure
+// job is one the pipeline is designed to run PAST — so a downstream consumer that runs
+// anyway (narrate always; publish's authorization gate reads review's ledger fragment)
+// will need that artifact precisely when the producer failed. Without when:always the
+// producer's failure both continues the pipeline AND drops the artifact, so the consumer
+// dies on "artifact not found" instead of acting on the recorded outcome. review (security
+// evidence) and publish (shipped facts) are the cases; the invariant is forge-neutral —
+// the GitHub/Gitea/Forgejo, GitLab, and Azure emitters all render Artifacts.WhenAlways.
+func TestPlan_AllowFailureProducersUploadOnFailure(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.CI.Image = "example/stagefreight:latest"
+	p, err := Plan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range p.Jobs {
+		if j.Policy.AllowFailure && len(j.Artifacts.Paths) > 0 && !j.Artifacts.WhenAlways {
+			t.Errorf("%s is allow_failure and produces %v but does not upload on failure (WhenAlways=false) — a downstream consumer will break on the missing artifact exactly when %s fails",
+				j.Name, j.Artifacts.Paths, j.Name)
+		}
+	}
+}

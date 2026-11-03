@@ -35,6 +35,7 @@ func runNarrate(appCfg *config.Config, ciCtx *ci.CIContext, rootDir string) erro
 	}
 
 	recordNarrateFacts(appCfg, ciCtx, rootDir)
+	assertRequiredEvidence(appCfg, rootDir)
 
 	st, err := cistate.ReadState(rootDir)
 	if err != nil {
@@ -46,6 +47,40 @@ func runNarrate(appCfg *config.Config, ciCtx *ci.CIContext, rootDir string) erro
 	persistLastSummary(rootDir, record)
 	dispatchNotifications(appCfg, rootDir, st)
 	return nil
+}
+
+// assertRequiredEvidence fails CLOSED on a required upstream that recorded no outcome,
+// so a tolerated-absent evidence fragment never reads as a clean run. narrate is the
+// always-run reporter and downloads from allow_failure producers are tolerant (the
+// producer may have been killed before writing its fragment, and its artifact absent).
+// But PipelineStatus only inspects subsystems PRESENT in state, so a required subsystem
+// that never reported would otherwise leave the run looking "passing" — a crashed
+// security scan narrating green, which is the silent bypass USE forbids. Synthesizing a
+// failing outcome for each absent required upstream forces the postmortem arc and makes
+// the gap loud, mirroring publish's authorizePhase, which fails closed on the same miss.
+//
+// Image modes only: reconcile modes (gitops/governance) have no build/security
+// subsystems at all, so their absence is expected, not a gap.
+func assertRequiredEvidence(appCfg *config.Config, rootDir string) {
+	if appCfg.Mode().PhaseReconcile {
+		return
+	}
+	if err := cistate.UpdateState(rootDir, func(st *cistate.State) {
+		for _, name := range phaseUpstream["publish"] {
+			if st.GetSubsystem(name) != nil {
+				continue
+			}
+			st.RecordSubsystem(cistate.SubsystemState{
+				Name:      name,
+				Attempted: true,
+				Required:  true,
+				Outcome:   "failed",
+				Reason:    "evidence missing — " + name + " reported no outcome (the phase may have been killed before writing its ledger)",
+			})
+		}
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pipeline state write failed: %v\n", err)
+	}
 }
 
 // recordNarrateFacts fills the identity facts and the changelog range into cistate
