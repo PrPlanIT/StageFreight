@@ -23,7 +23,7 @@ import (
 // SignImage signs an image digest ref (repo@sha256:…; tags are never used) per the
 // plan's trust contract. opts.MultiArch adds --recursive (sign the whole index).
 func SignImage(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
-	env, cleanup, err := withOfflineSigningConfig(plan, sign.OpSignImage, env)
+	env, cleanup, err := withSigningConfig(plan, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign: %w", err)
 	}
@@ -46,7 +46,7 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolC
 	if opts.PredicatePath == "" || opts.PredicateType == "" {
 		return fmt.Errorf("cosign attest: predicate path and type are required (the executor never defaults them)")
 	}
-	env, cleanup, err := withOfflineSigningConfig(plan, sign.OpAttest, env)
+	env, cleanup, err := withSigningConfig(plan, env)
 	if err != nil {
 		return fmt.Errorf("cosign attest: %w", err)
 	}
@@ -62,49 +62,44 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolC
 	return run(ctx, rootDir, desired, plan, "attest", args, opts.RegistryAuthDir)
 }
 
-// SignBlob signs a detached blob (e.g. SHA256SUMS) per the plan, writing the
-// detached signature to sigPath. The caller chooses sigPath so additive,
-// multi-tier signing can write distinct files (never clobbering a lower-tier sig).
-func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, blobPath, sigPath string, plan sign.SignPlan, env Env) error {
+// SignBlob signs a blob (e.g. SHA256SUMS) per the plan, writing a Sigstore bundle (the
+// signature with its verification material) to bundlePath. The caller chooses bundlePath
+// so additive, multi-tier signing writes distinct files, never clobbering a lower tier's.
+func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, blobPath, bundlePath string, plan sign.SignPlan, env Env) error {
+	env, cleanup, err := withSigningConfig(plan, env)
+	if err != nil {
+		return fmt.Errorf("cosign sign-blob: %w", err)
+	}
+	defer cleanup()
 	args, err := Render(plan, sign.OpSignBlob, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign-blob: %w", err)
 	}
-	args = append(args, "--output-signature", sigPath, blobPath)
+	args = append(args, "--bundle", bundlePath, blobPath)
 	return run(ctx, rootDir, desired, plan, "sign-blob", args, "")
 }
 
-// offlineSigningConfig is a Sigstore signing config listing no services: cosign signs with
-// no certificate authority, transparency log or timestamp authority.
-const offlineSigningConfig = `{
-  "mediaType": "application/vnd.dev.sigstore.signingconfig.v0.2+json",
-  "caUrls": [],
-  "oidcUrls": [],
-  "rekorTlogUrls": [],
-  "tsaUrls": [],
-  "rekorTlogConfig": {"selector": "ANY"},
-  "tsaConfig": {"selector": "ANY"}
-}
-`
-
-// withOfflineSigningConfig writes the offline signing config when op needs one, returning
-// the env pointing at it and a cleanup that removes it.
-func withOfflineSigningConfig(plan sign.SignPlan, op sign.Op, env Env) (Env, func(), error) {
-	if !NeedsOfflineSigningConfig(plan, op) || env.SigningConfig != "" {
+// withSigningConfig writes the plan's signing config when it needs one, returning the env
+// pointing at it and a cleanup that removes it.
+func withSigningConfig(plan sign.SignPlan, env Env) (Env, func(), error) {
+	if !NeedsSigningConfig(plan, env.Sigstore) || env.SigningConfig != "" {
 		return env, func() {}, nil
+	}
+	data, err := SigningConfigJSON(plan, env.Sigstore)
+	if err != nil {
+		return env, func() {}, err
 	}
 	f, err := os.CreateTemp("", "sf-signing-config-*.json")
 	if err != nil {
-		return env, func() {}, fmt.Errorf("writing the offline signing config: %w", err)
+		return env, func() {}, fmt.Errorf("writing the signing config: %w", err)
 	}
-	if _, err := f.WriteString(offlineSigningConfig); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return env, func() {}, fmt.Errorf("writing the offline signing config: %w", err)
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
 	}
-	if err := f.Close(); err != nil {
+	if werr != nil {
 		os.Remove(f.Name())
-		return env, func() {}, fmt.Errorf("writing the offline signing config: %w", err)
+		return env, func() {}, fmt.Errorf("writing the signing config: %w", werr)
 	}
 	env.SigningConfig = f.Name()
 	return env, func() { os.Remove(f.Name()) }, nil

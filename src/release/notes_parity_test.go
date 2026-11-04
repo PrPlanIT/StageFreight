@@ -52,7 +52,7 @@ func parityFullInput() (NotesInput, []CommitCategory, []Commit) {
 			Primary: &trustdisclosure.SignatureFact{
 				Class: "key", Tier: "tier0-software", TrustDomain: "prplanit",
 				Transparency: false, NonExportable: true, PhysicalPresence: true,
-				Asset: "SHA256SUMS.sig", IsBlob: true,
+				Asset: "SHA256SUMS.sigstore.json", IsBlob: true,
 			},
 			Anchor: &trustdisclosure.Anchor{Fingerprint: "SHA256:abcdef012345", Asset: "cosign.pub"},
 		},

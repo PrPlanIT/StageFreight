@@ -119,9 +119,9 @@ digests under the same tier — recorded as first-class, additive evidence.`,
 			fmt.Printf("Profile %q is hardware-backed: you will be prompted to TOUCH your key for each of %d artifact(s).\n", signProfileID, total)
 		}
 
-		// 1. Release checksums — distinct sig file preserves the lower-tier signature.
+		// 1. Release checksums — a distinct bundle per profile preserves a lower tier's.
 		if sumsErr == nil {
-			outSig := filepath.Join(distDir, "SHA256SUMS."+signProfileID+".sig")
+			outSig := filepath.Join(distDir, "SHA256SUMS."+signProfileID+".sigstore.json")
 			fmt.Printf("Signing SHA256SUMS (class %s)…\n", plan.TrustClass)
 			if err := cosign.SignBlob(cmd.Context(), rootDir, cfg.Toolchains.Want, sumsPath, outSig, plan, env); err != nil {
 				return err

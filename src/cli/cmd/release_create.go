@@ -484,7 +484,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 			manifestAssets[i] = a.AssetPath
 		}
 
-		// Detached blob signatures (e.g. SHA256SUMS.sig) — manifest-sourced from the
+		// Blob signature bundles (e.g. SHA256SUMS.sigstore.json) — manifest-sourced from the
 		// blob_signature outcomes — upload as release assets so consumers can verify.
 		// They are NOT added to the Downloads table (no platform/size/checksum); the
 		// Verification section presents them. Without this, a produced signature is
@@ -494,7 +494,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		}
 
 		// The SHA256SUMS for the archive set rides beside the archives: it is what a
-		// consumer verifies a download against, and what a .sig above covers.
+		// consumer verifies a download against, and what a signature bundle above covers.
 		for _, c := range artifact.ChecksumsForArchiveSet(results, archiveSet) {
 			manifestAssets = append(manifestAssets, c.Path)
 		}

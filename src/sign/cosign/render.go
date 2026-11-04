@@ -35,30 +35,22 @@ func Render(p sign.SignPlan, op sign.Op, env Env) (args []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if NeedsOfflineSigningConfig(p, op) {
+	if NeedsSigningConfig(p, m.sigstore) {
 		if env.SigningConfig == "" {
-			return nil, fmt.Errorf("signing without a transparency log needs a signing config, and none was provided")
+			return nil, fmt.Errorf("this signature needs a signing config naming its services, and none was provided")
 		}
-		m.offline = env.SigningConfig
+		m.signingConfig = env.SigningConfig
 	}
 	return emit(p, op, m), nil
 }
 
-// NeedsOfflineSigningConfig reports whether an op signs without a transparency log through
-// a signing config listing no services: an image signature or attestation by a key, KMS or
-// hardware signer when the plan doesn't require transparency. A detached blob signature
-// keeps the legacy flags, because a signing config makes cosign write a bundle instead.
-func NeedsOfflineSigningConfig(p sign.SignPlan, op sign.Op) bool {
-	return !p.TransparencyRequired && p.TrustClass != sign.ClassOIDC && op != sign.OpSignBlob
-}
-
 // mechanism is the resolved, single-principal way to sign — the solver's output.
 type mechanism struct {
-	class    sign.Class
-	keyArg   string             // value for --key (key path / KMS URI / PKCS#11 URI); empty for oidc + FIDO2
-	offline  string             // the no-transparency signing config's path (Env.SigningConfig)
-	useSK    bool               // FIDO2 hardware token (cosign --sk)
-	sigstore SigstoreDeployment // oidc only: the trust domain to point cosign at (empty = public)
+	class         sign.Class
+	keyArg        string             // value for --key (key path / KMS URI / PKCS#11 URI); empty for oidc + FIDO2
+	signingConfig string             // the signing config's path when NeedsSigningConfig (Env.SigningConfig)
+	useSK         bool               // FIDO2 hardware token (cosign --sk)
+	sigstore      SigstoreDeployment // oidc only: the trust domain to point cosign at (empty = public)
 }
 
 func selectMechanism(p sign.SignPlan, env Env) (mechanism, error) {
@@ -177,14 +169,15 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 	case sign.ClassOIDC:
 		// keyless — no --key flag; service/identity flags emitted below.
 	}
-	// Transparency-log + service-discovery control (cosign v3 semantics).
-	switch {
-	case m.class == sign.ClassOIDC:
-		args = append(args, oidcServiceArgs(p, m.sigstore)...)
-	case m.offline != "":
-		args = append(args, "--signing-config", m.offline)
-	default:
-		args = append(args, tlogArgs(p)...)
+	// Services: a signing config when the plan needs one, else cosign's TUF-provided config
+	// (which needs the new bundle format, set explicitly so the dependency is never implicit).
+	if m.class == sign.ClassOIDC {
+		args = append(args, oidcIdentityArgs(m.sigstore)...)
+	}
+	if m.signingConfig != "" {
+		args = append(args, "--signing-config", m.signingConfig)
+	} else {
+		args = append(args, "--new-bundle-format=true")
 	}
 	// Image ops attach the signature/attestation to the registry; sign-blob is
 	// detached and takes no --upload.
@@ -194,54 +187,22 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 	return args
 }
 
-// tlogArgs emits the transparency flags. cosign v3 signs with its TUF-provided signing
-// config (Rekor) by default, which needs the new bundle format — set explicitly so the
-// dependency is never implicit. Without transparency, a detached blob signature disables
-// the signing config and the tlog (the legacy flags; image ops pass an offline signing
-// config instead).
-func tlogArgs(p sign.SignPlan) []string {
-	if p.TransparencyRequired {
-		return []string{"--new-bundle-format=true"}
-	}
-	return []string{"--use-signing-config=false", "--tlog-upload=false"}
-}
-
-// oidcServiceArgs points cosign at the trust domain for a keyless signature. A
-// DECLARED (self-hosted) deployment overrides TUF service discovery with explicit
-// Fulcio/Rekor/trusted-root — public Fulcio will not trust a self-hosted issuer, so
-// self-hosted keyless requires pointing at that domain's own services. An undeclared
-// deployment is the public Sigstore path. The OIDC issuer and an explicit identity
-// token (the unattended / non-CI knob) apply to both. Pure: reads only the witness.
-func oidcServiceArgs(p sign.SignPlan, d SigstoreDeployment) []string {
+// oidcIdentityArgs carries a keyless signature's identity: the OIDC issuer, an explicit
+// identity token (the unattended knob; cosign accepts a value or a file path, and uses
+// ambient providers without one), and a declared domain's trusted root. Its services come
+// from the signing config. StageFreight only transports the token; it never becomes an
+// OIDC client.
+func oidcIdentityArgs(d SigstoreDeployment) []string {
 	var a []string
 	if d.OIDCIssuer != "" {
 		a = append(a, "--oidc-issuer", d.OIDCIssuer)
 	}
 	if d.IdentityToken != "" {
-		// cosign accepts a token value or a file path; ambient providers are used
-		// when this is absent. StageFreight only TRANSPORTS the token — it never
-		// becomes an OIDC client.
 		a = append(a, "--identity-token", d.IdentityToken)
 	}
-	if d.Declared() {
-		a = append(a, "--use-signing-config=false")
-		if d.FulcioURL != "" {
-			a = append(a, "--fulcio-url", d.FulcioURL)
-		}
-		if p.TransparencyRequired && d.RekorURL != "" {
-			a = append(a, "--rekor-url", d.RekorURL)
-		}
-		if !p.TransparencyRequired {
-			a = append(a, "--tlog-upload=false")
-		}
-		if d.TrustedRoot != "" {
-			a = append(a, "--trusted-root", d.TrustedRoot)
-		}
-		return a
+	if d.TrustedRoot != "" {
+		a = append(a, "--trusted-root", d.TrustedRoot)
 	}
-	// Public Sigstore: TUF-provided signing config (needs the new bundle format in
-	// v3); a keyless signature without transparency is atypical but honored.
-	a = append(a, tlogArgs(p)...)
 	return a
 }
 

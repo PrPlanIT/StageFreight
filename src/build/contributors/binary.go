@@ -615,7 +615,7 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 
 	artifactID := artifact.NewArtifactID("checksums", filepath.Base(checksumPath))
 	evidence := sc.Evidence(now)
-	sigPath := checksumPath + ".sig"
+	sigPath := checksumPath + ".sigstore.json"
 	err := cosign.SignBlob(rc.Ctx, rc.RootDir, rc.Config.Toolchains.Want, checksumPath, sigPath, sc.Plan, sc.Env)
 	if err != nil {
 		rc.RB.Record(artifactID, artifact.Outcome{
@@ -626,15 +626,15 @@ func (b *binaryContributor) signChecksums(rc *domains.RunContext, t config.Targe
 			},
 		})
 		row := fmt.Sprintf("%-9s %-40s %s  signature failed",
-			"binary", filepath.Base(checksumPath)+".sig", output.StatusIcon("failed", rc.Color))
+			"binary", filepath.Base(sigPath), output.StatusIcon("failed", rc.Color))
 		if enforce {
 			return row, fmt.Errorf("signing checksums for %s (enforce): %w", t.ID, err)
 		}
 		return row, nil
 	}
 
-	// The detached signature lands in DistDir beside SHA256SUMS (so release upload
-	// ships it); its authoritative record is the blob_signature outcome below.
+	// The signature bundle lands in DistDir beside SHA256SUMS (so release upload ships
+	// it); its authoritative record is the blob_signature outcome below.
 	rc.RB.Record(artifactID, artifact.Outcome{
 		Type: artifact.OutcomeTypeBlobSignature,
 		BlobSignature: &artifact.BlobSignatureOutcome{
