@@ -10,18 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrPlanIT/StageFreight/internal/testdocker"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/google/go-containerregistry/pkg/crane"
 )
-
-func dockerUp(t *testing.T) bool {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		return false
-	}
-	return exec.Command("docker", "info").Run() == nil
-}
 
 // TestPromoteArtifacts_EndToEnd is the P4 finish-line proof: build → retain to
 // CAS → promote from CAS to a registry, asserting the PUBLISHED digest equals
@@ -30,13 +24,13 @@ func dockerUp(t *testing.T) bool {
 //
 // Docker-gated.
 func TestPromoteArtifacts_EndToEnd(t *testing.T) {
-	if !dockerUp(t) {
+	if !testdocker.Available() {
 		t.Skip("docker not available — end-to-end promotion proof runs only on a docker-capable runner")
 	}
 
 	// 1. Build an OCI layout + capture the recorded digest (perform side).
 	work := t.TempDir()
-	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM alpine:3.19\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM docker.io/library/alpine:3.24.3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	layoutDir := filepath.Join(t.TempDir(), "layout")
@@ -63,12 +57,7 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 	}
 
 	// 3. Write outputs.json with the persistence handle (what perform records).
-	reg := exec.Command("docker", "run", "-d", "--rm", "-p", "5980:5000", "--name", "sf-e2e-reg", "registry:2")
-	if out, err := reg.CombinedOutput(); err != nil {
-		t.Fatalf("registry: %v\n%s", err, out)
-	}
-	defer exec.Command("docker", "rm", "-f", "sf-e2e-reg").Run()
-	exec.Command("sh", "-c", "sleep 2").Run()
+	reg := testdocker.Registry(t)
 
 	m := artifact.OutputsManifest{
 		Artifacts: []artifact.Artifact{{
@@ -79,7 +68,7 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 			Persistence: artifact.PersistenceHandle{Kind: artifact.PersistenceOCILayout, OCILayout: &artifact.OCILayoutRef{Path: stored}},
 			Targets: []artifact.Target{{
 				Kind:     "registry",
-				Registry: &artifact.RegistryTarget{Host: "localhost:5980", Path: "e2e/app", Tags: []string{"v1"}},
+				Registry: &artifact.RegistryTarget{Host: reg, Path: "e2e/app", Tags: []string{"v1"}},
 			}},
 		}},
 	}
@@ -130,16 +119,12 @@ func TestPromoteArtifacts_EndToEnd(t *testing.T) {
 	// 5. THE PROOF: registry serves exactly the digest perform recorded.
 	// promoteArtifacts already performed an internal post-push verify (it errors
 	// if the registry-served digest != recorded digest), so reaching here with
-	// n==1 and no error is itself the guarantee. We additionally confirm the
-	// registry independently via crane digest, the same tool that does the push.
-	got, err := exec.Command("docker", "run", "--rm", "--network", "host",
-		"gcr.io/go-containerregistry/crane:latest", "digest", "--insecure",
-		"localhost:5980/e2e/app:v1").Output()
+	// n==1 and no error is itself the guarantee. We additionally ask the registry
+	// directly, through the library that does the push.
+	published, err := crane.Digest(reg+"/e2e/app:v1", crane.Insecure)
 	if err != nil {
-		t.Logf("independent crane digest unavailable (%v) — promotion's internal post-push verify already asserted digest equality", err)
-		return
+		t.Fatalf("reading the published digest: %v", err)
 	}
-	published := strings.TrimSpace(string(got))
 	if published != meta.Digest {
 		t.Fatalf("PUBLISHED DIGEST != PERFORM DIGEST: published %q, perform recorded %q", published, meta.Digest)
 	}

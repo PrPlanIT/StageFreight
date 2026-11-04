@@ -8,24 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrPlanIT/StageFreight/internal/testdocker"
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 )
-
-// dockerAvailable reports whether a usable docker CLI + daemon is present.
-// The repo's normal test suite runs in golang:1.26 with NO docker, so this
-// gate keeps the bridge test from failing there; it runs only on a real runner
-// or in the dev image where docker is present.
-func dockerAvailable(t *testing.T) bool {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		return false
-	}
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		return false
-	}
-	return true
-}
 
 // TestBridge_DaemonAndCASAgreeOnIdentity is the first cross-representation
 // identity proof in the system: it builds a trivial image with --load (daemon
@@ -37,7 +23,7 @@ func dockerAvailable(t *testing.T) bool {
 //
 // Docker-gated: skips when no daemon is present.
 func TestBridge_DaemonAndCASAgreeOnIdentity(t *testing.T) {
-	if !dockerAvailable(t) {
+	if !testdocker.Available() {
 		t.Skip("docker not available — bridge test runs only on a docker-capable runner")
 	}
 

@@ -8,18 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-// dockerAvailable reports whether docker + daemon are usable. The promote
-// integration test needs docker to build a layout and run a throwaway registry;
-// it skips in the pure golang test suite.
-func dockerAvailable(t *testing.T) bool {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		return false
-	}
-	return exec.Command("docker", "info").Run() == nil
-}
+	"github.com/PrPlanIT/StageFreight/internal/testdocker"
+)
 
 // TestLayoutToRegistry_PreservesDigest is the P4 promotion proof: an OCI layout
 // pushed via go-containerregistry arrives at the registry under the SAME index
@@ -29,12 +20,12 @@ func dockerAvailable(t *testing.T) bool {
 //
 // Docker-gated: builds a layout with buildx and runs a local registry.
 func TestLayoutToRegistry_PreservesDigest(t *testing.T) {
-	if !dockerAvailable(t) {
+	if !testdocker.Available() {
 		t.Skip("docker not available — promote integration test runs only on a docker-capable runner")
 	}
 
 	work := t.TempDir()
-	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM alpine:3.19\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM docker.io/library/alpine:3.24.3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	layoutDir := filepath.Join(t.TempDir(), "layout")
@@ -61,16 +52,8 @@ func TestLayoutToRegistry_PreservesDigest(t *testing.T) {
 		t.Fatal("no containerimage.digest in metadata")
 	}
 
-	// Throwaway local registry.
-	reg := exec.Command("docker", "run", "-d", "--rm", "-p", "5970:5000", "--name", "sf-promote-test-reg", "registry:2")
-	if out, err := reg.CombinedOutput(); err != nil {
-		t.Fatalf("start registry: %v\n%s", err, out)
-	}
-	defer exec.Command("docker", "rm", "-f", "sf-promote-test-reg").Run()
-	// Give the registry a moment.
-	exec.Command("sh", "-c", "sleep 2").Run()
-
-	ref := "localhost:5970/promote-test:v1"
+	reg := testdocker.Registry(t)
+	ref := reg + "/promote-test:v1"
 	res, err := LayoutToRegistry(context.Background(), layoutDir, ref, meta.Digest, nil)
 	if err != nil {
 		t.Fatalf("LayoutToRegistry: %v", err)
@@ -79,7 +62,7 @@ func TestLayoutToRegistry_PreservesDigest(t *testing.T) {
 	if res.Digest != meta.Digest {
 		t.Fatalf("DIGEST NOT PRESERVED: recorded %s, registry served %s", meta.Digest, res.Digest)
 	}
-	if !strings.HasPrefix(res.Ref, "localhost:5970/promote-test") {
+	if !strings.HasPrefix(res.Ref, reg+"/promote-test") {
 		t.Fatalf("unexpected pushed ref %q", res.Ref)
 	}
 	t.Logf("promotion proof: layout digest %s preserved through registry push", res.Digest)
@@ -90,11 +73,11 @@ func TestLayoutToRegistry_PreservesDigest(t *testing.T) {
 // promotion refuses rather than distributing a different artifact than was
 // reviewed. This does not need a registry — it fails before any push.
 func TestLayoutToRegistry_RejectsDigestMismatch(t *testing.T) {
-	if !dockerAvailable(t) {
+	if !testdocker.Available() {
 		t.Skip("docker not available")
 	}
 	work := t.TempDir()
-	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM alpine:3.19\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "Dockerfile"), []byte("FROM docker.io/library/alpine:3.24.3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	layoutDir := filepath.Join(t.TempDir(), "layout")
