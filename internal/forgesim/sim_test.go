@@ -19,7 +19,11 @@
 package forgesim
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,6 +87,7 @@ workflow:
 
 type sim struct {
 	t       *testing.T
+	api     string // the project's GitLab API URL
 	url     string // repository URL
 	auth    transport.AuthMethod
 	token   string
@@ -105,6 +110,7 @@ func newSim(t *testing.T) *sim {
 	}
 	s := &sim{
 		t:      t,
+		api:    strings.TrimRight(base, "/") + "/api/v4/projects/" + url.PathEscape(project),
 		url:    strings.TrimRight(base, "/") + "/" + project + ".git",
 		auth:   &githttp.BasicAuth{Username: "oauth2", Password: token},
 		token:  token,
@@ -193,6 +199,7 @@ func (s *sim) push(repo *git.Repository, spec string) {
 // teardown deletes every ref the sim may have made: what it recorded, plus any
 // feature/sim-*, stable and sim-* tag on the remote.
 func (s *sim) teardown() {
+	s.closeSimMRs()
 	refs := s.remoteRefs()
 	del := map[plumbing.ReferenceName]bool{}
 	for _, r := range s.created {
@@ -217,6 +224,60 @@ func (s *sim) teardown() {
 	if err := r.Push(&git.PushOptions{Auth: s.auth, RefSpecs: specs}); err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		s.t.Errorf("teardown: deleting %v: %v — remove them by hand", specs, err)
 	}
+}
+
+// openMRs returns the open merge requests from a source branch, as iid → target branch.
+func (s *sim) openMRs(source string) map[int]string {
+	s.t.Helper()
+	var mrs []struct {
+		IID    int    `json:"iid"`
+		Source string `json:"source_branch"`
+		Target string `json:"target_branch"`
+	}
+	q := "/merge_requests?state=opened&per_page=100"
+	if source != "" {
+		q += "&source_branch=" + url.QueryEscape(source)
+	}
+	if err := s.gitlab("GET", q, &mrs); err != nil {
+		s.t.Errorf("listing merge requests: %v", err)
+	}
+	out := map[int]string{}
+	for _, m := range mrs {
+		if source != "" || strings.HasPrefix(m.Source, "feature/sim-") {
+			out[m.IID] = m.Target
+		}
+	}
+	return out
+}
+
+// closeSimMRs closes every open merge request from a feature/sim-* branch.
+func (s *sim) closeSimMRs() {
+	for iid := range s.openMRs("") {
+		if err := s.gitlab("PUT", fmt.Sprintf("/merge_requests/%d?state_event=close", iid), nil); err != nil {
+			s.t.Errorf("teardown: closing !%d: %v — close it by hand", iid, err)
+		}
+	}
+}
+
+// gitlab calls the project's API, decoding the response into out when given.
+func (s *sim) gitlab(method, path string, out any) error {
+	req, err := http.NewRequest(method, s.api+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("PRIVATE-TOKEN", s.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("%s %s: %s", method, path, resp.Status)
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	return nil
 }
 
 // clone makes a working clone of main for a scenario.
@@ -375,6 +436,20 @@ func simWorkflow(s *sim) {
 		s.t.Error("feature branch didn't reach the forge")
 	}
 
+	// Promoting it opens a merge request into main, the declared way in.
+	if s.supports("promote", "merge_request") {
+		s.succeeds(dir, []string{"promote land: feature/sim-work → main", "merge request !"}, "promote")
+		if mrs := s.openMRs("feature/sim-work"); len(mrs) != 1 {
+			s.t.Errorf("want one open merge request from feature/sim-work, got %v", mrs)
+		} else {
+			for _, target := range mrs {
+				if target != "main" {
+					s.t.Errorf("merge request targets %s, want main", target)
+				}
+			}
+		}
+	}
+
 	// Pushing it straight onto main is refused; main is unchanged.
 	mainBefore := s.remoteRefs()["refs/heads/main"]
 	s.refuses(dir, []string{"through a merge request"}, "push", "--refspec", "HEAD:main")
@@ -401,6 +476,11 @@ func simWorkflow(s *sim) {
 		"main:    { match: main, landing: merge_request, enforcement: evaluate }", 1))
 	write(s.t, filepath.Join(dir, "b.txt"), "b\n")
 	s.succeeds(dir, []string{"evaluate, not enforced"}, "commit", "-t", "docs", "-m", "evaluated", "--", "b.txt")
+
+	// main has nowhere to go: no promotion starts from it.
+	if s.supports("promote", "merge_request") {
+		s.refuses(dir, []string{"no promotion starts from the main class"}, "promote")
+	}
 }
 
 func simWorktree(s *sim) {
