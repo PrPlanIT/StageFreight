@@ -60,3 +60,38 @@ func TestRenderBuildError_BoundedAndUseful(t *testing.T) {
 		t.Error("the real failure (curl 404) was not surfaced")
 	}
 }
+
+// A failed step's own output says why it failed; BuildKit prints it before the
+// Dockerfile excerpt that ends stderr, so it is surfaced by step, not by stderr tail.
+func TestStepTail(t *testing.T) {
+	stderr := strings.Join([]string{
+		"#13 [build 4/9] RUN pnpm install",
+		"#13 12.1 Packages: +1450",
+		"#13 DONE 40.2s",
+		"#14 [build 5/9] RUN pnpm nx run @zitadel/api:generate --parallel=1",
+		"#14 3.0 > nx run @zitadel/api:generate",
+		"#14 217.5 Failed tasks:",
+		"#14 217.5 - @zitadel/proto:generate",
+		"#15 0.4 unrelated parallel step",
+		"#14 217.6 buf: plugin protoc-gen-go: exit status 2",
+		`#14 ERROR: process "/bin/sh -c pnpm nx run @zitadel/api:generate --parallel=1" did not complete successfully: exit code: 130`,
+		"------",
+		"  42 | >>> RUN pnpm nx run @zitadel/api:generate --parallel=1",
+		"  43 |     RUN pnpm nx run @zitadel/api:build-console",
+		"------",
+	}, "\n")
+	id, tail := stepTail(strings.Split(stderr, "\n"), 20)
+	if id != "14" {
+		t.Fatalf("step = %q, want 14", id)
+	}
+	want := []string{"> nx run @zitadel/api:generate", "Failed tasks:", "- @zitadel/proto:generate", "buf: plugin protoc-gen-go: exit status 2"}
+	if strings.Join(tail, "|") != strings.Join(want, "|") {
+		t.Errorf("tail = %q, want %q", tail, want)
+	}
+	if _, tail := stepTail(strings.Split(stderr, "\n"), 2); len(tail) != 2 || tail[1] != "buf: plugin protoc-gen-go: exit status 2" {
+		t.Errorf("bounded tail = %q, want the last 2 lines", tail)
+	}
+	if id, tail := stepTail([]string{"#3 0.1 fine", "#3 DONE 0.2s"}, 20); id != "" || tail != nil {
+		t.Errorf("no failed step: got %q %q", id, tail)
+	}
+}

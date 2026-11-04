@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,37 @@ import (
 
 const maxErrorEntries = 15
 const contextTailLines = 5
+const stepTailLines = 20
+
+// stepLineRe matches a line of BuildKit plain progress output: "#<step> <seconds> <text>".
+var stepLineRe = regexp.MustCompile(`^#(\d+) \d+(\.\d+)? (.*)$`)
+
+// stepErrorRe matches the line BuildKit prints when a step fails: "#<step> ERROR: …".
+var stepErrorRe = regexp.MustCompile(`^#(\d+) ERROR:`)
+
+// stepTail returns the id of the last step that failed and the last n lines it printed,
+// from BuildKit's plain progress output; nothing when no step failed.
+func stepTail(lines []string, n int) (string, []string) {
+	id := ""
+	for i := len(lines) - 1; i >= 0 && id == ""; i-- {
+		if m := stepErrorRe.FindStringSubmatch(strings.TrimSpace(lines[i])); m != nil {
+			id = m[1]
+		}
+	}
+	if id == "" {
+		return "", nil
+	}
+	var out []string
+	for _, line := range lines {
+		if m := stepLineRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil && m[1] == id {
+			out = append(out, m[3])
+		}
+	}
+	if len(out) > n {
+		out = out[len(out)-n:]
+	}
+	return id, out
+}
 
 // BuildErrorEntry is a structured, parsed build error.
 // Parsed once, rendered from metadata — no string guessing at render time.
@@ -67,6 +99,16 @@ func RenderBuildError(sec *output.Section, stderr string) {
 	if len(entries) > 0 {
 		for _, e := range entries {
 			sec.Row("  %s", sanitizeErrLine(formatError(e)))
+		}
+
+		// What the failing step itself printed says why it failed; the stderr tail is only
+		// BuildKit's Dockerfile excerpt.
+		if id, tail := stepTail(lines, stepTailLines); len(tail) > 0 {
+			sec.Row("")
+			sec.Row("  step #%s output (last %d lines):", id, len(tail))
+			for _, line := range tail {
+				sec.Row("    %s", sanitizeErrLine(line))
+			}
 		}
 
 		// Context tail — which Docker stage/step failed.
