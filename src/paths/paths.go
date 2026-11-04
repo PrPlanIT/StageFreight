@@ -137,24 +137,25 @@ func resolveCacheRoot(explicit string) string {
 		return explicit
 	}
 	if v := strings.TrimSpace(os.Getenv(CacheRootEnv)); v != "" {
-		warnUnwritableRoot(v)
+		warnUnwritableRoot(v, "")
 		return v
 	}
 	if writableDir(DefaultCacheRoot) {
 		return DefaultCacheRoot
 	}
-	warnUnwritableRoot(DefaultCacheRoot)
 	if xdg := xdgCacheDir(); xdg != "" && writableDir(xdg) {
+		warnUnwritableRoot(DefaultCacheRoot, xdg)
 		return xdg
 	}
+	warnUnwritableRoot(DefaultCacheRoot, "")
 	return ""
 }
 
 var warnedRoots sync.Map
 
 // warnUnwritableRoot warns, once per root, when root exists but this uid can't write
-// it: every cache under it is then skipped and the run rebuilds from nothing.
-func warnUnwritableRoot(root string) {
+// it, saying where the run caches instead (fallback) or that it is uncached ("").
+func warnUnwritableRoot(root, fallback string) {
 	fi, err := os.Stat(root)
 	if err != nil || !fi.IsDir() || writableDir(root) {
 		return
@@ -162,9 +163,13 @@ func warnUnwritableRoot(root string) {
 	if _, seen := warnedRoots.LoadOrStore(root, true); seen {
 		return
 	}
-	diag.Warn("cache root %s exists but uid %d (gid %d) can't write it — this run is uncached. "+
-		"Make it group-0 writable (chgrp -R 0 %s && chmod -R g+rwX %s) or run as its owner.",
-		root, os.Getuid(), os.Getgid(), root, root)
+	outcome := "this run is uncached"
+	if fallback != "" {
+		outcome = "caching under " + fallback + " for this run only"
+	}
+	diag.Warn("cache root %s exists but uid %d (gid %d) can't write it; %s. To keep caches "+
+		"across runs, mount a volume there writable by this uid or gid, or set %s to one.",
+		root, os.Getuid(), os.Getgid(), outcome, CacheRootEnv)
 }
 
 // xdgCacheDir is the native user cache root: $XDG_CACHE_HOME/stagefreight, else

@@ -1,6 +1,11 @@
 package paths
 
-import "testing"
+import (
+	"io"
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestDurable(t *testing.T) {
 	if got := Durable(""); got != ".stagefreight" {
@@ -78,5 +83,34 @@ func TestResolveCacheRoot(t *testing.T) {
 func TestState(t *testing.T) {
 	if got := State("kms", "key"); got != "/var/lib/stagefreight/kms/key" {
 		t.Errorf("State = %q", got)
+	}
+}
+
+// An unwritable cache root is reported once, with where the run caches instead.
+func TestWarnUnwritableRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes through read-only permissions")
+	}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	warnUnwritableRoot(root, "/home/x/.cache/stagefreight")
+	warnUnwritableRoot(root, "/home/x/.cache/stagefreight")
+	os.Stderr = old
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if n := strings.Count(string(out), "can't write it"); n != 1 {
+		t.Fatalf("warned %d times, want once: %q", n, out)
+	}
+	if !strings.Contains(string(out), "caching under /home/x/.cache/stagefreight for this run only") {
+		t.Errorf("warning must say where the run caches: %q", out)
 	}
 }

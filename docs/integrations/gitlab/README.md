@@ -102,7 +102,8 @@ pods, a read-only root filesystem, and a buildkitd for image builds. Give the jo
 | Need | Provide |
 |---|---|
 | Image builds | A buildkitd the jobs can reach: `BUILDKIT_HOST=tcp://<buildkitd>:1234`, plus its client certs (`ca.pem`, `cert.pem`, `key.pem`) at `/buildkit-certs` (or `BUILDKIT_CERT_PATH`). Builds go through buildx's remote driver. |
-| Caches | A ReadWriteMany volume at `/stagefreight` (`SF_CACHE_ROOT=/stagefreight`). It keeps toolchains, Go caches and scanner databases across jobs; without it every job downloads them again. StageFreight's disk GC bounds it, and never evicts a cache a running job is using. |
+| Job user | The image runs as uid 1000 in group 0; a pod may set its own (`run_as_user`, `run_as_group`). Any uid works. |
+| Caches | A ReadWriteMany volume at `/stagefreight` (`SF_CACHE_ROOT=/stagefreight`), writable by the job's uid or gid: set the pod's `fs_group` to its group. It keeps toolchains, Go caches and scanner databases across jobs; without it every job downloads them again, and StageFreight warns that the cache root is unwritable. StageFreight's disk GC bounds it, and never evicts a cache a running job is using. |
 | Scratch | Writable `HOME`, `/tmp` and build directory, on a volume (a generic ephemeral volume per job keeps job data off the node's disk). |
 | Memory | Enough for the audition's test run. The Executor panel reports headroom under the job's own memory limit. |
 
