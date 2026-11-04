@@ -917,6 +917,7 @@ test:
       from: <string>   # module/crate dir when not at repo root (e.g. dd-ui's api/)
       args: [<string>]   # raw passthrough escape hatch
       command: <string>
+      env: [<string>]   # Env names variables passed from the environment into the tests, when set. A suite runs hermetically…
       packages: [<string>]   # ── Go (native `go test` flag projections)…
       tags: [<string>]   # -tags a,b
       run: <string>   # -run <regex>
