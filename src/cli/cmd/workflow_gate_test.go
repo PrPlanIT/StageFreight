@@ -10,6 +10,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/workflow"
 )
 
 // withTrunkWorkflow declares the trunk model for the test: main lands through merge
@@ -23,12 +24,15 @@ func withTrunkWorkflow(t *testing.T) {
 		Workflow: config.WorkflowConfig{
 			Branches: config.OrderedBranchClasses{
 				{ID: "main", Match: "main", Landing: config.LandingMergeRequest},
-				{ID: "feature", Match: "feature", Landing: config.LandingDirect},
+				{ID: "feature", Match: "feature", Lifetime: config.LifetimeShort, Landing: config.LandingDirect},
 			},
 			Promote: config.OrderedPromotions{{ID: "land", From: "feature", To: "main", Method: config.PromoteMergeRequest}},
 		},
 	}
 	t.Setenv("SF_CI_PROVIDER", "")
+	prevRole := workflowRole
+	t.Cleanup(func() { workflowRole = prevRole })
+	workflowRole = ""
 }
 
 func remoteHead(t *testing.T, remote, branch string) plumbing.Hash {
@@ -59,8 +63,14 @@ func TestWorkflowGate_PushToMergeRequestClass(t *testing.T) {
 		t.Fatal("a refused push must not reach the remote")
 	}
 
+	// Overriding is a producer's call.
+	err = refspecPush(local, "origin", "HEAD:refs/heads/main", true, true)
+	if err == nil || !strings.Contains(err.Error(), "needs the producer role") {
+		t.Fatalf("a talent's override must be refused, got %v", err)
+	}
+	workflowRole = "producer" // no forge here, so the ceiling is unknown and --role unbounded
 	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", true, true); err != nil {
-		t.Fatalf("an overridden push must go through: %v", err)
+		t.Fatalf("a producer's override must go through: %v", err)
 	}
 	if remoteHead(t, remote, "main") == before {
 		t.Error("the overridden push did not land")
@@ -96,7 +106,7 @@ func TestWorkflowGate_CommitOnMergeRequestClass(t *testing.T) {
 	local, _ := divergedRemote(t) // checked out on main
 
 	var out bytes.Buffer
-	blocks := workflowBlocks(&out, commitLandings(local, &commit.Plan{})...)
+	blocks := workflowBlocks(&out, commitLandings(local, &commit.Plan{}, workflow.Standing{Role: workflow.Talent})...)
 	if len(blocks) != 1 || blocks[0].ID != "workflow.landing" || !blocks[0].Overrideable() {
 		t.Fatalf("commit on main must be one overrideable workflow block, got %+v", blocks)
 	}
@@ -107,7 +117,7 @@ func TestWorkflowGate_CommitOnMergeRequestClass(t *testing.T) {
 	// Pushing elsewhere is checked too: commit on main, pushed to a feature branch, is
 	// still a commit on main; pushed to main it is not counted twice.
 	plan := &commit.Plan{Push: commit.PushOptions{Enabled: true, Refspec: "HEAD:main"}}
-	if blocks := workflowBlocks(&out, commitLandings(local, plan)...); len(blocks) != 1 {
+	if blocks := workflowBlocks(&out, commitLandings(local, plan, workflow.Standing{Role: workflow.Talent})...); len(blocks) != 1 {
 		t.Errorf("commit and push to the same branch is one landing, got %d", len(blocks))
 	}
 }
@@ -118,7 +128,7 @@ func TestWorkflowGate_Evaluate(t *testing.T) {
 	cfg.Workflow.Branches[0].Enforcement = config.EnforcementEvaluate
 	local, _ := divergedRemote(t)
 	var out bytes.Buffer
-	if blocks := workflowBlocks(&out, commitLandings(local, &commit.Plan{})...); len(blocks) != 0 {
+	if blocks := workflowBlocks(&out, commitLandings(local, &commit.Plan{}, workflow.Standing{Role: workflow.Talent})...); len(blocks) != 0 {
 		t.Errorf("evaluate must not block, got %+v", blocks)
 	}
 	if !strings.Contains(out.String(), "evaluate, not enforced") {
@@ -133,5 +143,24 @@ func TestWorkflowGate_TagUncheckable(t *testing.T) {
 	f := tagRelease(t.TempDir(), "v0.16.0", "0000000000000000000000000000000000000000")
 	if f == nil || f.Evaluate || !strings.Contains(f.Message, "can't check") {
 		t.Errorf("an unreadable repository must refuse, got %+v", f)
+	}
+}
+
+// A long-lived branch that takes direct pushes is shared state a director moves.
+func TestWorkflowGate_LongLivedDirectNeedsDirector(t *testing.T) {
+	withTrunkWorkflow(t)
+	cfg.Git.Branches["stable"] = "^stable$"
+	cfg.Workflow.Branches = append(cfg.Workflow.Branches, config.BranchClass{ID: "stable", Match: "stable", Landing: config.LandingDirect})
+	local, remote := divergedRemote(t)
+	err := refspecPush(local, "origin", "HEAD:refs/heads/stable", false, false)
+	if err == nil || !strings.Contains(err.Error(), "needs the director role") || !strings.Contains(err.Error(), "--role director") {
+		t.Fatalf("a talent's push to a long-lived branch must be refused, got %v", err)
+	}
+	workflowRole = "director"
+	if err := refspecPush(local, "origin", "HEAD:refs/heads/stable", false, false); err != nil {
+		t.Fatalf("a director's push: %v", err)
+	}
+	if remoteHead(t, remote, "stable") == plumbing.ZeroHash {
+		t.Error("stable not pushed")
 	}
 }

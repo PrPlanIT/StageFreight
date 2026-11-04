@@ -76,6 +76,7 @@ func init() {
 	commitCmd.Flags().StringVar(&commitRefspec, "refspec", "", "push refspec (e.g. HEAD:refs/heads/main)")
 	commitCmd.Flags().BoolVar(&commitDryRun, "dry-run", false, "show what would be committed without executing")
 	commitCmd.Flags().BoolVar(&commitSignOff, "sign-off", false, "add Signed-off-by trailer")
+	commitCmd.Flags().StringVar(&workflowRole, "role", "", "act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows")
 	commitCmd.Flags().BoolVar(&commitMaintainerOverride, "maintainer-override", false,
 		"bypass governance/policy failures when the commit path is still deterministic\n"+
 			"    does NOT bypass mechanical failures (detached HEAD, hook rejection, sync errors)\n"+
@@ -194,10 +195,13 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	// BuildPlan and Execute — they never reach this point. Ring 3 blocks are
 	// collected here and either surfaced as warnings (with --maintainer-override)
 	// or returned as an error instructing the operator to add the flag.
-	governanceBlocks := workflowBlocks(os.Stdout, commitLandings(rootDir, plan)...)
+	governanceBlocks, err := commitWorkflow(rootDir, plan, commitMaintainerOverride)
+	if err != nil {
+		return err
+	}
 
 	if governanceBlocks.HasGovernance() && !commitMaintainerOverride {
-		msg := fmt.Sprintf("commit blocked by governance checks — use --maintainer-override to proceed:\n")
+		msg := "commit blocked by governance checks — a producer can proceed with --role producer --maintainer-override:\n"
 		for _, b := range governanceBlocks.GovernanceOnly() {
 			msg += fmt.Sprintf("  [%s] %s: %s\n", b.Ring, b.ID, b.Message)
 		}
@@ -368,13 +372,29 @@ func renderCommitSection(w io.Writer, plan *commit.Plan, result *commit.Result, 
 	sec.Close()
 }
 
-// commitLandings checks where a commit lands against the declared workflow: the branch it
-// is made on, and with --push the branch it is pushed to (the refspec's, else the
-// upstream's), when that is a different branch.
-func commitLandings(rootDir string, plan *commit.Plan) []*workflow.Finding {
-	if !cfg.Workflow.Present() {
-		return nil
+// commitWorkflow holds a commit to the declared workflow, as governance blocks that a
+// producer's --maintainer-override bypasses.
+func commitWorkflow(rootDir string, plan *commit.Plan, override bool) (commit.CommitBlocks, error) {
+	if !localWorkflow() {
+		return nil, nil
 	}
+	s, err := workflowStanding(os.Stdout)
+	if err != nil {
+		return nil, err
+	}
+	blocks := workflowBlocks(os.Stdout, commitLandings(rootDir, plan, s)...)
+	if override && blocks.HasGovernance() {
+		if err := overrideAllowed(s); err != nil {
+			return nil, err
+		}
+	}
+	return blocks, nil
+}
+
+// commitLandings checks where a commit lands: the branch it is made on, and with --push
+// the branch it is pushed to (the refspec's, else the upstream's) and whether your role may
+// push there.
+func commitLandings(rootDir string, plan *commit.Plan, s workflow.Standing) []*workflow.Finding {
 	repo, err := gitstate.OpenRepo(rootDir)
 	if err != nil {
 		return nil
@@ -392,6 +412,7 @@ func commitLandings(rootDir string, plan *commit.Plan) []*workflow.Finding {
 		if dest != branch {
 			findings = append(findings, workflow.Landing(cfg, dest, "push"))
 		}
+		findings = append(findings, workflow.PushRole(cfg, dest, s))
 	}
 	return findings
 }

@@ -79,6 +79,25 @@ Other models are the same fields arranged differently:
 | Release train | `master → beta → stable` by `fast_forward` on a schedule; tags only on `stable` |
 | Environment branches | `main → pre-production → production` by `fast_forward` |
 
+## Role Mapping
+
+#### Who's this "Talent"?
+*It's probably you.* 😜
+
+| Role | May | GitLab | GitHub | Gitea · Forgejo |
+|---|---|---|---|---|
+| **Producer** | cut releases · override the workflow | Owner | Admin | Owner · admin collaborator |
+| **Director** | push straight to a long-lived branch · orchestrate promotion | Maintainer | Maintain | — |
+| **Talent** | push working branches · open merge requests | Developer | Write | Write |
+| **Audience** | watch · comment · triage; no push | Reporter · Guest | Triage · Read | Read |
+
+Your access on the forge sets the highest role you can act as. Everyone, person or agent,
+acts as **talent** by default; `--role <role>` on `commit`, `push` and `tag` acts as another,
+never above what your access grants. Reaching for a higher role is therefore a deliberate act,
+and an agent working as talent can't land on a protected branch or cut a release. When your
+access can't be read (offline, no forge token), `--role` is unbounded and StageFreight says
+so; the forge still enforces for real when you push.
+
 ## What StageFreight enforces
 
 On your machine, `stagefreight commit`, `push` and `tag` hold you to the declared workflow
@@ -86,10 +105,13 @@ before anything leaves it:
 
 - A commit made on, or pushed to, a `landing: merge_request` branch is refused, with the branch
   to work on instead.
-- A release tag on a commit no allowed class contains is refused.
-- `--maintainer-override` proceeds anyway and says so in the output. The forge still enforces
-  its own rules.
-- Under `enforcement: evaluate` the same findings are reported and nothing is refused.
+- A push needs at least talent, and a push straight to a long-lived branch that takes direct
+  pushes needs a director.
+- A release tag needs a producer, on a commit an allowed class contains.
+- A producer's `--maintainer-override` proceeds anyway and says so in the output. The forge
+  still enforces its own rules.
+- Under `enforcement: evaluate` the landing and release findings are reported and nothing is
+  refused.
 
 In CI the local check stands aside: the forge and the pipeline are the authority there.
 `review`, `checks`, `merge`, `queue`, `protect`, `fork_changes` and `bypass` are validated

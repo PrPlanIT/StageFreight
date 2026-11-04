@@ -1,26 +1,75 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/commit"
+	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/workflow"
 )
 
-// workflowRefusals holds an action to the declared workflow at the local boundary. Findings
-// under enforcement: evaluate are reported and pass; the rest are returned for the caller to
-// refuse or override. In CI the forge and the CI gate enforce the workflow — StageFreight's
-// own automated commits land there under the forge's bypass — so the local gate, which is
-// for whoever is at the keyboard, stands aside.
-func workflowRefusals(out io.Writer, findings ...*workflow.Finding) []*workflow.Finding {
-	if (&ci.CIContext{Provider: os.Getenv("SF_CI_PROVIDER")}).IsCI() {
-		return nil
+// workflowRole is --role on commit, push and tag: the role to act as, at most your access
+// on the repo allows.
+var workflowRole string
+
+// localWorkflow reports whether the local workflow gate applies: a workflow is declared and
+// this is not CI. In CI the forge and the CI gate enforce the workflow — StageFreight's own
+// automated commits land there under the forge's bypass — so the local gate, which is for
+// whoever is at the keyboard, stands aside.
+func localWorkflow() bool {
+	if cfg == nil || !cfg.Workflow.Present() {
+		return false
 	}
+	return !(&ci.CIContext{Provider: os.Getenv("SF_CI_PROVIDER")}).IsCI()
+}
+
+// workflowStanding resolves the role you act as: --role (talent by default), bounded by the
+// role your access on the primary repo grants. When that access can't be read the role is
+// unbounded and you're told so; the forge still enforces for real on push.
+func workflowStanding(out io.Writer) (workflow.Standing, error) {
+	ceiling, known, why := forgeCeiling()
+	if !known {
+		fmt.Fprintf(out, "  workflow: couldn't read your access on the forge (%s); --role is unbounded here, and the forge still enforces on push\n", why)
+	}
+	return workflow.Effective(ceiling, known, workflowRole)
+}
+
+func forgeCeiling() (workflow.Role, bool, string) {
+	repo, err := config.ResolvePrimary(cfg.Repos, cfg.Forges, cfg.Vars)
+	if err != nil {
+		return workflow.Audience, false, err.Error()
+	}
+	if repo == nil {
+		return workflow.Audience, false, "no primary repo declared"
+	}
+	fc, err := forge.NewFromAccessory(repo.Provider, repo.BaseURL, repo.Project, repo.Credentials)
+	if err != nil {
+		return workflow.Audience, false, err.Error()
+	}
+	reader, ok := fc.(forge.AccessReader)
+	if !ok {
+		return workflow.Audience, false, repo.Provider + " can't report access levels"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	level, err := reader.Access(ctx)
+	if err != nil {
+		return workflow.Audience, false, err.Error()
+	}
+	return workflow.RoleFor(level), true, ""
+}
+
+// workflowRefusals reports findings under enforcement: evaluate, which pass, and returns the
+// rest for the caller to refuse or override.
+func workflowRefusals(out io.Writer, findings ...*workflow.Finding) []*workflow.Finding {
 	var refused []*workflow.Finding
 	for _, f := range findings {
 		switch {
@@ -34,16 +83,19 @@ func workflowRefusals(out io.Writer, findings ...*workflow.Finding) []*workflow.
 	return refused
 }
 
-// workflowGate refuses an action that breaks the declared workflow unless overridden; an
-// override is reported, so it is never silent.
-func workflowGate(out io.Writer, override bool, findings ...*workflow.Finding) error {
+// workflowGate refuses an action that breaks the declared workflow. A producer may override
+// it with --maintainer-override, which is reported, so it is never silent.
+func workflowGate(out io.Writer, override bool, s workflow.Standing, findings ...*workflow.Finding) error {
 	refused := workflowRefusals(out, findings...)
 	if len(refused) == 0 {
 		return nil
 	}
 	if override {
+		if err := overrideAllowed(s); err != nil {
+			return err
+		}
 		for _, f := range refused {
-			fmt.Fprintf(out, "  workflow rule overridden (--maintainer-override): %s\n", f.Message)
+			fmt.Fprintf(out, "  workflow rule overridden (--maintainer-override, as %s): %s\n", s.Role, f.Message)
 		}
 		return nil
 	}
@@ -51,8 +103,16 @@ func workflowGate(out io.Writer, override bool, findings ...*workflow.Finding) e
 	for _, f := range refused {
 		fmt.Fprintf(&b, "%s\n  %s\n", f.Message, f.Teach)
 	}
-	b.WriteString("re-run with --maintainer-override to proceed anyway (the forge still enforces its own rules)")
+	b.WriteString("a producer can proceed anyway with --role producer --maintainer-override (the forge still enforces its own rules)")
 	return errors.New(b.String())
+}
+
+// overrideAllowed refuses --maintainer-override below the producer role.
+func overrideAllowed(s workflow.Standing) error {
+	if workflow.CanOverride(s) {
+		return nil
+	}
+	return fmt.Errorf("--maintainer-override needs the producer role; you're acting as %s", s.Role)
 }
 
 // workflowBlocks turns refused findings into commit governance blocks, which

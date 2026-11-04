@@ -61,7 +61,8 @@ func init() {
 	tagCmd.Flags().BoolVar(&tagDryRun, "dry-run", false, "preview only, do not create tag")
 	tagCmd.Flags().StringVarP(&tagMessage, "message", "m", "", "override tag message")
 	tagCmd.Flags().BoolVarP(&tagYes, "yes", "y", false, "skip approval prompt")
-	tagCmd.Flags().BoolVar(&tagOverride, "maintainer-override", false, "tag even though the declared workflow refuses it (reported)")
+	tagCmd.Flags().BoolVar(&tagOverride, "maintainer-override", false, "producer only: tag even though the declared workflow refuses it (reported)")
+	tagCmd.Flags().StringVar(&workflowRole, "role", "", "act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows")
 	tagCmd.Flags().BoolVar(&tagJSON, "json", false, "output plan as JSON (implies --dry-run)")
 
 	rootCmd.AddCommand(tagCmd)
@@ -249,8 +250,14 @@ func runTag(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w)
 	sec.Close()
 
-	if err := workflowGate(w, tagOverride, tagRelease(rootDir, plan.NextTag, plan.TargetSHA)); err != nil {
-		return err
+	if localWorkflow() {
+		s, err := workflowStanding(w)
+		if err != nil {
+			return err
+		}
+		if err := workflowGate(w, tagOverride, s, workflow.ReleaseRole(cfg, s), tagRelease(rootDir, plan.NextTag, plan.TargetSHA)); err != nil {
+			return err
+		}
 	}
 
 	if tagDryRun {

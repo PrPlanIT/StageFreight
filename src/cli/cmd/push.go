@@ -28,7 +28,8 @@ func init() {
 	pushCmd.Flags().StringVar(&pushRefspec, "refspec", "", "push HEAD to an explicit ref (e.g. HEAD:refs/heads/main), replaying onto the branch if it moved")
 	pushCmd.Flags().BoolVar(&pushNoRebase, "no-rebase", false, "with --refspec: fail instead of replaying onto a branch that moved")
 	pushCmd.Flags().BoolVar(&pushYes, "yes", false, "approve a transformational plan (e.g. replay onto a protected branch) without prompting")
-	pushCmd.Flags().BoolVar(&pushOverride, "maintainer-override", false, "push even though the declared workflow refuses it (reported; the forge still enforces its own rules)")
+	pushCmd.Flags().BoolVar(&pushOverride, "maintainer-override", false, "producer only: push even though the declared workflow refuses it (reported; the forge still enforces its own rules)")
+	pushCmd.Flags().StringVar(&workflowRole, "role", "", "act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows")
 	rootCmd.AddCommand(pushCmd)
 }
 
@@ -105,7 +106,7 @@ func runPlanned(rootDir, remote string, approved, override bool, out io.Writer, 
 	}
 	fmt.Fprint(out, gitplan.Render(plan))
 	if sendsCommits(plan) {
-		if err := workflowGate(out, override, workflow.Landing(cfg, plan.Dest.Branch, "push")); err != nil {
+		if err := pushGate(out, override, plan.Dest.Branch); err != nil {
 			return err
 		}
 	}
@@ -138,7 +139,7 @@ func runPlanned(rootDir, remote string, approved, override bool, out io.Writer, 
 // concise status.
 func refspecPush(rootDir, remote, refspec string, replay, override bool) error {
 	if _, dst, ok := strings.Cut(refspec, ":"); ok && !strings.HasPrefix(dst, "refs/tags/") {
-		if err := workflowGate(os.Stdout, override, workflow.Landing(cfg, strings.TrimPrefix(dst, "refs/heads/"), "push")); err != nil {
+		if err := pushGate(os.Stdout, override, strings.TrimPrefix(dst, "refs/heads/")); err != nil {
 			return err
 		}
 	}
@@ -183,4 +184,17 @@ func sendsCommits(p gitplan.Plan) bool {
 		}
 	}
 	return false
+}
+
+// pushGate holds a push to branch to the declared workflow: how the branch takes changes,
+// and whether your role may push to it.
+func pushGate(out io.Writer, override bool, branch string) error {
+	if !localWorkflow() {
+		return nil
+	}
+	s, err := workflowStanding(out)
+	if err != nil {
+		return err
+	}
+	return workflowGate(out, override, s, workflow.Landing(cfg, branch, "push"), workflow.PushRole(cfg, branch, s))
 }
