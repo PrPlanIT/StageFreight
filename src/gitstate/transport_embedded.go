@@ -216,7 +216,7 @@ func (t *embeddedTransport) Push(remote, refspec string) error {
 	if err != nil {
 		return err
 	}
-	spec, err := t.pushRefSpec(refspec)
+	spec, err := t.pushRefSpec(remote, refspec, auth)
 	if err != nil {
 		return err
 	}
@@ -234,11 +234,16 @@ func (t *embeddedTransport) Push(remote, refspec string) error {
 	return nil
 }
 
-// pushRefSpec is the refspec go-git pushes for refspec, as git would read it. A source
-// that is a symbolic ref (HEAD on a branch) names the branch it points at, which go-git
-// would otherwise match nothing for. An empty refspec is git's default
-// (push.default=simple): the current branch to its upstream, never every branch.
-func (t *embeddedTransport) pushRefSpec(refspec string) (gitconfig.RefSpec, error) {
+// pushRefSpec is the refspec go-git pushes for refspec, as git would read it; go-git
+// itself takes refspecs only as full ref names.
+//   - An empty refspec is git's default (push.default=simple): the current branch to its
+//     upstream, never every branch.
+//   - The source resolves as git resolves it: a symbolic ref (HEAD on a branch) names the
+//     branch it points at, and a short name its branch or tag.
+//   - A source alone pushes to the same name.
+//   - A short destination names the matching ref on the remote, else the source's
+//     namespace (a branch to refs/heads/, a tag to refs/tags/).
+func (t *embeddedTransport) pushRefSpec(remote, refspec string, auth gittransport.AuthMethod) (gitconfig.RefSpec, error) {
 	if refspec == "" {
 		head, err := t.repo.Reference(plumbing.HEAD, false)
 		if err != nil || head.Type() != plumbing.SymbolicReference {
@@ -253,18 +258,89 @@ func (t *embeddedTransport) pushRefSpec(refspec string) (gitconfig.RefSpec, erro
 		return gitconfig.RefSpec(head.Target().String() + ":" + dst.String()), nil
 	}
 	force := strings.HasPrefix(refspec, "+")
-	src, dst, ok := strings.Cut(strings.TrimPrefix(refspec, "+"), ":")
-	if !ok {
-		return gitconfig.RefSpec(refspec), nil
+	src, dst, hasDst := strings.Cut(strings.TrimPrefix(refspec, "+"), ":")
+	if src == "" {
+		return "", fmt.Errorf("push: refspec %q names no source", refspec)
 	}
-	if ref, err := t.repo.Reference(plumbing.ReferenceName(src), false); err == nil && ref.Type() == plumbing.SymbolicReference {
-		src = ref.Target().String()
+	srcRef, err := t.localRef(src)
+	if err != nil {
+		return "", err
 	}
-	spec := src + ":" + dst
+	if !hasDst {
+		if !srcRef.IsBranch() && !srcRef.IsTag() {
+			return "", fmt.Errorf("push: %q is not on a branch; name the destination", src)
+		}
+		dst = srcRef.String()
+	} else if dst, err = t.remoteRef(remote, dst, srcRef, auth); err != nil {
+		return "", err
+	}
+	spec := srcRef.String() + ":" + dst
 	if force {
 		spec = "+" + spec
 	}
 	return gitconfig.RefSpec(spec), nil
+}
+
+// localRef resolves a push source to the full ref it names: a symbolic ref (HEAD on a
+// branch) to its target, a short name to its branch or tag.
+func (t *embeddedTransport) localRef(name string) (plumbing.ReferenceName, error) {
+	candidates := []plumbing.ReferenceName{plumbing.ReferenceName(name)}
+	if !strings.HasPrefix(name, "refs/") && name != plumbing.HEAD.String() {
+		candidates = []plumbing.ReferenceName{plumbing.NewBranchReferenceName(name), plumbing.NewTagReferenceName(name)}
+	}
+	var found []plumbing.ReferenceName
+	for _, c := range candidates {
+		ref, err := t.repo.Reference(c, false)
+		if err != nil {
+			continue
+		}
+		if ref.Type() == plumbing.SymbolicReference {
+			c = ref.Target()
+		}
+		found = append(found, c)
+	}
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("push: %q matches no local branch or tag", name)
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("push: %q is both a branch and a tag; name it in full (refs/heads/%s or refs/tags/%s)", name, name, name)
+	}
+}
+
+// remoteRef resolves a push destination to a full ref name: as given when it starts with
+// refs/, else the remote's branch or tag of that name, else the source's namespace.
+func (t *embeddedTransport) remoteRef(remote, name string, src plumbing.ReferenceName, auth gittransport.AuthMethod) (string, error) {
+	if strings.HasPrefix(name, "refs/") {
+		return name, nil
+	}
+	r, err := t.repo.Remote(remote)
+	if err != nil {
+		return "", fmt.Errorf("push: remote %s: %w", remote, err)
+	}
+	refs, err := r.List(&git.ListOptions{Auth: auth})
+	if err != nil && !errors.Is(err, gittransport.ErrEmptyRemoteRepository) {
+		return "", fmt.Errorf("push: listing %s: %w", remote, err)
+	}
+	branch, tag := plumbing.NewBranchReferenceName(name), plumbing.NewTagReferenceName(name)
+	var found []plumbing.ReferenceName
+	for _, ref := range refs {
+		if ref.Name() == branch || ref.Name() == tag {
+			found = append(found, ref.Name())
+		}
+	}
+	switch {
+	case len(found) == 1:
+		return found[0].String(), nil
+	case len(found) > 1:
+		return "", fmt.Errorf("push: %q is both a branch and a tag on %s; name it in full", name, remote)
+	case src.IsBranch():
+		return branch.String(), nil
+	case src.IsTag():
+		return tag.String(), nil
+	}
+	return "", fmt.Errorf("push: destination %q isn't a full ref name and %s has no branch or tag by that name", name, remote)
 }
 
 // RemoteRefHash resolves a branch head on the remote via go-git.
