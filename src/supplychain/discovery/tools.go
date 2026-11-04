@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -51,6 +52,22 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 	for _, tool := range tools {
 		owner, repo := matchToolToGitHub(tool.EnvName, ownerRepoMap)
 		if owner == "" || repo == "" {
+			// A *_VERSION no download uses is a label or feeds another tracked pin. One a
+			// download URL interpolates is a pinned tool whose source this resolver can't
+			// query: report it unresolved, or it never shows up anywhere and never updates.
+			if u := downloadURLFor(file.AbsPath, tool.EnvName); u != "" {
+				deps = append(deps, supplychain.Dependency{
+					Name:      strings.ToLower(strings.TrimSuffix(tool.EnvName, "_VERSION")),
+					Current:   strings.TrimPrefix(tool.Version, "v"),
+					Ecosystem: supplychain.EcosystemGitHubRelease,
+					File:      file.Path,
+					Line:      tool.Line,
+					Binding:   tool.EnvName,
+					SourceURL: u,
+					ResolutionError: fmt.Sprintf("%s is downloaded from %s, which isn't a GitHub release, "+
+						"so its updates can't be checked; pin it as an image or download it from a GitHub release", tool.EnvName, u),
+				})
+			}
 			continue
 		}
 
@@ -70,6 +87,7 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 
 		var release githubRelease
 		if err := m.http.fetchJSON(ctx, url, &release, ep); err != nil {
+			dep.ResolutionError = "GitHub release lookup failed: " + err.Error()
 			deps = append(deps, dep)
 			continue
 		}
@@ -139,6 +157,25 @@ func scanGitHubURLs(absPath string) map[string]bool {
 
 	return result
 }
+
+// downloadURLFor returns the first http(s) URL in the file that interpolates envName
+// (${NAME} or $NAME), or "" when no download uses it.
+func downloadURLFor(absPath, envName string) string {
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return ""
+	}
+	ref := regexp.MustCompile(`\$(\{` + regexp.QuoteMeta(envName) + `\}|` + regexp.QuoteMeta(envName) + `\b)`)
+	for _, u := range urlRe.FindAllString(string(data), -1) {
+		if ref.MatchString(u) {
+			return u
+		}
+	}
+	return ""
+}
+
+// urlRe matches an http(s) URL up to whitespace or a quote.
+var urlRe = regexp.MustCompile(`https?://[^\s"']+`)
 
 // matchToolToGitHub attempts to find the GitHub owner/repo for a tool
 // by matching the ENV variable name to known patterns.
