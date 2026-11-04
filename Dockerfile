@@ -1,3 +1,9 @@
+# ---- Execution substrate sources ----
+# Docker CLI + buildx come from their official images, pinned like every other image and
+# resolved for the build's platform.
+FROM docker.io/library/docker:29.9.3-cli AS docker-cli
+FROM docker.io/docker/buildx-bin:0.38.2 AS buildx
+
 # ---- Go build stage ----
 FROM docker.io/library/golang:1.26.10-alpine3.23 AS builder
 
@@ -51,38 +57,24 @@ LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.vendor="PrPlanIT"
 
-# Runtime dependencies — git is intentionally absent: the go-git pure-Go transport
-# handles all repository operations natively (SSH via golang.org/x/crypto/ssh,
-# HTTPS via net/http). No git binary, no openssh-client required.
-RUN apk add --no-cache \
-      chafa
+# No runtime packages: git is intentionally absent, as the go-git pure-Go transport
+# handles all repository operations natively (SSH via golang.org/x/crypto/ssh, HTTPS via
+# net/http). The banner art is rendered at build time, so chafa stays in the builder.
 
-# UTF-8 locale for chafa Unicode block characters in CI logs.
+# UTF-8 locale for the banner's Unicode block characters in CI logs.
 ENV LANG=C.UTF-8
 
 # Execution substrate — Docker CLI + buildx stay in the image.
 # All other tools (trivy, syft, grype, osv-scanner, cosign, flux, kubectl, go)
 # are resolved at runtime by the StageFreight toolchain subsystem:
 # downloaded, checksum-verified, cached, and executed by absolute path.
-ENV BUILDX_VERSION=v0.38.2 \
-    DOCKER_VERSION=29.3.1
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
-# Install docker CLI (static binary — execution substrate for DinD)
-RUN wget -qO /tmp/docker.tgz \
-      "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" && \
-    tar -xzf /tmp/docker.tgz -C /tmp docker/docker && \
-    mv /tmp/docker/docker /usr/local/bin/docker && \
-    chmod +x /usr/local/bin/docker && \
-    rm -rf /tmp/docker.tgz /tmp/docker
-
-# Install docker buildx (Docker plugin — extends Docker CLI).
-# System path /usr/local/lib/docker/cli-plugins, NOT ~/.docker: the Docker CLI searches
-# the system plugin dirs regardless of $HOME, so buildx resolves under GitHub container
-# jobs (HOME=/github/home) as well as root. A ~/.docker install is invisible there.
-RUN mkdir -p /usr/local/lib/docker/cli-plugins && \
-    wget -qO /usr/local/lib/docker/cli-plugins/docker-buildx \
-      "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" && \
-    chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+# buildx goes in the system plugin path /usr/local/lib/docker/cli-plugins, NOT ~/.docker:
+# the Docker CLI searches the system plugin dirs regardless of $HOME, so buildx resolves
+# under GitHub container jobs (HOME=/github/home) as well as root. A ~/.docker install is
+# invisible there.
+COPY --from=buildx /buildx /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # /stagefreight/cache — persistent (mount a volume here for cross-run reuse).
 # Unprivileged by default, and any uid works: the writable paths belong to group 0 and
