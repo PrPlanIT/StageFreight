@@ -20,8 +20,11 @@ func init() {
 // (src/gitstate); only tests may run a git binary, which the substrate provides them.
 type noGitExecModule struct{}
 
-func (m *noGitExecModule) Name() string         { return "no-git-exec" }
-func (m *noGitExecModule) DefaultEnabled() bool { return true }
+func (m *noGitExecModule) Name() string { return "no-git-exec" }
+
+// DefaultEnabled is false: forbidding a git binary is StageFreight's own architecture, not
+// a rule for the projects it lints. StageFreight enables it in its own config.
+func (m *noGitExecModule) DefaultEnabled() bool { return false }
 func (m *noGitExecModule) AutoDetect() []string { return []string{"**/*.go"} }
 
 var gitExecRe = regexp.MustCompile(`exec\.Command(Context)?\(\s*"git"`)

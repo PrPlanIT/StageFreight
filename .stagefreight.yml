@@ -323,6 +323,8 @@ lint:
     # through the diag/renderer boundary, so it enables direct-output on ITS OWN source.
     direct-output:
       enabled: true
+    no-git-exec:
+      enabled: true
     secrets:
       enabled: true
       exclude:
