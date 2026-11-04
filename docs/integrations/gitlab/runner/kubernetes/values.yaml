@@ -45,7 +45,7 @@ runners:
         FF_USE_ADVANCED_POD_SPEC_CONFIGURATION = true
       [runners.kubernetes]
         namespace = "{{ .Release.Namespace }}"
-        image = "docker.io/library/alpine:3.22"
+        image = "docker.io/library/alpine:3.24.3"
         # Pull fresh, because pipelines run moving tags (latest-dev) that a node's cached
         # copy lets go stale; if the pull fails, fall back to the cached copy.
         pull_policy = ["always", "if-not-present"]
@@ -111,7 +111,7 @@ runners:
               fsGroupChangePolicy: OnRootMismatch
             initContainers:
               - name: scratch-init
-                image: docker.io/library/alpine:3.22
+                image: docker.io/library/alpine:3.24.3
                 command: ["mkdir", "-p", "/scratch/builds", "/scratch/tmp", "/scratch/home"]
                 securityContext:
                   runAsNonRoot: true

@@ -14,7 +14,7 @@ services:
       - /opt/docker/gitlab-runner/stagefreight:/stagefreight
 
   dind:
-    image: docker:dind
+    image: docker.io/library/docker:29.9.3-dind-alpine3.24
     privileged: true
     restart: always
     environment:
@@ -41,7 +41,7 @@ services:
           - dind
 
   buildkitd-certs:
-    image: docker.io/library/alpine:3
+    image: docker.io/library/alpine:3.24.3
     restart: "no"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -83,7 +83,7 @@ services:
       - /opt/docker/gitlab-runner/buildkitd-certs:/out
 
   buildkitd:
-    image: moby/buildkit:latest
+    image: docker.io/moby/buildkit:v0.34.2
     privileged: true
     restart: always
     depends_on:
@@ -116,7 +116,7 @@ services:
           - buildkitd
 
   register-runner:
-    image: gitlab/gitlab-runner:latest
+    image: docker.io/gitlab/gitlab-runner:alpine-v19.5.2
     restart: "no"
     depends_on:
       dind:
@@ -126,13 +126,14 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        if [ ! -f /etc/gitlab-runner/config.toml ]; then
-          gitlab-runner register \
+        new=/etc/gitlab-runner/config.toml.new
+        rm -f "$$new"
+        if gitlab-runner register --config "$$new" \
             --docker-disable-cache=true \
             --docker-dns=1.1.1.1 \
             --docker-dns=8.8.8.8 \
             --docker-host=unix:///var/run/docker.sock \
-            --docker-image=alpine:latest \
+            --docker-image=docker.io/library/alpine:3.24.3 \
             --docker-network-mode=stagefreight \
             --docker-privileged=false \
             --docker-security-opt=no-new-privileges \
@@ -147,7 +148,14 @@ services:
             --name=$${RUNNER_NAME:-"GitLab Runner"} \
             --non-interactive \
             --token=$${RUNNER_TOKEN} \
-            --url=$${CI_SERVER_URL}
+            --url=$${CI_SERVER_URL}; then
+          mv "$$new" /etc/gitlab-runner/config.toml
+        elif [ -f /etc/gitlab-runner/config.toml ]; then
+          rm -f "$$new"
+          echo "Registration failed; keeping the existing runner config"
+        else
+          echo "Registration failed and no runner config exists" >&2
+          exit 1
         fi
     environment:
       - CI_SERVER_URL=${CI_SERVER_URL}
@@ -163,7 +171,7 @@ services:
       - stagefreight
 
   runner:
-    image: gitlab/gitlab-runner:latest
+    image: docker.io/gitlab/gitlab-runner:alpine-v19.5.2
     restart: always
     depends_on:
       stagefreight-cache-perms:

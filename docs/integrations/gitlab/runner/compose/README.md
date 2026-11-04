@@ -38,8 +38,8 @@ RUNNER_NAME=Build Runner
 
 Start with `docker compose up -d`, or sync it from a GitOps stack manager — the registry-mirror
 config is inlined as Compose `configs:`, so nothing needs to be staged on the host (requires
-Docker Compose v2.23+). Registration runs once, when `config.toml` is absent; to apply changed
-registration flags, remove `/opt/docker/gitlab-runner/config/config.toml` and redeploy.
+Docker Compose v2.23+). Every deploy regenerates `config.toml` from the registration flags, so a
+changed flag applies on redeploy; if registration fails, the existing config is kept.
 
 ## Pull-through image cache (optional)
 
