@@ -473,15 +473,17 @@ func RunSecurityScan(req SecurityScanRequest) error {
 
 	// Resolve the gate threshold + unreachable policy once — used by the
 	// cross-surface disclosure below and the final gate.
-	failOn := req.Config.Security.EffectiveFailOn()
+	failOn := req.Config.SecurityFailOn()
 	if failOn == "off" && req.FailOnCritical {
 		failOn = "critical"
 	}
 	unreachablePolicy := req.Config.Security.UnreachablePolicy()
+	unfixedPolicy := req.Config.Security.UnfixedPolicy()
 
 	// Resolve human-asserted exceptions once (as of now): ExceptedIDs feeds every gate call
 	// below; the rest drives disclosure so no excusal is silent and lapsed ones surface.
 	exc := security.ResolveExceptions(result, toSecurityExceptions(req.Config.Security.Exceptions), time.Now())
+	gate := security.GatePolicy{FailOn: failOn, Unreachable: unreachablePolicy, Unfixed: unfixedPolicy, Excepted: exc.ExceptedIDs}
 
 	// Resolve detail level from rules (CLI override > tag/branch rules > default)
 	detail := security.ResolveDetailLevel(req.Config.Security, req.Detail)
@@ -605,7 +607,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		if failOn != "off" && unreachablePolicy == "pass" {
 			// nil exceptions here so this line reports the unreachable excusal ALONE;
 			// exceptions get their own disclosure below.
-			if excused := security.CountAtOrAbove(result, failOn) - security.GatingCount(result, cs, nil, failOn, unreachablePolicy); excused > 0 {
+			if excused := security.CountAtOrAbove(result, failOn) - security.GatingCount(result, cs, security.GatePolicy{FailOn: failOn, Unreachable: unreachablePolicy}); excused > 0 {
 				sec.Row("%-16s%d at or above %s excused — proven unreachable", "", excused, failOn)
 			}
 		}
@@ -635,6 +637,14 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		}
 		for _, e := range exc.Unused {
 			sec.Row("%-16s⚠ exception for %s matched no finding — remove if stale", "", e.ID)
+		}
+	}
+
+	// Findings with no published fix report without blocking under unfixed_vulns: pass;
+	// say how many, so the pass is never silent. They gate once a fix is published.
+	if failOn != "off" && unfixedPolicy == "pass" {
+		if n := security.GatingCount(result, cs, security.GatePolicy{FailOn: failOn, Unfixed: "fail"}) - security.GatingCount(result, cs, security.GatePolicy{FailOn: failOn, Unfixed: "pass"}); n > 0 {
+			sec.Row("%-16s%d at or above %s with no published fix — reported, not blocking (unfixed_vulns: pass)", "gate", n, failOn)
 		}
 	}
 
@@ -687,7 +697,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// number (non-excused vulns at/above the threshold; 0 when the gate is off).
 	blocking := 0
 	if failOn != "off" {
-		blocking = security.GatingCount(result, cs, exc.ExceptedIDs, failOn, unreachablePolicy)
+		blocking = security.GatingCount(result, cs, gate)
 	}
 	sbomFact := "off"
 	if req.SBOM {
@@ -696,7 +706,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// The {vulns} row source: the gating vulns as compact one-liners, capped so
 	// state stays small (the producer bounds display further with limit:).
 	var blockingRows []string
-	for _, v := range security.GatingVulns(result, cs, exc.ExceptedIDs, failOn, unreachablePolicy) {
+	for _, v := range security.GatingVulns(result, cs, gate) {
 		if len(blockingRows) == 12 {
 			break
 		}
@@ -730,7 +740,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 	// excuses on-record exceptions (any policy) and proven-unreachable vulns (policy
 	// "pass"). Default failOn is "off" (informational), preserving today's opt-in gate.
 	if failOn != "off" {
-		if n := security.GatingCount(result, cs, exc.ExceptedIDs, failOn, unreachablePolicy); n > 0 {
+		if n := security.GatingCount(result, cs, gate); n > 0 {
 			word := "vulnerabilities"
 			if n == 1 {
 				word = "vulnerability"

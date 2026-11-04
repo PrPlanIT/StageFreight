@@ -73,16 +73,16 @@ func TestGatingCountExcusesException(t *testing.T) {
 		},
 	}
 	// No exceptions → both gate (even with policy "fail", nil cs).
-	if got := GatingCount(result, nil, nil, "critical", "fail"); got != 2 {
+	if got := GatingCount(result, nil, GatePolicy{FailOn: "critical", Unreachable: "fail"}); got != 2 {
 		t.Errorf("no exception: got %d, want 2", got)
 	}
 	// Except CVE-1 → one remains, and it works under policy "fail" (exceptions are
 	// independent of reachability).
 	excepted := map[string]bool{"CVE-1": true}
-	if got := GatingCount(result, nil, excepted, "critical", "fail"); got != 1 {
+	if got := GatingCount(result, nil, GatePolicy{FailOn: "critical", Unreachable: "fail", Excepted: excepted}); got != 1 {
 		t.Errorf("with exception: got %d, want 1", got)
 	}
-	if v := GatingVulns(result, nil, excepted, "critical", "fail"); len(v) != 1 || v[0].ID != "CVE-2" {
+	if v := GatingVulns(result, nil, GatePolicy{FailOn: "critical", Unreachable: "fail", Excepted: excepted}); len(v) != 1 || v[0].ID != "CVE-2" {
 		t.Errorf("GatingVulns with exception = %+v, want [CVE-2]", v)
 	}
 }

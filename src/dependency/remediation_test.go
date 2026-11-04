@@ -42,9 +42,23 @@ func TestResiduals_GateSet(t *testing.T) {
 		{Name: "b", Ecosystem: supplychain.EcosystemGoMod, Current: "1.0.0", Vulnerabilities: []supplychain.VulnInfo{{ID: "F", Severity: "CRITICAL", FixedIn: "1.1.0"}}},
 	}
 	result := &UpdateResult{Applied: []AppliedUpdate{{CVEsFixed: []string{"F"}}}}
-	res := Residuals(EvaluateRemediation(deps, UpdateConfig{}, result), "high")
+	res := Residuals(EvaluateRemediation(deps, UpdateConfig{}, result), "high", "fail")
 	if len(res) != 1 || res[0].VulnID != "R" {
 		t.Errorf("residual set = %+v, want only R", res)
+	}
+	if Residuals(EvaluateRemediation(deps, UpdateConfig{}, result), "off", "fail") != nil {
+		t.Error(`failOn "off" gates nothing`)
+	}
+
+	// No fix published anywhere: gates under unfixed "fail", reports under "pass".
+	nofix := append(deps, supplychain.Dependency{Name: "c", Ecosystem: supplychain.EcosystemGoMod, Current: "1.0.0",
+		Vulnerabilities: []supplychain.VulnInfo{{ID: "N", Severity: "CRITICAL"}}})
+	evals := EvaluateRemediation(nofix, UpdateConfig{}, result)
+	if res := Residuals(evals, "high", "fail"); len(res) != 2 {
+		t.Errorf("unfixed fail: residual set = %+v, want R and N", res)
+	}
+	if res := Residuals(evals, "high", "pass"); len(res) != 1 || res[0].VulnID != "R" {
+		t.Errorf("unfixed pass: residual set = %+v, want only R", res)
 	}
 }
 
