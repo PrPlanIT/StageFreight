@@ -3,11 +3,13 @@ package postbuild
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/registry"
 )
 
 func TestRetentionHook_SkipsWhenNoBuildPlan(t *testing.T) {
@@ -157,9 +159,8 @@ func TestHasRetention_NoRegistries(t *testing.T) {
 }
 
 // TestRunRetentionSection_DaemonPaths pins local retention on both runner kinds:
-// with a Docker daemon the local registry client runs (the test host has no
-// docker binary, so its listing errors), and on a daemonless runner the target
-// is skipped by name with no client call and no error.
+// with a Docker daemon the local registry client runs, and on a daemonless runner the
+// target is skipped by name with no client call and no error.
 func TestRunRetentionSection_DaemonPaths(t *testing.T) {
 	plan := &build.BuildPlan{Steps: []build.BuildStep{{
 		Registries: []build.RegistryTarget{{
@@ -180,9 +181,12 @@ func TestRunRetentionSection_DaemonPaths(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			saved := dockerDaemonAvailable
-			t.Cleanup(func() { dockerDaemonAvailable = saved })
+			saved, savedClient := dockerDaemonAvailable, newRegistryClient
+			t.Cleanup(func() { dockerDaemonAvailable, newRegistryClient = saved, savedClient })
 			dockerDaemonAvailable = func() bool { return c.daemon }
+			newRegistryClient = func(string, string, string) (registry.Registry, error) {
+				return nil, errors.New("stand-in client: no daemon is touched")
+			}
 
 			var buf bytes.Buffer
 			RunRetentionSection(context.Background(), &buf, false, false, plan)

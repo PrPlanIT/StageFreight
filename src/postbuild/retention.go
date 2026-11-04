@@ -82,7 +82,7 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 				continue
 			}
 
-			client, err := registry.NewRegistry(reg.Provider, reg.URL, reg.Credentials)
+			client, err := newRegistryClient(reg.Provider, reg.URL, reg.Credentials)
 			if err != nil {
 				fmt.Fprintf(w, "  ERROR: %s/%s: %v\n", reg.URL, reg.Path, err)
 				totalErrors++
@@ -163,6 +163,10 @@ func RunRetentionSection(ctx context.Context, w io.Writer, _ bool, color bool, p
 
 	return summary, retElapsed
 }
+
+// newRegistryClient builds the client local retention prunes through; a variable so tests
+// never prune a real daemon.
+var newRegistryClient = registry.NewRegistry
 
 // dockerDaemonAvailable reports whether a Docker daemon answers on this runner.
 var dockerDaemonAvailable = func() bool {
