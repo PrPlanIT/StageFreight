@@ -2,6 +2,7 @@ package autosign
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -56,11 +57,12 @@ func TestTriple_Key(t *testing.T) {
 	}
 }
 
-// oidc + self-hosted domain: the Fulcio URL + offline signing-config must reach argv,
-// and transparency + trust domain the evidence.
+// oidc + self-hosted domain: the domain's Fulcio and Rekor must reach cosign through the
+// signing config, and transparency + trust domain the evidence.
 func TestTriple_OIDC_SelfHosted(t *testing.T) {
 	t.Setenv("SF_SIGSTORE_DOMAIN", "internal")
 	t.Setenv("SF_SIGSTORE_FULCIO", "https://fulcio.internal.example")
+	t.Setenv("SF_SIGSTORE_REKOR", "https://rekor.internal.example")
 	t.Setenv("SF_SIGSTORE_ISSUER", "https://id.internal.example")
 	plan := sign.Compile(&config.ResolvedSigningProfile{ID: "keyless", Class: "oidc", OIDCIssuer: "https://id.internal.example"})
 	env := cosign.EnvForPlan(plan)
@@ -70,8 +72,9 @@ func TestTriple_OIDC_SelfHosted(t *testing.T) {
 	}
 	ev := SigningContext{Plan: plan, Env: env, DoSign: true}.Evidence("2026-01-01T00:00:00Z")
 
-	if !slices.Contains(argv, "https://fulcio.internal.example") || !slices.Contains(argv, "--use-signing-config=false") {
-		t.Errorf("emitted argv did not point at the self-hosted Fulcio: %v", argv)
+	data, err := cosign.SigningConfigJSON(plan, env.Sigstore)
+	if err != nil || !strings.Contains(string(data), "https://fulcio.internal.example") || !strings.Contains(string(data), "https://rekor.internal.example") || !slices.Contains(argv, "--signing-config") {
+		t.Errorf("cosign must reach the self-hosted Fulcio and Rekor through the signing config: %v %s %v", err, data, argv)
 	}
 	if ev.TrustClass != "oidc" || !ev.Transparency || ev.TrustDomain != "internal" {
 		t.Errorf("recorded evidence drifted (oidc, transparency, trust_domain=internal): %+v", ev)
@@ -89,7 +92,7 @@ func TestTriple_Hardware_PKCS11(t *testing.T) {
 		ID: "yk", Class: "hardware", PKCS11Ref: "release", PhysicalPresence: true, NonExportable: true,
 	})
 	env := cosign.EnvForPlan(plan)
-	argv, err := cosign.Render(plan, sign.OpSignBlob, env)
+	argv, err := cosign.Render(plan, sign.OpSignBlob, offlineConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -126,7 +129,7 @@ func TestTriple_Hardware_PresenceNonExportable(t *testing.T) {
 	}
 }
 
-// offlineConfig gives an env the offline signing config the executor writes.
+// offlineConfig gives an env the signing config the executor writes.
 func offlineConfig(env cosign.Env) cosign.Env {
 	env.SigningConfig = "/tmp/offline.json"
 	return env

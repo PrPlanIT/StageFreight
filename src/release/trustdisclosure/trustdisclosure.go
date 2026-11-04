@@ -85,8 +85,8 @@ func Build(results *artifact.ResultsManifest, anchor *Anchor) *Disclosure {
 	return d
 }
 
-// ChecksumSig returns the detached-checksum signature asset for a verify recipe — the
-// first blob signature (Tier-0 preferred, since signatures are sorted Tier-0-first).
+// ChecksumSig returns the checksum signature bundle asset for a verify recipe — the first
+// blob signature (Tier-0 preferred, since signatures are sorted Tier-0-first).
 func (d *Disclosure) ChecksumSig() string {
 	if d.Primary != nil && d.Primary.IsBlob {
 		return d.Primary.Asset

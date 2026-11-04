@@ -57,7 +57,7 @@ Verify the release checksums against the published public key:
 ```
 cosign verify-blob \
   --key cosign.pub \
-  --signature SHA256SUMS.sig \
+  --bundle SHA256SUMS.sigstore.json \
   --insecure-ignore-tlog=true \
   SHA256SUMS
 ```

@@ -54,9 +54,9 @@ func TestRender_OIDCKeyless(t *testing.T) {
 	}
 }
 
-// A DECLARED (self-hosted) Sigstore deployment must override public TUF discovery:
-// explicit Fulcio/Rekor/trusted-root + issuer + identity token, and
-// --use-signing-config=false (public Fulcio won't trust a self-hosted issuer).
+// A DECLARED (self-hosted) Sigstore deployment names its own services in a signing config
+// (public Fulcio won't trust a self-hosted issuer); the issuer, identity token and trusted
+// root still travel as flags.
 func TestRender_OIDC_SelfHostedDeployment(t *testing.T) {
 	t.Setenv("SF_SIGSTORE_DOMAIN", "internal")
 	t.Setenv("SF_SIGSTORE_FULCIO", "https://fulcio.internal.example")
@@ -66,46 +66,43 @@ func TestRender_OIDC_SelfHostedDeployment(t *testing.T) {
 	t.Setenv("SF_SIGSTORE_IDENTITY_TOKEN", "/run/secrets/oidc-token")
 
 	p := sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true}
-	args, err := Render(p, sign.OpSignImage, EnvForPlan(p))
+	args, err := Render(p, sign.OpSignImage, withConfig(EnvForPlan(p)))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	for _, pair := range [][2]string{
-		{"--fulcio-url", "https://fulcio.internal.example"},
-		{"--rekor-url", "https://rekor.internal.example"},
 		{"--oidc-issuer", "https://id.internal.example"},
 		{"--trusted-root", "/etc/sf/trusted-root.json"},
 		{"--identity-token", "/run/secrets/oidc-token"},
+		{"--signing-config", "/tmp/offline.json"},
 	} {
 		if !flagHasValue(args, pair[0], pair[1]) {
 			t.Errorf("expected %s %s in %v", pair[0], pair[1], args)
 		}
 	}
-	if !slices.Contains(args, "--use-signing-config=false") {
-		t.Errorf("self-hosted keyless must disable public TUF service discovery: %v", args)
-	}
-	if slices.Contains(args, "--use-signing-config=true") || slices.Contains(args, "--new-bundle-format=true") {
-		t.Errorf("self-hosted path must not take the public signing-config branch: %v", args)
-	}
-	if slices.Contains(args, "--key") {
-		t.Errorf("keyless render must not emit --key: %v", args)
+	for _, gone := range []string{"--fulcio-url", "--rekor-url", "--use-signing-config=false", "--use-signing-config=true", "--tlog-upload=false", "--key"} {
+		if slices.Contains(args, gone) {
+			t.Errorf("%s must not be emitted: %v", gone, args)
+		}
 	}
 }
 
-// Self-hosted WITHOUT transparency: no --rekor-url, tlog disabled.
+// Self-hosted WITHOUT transparency: the signing config carries no Rekor, and no
+// deprecated flag is emitted.
 func TestRender_OIDC_SelfHostedNoTransparency(t *testing.T) {
 	t.Setenv("SF_SIGSTORE_FULCIO", "https://fulcio.internal.example")
 	t.Setenv("SF_SIGSTORE_REKOR", "https://rekor.internal.example")
 	p := sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: false}
-	args, err := Render(p, sign.OpSignBlob, EnvForPlan(p))
+	args, err := Render(p, sign.OpSignBlob, withConfig(EnvForPlan(p)))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if slices.Contains(args, "--rekor-url") {
-		t.Errorf("no-transparency render must not point at Rekor: %v", args)
+	if slices.Contains(args, "--rekor-url") || slices.Contains(args, "--tlog-upload=false") || !slices.Contains(args, "--signing-config") {
+		t.Errorf("want only the signing config: %v", args)
 	}
-	if !slices.Contains(args, "--tlog-upload=false") {
-		t.Errorf("no-transparency render must disable the tlog: %v", args)
+	data, err := SigningConfigJSON(p, EnvForPlan(p).Sigstore)
+	if err != nil || strings.Contains(string(data), "rekor.internal.example") {
+		t.Errorf("no-transparency config must name no Rekor: %v %s", err, data)
 	}
 }
 
@@ -328,19 +325,19 @@ func TestSigstoreDomain(t *testing.T) {
 	}
 }
 
-// Without a transparency log an image signature passes a signing config listing no
-// services; a blob signature keeps the legacy flags, since a signing config makes cosign
-// write a bundle in place of the detached signature.
+// Without a transparency log every signature by a key, KMS or hardware signer, blob
+// included, passes a signing config listing no services; none of cosign's deprecated
+// flags is emitted.
 func TestRender_OfflineSigningConfig(t *testing.T) {
 	t.Setenv("SF_KMS_TENANT", "hashivault://acme")
 	p := sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "tenant"}
 	env := EnvForPlan(p)
 
 	if _, err := Render(p, sign.OpSignImage, env); err == nil || !strings.Contains(err.Error(), "signing config") {
-		t.Errorf("an offline image signature without a config must be refused: %v", err)
+		t.Errorf("a signature needing a config must be refused without one: %v", err)
 	}
 	env.SigningConfig = "/tmp/offline.json"
-	for _, op := range []sign.Op{sign.OpSignImage, sign.OpAttest} {
+	for _, op := range []sign.Op{sign.OpSignImage, sign.OpAttest, sign.OpSignBlob} {
 		args, err := Render(p, op, env)
 		if err != nil {
 			t.Fatal(err)
@@ -349,24 +346,21 @@ func TestRender_OfflineSigningConfig(t *testing.T) {
 			t.Errorf("op %v: want only the signing config, got %v", op, args)
 		}
 	}
-	args, err := Render(p, sign.OpSignBlob, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.Contains(args, "--signing-config") || !slices.Contains(args, "--tlog-upload=false") {
-		t.Errorf("blob signature keeps the detached form: %v", args)
-	}
 
 	p.TransparencyRequired = true
-	if NeedsOfflineSigningConfig(p, sign.OpSignImage) {
+	if NeedsSigningConfig(p, env.Sigstore) {
 		t.Error("with transparency required, cosign's own signing config applies")
+	}
+	args, err := Render(p, sign.OpSignImage, Env{KMS: env.KMS})
+	if err != nil || !slices.Contains(args, "--new-bundle-format=true") || slices.Contains(args, "--signing-config") {
+		t.Errorf("transparency path: %v %v", args, err)
 	}
 }
 
-// The executor writes a valid offline signing config and removes it afterwards.
-func TestWithOfflineSigningConfig(t *testing.T) {
+// The executor writes the plan's signing config and removes it afterwards.
+func TestWithSigningConfig(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassKey}
-	env, cleanup, err := withOfflineSigningConfig(p, sign.OpSignImage, Env{})
+	env, cleanup, err := withSigningConfig(p, Env{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,12 +381,42 @@ func TestWithOfflineSigningConfig(t *testing.T) {
 	if _, err := os.Stat(env.SigningConfig); !os.IsNotExist(err) {
 		t.Error("cleanup must remove the config")
 	}
-	if env, _, _ := withOfflineSigningConfig(p, sign.OpSignBlob, Env{}); env.SigningConfig != "" {
-		t.Error("a blob signature needs no config")
+	if env, _, _ := withSigningConfig(sign.SignPlan{TrustClass: sign.ClassKey, TransparencyRequired: true}, Env{}); env.SigningConfig != "" {
+		t.Error("a transparency-logged signature uses cosign's own config")
 	}
 }
 
-// withConfig gives an env the offline signing config the executor writes.
+// A keyless config names the deployment's services, or public Sigstore's when none is
+// declared; a declared deployment that must log but names no Rekor is refused.
+func TestSigningConfigJSON(t *testing.T) {
+	type cfg struct {
+		CA    []struct{ URL string } `json:"caUrls"`
+		OIDC  []struct{ URL string } `json:"oidcUrls"`
+		Rekor []struct{ URL string } `json:"rekorTlogUrls"`
+	}
+	parse := func(p sign.SignPlan, d SigstoreDeployment) (cfg, error) {
+		var c cfg
+		data, err := SigningConfigJSON(p, d)
+		if err != nil {
+			return c, err
+		}
+		return c, json.Unmarshal(data, &c)
+	}
+	declared := SigstoreDeployment{FulcioURL: "https://fulcio.x", RekorURL: "https://rekor.x", OIDCIssuer: "https://id.x"}
+	c, err := parse(sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true}, declared)
+	if err != nil || len(c.CA) != 1 || c.CA[0].URL != "https://fulcio.x" || len(c.Rekor) != 1 || c.Rekor[0].URL != "https://rekor.x" || len(c.OIDC) != 1 {
+		t.Errorf("declared keyless: %+v %v", c, err)
+	}
+	if _, err := parse(sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true}, SigstoreDeployment{FulcioURL: "https://fulcio.x"}); err == nil {
+		t.Error("a declared deployment that must log but names no Rekor must be refused")
+	}
+	c, err = parse(sign.SignPlan{TrustClass: sign.ClassOIDC}, SigstoreDeployment{})
+	if err != nil || len(c.CA) != 1 || c.CA[0].URL != publicFulcio || len(c.Rekor) != 0 {
+		t.Errorf("public keyless without transparency: %+v %v", c, err)
+	}
+}
+
+// withConfig gives an env the signing config the executor writes.
 func withConfig(env Env) Env {
 	env.SigningConfig = "/tmp/offline.json"
 	return env

@@ -79,18 +79,18 @@ func AssetsForArchiveSet(assets []ResolvedArchiveAsset, setID string) []Resolved
 }
 
 // ResolvedSignatureAsset is a successfully-produced detached signature (e.g.
-// SHA256SUMS.sig) ready for distribution. Manifest-sourced: ArtifactID + Path come
+// SHA256SUMS.sigstore.json) ready for distribution. Manifest-sourced: ArtifactID + Path come
 // from the results manifest's blob_signature outcomes — never a filesystem glob.
 type ResolvedSignatureAsset struct {
 	ArtifactID ArtifactID
-	Path       string // the detached signature (.sig) path
+	Path       string // the signature bundle's path
 	BlobPath   string // the signed blob it covers (e.g. SHA256SUMS)
 	TrustClass string // resolved trust class that signed it (display/provenance)
 }
 
 // SuccessfulBlobSignatureAssets extracts the successful detached blob signatures
 // from a results manifest, preserving order. Pure + manifest-sourced — same
-// non-globbing invariant as SuccessfulArchiveAssets; the .sig path is recorded by
+// non-globbing invariant as SuccessfulArchiveAssets; the bundle path is recorded by
 // the signer, never reconstructed from a name.
 func SuccessfulBlobSignatureAssets(results *ResultsManifest) []ResolvedSignatureAsset {
 	var out []ResolvedSignatureAsset

@@ -413,7 +413,7 @@ func renderVerification(d *trustdisclosure.Disclosure) string {
 			tlog = ""
 		}
 		b.WriteString("Verify the release checksums against the published public key:\n\n")
-		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --signature %s%s \\\n  SHA256SUMS\n```\n\n",
+		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --bundle %s%s \\\n  SHA256SUMS\n```\n\n",
 			d.Anchor.Asset, d.ChecksumSig(), tlog))
 		if d.Anchor.Fingerprint != "" {
 			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", d.Anchor.Fingerprint))
@@ -424,14 +424,14 @@ func renderVerification(d *trustdisclosure.Disclosure) string {
 			domain = "the Sigstore"
 		}
 		b.WriteString(fmt.Sprintf("This release is keyless-signed in **%s** trust domain — the signature is bound to an OIDC identity by Fulcio and (when transparency is on) logged in Rekor. Verify the checksums against the expected identity:\n\n", domain))
-		b.WriteString("```\ncosign verify-blob \\\n  --certificate-oidc-issuer <issuer> \\\n  --certificate-identity <signer> \\\n  --signature SHA256SUMS.sig \\\n  SHA256SUMS\n```\n\n")
+		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --certificate-oidc-issuer <issuer> \\\n  --certificate-identity <signer> \\\n  --bundle %s \\\n  SHA256SUMS\n```\n\n", checksumBundle(d)))
 		if p.SignerRef != "" {
 			b.WriteString(fmt.Sprintf("Expected signer: `%s`. ", p.SignerRef))
 		}
 		b.WriteString("Obtain the issuer URL and (for a self-hosted domain) the Fulcio trusted-root from `SECURITY.md`.\n\n")
 	case p.SignerRef != "":
 		b.WriteString(fmt.Sprintf("This release is signed by `%s` (trust class **%s**). Verify the checksums against that signer's published public key:\n\n", p.SignerRef, p.Class))
-		b.WriteString("```\ncosign verify-blob \\\n  --key <signer-public-key> \\\n  --signature SHA256SUMS.sig \\\n  SHA256SUMS\n```\n\n")
+		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key <signer-public-key> \\\n  --bundle %s \\\n  SHA256SUMS\n```\n\n", checksumBundle(d)))
 		b.WriteString("Obtain the public key from `SECURITY.md` / the maintainer.\n\n")
 	}
 	if len(d.Layers) > 0 {
@@ -1114,4 +1114,14 @@ func sectionChangelog(allCommits []Commit, maxChars int) string {
 		b.WriteString(fmt.Sprintf("\n... and %d more commits\n", omitted))
 	}
 	return b.String()
+}
+
+// checksumBundle names the release's checksum signature bundle for a verify recipe.
+func checksumBundle(d *trustdisclosure.Disclosure) string {
+	if d != nil {
+		if name := d.ChecksumSig(); name != "" {
+			return name
+		}
+	}
+	return "SHA256SUMS.sigstore.json"
 }

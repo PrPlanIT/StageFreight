@@ -325,7 +325,7 @@ func TestCompileReleaseTagMatchers_EmptyFallback(t *testing.T) {
 
 func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
-		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sig", IsBlob: true},
+		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
 		Anchor:  &trustdisclosure.Anchor{Fingerprint: "sha256:abc123", Asset: "cosign.pub"},
 	})
 	for _, want := range []string{
@@ -336,7 +336,7 @@ func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
 		"Non-exportable key | no",
 		"cosign verify-blob",
 		"--key cosign.pub",
-		"--signature SHA256SUMS.sig",
+		"--bundle SHA256SUMS.sigstore.json",
 		"--insecure-ignore-tlog=true", // no transparency → ignore tlog
 	} {
 		if !strings.Contains(out, want) {
@@ -350,7 +350,7 @@ func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
 // distinct trust statements, and the verify recipe differs (verify-attestation).
 func TestRenderVerification_DisclosesProvenanceAttestationsSeparately(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
-		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sig", IsBlob: true},
+		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
 		Anchor:  &trustdisclosure.Anchor{Fingerprint: "sha256:a", Asset: "cosign.pub"},
 		Attestations: []trustdisclosure.AttestationFact{
 			{PredicateType: "slsaprovenance", Class: "key", Tier: provision.TierSoftware, VerifiedDigest: "sha256:cafe"},
@@ -401,7 +401,7 @@ func TestRenderVerification_NoAnchorSignerPointerRecipe(t *testing.T) {
 
 func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
-		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Transparency: true, Asset: "SHA256SUMS.sig", IsBlob: true},
+		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Transparency: true, Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
 		Anchor:  &trustdisclosure.Anchor{Asset: "cosign.pub"},
 	})
 	if strings.Contains(out, "--insecure-ignore-tlog") {

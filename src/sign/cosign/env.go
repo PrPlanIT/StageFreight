@@ -95,8 +95,8 @@ type Env struct {
 	OIDC     []OIDCIdentity
 	Sigstore SigstoreDeployment // oidc/keyless trust domain (single deployment, not a principal set)
 
-	// SigningConfig is the path to a signing config listing no services, for signing
-	// without a transparency log; the executor writes it when NeedsOfflineSigningConfig.
+	// SigningConfig is the path to the signing config naming the signature's services; the
+	// executor writes it when NeedsSigningConfig.
 	SigningConfig string
 }
 
