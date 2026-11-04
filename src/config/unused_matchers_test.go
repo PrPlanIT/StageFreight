@@ -15,8 +15,8 @@ func TestUnusedMatcherWarnings(t *testing.T) {
 	// "shared" came from a preset: not authored here, so never flagged.
 	got := unusedMatcherWarnings(cfg, []string{"main", "mian", "release"})
 	want := []string{
-		"git.branches.main is defined but nothing uses it (builds, targets, notifications)",
-		"git.branches.mian is defined but nothing uses it (builds, targets, notifications)",
+		"git.branches.main is defined but nothing uses it (builds, targets, notifications, workflow)",
+		"git.branches.mian is defined but nothing uses it (builds, targets, notifications, workflow)",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q\nwant %q", got, want)

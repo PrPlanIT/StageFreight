@@ -27,6 +27,11 @@ func unusedMatcherWarnings(cfg *Config, authored []string) []string {
 			}
 		}
 	}
+	for _, c := range cfg.Workflow.Branches {
+		if c.Match != "" {
+			used[c.Match] = true
+		}
+	}
 	for _, t := range cfg.Targets {
 		markWhen(t.When)
 	}
@@ -37,7 +42,7 @@ func unusedMatcherWarnings(cfg *Config, authored []string) []string {
 	var warnings []string
 	for _, name := range authored {
 		if !used[name] {
-			warnings = append(warnings, fmt.Sprintf("git.branches.%s is defined but nothing uses it (builds, targets, notifications)", name))
+			warnings = append(warnings, fmt.Sprintf("git.branches.%s is defined but nothing uses it (builds, targets, notifications, workflow)", name))
 		}
 	}
 	return warnings

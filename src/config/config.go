@@ -165,6 +165,10 @@ type Config struct {
 	// Schedules declares the cadences on which StageFreight runs by itself, materialized into
 	// each forge's own scheduler. when.schedules selects work by schedule id.
 	Schedules OrderedSchedules `yaml:"schedules,omitempty"`
+
+	// Workflow declares how code travels into the repo: branch classes, how a change moves
+	// between them, and where release tags are cut. Presence-gated.
+	Workflow WorkflowConfig `yaml:"workflow,omitempty"`
 }
 
 // Load reads configuration from a YAML file.

@@ -39,6 +39,7 @@
 - [`toolchains`](#config-toolchains)
 - [`upstream`](#config-upstream)
 - [`schedules`](#config-schedules)
+- [`workflow`](#config-workflow)
 
 ---
 
@@ -1369,3 +1370,57 @@ schedules:
 ---
 
 <!-- --8<-- [end:schedules] -->
+<!-- --8<-- [start:workflow] -->
+<a id="config-workflow" name="config-workflow"></a>
+### workflow
+
+Workflow declares how code travels into the repo: branch classes, how a change moves between them, and where release tags are cut. Presence-gated.
+
+```yaml
+workflow:
+  preset: <string>
+  branches:   # Branches declares the branch classes as an id→class map. A class names the git.branches matcher…
+    <id>:   # entry key = the unique id
+      match: <string>   # Match names the git.branches matcher that selects this class's branches. · required
+      lifetime: <string>   # Lifetime says how branches of this class come and go: long (default): permanent, such as a trunk.…
+      max_age: <string>   # MaxAge is how long a short-lived branch may live before it is reported stale.
+      created_from: <string>   # CreatedFrom says what an on-demand branch is cut from: another class's id, or tag.
+      enforcement: <string>   # Enforcement is active (default), evaluate (report what would be refused without refusing it), or…
+      landing: <string>   # Landing is how a change lands on this class: direct (pushed) or merge_request (a merge request…
+      protect:   # Protect holds the push-time rules the forge enforces.
+        force_push: false
+        deletion: false
+        signed_commits: false
+      review:   # Review holds the approvals a merge request needs.
+        approvals: <int>
+        code_owners: false
+        dismiss_stale: false
+        require_recent_push_approval: false
+        author_cannot_approve: false
+        conversation_resolved: false
+      checks:   # Checks holds the StageFreight phases that must pass before a merge.
+        required: [<string>]
+        up_to_date: false
+      merge: <string>   # Merge is how a merge request lands: merge, semi_linear, fast_forward, squash or rebase.
+      queue: false   # Queue lands merge requests through a merge queue (GitLab merge trains), so two merge requests that…
+      fork_changes: <string>   # ForkChanges is how changes from forks are treated: untrusted (default; validated without secrets)…
+      bypass:   # Bypass lists who may get past these rules, each with a mode and a reason. Every entry weakens the…
+        - actor: <string>   # Actor is a forge user, group or app, or stagefreight for StageFreight's own pushes. · required
+          mode: <string>   # Mode is always, or merge_request (only through a merge request). · required
+          reason: <string>   # Reason says why the bypass exists. · required
+  promote:   # Promote declares how a change moves between classes as an id→promotion map.
+    <id>:   # entry key = the unique id
+      from: <string>   # class id · required
+      to: <string>   # class id · required
+      method: <string>   # Method is merge_request, fast_forward, cherry_pick or tag. · required
+      schedule: <string>   # Schedule names a schedules: entry when the promotion runs on a cadence (a release train) instead of…
+      require:   # Require holds what a change needs before it promotes.
+        checks: [<string>]
+        approvals: <int>
+  release:   # Release declares where release tags may be cut.
+    from: {}   # From maps a class id to the release kinds its branches may be tagged with: prerelease, major…
+```
+
+---
+
+<!-- --8<-- [end:workflow] -->
