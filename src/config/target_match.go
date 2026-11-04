@@ -55,6 +55,9 @@ func NormalizeEvent(raw string) string {
 
 // CIBranch returns the current branch from the CI environment ("" if none).
 func CIBranch() string {
+	if b := os.Getenv("SF_CI_BRANCH"); b != "" {
+		return b
+	}
 	if b := os.Getenv("CI_COMMIT_BRANCH"); b != "" {
 		return b
 	}
@@ -226,6 +229,12 @@ func TargetMatchesEnv(t TargetConfig, cfg *Config) bool {
 		tagPolicies[ts.ID] = ts.Pattern
 	}
 	return TargetMatches(t, CIEvent(), CIBranch(), CITag(), CIProvider(), tagPolicies, cfg.Git.Branches)
+}
+
+// WhenMatchesEnv evaluates a when: block against the current CI environment, through the
+// one when: interpreter.
+func WhenMatchesEnv(when WhenConditions, cfg *Config) bool {
+	return TargetMatchesEnv(TargetConfig{When: when}, cfg)
 }
 
 // TargetIsUnconditional reports whether a target declares no when: constraints at

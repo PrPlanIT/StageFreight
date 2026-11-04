@@ -71,6 +71,17 @@ type SecurityConfig struct {
 	// gates normally.
 	UnreachableVulns string `yaml:"unreachable_vulns,omitempty"`
 
+	// UnfixedVulns is the policy for vulnerabilities with no fixed version published
+	// anywhere: "pass" (default — reported, never blocking, since nothing can be applied)
+	// or "fail" (gated on severity like any other). One gates as soon as a fix is
+	// published.
+	UnfixedVulns string `yaml:"unfixed_vulns,omitempty"`
+
+	// FailOnRules override fail_on for the runs their when: matches, first match wins:
+	// e.g. enforce on release tags and report on dev pushes, so a newly disclosed
+	// vulnerability never stops the build that carries its fix.
+	FailOnRules []FailOnRule `yaml:"fail_on_rules,omitempty"`
+
 	// Exceptions are reviewed, on-record decisions to excuse specific advisories from the
 	// fail_on gate — the human counterpart to the reachability excusal above. An excepted
 	// finding STILL appears in the scan report (it is not hidden); the exception only stops
@@ -139,6 +150,12 @@ type DetailRule struct {
 	Detail string `yaml:"detail"`
 }
 
+// FailOnRule is a fail_on threshold for the runs its when: matches.
+type FailOnRule struct {
+	When   WhenConditions `yaml:"when"`
+	FailOn string         `yaml:"fail_on"`
+}
+
 // IsRequired returns whether security failure is a hard pipeline fail. Default: false.
 func (s SecurityConfig) IsRequired() bool {
 	if s.Required != nil {
@@ -169,6 +186,26 @@ func (s SecurityConfig) UnreachablePolicy() string {
 		return v
 	}
 	return "pass"
+}
+
+// UnfixedPolicy resolves how vulnerabilities with no published fix are gated:
+// "pass" (default — reported, not blocking) or "fail".
+func (s SecurityConfig) UnfixedPolicy() string {
+	if v := strings.ToLower(strings.TrimSpace(s.UnfixedVulns)); v != "" {
+		return v
+	}
+	return "pass"
+}
+
+// SecurityFailOn resolves the security threshold for this run: the first
+// security.fail_on_rules entry whose when: matches, else security.fail_on.
+func (c *Config) SecurityFailOn() string {
+	for _, r := range c.Security.FailOnRules {
+		if WhenMatchesEnv(r.When, c) {
+			return strings.ToLower(strings.TrimSpace(r.FailOn))
+		}
+	}
+	return c.Security.EffectiveFailOn()
 }
 
 // DefaultSecurityConfig returns sensible defaults for security scanning.

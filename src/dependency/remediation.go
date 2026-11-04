@@ -81,17 +81,17 @@ func EvaluateRemediation(deps []supplychain.Dependency, cfg UpdateConfig, result
 }
 
 // Residuals filters evaluations to the unremediated advisories at or above the
-// failOn threshold — the gating set. Byte-identical to the prior residual gate
-// (state != remediated ⟺ advisory not in the applied fixed-set), now carrying WHY.
-// failOn "off"/"" or unrecognized → no gate (nil).
-func Residuals(evals []RemediationEvaluation, failOn string) []RemediationEvaluation {
+// failOn threshold — the gating set. An advisory with no published fix is excused under
+// unfixed "pass" (security.unfixed_vulns), as in the image gate. failOn "off"/"" or
+// unrecognized → no gate (nil).
+func Residuals(evals []RemediationEvaluation, failOn, unfixed string) []RemediationEvaluation {
 	minRank := severity.Rank(severity.Normalize(failOn))
 	if minRank == 0 {
 		return nil
 	}
 	var out []RemediationEvaluation
 	for _, e := range evals {
-		if e.State == StateRemediated {
+		if e.State == StateRemediated || (e.State == StateNoFix && unfixed == "pass") {
 			continue
 		}
 		if severity.Rank(severity.Normalize(e.Severity)) >= minRank {

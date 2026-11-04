@@ -6,6 +6,7 @@ import (
 	gopath "path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -652,6 +653,28 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if pathErrs := validateOutputPath(cfg.Security.OutputDir, "security.output"); len(pathErrs) > 0 {
 			errs = append(errs, pathErrs...)
 		}
+	}
+
+	// A misspelled threshold would read as "off" and open the gate, so every value is checked.
+	severities := []string{"critical", "high", "medium", "low", "off"}
+	oneOf := func(path, v string, allowed []string) {
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" && !slices.Contains(allowed, v) {
+			errs = append(errs, fmt.Sprintf("%s: unknown %q (%s)", path, v, strings.Join(allowed, " | ")))
+		}
+	}
+	oneOf("security.fail_on", cfg.Security.FailOn, severities)
+	oneOf("security.unreachable_vulns", cfg.Security.UnreachableVulns, []string{"pass", "fail"})
+	oneOf("security.unfixed_vulns", cfg.Security.UnfixedVulns, []string{"pass", "fail"})
+	for i, r := range cfg.Security.FailOnRules {
+		path := fmt.Sprintf("security.fail_on_rules[%d]", i)
+		if len(r.When) == 0 {
+			errs = append(errs, path+".when: required (the runs this threshold applies to)")
+		}
+		if strings.TrimSpace(r.FailOn) == "" {
+			errs = append(errs, path+".fail_on: required ("+strings.Join(severities, " | ")+")")
+		}
+		oneOf(path+".fail_on", r.FailOn, severities)
+		errs = append(errs, validateWhen(r.When, path+".when", cfg.Git.Tags, cfg.Git.Branches, cfg.Schedules)...)
 	}
 
 	// security.exceptions: each excusal is on record, so id + reason are mandatory (no

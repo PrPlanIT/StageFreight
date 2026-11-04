@@ -28,9 +28,30 @@ security:
     trivy: true                  # container image scan (default: true)
     grype: true                  # container image scan, Anchore (default: true)
   sbom: true                     # generate a CycloneDX SBOM via Syft
-  fail_on_critical: false        # exit non-zero on critical vulns
-  output_dir: ".stagefreight/security"
+  fail_on: critical              # the gate: critical | high | medium | low | off (default off)
+  output: ".stagefreight/security"
   release_detail: counts         # default detail level in release notes
+```
+
+**The gate** blocks what you can act on and reports the rest. A finding at or above `fail_on`
+fails review, and publish withholds the build; the commit itself always lands. Excused, and
+still listed in every report:
+
+- an on-record `exceptions:` entry, with a `reason` and an optional `expires` after which it
+  gates again;
+- a vulnerability proven unreachable (`unreachable_vulns: pass`, the default);
+- a vulnerability with no published fix (`unfixed_vulns: pass`, the default), which gates as
+  soon as a fix exists.
+
+`fail_on_rules` set the threshold per run with a [`when:`](concepts.md#patterns-conditions),
+first match wins. Enforce on releases and report on dev builds, so a newly disclosed
+vulnerability never blocks the build that carries its fix:
+
+```yaml
+  fail_on: off
+  fail_on_rules:
+    - when: { git_tags: [stable, prerelease], events: [tag] }
+      fail_on: high
 ```
 
 **Detail levels** control how much lands in release notes: `none`, `counts` (e.g. "0
