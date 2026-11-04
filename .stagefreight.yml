@@ -128,6 +128,25 @@ registries:
     credentials: GHCR
     default_path: "{org.ghcr}/{repo}"
 
+# Address, login, role and key bind per group at runtime (SF_SECRETS_OPENBAO_*, SF_KMS_TENANT).
+secrets:
+  providers:
+    openbao: { kind: vault }
+
+signing:
+  profiles:
+    release:
+      requires: [kms]
+      kms: { ref: tenant, provider: openbao, role: cosign }
+      attestation: true
+      enforce: true
+    # Never blocks: CI runs latest-dev, which must stay publishable to ship a signing fix.
+    dev:
+      requires: [kms]
+      kms: { ref: tenant, provider: openbao, role: cosign }
+      attestation: true
+  default_profile: dev
+
 publish:                                 # distribute artifacts to their destinations (was targets:); id→target map
   # ── Stable releases → all registries (fans via registry: list) ───
   stable:
@@ -136,6 +155,7 @@ publish:                                 # distribute artifacts to their destina
     build: stagefreight
     tags: ["v{version}", "latest"]
     when: { git_tags: [stable], events: [tag] }
+    signing_profile: release
 
   # ── Pre-releases (alpha/beta/rc) → Docker Hub + GHCR ─────────────
   prerelease:
@@ -144,6 +164,7 @@ publish:                                 # distribute artifacts to their destina
     build: stagefreight
     tags: ["v{version}"]
     when: { git_tags: [prerelease], events: [tag] }
+    signing_profile: release
 
   # ── Dev builds on every commit → all registries (retained/pruned) ──
   dev:
