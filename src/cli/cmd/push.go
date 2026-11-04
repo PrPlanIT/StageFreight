@@ -22,8 +22,8 @@ var (
 
 func init() {
 	pushCmd.Flags().StringVar(&pushRemote, "remote", "origin", "git remote to push to")
-	pushCmd.Flags().StringVar(&pushRefspec, "refspec", "", "push refspec (e.g. HEAD:refs/heads/main) — uses the legacy convergence path")
-	pushCmd.Flags().BoolVar(&pushNoRebase, "no-rebase", false, "legacy: fail instead of rebasing on a diverged branch (refspec path only)")
+	pushCmd.Flags().StringVar(&pushRefspec, "refspec", "", "push HEAD to an explicit ref (e.g. HEAD:refs/heads/main), replaying onto the branch if it moved")
+	pushCmd.Flags().BoolVar(&pushNoRebase, "no-rebase", false, "with --refspec: fail instead of replaying onto a branch that moved")
 	pushCmd.Flags().BoolVar(&pushYes, "yes", false, "approve a transformational plan (e.g. replay onto a protected branch) without prompting")
 	rootCmd.AddCommand(pushCmd)
 }
@@ -50,7 +50,7 @@ rebase back to git when the two have diverged.`,
 		// Explicit --refspec (CI detached-HEAD): a direct push HEAD→ref, handled by the
 		// planner's DirectPush inside GitBackend.Push (no reconcile).
 		if pushRefspec != "" {
-			return refspecPush(rootDir)
+			return refspecPush(rootDir, pushRemote, pushRefspec, !pushNoRebase)
 		}
 		// push <remote> <branch>: explicit cross-target push, ahead/behind vs the destination.
 		if len(args) == 2 {
@@ -122,15 +122,16 @@ func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn fun
 	}
 }
 
-// refspecPush handles an explicit --refspec push (CI detached-HEAD): it flows through
-// GitBackend.Push → the planner's DirectPush (HEAD → ref, no reconcile). A thin entry point
-// because the refspec case renders its own concise status. engine.Sync is gone; there is
-// one push implementation now.
-func refspecPush(rootDir string) error {
+// refspecPush handles an explicit --refspec push (CI detached-HEAD): GitBackend.Push →
+// the planner's DirectPush (HEAD → ref, no reconcile), replaying onto the branch when it
+// moved and replay is on. A thin entry point because the refspec case renders its own
+// concise status.
+func refspecPush(rootDir, remote, refspec string, replay bool) error {
 	opts := commit.PushOptions{
-		Enabled: true,
-		Remote:  pushRemote,
-		Refspec: pushRefspec,
+		Enabled:         true,
+		Remote:          remote,
+		Refspec:         refspec,
+		RebaseOnDiverge: replay,
 	}
 	backend := &commit.GitBackend{RootDir: rootDir, Cfg: cfg}
 	result, err := backend.Push(opts)

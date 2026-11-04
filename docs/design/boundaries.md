@@ -149,26 +149,21 @@ panic.
 
 ## Git Transport
 
-Commit, tag, and sync networking goes through one `gitstate.Transport`, chosen once per
-session by `gitstate.ResolveTransport`:
+Commit, tag, and sync networking goes through go-git (`gitstate.Transport`), in-process;
+StageFreight never runs a git binary, and the `no-git-exec` lint holds that (tests alone
+may, with git provided by the substrate). Local remotes use go-git's in-process server.
 
-- **System git** (default) — whenever a `git` binary exists and StageFreight holds no
-  injected credential. It honors `~/.ssh/config`, credential helpers, agents, SSH certs,
-  `ProxyJump`, and enterprise auth, which an embedded client cannot reproduce (e.g. go-git
-  picks SSH keys by filename and ignores host → `IdentityFile` mappings).
-- **Embedded go-git** — only when StageFreight was explicitly handed a credential to act
-  as (`SSH_PRIVATE_KEY` for SSH; the owning forge's host-bound credential for HTTPS) or
-  there is no git binary. An SSH agent or on-disk key is the user's environment, not an
-  injected credential.
+Each remote's credential is resolved on its first network use, host-bound:
 
-The decision is made in one place from git availability and credentials together;
-implementations never re-scan the environment, and one operation never mixes transports.
+- **SSH** — `SSH_PRIVATE_KEY`, else the SSH agent, else `~/.ssh/config`'s `IdentityFile`
+  for the host, else `~/.ssh/id_{ed25519,ecdsa,rsa}`. `~/.ssh/config` also supplies `User`,
+  `Hostname` and `Port`; `ProxyJump` is not supported.
+- **HTTPS** — only the credential of the configured forge that owns the host; any other
+  host is reached anonymously. Git credential helpers are not consulted.
 
 The commit replay engine (`src/commit/gogit_replay.go`) rebuilds trees in-process and is
 guarded by a path-set integrity check (staged paths must equal the source commit's change
-paths; mismatch hard-resets). Open direction: extend the guard to tree/blob/mode equality,
-or replace in-process replay with system `git rebase` for local workflows on the same
-"let git do git" principle.
+paths; mismatch hard-resets).
 
 ## On-Disk Layout
 

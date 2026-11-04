@@ -25,8 +25,8 @@ import (
 type GitBackend struct {
 	RootDir string
 	// Cfg carries the forge graph so a push authenticates HOST-BOUND — only with the
-	// credential of the forge that owns the remote's host. nil ⇒ anonymous over HTTPS
-	// (system git still handles local auth), never a mismatched token.
+	// credential of the forge that owns the remote's host. nil ⇒ anonymous over HTTPS,
+	// never a mismatched token.
 	Cfg *config.Config
 	// OnCommitLine is called for each output line during hook execution and sync
 	// transition events. stream: "stdout", "stderr", "hook_side_effect", "sync".

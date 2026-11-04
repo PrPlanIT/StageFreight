@@ -119,7 +119,7 @@ func via(sourceURL string) string {
 func humanizeReason(reason string) string {
 	switch reason {
 	case "go-tests-exec-git":
-		return "for git-based tests (fixtures, system-git transport)"
+		return "for tests that exec git"
 	case "go-test-race-cgo":
 		return "C compiler for the race detector (cgo)"
 	case "rust-build-script-linking":

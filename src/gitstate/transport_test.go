@@ -1,7 +1,12 @@
 package gitstate
 
 import (
+	"path/filepath"
 	"testing"
+
+	git "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
@@ -23,128 +28,102 @@ func cfgWithForges(forges ...config.ForgeConfig) *config.Config {
 	return &config.Config{Forges: forges}
 }
 
-// TestResolveTransport pins the transport-authority decision under HOST-BOUND auth:
-// system git is the default for repository-local workflows; embedded is chosen only when
-// a credential is host-bound to the configured forge that owns the URL's host.
-func TestResolveTransport(t *testing.T) {
-	t.Run("ssh remote, no injected key → system git", func(t *testing.T) {
-		clearGitCredEnv(t)
-		dec, err := ResolveTransport("ssh://git@example.com:22/o/r.git", nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if dec.Preference != PreferSystemGit {
-			t.Errorf("got %v, want PreferSystemGit", dec.Preference)
-		}
-	})
-
-	t.Run("https remote, no token/forge → system git", func(t *testing.T) {
-		clearGitCredEnv(t)
-		dec, err := ResolveTransport("https://example.com/o/r.git", nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if dec.Preference != PreferSystemGit {
-			t.Errorf("got %v, want PreferSystemGit", dec.Preference)
-		}
-	})
-
-	t.Run("https remote, configured forge + its token → embedded with auth", func(t *testing.T) {
-		clearGitCredEnv(t)
-		t.Setenv("EXAMPLE_TOKEN", "glpat-test")
-		cfg := cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://example.com", Credentials: "EXAMPLE"})
-		dec, err := ResolveTransport("https://example.com/o/r.git", cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if dec.Preference != RequireEmbeddedTransport {
-			t.Errorf("got %v, want RequireEmbeddedTransport", dec.Preference)
-		}
-		if dec.Auth == nil {
-			t.Error("embedded decision must carry resolved auth")
-		}
-	})
-
-	// SECURITY: a token in the environment whose host NO configured forge owns must NOT
-	// trigger embedded transport — the token is never offered to that host.
-	t.Run("https remote, token present but host unclaimed → system git (no injection)", func(t *testing.T) {
-		clearGitCredEnv(t)
-		t.Setenv("GITHUB_TOKEN", "ghp-should-not-be-sent-anywhere")
-		cfg := cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://gitlab.example.com", Credentials: "GL"})
-		dec, err := ResolveTransport("https://unclaimed.example.com/o/r.git", cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if dec.Preference != PreferSystemGit {
-			t.Errorf("an unclaimed host must not inject a credential; got %v", dec.Preference)
-		}
-	})
-}
-
-// TestSelectTransport asserts the selection maps a decision to the right implementation.
-func TestSelectTransport(t *testing.T) {
-	emb := selectTransport(nil, "/tmp/x", TransportDecision{Preference: RequireEmbeddedTransport})
-	if _, ok := emb.(*embeddedTransport); !ok {
-		t.Errorf("RequireEmbeddedTransport → %T, want *embeddedTransport", emb)
-	}
-	if gitAvailable() {
-		sys := selectTransport(nil, "/tmp/x", TransportDecision{Preference: PreferSystemGit})
-		if _, ok := sys.(*systemTransport); !ok {
-			t.Errorf("PreferSystemGit (git present) → %T, want *systemTransport", sys)
-		}
-	}
-}
-
-// TestInjectedCredential pins the embedded-trigger signal under host-binding: an SSH key,
-// or an HTTPS credential that the OWNING forge yields for the URL's host.
-func TestInjectedCredential(t *testing.T) {
-	t.Run("ssh + SSH_PRIVATE_KEY → injected", func(t *testing.T) {
-		clearGitCredEnv(t)
-		t.Setenv("SSH_PRIVATE_KEY", "-----BEGIN KEY-----")
-		if !injectedCredential("ssh://git@host/o/r.git", nil) {
-			t.Error("SSH_PRIVATE_KEY must count as injected")
-		}
-	})
-	t.Run("ssh + agent/on-disk only → not injected", func(t *testing.T) {
-		clearGitCredEnv(t)
-		if injectedCredential("ssh://git@host/o/r.git", nil) {
-			t.Error("an agent or on-disk key is the user's environment, not an injection")
-		}
-	})
-	t.Run("https + owning forge token → injected", func(t *testing.T) {
-		clearGitCredEnv(t)
-		t.Setenv("GL_TOKEN", "glpat-x")
-		cfg := cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://host", Credentials: "GL"})
-		if !injectedCredential("https://host/o/r.git", cfg) {
-			t.Error("the owning forge's token must count as injected")
-		}
-	})
-	t.Run("https + token but no owning forge → not injected", func(t *testing.T) {
-		clearGitCredEnv(t)
-		t.Setenv("GITHUB_TOKEN", "ghp-x")
-		if injectedCredential("https://host/o/r.git", nil) {
-			t.Error("a token with no owning forge must not count as injected")
-		}
-	})
-}
-
-// TestResolveTransportGitless verifies the other embedded trigger: with no git binary to
-// delegate to, the decision falls to embedded even absent an injected credential.
-func TestResolveTransportGitless(t *testing.T) {
+// Each remote's credential is host-bound: the owning forge's token for its host, and
+// nothing for a host no forge claims, whatever tokens the environment holds.
+func TestEmbeddedTransport_HostBoundCredentialPerRemote(t *testing.T) {
 	clearGitCredEnv(t)
-	t.Setenv("PATH", "") // no git on PATH
-	dec, err := ResolveTransport("https://host/o/r.git", nil)
+	t.Setenv("EXAMPLE_TOKEN", "glpat-test")
+	t.Setenv("GITHUB_TOKEN", "ghp-should-not-be-sent-anywhere")
+	repo, err := git.PlainInit(t.TempDir(), false)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatal(err)
 	}
-	if dec.Preference != RequireEmbeddedTransport {
-		t.Errorf("git-less → %v, want RequireEmbeddedTransport", dec.Preference)
+	for name, url := range map[string]string{"origin": "https://example.com/o/r.git", "other": "https://unclaimed.example.com/o/r.git"} {
+		if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{Name: name, URLs: []string{url}}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// ...and with no owning forge, the embedded transport carries ANONYMOUS auth — a token
-	// in env is never fabricated onto an unclaimed host.
-	t.Setenv("GITHUB_TOKEN", "ghp-x")
-	dec, _ = ResolveTransport("https://host/o/r.git", nil)
-	if dec.Auth != nil {
-		t.Errorf("git-less unclaimed host must carry nil auth, got %+v", dec.Auth)
+	tr := newEmbeddedTransport(repo, cfgWithForges(config.ForgeConfig{Provider: "gitlab", URL: "https://example.com", Credentials: "EXAMPLE"}))
+	if auth, err := tr.auth("origin"); err != nil || auth == nil {
+		t.Fatalf("owning forge: auth=%v err=%v, want its token", auth, err)
+	}
+	if auth, err := tr.auth("other"); err != nil || auth != nil {
+		t.Fatalf("unclaimed host: auth=%v err=%v, want anonymous", auth, err)
+	}
+}
+
+// A session over an SSH remote opens without any key; a key is needed only once the
+// remote is actually reached.
+func TestEmbeddedTransport_CredentialResolvedOnUse(t *testing.T) {
+	clearGitCredEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{"git@example.com:o/r.git"}}); err != nil {
+		t.Fatal(err)
+	}
+	wt, _ := repo.Worktree()
+	if _, err := wt.Commit("c", &git.CommitOptions{AllowEmptyCommits: true, Author: &object.Signature{Name: "t", Email: "t@t"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenSyncSession(dir, nil); err != nil {
+		t.Fatalf("opening a session must not need a key: %v", err)
+	}
+	if _, err := newEmbeddedTransport(repo, nil).auth("origin"); err == nil {
+		t.Fatal("reaching an SSH remote with no key must fail, naming what is missing")
+	}
+}
+
+// SSH remotes are recognized the way go-git parses them, scp-style aliases included.
+func TestIsSSHURL(t *testing.T) {
+	for url, want := range map[string]bool{
+		"ssh://git@host:2424/o/r.git": true,
+		"git@host:o/r.git":            true,
+		"kai@host:o/r.git":            true,
+		"gitlab-alias:o/r.git":        true,
+		"https://host/o/r.git":        false,
+		"/srv/repos/r.git":            false,
+		"file:///srv/repos/r.git":     false,
+	} {
+		if got := isSSHURL(url); got != want {
+			t.Errorf("isSSHURL(%q) = %v, want %v", url, got, want)
+		}
+	}
+}
+
+type fakeSSHConfig map[string]map[string][]string
+
+func (f fakeSSHConfig) Get(alias, key string) string {
+	if v := f[alias][key]; len(v) > 0 {
+		return v[0]
+	}
+	return ""
+}
+func (f fakeSSHConfig) GetAll(alias, key string) []string { return f[alias][key] }
+
+// ~/.ssh/config supplies the user and keys for a host the URL doesn't name them for.
+func TestSSHConfigUserAndIdentity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	old := sshConfig
+	t.Cleanup(func() { sshConfig = old })
+	sshConfig = fakeSSHConfig{"gitlab-alias": {"User": {"deploy"}, "IdentityFile": {"~/.ssh/work_key"}}}
+
+	if u := sshUser("gitlab-alias:o/r.git"); u != "deploy" {
+		t.Errorf("config user = %q, want deploy", u)
+	}
+	if u := sshUser("kai@gitlab-alias:o/r.git"); u != "kai" {
+		t.Errorf("the URL's own user must win, got %q", u)
+	}
+	if u := sshUser("git@other:o/r.git"); u != "git" {
+		t.Errorf("default user = %q, want git", u)
+	}
+	files := sshIdentityFiles("gitlab-alias:o/r.git")
+	if len(files) == 0 || files[0] != filepath.Join(home, ".ssh", "work_key") {
+		t.Fatalf("identity files = %v, want the configured key first", files)
 	}
 }

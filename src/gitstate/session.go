@@ -14,11 +14,8 @@ import (
 // Open() and explicitly refreshed only after state-changing operations (Fetch,
 // FastForward). Remote polling never happens opportunistically.
 //
-// The network surface (Fetch, FastForward, Push, RemoteRefHash) is delegated to a
-// Transport chosen once at Open(): the system git binary for repository-local
-// workflows, or in-process go-git when StageFreight holds an explicit credential
-// or no git is available. A single session therefore never mixes transports, and
-// the credential never escapes the transport boundary.
+// The network surface (Fetch, FastForward, Push, RemoteRefHash) is delegated to the
+// session's go-git Transport; credentials never escape the transport boundary.
 type SyncSession struct {
 	repo      *git.Repository
 	rootDir   string
@@ -27,18 +24,13 @@ type SyncSession struct {
 	fetched   bool // true after Fetch() invalidates ahead/behind
 }
 
-// OpenSyncSession opens a SyncSession for the repository at rootDir. Reads repo
-// state and resolves the transport authority once; both are reused throughout the
-// session. The transport decision is centralized in ResolveTransport — and when it
-// selects system git, no go-git credential is resolved (so none can fail with the
-// wrong key), because Git owns authentication.
+// OpenSyncSession opens a SyncSession for the repository at rootDir: its repo state and
+// a go-git transport, reused throughout the session.
 //
-// cfg carries the forge graph the embedded transport's credential is bound against, so
-// every network op on this session (Fetch/FastForward/Push/RemoteRefHash) authenticates
-// ONLY with the credential of the forge that owns the remote's host. Pass nil when no
-// forge config is in scope (e.g. a purely local run): the session then authenticates
-// anonymously over HTTPS (system git still handles local auth), never with a mismatched
-// token.
+// cfg carries the forge graph each remote's credential is bound against, so every network
+// op on this session (Fetch/FastForward/Push/RemoteRefHash) authenticates ONLY with the
+// credential of the forge that owns that remote's host. Pass nil when no forge config is
+// in scope: HTTPS remotes are then reached anonymously, never with a mismatched token.
 func OpenSyncSession(rootDir string, cfg *config.Config) (*SyncSession, error) {
 	repo, err := OpenRepo(rootDir)
 	if err != nil {
@@ -53,28 +45,11 @@ func OpenSyncSession(rootDir string, cfg *config.Config) (*SyncSession, error) {
 	// planner can refuse with guidance instead of acting on a half-finished state.
 	state.InProgressOp = DetectInProgressOp(rootDir)
 
-	// Resolve the transport for the effective remote. When no upstream is
-	// configured (first push), RemoteName is empty — fall back to "origin" so the
-	// decision is always made against a concrete remote.
-	effectiveRemote := state.RemoteName
-	if effectiveRemote == "" {
-		effectiveRemote = "origin"
-	}
-	remoteURL, remoteErr := RemoteURL(repo, effectiveRemote)
-	if remoteErr != nil {
-		return nil, fmt.Errorf("resolving remote URL for %s: %w", effectiveRemote, remoteErr)
-	}
-
-	dec, err := ResolveTransport(remoteURL, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("resolving transport for %s: %w", remoteURL, err)
-	}
-
 	return &SyncSession{
 		repo:      repo,
 		rootDir:   rootDir,
 		state:     state,
-		transport: selectTransport(repo, rootDir, dec),
+		transport: newEmbeddedTransport(repo, cfg),
 	}, nil
 }
 
@@ -121,8 +96,7 @@ func (s *SyncSession) FastForward(remote string) error {
 }
 
 // Push pushes to remote via the session transport. When setUpstream is true it
-// also configures branch tracking in .git/config — a local write, transport-
-// agnostic, so it applies under both system git and embedded transport.
+// also configures branch tracking in .git/config.
 func (s *SyncSession) Push(remote, refspec string, setUpstream bool) error {
 	if err := s.transport.Push(remote, refspec); err != nil {
 		return err
@@ -134,8 +108,8 @@ func (s *SyncSession) Push(remote, refspec string, setUpstream bool) error {
 }
 
 // RemoteRefHash resolves a branch head on the remote through the session
-// transport (system git ls-remote, or embedded go-git). Keeping remote reads
-// behind the boundary is why no credential accessor leaks out of the session.
+// transport. Keeping remote reads behind the boundary is why no credential accessor
+// leaks out of the session.
 func (s *SyncSession) RemoteRefHash(remote, ref string) (plumbing.Hash, error) {
 	return s.transport.RemoteRefHash(remote, ref)
 }

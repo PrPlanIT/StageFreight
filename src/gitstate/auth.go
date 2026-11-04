@@ -9,6 +9,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/kevinburke/ssh_config"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/credentials"
@@ -18,8 +19,8 @@ import (
 // isSSHURL returns true when the remote URL uses an SSH transport.
 // Explicit match only — correctness over coverage.
 func isSSHURL(url string) bool {
-	return strings.HasPrefix(url, "ssh://") ||
-		strings.HasPrefix(url, "git@")
+	ep, err := transport.NewEndpoint(url)
+	return err == nil && ep.Protocol == "ssh"
 }
 
 // IsSSHURL is the exported form of isSSHURL for use by other packages.
@@ -30,7 +31,7 @@ func IsSSHURL(url string) bool { return isSSHURL(url) }
 // Resolution order (exclusive — first match wins):
 //  1. SSH_PRIVATE_KEY env var (in-memory, no filesystem dependency)
 //  2. SSH agent (SSH_AUTH_SOCK)
-//  3. Standard key files: id_ed25519, id_ecdsa, id_rsa
+//  3. ~/.ssh/config IdentityFile for the host, then id_ed25519, id_ecdsa, id_rsa
 //
 // Host key verification is resolved via sfxssh.ResolveHostKeyCallback (same priority
 // as raw SSH transport — SSH_KNOWN_HOSTS_CONTENT, SSH_KNOWN_HOSTS, ~/.ssh/known_hosts,
@@ -67,17 +68,16 @@ func ResolveAuth(remoteURL string) (transport.AuthMethod, error) {
 		// than failing, but don't hide the reason. TODO: route through diag.Debug.
 	}
 
-	// Priority 3: standard key files — try each, track last parse error.
-	home, _ := os.UserHomeDir()
+	// Priority 3: ~/.ssh/config IdentityFile, then the standard key files — try each,
+	// track last parse error.
 	var lastKeyErr error
-	for _, name := range []string{"id_ed25519", "id_ecdsa", "id_rsa"} {
-		keyPath := filepath.Join(home, ".ssh", name)
+	for _, keyPath := range sshIdentityFiles(remoteURL) {
 		if _, err := os.Stat(keyPath); err != nil {
 			continue // file absent — not an error
 		}
 		signer, err := sfxssh.SignerFromFile(keyPath)
 		if err != nil {
-			lastKeyErr = fmt.Errorf("%s: %w", name, err)
+			lastKeyErr = fmt.Errorf("%s: %w", filepath.Base(keyPath), err)
 			continue // file present but unparseable — record and try next
 		}
 		pkAuth := &gitssh.PublicKeys{User: user, Signer: signer}
@@ -211,80 +211,54 @@ func PushWillTriggerPipeline(remoteURL string, cfg *config.Config) (bool, string
 	return true, ""
 }
 
-// TransportPreference expresses who owns the Git transport for a remote. It is the
-// centralized output of credential resolution — transport SELECTION consumes it
-// and never re-scans the environment in another package.
-type TransportPreference int
-
-const (
-	// PreferSystemGit delegates transport to the system git binary, the authority
-	// for repository-local workflows: it already honors ~/.ssh/config, credential
-	// helpers, agents, SSH certs, ProxyJump, Include, and enterprise auth that
-	// StageFreight would otherwise have to reimplement — and be less capable than.
-	PreferSystemGit TransportPreference = iota
-	// RequireEmbeddedTransport uses in-process go-git with a StageFreight-supplied
-	// credential. Chosen only when StageFreight was explicitly handed a credential
-	// to act as, independent of the user's Git environment.
-	RequireEmbeddedTransport
-)
-
-// TransportDecision is the centralized transport-authority decision: which
-// transport to use and, when embedded, the resolved credential to use with it.
-type TransportDecision struct {
-	Preference TransportPreference
-	Auth       transport.AuthMethod
-}
-
-// ResolveTransport decides who owns the Git transport for remoteURL. The question
-// is not "where are we running" but "was StageFreight explicitly entrusted with a
-// credential to act independently of the user's Git environment?" For an SSH remote
-// that credential is SSH_PRIVATE_KEY; for HTTPS it is the HOST-BOUND credential of the
-// configured forge that owns the URL's host (cfg). Absent an explicit credential, the
-// repository's own Git is the transport authority (PreferSystemGit) — so credential
-// helpers, config-mapped keys, agents, certs, and enterprise auth all work, because Git
-// (not StageFreight) handles them.
-//
-// cfg carries the forge graph the credential is bound against; nil ⇒ no host-bound
-// credential is available, so a private HTTPS remote resolves anonymously (fail-closed).
-func ResolveTransport(remoteURL string, cfg *config.Config) (TransportDecision, error) {
-	if gitAvailable() && !injectedCredential(remoteURL, cfg) {
-		return TransportDecision{Preference: PreferSystemGit}, nil
-	}
-	// Embedded: StageFreight holds an explicit host-bound credential, or there is no git
-	// to delegate to. Resolve the credential go-git will carry (host-bound, may be nil).
-	auth, err := ResolveGitCredential(remoteURL, cfg)
-	if err != nil {
-		return TransportDecision{}, err
-	}
-	return TransportDecision{Preference: RequireEmbeddedTransport, Auth: auth}, nil
-}
-
-// injectedCredential reports whether StageFreight has a HOST-BOUND credential to act as
-// for remoteURL — an in-memory SSH key for an SSH remote, or the configured owning forge's
-// credential for an HTTPS remote. An SSH agent or on-disk key is NOT injected: it belongs
-// to the user's Git environment, which system git uses directly. Deriving HTTP recognition
-// from ResolveGitCredential keeps the transport decision and the credential the embedded
-// transport will carry from ever drifting.
-func injectedCredential(remoteURL string, cfg *config.Config) bool {
-	if isSSHURL(remoteURL) {
-		return os.Getenv("SSH_PRIVATE_KEY") != ""
-	}
-	auth, _ := ResolveGitCredential(remoteURL, cfg)
-	return auth != nil
-}
-
-// sshUser extracts the SSH username from a remote URL.
-// git@host:path → "git", ssh://user@host:port/path → "user"
+// sshUser is the SSH username for a remote: the URL's own, else ~/.ssh/config's User
+// for its host, else "git".
 func sshUser(remoteURL string) string {
-	if strings.HasPrefix(remoteURL, "ssh://") {
-		rest := strings.TrimPrefix(remoteURL, "ssh://")
-		if idx := strings.IndexByte(rest, '@'); idx > 0 {
-			return rest[:idx]
-		}
+	ep, err := transport.NewEndpoint(remoteURL)
+	if err != nil {
 		return "git"
 	}
-	if idx := strings.IndexByte(remoteURL, '@'); idx > 0 {
-		return remoteURL[:idx]
+	if ep.User != "" {
+		return ep.User
+	}
+	if u := sshConfig.Get(ep.Host, "User"); u != "" {
+		return u
 	}
 	return "git"
+}
+
+// sshConfigReader is the part of ssh_config's settings this package reads.
+type sshConfigReader interface {
+	Get(alias, key string) string
+	GetAll(alias, key string) []string
+}
+
+// sshConfig reads ~/.ssh/config and /etc/ssh/ssh_config, the files go-git's SSH
+// transport already reads for Hostname and Port; a variable so tests can supply one.
+var sshConfig sshConfigReader = ssh_config.DefaultUserSettings
+
+// sshIdentityFiles are the keys to try for remoteURL: ~/.ssh/config's IdentityFile
+// entries for its host, then the standard key files.
+func sshIdentityFiles(remoteURL string) []string {
+	home, _ := os.UserHomeDir()
+	var files []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if strings.HasPrefix(p, "~/") {
+			p = filepath.Join(home, p[2:])
+		}
+		if !seen[p] {
+			seen[p] = true
+			files = append(files, p)
+		}
+	}
+	if ep, err := transport.NewEndpoint(remoteURL); err == nil {
+		for _, f := range sshConfig.GetAll(ep.Host, "IdentityFile") {
+			add(f)
+		}
+	}
+	for _, name := range []string{"id_ed25519", "id_ecdsa", "id_rsa"} {
+		add(filepath.Join(home, ".ssh", name))
+	}
+	return files
 }

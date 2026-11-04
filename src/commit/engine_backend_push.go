@@ -119,8 +119,8 @@ func (g *GitBackend) replayRefspecPush(session *gitstate.SyncSession, remote, re
 }
 
 // isNonFastForwardErr classifies a push refusal caused by the remote ref having
-// advanced — the embedded transport says "non-fast-forward update", system git
-// says "non-fast-forward" or "fetch first". Anything else (auth, network,
+// advanced — go-git says "non-fast-forward update"; a server may also say
+// "non-fast-forward" or "fetch first". Anything else (auth, network,
 // protected-branch policy) is not recoverable by replay.
 func isNonFastForwardErr(err error) bool {
 	if err == nil {

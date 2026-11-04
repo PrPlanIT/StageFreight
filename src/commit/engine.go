@@ -5,7 +5,7 @@ import "github.com/PrPlanIT/StageFreight/src/gitstate"
 // Engine drives a repository push through the planner: Plan() (engine_plan.go) resolves the
 // current repository state into an operation graph (gitplan.Plan), and Execute()
 // (engine_execute.go) walks it, realizing each operation through the bound SyncSession —
-// whose Transport (system git or embedded go-git) it inherits. The pre-planner state-machine
+// whose go-git Transport it inherits. The pre-planner state-machine
 // convergence (Sync and its explicit transitions) has been retired in favour of the planner.
 type Engine struct {
 	session *gitstate.SyncSession

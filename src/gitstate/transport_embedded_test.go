@@ -11,10 +11,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// The embedded (go-git) transport is used when no git binary is available or a credential
-// was injected. The rest of the suite runs with git present (system transport), so exercise
-// the go-git push path directly here to cover BOTH transports.
+// A local remote is cloned from and pushed to in-process, with no git binary anywhere.
 func TestEmbeddedTransport_Push(t *testing.T) {
+	t.Setenv("PATH", "")
 	tmp := t.TempDir()
 	remote := filepath.Join(tmp, "remote.git")
 	seed := filepath.Join(tmp, "seed")
@@ -62,8 +61,7 @@ func TestEmbeddedTransport_Push(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The embedded transport push path (no auth needed for a file:// remote).
-	tr := &embeddedTransport{repo: lr, auth: nil}
+	tr := newEmbeddedTransport(lr, nil)
 	if err := tr.Push("origin", ""); err != nil {
 		t.Fatalf("embedded transport push: %v", err)
 	}
