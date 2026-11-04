@@ -379,6 +379,7 @@ stagefreight commit -t feat -m "hotfix auth flow" --push --refspec HEAD:refs/hea
 | `--push` | bool | — | push after commit |
 | `--refspec` | string | — | push refspec (e.g. HEAD:refs/heads/main) |
 | `--remote` | string | `origin` | git remote for push |
+| `--role` | string | — | act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows |
 | `--sign-off` | bool | — | add Signed-off-by trailer |
 | `--skip-ci` | bool | — | append [skip ci] to subject line |
 | `-m, --message` | string | — | commit summary message |
@@ -1027,10 +1028,11 @@ rebase back to git when the two have diverged.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--maintainer-override` | bool | — | push even though the declared workflow refuses it (reported; the forge still enforces its own rules) |
+| `--maintainer-override` | bool | — | producer only: push even though the declared workflow refuses it (reported; the forge still enforces its own rules) |
 | `--no-rebase` | bool | — | with --refspec: fail instead of replaying onto a branch that moved |
 | `--refspec` | string | — | push HEAD to an explicit ref (e.g. HEAD:refs/heads/main), replaying onto the branch if it moved |
 | `--remote` | string | `origin` | git remote to push to |
+| `--role` | string | — | act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows |
 | `--yes` | bool | — | approve a transformational plan (e.g. replay onto a protected branch) without prompting |
 
 _Plus the [global flags](#cli-global-flags)._
@@ -1477,11 +1479,12 @@ when in interactive mode.
 | `--dry-run` | bool | — | preview only, do not create tag |
 | `--from` | string | — | override previous release boundary |
 | `--json` | bool | — | output plan as JSON (implies --dry-run) |
-| `--maintainer-override` | bool | — | tag even though the declared workflow refuses it (reported) |
+| `--maintainer-override` | bool | — | producer only: tag even though the declared workflow refuses it (reported) |
 | `--major` | bool | — | bump major from previous release |
 | `--minor` | bool | — | bump minor from previous release |
 | `--patch` | bool | — | bump patch from previous release |
 | `--push` | bool | — | push tag to origin after creation |
+| `--role` | string | — | act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows |
 | `--target` | string | — | ref to tag (default: HEAD) |
 | `-m, --message` | string | — | override tag message |
 | `-y, --yes` | bool | — | skip approval prompt |
