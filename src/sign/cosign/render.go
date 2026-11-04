@@ -35,13 +35,28 @@ func Render(p sign.SignPlan, op sign.Op, env Env) (args []string, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if NeedsOfflineSigningConfig(p, op) {
+		if env.SigningConfig == "" {
+			return nil, fmt.Errorf("signing without a transparency log needs a signing config, and none was provided")
+		}
+		m.offline = env.SigningConfig
+	}
 	return emit(p, op, m), nil
+}
+
+// NeedsOfflineSigningConfig reports whether an op signs without a transparency log through
+// a signing config listing no services: an image signature or attestation by a key, KMS or
+// hardware signer when the plan doesn't require transparency. A detached blob signature
+// keeps the legacy flags, because a signing config makes cosign write a bundle instead.
+func NeedsOfflineSigningConfig(p sign.SignPlan, op sign.Op) bool {
+	return !p.TransparencyRequired && p.TrustClass != sign.ClassOIDC && op != sign.OpSignBlob
 }
 
 // mechanism is the resolved, single-principal way to sign — the solver's output.
 type mechanism struct {
 	class    sign.Class
 	keyArg   string             // value for --key (key path / KMS URI / PKCS#11 URI); empty for oidc + FIDO2
+	offline  string             // the no-transparency signing config's path (Env.SigningConfig)
 	useSK    bool               // FIDO2 hardware token (cosign --sk)
 	sigstore SigstoreDeployment // oidc only: the trust domain to point cosign at (empty = public)
 }
@@ -163,9 +178,12 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 		// keyless — no --key flag; service/identity flags emitted below.
 	}
 	// Transparency-log + service-discovery control (cosign v3 semantics).
-	if m.class == sign.ClassOIDC {
+	switch {
+	case m.class == sign.ClassOIDC:
 		args = append(args, oidcServiceArgs(p, m.sigstore)...)
-	} else {
+	case m.offline != "":
+		args = append(args, "--signing-config", m.offline)
+	default:
 		args = append(args, tlogArgs(p)...)
 	}
 	// Image ops attach the signature/attestation to the registry; sign-blob is
@@ -176,16 +194,14 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 	return args
 }
 
-// tlogArgs emits the transparency-log + signing-config flags for the offline classes
-// (key/kms/hardware). cosign v3 defaults to a TUF-provided signing config (Rekor);
-// the legacy --tlog-upload flag is deprecated and rejected alongside it. So:
-//   - transparency required → use the signing config (which needs the new bundle
-//     format in v3 — emitted explicitly so the dependency is never left implicit).
-//   - no transparency       → disable the signing config so cosign never reaches for
-//     Rekor, and skip the tlog explicitly (the offline path).
+// tlogArgs emits the transparency flags. cosign v3 signs with its TUF-provided signing
+// config (Rekor) by default, which needs the new bundle format — set explicitly so the
+// dependency is never implicit. Without transparency, a detached blob signature disables
+// the signing config and the tlog (the legacy flags; image ops pass an offline signing
+// config instead).
 func tlogArgs(p sign.SignPlan) []string {
 	if p.TransparencyRequired {
-		return []string{"--use-signing-config=true", "--new-bundle-format=true"}
+		return []string{"--new-bundle-format=true"}
 	}
 	return []string{"--use-signing-config=false", "--tlog-upload=false"}
 }
