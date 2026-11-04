@@ -111,6 +111,8 @@ func TestCollectFacts_MemoryUnderJobPodLimit(t *testing.T) {
 	if facts.MemAvailableMB != 148 {
 		t.Errorf("MemAvailableMB = %d, want 148 (limit minus working set)", facts.MemAvailableMB)
 	}
+	// The grade must come from memory alone, not the test machine's disk.
+	facts.DiskFreeMB, facts.TmpFreeMB = 1<<20, 1<<20
 	findings, grade := EvaluateHealth(facts, Options{})
 	if grade != Degraded {
 		t.Errorf("grade = %q, want degraded (148 MB < 512 MB warn)", grade)
