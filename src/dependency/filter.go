@@ -160,7 +160,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 			return SkipCooldownHeld, "held by min_release_age (" + dep.CooldownHeld + " too recent)"
 		}
 		if dep.MajorAvailable() {
-			return SkipMajorHeld, "major upgrade held — review (" + dep.Latest + " out of range)"
+			return SkipMajorHeld, "held for review — " + dep.Latest + " is outside the compatible range"
 		}
 		return SkipUpToDate, "up to date"
 	}
