@@ -118,7 +118,7 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 
 func init() {
 	pruneCmd.Flags().StringVar(&pruneCacheRoot, "cache", "", "SF cache mount root (default: resolved like `du`)")
-	pruneCmd.Flags().Float64Var(&pruneTarget, "target", 0, "only act when disk used-fraction ≥ target (0 = always enforce policy)")
+	pruneCmd.Flags().Float64Var(&pruneTarget, "target", 0, "only act when disk used-fraction ≥ target, and evict least recently used caches to 5 points under it (0 = always enforce policy, relieving pressure past 80%)")
 	pruneCmd.Flags().BoolVar(&pruneDoConfirm, "confirm", false, "execute the plan (default: dry-run)")
 	pruneCmd.Flags().BoolVar(&pruneHostCleanup, "host-cleanup", false, "authorize the declared host-cleanup policies for this invocation (build_cache.cleanup)")
 	rootCmd.AddCommand(pruneCmd)

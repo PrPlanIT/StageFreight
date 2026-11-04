@@ -117,6 +117,9 @@ func UsedFraction(path string) float64 {
 	return 1 - free/total
 }
 
+// usedFraction measures how full a filesystem is; a variable so tests set the disk's state.
+var usedFraction = UsedFraction
+
 // Plan computes the reclaim actions the ownership model + declared policy allow.
 // cfg may be nil (running on a bare runner host with no .stagefreight.yml): the
 // SF-owned namespace lifecycle still applies with engine defaults; provenance-class
@@ -126,7 +129,7 @@ func Plan(cfg *config.Config, opts Options) []Action {
 	// The daemon's image budget has its own trigger: it runs whatever the cache root's
 	// pressure.
 	actions := daemonImageAction()
-	if opts.Target > 0 && opts.CacheRoot != "" && UsedFraction(opts.CacheRoot) < opts.Target {
+	if opts.Target > 0 && opts.CacheRoot != "" && usedFraction(opts.CacheRoot) < opts.Target {
 		return actions // healthy — the pressure gate keeps the rest a cheap no-op
 	}
 
@@ -183,9 +186,15 @@ func Plan(cfg *config.Config, opts Options) []Action {
 			}
 			actions = append(actions, a)
 		}
-		if opts.Target > 0 {
+		// Without a target the policy is enforced whatever the disk's state, and pressure is
+		// still relieved past the default watermark.
+		pressureAt := opts.Target
+		if pressureAt == 0 {
+			pressureAt = DefaultTarget
+		}
+		if usedFraction(opts.CacheRoot) >= pressureAt {
 			actions = append(actions, Action{Kind: KindPressure, Class: ClassNamespace, Label: "disk pressure",
-				Path: cacheDir, Low: opts.Target - pressureHysteresis,
+				Path: cacheDir, Low: pressureAt - pressureHysteresis,
 				Reason: "least recently used cache units while the disk is over target"})
 		}
 		for i := range actions {

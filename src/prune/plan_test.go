@@ -47,7 +47,13 @@ func TestPlan_NamespaceLifecycleCoversEverySubsystem(t *testing.T) {
 		t.Error("every other cache directory must get the unit lifecycle with the age backstop")
 	}
 	if _, ok := byLabel["disk pressure"]; ok {
-		t.Error("no pressure action without a target")
+		t.Error("no pressure action without a target while the disk is under the default watermark")
+	}
+	usedFraction = func(string) float64 { return 0.99 }
+	full := Plan(nil, Options{CacheRoot: root})
+	usedFraction = func(string) float64 { return 0.5 }
+	if len(full) == 0 || full[len(full)-1].Kind != KindPressure || full[len(full)-1].Low != DefaultTarget-pressureHysteresis {
+		t.Error("without a target, a disk past the default watermark must still get pressure relief")
 	}
 	if a := Plan(nil, Options{CacheRoot: root, Target: 0.000001}); len(a) == 0 || a[len(a)-1].Kind != KindPressure {
 		t.Error("a pressure-gated plan must end with the pressure eviction")
@@ -457,4 +463,11 @@ func TestExecute_ToolchainRetentionSkipsLeasedVersion(t *testing.T) {
 			t.Errorf("go/%s present=%v, want %v", v, err == nil, want)
 		}
 	}
+}
+
+// TestMain runs every test against a half-full disk unless it sets its own, so no test
+// depends on the state of the machine it runs on.
+func TestMain(m *testing.M) {
+	usedFraction = func(string) float64 { return 0.5 }
+	os.Exit(m.Run())
 }
