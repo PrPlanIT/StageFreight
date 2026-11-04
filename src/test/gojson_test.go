@@ -3,6 +3,7 @@ package test
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGoCoverage(t *testing.T) {
@@ -108,5 +109,21 @@ func TestCompileErrLines(t *testing.T) {
 	}
 	if got := compileErrLines(out, 1); len(got) != 1 {
 		t.Fatalf("max not honored: %q", got)
+	}
+}
+
+// The failure line shown is the test's own t.Error / t.Fatal line, even when the test
+// printed output before it, and long lines are cut on a character boundary.
+func TestFirstErrLine(t *testing.T) {
+	out := "=== RUN   TestX\n    ── Upstream ──────────\n    │ status ok\n    upstream_sync_test.go:92: pushed=false refuse=\"no tag\"\n--- FAIL: TestX\n"
+	if got := firstErrLine(out); got != `upstream_sync_test.go:92: pushed=false refuse="no tag"` {
+		t.Errorf("got %q, want the t.Error line", got)
+	}
+	if got := firstErrLine("    panic: boom\n"); got != "panic: boom" {
+		t.Errorf("got %q, want the first line when nothing is a t.Error line", got)
+	}
+	long := strings.Repeat("─", 200)
+	if got := firstErrLine(long); !utf8.ValidString(got) || len([]rune(got)) != 120 {
+		t.Errorf("clipped line: valid=%v runes=%d", utf8.ValidString(got), len([]rune(got)))
 	}
 }

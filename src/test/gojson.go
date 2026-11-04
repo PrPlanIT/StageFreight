@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -333,18 +334,33 @@ func compileErrLines(output string, max int) []string {
 	return lines
 }
 
-// firstErrLine returns the first meaningful line of a failing test's output (the
-// assertion/error), skipping go's === / --- framing and blank lines.
+// firstErrLine returns the line of a failing test's output that states the failure: its
+// first t.Error / t.Fatal line, else its first line that isn't go's === / --- framing.
 func firstErrLine(output string) string {
+	var first string
 	for _, raw := range strings.Split(output, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "===") || strings.HasPrefix(line, "---") {
 			continue
 		}
-		if len(line) > 120 {
-			line = line[:117] + "..."
+		if testFailureLine.MatchString(line) {
+			return clip(line, 120)
 		}
-		return line
+		if first == "" {
+			first = line
+		}
 	}
-	return ""
+	return clip(first, 120)
+}
+
+// testFailureLine is the location prefix testing puts on t.Error / t.Fatal output.
+var testFailureLine = regexp.MustCompile(`^[\w./-]+_test\.go:\d+: `)
+
+// clip shortens s to at most n runes, marking the cut.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
