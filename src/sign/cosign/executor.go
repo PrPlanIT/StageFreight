@@ -23,6 +23,11 @@ import (
 // SignImage signs an image digest ref (repo@sha256:…; tags are never used) per the
 // plan's trust contract. opts.MultiArch adds --recursive (sign the whole index).
 func SignImage(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
+	env, cleanup, err := withOfflineSigningConfig(plan, sign.OpSignImage, env)
+	if err != nil {
+		return fmt.Errorf("cosign sign: %w", err)
+	}
+	defer cleanup()
 	args, err := Render(plan, sign.OpSignImage, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign: %w", err)
@@ -41,6 +46,11 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolC
 	if opts.PredicatePath == "" || opts.PredicateType == "" {
 		return fmt.Errorf("cosign attest: predicate path and type are required (the executor never defaults them)")
 	}
+	env, cleanup, err := withOfflineSigningConfig(plan, sign.OpAttest, env)
+	if err != nil {
+		return fmt.Errorf("cosign attest: %w", err)
+	}
+	defer cleanup()
 	args, err := Render(plan, sign.OpAttest, env)
 	if err != nil {
 		return fmt.Errorf("cosign attest: %w", err)
@@ -62,6 +72,42 @@ func SignBlob(ctx context.Context, rootDir string, desired map[string]config.Too
 	}
 	args = append(args, "--output-signature", sigPath, blobPath)
 	return run(ctx, rootDir, desired, plan, "sign-blob", args, "")
+}
+
+// offlineSigningConfig is a Sigstore signing config listing no services: cosign signs with
+// no certificate authority, transparency log or timestamp authority.
+const offlineSigningConfig = `{
+  "mediaType": "application/vnd.dev.sigstore.signingconfig.v0.2+json",
+  "caUrls": [],
+  "oidcUrls": [],
+  "rekorTlogUrls": [],
+  "tsaUrls": [],
+  "rekorTlogConfig": {"selector": "ANY"},
+  "tsaConfig": {"selector": "ANY"}
+}
+`
+
+// withOfflineSigningConfig writes the offline signing config when op needs one, returning
+// the env pointing at it and a cleanup that removes it.
+func withOfflineSigningConfig(plan sign.SignPlan, op sign.Op, env Env) (Env, func(), error) {
+	if !NeedsOfflineSigningConfig(plan, op) || env.SigningConfig != "" {
+		return env, func() {}, nil
+	}
+	f, err := os.CreateTemp("", "sf-signing-config-*.json")
+	if err != nil {
+		return env, func() {}, fmt.Errorf("writing the offline signing config: %w", err)
+	}
+	if _, err := f.WriteString(offlineSigningConfig); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return env, func() {}, fmt.Errorf("writing the offline signing config: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return env, func() {}, fmt.Errorf("writing the offline signing config: %w", err)
+	}
+	env.SigningConfig = f.Name()
+	return env, func() { os.Remove(f.Name()) }, nil
 }
 
 // Available reports whether cosign can be resolved via the toolchain.

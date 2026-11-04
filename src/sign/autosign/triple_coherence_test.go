@@ -23,7 +23,7 @@ func TestTriple_KMS_NonExportable(t *testing.T) {
 	t.Setenv("SF_KMS_RELEASE", "hashivault://release")
 	plan := sign.Compile(&config.ResolvedSigningProfile{ID: "org-kms", Class: "kms", KMSRef: "release", NonExportable: true})
 	env := cosign.EnvForPlan(plan)
-	argv, err := cosign.Render(plan, sign.OpSignImage, env)
+	argv, err := cosign.Render(plan, sign.OpSignImage, offlineConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestTriple_Key(t *testing.T) {
 	t.Setenv("SF_TEST_K", "/keys/cosign.key")
 	plan := sign.Compile(&config.ResolvedSigningProfile{ID: "release-key", Class: "key", KeyRef: "env:SF_TEST_K"})
 	env := cosign.EnvForPlan(plan)
-	argv, err := cosign.Render(plan, sign.OpSignImage, env)
+	argv, err := cosign.Render(plan, sign.OpSignImage, offlineConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestTriple_OIDC_SelfHosted(t *testing.T) {
 	t.Setenv("SF_SIGSTORE_ISSUER", "https://id.internal.example")
 	plan := sign.Compile(&config.ResolvedSigningProfile{ID: "keyless", Class: "oidc", OIDCIssuer: "https://id.internal.example"})
 	env := cosign.EnvForPlan(plan)
-	argv, err := cosign.Render(plan, sign.OpSignImage, env)
+	argv, err := cosign.Render(plan, sign.OpSignImage, offlineConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestTriple_Hardware_PKCS11(t *testing.T) {
 func TestTriple_Hardware_PresenceNonExportable(t *testing.T) {
 	plan := sign.Compile(&config.ResolvedSigningProfile{ID: "maintainer", Class: "hardware", PhysicalPresence: true, NonExportable: true})
 	env := cosign.Env{FIDO2: []cosign.FIDO2Device{{Principal: "yk-A", PhysicalPresence: true, NonExportable: true}}}
-	argv, err := cosign.Render(plan, sign.OpSignImage, env)
+	argv, err := cosign.Render(plan, sign.OpSignImage, offlineConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -124,4 +124,10 @@ func TestTriple_Hardware_PresenceNonExportable(t *testing.T) {
 	if ev.TrustClass != "hardware" || !ev.PhysicalPresence || !ev.NonExportable {
 		t.Errorf("recorded evidence drifted (hardware, presence, non_exportable): %+v", ev)
 	}
+}
+
+// offlineConfig gives an env the offline signing config the executor writes.
+func offlineConfig(env cosign.Env) cosign.Env {
+	env.SigningConfig = "/tmp/offline.json"
+	return env
 }

@@ -1,6 +1,8 @@
 package cosign
 
 import (
+	"encoding/json"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -11,11 +13,13 @@ import (
 func TestRender_KeyClass(t *testing.T) {
 	t.Setenv("SF_TEST_KEY", "/keys/cosign.key")
 	p := sign.SignPlan{TrustClass: sign.ClassKey, KeyRef: "env:SF_TEST_KEY"}
-	args, err := Render(p, sign.OpSignImage, EnvForPlan(p))
+	env := EnvForPlan(p)
+	env.SigningConfig = "/tmp/offline.json"
+	args, err := Render(p, sign.OpSignImage, env)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	want := []string{"sign", "--key", "/keys/cosign.key", "--use-signing-config=false", "--tlog-upload=false", "--yes"}
+	want := []string{"sign", "--key", "/keys/cosign.key", "--signing-config", "/tmp/offline.json", "--yes"}
 	if !slices.Equal(args, want) {
 		t.Errorf("args = %v, want %v", args, want)
 	}
@@ -38,8 +42,8 @@ func TestRender_OIDCKeyless(t *testing.T) {
 	if slices.Contains(args, "--key") {
 		t.Errorf("keyless render must not emit --key: %v", args)
 	}
-	if !slices.Contains(args, "--use-signing-config=true") {
-		t.Errorf("oidc must use the signing-config (transparency log): %v", args)
+	if slices.Contains(args, "--use-signing-config=true") {
+		t.Errorf("the default TUF signing config applies without the deprecated flag: %v", args)
 	}
 	// cosign v3 requires the new bundle format alongside the TUF signing-config.
 	if !slices.Contains(args, "--new-bundle-format=true") {
@@ -132,7 +136,7 @@ func flagHasValue(args []string, flag, value string) bool {
 func TestRender_KMSClass(t *testing.T) {
 	t.Setenv("SF_KMS_RELEASE", "awskms://alias/release")
 	p := sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "release"}
-	args, err := Render(p, sign.OpSignImage, EnvForPlan(p))
+	args, err := Render(p, sign.OpSignImage, withConfig(EnvForPlan(p)))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -160,7 +164,7 @@ func TestRender_Hardware_NoDevice_Errors(t *testing.T) {
 func TestRender_Hardware_SingleFIDO2(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassHardware, RequiresPhysicalPresence: true, RequiresNonExportableKey: true}
 	env := Env{FIDO2: []FIDO2Device{{Principal: "yk-A", PhysicalPresence: true, NonExportable: true}}}
-	args, err := Render(p, sign.OpSignImage, env)
+	args, err := Render(p, sign.OpSignImage, withConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -173,7 +177,7 @@ func TestRender_Hardware_SingleFIDO2(t *testing.T) {
 func TestRender_Hardware_SinglePKCS11(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassHardware, RequiresNonExportableKey: true}
 	env := Env{PKCS11: []PKCS11Slot{{Principal: "hsm-A", URI: "pkcs11:slot=0", NonExportable: true}}}
-	args, err := Render(p, sign.OpSignImage, env)
+	args, err := Render(p, sign.OpSignImage, withConfig(env))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -190,7 +194,7 @@ func TestRender_Hardware_OnePrincipalTwoTransports(t *testing.T) {
 		FIDO2:  []FIDO2Device{{Principal: "key-A", NonExportable: true}},
 		PKCS11: []PKCS11Slot{{Principal: "key-A", URI: "pkcs11:slot=0", NonExportable: true}},
 	}
-	args, err := Render(p, sign.OpSignImage, env)
+	args, err := Render(p, sign.OpSignImage, withConfig(env))
 	if err != nil {
 		t.Fatalf("one principal must resolve, not error: %v", err)
 	}
@@ -230,7 +234,7 @@ func TestRender_OpVerbs(t *testing.T) {
 		sign.OpAttest:    "attest",
 		sign.OpSignBlob:  "sign-blob",
 	} {
-		args, err := Render(p, op, EnvForPlan(p))
+		args, err := Render(p, op, withConfig(EnvForPlan(p)))
 		if err != nil {
 			t.Fatalf("render %s: %v", op, err)
 		}
@@ -322,4 +326,74 @@ func TestSigstoreDomain(t *testing.T) {
 	if got := SigstoreDomain(sign.SignPlan{TrustClass: sign.ClassOIDC}, env2); got != "fulcio.internal.example" {
 		t.Errorf("derived host label, got %q", got)
 	}
+}
+
+// Without a transparency log an image signature passes a signing config listing no
+// services; a blob signature keeps the legacy flags, since a signing config makes cosign
+// write a bundle in place of the detached signature.
+func TestRender_OfflineSigningConfig(t *testing.T) {
+	t.Setenv("SF_KMS_TENANT", "hashivault://acme")
+	p := sign.SignPlan{TrustClass: sign.ClassKMS, KMSRef: "tenant"}
+	env := EnvForPlan(p)
+
+	if _, err := Render(p, sign.OpSignImage, env); err == nil || !strings.Contains(err.Error(), "signing config") {
+		t.Errorf("an offline image signature without a config must be refused: %v", err)
+	}
+	env.SigningConfig = "/tmp/offline.json"
+	for _, op := range []sign.Op{sign.OpSignImage, sign.OpAttest} {
+		args, err := Render(p, op, env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !flagHasValue(args, "--signing-config", "/tmp/offline.json") || slices.Contains(args, "--tlog-upload=false") || slices.Contains(args, "--use-signing-config=false") {
+			t.Errorf("op %v: want only the signing config, got %v", op, args)
+		}
+	}
+	args, err := Render(p, sign.OpSignBlob, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(args, "--signing-config") || !slices.Contains(args, "--tlog-upload=false") {
+		t.Errorf("blob signature keeps the detached form: %v", args)
+	}
+
+	p.TransparencyRequired = true
+	if NeedsOfflineSigningConfig(p, sign.OpSignImage) {
+		t.Error("with transparency required, cosign's own signing config applies")
+	}
+}
+
+// The executor writes a valid offline signing config and removes it afterwards.
+func TestWithOfflineSigningConfig(t *testing.T) {
+	p := sign.SignPlan{TrustClass: sign.ClassKey}
+	env, cleanup, err := withOfflineSigningConfig(p, sign.OpSignImage, Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(env.SigningConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil || cfg["mediaType"] != "application/vnd.dev.sigstore.signingconfig.v0.2+json" {
+		t.Errorf("not a signing config: %v %s", err, data)
+	}
+	for _, k := range []string{"caUrls", "rekorTlogUrls", "tsaUrls"} {
+		if v, ok := cfg[k].([]any); !ok || len(v) != 0 {
+			t.Errorf("%s must list no services: %v", k, cfg[k])
+		}
+	}
+	cleanup()
+	if _, err := os.Stat(env.SigningConfig); !os.IsNotExist(err) {
+		t.Error("cleanup must remove the config")
+	}
+	if env, _, _ := withOfflineSigningConfig(p, sign.OpSignBlob, Env{}); env.SigningConfig != "" {
+		t.Error("a blob signature needs no config")
+	}
+}
+
+// withConfig gives an env the offline signing config the executor writes.
+func withConfig(env Env) Env {
+	env.SigningConfig = "/tmp/offline.json"
+	return env
 }
