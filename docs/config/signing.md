@@ -33,8 +33,24 @@ signing:
 | `TRANSIT_SECRET_ENGINE_PATH` | `cosign-signer` | the transit mount the key lives in |
 
 `OPENBAO` is the provider id and `COSIGN`/`TENANT` the refs, upper-cased with `-` and `.` as
-`_`. The job mints its token with `aud: stagefreight` (the rendered pipeline does this), so the
-role must bind that audience. With `enforce: true` a signing failure fails publish; without it the
-image ships and the failure is reported.
+`_`. With `enforce: true` a signing failure fails publish; without it the image ships and the
+failure is reported.
+
+On the provider:
+
+- **A transit key** per tenant in the mount `TRANSIT_SECRET_ENGINE_PATH` names (an ECDSA key,
+  non-exportable).
+- **A policy** granting sign on that key, and read on it for the public half. cosign signs at
+  `sign/<key>/<hash-algorithm>`, so grant both paths; `sign/<key>` alone is refused with a 403:
+
+  ```hcl
+  path "cosign-signer/sign/acme"   { capabilities = ["create", "update"] }
+  path "cosign-signer/sign/acme/+" { capabilities = ["create", "update"] }
+  path "cosign-signer/keys/acme"   { capabilities = ["read"] }
+  ```
+
+- **A JWT role** on the login mount, trusting your forge as the issuer, binding the audience
+  `stagefreight` (the rendered pipeline mints the job's token with it) and the projects that may
+  sign, e.g. `project_path: "acme/*"`, with only that policy.
 
 --8<-- "docs/assets/modules/config-reference.md:signing"
