@@ -17,7 +17,7 @@ the Azure-specific pieces are below.
 
 [`k8s/stagefreight-azure-agent.yaml`](k8s/stagefreight-azure-agent.yaml) — a self-hosted
 Azure DevOps agent in Kubernetes with `buildkitd` (image builds) and `dind`, the k8s
-analog of the GitLab [`gitlab-runner-full.yml`](../gitlab/gitlab-runner-full.yml)
+analog of the GitLab [`full.yml`](../gitlab/runner/compose/full.yml)
 stack. The three containers share one pod, so the builders are reached on `127.0.0.1`
 rather than the service names GitLab uses:
 

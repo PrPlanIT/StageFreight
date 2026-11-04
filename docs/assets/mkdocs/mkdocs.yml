@@ -119,7 +119,12 @@ nav:
   - Getting Started: getting-started.md
   - Integrations:
       - integrations/README.md
-      - GitLab: integrations/gitlab/README.md
+      - GitLab:
+          - integrations/gitlab/README.md
+          - Runner:
+              - integrations/gitlab/runner/README.md
+              - Docker Compose: integrations/gitlab/runner/compose/README.md
+              - Kubernetes: integrations/gitlab/runner/kubernetes/README.md
       - GitHub / Gitea / Forgejo: integrations/actions/README.md
       - Azure DevOps: integrations/azuredevops/README.md
   - Screenshots: screenshots.md

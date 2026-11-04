@@ -25,7 +25,7 @@ The pipeline model — render, tags, the five-job lifecycle — is in
 - **GitHub-hosted** runners work as-is — no setup, and the only live-validated path.
 - **Self-hosted** Actions runners (GitHub, Gitea, Forgejo) need a Docker daemon — and
   BuildKit for image builds — reachable from the job; a packaged deployment isn't
-  published yet. The GitLab [runner stacks](../gitlab/README.md#runner) are a reference for
+  published yet. The GitLab [runner stacks](../gitlab/runner/README.md) are a reference for
   the required companions.
 
 ### Build engine

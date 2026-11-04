@@ -1,0 +1,14 @@
+# StageFreight's cross-job cache (toolchains, Go caches, scanner databases), mounted at
+# /stagefreight in every job pod. ReadWriteMany so concurrent jobs on any node share it;
+# StageFreight's disk GC bounds it and never evicts a cache a running job is using.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-runner-cache
+spec:
+  accessModes:
+    - ReadWriteMany
+  # storageClassName: <a ReadWriteMany class, e.g. CephFS or NFS>
+  resources:
+    requests:
+      storage: 25Gi
