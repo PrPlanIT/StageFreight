@@ -165,7 +165,8 @@ Host convergence via the declared playbook library
 
 Run a single playbook from the ansible: library — the ONLY way a
 converge: false runbook executes. CI never reaches runbooks; this verb is the
-human lane, with the same execution image, strict host-key posture, and
+human lane, with the same runtime (the execution image, or the job's own
+ansible where there is no Docker daemon), strict host-key posture, and
 --check plan preview as the converge set.
 
 Examples:
@@ -219,7 +220,7 @@ Injects version, commit, and build date via ldflags.
 | `--build` | string | — | build specific entry by ID (default: all) |
 | `--dry-run` | bool | — | show plan without executing |
 | `--local` | bool | — | build for current platform only |
-| `--output-dir` | string | — | override output directory |
+| `--output-dir` | string | — | also copy the built binaries here, as <os>-<arch>/<name> (they still land in .stagefreight/dist) |
 | `--platform` | stringSlice | — | override platforms (comma-separated) |
 
 _Plus the [global flags](#cli-global-flags)._
@@ -799,7 +800,7 @@ Modules run in parallel and results are cached by content hash.
 | `--all` | bool | — | — | scan all files (shorthand for --level full) |
 | `--baseline` | bool | — | — | diff against the merge-base: mark newly-introduced non-text artifacts and findings |
 | `--dry-run` | bool | — | — | with --fix-safe: preview what would change without writing |
-| `--fix-safe` | bool | — | — | auto-apply proven-safe fixes (trailing whitespace, final newline) to authored files |
+| `--fix-safe` | bool | — | — | auto-apply proven-safe fixes (trailing whitespace, final newline, gofmt) to authored files |
 | `--level` | string | — | `changed` · `full` | scan level (default: from config, then changed) |
 | `--module` | stringSlice | — | — | run only these modules (comma-separated) |
 | `--no-cache` | bool | — | — | disable cache (clear and rescan) |
@@ -1026,8 +1027,8 @@ rebase back to git when the two have diverged.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `--no-rebase` | bool | — | legacy: fail instead of rebasing on a diverged branch (refspec path only) |
-| `--refspec` | string | — | push refspec (e.g. HEAD:refs/heads/main) — uses the legacy convergence path |
+| `--no-rebase` | bool | — | with --refspec: fail instead of replaying onto a branch that moved |
+| `--refspec` | string | — | push HEAD to an explicit ref (e.g. HEAD:refs/heads/main), replaying onto the branch if it moved |
 | `--remote` | string | `origin` | git remote to push to |
 | `--yes` | bool | — | approve a transformational plan (e.g. replay onto a protected branch) without prompting |
 
@@ -1496,7 +1497,9 @@ _Plus the [global flags](#cli-global-flags)._
 
 Run StageFreight test suites locally — the SAME suites, resolved the same way,
 the CI audition phase runs. No arguments runs all suites; pass suite ids to run a
-subset, or --gate to filter by lifecycle tier.
+subset, or --gate to filter by lifecycle tier. --pkg and --run narrow the go and
+python suites to some packages or tests (go test -run / pytest -k) for a fast
+edit-test loop; their declared flags still apply, and coverage floors are lifted.
 
 Suites are auto-synthesized from your builds when none are declared in .stagefreight.yml
 (a go builder → "go test ./..."; a rust builder → "cargo test").
@@ -1506,6 +1509,8 @@ Suites are auto-synthesized from your builds when none are declared in .stagefre
 | Name | Type | Default | Options | Description |
 |------|------|---------|---------|-------------|
 | `--gate` | string | — | `perform` · `advisory` | run only suites with this gate |
+| `--pkg` | stringSlice | — | — | test only these packages (go: ./src/runner/...; python: test paths) |
+| `--run` | string | — | — | test only tests matching this (go: -run regex; python: -k expression) |
 
 _Plus the [global flags](#cli-global-flags)._
 

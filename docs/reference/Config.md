@@ -593,6 +593,7 @@ lint:
   remediation:
     trailing_whitespace: false   # default ON under --fix-safe
     final_newline: false   # default ON under --fix-safe
+    gofmt: false   # default ON under --fix-safe
   cache:
     max_age: <string>   # evict entries not hit in this duration (e.g. "7d")
     max_size: <string>   # evict oldest entries when cache exceeds this (e.g. "100MB")
@@ -923,6 +924,7 @@ test:
       race: false   # -race
       coverage: false   # -coverprofile
       coverage_min: <value>   # gate: fail the suite if statement coverage < this %
+      vet: <string>   # -vet=all|off (unset: go test's own high-confidence subset)
       workspace: false   # ── Rust (native `cargo test` flag projections)…
       features: [<string>]   # --features a,b
       tests: [<string>]   # --test <name>
@@ -1150,7 +1152,7 @@ build_cache:
     context: <string>   # Context is the Docker context name for the builder endpoint. Default: "sf-context".
     memory: <string>   # Memory caps the builder container (e.g. "3g"), pinning memory-swap to the same value so the builder…
   local:   # Local configures the bounded local buildkit cache.
-    path: <string>   # override local cache root (default: /stagefreight/cache/buildkit)
+    path: <string>   # override local cache root (default: cache/buildkit under the cache root)
     retention:
       max_age: <string>   # e.g. "7d"
       max_size: <string>   # e.g. "15GB"
