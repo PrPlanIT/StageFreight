@@ -2,9 +2,12 @@ package modules
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -27,38 +30,57 @@ func (m *noGitExecModule) Name() string { return "no-git-exec" }
 func (m *noGitExecModule) DefaultEnabled() bool { return false }
 func (m *noGitExecModule) AutoDetect() []string { return []string{"**/*.go"} }
 
-var gitExecRe = regexp.MustCompile(`exec\.Command(Context)?\(\s*"git"`)
-
 func (m *noGitExecModule) Check(_ context.Context, file lint.FileInfo) ([]lint.Finding, error) {
-	p := filepath.ToSlash(file.Path)
-	// Permitted: this module (the pattern appears in its own text) and tests.
-	if p == "src/lint/modules/nogitexec.go" || strings.HasSuffix(p, "_test.go") {
-		return nil, nil
+	if strings.HasSuffix(filepath.ToSlash(file.Path), "_test.go") {
+		return nil, nil // tests may run git
 	}
-
-	f, err := os.Open(file.AbsPath)
+	src, err := os.ReadFile(file.AbsPath)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file.Path, src, 0)
+	if err != nil {
+		return nil, nil // a file that doesn't parse is gofmt's and the compiler's to report
+	}
 
 	var findings []lint.Finding
-	scanner := lint.NewLineScanner(f)
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		if gitExecRe.MatchString(scanner.Text()) {
-			findings = append(findings, lint.Finding{
-				File:     file.Path,
-				Line:     lineNum,
-				Module:   m.Name(),
-				Severity: lint.SeverityCritical,
-				Message:  `the runtime image has no git binary; use go-git via github.com/PrPlanIT/StageFreight/src/gitstate instead of exec.Command("git")`,
-			})
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !runsGit(call) {
+			return true
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
+		findings = append(findings, lint.Finding{
+			File:     file.Path,
+			Line:     fset.Position(call.Pos()).Line,
+			Module:   m.Name(),
+			Severity: lint.SeverityCritical,
+			Message:  "this runs a git binary, which the runtime doesn't have; use go-git instead",
+		})
+		return true
+	})
 	return findings, nil
+}
+
+// runsGit reports whether call is exec.Command("git", …) or exec.CommandContext(ctx, "git", …).
+func runsGit(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "exec" {
+		return false
+	}
+	arg := -1
+	switch sel.Sel.Name {
+	case "Command":
+		arg = 0
+	case "CommandContext":
+		arg = 1
+	}
+	if arg < 0 || len(call.Args) <= arg {
+		return false
+	}
+	lit, ok := call.Args[arg].(*ast.BasicLit)
+	return ok && lit.Kind == token.STRING && strconv.Quote("git") == lit.Value
 }
