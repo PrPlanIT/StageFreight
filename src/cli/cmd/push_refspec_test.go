@@ -105,10 +105,10 @@ func TestRefspecPush_ReplaysOntoMovedBranch(t *testing.T) {
 	t.Setenv("PATH", "")
 
 	local, remote := divergedRemote(t)
-	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", false); err == nil {
+	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", false, false); err == nil {
 		t.Fatal("with replay off, a push onto a moved branch must be refused")
 	}
-	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", true); err != nil {
+	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", true, false); err != nil {
 		t.Fatalf("refspec push onto a moved branch: %v", err)
 	}
 	log := remoteMainLog(t, remote)

@@ -30,6 +30,7 @@ Every top-level key, sorted into meaningful groups:
 | [Signing](signing.md) | `signing` |
 | [Upstream](upstream.md) | `upstream` |
 | [Schedules](schedules.md) | `schedules` |
+| [Workflow](workflow.md) | `workflow` |
 
 A few ideas cut across every bucket — template variables, credential resolution, retention,
 and the pattern/condition syntax. They live once in **[Concepts](concepts.md)** and are

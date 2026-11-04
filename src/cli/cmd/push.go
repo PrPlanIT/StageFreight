@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/gitplan"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +20,7 @@ var (
 	pushRefspec  string
 	pushNoRebase bool
 	pushYes      bool
+	pushOverride bool
 )
 
 func init() {
@@ -25,6 +28,7 @@ func init() {
 	pushCmd.Flags().StringVar(&pushRefspec, "refspec", "", "push HEAD to an explicit ref (e.g. HEAD:refs/heads/main), replaying onto the branch if it moved")
 	pushCmd.Flags().BoolVar(&pushNoRebase, "no-rebase", false, "with --refspec: fail instead of replaying onto a branch that moved")
 	pushCmd.Flags().BoolVar(&pushYes, "yes", false, "approve a transformational plan (e.g. replay onto a protected branch) without prompting")
+	pushCmd.Flags().BoolVar(&pushOverride, "maintainer-override", false, "push even though the declared workflow refuses it (reported; the forge still enforces its own rules)")
 	rootCmd.AddCommand(pushCmd)
 }
 
@@ -50,12 +54,12 @@ rebase back to git when the two have diverged.`,
 		// Explicit --refspec (CI detached-HEAD): a direct push HEAD→ref, handled by the
 		// planner's DirectPush inside GitBackend.Push (no reconcile).
 		if pushRefspec != "" {
-			return refspecPush(rootDir, pushRemote, pushRefspec, !pushNoRebase)
+			return refspecPush(rootDir, pushRemote, pushRefspec, !pushNoRebase, pushOverride)
 		}
 		// push <remote> <branch>: explicit cross-target push, ahead/behind vs the destination.
 		if len(args) == 2 {
 			remote, branch := args[0], args[1]
-			return runPlanned(rootDir, remote, pushYes, os.Stdout, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+			return runPlanned(rootDir, remote, pushYes, pushOverride, os.Stdout, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
 				return e.PlanTo(remote, branch, p)
 			})
 		}
@@ -64,22 +68,23 @@ rebase back to git when the two have diverged.`,
 		if len(args) == 1 {
 			remote = args[0]
 		}
-		return runPlannerPush(rootDir, remote, pushYes, os.Stdout)
+		return runPlannerPush(rootDir, remote, pushYes, pushOverride, os.Stdout)
 	},
 }
 
 // runPlannerPush drives the planner flow: fetch → Plan → Render (always shown) → Execute
 // (gated on the plan's interaction ops). Extracted from the command so it is testable on a
 // scratch repo without cobra/chdir.
-func runPlannerPush(rootDir, remote string, approved bool, out io.Writer) error {
-	return runPlanned(rootDir, remote, approved, out, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+func runPlannerPush(rootDir, remote string, approved, override bool, out io.Writer) error {
+	return runPlanned(rootDir, remote, approved, override, out, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
 		return e.Plan(p), nil
 	})
 }
 
 // runPlanned is the shared fetch → Plan → Render (always) → Execute (gated) flow behind
-// `push`, `push <remote> <branch>`, and `pull`; planFn selects the direction.
-func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn func(*commit.Engine, gitplan.Policy) (gitplan.Plan, error)) error {
+// `push`, `push <remote> <branch>`, and `pull`; planFn selects the direction. A plan that
+// sends commits is held to the declared workflow first; override pushes past a refusal.
+func runPlanned(rootDir, remote string, approved, override bool, out io.Writer, planFn func(*commit.Engine, gitplan.Policy) (gitplan.Plan, error)) error {
 	session, err := gitstate.OpenSyncSession(rootDir, cfg)
 	if err != nil {
 		return fmt.Errorf("opening repository: %w", err)
@@ -99,6 +104,11 @@ func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn fun
 		return err
 	}
 	fmt.Fprint(out, gitplan.Render(plan))
+	if sendsCommits(plan) {
+		if err := workflowGate(out, override, workflow.Landing(cfg, plan.Dest.Branch, "push")); err != nil {
+			return err
+		}
+	}
 
 	_, execErr := eng.Execute(plan, commit.ExecuteOptions{Approved: approved})
 	var confirm *commit.ConfirmRequiredError
@@ -126,7 +136,12 @@ func runPlanned(rootDir, remote string, approved bool, out io.Writer, planFn fun
 // the planner's DirectPush (HEAD → ref, no reconcile), replaying onto the branch when it
 // moved and replay is on. A thin entry point because the refspec case renders its own
 // concise status.
-func refspecPush(rootDir, remote, refspec string, replay bool) error {
+func refspecPush(rootDir, remote, refspec string, replay, override bool) error {
+	if _, dst, ok := strings.Cut(refspec, ":"); ok && !strings.HasPrefix(dst, "refs/tags/") {
+		if err := workflowGate(os.Stdout, override, workflow.Landing(cfg, strings.TrimPrefix(dst, "refs/heads/"), "push")); err != nil {
+			return err
+		}
+	}
 	opts := commit.PushOptions{
 		Enabled:         true,
 		Remote:          remote,
@@ -157,4 +172,15 @@ func refspecPush(rootDir, remote, refspec string, replay bool) error {
 	}
 	sec.Close()
 	return nil
+}
+
+// sendsCommits reports whether a plan pushes commits to its destination.
+func sendsCommits(p gitplan.Plan) bool {
+	for _, op := range p.Operations {
+		switch op.Kind {
+		case gitplan.OpUpload, gitplan.OpCreateTracking, gitplan.OpDirectPush:
+			return true
+		}
+	}
+	return false
 }

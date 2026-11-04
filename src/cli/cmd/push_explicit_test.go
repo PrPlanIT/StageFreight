@@ -25,7 +25,7 @@ func TestPushExplicit_FeatureFastForwardsTrunk(t *testing.T) {
 	featHead, _ := lr.Head()
 
 	var buf bytes.Buffer
-	err := runPlanned(local, "origin", true, &buf, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+	err := runPlanned(local, "origin", true, false, &buf, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
 		return e.PlanTo("origin", "master", p)
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestPushExplicit_ProtectedTrunkGated(t *testing.T) {
 	commitFile(local, "f", "f\n", "feature commit")
 
 	var buf bytes.Buffer
-	err := runPlanned(local, "origin", false, &buf, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
+	err := runPlanned(local, "origin", false, false, &buf, func(e *commit.Engine, p gitplan.Policy) (gitplan.Plan, error) {
 		return e.PlanTo("origin", "master", p)
 	})
 	if err == nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/commit"
@@ -12,6 +13,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/forge"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -192,10 +194,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	// BuildPlan and Execute — they never reach this point. Ring 3 blocks are
 	// collected here and either surfaced as warnings (with --maintainer-override)
 	// or returned as an error instructing the operator to add the flag.
-	// The slice is empty today — no governance checks exist yet. It is here so
-	// future checks land in the right place without restructuring the command.
-	var governanceBlocks commit.CommitBlocks
-	// Future: governanceBlocks = append(governanceBlocks, checkGovernance(plan, rootDir)...)
+	governanceBlocks := workflowBlocks(os.Stdout, commitLandings(rootDir, plan)...)
 
 	if governanceBlocks.HasGovernance() && !commitMaintainerOverride {
 		msg := fmt.Sprintf("commit blocked by governance checks — use --maintainer-override to proceed:\n")
@@ -367,4 +366,32 @@ func renderCommitSection(w io.Writer, plan *commit.Plan, result *commit.Result, 
 	}
 
 	sec.Close()
+}
+
+// commitLandings checks where a commit lands against the declared workflow: the branch it
+// is made on, and with --push the branch it is pushed to (the refspec's, else the
+// upstream's), when that is a different branch.
+func commitLandings(rootDir string, plan *commit.Plan) []*workflow.Finding {
+	if !cfg.Workflow.Present() {
+		return nil
+	}
+	repo, err := gitstate.OpenRepo(rootDir)
+	if err != nil {
+		return nil
+	}
+	branch, _ := gitstate.CurrentBranch(repo)
+	findings := []*workflow.Finding{workflow.Landing(cfg, branch, "commit")}
+	if plan.Push.Enabled {
+		dest := ""
+		if _, dst, ok := strings.Cut(plan.Push.Refspec, ":"); ok && !strings.HasPrefix(dst, "refs/tags/") {
+			dest = strings.TrimPrefix(dst, "refs/heads/")
+		}
+		if dest == "" && branch != "" {
+			dest, _ = gitstate.UpstreamBranch(repo, branch)
+		}
+		if dest != branch {
+			findings = append(findings, workflow.Landing(cfg, dest, "push"))
+		}
+	}
+	return findings
 }

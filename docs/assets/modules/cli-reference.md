@@ -1011,6 +1011,7 @@ rebase back to git when the two have diverged.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
+| `--maintainer-override` | bool | — | push even though the declared workflow refuses it (reported; the forge still enforces its own rules) |
 | `--no-rebase` | bool | — | with --refspec: fail instead of replaying onto a branch that moved |
 | `--refspec` | string | — | push HEAD to an explicit ref (e.g. HEAD:refs/heads/main), replaying onto the branch if it moved |
 | `--remote` | string | `origin` | git remote to push to |
@@ -1460,6 +1461,7 @@ when in interactive mode.
 | `--dry-run` | bool | — | preview only, do not create tag |
 | `--from` | string | — | override previous release boundary |
 | `--json` | bool | — | output plan as JSON (implies --dry-run) |
+| `--maintainer-override` | bool | — | tag even though the declared workflow refuses it (reported) |
 | `--major` | bool | — | bump major from previous release |
 | `--minor` | bool | — | bump minor from previous release |
 | `--patch` | bool | — | bump patch from previous release |

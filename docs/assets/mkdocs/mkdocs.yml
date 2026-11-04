@@ -141,6 +141,9 @@ nav:
       - Lint: config/lint.md
       - Policy: config/policy.md
       - Signing: config/signing.md
+      - Upstream: config/upstream.md
+      - Schedules: config/schedules.md
+      - Workflow: config/workflow.md
       - Full Schema Reference: reference/Config.md
   - CLI Reference: reference/CLI.md
   - Design:

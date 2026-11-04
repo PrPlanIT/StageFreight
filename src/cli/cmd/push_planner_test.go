@@ -81,7 +81,7 @@ func TestPlannerPush_AheadUploads(t *testing.T) {
 	commitFile(local, "a", "a\n", "local a")
 
 	var buf bytes.Buffer
-	if err := runPlannerPush(local, "origin", false, &buf); err != nil {
+	if err := runPlannerPush(local, "origin", false, false, &buf); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 	if !strings.Contains(buf.String(), "upload") {
@@ -108,7 +108,7 @@ func TestPlannerPush_ProtectedDivergedGate(t *testing.T) {
 
 	// No --yes → refuse + no mutation.
 	var buf bytes.Buffer
-	if err := runPlannerPush(local, "origin", false, &buf); err == nil {
+	if err := runPlannerPush(local, "origin", false, false, &buf); err == nil {
 		t.Fatal("expected a non-nil error (confirmation required)")
 	}
 	if !strings.Contains(buf.String(), "needs confirmation") {
@@ -120,7 +120,7 @@ func TestPlannerPush_ProtectedDivergedGate(t *testing.T) {
 
 	// With --yes → replay + upload proceeds.
 	var buf2 bytes.Buffer
-	if err := runPlannerPush(local, "origin", true, &buf2); err != nil {
+	if err := runPlannerPush(local, "origin", true, false, &buf2); err != nil {
 		t.Fatalf("approved push: %v", err)
 	}
 	if remoteMasterHash(t, remote) == before {

@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/gitstate"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/release"
+	"github.com/PrPlanIT/StageFreight/src/workflow"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +28,7 @@ var (
 	tagMessage   string
 	tagYes       bool
 	tagJSON      bool
+	tagOverride  bool
 )
 
 var tagCmd = &cobra.Command{
@@ -57,6 +61,7 @@ func init() {
 	tagCmd.Flags().BoolVar(&tagDryRun, "dry-run", false, "preview only, do not create tag")
 	tagCmd.Flags().StringVarP(&tagMessage, "message", "m", "", "override tag message")
 	tagCmd.Flags().BoolVarP(&tagYes, "yes", "y", false, "skip approval prompt")
+	tagCmd.Flags().BoolVar(&tagOverride, "maintainer-override", false, "tag even though the declared workflow refuses it (reported)")
 	tagCmd.Flags().BoolVar(&tagJSON, "json", false, "output plan as JSON (implies --dry-run)")
 
 	rootCmd.AddCommand(tagCmd)
@@ -244,6 +249,10 @@ func runTag(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w)
 	sec.Close()
 
+	if err := workflowGate(w, tagOverride, tagRelease(rootDir, plan.NextTag, plan.TargetSHA)); err != nil {
+		return err
+	}
+
 	if tagDryRun {
 		return nil
 	}
@@ -408,4 +417,28 @@ func promptApproval(pushRequested bool) (string, error) {
 	default:
 		return "reject", nil
 	}
+}
+
+// tagRelease checks a release tag against workflow.release.from, by the branches that
+// contain the tagged commit.
+func tagRelease(rootDir, tag, sha string) *workflow.Finding {
+	if !cfg.Workflow.Present() {
+		return nil
+	}
+	unchecked := func(err error) *workflow.Finding {
+		return &workflow.Finding{
+			Rule:    "release",
+			Message: fmt.Sprintf("can't check %s against workflow.release.from: %v", tag, err),
+			Teach:   "fix the repository error, or override knowing the rule went unchecked",
+		}
+	}
+	repo, err := gitstate.OpenRepo(rootDir)
+	if err != nil {
+		return unchecked(err)
+	}
+	branches, err := gitstate.BranchesContaining(repo, plumbing.NewHash(sha))
+	if err != nil {
+		return unchecked(err)
+	}
+	return workflow.Release(cfg, tag, branches)
 }
