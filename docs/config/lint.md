@@ -31,15 +31,38 @@ database) and use TTL-based caching.
 | `tabs` | enabled | Tab characters |
 | `secrets` | enabled | Committed secrets (gitleaks) |
 | `conflicts` | enabled | Unresolved merge-conflict markers |
+| `content` | enabled | Files whose content contradicts their name, or carries a concealment marker |
 | `filesize` | enabled | Files over a size threshold (default 500 KB) |
-| `linecount` | **disabled** | Files over a line-count threshold (default 1000) |
+| `linecount` | enabled | Files over a line-count threshold (default 1000) |
 | `links` | **disabled** | Markdown links that don't resolve: internal, anchors, external (see below) |
 | `unicode` | enabled | Dangerous Unicode (see below) |
 | `yaml` | enabled | YAML syntax errors |
 | `lineendings` | enabled | Inconsistent line endings |
 | `gofmt` | enabled | Go files not gofmt-formatted (`--fix-safe` formats them) |
+| `dockerignore` | enabled | A missing `.dockerignore`, or one that lets credentials or `.git` into the build context |
+| `dockerfile-cache` | enabled | Dockerfile layouts that waste the build cache on repeat builds (see below) |
+| `ansible` | enabled | ansible-lint over the declared play library |
 | `freshness` | enabled | Out-of-date dependencies + correlated CVEs (TTL-cached) |
 | `vulnerabilities` | enabled | Advisories against lockfiles (TTL-cached; `osv` is a deprecated alias) |
+| `direct-output` | **disabled** | Go console output outside a renderer layer (a house style to opt into) |
+| `no-git-exec` | **disabled** | Go code that runs a `git` binary (for a project built without one) |
+
+### Dockerfile cache — repeat build time
+
+`dockerfile-cache` reads each Dockerfile with BuildKit's own parser and reports, as advice that
+never fails a build:
+
+| Rule | Reported when |
+|------|---------------|
+| `source-before-install` | `COPY .` comes before a dependency install (`go mod download`, `npm ci`, `pip install -r`, `cargo fetch`, …), so any source change reinstalls everything. Copy the manifests, install, then copy the source. |
+| `no-cache-mount` | a Go, npm, yarn, pnpm, pip or cargo step has no `--mount=type=cache`, so every build starts from nothing |
+| `volatile-arg-early` | an `ARG` that changes every build (`VERSION`, `*_COMMIT`, `BUILD_DATE`, `CI_*`, …) is declared before `RUN` steps that don't use it, which then re-run each build |
+
+```yaml
+    dockerfile-cache:
+      severity: info              # info (default) | warning
+      volatile_args: ["RELEASE_.*"]   # more ARG names that change every build (regular expressions)
+```
 
 ### Unicode — supply-chain defense
 
