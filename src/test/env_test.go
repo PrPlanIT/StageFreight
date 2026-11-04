@@ -52,3 +52,17 @@ func TestGoSuiteEnv_NoRaceLeavesCGOUnset(t *testing.T) {
 		}
 	}
 }
+
+// A suite reaches only the variables it names, and only when they're set.
+func TestPassEnv(t *testing.T) {
+	t.Setenv("SF_SIM_TOKEN", "secret")
+	t.Setenv("UNNAMED", "leak")
+	env := passEnv([]string{"HOME=/tmp", "PATH="}, []string{"SF_SIM_TOKEN", "SF_SIM_UNSET"})
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "SF_SIM_TOKEN=secret") {
+		t.Errorf("named variable not passed: %v", env)
+	}
+	if strings.Contains(joined, "UNNAMED") || strings.Contains(joined, "SF_SIM_UNSET") {
+		t.Errorf("only named, set variables pass: %v", env)
+	}
+}

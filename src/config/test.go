@@ -50,6 +50,10 @@ type TestSuite struct {
 	Args    []string `yaml:"args,omitempty"` // raw passthrough escape hatch
 	Command string   `yaml:"command,omitempty"`
 
+	// Env names variables passed from the environment into the tests, when set. A suite
+	// runs hermetically and reaches only what it names here; values never live in config.
+	Env []string `yaml:"env,omitempty"`
+
 	// ── Go (native `go test` flag projections) ──────────────────────────────
 	Packages    []string `yaml:"packages,omitempty"`     // ./p/...   (default ./...)
 	Tags        []string `yaml:"tags,omitempty"`         // -tags a,b

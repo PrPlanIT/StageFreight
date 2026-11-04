@@ -772,6 +772,17 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, fmt.Sprintf("%s: unknown vet %q (supported: all, off; unset runs go test's own subset)", tpath, s.Vet))
 		}
 
+		for _, name := range s.Env {
+			switch {
+			case !envNameRe.MatchString(name):
+				errs = append(errs, fmt.Sprintf("%s.env: %q is not an environment variable name", tpath, name))
+			case runnerOwnedEnv[name]:
+				errs = append(errs, fmt.Sprintf("%s.env: %s is set by the test runner itself", tpath, name))
+			case s.Tool == TestToolScript:
+				errs = append(errs, fmt.Sprintf("%s.env: a script suite already runs with the full environment", tpath))
+			}
+		}
+
 		if s.CoverageMin != nil {
 			if s.Coverage == nil || !*s.Coverage {
 				errs = append(errs, fmt.Sprintf("%s: coverage_min requires coverage: true", tpath))
@@ -1368,3 +1379,13 @@ var (
 	platformKeyRE = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9]+(-musl)?$`)
 	sha256HexRE   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
+
+// envNameRe matches a portable environment variable name.
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// runnerOwnedEnv are the variables the test runner sets for the tools it runs; a suite
+// can't pass them through over the runner's values.
+var runnerOwnedEnv = map[string]bool{
+	"PATH": true, "HOME": true, "GOMODCACHE": true, "GOCACHE": true, "CGO_ENABLED": true,
+	"CARGO_HOME": true, "PYTHONDONTWRITEBYTECODE": true, "PYTHONUNBUFFERED": true,
+}

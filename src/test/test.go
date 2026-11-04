@@ -91,7 +91,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 		// tool is pre-resolved in the provisioning phase (RunRender) so it appears in
 		// the environment ledger; here we just execute against it.
 		argv[0] = tool.Path
-		env = substrate.ApplyEnv(goSuiteEnv(tool.Path, hasFlag(argv, "-race")), sub)
+		env = passEnv(substrate.ApplyEnv(goSuiteEnv(tool.Path, hasFlag(argv, "-race")), sub), s.decl.Env)
 		return runGoSuite(ctx, sr, tool.Path, s, argv, env, onPkg)
 
 	case config.TestToolRust:
@@ -101,7 +101,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 			env = append(env, "CARGO_HOME="+ch)
 		}
 		env = setEnv(env, "PATH", filepath.Dir(tool.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
-		env = substrate.ApplyEnv(env, sub)
+		env = passEnv(substrate.ApplyEnv(env, sub), s.decl.Env)
 		return runRustSuite(ctx, sr, rootDir, s, argv, env, desired, onPkg)
 
 	case config.TestToolPython:
@@ -396,6 +396,7 @@ func runPythonSuite(ctx context.Context, sr SuiteResult, pythonBin string, s Res
 	// captured output is ordered.
 	env = setEnv(env, "PYTHONDONTWRITEBYTECODE", "1")
 	env = setEnv(env, "PYTHONUNBUFFERED", "1")
+	env = passEnv(env, s.decl.Env)
 
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -438,4 +439,15 @@ func runPythonSuite(ctx context.Context, sr SuiteResult, pythonBin string, s Res
 		}
 	}
 	return sr
+}
+
+// passEnv adds the variables a suite names in env:, from the caller's environment when set.
+// The run stays hermetic otherwise: a suite reaches only what it declares.
+func passEnv(env, names []string) []string {
+	for _, name := range names {
+		if v, ok := os.LookupEnv(name); ok {
+			env = setEnv(env, name, v)
+		}
+	}
+	return env
 }
