@@ -975,7 +975,7 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 | `--cache` | string | — | SF cache mount root (default: resolved like `du`) |
 | `--confirm` | bool | — | execute the plan (default: dry-run) |
 | `--host-cleanup` | bool | — | authorize the declared host-cleanup policies for this invocation (build_cache.cleanup) |
-| `--target` | float64 | — | only act when disk used-fraction ≥ target (0 = always enforce policy) |
+| `--target` | float64 | — | only act when disk used-fraction ≥ target, and evict least recently used caches to 5 points under it (0 = always enforce policy, relieving pressure past 80%) |
 
 _Plus the [global flags](#cli-global-flags)._
 
