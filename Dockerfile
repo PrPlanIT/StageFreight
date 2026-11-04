@@ -84,12 +84,18 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins && \
       "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
-# StageFreight runtime paths.
-# /stagefreight/cache — persistent (mount a volume here for cross-run reuse)
-# /tmp/stagefreight   — ephemeral scratch (dies with the container)
-RUN mkdir -p /stagefreight/cache /tmp/stagefreight
+# /stagefreight/cache — persistent (mount a volume here for cross-run reuse).
+# Unprivileged by default, and any uid works: the writable paths belong to group 0 and
+# are group-writable, and StageFreight falls back to a private HOME when HOME isn't
+# writable. Build tools are provisioned at runtime without root — nothing here needs it.
+RUN adduser -D -u 1000 -G root -h /home/stagefreight -s /bin/sh stagefreight && \
+    mkdir -p /stagefreight/cache && \
+    chgrp -R 0 /stagefreight /home/stagefreight && \
+    chmod -R g=u /stagefreight /home/stagefreight
+ENV HOME=/home/stagefreight
 
 # Copy the Go binary from builder stage.
 COPY --from=builder /out/stagefreight /usr/local/bin/stagefreight
 
+USER 1000
 CMD ["/bin/sh"]

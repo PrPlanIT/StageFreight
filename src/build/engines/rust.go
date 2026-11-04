@@ -136,7 +136,7 @@ func (e *rustEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 	// graph, not operator config. The engine emits capabilities; substrate owns
 	// realization; the backend owns distro/package semantics. No-op where the tools
 	// already exist (dev hosts).
-	realized, serr := substrate.NewRealizer(toolchain.SubstrateCacheDir()).
+	realized, serr := substrate.NewRealizer(rootDir, toolchain.SubstrateCacheDir()).
 		Realize(ctx, substrate.InferRustNeeds(meta.ManifestDir))
 	if serr != nil {
 		return nil, fmt.Errorf("rust engine: realizing build substrate: %w", serr)
@@ -155,6 +155,14 @@ func (e *rustEngine) ExecuteStep(ctx context.Context, step build.UniversalStep) 
 		env["CARGO_HOME"] = ch
 	}
 	for k, v := range meta.Env {
+		env[k] = v
+	}
+	base := []string{"PATH=" + env["PATH"]}
+	if ld, ok := env["LD_LIBRARY_PATH"]; ok {
+		base = append(base, "LD_LIBRARY_PATH="+ld)
+	}
+	for _, kv := range substrate.ApplyEnv(base, realized) {
+		k, v, _ := strings.Cut(kv, "=")
 		env[k] = v
 	}
 

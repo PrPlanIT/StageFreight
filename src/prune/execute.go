@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -66,27 +67,30 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 			}
 		}
 		cold := confirm && a.LockRoot != "" && busy[a.LockRoot]
+		minAge := time.Duration(0)
 		if cold {
+			minAge = busyColdAge
 			r.Note = "cache in use by another StageFreight run — only entries unused for 24h"
 		}
+		exclusive := confirm && a.LockRoot != "" && held[a.LockRoot]
 		switch a.Kind {
-		case KindEvictDir:
-			if cold {
-				r.Items, r.Freed, r.Err = evictDir(a.Path, max(a.MaxAge, busyColdAge), 0, confirm)
-			} else {
-				r.Items, r.Freed, r.Err = evictDir(a.Path, a.MaxAge, a.MaxSize, confirm)
-			}
+		case KindUnits:
+			r.Note = ""
+			r.Items, r.Freed, r.Err = evictUnits(a, exclusive, confirm)
+		case KindPressure:
+			r.Note = ""
+			r.Items, r.Freed, r.Err = evictUnderPressure(a, confirm)
 		case KindGoBuildCache:
-			minAge := time.Duration(0)
-			if cold {
-				minAge = busyColdAge
-			}
-			r.Items, r.Freed, r.Err = evictGoBuildCache(a.Path, a.MaxSize, minAge, confirm)
+			r.Items, r.Freed, r.Err = evictFilesLRU(a.Path, goBuildEntry, 0, a.MaxSize, minAge, confirm)
+		case KindLintCache:
+			// A lint entry is written atomically and read whole, so removing one in use
+			// costs that run a cache miss and nothing more: no age floor, busy or not.
+			r.Note = ""
+			r.Items, r.Freed, r.Err = evictFilesLRU(a.Path, lintEntry, a.MaxAge, a.MaxSize, 0, confirm)
 		case KindToolchains:
-			if cold {
-				r.Note = ""
-				r.Skipped = "cache in use by another StageFreight run — a toolchain may be in use"
-				break
+			r.Note = ""
+			if confirm {
+				r.Freed, r.Err = removeToolchainTombstones(a.Path)
 			}
 			cands, err := toolchain.PlanVersionRetention(a.Path, a.Policy, a.Pins)
 			if err != nil {
@@ -94,11 +98,17 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 				break
 			}
 			for _, c := range cands {
-				r.Items = append(r.Items, c.Tool+"/"+c.Version)
-				if confirm {
-					if err := removeAllWritable(c.Dir); err != nil {
-						r.Err = err
-					}
+				if !confirm {
+					r.Items = append(r.Items, c.Tool+"/"+c.Version)
+					continue
+				}
+				size := dirSize(c.Dir)
+				switch done, err := paths.EvictUnit(c.Dir); {
+				case err != nil:
+					r.Err = err
+				case done:
+					r.Items = append(r.Items, c.Tool+"/"+c.Version)
+					r.Freed += size
 				}
 			}
 		case KindImageStream:
@@ -109,6 +119,8 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 			r.Items, r.Skipped, r.Err = pruneDeclaredImages(ctx, a, confirm)
 		case KindHostResidue:
 			r.Items, r.Skipped, r.Err = pruneHostResidue(ctx, a, confirm)
+		case KindDaemonImages:
+			r.Items, r.Note, r.Skipped, r.Err = pruneDaemonImages(ctx, a, confirm)
 		}
 		out = append(out, r)
 		// The cache root is released as soon as its last action is done, never held through
@@ -120,88 +132,218 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 	return out
 }
 
-// ── evict-dir: the shared age→size algorithm over a dir's immediate entries ──
+// ── cache units: whole directories one tool owns, leased while in use ──
 
-func evictDir(dir string, maxAge time.Duration, maxSize int64, confirm bool) (items []string, freed int64, err error) {
-	ents, rerr := os.ReadDir(dir)
-	if rerr != nil {
-		return nil, 0, nil // absent subsystem — nothing to do
+// unit is a directory under the cache root with its last recorded use. Unrecorded
+// directories — never leased: left by an older StageFreight or written by another tool
+// — carry their own mtime instead.
+type unit struct {
+	path       string
+	rel        string
+	lastUse    time.Time
+	unrecorded bool
+}
+
+// discoverUnits lists the units under dir (nested ones before the units holding them),
+// the unrecorded directories, and the tombstones of interrupted evictions. Per-entry LRU
+// subsystems are not units, and a unit's own contents are never unrecorded entries.
+func discoverUnits(dir string) (units []unit, tombstones []string) {
+	var walk func(d string, depth int, inUnit bool)
+	walk = func(d string, depth int, inUnit bool) {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			return
+		}
+		for _, e := range ents {
+			if !e.IsDir() {
+				continue
+			}
+			p := filepath.Join(d, e.Name())
+			rel, _ := filepath.Rel(dir, p)
+			switch {
+			case paths.IsTombstone(e.Name()):
+				tombstones = append(tombstones, p)
+			case rel == "lint" || rel == filepath.Join("go", "build"):
+			case hasLease(p):
+				if depth < 3 {
+					walk(p, depth+1, true)
+				}
+				last, _ := paths.UnitLastUse(p)
+				units = append(units, unit{path: p, rel: rel, lastUse: last})
+			case depth < 3 && holdsLease(p, 2):
+				walk(p, depth+1, inUnit)
+			case inUnit:
+			default:
+				if fi, err := e.Info(); err == nil {
+					units = append(units, unit{path: p, rel: rel, lastUse: fi.ModTime(), unrecorded: true})
+				}
+			}
+		}
 	}
-	type entry struct {
-		name  string
-		path  string
-		size  int64
-		mtime time.Time
+	walk(dir, 0, false)
+	return units, tombstones
+}
+
+func hasLease(dir string) bool {
+	_, ok := paths.UnitLastUse(dir)
+	return ok
+}
+
+// holdsLease reports whether a directory within depth levels below dir is a unit.
+func holdsLease(dir string, depth int) bool {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return false
 	}
-	var all []entry
-	var total int64
 	for _, e := range ents {
-		info, ierr := e.Info()
-		if ierr != nil {
+		if !e.IsDir() {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
-		sz := info.Size()
-		if e.IsDir() {
-			sz = dirSize(p)
+		if hasLease(p) || (depth > 1 && holdsLease(p, depth-1)) {
+			return true
 		}
-		all = append(all, entry{e.Name(), p, sz, info.ModTime()})
-		total += sz
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].mtime.Before(all[j].mtime) }) // oldest first
+	return false
+}
 
-	evict := func(e entry) {
-		items = append(items, fmt.Sprintf("%s (%s)", e.name, humanBytes(e.size)))
-		freed += e.size
-		total -= e.size
-		if confirm {
-			if rmErr := removeAllWritable(e.path); rmErr != nil {
-				err = rmErr
-			}
+// unitAge is the max age for u: the longest prefix of u's path in ages, else def.
+func unitAge(u unit, ages map[string]time.Duration, def time.Duration) time.Duration {
+	best, age := -1, def
+	for prefix, d := range ages {
+		if (u.rel == prefix || strings.HasPrefix(u.rel, prefix+string(os.PathSeparator))) && len(prefix) > best {
+			best, age = len(prefix), d
 		}
 	}
-	kept := all[:0]
-	if maxAge > 0 {
-		cutoff := time.Now().Add(-maxAge)
-		for _, e := range all {
-			if e.mtime.Before(cutoff) {
-				evict(e)
+	return age
+}
+
+// evictUnits removes interrupted evictions' tombstones and evicts the units unused
+// beyond their age. An unrecorded directory is evicted only while this run holds the
+// cache root exclusively: with no use record, only the absence of every other run shows
+// it unused.
+func evictUnits(a Action, exclusive, confirm bool) (items []string, freed int64, err error) {
+	units, tombstones := discoverUnits(a.Path)
+	for _, t := range tombstones {
+		if confirm {
+			size := dirSize(t)
+			if rmErr := paths.RemoveAllWritable(t); rmErr != nil {
+				err = rmErr
 				continue
 			}
-			kept = append(kept, e)
+			freed += size
 		}
-		all = kept
+		items = append(items, filepath.Base(t)+" (interrupted eviction)")
 	}
-	if maxSize > 0 {
-		for _, e := range all { // still oldest-first
-			if total <= maxSize {
-				break
+	now := time.Now()
+	for _, u := range units {
+		if !u.lastUse.Before(now.Add(-unitAge(u, a.Ages, a.MaxAge))) {
+			continue
+		}
+		label := u.rel
+		if u.unrecorded {
+			label += " (no use record)"
+			if confirm && !exclusive {
+				continue
 			}
-			evict(e)
+		}
+		if !confirm {
+			items = append(items, label)
+			continue
+		}
+		size := dirSize(u.path)
+		done, eErr := paths.EvictUnit(u.path)
+		if eErr != nil {
+			err = eErr
+			continue
+		}
+		if done {
+			items = append(items, fmt.Sprintf("%s (%s)", label, humanBytes(size)))
+			freed += size
 		}
 	}
 	return items, freed, err
 }
 
-// removeAllWritable is os.RemoveAll that first makes directories writable: Go's module
-// cache is read-only.
-func removeAllWritable(path string) error {
-	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = os.Chmod(p, 0o755)
+// evictUnderPressure evicts recorded units least recently used first until the
+// filesystem would be at most a.Low full, leaving every unit in use.
+func evictUnderPressure(a Action, confirm bool) (items []string, freed int64, err error) {
+	need := bytesOver(a.Path, a.Low)
+	if need <= 0 {
+		return nil, 0, nil
+	}
+	units, _ := discoverUnits(a.Path)
+	sort.Slice(units, func(i, j int) bool { return units[i].lastUse.Before(units[j].lastUse) })
+	for _, u := range units {
+		if freed >= need {
+			break
 		}
-		return nil
-	})
-	return os.RemoveAll(path)
+		if u.unrecorded {
+			continue
+		}
+		size := dirSize(u.path)
+		if confirm {
+			done, eErr := paths.EvictUnit(u.path)
+			if eErr != nil {
+				err = eErr
+				continue
+			}
+			if !done {
+				continue
+			}
+		}
+		items = append(items, fmt.Sprintf("%s (%s, last used %s)", u.rel, humanBytes(size), u.lastUse.Format("2006-01-02")))
+		freed += size
+	}
+	return items, freed, err
 }
 
-// evictGoBuildCache trims GOCACHE to maxSize by evicting entry files least recently used
-// first (Go refreshes an entry's mtime on use). Go's top-level files are kept.
-func evictGoBuildCache(dir string, maxSize int64, minAge time.Duration, confirm bool) (items []string, freed int64, err error) {
-	prefixes, rerr := os.ReadDir(dir)
-	if rerr != nil {
-		return nil, 0, nil // absent subsystem — nothing to do
+// removeToolchainTombstones finishes interrupted evictions of toolchain versions.
+func removeToolchainTombstones(root string) (freed int64, err error) {
+	tools, _ := os.ReadDir(root)
+	for _, tool := range tools {
+		vers, _ := os.ReadDir(filepath.Join(root, tool.Name()))
+		for _, v := range vers {
+			if !v.IsDir() || !paths.IsTombstone(v.Name()) {
+				continue
+			}
+			p := filepath.Join(root, tool.Name(), v.Name())
+			size := dirSize(p)
+			if rmErr := paths.RemoveAllWritable(p); rmErr != nil {
+				err = rmErr
+				continue
+			}
+			freed += size
+		}
 	}
+	return freed, err
+}
+
+// bytesOver is how many bytes the filesystem holding path is over fraction full.
+var bytesOver = func(path string, fraction float64) int64 {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil || st.Blocks == 0 {
+		return 0
+	}
+	total := float64(st.Blocks) * float64(st.Bsize)
+	used := total - float64(st.Bavail)*float64(st.Bsize)
+	return int64(used - fraction*total)
+}
+
+// goBuildEntry matches a Go build cache entry: a file in a two-character prefix dir
+// (Go's top-level files are not entries).
+func goBuildEntry(rel string) bool {
+	dir, file := filepath.Split(rel)
+	return len(dir) == 3 && file != ""
+}
+
+// lintEntry matches a lint result set file.
+func lintEntry(rel string) bool { return filepath.Ext(rel) == ".json" }
+
+// evictFilesLRU evicts the files under dir that isEntry matches: those unused for maxAge,
+// then least recently used first down to maxSize. The cache refreshes an entry's mtime on
+// use; an entry used within minAge is never evicted.
+func evictFilesLRU(dir string, isEntry func(rel string) bool, maxAge time.Duration, maxSize int64, minAge time.Duration, confirm bool) (items []string, freed int64, err error) {
 	type entry struct {
 		path  string
 		size  int64
@@ -209,32 +351,32 @@ func evictGoBuildCache(dir string, maxSize int64, minAge time.Duration, confirm 
 	}
 	var all []entry
 	var total int64
-	for _, p := range prefixes {
-		if !p.IsDir() || len(p.Name()) != 2 {
-			continue
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return nil
 		}
-		files, ferr := os.ReadDir(filepath.Join(dir, p.Name()))
-		if ferr != nil {
-			continue
+		rel, rerr := filepath.Rel(dir, p)
+		if rerr != nil || !isEntry(rel) {
+			return nil
 		}
-		for _, f := range files {
-			info, ierr := f.Info()
-			if ierr != nil || !info.Mode().IsRegular() {
-				continue
-			}
-			all = append(all, entry{filepath.Join(dir, p.Name(), f.Name()), info.Size(), info.ModTime()})
-			total += info.Size()
+		info, ierr := d.Info()
+		if ierr != nil || !info.Mode().IsRegular() {
+			return nil
 		}
-	}
-	if maxSize <= 0 || total <= maxSize {
-		return nil, 0, nil
-	}
+		all = append(all, entry{p, info.Size(), info.ModTime()})
+		total += info.Size()
+		return nil
+	})
 	sort.Slice(all, func(i, j int) bool { return all[i].mtime.Before(all[j].mtime) }) // least recently used first
+	now := time.Now()
 	var count int
-	cutoff := time.Now().Add(-minAge)
 	for _, e := range all {
-		if total <= maxSize || (minAge > 0 && e.mtime.After(cutoff)) {
+		if minAge > 0 && e.mtime.After(now.Add(-minAge)) {
 			break // least recently used first: once one is too recent, the rest are too
+		}
+		stale := maxAge > 0 && e.mtime.Before(now.Add(-maxAge))
+		if !stale && (maxSize <= 0 || total <= maxSize) {
+			break
 		}
 		if confirm {
 			if rmErr := os.Remove(e.path); rmErr != nil && !os.IsNotExist(rmErr) {

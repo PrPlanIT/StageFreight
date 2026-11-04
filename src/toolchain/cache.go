@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
@@ -70,8 +71,8 @@ func ensureCacheRoot() string {
 	return root
 }
 
-// cacheDir returns <CacheRoot>/<elem...>, created — or "" when the mount is
-// unavailable. The single place that resolves the root, joins, and mkdirs; every cache
+// cacheDir returns <CacheRoot>/<elem...>, created and leased (paths.LeaseUnit) — or ""
+// when the mount is unavailable. The single place that resolves the root, joins, and mkdirs; every cache
 // path flows through it, so each public accessor declares ONLY its own subdir names
 // (the irreducible layout) with no repeated plumbing.
 func cacheDir(elem ...string) string {
@@ -80,7 +81,7 @@ func cacheDir(elem ...string) string {
 		return ""
 	}
 	dir := filepath.Join(append([]string{root}, elem...)...)
-	if os.MkdirAll(dir, 0o755) != nil {
+	if paths.LeaseUnit(dir) != nil {
 		return ""
 	}
 	return dir
@@ -102,22 +103,19 @@ func GoCacheDirs() (gomod, gocache string) {
 	return cacheDir("go", "downloads"), cacheDir("go", "build")
 }
 
-// writeCacheReadme drops a README at the cache root so an operator browsing the mount
-// knows what each directory is — and that any of it is safe to delete (forcing a
-// one-time cold rebuild). Written once, never overwritten. Lives in the MOUNT, not the
+// writeCacheReadme keeps a README at the cache root so an operator browsing the mount
+// knows what each directory is and how to reclaim it. It lives in the mount, not the
 // repo: documenting the volume in place means the repo needs no doc for it.
 func writeCacheReadme(root string) {
-	path := filepath.Join(root, "README.md")
-	if _, err := os.Stat(path); err == nil {
-		return
-	}
-	_ = os.WriteFile(path, []byte(cacheReadme), 0o644)
+	_ = atomicfile.WriteFileIfChanged(filepath.Join(root, "README.md"), []byte(cacheReadme), 0o644)
 }
 
 const cacheReadme = `# StageFreight build caches
 
-Persistent caches reused across CI runs (this mount is supplied empty each job).
-Deleting any subdirectory is safe — it only forces a one-time cold rebuild.
+Persistent caches reused across CI runs. Reclaim space with
+'stagefreight prune --confirm': it skips what a running job is using (a directory
+holding a .lease is leased by the jobs using it). Deleting by hand while jobs run
+can break them; with none running, anything here can go and is rebuilt cold.
 
   go/downloads        Go module downloads (GOMODCACHE)
   go/build            Go compiled-package cache (GOCACHE)
@@ -126,7 +124,11 @@ Deleting any subdirectory is safe — it only forces a one-time cold rebuild.
   node/pnpm-store     pnpm content-addressed store (PNPM_STORE_DIR)
   node/npm-cache      npm cache (npm_config_cache)
   node/yarn-cache     yarn cache (YARN_CACHE_FOLDER)
-  substrate/apk       Native build packages (cc, cmake, perl, git, ...)
+  substrate/apk       Native build packages (cmake, perl, git, ...)
+  zig                 Zig compiler cache (the provisioned C toolchain)
+  trivy, grype        Vulnerability scanner databases
+  lint/<proj>         Lint results, per project
+  buildkit/<proj>     Local BuildKit cache, per project
 
 NOT here: dependency-update results live in the repo at .stagefreight/deps
 (a per-run, committed report) — unrelated to these download caches.

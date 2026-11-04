@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -18,15 +20,35 @@ func BuildKitCertPath() string {
 	return "/buildkit-certs"
 }
 
-// BuildKitCertsPresent reports whether the full client PKI is in dir. TLS is
-// mandatory for a remote buildkitd, so a partial set counts as absent.
+// buildKitCertFiles is the client PKI a remote buildkitd needs.
+var buildKitCertFiles = []string{"ca.pem", "cert.pem", "key.pem"}
+
+// BuildKitCertsPresent reports whether the full client PKI in dir is readable. TLS is
+// mandatory for a remote buildkitd, so a partial or unreadable set counts as absent.
 func BuildKitCertsPresent(dir string) bool {
-	for _, f := range []string{"ca.pem", "cert.pem", "key.pem"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+	for _, f := range buildKitCertFiles {
+		fh, err := os.Open(filepath.Join(dir, f))
+		if err != nil {
 			return false
 		}
+		fh.Close()
 	}
 	return true
+}
+
+// unreadableBuildKitCerts lists the client PKI files in dir that exist but this uid
+// can't read.
+func unreadableBuildKitCerts(dir string) []string {
+	var out []string
+	for _, f := range buildKitCertFiles {
+		path := filepath.Join(dir, f)
+		if fh, err := os.Open(path); err == nil {
+			fh.Close()
+		} else if errors.Is(err, fs.ErrPermission) {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 // TCPEndpointAddr returns host:port from a tcp:// endpoint such as

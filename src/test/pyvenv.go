@@ -9,9 +9,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -61,10 +63,22 @@ func ensurePyVenv(ctx context.Context, pythonBin, projectDir string, coverage bo
 		}
 	}
 
-	// Cold (or a half-built leftover): rebuild from scratch so a failed install can
-	// never be mistaken for a usable environment.
-	_ = os.RemoveAll(root)
-	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+	// Cold (or a half-built leftover): rebuild from scratch, under the install lock, so a
+	// failed or concurrent install can never be mistaken for a usable environment.
+	if root == "" {
+		return "", fmt.Errorf("preparing venv cache: no persistent cache")
+	}
+	lock, err := paths.AcquireInstallLock(root, 10*time.Minute)
+	if err != nil {
+		return "", fmt.Errorf("preparing venv cache: %w", err)
+	}
+	defer paths.ReleaseInstallLock(lock)
+	if _, err := os.Stat(stamp); err == nil {
+		if _, err := os.Stat(venvPy); err == nil {
+			return venvPy, nil
+		}
+	}
+	if err := paths.ClearUnit(root); err != nil {
 		return "", fmt.Errorf("preparing venv cache: %w", err)
 	}
 	if out, err := runPy(ctx, projectDir, pythonBin, "-m", "venv", root); err != nil {

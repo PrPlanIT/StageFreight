@@ -82,11 +82,10 @@ func (c BuildCacheConfig) IsActive() bool {
 	return c.Mode != "" && c.Mode != "off"
 }
 
-// LocalCacheConfig defines bounded local BuildKit cache.
-// Default path: /stagefreight/cache/buildkit (persistent runtime root).
-// Override via Path field for non-standard mounts.
+// LocalCacheConfig defines bounded local BuildKit cache, kept per repo under the cache
+// root's cache/buildkit unless Path overrides it.
 type LocalCacheConfig struct {
-	Path      string         `yaml:"path,omitempty"` // override local cache root (default: /stagefreight/cache/buildkit)
+	Path      string         `yaml:"path,omitempty"` // override local cache root (default: cache/buildkit under the cache root)
 	Retention LocalRetention `yaml:"retention,omitempty"`
 }
 

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 )
 
 // RemediationSummary reports the outcome of an ApplyRemediations pass.
@@ -102,7 +104,7 @@ func ApplyRemediations(findings []Finding, rootDir string, enabled map[string]bo
 
 		if applied > 0 {
 			if !dryRun {
-				if err := atomicWrite(abs, out, info.Mode().Perm()); err != nil {
+				if err := atomicfile.WriteFile(abs, out, info.Mode().Perm()); err != nil {
 					return sum, err
 				}
 			}
@@ -111,42 +113,4 @@ func ApplyRemediations(findings []Finding, rootDir string, enabled map[string]bo
 		}
 	}
 	return sum, nil
-}
-
-// atomicWrite replaces path's contents durably: write to a temp file in the same
-// directory, fsync it, then rename over the original (atomic on the same filesystem).
-// A crash mid-write leaves the original intact and a stray temp file, never a truncated
-// source. The parent directory is fsynced so the rename itself survives a crash.
-func atomicWrite(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".sf-fix-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // harmless no-op once the rename has consumed it
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return err
-	}
-	// Best-effort: fsync the directory so the rename is durable across a crash.
-	if d, derr := os.Open(dir); derr == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-	return nil
 }

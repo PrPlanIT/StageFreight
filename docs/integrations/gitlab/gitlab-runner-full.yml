@@ -2,6 +2,17 @@
 # Superset of the minimal stack; adds container image builds. Setup: README.md.
 
 services:
+  # Jobs run as the StageFreight image's unprivileged user (uid 1000, group 0): the shared
+  # cache is group-0 writable, and new directories keep group 0.
+  stagefreight-cache-perms:
+    image: docker.io/library/alpine:3.24.3
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - chgrp -R 0 /stagefreight && chmod -R g+rwX /stagefreight && find /stagefreight -type d -exec chmod g+s {} +
+    volumes:
+      - /opt/docker/gitlab-runner/stagefreight:/stagefreight
+
   dind:
     image: docker:dind
     privileged: true
@@ -35,8 +46,10 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # Jobs run as group 0: the client key is group-0 readable.
         if [ -f /out/server/cert.pem ]; then
           echo "BuildKit PKI already exists, skipping"
+          chgrp 0 /out/client/key.pem && chmod 0640 /out/client/key.pem
           exit 0
         fi
         apk add --no-cache openssl >/dev/null 2>&1
@@ -65,6 +78,7 @@ services:
           -CA /out/ca/cert.pem -CAkey /out/ca/key.pem -CAcreateserial \
           -out /out/client/cert.pem -days 3650 2>/dev/null
         cp /out/ca/cert.pem /out/client/ca.pem
+        chgrp 0 /out/client/key.pem && chmod 0640 /out/client/key.pem
     volumes:
       - /opt/docker/gitlab-runner/buildkitd-certs:/out
 
@@ -121,12 +135,14 @@ services:
             --docker-image=alpine:latest \
             --docker-network-mode=stagefreight \
             --docker-privileged=false \
+            --docker-security-opt=no-new-privileges \
             --docker-volumes=/opt/docker/gitlab-runner/buildkitd-certs/client:/buildkit-certs:ro \
             --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
             --docker-volumes=/opt/docker/gitlab-runner/stagefreight:/stagefreight \
             --env=DOCKER_CERT_PATH=/certs/client \
             --env=DOCKER_HOST=tcp://dind:2376 \
             --env=DOCKER_TLS_VERIFY=1 \
+            --env=SF_DAEMON_GC_MAX_SIZE=8GB \
             --executor=docker \
             --name=$${RUNNER_NAME:-"GitLab Runner"} \
             --non-interactive \
@@ -150,6 +166,8 @@ services:
     image: gitlab/gitlab-runner:latest
     restart: always
     depends_on:
+      stagefreight-cache-perms:
+        condition: service_completed_successfully
       dind:
         condition: service_healthy
       buildkitd:

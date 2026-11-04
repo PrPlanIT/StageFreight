@@ -1,12 +1,9 @@
 package toolchain
 
 import (
-	"archive/tar"
 	"bufio"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/substrate"
 )
 
@@ -219,11 +217,11 @@ func resolveRust(rootDir, version string) (Result, error) {
 
 	installRoot := InstallRoot(rootDir)
 	installDir := CacheDirIn(installRoot, "rust", cacheKey)
-	lock, err := AcquireInstallLock(installDir, 15*time.Minute) // a Rust dist is large
+	lock, err := paths.AcquireInstallLock(installDir, 15*time.Minute) // a Rust dist is large
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain rust %s: %w", version, err)
 	}
-	defer ReleaseInstallLock(lock)
+	defer paths.ReleaseInstallLock(lock)
 
 	binPath := CacheBinPathIn(installRoot, "rust", cacheKey, "cargo")
 	if _, err := os.Stat(binPath); err == nil {
@@ -252,23 +250,23 @@ func resolveRust(rootDir, version string) (Result, error) {
 		return Result{}, fmt.Errorf("toolchain rust %s: archive checksum mismatch\n  expected: %s\n  actual:   %s\n  source:   %s", version, expectedSHA, archiveSHA, sourceURL)
 	}
 
-	if err := installRustDist(archivePath, installDir, version, triple); err != nil {
-		os.RemoveAll(installDir)
+	if err := installRustDist(rootDir, archivePath, installDir, version, triple); err != nil {
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain rust %s: install failed: %w", version, err)
 	}
 	if _, err := os.Stat(binPath); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain rust %s: cargo not found after install at %s", version, binPath)
 	}
 	binSHA, err := fileSHA256(binPath)
 	if err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain rust %s: binary checksum failed: %w", version, err)
 	}
 	meta := Metadata{Tool: "rust", Version: version, Platform: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA}
 	if err := writeMetadataTo(installRoot, "rust", cacheKey, meta); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain rust %s: metadata write failed (install aborted): %w", version, err)
 	}
 	return Result{Tool: "rust", Version: version, Path: binPath, CacheHit: false,
@@ -278,28 +276,28 @@ func resolveRust(rootDir, version string) (Result, error) {
 // installRustDist extracts the combined Rust tarball and runs its bundled install.sh
 // to a pinned prefix (no ldconfig, no docs) — a POSIX-sh installer that copies rustc,
 // cargo, and the host std into <installDir>/{bin,lib}.
-func installRustDist(archivePath, installDir, version, triple string) error {
+func installRustDist(rootDir, archivePath, installDir, version, triple string) error {
 	tmp, err := os.MkdirTemp("", "sf-rust-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	if err := extractTarGzTo(archivePath, tmp); err != nil {
+	if err := extractTarGzTree(archivePath, tmp, 0); err != nil {
 		return fmt.Errorf("extracting rust dist: %w", err)
 	}
 
-	// Rust's install.sh shells out to bash, but the minimal SF image ships only
-	// busybox sh — so realize bash via substrate (apk-backed, cached; TEST/BUILD
-	// time only, never in the image) before running it. On a non-apk host (dev)
-	// NewRealizer is a no-op that trusts the ambient bash.
-	if _, err := substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
-		[]substrate.Need{{Capability: "bash", Reason: "rust-toolchain-install-script", Source: "install.sh"}}); err != nil {
+	// Rust's install.sh shells out to bash, which the minimal image doesn't ship:
+	// substrate realizes it (rootless, cached) for this run.
+	realized, err := substrate.NewRealizer(rootDir, SubstrateCacheDir()).Realize(context.Background(),
+		[]substrate.Need{{Capability: "bash", Reason: "rust-toolchain-install-script", Source: "install.sh"}})
+	if err != nil {
 		return fmt.Errorf("installing rust: %w", err)
 	}
 
 	script := filepath.Join(tmp, fmt.Sprintf("rust-%s-%s", version, triple), "install.sh")
 	cmd := exec.Command("sh", script,
 		"--prefix="+installDir, "--disable-ldconfig", "--without=rust-docs")
+	cmd.Env = substrate.ApplyEnv(os.Environ(), realized)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("install.sh: %w\n%s", err, strings.TrimSpace(string(out)))
@@ -312,7 +310,7 @@ func installRustDist(archivePath, installDir, version, triple string) error {
 // a no-op once llvm-cov is present. The component tarball URL + SHA256 come from the
 // verified Rust channel manifest, matching rustc's exact LLVM version. cargoPath is
 // the resolved cargo binary (<prefix>/bin/cargo).
-func EnsureRustLlvmTools(cargoPath, version string) error {
+func EnsureRustLlvmTools(rootDir, cargoPath, version string) error {
 	prefix := filepath.Dir(filepath.Dir(cargoPath))
 	triple := rustHostTriple(runtime.GOOS, runtime.GOARCH, hostLibc())
 	if _, err := os.Stat(filepath.Join(prefix, "lib", "rustlib", triple, "bin", "llvm-cov")); err == nil {
@@ -337,16 +335,19 @@ func EnsureRustLlvmTools(cargoPath, version string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	if err := extractTarGzTo(archive, tmp); err != nil {
+	if err := extractTarGzTree(archive, tmp, 0); err != nil {
 		return fmt.Errorf("extract llvm-tools: %w", err)
 	}
 	// install.sh shells to bash (see installRustDist) — realize it via substrate.
-	if _, err := substrate.NewRealizer(SubstrateCacheDir()).Realize(context.Background(),
-		[]substrate.Need{{Capability: "bash", Reason: "rust-component-install-script", Source: "install.sh"}}); err != nil {
+	realized, err := substrate.NewRealizer(rootDir, SubstrateCacheDir()).Realize(context.Background(),
+		[]substrate.Need{{Capability: "bash", Reason: "rust-component-install-script", Source: "install.sh"}})
+	if err != nil {
 		return fmt.Errorf("installing llvm-tools: %w", err)
 	}
 	script := filepath.Join(tmp, fmt.Sprintf("llvm-tools-%s-%s", version, triple), "install.sh")
-	if out, err := exec.Command("sh", script, "--prefix="+prefix, "--disable-ldconfig").CombinedOutput(); err != nil {
+	cmd := exec.Command("sh", script, "--prefix="+prefix, "--disable-ldconfig")
+	cmd.Env = substrate.ApplyEnv(os.Environ(), realized)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("llvm-tools install.sh: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -394,56 +395,6 @@ func tomlValue(line string) string {
 		return strings.Trim(strings.TrimSpace(line[i+1:]), `"'`)
 	}
 	return ""
-}
-
-// extractTarGzTo extracts a .tar.gz tree verbatim into destDir (no prefix stripping).
-func extractTarGzTo(archivePath, destDir string) error {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		// Reject path traversal.
-		target := filepath.Join(destDir, hdr.Name)
-		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("unsafe path in archive: %q", hdr.Name)
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			w, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(w, tr); err != nil {
-				w.Close()
-				return err
-			}
-			w.Close()
-		case tar.TypeSymlink:
-			_ = os.Symlink(hdr.Linkname, target)
-		}
-	}
 }
 
 // CargoCacheDir returns the persistent CARGO_HOME (rust/downloads) — crate sources +

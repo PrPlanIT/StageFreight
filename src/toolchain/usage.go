@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // Use markers live beside .metadata.json in each install directory. Their modification
@@ -24,6 +26,7 @@ func markUsed(rootDir string, r Result, pinned bool) {
 	if dir == "" {
 		return
 	}
+	_ = paths.LeaseUnit(dir)
 	touch(filepath.Join(dir, lastUsedFile))
 	if pinned {
 		touch(filepath.Join(dir, pinnedUsedFile))

@@ -7,6 +7,7 @@
 package atomicfile
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,4 +66,12 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 
 	success = true
 	return nil
+}
+
+// WriteFileIfChanged writes data atomically unless path already holds it.
+func WriteFileIfChanged(path string, data []byte, perm os.FileMode) error {
+	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, data) {
+		return nil
+	}
+	return WriteFile(path, data, perm)
 }

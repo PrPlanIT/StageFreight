@@ -45,13 +45,16 @@ const (
 type Kind string
 
 const (
-	KindEvictDir       Kind = "evict-dir"       // age→size eviction of a cache subsystem dir
+	KindUnits          Kind = "units"           // cache units unused beyond their age, evicted whole
+	KindPressure       Kind = "pressure"        // least recently used cache units, down to the low watermark
 	KindGoBuildCache   Kind = "go-build-cache"  // per-entry LRU of the Go build cache (GOCACHE)
+	KindLintCache      Kind = "lint-cache"      // per-entry LRU of the lint result cache
 	KindToolchains     Kind = "toolchains"      // keep-N toolchain versions (policy grammar)
 	KindImageStream    Kind = "image-stream"    // SF's own published generations, local daemon
 	KindBuildkit       Kind = "buildkit"        // sf-builder cache via `docker buildx prune`
 	KindDeclaredImages Kind = "declared-images" // operator-declared third-party eviction
 	KindHostResidue    Kind = "host-residue"    // dangling layers + exited containers (authorized)
+	KindDaemonImages   Kind = "daemon-images"   // runner-declared image GC on the job's Docker daemon
 )
 
 // Action is one planned reclaim. The planner only plans — Execute mutates.
@@ -59,17 +62,21 @@ type Action struct {
 	Kind   Kind
 	Class  Class
 	Label  string // human label ("cache/go/build", "toolchains", …)
-	Path   string // filesystem dir (evict-dir / toolchains root)
+	Path   string // filesystem dir (cache subsystem / toolchains root)
 	Reason string
 
-	// LockRoot is the cache root a namespace action evicts from; Execute runs the action
-	// only while holding that root exclusively (paths.ExclusiveCacheRoot).
+	// LockRoot is the cache root a namespace action evicts from; Execute takes it
+	// exclusively when no other run holds it (paths.ExclusiveCacheRoot).
 	LockRoot string
 
-	MaxAge  time.Duration          // evict-dir: entries older are evicted
-	MaxSize int64                  // evict-dir: then oldest-first down to this
-	Policy  config.RetentionPolicy // toolchains / image-stream
-	Pins    map[string]string      // toolchains: tool → pinned constraint (protected)
+	MaxAge  time.Duration            // entries / units unused longer are evicted
+	MaxSize int64                    // per-entry LRU: then least recently used down to this
+	Ages    map[string]time.Duration // units: max age by unit path relative to Path (default MaxAge)
+	Low     float64                  // pressure: evict until the filesystem is at most this full
+	MinAge  time.Duration            // daemon images: never evict one pulled more recently
+	Invalid string                   // the declaration couldn't be parsed; the action reports it and does nothing
+	Policy  config.RetentionPolicy   // toolchains / image-stream
+	Pins    map[string]string        // toolchains: tool → pinned constraint (protected)
 
 	Streams   []string              // image-stream: repo path suffixes (slugs) owned by this config
 	Templates []string              // image-stream: the publish targets' tag templates (candidacy)
@@ -89,13 +96,13 @@ type Options struct {
 // Engine defaults — behavior, not policy (deliberately NOT config; see the plan's
 // "Rejected shapes"). Visible in every dry-run and the perform Disk GC box.
 const (
-	DefaultTarget       = 0.80                // pressure gate
+	DefaultTarget       = 0.80                // pressure gate: the high watermark
+	pressureHysteresis  = 0.05                // the low watermark sits this far below it
 	goBuildMaxSize      = 5 << 30             // cache/go/build LRU cap
 	backstopMaxAge      = 30 * 24 * time.Hour // any cache subsystem without a named policy
 	defaultLintAge      = 7 * 24 * time.Hour
 	defaultLintSize     = 100 << 20
 	defaultBuildkitAge  = 7 * 24 * time.Hour
-	defaultBuildkitSize = int64(15) << 30
 	imageStreamKeepLast = 3 // SF image generations when the target declares no retention
 )
 
@@ -116,66 +123,47 @@ func UsedFraction(path string) float64 {
 // image streams and declared adoptions need the config that declares them.
 // Pure planning — nothing is mutated.
 func Plan(cfg *config.Config, opts Options) []Action {
+	// The daemon's image budget has its own trigger: it runs whatever the cache root's
+	// pressure.
+	actions := daemonImageAction()
 	if opts.Target > 0 && opts.CacheRoot != "" && UsedFraction(opts.CacheRoot) < opts.Target {
-		return nil // healthy — the pressure gate keeps this a cheap no-op
+		return actions // healthy — the pressure gate keeps the rest a cheap no-op
 	}
-
-	var actions []Action
 
 	// ── class 1: the SF cache-root namespace ──────────────────────────────────
 	if opts.CacheRoot != "" {
 		cacheDir := filepath.Join(opts.CacheRoot, "cache")
-		if ents, err := os.ReadDir(cacheDir); err == nil {
-			for _, e := range ents {
-				if !e.IsDir() {
-					continue
+		if _, err := os.Stat(filepath.Join(cacheDir, "go", "build")); err == nil {
+			actions = append(actions, Action{Kind: KindGoBuildCache, Class: ClassNamespace, Label: "cache/go/build",
+				Path: filepath.Join(cacheDir, "go", "build"), MaxSize: goBuildMaxSize,
+				Reason: "go build cache over size cap (rebuildable)"})
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, "lint")); err == nil {
+			age, size := defaultLintAge, int64(defaultLintSize)
+			if cfg != nil {
+				if d, err := config.ParseDuration(cfg.Lint.Cache.MaxAge); err == nil && cfg.Lint.Cache.MaxAge != "" {
+					age = d
 				}
-				sub := e.Name()
-				dir := filepath.Join(cacheDir, sub)
-				switch sub {
-				case "go":
-					actions = append(actions,
-						Action{Kind: KindGoBuildCache, Class: ClassNamespace, Label: "cache/go/build",
-							Path: filepath.Join(dir, "build"), MaxSize: goBuildMaxSize,
-							Reason: "go build cache over size cap (rebuildable)"},
-						Action{Kind: KindEvictDir, Class: ClassNamespace, Label: "cache/go/downloads",
-							Path: filepath.Join(dir, "downloads"), MaxAge: backstopMaxAge,
-							Reason: "module cache backstop (re-downloadable)"})
-				case "lint":
-					age, size := defaultLintAge, int64(defaultLintSize)
-					if cfg != nil {
-						if d, err := config.ParseDuration(cfg.Lint.Cache.MaxAge); err == nil && cfg.Lint.Cache.MaxAge != "" {
-							age = d
-						}
-						if s, err := config.ParseSize(cfg.Lint.Cache.MaxSize); err == nil && cfg.Lint.Cache.MaxSize != "" {
-							size = s
-						}
-					}
-					actions = append(actions, Action{Kind: KindEvictDir, Class: ClassNamespace,
-						Label: "cache/lint", Path: dir, MaxAge: age, MaxSize: size,
-						Reason: "lint result sets beyond lint.cache retention"})
-				case "buildkit":
-					age, size := defaultBuildkitAge, defaultBuildkitSize
-					if cfg != nil {
-						ret := cfg.BuildCache.Local.Retention
-						if d, err := config.ParseDuration(ret.MaxAge); err == nil && ret.MaxAge != "" {
-							age = d
-						}
-						if s, err := config.ParseSize(ret.MaxSize); err == nil && ret.MaxSize != "" {
-							size = s
-						}
-					}
-					actions = append(actions, Action{Kind: KindEvictDir, Class: ClassNamespace,
-						Label: "cache/buildkit", Path: dir, MaxAge: age, MaxSize: size,
-						Reason: "local buildkit cache beyond build_cache.local.retention"})
-				default:
-					// The backstop: every cache subsystem — including ones that do not
-					// exist yet — is bounded on arrival. SF created every byte here.
-					actions = append(actions, Action{Kind: KindEvictDir, Class: ClassNamespace,
-						Label: "cache/" + sub, Path: dir, MaxAge: backstopMaxAge,
-						Reason: "cache-root backstop (unused > 30d)"})
+				if s, err := config.ParseSize(cfg.Lint.Cache.MaxSize); err == nil && cfg.Lint.Cache.MaxSize != "" {
+					size = s
 				}
 			}
+			actions = append(actions, Action{Kind: KindLintCache, Class: ClassNamespace,
+				Label: "cache/lint", Path: filepath.Join(cacheDir, "lint"), MaxAge: age, MaxSize: size,
+				Reason: "lint results beyond lint.cache retention"})
+		}
+		if _, err := os.Stat(cacheDir); err == nil {
+			ages := map[string]time.Duration{}
+			if cfg != nil {
+				if d, err := config.ParseDuration(cfg.BuildCache.Local.Retention.MaxAge); err == nil && d > 0 {
+					ages["buildkit"] = d
+				}
+			} else {
+				ages["buildkit"] = defaultBuildkitAge
+			}
+			actions = append(actions, Action{Kind: KindUnits, Class: ClassNamespace, Label: "cache units",
+				Path: cacheDir, MaxAge: backstopMaxAge, Ages: ages,
+				Reason: "cache units unused beyond their age (backstop 30d)"})
 		}
 
 		// Toolchain versions: the declared toolchains.retention grammar (scoped refs,
@@ -195,8 +183,15 @@ func Plan(cfg *config.Config, opts Options) []Action {
 			}
 			actions = append(actions, a)
 		}
+		if opts.Target > 0 {
+			actions = append(actions, Action{Kind: KindPressure, Class: ClassNamespace, Label: "disk pressure",
+				Path: cacheDir, Low: opts.Target - pressureHysteresis,
+				Reason: "least recently used cache units while the disk is over target"})
+		}
 		for i := range actions {
-			actions[i].LockRoot = opts.CacheRoot
+			if actions[i].Class == ClassNamespace {
+				actions[i].LockRoot = opts.CacheRoot
+			}
 		}
 	}
 

@@ -289,6 +289,10 @@ func expandSource(sourcePath, archiveName string) ([]archiveEntry, error) {
 	if !info.IsDir() {
 		return []archiveEntry{{sourcePath: sourcePath, archiveName: archiveName}}, nil
 	}
+	root, err := filepath.EvalSymlinks(sourcePath)
+	if err != nil {
+		return nil, err
+	}
 	var entries []archiveEntry
 	walkErr := filepath.Walk(sourcePath, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
@@ -296,6 +300,11 @@ func expandSource(sourcePath, archiveName string) ([]archiveEntry, error) {
 		}
 		if fi.IsDir() {
 			return nil
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if err := symlinkStaysInside(root, path); err != nil {
+				return err
+			}
 		}
 		rel, err := filepath.Rel(sourcePath, path)
 		if err != nil {
@@ -311,6 +320,27 @@ func expandSource(sourcePath, archiveName string) ([]archiveEntry, error) {
 		return nil, walkErr
 	}
 	return entries, nil
+}
+
+// symlinkStaysInside refuses a symlink in a build output whose target is missing, a
+// directory, or outside root: the archive stores the target's content, and must not
+// carry a file from outside the output into a published artifact.
+func symlinkStaysInside(root, link string) error {
+	target, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return fmt.Errorf("symlink %s: %w", link, err)
+	}
+	if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
+		return fmt.Errorf("symlink %s points outside the build output (%s)", link, target)
+	}
+	fi, err := os.Stat(target)
+	if err != nil {
+		return fmt.Errorf("symlink %s: %w", link, err)
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("symlink %s points to a directory; archives hold files", link)
+	}
+	return nil
 }
 
 func createTarGz(outputPath string, entries []archiveEntry) error {

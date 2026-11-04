@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -94,8 +95,13 @@ func runToolchainPrune(_ *cobra.Command, _ []string) error {
 
 	deleted := 0
 	for _, c := range candidates {
-		if err := os.RemoveAll(c.Dir); err != nil {
+		done, err := paths.EvictUnit(c.Dir)
+		switch {
+		case err != nil:
 			fmt.Fprintf(os.Stderr, "warning: failed to delete %s: %v\n", c.Dir, err)
+			continue
+		case !done:
+			fmt.Printf("  kept    %-14s %s (in use by a running job)\n", c.Tool, c.Version)
 			continue
 		}
 		fmt.Printf("  deleted %-14s %s\n", c.Tool, c.Version)

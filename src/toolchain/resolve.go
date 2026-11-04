@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // Trust levels record HOW an artifact was trusted on first fetch — the strongest
@@ -90,6 +92,11 @@ func resolve(rootDir, tool, version string) (Result, error) {
 			r.Trust = TrustChecksum
 		}
 		return r, err
+	}
+
+	// zig is a DISTRIBUTION (the binary beside its lib/ tree) — its own resolver.
+	if tool == "zig" {
+		return resolveZig(rootDir, version)
 	}
 
 	// python is a DISTRIBUTION (tree, python-build-standalone) — its own resolver.
@@ -227,11 +234,11 @@ func resolveWithDef(rootDir string, def ToolDef, version, variant, pinnedSHA str
 	installDir := CacheDirIn(installRoot, def.Name, cacheVer)
 
 	// Acquire install lock to prevent concurrent downloads
-	lock, err := AcquireInstallLock(installDir, 5*time.Minute)
+	lock, err := paths.AcquireInstallLock(installDir, 5*time.Minute)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
 	}
-	defer ReleaseInstallLock(lock)
+	defer paths.ReleaseInstallLock(lock)
 
 	// Re-check cache after acquiring lock (another process may have installed)
 	binPath := CacheBinPathIn(installRoot, def.Name, cacheVer, def.BinaryName)
@@ -273,13 +280,13 @@ func resolveWithDef(rootDir string, def ToolDef, version, variant, pinnedSHA str
 		PinnedSHA:  pinnedSHA,
 	})
 	if err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: %w", def.Name, version, err)
 	}
 
 	// Verify the binary landed.
 	if _, err := os.Stat(binPath); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: binary not found after install at %s", def.Name, version, binPath)
 	}
 
@@ -287,7 +294,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, variant, pinnedSHA str
 	// for sources with no upstream binary digest.
 	binSHA, err := fileSHA256(binPath)
 	if err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: binary checksum failed: %w", def.Name, version, err)
 	}
 
@@ -302,7 +309,7 @@ func resolveWithDef(rootDir string, def ToolDef, version, variant, pinnedSHA str
 		Trust:     sr.Trust,
 	}
 	if err := writeMetadataTo(installRoot, def.Name, cacheVer, meta); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain %s %s: metadata write failed (install aborted): %w", def.Name, version, err)
 	}
 
@@ -369,11 +376,11 @@ func resolveGo(rootDir, version string) (Result, error) {
 	installRoot := InstallRoot(rootDir)
 	installDir := CacheDirIn(installRoot, "go", version)
 
-	lock, err := AcquireInstallLock(installDir, 5*time.Minute)
+	lock, err := paths.AcquireInstallLock(installDir, 5*time.Minute)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain go %s: %w", version, err)
 	}
-	defer ReleaseInstallLock(lock)
+	defer paths.ReleaseInstallLock(lock)
 
 	// Re-check after lock
 	binPath := CacheBinPathIn(installRoot, "go", version, "go")
@@ -414,19 +421,19 @@ func resolveGo(rootDir, version string) (Result, error) {
 		return Result{}, fmt.Errorf("toolchain go %s: archive checksum mismatch\n  expected: %s\n  actual:   %s\n  source:   %s", version, expectedSHA, archiveSHA, sourceURL)
 	}
 
-	if err := extractGoArchive(archivePath, installDir); err != nil {
-		os.RemoveAll(installDir)
+	if err := extractTarGzTree(archivePath, installDir, 1); err != nil {
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain go %s: extraction failed: %w", version, err)
 	}
 
 	if _, err := os.Stat(binPath); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain go %s: binary not found after extraction at %s", version, binPath)
 	}
 
 	binSHA, err := fileSHA256(binPath)
 	if err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain go %s: binary checksum failed: %w", version, err)
 	}
 
@@ -435,7 +442,7 @@ func resolveGo(rootDir, version string) (Result, error) {
 		SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA,
 	}
 	if err := writeMetadataTo(installRoot, "go", version, meta); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain go %s: metadata write failed (install aborted): %w", version, err)
 	}
 

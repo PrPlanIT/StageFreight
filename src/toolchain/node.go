@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // defaultNodeVersion is the pinned Node.js the deps updater provisions to touch npm.
@@ -96,11 +98,11 @@ func resolveNode(rootDir, version string) (Result, error) {
 
 	installRoot := InstallRoot(rootDir)
 	installDir := CacheDirIn(installRoot, "node", cacheVer)
-	lock, err := AcquireInstallLock(installDir, 5*time.Minute)
+	lock, err := paths.AcquireInstallLock(installDir, 5*time.Minute)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain node %s: %w", version, err)
 	}
-	defer ReleaseInstallLock(lock)
+	defer paths.ReleaseInstallLock(lock)
 
 	binPath := CacheBinPathIn(installRoot, "node", cacheVer, "node")
 	// Re-check after acquiring the lock (another process may have installed it).
@@ -130,21 +132,21 @@ func resolveNode(rootDir, version string) (Result, error) {
 	}
 
 	if err := extractTarGzTree(archivePath, installDir, 1); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain node %s: extraction failed: %w", version, err)
 	}
 	if _, err := os.Stat(binPath); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain node %s: binary not found after extraction at %s", version, binPath)
 	}
 	binSHA, err := fileSHA256(binPath)
 	if err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain node %s: binary checksum failed: %w", version, err)
 	}
 	meta := Metadata{Tool: "node", Version: version, Platform: platform, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}
 	if err := writeMetadataTo(installRoot, "node", cacheVer, meta); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain node %s: metadata write failed (install aborted): %w", version, err)
 	}
 	return Result{Tool: "node", Version: version, Path: binPath, CacheHit: false, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}, nil

@@ -31,6 +31,7 @@ var rootCmd = &cobra.Command{
 	Short: "Declarative lifecycle runtime — there's a setting for every stage, this is theatre!",
 	Long:  "StageFreight — a declarative lifecycle runtime that governs Git as the source of truth, enforcing operator-defined intent across GitOps workflows, Kubernetes, Docker, and CI ecosystems.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		ensureWritableHome()
 		// Skip config loading for commands that operate on the binary or the host,
 		// not the project — they MUST work even when .stagefreight.yml is absent or
 		// unparseable by the current binary. In particular `update` replaces the very

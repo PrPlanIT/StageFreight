@@ -19,6 +19,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
@@ -178,9 +179,6 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 		sw = os.Stderr
 	}
 
-	// Resolve persistent cache for scanner vulnerability DBs.
-	// Capability-based: use /stagefreight/cache/<tool> if mounted, else tools use defaults.
-	// Enforce size cap before scan: full-clear when over max_size (opaque DBs, no granular eviction).
 	trivyCacheDir := resolveScannerCacheDir("trivy")
 	grypeCacheDir := resolveScannerCacheDir("grype")
 	if trivyCacheDir != "" || grypeCacheDir != "" {
@@ -188,31 +186,14 @@ func Scan(ctx context.Context, cfg ScanConfig) (*ScanResult, error) {
 	} else {
 		result.CacheMode = "ephemeral"
 	}
-	// Eviction: age and size are independent signals, not mutually exclusive.
-	// Either triggers full-clear. If age already cleared, size check is moot
-	// (dir is empty). Track reason for output.
-	if trivyCacheDir != "" {
-		var reason string
-		if cfg.TrivyCacheMaxAge != "" && enforceScannerCacheAge(trivyCacheDir, cfg.TrivyCacheMaxAge) {
-			reason = "age"
-		}
-		if reason == "" && cfg.TrivyCacheMax != "" && enforceScannerCacheCap(trivyCacheDir, cfg.TrivyCacheMax) {
-			reason = "size"
-		}
-		if reason != "" {
-			result.CacheCleared = append(result.CacheCleared, "trivy:"+reason)
-		}
-	}
-	if grypeCacheDir != "" {
-		var reason string
-		if cfg.GrypeCacheMaxAge != "" && enforceScannerCacheAge(grypeCacheDir, cfg.GrypeCacheMaxAge) {
-			reason = "age"
-		}
-		if reason == "" && cfg.GrypeCacheMax != "" && enforceScannerCacheCap(grypeCacheDir, cfg.GrypeCacheMax) {
-			reason = "size"
-		}
-		if reason != "" {
-			result.CacheCleared = append(result.CacheCleared, "grype:"+reason)
+	for _, c := range []struct{ tool, dir, maxAge, maxSize string }{
+		{"trivy", trivyCacheDir, cfg.TrivyCacheMaxAge, cfg.TrivyCacheMax},
+		{"grype", grypeCacheDir, cfg.GrypeCacheMaxAge, cfg.GrypeCacheMax},
+	} {
+		if reason := scannerCacheOverPolicy(c.dir, c.maxAge, c.maxSize); reason != "" {
+			if resetScannerCache(c.dir, reason) {
+				result.CacheCleared = append(result.CacheCleared, c.tool+":"+reason)
+			}
 		}
 	}
 
@@ -548,93 +529,55 @@ func filterBySeverity(vulns []Vulnerability, severity string) []Vulnerability {
 	return out
 }
 
-// resolveScannerCacheDir returns a persistent cache path for a scanner's
-// vulnerability DB, or empty string if no persistent cache is available.
-// Capability-based: uses /stagefreight/cache/<tool> if mounted and writable.
-// Failure to use persistent cache is non-fatal — scanners fall back to defaults.
+// resolveScannerCacheDir returns the leased persistent cache unit for a scanner's
+// vulnerability DB, or "" when there is none (the scanner then uses its default).
 func resolveScannerCacheDir(tool string) string {
-	sfCache := filepath.Join("/stagefreight", "cache", tool)
-	if info, err := os.Stat("/stagefreight"); err == nil && info.IsDir() {
-		if err := os.MkdirAll(sfCache, 0o755); err == nil {
-			return sfCache
-		}
-	}
-	return ""
+	return paths.CacheUnit(tool)
 }
 
-// enforceScannerCacheAge checks if the oldest file in a scanner cache exceeds maxAge.
-// If so, full-clears the directory. Returns true if cleared.
-func enforceScannerCacheAge(cacheDir, maxAge string) bool {
-	dur, err := config.ParseDuration(maxAge)
-	if err != nil || dur <= 0 {
-		return false
+// scannerCacheOverPolicy names the policy a scanner DB cache breaks — "age" when its
+// oldest file is older than maxAge, "size" when it is larger than maxSize — or "".
+// These are opaque tool-managed DBs: a cache over policy is cleared whole.
+func scannerCacheOverPolicy(dir, maxAge, maxSize string) string {
+	if dir == "" {
+		return ""
 	}
-
-	cutoff := time.Now().Add(-dur)
 	var oldest time.Time
-
-	if walkErr := filepath.Walk(cacheDir, func(_ string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	var total int64
+	if err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || info.Name() == paths.UnitLeaseName {
 			return nil
 		}
 		if oldest.IsZero() || info.ModTime().Before(oldest) {
 			oldest = info.ModTime()
 		}
+		total += info.Size()
 		return nil
-	}); walkErr != nil {
-		diag.Warn("scanner cache %s: walk failed: %v", cacheDir, walkErr)
-		return false
+	}); err != nil {
+		diag.Warn("scanner cache %s: walk failed: %v", dir, err)
+		return ""
 	}
-
-	if !oldest.IsZero() && oldest.Before(cutoff) {
-		diag.Info("scanner cache %s oldest file exceeds %s, clearing", cacheDir, maxAge)
-		if err := os.RemoveAll(cacheDir); err != nil {
-			diag.Warn("scanner cache %s: clear failed: %v", cacheDir, err)
-			return false
-		}
-		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-			diag.Warn("scanner cache %s: recreate failed: %v", cacheDir, err)
-		}
-		return true
+	if d, err := config.ParseDuration(maxAge); err == nil && d > 0 && !oldest.IsZero() && oldest.Before(time.Now().Add(-d)) {
+		return "age"
 	}
-	return false
+	if n, err := config.ParseSize(maxSize); err == nil && n > 0 && total > n {
+		return "size"
+	}
+	return ""
 }
 
-// enforceScannerCacheCap checks if a scanner cache directory exceeds maxSize.
-// If over cap, deletes the entire directory (full-clear). These are opaque
-// tool-managed DBs — no granular eviction, just bounded hosting.
-// Errors are non-fatal but observable — silent failure would make cache
-// behavior non-deterministic.
-func enforceScannerCacheCap(cacheDir, maxSize string) bool {
-	maxBytes, err := config.ParseSize(maxSize)
-	if err != nil || maxBytes <= 0 {
-		return false
+// resetScannerCache clears dir unless another run is using it, reporting whether it did.
+func resetScannerCache(dir, reason string) bool {
+	done, err := paths.ResetUnit(dir)
+	switch {
+	case err != nil:
+		diag.Warn("scanner cache %s: clear failed: %v", dir, err)
+	case done:
+		diag.Info("scanner cache %s over its %s policy, cleared", dir, reason)
+	default:
+		diag.Info("scanner cache %s over its %s policy, kept: another run is using it", dir, reason)
 	}
-
-	var totalSize int64
-	if walkErr := filepath.Walk(cacheDir, func(_ string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		totalSize += info.Size()
-		return nil
-	}); walkErr != nil {
-		diag.Warn("scanner cache %s: walk failed: %v", cacheDir, walkErr)
-		return false
-	}
-
-	if totalSize > maxBytes {
-		diag.Info("scanner cache %s exceeds %s (%d bytes), clearing", cacheDir, maxSize, totalSize)
-		if err := os.RemoveAll(cacheDir); err != nil {
-			diag.Warn("scanner cache %s: clear failed: %v", cacheDir, err)
-			return false
-		}
-		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-			diag.Warn("scanner cache %s: recreate failed: %v", cacheDir, err)
-		}
-		return true
-	}
-	return false
+	return done
 }
 
 func titleCase(s string) string {

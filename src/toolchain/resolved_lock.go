@@ -28,7 +28,7 @@ type LockEntry struct {
 // toolchain constraint resolved to (the Cargo.lock to .stagefreight.yml's Cargo.toml).
 // The config declares INTENT (constraints); this records the machine-maintained
 // RESOLUTION. Entries are kept sorted by Name so serialization is deterministic.
-// (Distinct from the install flock in lock.go — that guards a download directory; this
+// (Distinct from the install flock paths.AcquireInstallLock — that guards a download directory; this
 // is persisted project state.)
 type Lock struct {
 	LockfileVersion int         `json:"lockfileVersion"`

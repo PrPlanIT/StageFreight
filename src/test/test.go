@@ -22,12 +22,12 @@ import (
 // tests that exec git, a C toolchain for cgo/-race) — TEST TIME only, the shipped
 // image stays minimal. Returns the realized outcomes for structured reporting. A
 // capability that can't be realized is warned by name; the suites still run.
-func realizeSubstrate(ctx context.Context, suites []ResolvedSuite) []substrate.Realized {
+func realizeSubstrate(ctx context.Context, rootDir string, suites []ResolvedSuite) []substrate.Realized {
 	needs := substrateNeeds(suites)
 	if len(needs) == 0 {
 		return nil
 	}
-	realized, err := substrate.NewRealizer(toolchain.SubstrateCacheDir()).Realize(ctx, needs)
+	realized, err := substrate.NewRealizer(rootDir, toolchain.SubstrateCacheDir()).Realize(ctx, needs)
 	if err != nil {
 		diag.Warn("%v", err)
 	}
@@ -72,7 +72,7 @@ func goSuiteEnv(toolPath string, race bool) []string {
 	return env
 }
 
-func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolchain.Result, desired map[string]config.ToolConstraint, onPkg func(PackageResult)) SuiteResult {
+func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolchain.Result, desired map[string]config.ToolConstraint, sub []substrate.Realized, onPkg func(PackageResult)) SuiteResult {
 	sr := SuiteResult{ID: s.ID, Tool: s.Tool, Gate: s.Gate}
 	if len(s.Argv) == 0 {
 		sr.Status = StatusSkipped
@@ -91,7 +91,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 		// tool is pre-resolved in the provisioning phase (RunRender) so it appears in
 		// the environment ledger; here we just execute against it.
 		argv[0] = tool.Path
-		env = goSuiteEnv(tool.Path, hasFlag(argv, "-race"))
+		env = substrate.ApplyEnv(goSuiteEnv(tool.Path, hasFlag(argv, "-race")), sub)
 		return runGoSuite(ctx, sr, tool.Path, s, argv, env, onPkg)
 
 	case config.TestToolRust:
@@ -101,6 +101,7 @@ func runSuite(ctx context.Context, rootDir string, s ResolvedSuite, tool toolcha
 			env = append(env, "CARGO_HOME="+ch)
 		}
 		env = setEnv(env, "PATH", filepath.Dir(tool.Path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		env = substrate.ApplyEnv(env, sub)
 		return runRustSuite(ctx, sr, rootDir, s, argv, env, desired, onPkg)
 
 	case config.TestToolPython:
@@ -220,7 +221,7 @@ func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string
 	// bypass Resolve, so record them into the ledger explicitly.
 	provision.Record(ctx, provision.FromToolchain(res, "Rust coverage instrumentation"))
 	rustVer := toolchain.ResolveRustVersion(crateDir, rootDir)
-	if err := toolchain.EnsureRustLlvmTools(cargoBin, rustVer); err != nil {
+	if err := toolchain.EnsureRustLlvmTools(rootDir, cargoBin, rustVer); err != nil {
 		return nil, fmt.Errorf("provisioning llvm-tools: %w", err)
 	}
 	provision.Record(ctx, provision.Entry{Tool: "llvm-tools", Version: rustVer, Via: "rust-lang", Verified: provision.VerifiedDelegated, Purpose: "Rust coverage (rustup component)"})
@@ -323,7 +324,7 @@ func runGoSuite(ctx context.Context, sr SuiteResult, goBin string, s ResolvedSui
 }
 
 // substrateNeeds derives the native capabilities the suites require — git for Go
-// tests (repo fixtures, mirror clones, system-git transport) and a C toolchain for
+// tests that exec git (repo fixtures) and a C toolchain for
 // `go test -race` / Rust linking — as abstract capabilities, deduped by cap+source.
 func substrateNeeds(suites []ResolvedSuite) []substrate.Need {
 	var needs []substrate.Need

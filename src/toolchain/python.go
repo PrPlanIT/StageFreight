@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime"
 	"time"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // Python is provisioned from python-build-standalone (astral) install_only builds —
@@ -75,11 +77,11 @@ func resolvePython(rootDir, version string) (Result, error) {
 
 	installRoot := InstallRoot(rootDir)
 	installDir := CacheDirIn(installRoot, "python", cacheVer)
-	lock, err := AcquireInstallLock(installDir, 5*time.Minute)
+	lock, err := paths.AcquireInstallLock(installDir, 5*time.Minute)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain python %s: %w", version, err)
 	}
-	defer ReleaseInstallLock(lock)
+	defer paths.ReleaseInstallLock(lock)
 
 	binPath := CacheBinPathIn(installRoot, "python", cacheVer, "python3")
 	if _, err := os.Stat(binPath); err == nil {
@@ -108,21 +110,21 @@ func resolvePython(rootDir, version string) (Result, error) {
 	}
 
 	if err := extractTarGzTree(archivePath, installDir, 1); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain python %s: extraction failed: %w", version, err)
 	}
 	if _, err := os.Stat(binPath); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain python %s: binary not found after extraction at %s", version, binPath)
 	}
 	binSHA, err := fileSHA256(binPath)
 	if err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain python %s: binary checksum failed: %w", version, err)
 	}
 	meta := Metadata{Tool: "python", Version: version, Platform: platform, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}
 	if err := writeMetadataTo(installRoot, "python", cacheVer, meta); err != nil {
-		os.RemoveAll(installDir)
+		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain python %s: metadata write failed (install aborted): %w", version, err)
 	}
 	return Result{Tool: "python", Version: version, Path: binPath, CacheHit: false, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}, nil

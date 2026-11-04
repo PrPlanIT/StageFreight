@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/retention"
 )
 
@@ -127,7 +128,7 @@ func scanInstalledVersions(installRoot string) (map[string][]versionEntry, error
 			continue
 		}
 		for _, verDir := range versions {
-			if !verDir.IsDir() || verDir.Name() == ".lock" {
+			if !verDir.IsDir() || paths.IsTombstone(verDir.Name()) {
 				continue
 			}
 			metaPath := filepath.Join(installRoot, toolName, verDir.Name(), ".metadata.json")

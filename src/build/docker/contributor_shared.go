@@ -137,9 +137,11 @@ func runPostBuildRetention(rc *domains.RunContext, plan *build.BuildPlan, backen
 		if pruneResult.Error != nil {
 			fmt.Fprintf(w, "    ⚠ cache prune failed — retention policy not enforced: %v\n", pruneResult.Error)
 		}
-	} else {
-		renderLocalRetention(w, color, enforceLocalRetention(
-			LocalCacheDir(repoID, rc.Config.BuildCache.Local), rc.Config.BuildCache.Local.Retention))
+	}
+	if bc := rc.Config.BuildCache; bc.IsActive() && (bc.Mode == "local" || bc.Mode == "hybrid") {
+		if dir := LocalCacheDir(repoID, bc.Local); dir != "" {
+			renderLocalRetention(w, color, promoteLocalCache(dir, bc.Local.Retention))
+		}
 	}
 	ext := rc.Config.BuildCache.External
 	if ext.Registry != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {

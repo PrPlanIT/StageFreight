@@ -12,7 +12,10 @@ package runner
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,20 +55,21 @@ type RunnerIdentity struct {
 // regardless of whether it is a CI runner, local machine, or SF daemon node.
 // No mode parameters. No policy. No severity. Just facts.
 type SubstrateFacts struct {
-	DockerSocket         string  `json:"docker_socket"` // path if found, "" if absent
-	DockerAvailable      bool    `json:"docker_available"`
-	DindDetected         bool    `json:"dind_detected"`
-	BuildKitAvailable    bool    `json:"buildkit_available"` // Docker's BuildKit, or a standalone buildkitd
-	BuildKitHost         string  `json:"buildkit_host"`      // reachable remote buildkitd (BUILDKIT_HOST), "" if none
-	BuildxAvailable      bool    `json:"buildx_available"`
-	DiskFreeMB           int64   `json:"disk_free_mb"` // .stagefreight filesystem
-	TmpFreeMB            int64   `json:"tmp_free_mb"`
-	MemAvailableMB       int64   `json:"mem_available_mb"` // lower of the cgroup headroom and node MemAvailable; -1 if unsupported
-	MemLimitMB           int64   `json:"mem_limit_mb"`     // cgroup memory limit; -1 if unlimited or unsupported
-	CPULoadAvg1          float64 `json:"cpu_load_avg1"`    // -1 if unsupported
-	StagefreightWritable bool    `json:"stagefreight_writable"`
-	WorkdirReadable      bool    `json:"workdir_readable"`
-	InodePctFree         int     `json:"inode_pct_free"` // -1 if unsupported
+	DockerSocket         string   `json:"docker_socket"` // path if found, "" if absent
+	DockerAvailable      bool     `json:"docker_available"`
+	DindDetected         bool     `json:"dind_detected"`
+	BuildKitAvailable    bool     `json:"buildkit_available"` // Docker's BuildKit, or a standalone buildkitd
+	BuildKitHost         string   `json:"buildkit_host"`      // reachable remote buildkitd (BUILDKIT_HOST), "" if none
+	BuildxAvailable      bool     `json:"buildx_available"`
+	DiskFreeMB           int64    `json:"disk_free_mb"` // .stagefreight filesystem
+	TmpFreeMB            int64    `json:"tmp_free_mb"`
+	MemAvailableMB       int64    `json:"mem_available_mb"` // lower of the cgroup headroom and node MemAvailable; -1 if unsupported
+	MemLimitMB           int64    `json:"mem_limit_mb"`     // cgroup memory limit; -1 if unlimited or unsupported
+	CPULoadAvg1          float64  `json:"cpu_load_avg1"`    // -1 if unsupported
+	StagefreightWritable bool     `json:"stagefreight_writable"`
+	WorkdirReadable      bool     `json:"workdir_readable"`
+	InodePctFree         int      `json:"inode_pct_free"`          // -1 if unsupported
+	AccessDenied         []string `json:"access_denied,omitempty"` // build endpoints present but closed to this uid
 }
 
 // Finding is Layer 2: policy applied to facts.
@@ -183,6 +187,7 @@ func CollectFacts(rootDir string) SubstrateFacts {
 
 	// ── Docker detection (always runs — unconditional by design) ──────────────
 	facts.DockerSocket, facts.DockerAvailable = DockerDaemon()
+	facts.AccessDenied = accessDenied(facts.DockerSocket)
 
 	// BuildKit availability: Docker ships BuildKit, but BuildKit can also be available
 	// standalone (pure buildkitd, remote builder, buildkitd sidecar without Docker).
@@ -358,7 +363,7 @@ func EvaluateHealth(facts SubstrateFacts, opts Options) ([]Finding, HealthGrade)
 		findings = append(findings, Finding{
 			ID:       "docker_absent",
 			Status:   "fail",
-			Detail:   "docker socket not available",
+			Detail:   withAccessDenied("docker socket not available", facts.AccessDenied),
 			Severity: dockerSeverity,
 		})
 	} else {
@@ -378,7 +383,7 @@ func EvaluateHealth(facts SubstrateFacts, opts Options) ([]Finding, HealthGrade)
 			findings = append(findings, Finding{
 				ID:       "build_substrate_absent",
 				Status:   "fail",
-				Detail:   detail,
+				Detail:   withAccessDenied(detail, facts.AccessDenied),
 				Severity: "hard_fail",
 			})
 		}
@@ -525,6 +530,30 @@ func DockerDaemon() (endpoint string, available bool) {
 	// Prove via the daemon, NOT os.Open: open(2) on a unix socket returns ENXIO
 	// ("no such device or address") — you connect() a socket, you don't open() it.
 	return socketPath, probeDockerDaemon()
+}
+
+// accessDenied lists the build endpoints that exist but this uid can't use: the docker
+// socket, and the BuildKit client PKI.
+func accessDenied(dockerSocket string) []string {
+	var out []string
+	if dockerSocket != "" && !strings.HasPrefix(dockerSocket, "tcp://") {
+		conn, err := net.DialTimeout("unix", dockerSocket, 2*time.Second)
+		if err == nil {
+			conn.Close()
+		} else if errors.Is(err, fs.ErrPermission) {
+			out = append(out, dockerSocket)
+		}
+	}
+	return append(out, unreadableBuildKitCerts(BuildKitCertPath())...)
+}
+
+// withAccessDenied appends to detail the endpoints closed to this uid and how to open them.
+func withAccessDenied(detail string, denied []string) string {
+	if len(denied) == 0 {
+		return detail
+	}
+	return fmt.Sprintf("%s; uid %d (gid %d) can't use %s — grant this uid access (the socket's group, a group-readable key) or run the job as their owner",
+		detail, os.Getuid(), os.Getgid(), strings.Join(denied, ", "))
 }
 
 // probeDockerDaemon runs docker info to verify daemon reachability.

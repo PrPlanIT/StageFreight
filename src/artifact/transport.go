@@ -1,14 +1,12 @@
 package artifact
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"compress/gzip"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/PrPlanIT/StageFreight/src/unpack"
 )
 
 // ArtifactTransport is a successful build's publish-transport representation inside
@@ -83,23 +81,9 @@ func (t ArtifactTransport) Extract(destDir string) error {
 		return err
 	}
 	if t.Format == "zip" {
-		return extractZipTo(t.Path, destDir)
+		return unpack.Zip(t.Path, destDir)
 	}
-	return extractTarGzTo(t.Path, destDir)
-}
-
-// safeJoin prevents archive path-traversal (zip-slip): the resolved path must stay
-// within destDir.
-func safeJoin(destDir, name string) (string, error) {
-	target := filepath.Join(destDir, name)
-	if target != destDir && !strings.HasPrefix(target, destDir+string(os.PathSeparator)) {
-		return "", fmt.Errorf("archive entry %q escapes destination", name)
-	}
-	return target, nil
-}
-
-func extractTarGzTo(archivePath, destDir string) error {
-	f, err := os.Open(archivePath)
+	f, err := os.Open(t.Path)
 	if err != nil {
 		return err
 	}
@@ -109,77 +93,5 @@ func extractTarGzTo(archivePath, destDir string) error {
 		return err
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		target, err := safeJoin(destDir, hdr.Name)
-		if err != nil {
-			return err
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode)&0o777)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // sizes are our own archives
-				out.Close()
-				return err
-			}
-			out.Close()
-		}
-	}
-}
-
-func extractZipTo(archivePath, destDir string) error {
-	zr, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return err
-	}
-	defer zr.Close()
-	for _, zf := range zr.File {
-		target, err := safeJoin(destDir, zf.Name)
-		if err != nil {
-			return err
-		}
-		if zf.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		rc, err := zf.Open()
-		if err != nil {
-			return err
-		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, zf.Mode()&0o777)
-		if err != nil {
-			rc.Close()
-			return err
-		}
-		if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // sizes are our own archives
-			out.Close()
-			rc.Close()
-			return err
-		}
-		out.Close()
-		rc.Close()
-	}
-	return nil
+	return unpack.Tar(gz, destDir, 0)
 }

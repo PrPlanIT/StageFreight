@@ -14,6 +14,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/version"
 )
 
@@ -97,13 +98,9 @@ func ResolveCacheDir(rootDir string, configDir string) string {
 	h := sha256.Sum256([]byte(identity))
 	projectHash := hex.EncodeToString(h[:])[:12]
 
-	// 3. Persistent runtime root — capability-based: use if mounted AND writable.
-	if info, err := os.Stat("/stagefreight"); err == nil && info.IsDir() {
-		sfCache := filepath.Join("/stagefreight", "cache", "lint", projectHash)
-		if err := os.MkdirAll(sfCache, 0o755); err == nil {
-			return sfCache
-		}
-		// Mounted but not writable — fall through to XDG.
+	// 3. The persistent cache root (paths.ResolveCacheRoot), leased.
+	if dir := paths.CacheUnit("lint", projectHash); dir != "" {
+		return dir
 	}
 
 	// 4. XDG-aware default via os.UserCacheDir

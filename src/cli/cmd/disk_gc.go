@@ -36,8 +36,16 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 
 	freeBefore := prune.FreeBytes(root)
 	results := prune.Execute(ctx, actions, true)
+	pressured := used >= prune.DefaultTarget
+	if !pressured && quiet(results) {
+		return // only the daemon budget ran, and it was already within budget
+	}
 	sec := output.NewSection(os.Stdout, "Disk GC", time.Since(start), color)
-	sec.Row("disk         %.0f%% used ≥ target %.0f%% — enforcing SF-owned lifecycle", used*100, prune.DefaultTarget*100)
+	if pressured {
+		sec.Row("disk         %.0f%% used ≥ target %.0f%% — enforcing SF-owned lifecycle", used*100, prune.DefaultTarget*100)
+	} else {
+		sec.Row("disk         %.0f%% used — enforcing the runner's daemon image budget", used*100)
+	}
 	sec.Separator()
 	var freed int64
 	for _, r := range results {
@@ -68,4 +76,14 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 	}
 	sec.Row("freed %s · disk %.0f%% → %.0f%% used", humanGCBytes(reclaimed), used*100, prune.UsedFraction(root)*100)
 	sec.Close()
+}
+
+// quiet reports whether no action removed, skipped or failed anything.
+func quiet(results []prune.ActionResult) bool {
+	for _, r := range results {
+		if len(r.Items) > 0 || r.Skipped != "" || r.Err != nil {
+			return false
+		}
+	}
+	return true
 }

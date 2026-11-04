@@ -52,6 +52,14 @@ Both register a `docker` executor pinned to the host socket
 `dind` (and `buildkitd`) resolve as service aliases. Each job is injected with `DOCKER_HOST`,
 `DOCKER_TLS_VERIFY`, and `DOCKER_CERT_PATH` (`--env`), so any Docker-consuming job reaches the
 daemon over verified TLS and runs unprivileged — privileged work is isolated to the companions.
+The StageFreight image runs as uid 1000 in group 0, so the full stack keeps the cache group-0
+writable and the BuildKit client key group-0 readable; a job run as another uid needs the same
+access.
+
+DinD keeps every image a job pulls. Bound it in the job env: `SF_DAEMON_GC_MAX_SIZE` (image
+store budget) and `SF_DAEMON_GC_MAX_AGE` (evict images not pulled within it). StageFreight then
+removes images no container uses, least recently pulled first, never one pulled within
+`SF_DAEMON_GC_MIN_AGE` (default `2m`). Unset, images are kept.
 
 !!! note "These are the configs we run — adapt them"
     Host paths (`/opt/docker/gitlab-runner/…`), DNS servers, and tokens are environment-specific.
@@ -94,7 +102,7 @@ pods, a read-only root filesystem, and a buildkitd for image builds. Give the jo
 | Need | Provide |
 |---|---|
 | Image builds | A buildkitd the jobs can reach: `BUILDKIT_HOST=tcp://<buildkitd>:1234`, plus its client certs (`ca.pem`, `cert.pem`, `key.pem`) at `/buildkit-certs` (or `BUILDKIT_CERT_PATH`). Builds go through buildx's remote driver. |
-| Caches | A ReadWriteMany volume at `/stagefreight` (`SF_CACHE_ROOT=/stagefreight`). It keeps toolchains, Go caches and scanner databases across jobs; without it every job downloads them again. StageFreight's disk GC bounds it, and never evicts while another job is using it. |
+| Caches | A ReadWriteMany volume at `/stagefreight` (`SF_CACHE_ROOT=/stagefreight`). It keeps toolchains, Go caches and scanner databases across jobs; without it every job downloads them again. StageFreight's disk GC bounds it, and never evicts a cache a running job is using. |
 | Scratch | Writable `HOME`, `/tmp` and build directory, on a volume (a generic ephemeral volume per job keeps job data off the node's disk). |
 | Memory | Enough for the audition's test run. The Executor panel reports headroom under the job's own memory limit. |
 

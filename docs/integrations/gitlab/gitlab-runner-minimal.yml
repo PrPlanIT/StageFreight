@@ -46,10 +46,12 @@ services:
             --docker-image=alpine:latest \
             --docker-network-mode=stagefreight \
             --docker-privileged=false \
+            --docker-security-opt=no-new-privileges \
             --docker-volumes=/opt/docker/gitlab-runner/certs/client:/certs/client:ro \
             --env=DOCKER_CERT_PATH=/certs/client \
             --env=DOCKER_HOST=tcp://dind:2376 \
             --env=DOCKER_TLS_VERIFY=1 \
+            --env=SF_DAEMON_GC_MAX_SIZE=8GB \
             --executor=docker \
             --name=$${RUNNER_NAME:-"GitLab Runner"} \
             --non-interactive \

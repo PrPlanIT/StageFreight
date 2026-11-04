@@ -158,6 +158,9 @@ func emitJob(buf *bytes.Buffer, j model.Job, p model.Pipeline, d Dialect, stages
 	if def.Image != "" {
 		buf.WriteString("    container:\n")
 		fmt.Fprintf(buf, "      image: %s\n", def.Image)
+		// The runner mounts the workspace and HOME owned by its own uid; the image's
+		// unprivileged default user couldn't write them.
+		buf.WriteString("      options: --user root\n")
 	}
 
 	// needs (explicit, or derived from the preceding stage)

@@ -22,6 +22,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/PrPlanIT/StageFreight/src/diag"
 )
 
 // CacheRootEnv overrides the Cache bucket's backing root. Set it when neither the
@@ -134,15 +137,34 @@ func resolveCacheRoot(explicit string) string {
 		return explicit
 	}
 	if v := strings.TrimSpace(os.Getenv(CacheRootEnv)); v != "" {
+		warnUnwritableRoot(v)
 		return v
 	}
 	if writableDir(DefaultCacheRoot) {
 		return DefaultCacheRoot
 	}
+	warnUnwritableRoot(DefaultCacheRoot)
 	if xdg := xdgCacheDir(); xdg != "" && writableDir(xdg) {
 		return xdg
 	}
 	return ""
+}
+
+var warnedRoots sync.Map
+
+// warnUnwritableRoot warns, once per root, when root exists but this uid can't write
+// it: every cache under it is then skipped and the run rebuilds from nothing.
+func warnUnwritableRoot(root string) {
+	fi, err := os.Stat(root)
+	if err != nil || !fi.IsDir() || writableDir(root) {
+		return
+	}
+	if _, seen := warnedRoots.LoadOrStore(root, true); seen {
+		return
+	}
+	diag.Warn("cache root %s exists but uid %d (gid %d) can't write it — this run is uncached. "+
+		"Make it group-0 writable (chgrp -R 0 %s && chmod -R g+rwX %s) or run as its owner.",
+		root, os.Getuid(), os.Getgid(), root, root)
 }
 
 // xdgCacheDir is the native user cache root: $XDG_CACHE_HOME/stagefreight, else

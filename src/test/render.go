@@ -47,7 +47,8 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 	// Record substrate + each suite's toolchain into the run ledger (resolveSuiteToolchain
 	// records via provision.Resolve). No inline render — the tools flow to the ctx ledger
 	// and the phase runner (cli/cmd) renders "Staged Tools". Presentation lives there.
-	provision.RecordCtxAll(ctx, provision.FromSubstrate(realizeSubstrate(ctx, suites)))
+	realized := realizeSubstrate(ctx, rootDir, suites)
+	provision.RecordCtxAll(ctx, provision.FromSubstrate(realized))
 	tools := make([]toolchain.Result, len(suites))
 	toolErrs := make([]error, len(suites))
 	for i, s := range suites {
@@ -86,12 +87,12 @@ func RunRender(ctx context.Context, suites []ResolvedSuite, rootDir string, desi
 			// of the Test box rather than a stray phrase.
 			output.SectionStart(w, "sf_test_"+s.ID, "──── per-package results ────")
 			sec.Row("    %-24s %6s %4s  %s", "package", "time", "cov", "description")
-			sr = runSuite(ctx, rootDir, s, tools[i], desired, func(p PackageResult) {
+			sr = runSuite(ctx, rootDir, s, tools[i], desired, realized, func(p PackageResult) {
 				renderPackageRow(sec, p, color)
 			})
 			output.SectionEnd(w, "sf_test_"+s.ID)
 		default:
-			sr = runSuite(ctx, rootDir, s, tools[i], desired, nil)
+			sr = runSuite(ctx, rootDir, s, tools[i], desired, realized, nil)
 		}
 		res.Suites = append(res.Suites, sr)
 		renderSuiteSummary(sec, sr, color)

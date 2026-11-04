@@ -4,123 +4,73 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"time"
+	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
-// LocalRetentionResult records what the local cache retention executor did.
+// LocalRetentionResult records what promoting the local cache generation did.
 type LocalRetentionResult struct {
-	Dir           string
-	EntriesBefore int
-	Pruned        int
-	PrunedBytes   int64
-	Reason        string // "" if nothing to do
+	Dir      string
+	Promoted bool  // this build's export is now the current generation
+	Bytes    int64 // the current generation's size
+	Reason   string
 }
 
-// enforceLocalRetention prunes local BuildKit cache by age then size.
-// BuildKit's type=local cache stores blobs in the cache directory.
-// We prune at the directory level — remove oldest entries first.
-func enforceLocalRetention(dir string, retention config.LocalRetention) LocalRetentionResult {
+// promoteLocalCache makes this build's exported generation the repo's current one and
+// removes the previous and any abandoned exports — only while no other run of the repo
+// is using its cache, so a running build never loses the generation it imports. A
+// generation larger than max_size is discarded.
+func promoteLocalCache(dir string, retention config.LocalRetention) LocalRetentionResult {
 	result := LocalRetentionResult{Dir: dir}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			result.Reason = "cache dir does not exist (no prior cache)"
-			return result
-		}
-		result.Reason = fmt.Sprintf("cache dir unreadable: %v", err)
+	next := localNext(dir)
+	if _, err := os.Stat(next); err != nil {
+		result.Reason = "no cache exported by this build"
 		return result
 	}
-	result.EntriesBefore = len(entries)
-
-	// Phase 1: prune by max_age.
-	if retention.MaxAge != "" {
-		maxAge, err := config.ParseDuration(retention.MaxAge)
+	ran, err := paths.WithUnitExclusive(dir, func() error {
+		size := dirSize(next)
+		if max, perr := config.ParseSize(retention.MaxSize); perr == nil && max > 0 && size > max {
+			result.Reason = fmt.Sprintf("generation %s exceeds max_size %s — discarded", formatBytes(size), retention.MaxSize)
+			return paths.RemoveAllWritable(next)
+		}
+		ents, err := os.ReadDir(dir)
 		if err != nil {
-			result.Reason = fmt.Sprintf("invalid max_age %q: %v", retention.MaxAge, err)
-			return result
+			return err
 		}
-		if maxAge > 0 {
-			cutoff := time.Now().Add(-maxAge)
-			for _, e := range entries {
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				if info.ModTime().Before(cutoff) {
-					path := filepath.Join(dir, e.Name())
-					size := dirSize(path)
-					if os.RemoveAll(path) == nil {
-						result.Pruned++
-						result.PrunedBytes += size
-					}
+		for _, e := range ents {
+			p := filepath.Join(dir, e.Name())
+			if e.IsDir() && p != next && (e.Name() == localCurrent || strings.HasPrefix(e.Name(), localNextPrefix)) {
+				if err := paths.RemoveAllWritable(p); err != nil {
+					return err
 				}
 			}
 		}
+		if err := os.Rename(next, filepath.Join(dir, localCurrent)); err != nil {
+			return err
+		}
+		result.Promoted, result.Bytes = true, size
+		return nil
+	})
+	switch {
+	case err != nil:
+		result.Reason = fmt.Sprintf("promote failed: %v", err)
+		_ = paths.RemoveAllWritable(next)
+	case !ran:
+		result.Reason = "another run of this repo is using the cache — kept the current generation"
+		_ = paths.RemoveAllWritable(next)
 	}
-
-	// Phase 2: enforce max_size by evicting oldest entries.
-	if retention.MaxSize != "" {
-		maxBytes, err := config.ParseSize(retention.MaxSize)
-		if err != nil {
-			result.Reason = fmt.Sprintf("invalid max_size %q: %v", retention.MaxSize, err)
-			return result
-		}
-		if maxBytes > 0 {
-			// Re-read after age pruning.
-			entries, _ = os.ReadDir(dir)
-			type entry struct {
-				name    string
-				size    int64
-				modTime time.Time
-			}
-			var all []entry
-			var totalSize int64
-			for _, e := range entries {
-				path := filepath.Join(dir, e.Name())
-				size := dirSize(path)
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				all = append(all, entry{name: e.Name(), size: size, modTime: info.ModTime()})
-				totalSize += size
-			}
-
-			// Sort oldest first.
-			sort.Slice(all, func(i, j int) bool {
-				return all[i].modTime.Before(all[j].modTime)
-			})
-
-			for _, e := range all {
-				if totalSize <= maxBytes {
-					break
-				}
-				path := filepath.Join(dir, e.name)
-				if os.RemoveAll(path) == nil {
-					result.Pruned++
-					result.PrunedBytes += e.size
-					totalSize -= e.size
-				}
-			}
-		}
-	}
-
 	return result
 }
 
 func renderLocalRetention(w interface{ Write([]byte) (int, error) }, color bool, result LocalRetentionResult) {
 	sec := output.NewSection(w, "Cache Retention (local)", 0, color)
 	sec.Row("%-14s%s", "path", result.Dir)
-	sec.Row("%-14s%d", "entries", result.EntriesBefore)
-	sec.Row("%-14s%d", "pruned", result.Pruned)
-	if result.PrunedBytes > 0 {
-		sec.Row("%-14s%s", "reclaimed", formatBytes(result.PrunedBytes))
+	if result.Promoted {
+		sec.Row("%-14s%s", "generation", formatBytes(result.Bytes))
 	}
 	if result.Reason != "" {
 		sec.Row("%-14s%s", "note", result.Reason)

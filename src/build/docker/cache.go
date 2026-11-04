@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // CacheResolution records what was checked during cache setup.
@@ -54,15 +56,19 @@ func BuildCacheFlags(cfg config.BuildCacheConfig, repoID, branch string, registr
 	return nil, nil
 }
 
-// localFlags returns BuildKit local cache refs.
-// Returns nil if the local cache path isn't available (not mounted/writable).
+// localFlags returns BuildKit local cache refs: import from the repo's current cache
+// generation, export a new one (promoted by promoteLocalCache after the build). Nil when
+// the local cache isn't available.
 func localFlags(repoID string, localCfg config.LocalCacheConfig) (cacheFrom, cacheTo []build.CacheRef) {
 	if !LocalCacheAvailable(repoID, localCfg) {
 		return nil, nil
 	}
 	dir := LocalCacheDir(repoID, localCfg)
-	return []build.CacheRef{{Type: "local", Ref: dir, Direction: "import"}},
-		[]build.CacheRef{{Type: "local", Ref: dir, Mode: "max", Direction: "export"}}
+	if _, err := os.Stat(filepath.Join(dir, localCurrent, "index.json")); err == nil {
+		cacheFrom = []build.CacheRef{{Type: "local", Ref: filepath.Join(dir, localCurrent), Direction: "import"}}
+	}
+	cacheTo = []build.CacheRef{{Type: "local", Ref: localNext(dir), Mode: "max", Direction: "export"}}
+	return cacheFrom, cacheTo
 }
 
 // externalFlags returns BuildKit registry cache refs.
@@ -101,36 +107,43 @@ func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, regist
 	return cacheFrom, cacheTo
 }
 
-// LocalCacheDir resolves the local cache directory.
-// Default: /stagefreight/cache/buildkit/<repo-hash> (persistent runtime root).
-// Falls back to config override if set. Never uses /tmp.
-func LocalCacheDir(repoID string, cfg config.LocalCacheConfig) string {
-	hash := repoHash(repoID)
-	base := cfg.Path
-	if base == "" {
-		base = "/stagefreight/cache/buildkit"
-	}
-	return filepath.Join(base, hash)
+// localCurrent is the cache generation builds import from, inside a repo's local cache unit.
+const localCurrent = "current"
+
+// localNextPrefix names the generation a running build exports, one per process.
+const localNextPrefix = "next-"
+
+func localNext(dir string) string {
+	return filepath.Join(dir, localNextPrefix+strconv.Itoa(os.Getpid()))
 }
 
-// LocalCacheAvailable checks if the local cache path is writable.
-// Creates the full directory tree if it doesn't exist. The volume mount
-// shadows the image's directory, so we can't assume any structure exists.
+// LocalCacheDir is the repo's local BuildKit cache unit: <path>/<repo-hash> when
+// build_cache.local.path is set, else cache/buildkit/<repo-hash> under the cache root;
+// "" when neither is available.
+func LocalCacheDir(repoID string, cfg config.LocalCacheConfig) string {
+	hash := repoHash(repoID)
+	if cfg.Path != "" {
+		return filepath.Join(cfg.Path, hash)
+	}
+	if root := paths.ResolveCacheRoot(""); root != "" {
+		return paths.Cache(root, "cache", "buildkit", hash)
+	}
+	return ""
+}
+
+// LocalCacheAvailable leases the repo's local cache unit, creating it. A configured path
+// is used only when its parent exists, so an unmounted path never fills the container.
 func LocalCacheAvailable(repoID string, cfg config.LocalCacheConfig) bool {
 	dir := LocalCacheDir(repoID, cfg)
-	// Check mount point exists (/stagefreight).
-	mount := "/stagefreight"
+	if dir == "" {
+		return false
+	}
 	if cfg.Path != "" {
-		mount = filepath.Dir(cfg.Path)
+		if info, err := os.Stat(filepath.Dir(cfg.Path)); err != nil || !info.IsDir() {
+			return false
+		}
 	}
-	if info, err := os.Stat(mount); err != nil || !info.IsDir() {
-		return false
-	}
-	// Create the full path including intermediate dirs.
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return false
-	}
-	return true
+	return paths.LeaseUnit(dir) == nil
 }
 
 // BuilderName returns a deterministic, repo-scoped builder name.
