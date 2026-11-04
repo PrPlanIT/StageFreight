@@ -102,6 +102,11 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 		// nothing — use whatever is already staged
 	}
 
+	// 1a. Give intent-to-add entries git's semantics before the tree is built from the index.
+	if err := settleIntentToAdd(repo, plan.StageMode, plan.Paths); err != nil {
+		return nil, err
+	}
+
 	// 2. Read staged files
 	status, err := wt.Status()
 	if err != nil {
@@ -340,6 +345,65 @@ func stageDeletedChildren(repo *git.Repository, wt *git.Worktree, dir string) (i
 		staged++
 	}
 	return staged, nil
+}
+
+// settleIntentToAdd gives the index git's semantics for intent-to-add entries (`git add -N`),
+// which record a path with no content.
+//
+// Staging a path for real clears its mark in git. go-git's Add records the content but
+// keeps the mark, so after the commit git still treats the path as not added: status shows
+// it deleted from the index and untracked in the worktree. Every entry this commit staged
+// therefore has its mark cleared.
+//
+// git leaves a still-marked entry out of a commit; go-git builds the tree from every index
+// entry and would commit it as an empty file. A marked entry outside what this commit staged
+// refuses the commit, naming it.
+func settleIntentToAdd(repo *git.Repository, mode StageMode, paths []string) error {
+	idx, err := repo.Storer.Index()
+	if err != nil {
+		return fmt.Errorf("reading index: %w", err)
+	}
+
+	staged := func(name string) bool {
+		switch mode {
+		case StageAll:
+			return true
+		case StageExplicit, StageScoped:
+			name = filepath.ToSlash(name)
+			for _, p := range paths {
+				rel := filepath.ToSlash(strings.TrimPrefix(filepath.Clean(p), "./"))
+				if rel == "." || name == rel || strings.HasPrefix(name, rel+"/") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	cleared := false
+	var unstaged []string
+	for _, e := range idx.Entries {
+		if !e.IntentToAdd {
+			continue
+		}
+		if staged(e.Name) {
+			e.IntentToAdd = false
+			cleared = true
+			continue
+		}
+		unstaged = append(unstaged, e.Name)
+	}
+	if cleared {
+		if err := repo.Storer.SetIndex(idx); err != nil {
+			return fmt.Errorf("writing index: %w", err)
+		}
+	}
+	if len(unstaged) > 0 {
+		return fmt.Errorf("commit: %s marked intent-to-add (git add -N) with no content staged; "+
+			"this commit would record it as an empty file. Include it with --add, or unstage it",
+			strings.Join(unstaged, ", "))
+	}
+	return nil
 }
 
 // dirIsEmpty reports whether dir contains no entries at all.
