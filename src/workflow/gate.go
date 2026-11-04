@@ -146,3 +146,40 @@ func onBranches(branches []string) string {
 	}
 	return strings.Join(branches, ", ")
 }
+
+// Promotion resolves which declared promotion carries a change out of branch: the one
+// named id, or, with no id, the only promotion out of the branch's class.
+func Promotion(cfg *config.Config, branch, id string) (config.Promotion, error) {
+	if cfg == nil || !cfg.Workflow.Present() {
+		return config.Promotion{}, fmt.Errorf("no workflow: declared, so there's nothing to promote along")
+	}
+	if id != "" {
+		for _, p := range cfg.Workflow.Promote {
+			if p.ID == id {
+				return p, nil
+			}
+		}
+		return config.Promotion{}, fmt.Errorf("no promotion %q in workflow.promote", id)
+	}
+	c, ok := ClassOf(cfg, branch)
+	if !ok {
+		return config.Promotion{}, fmt.Errorf("%s belongs to no workflow.branches class, so no promotion starts from it", branch)
+	}
+	var out []config.Promotion
+	for _, p := range cfg.Workflow.Promote {
+		if p.From == c.ID {
+			out = append(out, p)
+		}
+	}
+	switch len(out) {
+	case 0:
+		return config.Promotion{}, fmt.Errorf("no promotion starts from the %s class", c.ID)
+	case 1:
+		return out[0], nil
+	}
+	ids := make([]string, len(out))
+	for i, p := range out {
+		ids[i] = p.ID
+	}
+	return config.Promotion{}, fmt.Errorf("several promotions start from the %s class; name one (%s)", c.ID, strings.Join(ids, ", "))
+}

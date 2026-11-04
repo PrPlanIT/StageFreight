@@ -66,6 +66,13 @@ A promotion moves a change between two classes by `merge_request`, `fast_forward
 `cherry_pick` or `tag`. A promotion with a `schedule:` (a [schedules](schedules.md) id) runs
 on that cadence instead of per change — a release train.
 
+`stagefreight promote [<promotion>]` carries the current branch's work along a promotion: the
+one out of its class, or the one named. `merge_request` pushes the branch and opens a merge
+request into the target branch, listing the commits it carries; `fast_forward` advances the
+target branch to your HEAD. The target is the default branch when it belongs to the target
+class; otherwise name it with `--to`. `cherry_pick` and `tag` promotions are carried out by
+hand for now.
+
 `release.from` lists, per class, the kinds of release tag its branches may carry: `prerelease`,
 `major`, `minor`, `patch`. The kind comes from the version: `v1.0.0` is major, `v0.16.0`
 minor, `v0.15.1` patch, `v0.16.0-rc.1` a prerelease.

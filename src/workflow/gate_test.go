@@ -118,3 +118,26 @@ func TestRelease(t *testing.T) {
 		t.Errorf("on an evaluate class the finding is reported, not refused: %+v", f)
 	}
 }
+
+func TestPromotion(t *testing.T) {
+	cfg := trunk()
+	cfg.Workflow.Promote = append(cfg.Workflow.Promote, config.Promotion{ID: "backport", From: "main", To: "release", Method: config.PromoteCherryPick})
+	if p, err := Promotion(cfg, "feature/x", ""); err != nil || p.ID != "land" {
+		t.Errorf("the one promotion out of feature: %+v, %v", p, err)
+	}
+	if p, err := Promotion(cfg, "main", "backport"); err != nil || p.ID != "backport" {
+		t.Errorf("named: %+v, %v", p, err)
+	}
+	for branch, want := range map[string]string{"release-0.16": "no promotion starts from the release class", "dev": "belongs to no workflow.branches class"} {
+		if _, err := Promotion(cfg, branch, ""); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Promotion(%s) err = %v, want %q", branch, err, want)
+		}
+	}
+	cfg.Workflow.Promote = append(cfg.Workflow.Promote, config.Promotion{ID: "land-release", From: "feature", To: "release", Method: config.PromoteMergeRequest})
+	if _, err := Promotion(cfg, "feature/x", ""); err == nil || !strings.Contains(err.Error(), "name one (land, land-release)") {
+		t.Errorf("several out of one class must be named: %v", err)
+	}
+	if _, err := Promotion(cfg, "feature/x", "nope"); err == nil {
+		t.Error("an unknown id must be refused")
+	}
+}

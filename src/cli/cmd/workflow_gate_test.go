@@ -2,11 +2,15 @@ package cmd
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/PrPlanIT/StageFreight/src/commit"
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -162,5 +166,52 @@ func TestWorkflowGate_LongLivedDirectNeedsDirector(t *testing.T) {
 	}
 	if remoteHead(t, remote, "stable") == plumbing.ZeroHash {
 		t.Error("stable not pushed")
+	}
+}
+
+// A fast_forward promotion advances the target to HEAD through the push planner, held to
+// the target's role rule.
+func TestPromote_FastForward(t *testing.T) {
+	withTrunkWorkflow(t)
+	cfg.Git.Branches["stable"] = "^stable$"
+	cfg.Workflow.Branches = append(cfg.Workflow.Branches, config.BranchClass{ID: "stable", Match: "stable", Landing: config.LandingDirect})
+	cfg.Workflow.Promote = config.OrderedPromotions{{ID: "ship", From: "main", To: "stable", Method: config.PromoteFastForward}}
+	local, remote := divergedRemote(t)
+	// The remote's stable starts at its main; the local clone moves past it by replaying its commit.
+	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", true, false); err == nil {
+		t.Fatal("setup: main is merge-request only, the push must be refused")
+	}
+	workflowRole = "producer"
+	if err := refspecPush(local, "origin", "HEAD:refs/heads/main", true, true); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := refspecPush(local, "origin", "HEAD:refs/heads/stable", false, false); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	workflowRole = ""
+
+	// stable is long-lived and takes direct pushes: talent can't advance it.
+	repo, _ := git.PlainOpen(local)
+	wt, _ := repo.Worktree()
+	if err := os.WriteFile(filepath.Join(local, "next"), []byte("next"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("next"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Commit("next", &git.CommitOptions{Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runPromote(&out, local, "ship"); err == nil || !strings.Contains(err.Error(), "needs the director role") {
+		t.Fatalf("talent fast-forwarding stable: %v\n%s", err, out.String())
+	}
+	workflowRole = "director"
+	before := remoteHead(t, remote, "stable")
+	if err := runPromote(&out, local, "ship"); err != nil {
+		t.Fatalf("director fast-forward: %v\n%s", err, out.String())
+	}
+	if remoteHead(t, remote, "stable") == before {
+		t.Error("stable did not advance")
 	}
 }

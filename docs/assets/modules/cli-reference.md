@@ -37,6 +37,7 @@
         - [`inspect`](#cli-stagefreight-manifest-inspect) — Pretty-print manifest or specific sections
     - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
     - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+    - [`promote`](#cli-stagefreight-promote) — Move the current branch's work along the declared workflow
     - [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
     - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
     - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
@@ -108,6 +109,7 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`manifest`](#cli-stagefreight-manifest) — Generate and inspect build manifests
 - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
 - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+- [`promote`](#cli-stagefreight-promote) — Move the current branch's work along the declared workflow
 - [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
 - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
 - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
@@ -930,6 +932,39 @@ by this migration tool — it was an unversioned alpha that must be rewritten.
 |------|------|---------|-------------|
 | `-i, --in-place` | bool | — | overwrite the config file in place |
 | `-o, --output` | string | — | write migrated config to this path |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-promote" name="cli-stagefreight-promote"></a>
+### stagefreight promote
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight promote [<promotion>]`
+
+Carry the current branch's work to the next class, as workflow.promote declares.
+
+With no argument, the one promotion out of the current branch's class is used; name one when
+several start there.
+```
+merge_request   pushes the branch and opens a merge request into the target branch
+fast_forward    advances the target branch to your HEAD (a director's move for a long-lived branch)
+```
+
+The target branch is the default branch when it belongs to the target class; otherwise name
+it with --to.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--remote` | string | `origin` | git remote the branches live on |
+| `--role` | string | — | act as this workflow role (audience, talent, director, producer); talent by default, at most your access allows |
+| `--title` | string | — | merge request title (default: the latest commit's subject) |
+| `--to` | string | — | the branch to promote into, when the target class has more than one |
+| `--yes` | bool | — | approve a fast-forward of a shared branch without prompting |
 
 _Plus the [global flags](#cli-global-flags)._
 

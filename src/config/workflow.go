@@ -335,6 +335,13 @@ func validateWorkflow(cfg *Config) []string {
 		} else {
 			oneOf(path+".method", p.Method, workflowMethods)
 		}
+		if p.Method == PromoteFastForward {
+			for _, c := range w.Branches {
+				if c.ID == p.To && c.Landing == LandingMergeRequest {
+					errs = append(errs, fmt.Sprintf("%s.method: %s takes changes through merge requests, so it can't be fast-forwarded to", path, p.To))
+				}
+			}
+		}
 		if p.Schedule != "" {
 			if _, ok := findSchedule(cfg.Schedules, p.Schedule); !ok {
 				errs = append(errs, fmt.Sprintf("%s.schedule: %q is not a declared schedule", path, p.Schedule))
