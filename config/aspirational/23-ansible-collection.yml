@@ -1,0 +1,55 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Ansible Collection / Automation Repo
+#
+# Who: Teams maintaining Ansible collections, roles, or playbook repos.
+#      No container image — the deliverable is the collection itself.
+# What: Release notes on any git tag and security scanning of the repo.
+#       No container build. Testing with molecule and Galaxy publishing
+#       are future features.
+# Build: None (container-wise).
+# Why: Ansible repos benefit from automated release notes and security
+#      scanning of embedded scripts and Python dependencies.
+
+version: 1
+
+targets:
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# build:
+#   artifacts:
+#     - name: collection
+#       dockerfile: build/Dockerfile.test
+#       target: export
+#       platforms: [linux/amd64]
+#       extract:
+#         - from: "/out/*.tar.gz"
+#           to: dist/
+#   release_assets: true
+#
+# security:
+#   audit_deps: true
+#   secret_findings: alert
+#
+# license:
+#   compliance: true
+#
+# templates:
+#   golden_files: true
+#   gitignore: true
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   test:
+#     sanity:
+#       - { name: lint, run: "ansible-lint" }
+#       - { name: syntax, run: "ansible-playbook site.yml --syntax-check" }
+#       - { name: molecule, run: "molecule test --all" }
+#       - { name: collection-build, run: "ansible-galaxy collection build --force" }

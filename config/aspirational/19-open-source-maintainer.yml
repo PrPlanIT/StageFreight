@@ -1,0 +1,125 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Open Source Maintainer
+#
+# Who: Maintainers of popular open-source projects with a community. Multiple
+#      registries for maximum distribution.
+# What: Three-platform image pushed to Docker Hub, GHCR, and Quay — covering
+#       every major container registry. README sync to Docker Hub. Full
+#       security scanning with SBOM and fail_on_critical. Release with
+#       rolling semver tag aliases.
+# Build: Multi-platform image (amd64, arm64, arm/v7) for maximum reach.
+# Why: Open source users pull from different registries. One manifest pushes
+#      everywhere, syncs the README, and generates security artifacts.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+  branches:
+    main: "^main$"
+
+builds:
+  myproject:
+    kind: docker
+    platforms: [linux/amd64, linux/arm64, linux/arm/v7]
+
+targets:
+  # Docker Hub — full rolling tag set for community discoverability
+  dockerhub:
+    kind: registry
+    build: myproject
+    url: docker.io
+    path: myorg/myproject
+    tags: ["{version}", "{major}.{minor}", "{major}", latest]
+    when: { branches: [main], events: [push] }
+
+  # GitHub Container Registry
+  ghcr:
+    kind: registry
+    build: myproject
+    url: ghcr.io
+    path: myorg/myproject
+    tags: ["{version}", latest]
+    when: { branches: [main], events: [push] }
+
+  # Quay.io — some distros and enterprise users prefer it
+  quay:
+    kind: registry
+    build: myproject
+    url: quay.io
+    path: myorg/myproject
+    tags: ["{version}", latest]
+    when: { branches: [main], events: [push] }
+
+  # Project identity sync — description + overview to Docker Hub
+  project-meta:
+    kind: metadata
+    registry: [dockerhub]
+    when: { branches: [main], events: [push, tag] }
+    description:
+      - "Self-hosted project — multi-platform image on Docker Hub, GHCR & Quay"
+      - "Self-hosted, multi-registry container image"
+    readme: README.md
+
+  primary-release:
+    kind: release
+    aliases: ["{version}", "{major}.{minor}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+security:
+  enabled: true
+  sbom: true
+  fail_on_critical: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# rebuild:
+#   schedule: weekly
+#   on_base_update: true
+#   notify: true
+#
+# docs:
+#   readme_inputs: true
+#   readme_sync: [dockerhub, ghcr, quay]
+#
+# security:
+#   audit_deps: true
+#   secret_findings: alert
+#   codebase_audit: true
+#   codebase_audit_threshold: critical
+#
+# license:
+#   compliance: true
+#   headers: true
+#   spdx: true
+#
+# templates:
+#   golden_files: true
+#   gitignore: true
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   target: dev
+#   env:
+#     DATABASE_URL: postgres://dev:dev@db:5432/myproject_dev
+#     LOG_LEVEL: debug
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: myproject_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#   ports: ["8080:8080"]
+#   test:
+#     startup: { timeout: 30s, depends_on: [db] }
+#     healthchecks:
+#       - { name: http, type: http, url: "http://localhost:8080/health", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "./manage.py migrate --check" }
+#       - { name: lint, run: "npm run lint" }
+#       - { name: tests, run: "npm test -- --coverage" }
+#       - { name: smoke, run: "curl -sf http://localhost:8080/api/status | jq -e '.ok'" }
+#     teardown: always
+#
+# yolo: false

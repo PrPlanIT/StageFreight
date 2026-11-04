@@ -1,0 +1,66 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Homelab Self-Hosted Fork
+#
+# Who: Homelab users running customized versions of popular self-hosted apps.
+#      You forked Immich/Jellyfin/Paperless to add a feature or patch a bug.
+# What: Builds a dual-platform image with -custom tags, pushes to Docker Hub,
+#       creates release notes, runs security scans. Simple and functional.
+# Build: Upstream's Dockerfile with your patches. Pushed to your personal registry.
+# Why: Enough automation that tagging a release builds, pushes, and documents
+#      the image without manual steps.
+
+version: 1
+
+builds:
+  immich-custom:
+    kind: docker
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  dockerhub:
+    kind: registry
+    build: immich-custom
+    url: docker.io
+    path: sofmeright/immich-custom
+    tags: ["{version}-custom", latest]
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# fork:
+#   upstream: github.com/immich-app/immich
+#   strategy: rebase
+#   auto_sync: true
+#
+# rebuild:
+#   schedule: daily
+#   on_base_update: true
+#   notify: true
+#
+# security:
+#   audit_deps: true
+#
+# yolo: true
+#
+# dev:
+#   env:
+#     DB_URL: postgres://dev:dev@db:5432/immich_dev
+#     REDIS_HOSTNAME: cache
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: immich_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     cache:
+#       image: docker.io/library/redis:7-alpine
+#   ports: ["2283:2283"]
+#   test:
+#     startup: { timeout: 60s, depends_on: [db, cache] }
+#     healthchecks:
+#       - { name: http, type: http, url: "http://localhost:2283/api/server-info/ping", expect_status: 200 }

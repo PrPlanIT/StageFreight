@@ -1,0 +1,2484 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A declarative lifecycle runtime — GitOps, Kubernetes, Docker, and CI ecosystems from one manifest.">
+      
+      
+      
+        <link rel="canonical" href="https://stagefreight.prplanit.com/config/upstream/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/logo-192.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Upstream - StageFreight</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#upstream" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="StageFreight" class="md-header__button md-logo" aria-label="StageFreight" data-md-component="logo">
+      
+  <img src="../../assets/logo-192.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            StageFreight
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Upstream
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/PrPlanIT/StageFreight" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PrPlanIT/StageFreight
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Directory
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../integrations/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../screenshots/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Screenshots
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../reference/CLI/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../design/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Design
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../philosophy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="StageFreight" class="md-nav__button md-logo" aria-label="StageFreight" data-md-component="logo">
+      
+  <img src="../../assets/logo-192.png" alt="logo">
+
+    </a>
+    StageFreight
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/PrPlanIT/StageFreight" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PrPlanIT/StageFreight
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/gitlab/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitLab
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub / Gitea / Forgejo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/azuredevops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure DevOps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screenshots/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screenshots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lifecycle & Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identity & Connectivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../builds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Builds & Tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../package-distribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Package Distribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scribe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stencils & Scribe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../narration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Narration & Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../signing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/Config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Schema Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/CLI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../design/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/pipeline-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/DependencyUpdate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependency Update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/invariants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Invariants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/ci-render/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI Render
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/content-store-lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Store Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/perform-build-contributors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Perform Build Contributors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../philosophy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../known-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../licensing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Licensing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schemes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schemes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#version-what-our-release-tags-claim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version — what our release tags claim
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-the-image-must-contain-what-the-tag-says" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence — the image must contain what the tag says
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#following-a-base-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Following a base image
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pins-moving-with-upstream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pins — moving with upstream
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sync-keeping-a-fork-on-top-of-upstream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sync — keeping a fork on top of upstream
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sync — keeping a fork on top of upstream">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#per-file-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-file rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-cutting-the-tag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release — cutting the tag
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#image-identity-audit-by-digest-not-tag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Image identity — audit by digest, not tag
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#signals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Signals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upstream_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upstream
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="upstream">Upstream<a class="headerlink" href="#upstream" title="Permanent link">&para;</a></h1>
+<p><code>upstream:</code> declares the upstreams a repo repackages or forks. StageFreight lists every
+declared source on each run, reports what it found, and refuses to release a version whose
+claim about upstream is false — before anything is built.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">core</span><span class="p">:</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="nt">git</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/ansible/ansible</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="nt">scheme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pep440</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="nt">select</span><span class="p">:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">        </span><span class="nt">exclude</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">'^v1\.'</span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">version</span><span class="p">:</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">track</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">core</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">since</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v2.21.5</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">evidence</span><span class="p">:</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w">                      </span><span class="c1"># build id</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">      </span><span class="nt">probe</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> package</span><span class="p">:</span><span class="w"> </span><span class="nv">ansible-core</span><span class="p p-Indicator">,</span><span class="nt"> manager</span><span class="p">:</span><span class="w"> </span><span class="nv">pip</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h2>
+<p><code>sources</code> is an id → source map. Each source names exactly one kind:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Value</th>
+<th>Listed from</th>
+<th>Default scheme</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>git</code></td>
+<td>repository URL</td>
+<td><code>git ls-remote</code> (tags, with their commits)</td>
+<td>semver</td>
+</tr>
+<tr>
+<td><code>image</code></td>
+<td>image repository, no tag or digest</td>
+<td>the OCI registry API</td>
+<td>semver</td>
+</tr>
+<tr>
+<td><code>pypi</code></td>
+<td>project name</td>
+<td>pypi.org (yanked releases skipped; upload times)</td>
+<td>pep440</td>
+</tr>
+<tr>
+<td><code>npm</code></td>
+<td>package name</td>
+<td>registry.npmjs.org (deprecated versions skipped; publish times)</td>
+<td>semver</td>
+</tr>
+<tr>
+<td><code>github-release</code></td>
+<td><code>owner/repo</code></td>
+<td>GitHub's published releases — not tags (drafts skipped, GitHub's prerelease flag honoured, publish times)</td>
+<td>semver</td>
+</tr>
+<tr>
+<td><code>apk</code></td>
+<td>package name, plus <code>suite: v3.22/main</code></td>
+<td>Alpine's APKINDEX (build times)</td>
+<td>debian</td>
+</tr>
+<tr>
+<td><code>apt</code></td>
+<td>package name, plus <code>suite: trixie/main</code></td>
+<td>Debian's Packages index</td>
+<td>debian</td>
+</tr>
+<tr>
+<td><code>url</code></td>
+<td>a release page</td>
+<td>every match of <code>select.tags</code> on the page (needs <code>select.tags</code>)</td>
+<td>semver</td>
+</tr>
+</tbody>
+</table>
+<p>Listing is anonymous: an upstream is someone else's public project. (<code>github-release</code> uses
+<code>GITHUB_TOKEN</code> when the environment has one: GitHub's API allows 60 anonymous requests an
+hour.) Where the kind publishes release times, the cooldown counts from them instead of from
+first sight.</p>
+<p><strong><code>mirror_of</code></strong> (git, image) names the origin a source mirrors — for upstreams we cannot reach
+directly and keep a mirror of. StageFreight lists the mirror, and the origin when it answers;
+a mirror missing the origin's newest release raises <code>mirror-behind</code>. An unreachable origin is
+why the mirror exists, so it is not an error.</p>
+<p><strong><code>lifecycle</code></strong> records what has happened upstream: <code>active</code> (default), <code>dormant</code>,
+<code>abandoned</code>, <code>gone</code>, each but <code>active</code> with a required <code>reason</code>. A dormant or abandoned
+upstream that cannot be listed is not reported unreachable. A gone one is not listed at all,
+and cannot be tracked, pinned or synced — its history is ours now (<code>version: { own: {} }</code>).</p>
+<p><code>select</code> picks releases out of everything the source tags, in this order:</p>
+<ol>
+<li><code>tags</code> — a regex choosing candidates. The version is its named group <code>version</code>, else its
+   first group, else the whole tag. Default: tags that start with a dotted version (<code>1.2</code>,
+   <code>v11.4</code>, <code>2.21.5</code>), <code>v</code>-prefixed or not — commit-SHA tags are not candidates.</li>
+<li><code>exclude</code> — regexes; a matching tag is never a release. Exclusion wins.</li>
+<li><code>rewrite</code> — <code>{from, to}</code> regex replacements applied to the extracted version, in order
+   (<code>{from: '_', to: '.'}</code> reads <code>release_1_2_3</code> as <code>1.2.3</code>).</li>
+<li>The version is parsed with the source's <code>scheme</code>. <code>prereleases</code> — <code>false</code> by default —
+   decides whether the scheme's prereleases count as releases.</li>
+</ol>
+<p>A candidate whose version does not parse is ignored <strong>and reported</strong> (<code>{upstream.unparsed}</code>),
+never sorted as a string.</p>
+<h3 id="schemes">Schemes<a class="headerlink" href="#schemes" title="Permanent link">&para;</a></h3>
+<p>Versions are only ever compared within one scheme, so a source names the one its upstream
+uses (the kind's default, in the table above, when it does not):</p>
+<table>
+<thead>
+<tr>
+<th><code>scheme:</code></th>
+<th>Reads</th>
+<th>Prereleases</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>semver</code></td>
+<td><code>1.2.3</code>, <code>v1.2.3-rc.1</code>; a missing minor or patch is zero (<code>11.4</code> = <code>11.4.0</code>)</td>
+<td>a hyphen suffix</td>
+</tr>
+<tr>
+<td><code>pep440</code></td>
+<td>Python versions: <code>2.22.0b1</code>, <code>1.0rc1</code>, <code>1.0.post1</code>, <code>1.0.dev3</code>, <code>1!2.0</code></td>
+<td><code>a</code>/<code>b</code>/<code>rc</code> and <code>.dev</code></td>
+</tr>
+<tr>
+<td><code>loose</code></td>
+<td>1–6 dotted numbers (<code>0.6.7.1</code>, <code>2026.7.0</code>); a trailing letter is a <em>later</em> release (<code>1.6.60a</code> &gt; <code>1.6.60</code>)</td>
+<td>a hyphen suffix</td>
+</tr>
+<tr>
+<td><code>debian</code></td>
+<td>dpkg versions, <code>[epoch:]upstream[-revision]</code> (<code>1:2.8.1-3+deb13u1</code>, apk's <code>2.8.3-r4</code>); our <code>v3.7.5</code> names Debian's <code>3.7.5-1</code></td>
+<td><code>~</code> (<code>1.0~rc1</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Our release tags are read with the claimed source's scheme, after the <code>v</code> prefix and any
+revision suffix (<code>-3</code>, <code>-r2</code>) are removed.</p>
+<h2 id="version-what-our-release-tags-claim">Version — what our release tags claim<a class="headerlink" href="#version-what-our-release-tags-claim" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th><code>version:</code></th>
+<th>Our tag claims</th>
+<th>A release is refused when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>track: &lt;source&gt;</code></td>
+<td>upstream's version</td>
+<td>upstream never released that version</td>
+</tr>
+<tr>
+<td><code>continue: &lt;source&gt;</code></td>
+<td>our own lineage in upstream's numbering</td>
+<td>upstream has released that version</td>
+</tr>
+<tr>
+<td><code>own: {}</code> (default)</td>
+<td>our own lineage</td>
+<td>never</td>
+</tr>
+</tbody>
+</table>
+<p>Our tag's version is read with the <code>v</code> prefix and any revision suffix (<code>-3</code>, <code>-r2</code>) removed,
+using the claimed source's scheme, so <code>v2.21.5-2</code> claims <code>2.21.5</code>. <code>since</code> is the cutover: tags before it are not judged, so
+changing mode never reinterprets old releases.</p>
+<p>The check fails closed: if the claimed source cannot be listed, a release that needs it does
+not ship. Any other listing failure is a warning.</p>
+<p><code>on_mismatch: report</code> (with a required <code>reason:</code>) lets a false claim ship and raises
+<code>version-mismatch</code> instead of refusing — for a lineage shared with upstream, say. The default
+is <code>refuse</code>.</p>
+<h2 id="evidence-the-image-must-contain-what-the-tag-says">Evidence — the image must contain what the tag says<a class="headerlink" href="#evidence-the-image-must-contain-what-the-tag-says" title="Permanent link">&para;</a></h2>
+<p>A version that upstream released is still a lie if the image ships something else (an
+image-only fix tagged as the next upstream version). So <code>track</code> needs <strong>evidence</strong> for every
+docker build, checked in publish on the exact bytes about to be distributed, before anything
+reaches a registry. There are two kinds:</p>
+<p><strong>A probe</strong> reads the version out of the built image without running it:</p>
+<table>
+<thead>
+<tr>
+<th>Probe</th>
+<th>Reads</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>label: &lt;key&gt;</code></td>
+<td>an OCI image label the image's own build sets (labels StageFreight stamps itself — <code>org.opencontainers.image.version</code>, <code>…revision</code>, … — are refused: they repeat the tag)</td>
+</tr>
+<tr>
+<td><code>file: /abs/path</code></td>
+<td>a file in the image (symlinks followed); <code>match:</code> picks the version</td>
+</tr>
+<tr>
+<td><code>package: &lt;name&gt;</code> + <code>manager: pip \| dpkg \| apk</code></td>
+<td>the package database — works on images with no shell</td>
+</tr>
+</tbody>
+</table>
+<p><code>match:</code> is a regex whose <code>version</code> group (else first group) is the version; the default takes
+the first dotted version. A package manager's own revision (<code>-r3</code>, Debian <code>-1</code>, epochs) is
+removed before comparing. A probe that disagrees with the release tag refuses that image; a
+probe that cannot read anything refuses it too — unproven is not proven. Per build,
+<code>on_mismatch: report</code> + <code>reason:</code> tolerates an upstream whose metadata trails its own tag.</p>
+<p><strong>Ancestry</strong> (<code>version.ancestry: true</code>, git sources) proves a history fork instead: upstream's
+commit for the claimed version must be an ancestor of the commit being released. It is the
+right evidence where the build stamps its own version into the binary, which makes a probe
+circular.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">zitadel</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> git</span><span class="p">:</span><span class="w"> </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//github.com/zitadel/zitadel</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> track</span><span class="p">:</span><span class="w"> </span><span class="nv">zitadel</span><span class="p p-Indicator">,</span><span class="nt"> ancestry</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<p>Validation names any docker build that has neither.</p>
+<h2 id="following-a-base-image">Following a base image<a class="headerlink" href="#following-a-base-image" title="Permanent link">&para;</a></h2>
+<p>When <code>track:</code> names an <strong>image</strong> source, that upstream's version is also the authority for the
+fork's base image: the Dockerfile <code>FROM</code> for the tracked image advances to upstream's latest GA
+<strong>within the base's current major</strong>, regardless of <code>dependency.max_update</code> — shipping that
+version is the fork's whole reason to exist, so the ceiling that scopes ordinary dependencies
+does not cap it. A newer <strong>major</strong> is held for review (it surfaces as an available upgrade, never
+applied on its own); adopt or hold a major line with the escape hatch <code>track: &lt;source&gt;@&lt;major&gt;</code>
+(e.g. <code>synapse@2</code>). The <code>FROM</code> tag is rewritten in whatever style you pinned it — with a leading
+<code>v</code> or without, both valid, the fork's choice, never rewritten into the other. A digest-pinned
+<code>FROM</code> has its digest re-resolved from the tag upstream's registry actually serves (so a <code>1.2.3</code>
+pin re-pins to the real <code>v1.2.3</code> manifest's digest), and the bump is held if that digest cannot be
+resolved — never a new tag left on an old digest.</p>
+<p>StageFreight also <strong>checks that the tag you pinned is one the registry actually serves</strong>, and warns
+when it is not: a digest-pinned <code>FROM</code> still builds when its tag string resolves to nothing (the
+digest carries the pull), but a dead tag is a reference other tools trip over, hidden behind the
+digest. The check asks the registry directly and, when the pin is absent, names the form the
+registry <em>does</em> serve for that version — it states what exists, it never prescribes a <code>v</code> or its
+absence. (A momentary registry failure is not read as a dead pin.)</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">synapse</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> image</span><span class="p">:</span><span class="w"> </span><span class="nv">ghcr.io/element-hq/synapse</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">version</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">track</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">synapse</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">min_release_age</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3d</span><span class="w">    </span><span class="c1"># follow an upstream GA once it is this old; optional</span>
+</span></code></pre></div>
+<p><strong>Follow cooldown.</strong> <code>version.min_release_age</code> is how old an upstream GA must be before the fork
+follows it onto the base, aged from the release's <strong>real</strong> publish time — the tag's image
+creation time read from its own registry — so a tag already weeks old is adopted at once rather
+than waiting from when StageFreight first saw it. An image that zeroes that field falls back to
+the first-sighting clock in <code>.stagefreight/upstream.lock</code>. It governs <strong>only the tracked base</strong>,
+so a fork can chase or hold upstream without touching its other dependencies' cooldown; unset, it
+inherits <code>dependency.min_release_age</code>; <code>0</code> follows the instant upstream publishes.</p>
+<h2 id="pins-moving-with-upstream">Pins — moving with upstream<a class="headerlink" href="#pins-moving-with-upstream" title="Permanent link">&para;</a></h2>
+<p>A source's <code>pins</code> are the places its version is pinned. When upstream releases, the
+dependency update moves them — through the same engine, commit and merge-request handling as
+every other dependency, honouring <code>dependency.max_update</code> and <code>dependency.min_release_age</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">core</span><span class="p">:</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">      </span><span class="nt">git</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/ansible/ansible</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">      </span><span class="nt">scheme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pep440</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">      </span><span class="nt">pins</span><span class="p">:</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> file</span><span class="p">:</span><span class="w"> </span><span class="nv">Dockerfile</span><span class="p p-Indicator">,</span><span class="nt"> arg</span><span class="p">:</span><span class="w"> </span><span class="nv">ANSIBLE_CORE_VERSION</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># ARG or ENV</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> file</span><span class="p">:</span><span class="w"> </span><span class="nv">versions.yml</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">ansible.core</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">        </span><span class="c1"># YAML or JSON dotted path</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> file</span><span class="p">:</span><span class="w"> </span><span class="nv">apps.txt</span><span class="p p-Indicator">,</span><span class="nt"> marker</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">                  </span><span class="c1"># the line after the marker comment</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Pin</th>
+<th>Where the version is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>arg: NAME</code></td>
+<td>a Dockerfile <code>ARG</code> or <code>ENV</code> declaration</td>
+</tr>
+<tr>
+<td><code>path: a.b.0.c</code></td>
+<td>a scalar in a YAML or JSON file (map keys, sequence indexes)</td>
+</tr>
+<tr>
+<td><code>marker: true</code></td>
+<td>the line after a comment containing <code>stagefreight: upstream=&lt;source id&gt;</code>; <code>match:</code> picks the version (default: the first dotted version)</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>One source, one version.</strong> Every pin of a source must hold the same version. If they
+  disagree, none of them moves and the run says which pin holds what.</li>
+<li><strong>Only the value changes.</strong> Each pin is located to its exact line and column, and the edit
+  replaces that value — quotes, comments and a <code>v</code> prefix stay as written.</li>
+<li><strong>A declared pin wins.</strong> A dependency StageFreight would otherwise discover on the same line
+  is left to the pin, so one value never has two writers.</li>
+<li><strong>Cooldown.</strong> With <code>dependency.min_release_age</code>, a release is adopted only once it has been
+  known for that long. Git tags carry no release time, so StageFreight records when it first
+  saw each newer version in <code>.stagefreight/upstream.lock</code> (committed, deterministic) and counts
+  from there; the bump that adopts a version also clears it from the lock. Without a cooldown
+  there is no lock.</li>
+</ul>
+<h2 id="sync-keeping-a-fork-on-top-of-upstream">Sync — keeping a fork on top of upstream<a class="headerlink" href="#sync-keeping-a-fork-on-top-of-upstream" title="Permanent link">&para;</a></h2>
+<p><code>sync</code> keeps a history fork current: on the default branch, StageFreight joins upstream's
+newest release (or a branch head) into our branch and pushes the result, which starts an
+ordinary pipeline on it.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">zitadel</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> git</span><span class="p">:</span><span class="w"> </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//github.com/zitadel/zitadel</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> track</span><span class="p">:</span><span class="w"> </span><span class="nv">zitadel</span><span class="p p-Indicator">,</span><span class="nt"> ancestry</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">sync</span><span class="p">:</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">zitadel</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">onto</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">release</span><span class="w">            </span><span class="c1"># default; or { branch: main }</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rebase</span><span class="w">         </span><span class="c1"># default; merge | mirror</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">shadow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">upstream</span><span class="w">         </span><span class="c1"># optional: a branch kept at upstream's synced commit</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">on_conflict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mr</span><span class="w">          </span><span class="c1"># default; fail | notify</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th><code>strategy:</code></th>
+<th>Our branch afterwards</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rebase</code></td>
+<td>our commits replayed on top of upstream's release — rewritten, so the forge must let StageFreight force-push the branch, and every outbound mirror must follow a rewrite (<code>repos.&lt;id&gt;.sync.branches.force: true</code>; validation refuses a mirror that would silently stop)</td>
+</tr>
+<tr>
+<td><code>merge</code></td>
+<td>a merge commit joining upstream's release; nothing rewritten. The merge commit carries <code>Upstream-Rev: &lt;sha&gt;</code></td>
+</tr>
+<tr>
+<td><code>mirror</code></td>
+<td>exactly upstream's branch (fast-forward only); a branch that has diverged is kept and reported, never overwritten</td>
+</tr>
+</tbody>
+</table>
+<p>How a sync behaves:</p>
+<ul>
+<li><strong>Line-level merging, without guessing.</strong> Each change is a three-way merge: changes to
+  different lines of a file combine; changes that overlap (or touch) are a conflict unless
+  both sides made the identical change. A patch upstream has already taken is dropped from a
+  rebase. Replaying the same history onto the same release always produces the same commits.</li>
+<li><strong>Conflicts change nothing.</strong> <code>on_conflict: mr</code> pushes upstream's commit to
+  <code>stagefreight/sync/&lt;source&gt;/&lt;release&gt;</code> and opens a merge request into our branch listing the
+  conflicting paths; <code>fail</code> fails the run; <code>notify</code> only signals. All three raise
+  <code>sync-conflict</code>.</li>
+<li><strong>Never over someone else's push.</strong> Our branch is pushed only if it still points at the
+  commit the run started from; otherwise the next run syncs again.</li>
+<li><strong>A refused force push becomes a merge request</strong> carrying the rebased branch, with what to
+  do (allow StageFreight to force-push, or replace the branch with it).</li>
+<li><strong>A rebase needs straight history.</strong> A branch with merge commits is reported; use
+  <code>strategy: merge</code>.</li>
+<li><strong>The dependency update waits.</strong> When a sync pushes, that run leaves the dependency update to
+  the new commit's pipeline, so two writers never push onto a branch just rewritten.</li>
+</ul>
+<h3 id="per-file-rules">Per-file rules<a class="headerlink" href="#per-file-rules" title="Permanent link">&para;</a></h3>
+<p>By default every file is merged line by line. <code>files</code> decides, per path, what happens when
+upstream changes a file — for a file we deleted and upstream keeps editing, a file that is
+ours by design, or one a human must always see:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">sync</span><span class="p">:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nut</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">files</span><span class="p">:</span><span class="w">                                   </span><span class="c1"># top to bottom; the last match wins</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> match</span><span class="p">:</span><span class="w"> </span><span class="s">"**"</span><span class="p p-Indicator">,</span><span class="nt">           take</span><span class="p">:</span><span class="w"> </span><span class="nv">merge</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">     </span><span class="c1"># the default, shown for clarity</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> match</span><span class="p">:</span><span class="w"> </span><span class="s">"README.adoc"</span><span class="p p-Indicator">,</span><span class="nt">  take</span><span class="p">:</span><span class="w"> </span><span class="nv">fork</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">      </span><span class="c1"># ours — our deletion stands</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> match</span><span class="p">:</span><span class="w"> </span><span class="s">"docs/**"</span><span class="p p-Indicator">,</span><span class="nt">      take</span><span class="p">:</span><span class="w"> </span><span class="nv">upstream</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">  </span><span class="c1"># upstream's; our edits are dropped</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> match</span><span class="p">:</span><span class="w"> </span><span class="s">"drivers/usb*"</span><span class="p p-Indicator">,</span><span class="nt"> take</span><span class="p">:</span><span class="w"> </span><span class="nv">review</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">    </span><span class="c1"># a human sees every upstream change</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th><code>take:</code></th>
+<th>When upstream changes a matching file</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>merge</code> (default)</td>
+<td>combined line by line with ours; overlapping edits are a conflict</td>
+</tr>
+<tr>
+<td><code>fork</code></td>
+<td>the fork's version stays — including a deletion — and the sync reports it under <code>{sync.held}</code>, every time, so a held file never silently misses an upstream fix</td>
+</tr>
+<tr>
+<td><code>upstream</code></td>
+<td>upstream's version wins; our edits to it are dropped and reported under <code>{sync.overridden}</code></td>
+</tr>
+<tr>
+<td><code>review</code></td>
+<td>the sync becomes a conflict (an MR under <code>on_conflict: mr</code>), even when it would merge cleanly</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Fork and upstream, never ours and theirs.</strong> The names say which side wins in a rebase and in
+  a merge alike (git swaps "ours" during a rebase).</li>
+<li><strong>No markers needed.</strong> Our customization is exactly the difference between the common base
+  and our branch; the rules only decide what happens where upstream changed the same file.</li>
+<li><strong>Holds are attributed.</strong> In a merge they live in the merge commit. In a rebase, our replayed
+  commits keep only their own changes, and the fork's version of held files our commits never
+  touched is restored in one commit of its own on top ("Keep the fork's version of …",
+  listing them).</li>
+<li><strong>StageFreight's own files always keep the fork's version:</strong> <code>.stagefreight.yml</code>,
+  <code>.stagefreight/</code>, and every rendered CI file — upstream's own CI never merges into ours.</li>
+<li>Rules are plain config, so a fleet-wide rule set can come from governance, with each repo
+  adding its exceptions after it. A mirror is an exact copy; rules apply to rebase and merge.</li>
+</ul>
+<p>With <code>version.track</code> on the same source and <code>release: auto</code>, the synced commit is released as
+the newest upstream release it contains — no pins needed. <code>version.ancestry: true</code> then proves
+that release on the tag pipeline.</p>
+<h2 id="release-cutting-the-tag">Release — cutting the tag<a class="headerlink" href="#release-cutting-the-tag" title="Permanent link">&para;</a></h2>
+<p>Under <code>track</code>, <code>release: auto</code> (the default) cuts the release itself: after a successful run on
+the default branch, when the source's pins name a version upstream has released and no tag of
+ours names it yet (or, for a synced fork, when the built commit contains an upstream release
+we have not tagged), StageFreight tags the commit it just built with that version (keeping our
+<code>v</code> convention) and pushes the tag. The release pipeline then checks every guard and evidence
+probe like any hand-cut release. <code>release: manual</code> leaves tagging to a person
+(<code>stagefreight tag</code>). A rebuild of an already-released version stays an in-place rebuild — no
+new tag. The tag spawns a release pipeline only if it matches a declared <code>git.tags</code> release
+pattern.</p>
+<h2 id="image-identity-audit-by-digest-not-tag">Image identity — audit by digest, not tag<a class="headerlink" href="#image-identity-audit-by-digest-not-tag" title="Permanent link">&para;</a></h2>
+<p>A fork's image <strong>version tag rolls.</strong> The tag (<code>1.164.1</code>) names the line, not one build: when a
+dependency patches a vulnerability, the rebuilt image re-pushes that same tag and the release is
+re-cut in place, so the latest upstream version <em>plus the fix</em> always lives at the version
+downstream already asked for. There is no <code>1.164.1-2</code> revision tag — semver reads a hyphen suffix
+as a <em>prerelease below</em> <code>1.164.1</code>, Renovate mis-tracks it, and a fourth version segment drifts
+identity. The rebuild counter lives in a <strong>label</strong>, off the tag.</p>
+<p>So the audit identity of a specific build is the <strong>digest</strong>, never the tag string:</p>
+<ul>
+<li>The digest (<code>@sha256:…</code>) is immutable and content-addressed — the one reference that cannot be
+  re-pointed.</li>
+<li>It carries, as OCI labels, <code>org.opencontainers.image.revision</code> (the exact source commit),
+  <code>org.stagefreight.plan.sha256</code> (the content-aware build fingerprint), and
+  <code>org.stagefreight.build.number</code> (which rebuild of the line this is — a counter that advances only
+  when the content changes, so a rebuild that changed nothing manufactures no churn).</li>
+<li>When the signing profile attests (see <a href="../signing/">signing</a>), the digest also carries a cosign
+  attestation — SLSA provenance, the SBOM, and the vulnerability scan — bound to those exact bytes.</li>
+</ul>
+<p><strong>The contract, for downstream observers:</strong> pin by digest and verify the digest's attestation, not
+the tag. The tag is a maintained pointer to the current good build of the line; the digest and its
+attestation are the forensic record of one build. Every re-cut release records the build number
+beside each digest in its body, so the moving tag always resolves back to a build you can name and
+verify.</p>
+<h2 id="signals">Signals<a class="headerlink" href="#signals" title="Permanent link">&para;</a></h2>
+<p>What the watcher finds is raised as signals, which notifications select with
+<a href="../narration/"><code>when.signals</code></a>:</p>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Raised when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>updates-available</code></td>
+<td>the tracked source released a version newer than our newest</td>
+</tr>
+<tr>
+<td><code>version-mismatch</code></td>
+<td>one of our tags makes a false claim (track: never released; continue: already released), or a tolerated (<code>report</code>) guard or probe mismatch shipped</td>
+</tr>
+<tr>
+<td><code>upstream-unreachable</code></td>
+<td>a source could not be listed</td>
+</tr>
+<tr>
+<td><code>sync-conflict</code></td>
+<td>a sync could not land: upstream's changes overlap ours, a mirror diverged, or the push was refused</td>
+</tr>
+<tr>
+<td><code>mirror-behind</code></td>
+<td>a <code>mirror_of</code> source lacks a release its origin has made</td>
+</tr>
+</tbody>
+</table>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">notifications</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ntfy</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://ntfy.example.com/forks</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">body</span><span class="p">:</span><span class="w"> </span><span class="s">"{project}:</span><span class="nv"> </span><span class="s">upstream</span><span class="nv"> </span><span class="s">{upstream.latest},</span><span class="nv"> </span><span class="s">ours</span><span class="nv"> </span><span class="s">{upstream.ours}"</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">when</span><span class="p">:</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="nt">signals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">updates-available</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">version-mismatch</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
+<p><a id="config-upstream" name="config-upstream"></a></p>
+<h3 id="upstream_1">upstream<a class="headerlink" href="#upstream_1" title="Permanent link">&para;</a></h3>
+<p>Upstream declares the upstreams a repo repackages or forks: each source is watched for new releases, and a release whose version claim about one is false is refused.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">upstream</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span><span class="w">   </span><span class="c1"># Sources are the watched upstreams, keyed by id. The id is how the rest of the config refers to a…</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">&lt;id&gt;</span><span class="p">:</span><span class="w">   </span><span class="c1"># entry key = the unique id</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">      </span><span class="nt">git</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Git is an upstream git repository URL, e.g. https://github.com/ansible/ansible. Its tags are listed…</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Image is an upstream container image repository without a tag, e.g. ghcr.io/zitadel/zitadel. Its…</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">      </span><span class="nt">pypi</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># PyPI is a Python project on pypi.org (yanked releases are not releases). Scheme pep440.</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">      </span><span class="nt">npm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Npm is a package on registry.npmjs.org (deprecated versions are not releases).</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">      </span><span class="nt">github-release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># GitHubRelease is a GitHub repository (owner/repo) whose published releases — not its tags — are…</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">      </span><span class="nt">apk</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Apk is an Alpine package, read from the suite's APKINDEX. Needs suite. Scheme debian.</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">      </span><span class="nt">apt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Apt is a Debian package, read from the suite's Packages index. Needs suite. Scheme debian.</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># URL is a release page; every match of select.tags on it is a candidate (needs select.tags), for…</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">      </span><span class="nt">suite</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Suite (apk, apt) is &lt;release&gt;/&lt;repository&gt;: v3.22/main for Alpine, trixie/main for Debian.</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">      </span><span class="nt">mirror_of</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># MirrorOf (git, image) is the origin this source mirrors. StageFreight lists the mirror (ours…</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">      </span><span class="nt">lifecycle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Lifecycle is the upstream's state: active (default), dormant, abandoned, gone. Anything but active…</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">      </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Reason says why an upstream is not active.</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">      </span><span class="nt">select</span><span class="p">:</span><span class="w">   </span><span class="c1"># Select picks the upstream's releases out of everything it tags.</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">        </span><span class="nt">tags</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Tags is a regex choosing candidate tags. The version is the named group "version", else the first…</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">        </span><span class="nt">exclude</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">&lt;string&gt;</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># Exclude lists regexes; a tag matching any of them is never a release. Exclusion wins over tags.</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">        </span><span class="nt">prereleases</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># Prereleases admits upstream prereleases (as the scheme defines them) as releases. Default false.</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">        </span><span class="nt">rewrite</span><span class="p">:</span><span class="w">   </span><span class="c1"># Rewrite edits the extracted version before it is parsed, in order: each from is a regex replaced by…</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># required</span>
+</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a><span class="w">            </span><span class="nt">to</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># empty deletes the match</span>
+</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="w">      </span><span class="nt">scheme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Scheme is how this upstream's versions are read and ordered. Default semver. semver: 1.2.3… · one of: debian, loose, pep440, semver</span>
+</span><span id="__span-7-24"><a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a><span class="w">      </span><span class="nt">pins</span><span class="p">:</span><span class="w">   </span><span class="c1"># Pins are the places this upstream's version is pinned. When upstream releases, the dependency…</span>
+</span><span id="__span-7-25"><a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># File is the repo-relative file holding the pin. · required</span>
+</span><span id="__span-7-26"><a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a><span class="w">          </span><span class="nt">arg</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Arg is a Dockerfile ARG or ENV name whose value is the version.</span>
+</span><span id="__span-7-27"><a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a><span class="w">          </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Path is a dotted path to a scalar in a YAML or JSON file (ansible.core, apps.0.tag).</span>
+</span><span id="__span-7-28"><a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a><span class="w">          </span><span class="nt">marker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># Marker pins the line after a comment containing "stagefreight: upstream=&lt;source id&gt;", for any other…</span>
+</span><span id="__span-7-29"><a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a><span class="w">          </span><span class="nt">match</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Match (marker only) is a regex whose version group (else first group) is the pinned version.…</span>
+</span><span id="__span-7-30"><a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a><span class="w">  </span><span class="nt">version</span><span class="p">:</span><span class="w">   </span><span class="c1"># Version says what this repo's release tags claim about an upstream.</span>
+</span><span id="__span-7-31"><a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a><span class="w">    </span><span class="nt">track</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Track names the source whose version our release IS. A release naming a version that source never…</span>
+</span><span id="__span-7-32"><a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a><span class="w">    </span><span class="nt">continue</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Continue names the source whose numbering our own lineage continues (a dormant or diverged…</span>
+</span><span id="__span-7-33"><a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a><span class="w">    </span><span class="nt">own</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;value&gt;</span><span class="w">   </span><span class="c1"># Own declares our own version lineage: upstreams are watched, never enforced. The default when…</span>
+</span><span id="__span-7-34"><a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a><span class="w">    </span><span class="nt">min_release_age</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;value&gt;</span><span class="w">   </span><span class="c1"># MinReleaseAge is the FOLLOW cooldown for a tracked base image: how old an upstream GA must be…</span>
+</span><span id="__span-7-35"><a id="__codelineno-7-35" name="__codelineno-7-35" href="#__codelineno-7-35"></a><span class="w">    </span><span class="nt">since</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Since is the cutover tag: only release tags at or after this version are judged, so a mode change…</span>
+</span><span id="__span-7-36"><a id="__codelineno-7-36" name="__codelineno-7-36" href="#__codelineno-7-36"></a><span class="w">    </span><span class="nt">ancestry</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># Ancestry (track, git source) requires upstream's commit for the claimed version to be an ancestor…</span>
+</span><span id="__span-7-37"><a id="__codelineno-7-37" name="__codelineno-7-37" href="#__codelineno-7-37"></a><span class="w">    </span><span class="nt">on_mismatch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># OnMismatch is what happens when a release's claim is false (track: upstream never released it or…</span>
+</span><span id="__span-7-38"><a id="__codelineno-7-38" name="__codelineno-7-38" href="#__codelineno-7-38"></a><span class="w">    </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Reason says why a false claim is tolerated (required with on_mismatch: report).</span>
+</span><span id="__span-7-39"><a id="__codelineno-7-39" name="__codelineno-7-39" href="#__codelineno-7-39"></a><span class="w">  </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Release decides who cuts a track release when the pins name a new upstream version: auto (default…</span>
+</span><span id="__span-7-40"><a id="__codelineno-7-40" name="__codelineno-7-40" href="#__codelineno-7-40"></a><span class="w">  </span><span class="nt">sync</span><span class="p">:</span><span class="w">   </span><span class="c1"># Sync keeps this repository's history on top of a git upstream: rebased or merged onto its newest…</span>
+</span><span id="__span-7-41"><a id="__codelineno-7-41" name="__codelineno-7-41" href="#__codelineno-7-41"></a><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># From names the git source to sync from.</span>
+</span><span id="__span-7-42"><a id="__codelineno-7-42" name="__codelineno-7-42" href="#__codelineno-7-42"></a><span class="w">    </span><span class="nt">onto</span><span class="p">:</span><span class="w">   </span><span class="c1"># Onto is what to sync onto: release (default — the newest release the source's select: keeps) or…</span>
+</span><span id="__span-7-43"><a id="__codelineno-7-43" name="__codelineno-7-43" href="#__codelineno-7-43"></a><span class="w">      </span><span class="nt">branch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span>
+</span><span id="__span-7-44"><a id="__codelineno-7-44" name="__codelineno-7-44" href="#__codelineno-7-44"></a><span class="w">    </span><span class="nt">strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Strategy is how upstream's history joins ours: rebase (default): our commits are replayed on top of…</span>
+</span><span id="__span-7-45"><a id="__codelineno-7-45" name="__codelineno-7-45" href="#__codelineno-7-45"></a><span class="w">    </span><span class="nt">shadow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Shadow, when set, is a branch of ours kept at upstream's synced commit — a plain copy of upstream…</span>
+</span><span id="__span-7-46"><a id="__codelineno-7-46" name="__codelineno-7-46" href="#__codelineno-7-46"></a><span class="w">    </span><span class="nt">on_conflict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># OnConflict is what happens when upstream's changes overlap ours: mr (default): nothing is…</span>
+</span><span id="__span-7-47"><a id="__codelineno-7-47" name="__codelineno-7-47" href="#__codelineno-7-47"></a><span class="w">    </span><span class="nt">files</span><span class="p">:</span><span class="w">   </span><span class="c1"># Files decides, per path, what happens when upstream changes a file. Rules are read top to bottom…</span>
+</span><span id="__span-7-48"><a id="__codelineno-7-48" name="__codelineno-7-48" href="#__codelineno-7-48"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">match</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Match is a path glob (** spans directories), e.g. README.adoc, docs/**, **/*.md. · required</span>
+</span><span id="__span-7-49"><a id="__codelineno-7-49" name="__codelineno-7-49" href="#__codelineno-7-49"></a><span class="w">        </span><span class="nt">take</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Take is what wins when upstream changes a matching file: merge (default): combine line by line… · required</span>
+</span><span id="__span-7-50"><a id="__codelineno-7-50" name="__codelineno-7-50" href="#__codelineno-7-50"></a><span class="w">  </span><span class="nt">evidence</span><span class="p">:</span><span class="w">   </span><span class="c1"># Evidence proves, per build, that the built artifact contains the version a release claims. Keyed by…</span>
+</span><span id="__span-7-51"><a id="__codelineno-7-51" name="__codelineno-7-51" href="#__codelineno-7-51"></a><span class="w">    </span><span class="nt">&lt;id&gt;</span><span class="p">:</span><span class="w">   </span><span class="c1"># entry key = the unique id</span>
+</span><span id="__span-7-52"><a id="__codelineno-7-52" name="__codelineno-7-52" href="#__codelineno-7-52"></a><span class="w">      </span><span class="nt">probe</span><span class="p">:</span><span class="w">   </span><span class="c1"># Probe reads the version the built image contains. · required</span>
+</span><span id="__span-7-53"><a id="__codelineno-7-53" name="__codelineno-7-53" href="#__codelineno-7-53"></a><span class="w">        </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Label is an OCI image label whose value is the version — one the image's own build sets from what…</span>
+</span><span id="__span-7-54"><a id="__codelineno-7-54" name="__codelineno-7-54" href="#__codelineno-7-54"></a><span class="w">        </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># File is an absolute path in the image filesystem holding the version.</span>
+</span><span id="__span-7-55"><a id="__codelineno-7-55" name="__codelineno-7-55" href="#__codelineno-7-55"></a><span class="w">        </span><span class="nt">package</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Package is an installed package whose version is read from the package database named by manager.</span>
+</span><span id="__span-7-56"><a id="__codelineno-7-56" name="__codelineno-7-56" href="#__codelineno-7-56"></a><span class="w">        </span><span class="nt">manager</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Manager is the package database package reads: pip (site-packages dist-info), dpkg…</span>
+</span><span id="__span-7-57"><a id="__codelineno-7-57" name="__codelineno-7-57" href="#__codelineno-7-57"></a><span class="w">        </span><span class="nt">match</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Match is a regex applied to the label value or file content; the version is its named group…</span>
+</span><span id="__span-7-58"><a id="__codelineno-7-58" name="__codelineno-7-58" href="#__codelineno-7-58"></a><span class="w">      </span><span class="nt">on_mismatch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># OnMismatch is what happens when the probe disagrees with the claimed version: refuse (default) does…</span>
+</span><span id="__span-7-59"><a id="__codelineno-7-59" name="__codelineno-7-59" href="#__codelineno-7-59"></a><span class="w">      </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;string&gt;</span><span class="w">   </span><span class="c1"># Reason says why a mismatch is tolerated (required with on_mismatch: report), e.g. an upstream whose…</span>
+</span></code></pre></div>
+<hr />
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; PrPlanIT
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,119 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Multi-Image from One Dockerfile
+#
+# Who: Teams with a monolithic codebase that produces multiple deployable
+#      components — app server, background workers, migration runners,
+#      cron jobs — all from shared code.
+# What: One Dockerfile with multiple named stages. Each stage becomes a
+#       separate image with its own registry path and tags. Shared layer
+#       cache across all targets.
+# Build: Multistage Dockerfile targeting different stages per image.
+# Why: Avoids duplicating Dockerfiles for each component. One source of
+#      truth for the build, multiple outputs.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+
+builds:
+  app:
+    kind: docker
+    dockerfile: Dockerfile
+    target: production
+    platforms: [linux/amd64, linux/arm64]
+
+  worker:
+    kind: docker
+    dockerfile: Dockerfile
+    target: worker
+    platforms: [linux/amd64, linux/arm64]
+
+  migrations:
+    kind: docker
+    dockerfile: Dockerfile
+    target: migrate
+    platforms: [linux/amd64]              # migrations only run on amd64
+
+  cron:
+    kind: docker
+    dockerfile: Dockerfile
+    target: cron
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  primary-release:
+    kind: release
+    when: { git_tags: [stable], events: [tag] }
+
+  # ── app image ────────────────────────────────────────────────
+  app-dockerhub:
+    kind: registry
+    build: app
+    url: docker.io
+    path: prplanit/myservice
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  app-ghcr:
+    kind: registry
+    build: app
+    url: ghcr.io
+    path: sofmeright/myservice
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  # ── worker image ─────────────────────────────────────────────
+  worker-dockerhub:
+    kind: registry
+    build: worker
+    url: docker.io
+    path: prplanit/myservice-worker
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  # ── migrations image ─────────────────────────────────────────
+  migrations-dockerhub:
+    kind: registry
+    build: migrations
+    url: docker.io
+    path: prplanit/myservice-migrations
+    tags: ["{version}"]
+    when: { git_tags: [stable], events: [tag] }
+
+  # ── cron image ───────────────────────────────────────────────
+  cron-dockerhub:
+    kind: registry
+    build: cron
+    url: docker.io
+    path: prplanit/myservice-cron
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# dev:
+#   target: dev
+#   env:
+#     DATABASE_URL: postgres://dev:dev@db:5432/myservice_dev
+#     REDIS_URL: redis://cache:6379
+#     WORKER_CONCURRENCY: "2"
+#   services:
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: myservice_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     cache:
+#       image: docker.io/library/redis:7-alpine
+#   ports: ["8080:8080", "9090:9090"]
+#   test:
+#     startup: { timeout: 30s, depends_on: [db, cache] }
+#     healthchecks:
+#       - { name: http, type: http, url: "http://localhost:8080/health", expect_status: 200 }
+#       - { name: metrics, type: http, url: "http://localhost:9090/metrics", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "./manage.py migrate --check" }
+#       - { name: smoke, run: "curl -sf http://localhost:8080/api/status | jq -e '.ok'" }

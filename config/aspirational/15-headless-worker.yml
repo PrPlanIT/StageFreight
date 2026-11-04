@@ -1,0 +1,91 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Headless Worker / Bot / Queue Processor
+#
+# Who: Services with no HTTP interface. Queue consumers, cron jobs, Discord
+#      bots, data pipelines, ETL workers, event processors.
+# What: Dual-platform image pushed to Docker Hub on semver tags and to a
+#       private registry on every branch push with branch-sha tags. Release
+#       notes and security scanning.
+# Build: Standard Dockerfile, dual-platform (amd64 + arm64).
+# Why: Workers follow the same build/push lifecycle as HTTP services. The
+#      dual-target pattern (public release + private branch builds) is common
+#      for services that need testing before a stable tag.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+  branches:
+    all: ".*"
+
+builds:
+  invoice-processor:
+    kind: docker
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  dockerhub:
+    kind: registry
+    build: invoice-processor
+    url: docker.io
+    path: prplanit/invoice-processor
+    tags: ["{version}", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  private-registry:
+    kind: registry
+    build: invoice-processor
+    url: registry.prplanit.com
+    path: workers/invoice-processor
+    tags: ["{version}", "{branch}-{sha:.7}"]
+    when: { branches: [all], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: [stable], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   audit_deps: true
+#
+# dev:
+#   env:
+#     RABBITMQ_URL: amqp://dev:dev@mq:5672
+#     DATABASE_URL: postgres://dev:dev@db:5432/invoices_dev
+#     S3_ENDPOINT: http://minio:9000
+#     S3_BUCKET: invoices-dev
+#     S3_ACCESS_KEY: minioadmin
+#     S3_SECRET_KEY: minioadmin
+#     LOG_LEVEL: debug
+#     DRY_RUN: "true"
+#   services:
+#     mq:
+#       image: docker.io/library/rabbitmq:3-management-alpine
+#       env: { RABBITMQ_DEFAULT_USER: dev, RABBITMQ_DEFAULT_PASS: dev }
+#       ports: [5672, 15672]
+#       healthcheck: { test: "rabbitmq-diagnostics -q ping", interval: 10s }
+#     db:
+#       image: docker.io/library/postgres:17-alpine
+#       env: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: invoices_dev }
+#       healthcheck: { test: "pg_isready -U dev", interval: 5s }
+#     minio:
+#       image: docker.io/minio/minio:latest
+#       env: { MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin }
+#       ports: [9000]
+#       healthcheck: { test: "mc ready local", interval: 5s }
+#   test:
+#     startup: { timeout: 30s, depends_on: [mq, db, minio] }
+#     healthchecks:
+#       - { name: mq-connected, type: tcp, host: mq, port: 5672, timeout: 5s }
+#       - { name: db-connected, type: tcp, host: db, port: 5432, timeout: 5s }
+#       - { name: s3-connected, type: http, url: "http://minio:9000/minio/health/live", expect_status: 200 }
+#     sanity:
+#       - { name: migrations, run: "./manage.py migrate --check" }
+#       - { name: queue-declare, run: "./manage.py ensure_queues" }
+#       - { name: process-test-msg, run: "./manage.py process_test_invoice --timeout=10" }
+#       - { name: unit-tests, run: "pytest tests/ -x --tb=short" }
+#     teardown: always
