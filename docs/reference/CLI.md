@@ -79,6 +79,11 @@ Generated sections below are assembled from `docs/modules/cli-reference.md` via 
         - [`prune`](#cli-stagefreight-toolchain-prune) — Remove old toolchain versions from cache
     - [`update`](#cli-stagefreight-update) — Update this stagefreight binary in place from the published image
     - [`version`](#cli-stagefreight-version) — Print the version
+    - [`worktree`](#cli-stagefreight-worktree) — Manage worktrees, as git worktree does
+        - [`add`](#cli-stagefreight-worktree-add) — Create a worktree at <path>
+        - [`list`](#cli-stagefreight-worktree-list) — List worktrees and what each holds
+        - [`prune`](#cli-stagefreight-worktree-prune) — Remove administrative files of worktrees whose directory is gone
+        - [`remove`](#cli-stagefreight-worktree-remove) — Remove a worktree, keeping its branch
 
 <a id="cli-global-flags" name="cli-global-flags"></a>
 ## Global flags
@@ -138,6 +143,7 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`toolchain`](#cli-stagefreight-toolchain) — Manage StageFreight toolchains
 - [`update`](#cli-stagefreight-update) — Update this stagefreight binary in place from the published image
 - [`version`](#cli-stagefreight-version) — Print the version
+- [`worktree`](#cli-stagefreight-worktree) — Manage worktrees, as git worktree does
 
 ---
 
@@ -1628,6 +1634,101 @@ Print the version. --verbose adds build + runtime provenance (Go version, execut
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--verbose` | bool | — | show full build + runtime provenance |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-worktree" name="cli-stagefreight-worktree"></a>
+### stagefreight worktree
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight worktree`
+
+One checkout per line of work, so parallel work never shares an index.
+
+The commands, flags and defaults are git worktree's. StageFreight shows the plan before
+adding, and list and remove also say what each worktree holds that exists nowhere else.
+
+**Subcommands:**
+
+- [`add`](#cli-stagefreight-worktree-add) — Create a worktree at <path>
+- [`list`](#cli-stagefreight-worktree-list) — List worktrees and what each holds
+- [`prune`](#cli-stagefreight-worktree-prune) — Remove administrative files of worktrees whose directory is gone
+- [`remove`](#cli-stagefreight-worktree-remove) — Remove a worktree, keeping its branch
+
+---
+
+<a id="cli-stagefreight-worktree-add" name="cli-stagefreight-worktree-add"></a>
+### stagefreight worktree add
+
+*↩ [`stagefreight worktree`](#cli-stagefreight-worktree)*
+
+**Usage:** `stagefreight worktree add [-b <new-branch> | --detach] <path> [<commit-ish>]`
+
+Create a worktree at <path>, as git worktree add does:
+```
+-b <new-branch>   a new branch at <commit-ish> (default HEAD)
+<path> alone      the branch named after the path: checked out if it exists, else created from HEAD
+<commit-ish>      a local branch is checked out; a branch exactly one remote has is
+created tracking it; anything else is checked out detached
+--detach          a detached HEAD at <commit-ish> (default HEAD)
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--detach` | bool | — | check out a detached HEAD |
+| `-b, --branch` | string | — | create a new branch for the worktree |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-worktree-list" name="cli-stagefreight-worktree-list"></a>
+### stagefreight worktree list
+
+*↩ [`stagefreight worktree`](#cli-stagefreight-worktree)*
+
+**Usage:** `stagefreight worktree list`
+
+List worktrees and what each holds
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-worktree-prune" name="cli-stagefreight-worktree-prune"></a>
+### stagefreight worktree prune
+
+*↩ [`stagefreight worktree`](#cli-stagefreight-worktree)*
+
+**Usage:** `stagefreight worktree prune`
+
+Remove administrative files of worktrees whose directory is gone
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-worktree-remove" name="cli-stagefreight-worktree-remove"></a>
+### stagefreight worktree remove
+
+*↩ [`stagefreight worktree`](#cli-stagefreight-worktree)*
+
+**Usage:** `stagefreight worktree remove [--force] <worktree>`
+
+Remove a worktree, as git worktree remove does: its directory and administrative files go,
+its branch stays. Uncommitted changes refuse it, and so do commits that exist nowhere else
+(ahead of its upstream, or on no other branch); --force removes it anyway.
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `-f, --force` | bool | — | remove even with uncommitted changes or commits that exist nowhere else |
 
 _Plus the [global flags](#cli-global-flags)._
 
