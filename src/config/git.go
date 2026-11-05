@@ -29,6 +29,9 @@ type GitConfig struct {
 type GitVersioning struct {
 	BranchBuilds OrderedBranchBuilds `yaml:"branch_builds,omitempty"`
 	NoLineage    NoLineageConfig     `yaml:"no_lineage,omitempty"`
+	// Majors is when a breaking change projects the next major in {next}: always,
+	// after_v1 (default; before 1.0 it projects the minor) or never (majors are tagged by hand).
+	Majors string `yaml:"majors,omitempty"`
 }
 
 // OrderedTagSources is git.tags — an id→{pattern} map (key becomes TagSourceConfig.ID).

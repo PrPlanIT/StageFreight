@@ -34,8 +34,6 @@ type Commit struct {
 	Breaking bool
 }
 
-var conventionalRe = regexp.MustCompile(`^(\w+)(?:\(([^)]+)\))?(!)?\s*:\s*(.+)`)
-
 // categoryOrder defines the display order for release notes.
 var categoryOrder = []struct {
 	prefix string
@@ -592,46 +590,25 @@ func ParseCommits(repoDir, fromRef, toRef string) ([]Commit, error) {
 			continue
 		}
 
-		subject, body := splitCommitMessage(raw.Message)
 		hash := raw.Hash.String()
 		if len(hash) > 7 {
 			hash = hash[:7]
 		}
+		cc := gitver.ParseConventional(raw.Message)
 		c := Commit{
-			Hash:    hash,
-			Summary: subject,
-			Body:    body,
-			Author:  raw.Author.Name,
-		}
-
-		// Parse conventional commit
-		if m := conventionalRe.FindStringSubmatch(c.Summary); m != nil {
-			c.Type = strings.ToLower(m[1])
-			c.Scope = m[2]
-			c.Breaking = m[3] == "!" || strings.Contains(strings.ToUpper(c.Body), "BREAKING CHANGE")
-			c.Summary = m[4]
-		}
-
-		// Detect breaking change from body even without prefix
-		if strings.Contains(strings.ToUpper(c.Body), "BREAKING CHANGE") {
-			c.Breaking = true
+			Hash:     hash,
+			Summary:  cc.Description,
+			Body:     cc.Body,
+			Author:   raw.Author.Name,
+			Type:     cc.Type,
+			Scope:    cc.Scope,
+			Breaking: cc.Breaking,
 		}
 
 		commits = append(commits, c)
 	}
 
 	return commits, nil
-}
-
-// splitCommitMessage splits a raw git commit message into subject and body.
-func splitCommitMessage(msg string) (subject, body string) {
-	msg = strings.TrimSpace(msg)
-	parts := strings.SplitN(msg, "\n", 2)
-	subject = strings.TrimSpace(parts[0])
-	if len(parts) > 1 {
-		body = strings.TrimSpace(parts[1])
-	}
-	return
 }
 
 func categorize(commits []Commit) []CommitCategory {

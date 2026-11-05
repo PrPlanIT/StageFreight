@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,8 +28,10 @@ type VersionInfo struct {
 	Prerelease   string // "alpha.1", "beta.2", "rc.1", or "" for stable
 	SHA          string
 	Branch       string
-	IsRelease    bool // true if HEAD is exactly at a tag
-	IsPrerelease bool // true if tag has a prerelease suffix
+	IsRelease    bool   // true if HEAD is exactly at a tag
+	IsPrerelease bool   // true if tag has a prerelease suffix
+	Next         string // the release the commits since the base lead to; set only for a format using {next}/{commits}
+	Commits      int    // commits since the base; set with Next
 }
 
 // VersioningOpts provides versioning configuration to DetectVersionWithOpts.
@@ -52,6 +55,10 @@ type VersioningOpts struct {
 
 	// NoLineageVersion: template for explicit mode (must contain {sha} or {time})
 	NoLineageVersion string
+
+	// Majors: when a breaking change projects the next major — MajorsAlways,
+	// MajorsAfterV1 (empty means this) or MajorsNever.
+	Majors string
 }
 
 // TagSource is a named tag pattern: operators classify git tags into sources
@@ -77,7 +84,7 @@ type BranchRule struct {
 	IsDefault   bool           // true when this is the catch-all fallback rule
 	Match       *regexp.Regexp // nil when IsDefault; compiled at opts-build time
 	BaseFromIDs []string       // ordered fallback chain; required (len >= 1)
-	Format      string         // version template: {base} {sha} {branch}
+	Format      string         // version template: {base} {next} {commits} {sha} {branch}
 }
 
 // semverRe captures major.minor.patch and optional -prerelease suffix.
@@ -306,7 +313,12 @@ func DetectVersionWithOpts(rootDir string, opts *VersioningOpts) (*VersionInfo, 
 	if !v.IsRelease {
 		format := rule.Format
 		if format == "" {
-			format = "{base}-dev+{sha}"
+			format = DefaultBranchBuildFormat
+		}
+		if usesProjection(format) {
+			if err := project(repo, v, chosenTag, opts.Majors); err != nil {
+				return nil, err
+			}
 		}
 		v.Version = renderVersionFormat(format, v)
 	}
@@ -463,10 +475,12 @@ func VersionOfTag(tag, sha string) *VersionInfo {
 }
 
 // renderVersionFormat substitutes placeholders in a version format template.
-// Supported: {base}, {sha}, {branch}
+// Supported: {base}, {next}, {commits}, {sha}, {branch}
 func renderVersionFormat(format string, v *VersionInfo) string {
 	out := format
 	out = strings.ReplaceAll(out, "{base}", v.Base)
+	out = strings.ReplaceAll(out, "{next}", v.Next)
+	out = strings.ReplaceAll(out, "{commits}", strconv.Itoa(v.Commits))
 	out = strings.ReplaceAll(out, "{sha}", v.SHA)
 	out = strings.ReplaceAll(out, "{branch}", v.Branch)
 	return out

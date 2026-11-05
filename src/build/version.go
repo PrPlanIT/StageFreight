@@ -82,6 +82,7 @@ func versioningOptsFromConfig(cfg *config.Config) (*gitver.VersioningOpts, error
 	opts := &gitver.VersioningOpts{
 		NoLineageMode:    cfg.Git.Versioning.NoLineage.Mode,
 		NoLineageVersion: cfg.Git.Versioning.NoLineage.Version,
+		Majors:           cfg.Git.Versioning.Majors,
 	}
 
 	for _, ts := range cfg.Git.Tags {

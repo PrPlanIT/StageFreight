@@ -39,8 +39,10 @@ type BranchBuildConfig struct {
 	BaseFrom []string `yaml:"base_from"`
 
 	// Format is the version template for non-release commits.
-	// Supported placeholders: {base}, {sha}, {branch}
-	// e.g., "{base}-dev+{sha}"
+	// Placeholders: {base} (the base tag's version), {next} (the release the commits
+	// since the base lead to: feat → minor, others → patch, breaking per
+	// git.versioning.majors), {commits} (commits since the base), {sha}, {branch}.
+	// e.g., "{next}-dev.{commits}+{sha}"
 	Format string `yaml:"format"`
 }
 

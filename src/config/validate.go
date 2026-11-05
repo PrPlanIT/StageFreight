@@ -14,6 +14,11 @@ import (
 	depversion "github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
+var (
+	branchBuildPlaceholderRe = regexp.MustCompile(`\{[^{}]*\}`)
+	branchBuildPlaceholders  = map[string]bool{"{base}": true, "{next}": true, "{commits}": true, "{sha}": true, "{branch}": true}
+)
+
 // Validate checks structural invariants of a loaded v2 Config.
 // Returns warnings (soft issues) and a hard error if the config is invalid.
 func Validate(cfg *Config) (warnings []string, err error) {
@@ -128,6 +133,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		if bb.Format == "" {
 			errs = append(errs, fmt.Sprintf("%s: format is required", bbpath))
 		}
+		for _, p := range branchBuildPlaceholderRe.FindAllString(bb.Format, -1) {
+			if !branchBuildPlaceholders[p] {
+				errs = append(errs, fmt.Sprintf("%s: format placeholder %s is unknown (supported: {base}, {next}, {commits}, {sha}, {branch})", bbpath, p))
+			}
+		}
 	}
 
 	// default is a NAMED catch-all (id "default"), order-free — the engine
@@ -135,6 +145,12 @@ func Validate(cfg *Config) (warnings []string, err error) {
 	// default-must-be-last requirement.
 	if len(cfg.Git.Versioning.BranchBuilds) > 0 && !hasDefault {
 		errs = append(errs, "versioning.branch_builds: an entry with id 'default' is required (catch-all for unmatched branches)")
+	}
+
+	switch cfg.Git.Versioning.Majors {
+	case "", "always", "after_v1", "never":
+	default:
+		errs = append(errs, fmt.Sprintf("versioning.majors: unknown value %q (expected always, after_v1 or never)", cfg.Git.Versioning.Majors))
 	}
 
 	switch cfg.Git.Versioning.NoLineage.Mode {
