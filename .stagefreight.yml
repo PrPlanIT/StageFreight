@@ -395,7 +395,14 @@ toolchains:
     syft: "x"
     grype: "x"
     osv-scanner: "x"
+    govulncheck: "x"
     cosign: "x"
+    kubectl: "x"
+    flux: "x"
+    kustomize: "x"
+    kubeconform: "x"
+    cargo-llvm-cov: "x"
+    cargo-nextest: "x"
   retention:
     keep_last: 2
 
