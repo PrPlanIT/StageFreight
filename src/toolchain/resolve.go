@@ -49,7 +49,7 @@ type Result struct {
 // Resolve ensures a tool at the requested version is available and verified.
 // Returns the binary path and provenance. Downloads if not cached.
 // Hard-fails on checksum mismatch, download error, or metadata write failure.
-// Empty version uses ToolDef.DefaultVer.
+// Empty version uses the built-in version (BuiltinVersion).
 // No fallback. No stderr output — callers own presentation.
 func Resolve(rootDir, tool, version string) (Result, error) {
 	r, err := resolve(rootDir, tool, version)
@@ -114,7 +114,9 @@ func resolve(rootDir, tool, version string) (Result, error) {
 	}
 
 	if version == "" {
-		version = def.DefaultVer
+		if version = BuiltinVersion(def.Name); version == "" {
+			return Result{}, errNoBuiltin(tool)
+		}
 	}
 	variant, err := Variant(def, "")
 	if err != nil {
@@ -146,7 +148,9 @@ func resolvePinned(rootDir, tool string, sel Selection) (Result, error) {
 	}
 	version := sel.Version
 	if version == "" {
-		version = def.DefaultVer
+		if version = BuiltinVersion(def.Name); version == "" {
+			return Result{}, errNoBuiltin(tool)
+		}
 	}
 	variant, err := Variant(def, sel.Variant)
 	if err != nil {
@@ -165,7 +169,9 @@ func FetchArtifactSHA256(tool, version string) (string, error) {
 		return "", fmt.Errorf("unsupported toolchain %q", tool)
 	}
 	if version == "" {
-		version = def.DefaultVer
+		if version = BuiltinVersion(def.Name); version == "" {
+			return "", errNoBuiltin(tool)
+		}
 	}
 	if def.DownloadURL == nil {
 		return "", fmt.Errorf("toolchain %q has no downloadable artifact (provisioned via source)", tool)
@@ -484,4 +490,10 @@ func writeMetadataTo(root, tool, version string, m Metadata) error {
 		return err
 	}
 	return os.Rename(tmp, target)
+}
+
+// errNoBuiltin is the failure for a tool asked for without a version that StageFreight's
+// own lock does not resolve either.
+func errNoBuiltin(tool string) error {
+	return fmt.Errorf("toolchain %s has no built-in version: set toolchains.want.%s", tool, tool)
 }

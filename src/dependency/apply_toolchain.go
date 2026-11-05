@@ -276,8 +276,5 @@ func fixedBy(dep supplychain.Dependency, ver string) []string {
 // LockBirth is the from-side of a first lock: the built-in version the unlocked toolchain
 // ran, and the update type "lock".
 func LockBirth(dep supplychain.Dependency) (ran, updateType string) {
-	if def, ok := toolchain.LookupTool(dep.Name); ok {
-		ran = def.DefaultVer
-	}
-	return ran, "lock"
+	return toolchain.BuiltinVersion(dep.Name), "lock"
 }

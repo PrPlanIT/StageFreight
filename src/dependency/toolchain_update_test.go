@@ -156,7 +156,7 @@ func TestUpdate_ToolchainsFromPresets(t *testing.T) {
 		t.Fatalf("the preset wildcard must lock and the preset pin must not move, applied = %v", got)
 	}
 	for _, a := range res.Applied {
-		if def, _ := toolchain.LookupTool("trivy"); a.Dep.Name == "trivy" && (a.OldVer != def.DefaultVer || a.UpdateType != "lock") {
+		if a.Dep.Name == "trivy" && (a.OldVer != toolchain.BuiltinVersion("trivy") || a.UpdateType != "lock") {
 			t.Fatalf("a first lock reports the built-in version it replaces, got %s → %s %s", a.OldVer, a.NewVer, a.UpdateType)
 		}
 	}

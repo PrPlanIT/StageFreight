@@ -51,18 +51,22 @@ func ReadLock(rootDir string) (*Lock, error) {
 		}
 		return nil, fmt.Errorf("reading %s: %w", lockRelPath(), err)
 	}
+	return parseLock(data, lockRelPath())
+}
+
+func parseLock(data []byte, name string) (*Lock, error) {
 	var head struct {
 		LockfileVersion int `json:"lockfileVersion"`
 	}
 	if err := json.Unmarshal(data, &head); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", lockRelPath(), err)
+		return nil, fmt.Errorf("parsing %s: %w", name, err)
 	}
 	if head.LockfileVersion != LockfileVersion {
-		return nil, fmt.Errorf("%s is lockfileVersion %d, this StageFreight reads %d: delete it and the next dependency update rewrites it", lockRelPath(), head.LockfileVersion, LockfileVersion)
+		return nil, fmt.Errorf("%s is lockfileVersion %d, this StageFreight reads %d: delete it and the next dependency update rewrites it", name, head.LockfileVersion, LockfileVersion)
 	}
 	var l Lock
 	if err := json.Unmarshal(data, &l); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", lockRelPath(), err)
+		return nil, fmt.Errorf("parsing %s: %w", name, err)
 	}
 	return &l, nil
 }

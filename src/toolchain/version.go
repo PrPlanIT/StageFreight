@@ -19,7 +19,7 @@ import (
 //     (1.26.x) resolves to its locked version from .stagefreight/toolchains.lock (read
 //     from rootDir). A wildcard with no lock yet is not provisionable from a range, so
 //     it falls through to the default until an update pass writes the lock.
-//  3. ToolDef.DefaultVer — hardcoded fallback
+//  3. BuiltinVersion — StageFreight's own locked version
 //
 // Returns the version string and whether it came from config intent (isPinned). The
 // isPinned flag is critical: pinned versions that fail to resolve must hard-fail with no
@@ -43,11 +43,12 @@ func ResolveVersion(rootDir, tool, requestedVersion string, desired map[string]c
 		}
 		unlocked = pin.Constraint
 	}
-	if def, ok := LookupTool(tool); ok {
+	if _, ok := LookupTool(tool); ok {
+		builtin := BuiltinVersion(tool)
 		if unlocked != "" {
-			warnUnlocked(tool, unlocked, def.DefaultVer)
+			warnUnlocked(tool, unlocked, builtin)
 		}
-		return def.DefaultVer, false
+		return builtin, false
 	}
 	return "", false
 }
@@ -150,6 +151,9 @@ func Select(rootDir, tool string, desired map[string]config.ToolConstraint) (Sel
 			sel.SHA256 = lock.Digest(tool, ver, key)
 		}
 	}
+	if sel.SHA256 == "" && !sel.Pinned {
+		sel.SHA256 = builtinDigest(tool, ver, key)
+	}
 	return sel, nil
 }
 
@@ -174,7 +178,9 @@ func SeedDesired() map[string]config.ToolConstraint {
 		if def.Name == "" || def.Name == "go" {
 			continue // Go version is authoritative from go.mod, not desired config
 		}
-		desired[def.Name] = config.ToolConstraint{Constraint: def.DefaultVer}
+		if v := BuiltinVersion(def.Name); v != "" {
+			desired[def.Name] = config.ToolConstraint{Constraint: v}
+		}
 	}
 	return desired
 }

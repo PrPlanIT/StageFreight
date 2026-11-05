@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -121,6 +122,12 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 			if def.GitHubOwner != "" && !m.cooldownFor(dep).IsZero() {
 				_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, def.ReleaseTagPrefix, 1)
 			}
+		case "goproxy":
+			if tags := m.goProxyToolVersions(ctx, &dep, def.GoModule); wildcard {
+				dep.Current = version.SelectConstraint(constraint, tags)
+			} else {
+				dep.Latest = version.SelectConstraint("x", tags)
+			}
 		default:
 			dep.SourceURL = "" // no upstream resolver; exact constraint stands alone
 		}
@@ -178,4 +185,41 @@ func (m *Resolver) fetchKubectlChannel(ctx context.Context, channel string) (str
 		return "", fmt.Errorf("kubectl %s: %w", channel, err)
 	}
 	return strings.TrimPrefix(strings.TrimSpace(string(body)), "v"), nil
+}
+
+// goProxyToolVersions lists a go-installed tool's released versions (v-stripped, no
+// prereleases) from the module proxy, dating the newest ones on dep when a cooldown applies.
+func (m *Resolver) goProxyToolVersions(ctx context.Context, dep *supplychain.Dependency, module string) []string {
+	ep := m.cfg.registryEndpoint(supplychain.EcosystemGoMod)
+	mod := strings.TrimRight(m.cfg.registryURL(supplychain.EcosystemGoMod, "https://proxy.golang.org"), "/") + "/" + escapeModPath(module)
+	dep.SourceURL = mod + "/@v/list"
+	data, err := m.http.fetchBytes(ctx, dep.SourceURL, ep)
+	if err != nil {
+		return nil
+	}
+	var tags []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if v := strings.TrimSpace(line); v != "" && !version.IsPrerelease(v) {
+			tags = append(tags, strings.TrimPrefix(v, "v"))
+		}
+	}
+	if m.cooldownFor(*dep).IsZero() {
+		return tags
+	}
+	newest := append([]string(nil), tags...)
+	sort.Slice(newest, func(i, j int) bool { return compare(newest[i], newest[j], supplychain.EcosystemGoMod) > 0 })
+	if len(newest) > maxDatedGoVersions {
+		newest = newest[:maxDatedGoVersions]
+	}
+	for _, v := range newest {
+		var info goProxyLatest
+		if err := m.http.fetchJSON(ctx, mod+"/@v/v"+v+".info", &info, ep); err != nil {
+			continue
+		}
+		setReleased(dep, v, info.Time)
+		if !m.inCooldown(*dep, info.Time) {
+			break // older releases are older still
+		}
+	}
+	return tags
 }

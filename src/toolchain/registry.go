@@ -10,7 +10,6 @@ import (
 type ToolDef struct {
 	Name         string
 	BinaryName   string                                // name of the binary file
-	DefaultVer   string                                // default version if none specified
 	DownloadURL  func(version string, t Target) string // archive or binary URL; "" when no build exists for t
 	ChecksumURL  func(version string, t Target) string // checksum file URL
 	Format       string                                // "tar.gz" or "binary"
@@ -20,9 +19,13 @@ type ToolDef struct {
 
 	// ReleaseSource names WHERE version discovery reads the release list — declared
 	// data, so the resolver dispatches on strategy, never on the tool's name: "github"
-	// (releases API, the default when GitHubOwner/Repo are set) or "k8s" (dl.k8s.io
-	// stable channels). This is distinct from Source, which materializes the binary.
+	// (releases API, the default when GitHubOwner/Repo are set), "k8s" (dl.k8s.io
+	// stable channels) or "goproxy" (GoModule's versions on the Go module proxy). This is
+	// distinct from Source, which materializes the binary.
 	ReleaseSource string
+
+	// GoModule is the module whose proxy versions are the tool's releases ("goproxy").
+	GoModule string
 
 	// ReleaseTagPrefix scopes the release list to this tool's tags in a repository that
 	// releases several components: kustomize's "kustomize/" beside "kyaml/" and "api/",
@@ -133,7 +136,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/aquasecurity/trivy",
 		BinaryName:   "trivy",
-		DefaultVer:   "0.69.3",
 		GitHubOwner:  "aquasecurity",
 		GitHubRepo:   "trivy",
 		DownloadURL: func(ver string, t Target) string {
@@ -152,7 +154,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/anchore/syft",
 		BinaryName:   "syft",
-		DefaultVer:   "1.42.3",
 		GitHubOwner:  "anchore",
 		GitHubRepo:   "syft",
 		DownloadURL: func(ver string, t Target) string {
@@ -171,7 +172,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/anchore/grype",
 		BinaryName:   "grype",
-		DefaultVer:   "0.110.0",
 		GitHubOwner:  "anchore",
 		GitHubRepo:   "grype",
 		DownloadURL: func(ver string, t Target) string {
@@ -190,7 +190,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/google/osv-scanner",
 		BinaryName:   "osv-scanner",
-		DefaultVer:   "2.3.5",
 		GitHubOwner:  "google",
 		GitHubRepo:   "osv-scanner",
 		DownloadURL: func(ver string, t Target) string {
@@ -208,21 +207,19 @@ var registry = map[string]ToolDef{
 	// through GoInstallSource rather than a DownloadURL. It backs the Go reachability evidence
 	// contributor (call-graph analysis over the built module).
 	"govulncheck": {
-		Name:         "govulncheck",
-		OSVEcosystem: "Go",
-		OSVName:      "golang.org/x/vuln",
-		BinaryName:   "govulncheck",
-		DefaultVer:   "1.5.0",
-		GitHubOwner:  "golang",
-		GitHubRepo:   "vuln",
-		Source:       GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
+		Name:          "govulncheck",
+		OSVEcosystem:  "Go",
+		OSVName:       "golang.org/x/vuln",
+		BinaryName:    "govulncheck",
+		ReleaseSource: "goproxy", // golang/vuln's GitHub releases stopped at v1.1.4
+		GoModule:      "golang.org/x/vuln",
+		Source:        GoInstallSource{Module: "golang.org/x/vuln/cmd/govulncheck"},
 	},
 	"cosign": {
 		Name:         "cosign",
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/sigstore/cosign",
 		BinaryName:   "cosign",
-		DefaultVer:   "3.0.6",
 		GitHubOwner:  "sigstore",
 		GitHubRepo:   "cosign",
 		DownloadURL: func(ver string, t Target) string {
@@ -241,7 +238,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/fluxcd/flux2",
 		BinaryName:   "flux",
-		DefaultVer:   "2.8.3",
 		GitHubOwner:  "fluxcd",
 		GitHubRepo:   "flux2",
 		DownloadURL: func(ver string, t Target) string {
@@ -258,7 +254,6 @@ var registry = map[string]ToolDef{
 	"kubectl": {
 		Name:          "kubectl",
 		BinaryName:    "kubectl",
-		DefaultVer:    "1.34.2",
 		ReleaseSource: "k8s",        // dl.k8s.io stable channels, not GitHub releases
 		GitHubOwner:   "kubernetes", // release dates only, for the cooldown
 		GitHubRepo:    "kubernetes",
@@ -283,7 +278,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem:     "Go",
 		OSVName:          "sigs.k8s.io/kustomize/kustomize",
 		BinaryName:       "kustomize",
-		DefaultVer:       "5.5.0",
 		GitHubOwner:      "kubernetes-sigs",
 		GitHubRepo:       "kustomize",
 		ReleaseTagPrefix: "kustomize/",
@@ -305,7 +299,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "Go",
 		OSVName:      "github.com/yannh/kubeconform",
 		BinaryName:   "kubeconform",
-		DefaultVer:   "0.6.7",
 		GitHubOwner:  "yannh",
 		GitHubRepo:   "kubeconform",
 		DownloadURL: func(ver string, t Target) string {
@@ -330,7 +323,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem: "crates.io",
 		OSVName:      "cargo-llvm-cov",
 		BinaryName:   "cargo-llvm-cov",
-		DefaultVer:   "0.8.7",
 		GitHubOwner:  "taiki-e",
 		GitHubRepo:   "cargo-llvm-cov",
 		Libcs:        []string{"gnu", "musl"},
@@ -347,7 +339,6 @@ var registry = map[string]ToolDef{
 		OSVEcosystem:     "crates.io",
 		OSVName:          "cargo-nextest",
 		BinaryName:       "cargo-nextest",
-		DefaultVer:       "0.9.138",
 		GitHubOwner:      "nextest-rs",
 		GitHubRepo:       "nextest",
 		ReleaseTagPrefix: "cargo-nextest-",

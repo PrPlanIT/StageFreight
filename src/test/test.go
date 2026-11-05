@@ -206,7 +206,7 @@ func runRustSuite(ctx context.Context, sr SuiteResult, rootDir string, s Resolve
 // resolves). Fails clearly when the tool isn't pinned — coverage requires an explicit
 // project trust root.
 func prepareRustCoverage(ctx context.Context, rootDir, crateDir, cargoBin string, env []string, desired map[string]config.ToolConstraint) ([]string, error) {
-	// Both optional: an absent version → registry DefaultVer, an absent digest → TOFU. A
+	// Both optional: an absent version → the built-in version, an absent digest → TOFU. A
 	// user MAY pin either for stronger guarantees, but coverage works with nothing
 	// configured.
 	sel, err := toolchain.Select(rootDir, "cargo-llvm-cov", desired)

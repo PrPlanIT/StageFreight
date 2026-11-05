@@ -75,3 +75,29 @@ func TestToolchains_NamePrefixedComponents(t *testing.T) {
 		t.Errorf("got %+v, want cargo-nextest 0.9.151, not nextest-runner's 0.129.0", deps)
 	}
 }
+
+func TestToolchains_GoProxyReleases(t *testing.T) {
+	old := stamp(10 * day)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/golang.org/x/vuln/@v/list"):
+			fmt.Fprint(w, "v1.1.4\nv1.5.0\nv1.9.0\nv1.10.0-rc.1\n")
+		case strings.HasSuffix(r.URL.Path, ".info"):
+			fmt.Fprintf(w, `{"Time":%q}`, old)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	for constraint, want := range map[string]struct{ current, latest string }{
+		"1.5.0": {"1.5.0", "1.9.0"},
+		"x":     {"1.9.0", "1.9.0"},
+	} {
+		m := cooldownResolver(t, "go", srv.URL)
+		m.SetToolchainDesired(map[string]config.ToolConstraint{"govulncheck": {Constraint: constraint}})
+		deps := m.checkToolchains(context.Background(), m.desired)
+		if len(deps) != 1 || deps[0].Current != want.current || deps[0].Latest != want.latest {
+			t.Errorf("%s: got %+v, want current %q latest %q", constraint, deps, want.current, want.latest)
+		}
+	}
+}
