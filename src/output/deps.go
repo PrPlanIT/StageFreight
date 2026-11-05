@@ -17,7 +17,7 @@ type AppliedDep struct {
 	Name       string
 	OldVer     string
 	NewVer     string
-	UpdateType string   // "major", "minor", "patch", "tag"
+	UpdateType string   // "major", "minor", "patch", "tag", "lock"
 	CVEsFixed  []string // IDs only
 }
 

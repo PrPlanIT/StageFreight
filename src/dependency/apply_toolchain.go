@@ -66,7 +66,11 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 			}
 			if lock.Set(toolName, dep.Latest, toolchain.HostPlatformKey(toolName), sha) {
 				lockModified = true
-				applied = append(applied, AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest), CVEsFixed: fixedBy(dep, dep.Latest)})
+				u := AppliedUpdate{Dep: dep, OldVer: prior, NewVer: dep.Latest, UpdateType: updateType(prior, dep.Latest), CVEsFixed: fixedBy(dep, dep.Latest)}
+				if prior == "" {
+					u.OldVer, u.UpdateType = LockBirth(dep)
+				}
+				applied = append(applied, u)
 			}
 			continue
 		}
@@ -267,4 +271,13 @@ func fixedBy(dep supplychain.Dependency, ver string) []string {
 		}
 	}
 	return ids
+}
+
+// LockBirth is the from-side of a first lock: the built-in version the unlocked toolchain
+// ran, and the update type "lock".
+func LockBirth(dep supplychain.Dependency) (ran, updateType string) {
+	if def, ok := toolchain.LookupTool(dep.Name); ok {
+		ran = def.DefaultVer
+	}
+	return ran, "lock"
 }

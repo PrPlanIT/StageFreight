@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 func stubArtifactDigest(t *testing.T) {
@@ -153,6 +154,11 @@ func TestUpdate_ToolchainsFromPresets(t *testing.T) {
 	}
 	if got := appliedNames(res); !got["trivy"] || got["cosign"] {
 		t.Fatalf("the preset wildcard must lock and the preset pin must not move, applied = %v", got)
+	}
+	for _, a := range res.Applied {
+		if def, _ := toolchain.LookupTool("trivy"); a.Dep.Name == "trivy" && (a.OldVer != def.DefaultVer || a.UpdateType != "lock") {
+			t.Fatalf("a first lock reports the built-in version it replaces, got %s → %s %s", a.OldVer, a.NewVer, a.UpdateType)
+		}
 	}
 	lock, _ := os.ReadFile(filepath.Join(repo, ".stagefreight", "toolchains.lock"))
 	if !strings.Contains(string(lock), `"trivy"`) || !strings.Contains(string(lock), "0.76.1") {

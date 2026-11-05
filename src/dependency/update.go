@@ -156,7 +156,7 @@ type AppliedUpdate struct {
 	Dep         supplychain.Dependency
 	OldVer      string
 	NewVer      string
-	UpdateType  string // "major", "minor", "patch", "tag", "security"
+	UpdateType  string // "major", "minor", "patch", "tag", "security", "lock"
 	CVEsFixed   []string
 	Remediation string // how a security remediation was achieved (parent-bump vs pinned floor); empty for ordinary updates
 }

@@ -293,12 +293,16 @@ func runDryRun(ctx context.Context, w *os.File, color bool, cfg dependency.Updat
 		// Report the eligible IN-LINE target (UpdateTarget), NOT the family-wide
 		// newest (c.Latest). c.Latest is awareness only; auto-update advances to
 		// the constrained target the apply layer will actually write.
-		result.Applied = append(result.Applied, dependency.AppliedUpdate{
+		u := dependency.AppliedUpdate{
 			Dep:        c,
 			OldVer:     c.Current,
 			NewVer:     c.UpdateTarget(),
 			UpdateType: dryRunUpdateType(c),
-		})
+		}
+		if c.LockPending {
+			u.OldVer, u.UpdateType = dependency.LockBirth(c)
+		}
+		result.Applied = append(result.Applied, u)
 	}
 
 	// Generate resolve.json + report (no patch in dry-run)
