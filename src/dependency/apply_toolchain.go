@@ -59,6 +59,10 @@ func applyToolchainUpdates(deps []supplychain.Dependency, repoRoot string) ([]Ap
 				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipUpToDate, Reason: "lock already at newest in-line"})
 				continue
 			}
+			if prior != "" && version.CompareVersions(dep.Latest, prior, dep.Ecosystem) < 0 {
+				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "newest upstream " + dep.Latest + " is older than the locked " + prior + "; a lock only moves forward"})
+				continue
+			}
 			sha, keep := resolveLockDigest(lock, toolName, dep.Latest)
 			if !keep {
 				skipped = append(skipped, SkippedDep{Dep: dep, Category: SkipOther, Reason: "could not derive pinned sha256 for " + dep.Latest})

@@ -178,3 +178,27 @@ func TestUpdate_ToolchainsFromPresets(t *testing.T) {
 		t.Fatalf("an exact preset pin must be reported as preset-owned, skipped = %+v", res.Skipped)
 	}
 }
+
+// A wildcard lock never moves backwards, whatever the upstream source reports.
+func TestUpdate_ToolchainLockOnlyMovesForward(t *testing.T) {
+	stubArtifactDigest(t)
+	repo := initTestRepo(t, map[string]string{
+		"go.mod":                        "module example.com/x\n\ngo 1.24\n",
+		".stagefreight.yml":             "version: 1\ntoolchains:\n  want:\n    govulncheck: \"x\"\n",
+		".stagefreight/toolchains.lock": `{"lockfileVersion": 2, "toolchains": [{"name": "govulncheck", "resolved": "1.9.0"}]}`,
+	})
+	deps := []supplychain.Dependency{
+		{Name: "govulncheck", Constraint: "x", Current: "1.9.0", Latest: "1.1.4", Ecosystem: supplychain.EcosystemToolchain, File: ".stagefreight.yml"},
+	}
+	res, err := Update(context.Background(), UpdateConfig{RootDir: repo, OutputDir: t.TempDir(), Ecosystems: []string{supplychain.EcosystemToolchain}}, deps)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if len(res.Applied) != 0 {
+		t.Fatalf("a lock must not move backwards, applied = %+v", res.Applied)
+	}
+	lock, _ := os.ReadFile(filepath.Join(repo, ".stagefreight", "toolchains.lock"))
+	if !strings.Contains(string(lock), "1.9.0") {
+		t.Fatalf("the lock changed:\n%s", lock)
+	}
+}

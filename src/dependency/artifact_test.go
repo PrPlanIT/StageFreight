@@ -149,6 +149,9 @@ func runWritePatch(t *testing.T, dir string) string {
 
 func mustWriteFile(t *testing.T, dir, name, content string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+		t.Fatalf("creating the directory of %s: %v", name, err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatalf("writing %s: %v", name, err)
 	}
