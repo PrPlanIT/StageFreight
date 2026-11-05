@@ -24,6 +24,10 @@ type ToolDef struct {
 	// stable channels). This is distinct from Source, which materializes the binary.
 	ReleaseSource string
 
+	// ReleaseTagPrefix scopes the release list to this tool's tags in a repository that
+	// releases several components (kustomize's "kustomize/" beside "kyaml/" and "api/").
+	ReleaseTagPrefix string
+
 	// OSVEcosystem and OSVName identify the tool's own source package in the OSV
 	// vulnerability database ("Go" + module path, or "crates.io" + crate), so a release
 	// fixing an advisory in the tool is known as a security update. A Go module path is
@@ -274,13 +278,14 @@ var registry = map[string]ToolDef{
 	// kustomize renders Flux build roots offline for the gitops audition gate.
 	// Release tags are prefixed "kustomize/" — %2F is the URL-encoded slash.
 	"kustomize": {
-		Name:         "kustomize",
-		OSVEcosystem: "Go",
-		OSVName:      "sigs.k8s.io/kustomize/kustomize",
-		BinaryName:   "kustomize",
-		DefaultVer:   "5.5.0",
-		GitHubOwner:  "kubernetes-sigs",
-		GitHubRepo:   "kustomize",
+		Name:             "kustomize",
+		OSVEcosystem:     "Go",
+		OSVName:          "sigs.k8s.io/kustomize/kustomize",
+		BinaryName:       "kustomize",
+		DefaultVer:       "5.5.0",
+		GitHubOwner:      "kubernetes-sigs",
+		GitHubRepo:       "kustomize",
+		ReleaseTagPrefix: "kustomize/",
 		DownloadURL: func(ver string, t Target) string {
 			if a := linuxArch(t, "amd64", "arm64"); a != "" {
 				return fmt.Sprintf("https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%%2Fv%s/kustomize_v%s_linux_%s.tar.gz", ver, ver, a)

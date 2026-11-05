@@ -11,6 +11,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // githubRelease is one release from GitHub's releases API.
@@ -22,9 +23,9 @@ type githubRelease struct {
 }
 
 // fetchReleasePage fetches one page of owner/repo's releases (newest first) and returns
-// the published, non-prerelease versions on it, recording each one's release date on
-// dep, and whether the page was full (more may follow).
-func (m *Resolver) fetchReleasePage(ctx context.Context, dep *supplychain.Dependency, owner, repo string, page int) ([]string, bool, error) {
+// the published, non-prerelease versions on it whose tag starts with prefix, recording
+// each one's release date on dep, and whether the page was full (more may follow).
+func (m *Resolver) fetchReleasePage(ctx context.Context, dep *supplychain.Dependency, owner, repo, prefix string, page int) ([]string, bool, error) {
 	baseURL := m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com")
 	url := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=%d&page=%d", strings.TrimRight(baseURL, "/"), owner, repo, releasesPerPage, page)
 	var rels []githubRelease
@@ -33,7 +34,7 @@ func (m *Resolver) fetchReleasePage(ctx context.Context, dep *supplychain.Depend
 	}
 	out := make([]string, 0, len(rels))
 	for _, r := range rels {
-		if r.TagName == "" || r.Draft || r.Prerelease {
+		if r.TagName == "" || r.Draft || r.Prerelease || !strings.HasPrefix(r.TagName, prefix) {
 			continue
 		}
 		v := versionFromTag(r.TagName)
@@ -80,29 +81,69 @@ func (m *Resolver) checkTools(ctx context.Context, file lint.FileInfo, tools []s
 			Binding:   tool.EnvName,
 		}
 
-		ep := m.cfg.Registries.GitHub
-		baseURL := m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com")
-		url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), owner, repo)
-		dep.SourceURL = url
-
-		var release githubRelease
-		if err := m.http.fetchJSON(ctx, url, &release, ep); err != nil {
+		if err := m.latestRelease(ctx, &dep, owner, repo, tagPrefix(downloadURLFor(file.AbsPath, tool.EnvName))); err != nil {
 			dep.ResolutionError = "GitHub release lookup failed: " + err.Error()
-			deps = append(deps, dep)
-			continue
-		}
-
-		if release.TagName != "" {
-			dep.Latest = versionFromTag(release.TagName)
-			setReleased(&dep, dep.Latest, release.PublishedAt)
-		}
-		if m.inCooldown(dep, release.PublishedAt) {
-			_, _, _ = m.fetchReleasePage(ctx, &dep, owner, repo, 1) // dates the releases to step back to
 		}
 		deps = append(deps, dep)
 	}
 
 	return deps
+}
+
+// latestRelease sets dep.Latest to owner/repo's newest release among the tags starting
+// with prefix. Without a prefix that is the repository's latest release; with one it is
+// the newest such tag in the release list, since the latest release may be another
+// component's.
+func (m *Resolver) latestRelease(ctx context.Context, dep *supplychain.Dependency, owner, repo, prefix string) error {
+	baseURL := strings.TrimRight(m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com"), "/")
+	if prefix != "" {
+		dep.SourceURL = fmt.Sprintf("%s/repos/%s/%s/releases", baseURL, owner, repo)
+		var lastErr error
+		tags := collectMatchingReleaseTags("x", func(page int) ([]string, bool, error) {
+			tags, more, err := m.fetchReleasePage(ctx, dep, owner, repo, prefix, page)
+			lastErr = err
+			return tags, more, err
+		})
+		if len(tags) == 0 {
+			return lastErr
+		}
+		dep.Latest = version.SelectConstraint("x", tags)
+		return nil
+	}
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", baseURL, owner, repo)
+	dep.SourceURL = url
+	var release githubRelease
+	if err := m.http.fetchJSON(ctx, url, &release, m.cfg.Registries.GitHub); err != nil {
+		return err
+	}
+	if release.TagName != "" {
+		dep.Latest = versionFromTag(release.TagName)
+		setReleased(dep, dep.Latest, release.PublishedAt)
+	}
+	if m.inCooldown(*dep, release.PublishedAt) {
+		_, _, _ = m.fetchReleasePage(ctx, dep, owner, repo, "", 1) // dates the releases to step back to
+	}
+	return nil
+}
+
+// tagPrefix is the component prefix of the release tag a GitHub download URL names —
+// "kustomize/" for .../releases/download/kustomize%2Fv${VER}/... — or "" for an
+// unprefixed tag.
+func tagPrefix(downloadURL string) string {
+	const marker = "/releases/download/"
+	i := strings.Index(downloadURL, marker)
+	if i < 0 {
+		return ""
+	}
+	tag := downloadURL[i+len(marker):]
+	if j := strings.Index(tag, "/"); j >= 0 {
+		tag = tag[:j]
+	}
+	tag = strings.ReplaceAll(strings.ReplaceAll(tag, "%2F", "/"), "%2f", "/")
+	if j := strings.LastIndex(tag, "/"); j >= 0 {
+		return tag[:j+1]
+	}
+	return ""
 }
 
 // inCooldown reports whether a release published at t is young enough that dep's

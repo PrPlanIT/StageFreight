@@ -90,27 +90,17 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 
 		switch def.ReleaseSourceKind() {
 		case "github":
-			ep := m.cfg.Registries.GitHub
 			baseURL := m.cfg.registryURL(supplychain.EcosystemGitHubRelease, "https://api.github.com")
 			if wildcard {
 				// Candidate set: the release list (PAGINATED — a wildcard's line may be
 				// older than the 100 most-recent releases). Selection: highest matching member.
 				dep.SourceURL = fmt.Sprintf("%s/repos/%s/%s/releases", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
 				tags := collectMatchingReleaseTags(constraint, func(page int) ([]string, bool, error) {
-					return m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, page)
+					return m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, def.ReleaseTagPrefix, page)
 				})
 				dep.Current = version.SelectConstraint(constraint, tags) // resolved line member
 			} else {
-				url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(baseURL, "/"), def.GitHubOwner, def.GitHubRepo)
-				dep.SourceURL = url
-				var release githubRelease
-				if err := m.http.fetchJSON(ctx, url, &release, ep); err == nil && release.TagName != "" {
-					dep.Latest = versionFromTag(release.TagName)
-					setReleased(&dep, dep.Latest, release.PublishedAt)
-				}
-				if m.inCooldown(dep, release.PublishedAt) {
-					_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, 1) // dates the releases to step back to
-				}
+				_ = m.latestRelease(ctx, &dep, def.GitHubOwner, def.GitHubRepo, def.ReleaseTagPrefix)
 			}
 		case "k8s":
 			// dl.k8s.io exposes per-line channels: stable-<major>.<minor>.txt selects the
@@ -129,7 +119,7 @@ func (m *Resolver) checkToolchains(ctx context.Context, desired map[string]confi
 			}
 			// The channels carry no dates; the project's GitHub releases do.
 			if def.GitHubOwner != "" && !m.cooldownFor(dep).IsZero() {
-				_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, 1)
+				_, _, _ = m.fetchReleasePage(ctx, &dep, def.GitHubOwner, def.GitHubRepo, def.ReleaseTagPrefix, 1)
 			}
 		default:
 			dep.SourceURL = "" // no upstream resolver; exact constraint stands alone
