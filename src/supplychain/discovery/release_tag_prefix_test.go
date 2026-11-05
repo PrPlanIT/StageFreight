@@ -48,12 +48,30 @@ func TestTagPrefix(t *testing.T) {
 	for url, want := range map[string]string{
 		"https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz": "kustomize/",
 		"https://github.com/o/r/releases/download/cmd%2Fbuilder%2Fv${V}/builder":                                                                              "cmd/builder/",
+		"https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest.tar.gz":                                       "cargo-nextest-",
+		"https://github.com/o/r/releases/download/release-v${V}/r":                                                                                            "release-",
+		"https://github.com/o/r/releases/download/v1.2.3/r":                                                                                                   "",
 		"https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy.tar.gz":                                                              "",
-		"https://example.com/trivy.tar.gz": "",
-		"":                                 "",
+		"https://example.com/trivy.tar.gz":                                                                                                                    "",
+		"":                                                                                                                                                    "",
 	} {
 		if got := tagPrefix(url); got != want {
 			t.Errorf("tagPrefix(%q) = %q, want %q", url, got, want)
 		}
+	}
+}
+
+func TestToolchains_NamePrefixedComponents(t *testing.T) {
+	old := stamp(10 * day)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `[{"tag_name":"nextest-runner-0.129.0","published_at":%[1]q},{"tag_name":"cargo-nextest-0.9.151","published_at":%[1]q},`+
+			`{"tag_name":"nextest-filtering-0.23.0","published_at":%[1]q},{"tag_name":"cargo-nextest-0.9.150","published_at":%[1]q}]`, old)
+	}))
+	t.Cleanup(srv.Close)
+	m := cooldownResolver(t, "github", srv.URL)
+	m.SetToolchainDesired(map[string]config.ToolConstraint{"cargo-nextest": {Constraint: "0.x"}})
+	deps := m.checkToolchains(context.Background(), m.desired)
+	if len(deps) != 1 || deps[0].Current != "0.9.151" {
+		t.Errorf("got %+v, want cargo-nextest 0.9.151, not nextest-runner's 0.129.0", deps)
 	}
 }

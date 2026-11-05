@@ -25,7 +25,8 @@ type ToolDef struct {
 	ReleaseSource string
 
 	// ReleaseTagPrefix scopes the release list to this tool's tags in a repository that
-	// releases several components (kustomize's "kustomize/" beside "kyaml/" and "api/").
+	// releases several components: kustomize's "kustomize/" beside "kyaml/" and "api/",
+	// nextest's "cargo-nextest-" beside "nextest-runner-".
 	ReleaseTagPrefix string
 
 	// OSVEcosystem and OSVName identify the tool's own source package in the OSV
@@ -342,14 +343,15 @@ var registry = map[string]ToolDef{
 		Format: "tar.gz",
 	},
 	"cargo-nextest": {
-		Name:         "cargo-nextest",
-		OSVEcosystem: "crates.io",
-		OSVName:      "cargo-nextest",
-		BinaryName:   "cargo-nextest",
-		DefaultVer:   "0.9.138",
-		GitHubOwner:  "nextest-rs",
-		GitHubRepo:   "nextest",
-		Libcs:        []string{"gnu", "musl"},
+		Name:             "cargo-nextest",
+		OSVEcosystem:     "crates.io",
+		OSVName:          "cargo-nextest",
+		BinaryName:       "cargo-nextest",
+		DefaultVer:       "0.9.138",
+		GitHubOwner:      "nextest-rs",
+		GitHubRepo:       "nextest",
+		ReleaseTagPrefix: "cargo-nextest-",
+		Libcs:            []string{"gnu", "musl"},
 		DownloadURL: func(ver string, t Target) string {
 			if tr := rustTriple(t); tr != "" {
 				return fmt.Sprintf("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-%s/cargo-nextest-%s-%s.tar.gz", ver, ver, tr)

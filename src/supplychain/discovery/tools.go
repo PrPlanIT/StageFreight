@@ -126,9 +126,10 @@ func (m *Resolver) latestRelease(ctx context.Context, dep *supplychain.Dependenc
 	return nil
 }
 
-// tagPrefix is the component prefix of the release tag a GitHub download URL names —
-// "kustomize/" for .../releases/download/kustomize%2Fv${VER}/... — or "" for an
-// unprefixed tag.
+// tagPrefix is the component prefix of the release tag a GitHub download URL names: the
+// tag up to its interpolated version, less a "v" — "kustomize/" for
+// .../releases/download/kustomize%2Fv${VER}/..., "cargo-nextest-" for
+// .../download/cargo-nextest-${VER}/..., "" for v${VER}.
 func tagPrefix(downloadURL string) string {
 	const marker = "/releases/download/"
 	i := strings.Index(downloadURL, marker)
@@ -140,10 +141,19 @@ func tagPrefix(downloadURL string) string {
 		tag = tag[:j]
 	}
 	tag = strings.ReplaceAll(strings.ReplaceAll(tag, "%2F", "/"), "%2f", "/")
-	if j := strings.LastIndex(tag, "/"); j >= 0 {
-		return tag[:j+1]
+	j := strings.Index(tag, "$")
+	if j < 0 {
+		return ""
 	}
-	return ""
+	prefix := tag[:j]
+	if n := len(prefix); n > 0 && prefix[n-1] == 'v' && (n == 1 || !isAlnum(prefix[n-2])) {
+		prefix = prefix[:n-1]
+	}
+	return prefix
+}
+
+func isAlnum(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // inCooldown reports whether a release published at t is young enough that dep's
