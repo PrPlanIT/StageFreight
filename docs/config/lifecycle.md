@@ -3,7 +3,8 @@
 The single most architecturally significant choice: `lifecycle.mode` selects the phase graph
 the pipeline runs — build container images (`image`, the default), validate GitOps manifests
 (`gitops`), reconcile governance (`governance`), or drive the docker lifecycle (`docker`).
-Each mode has its own config section.
+Each mode has its own config section. Audition is the same in every mode: the gates, then the
+dependency update when `dependency:` is enabled.
 
 Convergence subsystems COEXIST rather than compete: the perform phase runs every configured
 reconciler — a gitops repo keeps `mode: gitops` and adds `ansible:` beside it, and both

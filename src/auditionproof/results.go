@@ -53,6 +53,7 @@ type Finding struct {
 	Severity string `json:"severity"`
 	Source   string `json:"source"`
 	Message  string `json:"message"`
+	Detail   string `json:"detail,omitempty"` // the tool's verbatim output behind Message
 }
 
 // Read returns the proof results from the workspace. A missing file is not an

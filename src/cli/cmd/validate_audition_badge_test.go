@@ -6,8 +6,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 )
 
-// validateRunner (the governance/gitops audition path) records an audition contract from
-// deriveAuditionContract so the pipeline badge reflects the REAL validation outcome — a
+// The audition records a contract from deriveAuditionContract in every lifecycle mode, so
+// the pipeline badge reflects the REAL validation outcome — a
 // clean run is passing, a failed run is FAILING (the earlier "unknown → passing" hack
 // would have shown passing on a broken pipeline). These lock the mapping the fix relies on:
 // the contract feeds PipelineStatus, which the pipeline badge renders via BUILD_STATUS.

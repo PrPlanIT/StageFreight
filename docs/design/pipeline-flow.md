@@ -78,9 +78,10 @@ This contract is backend-universal, not Docker-shaped:
 Each phase records its own contract; each downstream phase consumes the prior one — never
 infers from file existence or exit codes:
 
-- **Audition** (`depsRunner`) → records the `audition` contract on every exit (a `defer`,
-  fail-closed: the zero value blocks). Inspect → Classify (Fatal voids / Remediable runs the
-  deps update) → tests → deps update → commit (records `Replacement` = C′).
+- **Audition** (`auditionRun`, every lifecycle mode) → records the `audition` contract on every
+  exit (a `defer`, fail-closed: the zero value blocks). GitOps manifest proof (a tree that does
+  not render is void) → Inspect → Classify (Fatal voids / Remediable runs the deps update) →
+  tests → deps update → commit (records `Replacement` = C′).
 - **Perform** (`performPhaseRunner`) → `performGate` reads `audition.Blocking`. Blocking → do
   not build (fail-closed on a missing contract). Not blocking → build, record `build`.
 - **Review** → gates on `build`; records `security`.

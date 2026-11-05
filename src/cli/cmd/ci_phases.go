@@ -110,7 +110,7 @@ func renderPhaseIdentity() {
 
 // auditionPhaseRunner is the proving phase. Owns: CI freshness check,
 // executorPreflight (full panel), runConfigPhase, lint, crucible bootstrap test.
-// Dispatches to depsRunner for image mode or validateRunner for gitops/governance.
+// Every lifecycle mode runs the same audition (auditionRun).
 func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	// Seed the run's tool ledger; every provision.Resolve(ctx, …) in the phases below
 	// records into it, and each phase renders a "Staged Tools" box in front of its work
@@ -148,15 +148,7 @@ func auditionPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 	// gates or fails the phase.
 	runDiskGC(ctx, appCfg)
 
-	// The correctness gate (tests) runs INSIDE each mode runner — after lint, before
-	// any dependency mutation — so tests validate the COMMITTED tree first, and deps
-	// re-verifies its own mutation (see depsRunner). Covers image and gitops.
-	switch {
-	case appCfg.Mode().PhaseReconcile: // gitops/governance reconcile
-		return validateRunner(ctx, appCfg, ciCtx, opts)
-	default: // image (build); docker reconciles via CLI, not here
-		return depsRunner(ctx, appCfg, ciCtx, opts)
-	}
+	return depsRunner(ctx, appCfg, ciCtx, opts)
 }
 
 // checkCIFreshness verifies the committed CI file matches what the current

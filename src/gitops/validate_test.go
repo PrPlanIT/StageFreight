@@ -143,3 +143,25 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestRenderHeadline(t *testing.T) {
+	panicked := `panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x40 pc=0x97fde5]
+
+goroutine 1 [running]:
+sigs.k8s.io/kustomize/kyaml/yaml.(*RNode).Content(...)
+	/home/runner/work/kustomize/kustomize/kyaml/yaml/rnode.go:724
+sigs.k8s.io/kustomize/api/resmap.(*resWrangler).GetById(0xc000615e00?, {{{0xc001c809d0, 0x4}, {0xc001c809d5, 0x2}}, ...})
+	/home/runner/work/kustomize/kustomize/api/resmap/reswrangler.go:227 +0xa2
+main.main()`
+	for in, want := range map[string]string{
+		panicked: "kustomize crashed: runtime error: invalid memory address or nil pointer dereference in resmap.(*resWrangler).GetById",
+		"Error: accumulating resources: accumulation err='missing.yaml': no such file":                     "kustomize build failed: accumulating resources: accumulation err='missing.yaml': no such file",
+		"# Warning: 'patchesStrategicMerge' is deprecated.\nError: no matches for Id Deployment.v1.apps/x": "kustomize build failed: no matches for Id Deployment.v1.apps/x",
+		"exit status 1": "kustomize build failed: exit status 1",
+	} {
+		if got := renderHeadline(in); got != want {
+			t.Errorf("renderHeadline(%.40q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -41,7 +41,6 @@ import (
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
 	"github.com/PrPlanIT/StageFreight/src/test"
 	"github.com/PrPlanIT/StageFreight/src/trace"
-	"github.com/spf13/cobra"
 )
 
 // buildCIRegistry returns a registry of all CI subsystem runners.
@@ -339,24 +338,20 @@ func mapIgnores(in []config.DependencyIgnore) []dependency.VulnIgnore {
 }
 
 func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
-	rootDir := resolveWorkspace(ciCtx)
+	return auditionRun(ctx, appCfg, ciCtx, opts, true)
+}
 
-	if !appCfg.Dependency.Enabled {
-		// Deps disabled is an operator choice, not a failure — the subject is shippable.
-		refused := watchUpstream(ctx, appCfg, rootDir)
-		if _, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir); refused == "" {
-			refused = syncRefused
-		}
-		recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, UpstreamRefused: refused, NothingToBuild: scheduledSkip(appCfg)}))
-		fmt.Println("  dependency update disabled in config")
-		for tool := range appCfg.Toolchains.Want {
-			if appCfg.Toolchains.HoldReason(tool) == "" {
-				fmt.Fprintln(os.Stderr, "  ⚠ toolchains are not updated while dependency: is disabled")
-				break
-			}
-		}
-		return nil
-	}
+// validateRunner runs the audition gates without mutating anything: no upstream sync and
+// no dependency update.
+func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	return auditionRun(ctx, appCfg, ciCtx, opts, false)
+}
+
+// auditionRun is the audition for every lifecycle mode: the gates (substrate, config, the
+// GitOps manifest proof, lint, tests) prove the committed tree, then, when mutate is set
+// and dependency: is enabled, the dependency update fixes forward.
+func auditionRun(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions, mutate bool) (err error) {
+	rootDir := resolveWorkspace(ciCtx)
 
 	// The audition CONTRACT — the single authoritative record every downstream phase gates on
 	// (Blocking) and narrate/publish/forge project (Replacement, Reason). Fail-closed: the zero
@@ -366,11 +361,11 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	defer func() { recordAuditionContract(rootDir, deriveAuditionContract(in)) }()
 
 	if r := executorPreflight(rootDir, runner.Options{DockerRequired: false}); r.Health == runner.Unhealthy {
-		return fmt.Errorf("deps subsystem: substrate unhealthy: %s", r.HardFailures())
+		return fmt.Errorf("audition: substrate unhealthy: %s", r.HardFailures())
 	}
 	in.RunnerHealthy = true
 	if err := runConfigPhase(rootDir); err != nil {
-		return fmt.Errorf("deps subsystem: %w", err)
+		return fmt.Errorf("audition: %w", err)
 	}
 
 	// Fork mode: watch the declared upstream, and refuse a track-mode release whose version
@@ -379,46 +374,67 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// Upstream sync: join upstream's newest release into our branch. When it pushes, the new
 	// commit's pipeline runs the dependency update; this run leaves it alone (below) so two
 	// writers never push onto a branch that was just rewritten.
-	syncPushed, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir)
-	if in.UpstreamRefused == "" {
-		in.UpstreamRefused = syncRefused
+	syncPushed := false
+	if mutate {
+		pushed, syncRefused := syncUpstream(ctx, appCfg, ciCtx, rootDir)
+		syncPushed = pushed
+		if in.UpstreamRefused == "" {
+			in.UpstreamRefused = syncRefused
+		}
 	}
 
-	// Discover dependencies ONCE for the whole audition — a single Snapshot shared,
-	// read-only, by both the lint pass (below, via runUniversalLint) and the
-	// dependency-update step (runDependencyUpdateLogic). Previously each resolved
-	// independently; unifying onto one Snapshot removes the duplicate resolution pass
-	// (registry lookups, OSV correlation) while keeping both consumers' output
-	// byte-identical to before.
-	var freshnessOpts map[string]any
-	if mc, ok := appCfg.Lint.Modules["freshness"]; ok {
-		freshnessOpts = mc.Options
-	}
-	collectEngine, err := lint.NewEngine(appCfg.Lint, rootDir, []string{"freshness"}, nil, opts.Verbose, nil)
-	if err != nil {
-		return fmt.Errorf("deps subsystem: creating lint engine: %w", err)
-	}
-	discoveryFiles, err := collectEngine.CollectFiles()
-	if err != nil {
-		return fmt.Errorf("deps subsystem: collecting files: %w", err)
-	}
-	snapshot, err := discovery.Discover(ctx, withVersionLists(freshnessOpts, appCfg.Dependency.EffectiveMaxUpdate()), appCfg.Toolchains.Want, discoveryFiles, appCfg.Registries, appCfg.Dependency.Registry)
-	if err != nil {
-		return fmt.Errorf("deps subsystem: resolving dependencies: %w", err)
-	}
+	// The GitOps manifest proof (content-gated: inert without Flux resources). Its verdicts
+	// are perform's to act on; a failing one never holds the update, which may carry the
+	// toolchain fix. It surfaces as the job's error and, where perform reconciles, fails the
+	// contract.
+	fluxErr := runFluxValidation(ctx, appCfg, rootDir)
+	defer func() {
+		if fluxErr == nil {
+			return
+		}
+		if appCfg.Mode().PhaseReconcile {
+			in.Fatal = true
+		}
+		if err == nil {
+			err = fluxErr
+		}
+	}()
 
-	// Fail-loud on a vulnerability-scan coverage gap. When OSV could not be reached for
-	// some dependencies (VulnScanError), they are UNVERIFIED — not clean. Surface that
-	// prominently and record it in the ledger so narration carries it, instead of letting
-	// an OSV outage disguise itself as "no vulnerabilities found".
-	if unv := snapshot.UnverifiedVulns(); len(unv) > 0 {
-		names := vulnUnverifiedNames(unv, 5)
-		fmt.Printf("  ⚠ deps: %d dependency(ies) could NOT be vuln-checked (OSV unreachable): %s — UNVERIFIED, not treated as clean\n", len(unv), names)
-		recordSubsystemOutcome(rootDir, cistate.SubsystemState{
-			Name: "vuln-coverage", Attempted: true, Completed: true,
-			Outcome: "degraded",
-			Reason:  fmt.Sprintf("%d dependency(ies) unverified by OSV: %s", len(unv), names),
-		})
+	// Discover dependencies once: lint and the update share the Snapshot read-only. Nothing
+	// consumes it when neither runs.
+	updating := mutate && appCfg.Dependency.Enabled
+	var snapshot *supplychain.Snapshot
+	if updating || strings.TrimSpace(string(appCfg.Lint.Level)) != "" {
+		var freshnessOpts map[string]any
+		if mc, ok := appCfg.Lint.Modules["freshness"]; ok {
+			freshnessOpts = mc.Options
+		}
+		collectEngine, err := lint.NewEngine(appCfg.Lint, rootDir, []string{"freshness"}, nil, opts.Verbose, nil)
+		if err != nil {
+			return fmt.Errorf("audition: creating lint engine: %w", err)
+		}
+		discoveryFiles, err := collectEngine.CollectFiles()
+		if err != nil {
+			return fmt.Errorf("audition: collecting files: %w", err)
+		}
+		snapshot, err = discovery.Discover(ctx, withVersionLists(freshnessOpts, appCfg.Dependency.EffectiveMaxUpdate()), appCfg.Toolchains.Want, discoveryFiles, appCfg.Registries, appCfg.Dependency.Registry)
+		if err != nil {
+			return fmt.Errorf("audition: resolving dependencies: %w", err)
+		}
+
+		// Fail-loud on a vulnerability-scan coverage gap. When OSV could not be reached for
+		// some dependencies (VulnScanError), they are UNVERIFIED — not clean. Surface that
+		// prominently and record it in the ledger so narration carries it, instead of letting
+		// an OSV outage disguise itself as "no vulnerabilities found".
+		if unv := snapshot.UnverifiedVulns(); len(unv) > 0 {
+			names := vulnUnverifiedNames(unv, 5)
+			fmt.Printf("  ⚠ deps: %d dependency(ies) could NOT be vuln-checked (OSV unreachable): %s — UNVERIFIED, not treated as clean\n", len(unv), names)
+			recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+				Name: "vuln-coverage", Attempted: true, Completed: true,
+				Outcome: "degraded",
+				Reason:  fmt.Sprintf("%d dependency(ies) unverified by OSV: %s", len(unv), names),
+			})
+		}
 	}
 
 	// Inspect → Classify → record into the audition contract. A Fatal finding (secret/conflict/
@@ -433,7 +449,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 	// A remediable finding blocks only when remediation is enabled (the fix is expected in a
 	// Replacement C′). With remediate: false (evaluate-only) the operator has opted out of
 	// fix-forward, so remediable findings are advisory and do not block the subject.
-	in.RemediationEnabled = appCfg.Dependency.RemediateEnabled()
+	in.RemediationEnabled = updating && appCfg.Dependency.RemediateEnabled()
 	lintOutcome := "success"
 	if in.Fatal {
 		lintOutcome = "failed"
@@ -444,7 +460,7 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		Reason:  fmt.Sprintf("%d findings (%d fatal)", len(lintFindings), len(mut.Fatal)),
 	})
 	if in.Fatal {
-		return fmt.Errorf("deps subsystem (lint): source has %d fatal finding(s) — not mutating a void tree", len(mut.Fatal))
+		return fmt.Errorf("audition (lint): source has %d fatal finding(s) — not mutating a void tree", len(mut.Fatal))
 	}
 	if in.Remediable {
 		if in.RemediationEnabled {
@@ -462,6 +478,19 @@ func depsRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext,
 		return err // in.TestsPassed stays false → the contract blocks
 	}
 	in.TestsPassed = true
+
+	if !updating {
+		if mutate {
+			fmt.Println("  dependency update disabled in config")
+			for tool := range appCfg.Toolchains.Want {
+				if appCfg.Toolchains.HoldReason(tool) == "" {
+					fmt.Fprintln(os.Stderr, "  ⚠ toolchains are not updated while dependency: is disabled")
+					break
+				}
+			}
+		}
+		return nil
+	}
 
 	// Fetch security advisories from prior pipeline (cross-pipeline bridge).
 	if ciCtx.IsCI() {
@@ -1918,69 +1947,6 @@ func sanitizeBranchPrefix(raw string) string {
 	return p
 }
 
-// ── validate runner ─────────────────────────────────────────────────────────
-func validateRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, _ ci.RunOptions) error {
-	rootDir := resolveWorkspace(ciCtx)
-
-	healthy := true
-	report := executorPreflight(rootDir, runner.Options{DockerRequired: false})
-	if report.Health == runner.Unhealthy {
-		healthy = false
-	}
-
-	// Run the validation gates in precedence order (health → config → flux → lint →
-	// tests), short-circuiting on the first failure exactly as before, and capture the
-	// governing error. It is recorded as the audition contract below.
-	var err error
-	switch {
-	case !healthy:
-		err = fmt.Errorf("validate subsystem: substrate unhealthy: %s", report.HardFailures())
-	default:
-		if cfgErr := runConfigPhase(rootDir); cfgErr != nil {
-			err = fmt.Errorf("validate subsystem: %w", cfgErr)
-		} else if valErr := runFluxValidation(ctx, appCfg, rootDir); valErr != nil {
-			// GitOps manifest validation is the audition readiness proof for a Flux repo.
-			// It runs here directly — NOT as a lint module — for two reasons: its verdict
-			// is a phase artifact that perform consumes (skip-invalid reconcile), so there
-			// must be a single producer of a single verdict; and it must run independently
-			// of whether generic file-linting is configured. Content-gated (inert with no
-			// Flux resources).
-			err = valErr
-		} else {
-			// Generic file-lint stays opt-in via lint.level. Thread the run ctx (carrying
-			// the tool ledger) into runLint via the command, the same cmd.SetContext
-			// convention reconcileRunner uses — so osv records and the lint Staged Tools
-			// box populates.
-			var lintErr error
-			if strings.TrimSpace(string(appCfg.Lint.Level)) != "" {
-				cmd := &cobra.Command{}
-				cmd.SetContext(ctx)
-				lintErr = runLint(cmd, []string{})
-			}
-			if lintErr != nil {
-				err = lintErr
-			} else {
-				// Correctness gate (after validation + lint). No-op for pure-manifest repos
-				// with no testable builds; runs the suites for gitops repos that carry code.
-				err = auditionTests(ctx, appCfg, rootDir)
-			}
-		}
-	}
-
-	// Record the audition contract so the pipeline badge (PipelineStatus) reflects the
-	// REAL validation outcome — passing when the gates cleared, failing when they did
-	// not. Governance/gitops audition otherwise records no counting subsystem, leaving
-	// PipelineStatus "unknown". Perform (reconcile mode) does not gate on this contract;
-	// here it is purely a badge/narrate signal. deriveAuditionContract is the canonical
-	// projector whose AllowFailure drives the badge.
-	recordAuditionContract(rootDir, deriveAuditionContract(auditionInputs{
-		RunnerHealthy: healthy,
-		Fatal:         healthy && err != nil,
-		TestsPassed:   err == nil,
-	}))
-	return err
-}
-
 // runFluxValidation validates the repository's Flux manifests, persists the
 // per-Kustomization verdicts as audition proof results (the single source of
 // truth perform later consumes), and renders the outcome. Advisory: a failing
@@ -2030,6 +1996,7 @@ func writeFluxProofResults(rootDir string, verdicts map[gitops.KustomizationKey]
 				Severity: f.Severity.String(),
 				Source:   f.Source,
 				Message:  f.Message,
+				Detail:   f.Detail,
 			})
 		}
 		fv.Verdicts[key.String()] = auditionproof.Verdict{Status: v.Status.String(), Findings: findings}
@@ -2261,6 +2228,11 @@ func emitValidatorDetail(w io.Writer, errs, advisories []gitops.Finding) {
 			return
 		}
 		fmt.Fprintf(w, "    │ %s\n", f.Message)
+		if f.Detail != "" {
+			for _, l := range strings.Split(f.Detail, "\n") {
+				fmt.Fprintf(w, "    │   %s\n", l)
+			}
+		}
 	}
 	for _, f := range errs {
 		emit(f)

@@ -65,6 +65,9 @@ type Finding struct {
 	// the raw validator transcript for the escape hatch. Nil for non-schema findings
 	// (graph/render) — those use Message directly.
 	Schema *SchemaFinding
+	// Detail is the tool's verbatim output behind a one-line Message (e.g. kustomize's
+	// full stderr), for the raw transcript. Empty when Message is the whole story.
+	Detail string
 }
 
 // Verdict is the validation outcome for one Flux Kustomization.
@@ -154,8 +157,13 @@ func ValidateManifests(ctx context.Context, rootDir string, desired map[string]c
 		absRoot := filepath.Join(rootDir, path)
 		rendered, rerr := renderRoot(ctx, kustomizeBin, absRoot)
 		if rerr != nil {
+			f := Finding{
+				Severity: Fail, Source: "render",
+				Message: fmt.Sprintf("%s: %s", path, renderHeadline(rerr.Error())),
+				Detail:  rerr.Error(),
+			}
 			for _, k := range keys {
-				verdicts[k].fail("render", fmt.Sprintf("kustomize build failed: %s", rerr.Error()))
+				verdicts[k].add(f)
 			}
 			continue
 		}
@@ -242,6 +250,38 @@ func renderRoot(ctx context.Context, kustomizeBin, dir string) ([]byte, error) {
 		return stdout.Bytes(), nil
 	}
 	return concatManifests(dir)
+}
+
+// renderHeadline reduces kustomize's stderr to one line. A crash is named as one, with
+// the panic and the innermost kustomize api frame that raised it, since it is a
+// kustomize bug the input triggers rather than a fault in the manifests. Otherwise
+// it is kustomize's "Error:" line, or its first line.
+func renderHeadline(stderr string) string {
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	for i, l := range lines {
+		l = strings.TrimSpace(l)
+		if !strings.HasPrefix(l, "panic: ") {
+			continue
+		}
+		msg := "kustomize crashed: " + strings.TrimPrefix(l, "panic: ")
+		for _, f := range lines[i+1:] {
+			f = strings.TrimSpace(f)
+			if strings.HasPrefix(f, "sigs.k8s.io/kustomize/api/") {
+				fn := f[strings.LastIndex(f, "/")+1:] // resmap.(*resWrangler).GetById(0xc0…, …)
+				if j := strings.LastIndex(fn, "("); j > 0 {
+					fn = fn[:j] // drop the argument list
+				}
+				return msg + " in " + fn
+			}
+		}
+		return msg
+	}
+	for _, l := range lines {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "Error: ") {
+			return "kustomize build failed: " + strings.TrimPrefix(l, "Error: ")
+		}
+	}
+	return "kustomize build failed: " + strings.TrimSpace(lines[0])
 }
 
 func hasKustomization(dir string) bool {

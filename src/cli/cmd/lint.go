@@ -132,7 +132,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "scanning %d files\n", len(files))
 	}
 
-	// Use the caller's context when there is one — the audition path (validateRunner)
+	// Use the caller's context when there is one — the audition path (auditionRun)
 	// sets it so provision.Resolve records osv into the run ledger. Bare CLI invocation
 	// has none; fall back so the lint command still works standalone.
 	ctx := cmd.Context()
@@ -144,7 +144,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	w := os.Stdout
 
 	// Discover dependencies ONCE and thread the Snapshot to the engine, mirroring the
-	// audition path (depsRunner in ci_runners.go). Without this, the freshness and
+	// audition path (auditionRun in ci_runners.go). Without this, the freshness and
 	// vulnerabilities modules each self-resolve independently, running OSV correlation
 	// and registry lookups twice over the same manifests. Options are sourced from the
 	// same lint.modules.freshness.options section runDependencyUpdateLogic/
