@@ -6,6 +6,7 @@
 .gitlab-ci.yml
 .stagefreight.yml
 .stagefreight/
+!.stagefreight/toolchains.lock
 
 # Documentation
 docs/

@@ -18,6 +18,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 # Source copy — invalidates build layers but NOT module cache.
+COPY toolchains.go ./
+COPY .stagefreight/toolchains.lock ./.stagefreight/
 COPY src/ ./src/
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
