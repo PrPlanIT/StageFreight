@@ -361,6 +361,9 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 				// Check cache
 				if e.Cache != nil && e.Cache.Enabled && data != nil {
 					cfgJSON := e.moduleConfigJSON(m.Name())
+					if sm, ok := m.(CacheStateModule); ok {
+						cfgJSON += sm.CacheState()
+					}
 					key := e.Cache.Key(data, m.Name(), cfgJSON)
 
 					// Resolve cache TTL: modules with external state

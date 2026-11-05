@@ -129,6 +129,12 @@ type CacheTTLModule interface {
 	CacheTTL() time.Duration
 }
 
+// CacheStateModule adds state beyond the file's content to the cache key, for a module
+// whose findings on a file also depend on something else.
+type CacheStateModule interface {
+	CacheState() string
+}
+
 var (
 	registryMu sync.RWMutex
 	registry   = map[string]func() Module{}

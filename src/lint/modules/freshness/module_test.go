@@ -1,11 +1,15 @@
 package freshness
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // newConfiguredModule builds a freshnessModule and configures it via the real
@@ -180,5 +184,36 @@ func TestDepsToFindingsSourceDisabled(t *testing.T) {
 	findings := m.depsToFindings(deps)
 	if len(findings) != 0 {
 		t.Errorf("findings = %+v, want none (gomod source disabled)", findings)
+	}
+}
+
+// A cached toolchain finding must not outlive the lock it was computed from: the
+// finding sits on .stagefreight.yml, whose content does not change when the lock moves.
+func TestCacheStateFollowsTheLockAndTheToolchains(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeLock := func(body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(toolchain.LockPath("")), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(toolchain.LockPath(""), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func(desired map[string]config.ToolConstraint) string {
+		m := newConfiguredModule(t, nil)
+		m.SetToolchainDesired(desired)
+		return m.CacheState()
+	}
+	want := map[string]config.ToolConstraint{"trivy": {Constraint: "x"}}
+
+	writeLock(`{"trivy": "0.76.1"}`)
+	before := state(want)
+	writeLock(`{"trivy": "0.76.2"}`)
+	if state(want) == before {
+		t.Error("the cache state did not change when the lock moved")
+	}
+	if state(map[string]config.ToolConstraint{"trivy": {Constraint: "0.x"}}) == state(want) {
+		t.Error("the cache state did not change when the toolchains changed")
 	}
 }

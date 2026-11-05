@@ -2,7 +2,10 @@ package freshness
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
@@ -10,6 +13,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
+	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // freshnessModule implements lint.Module and lint.ConfigurableModule. It is a
@@ -26,9 +30,14 @@ type freshnessModule struct {
 	// `stagefreight lint`), in which case Check falls back to
 	// resolver.ResolveFile as before.
 	snapshot *supplychain.Snapshot
+
+	desired        map[string]config.ToolConstraint
+	cacheStateOnce sync.Once
+	cacheState     string
 }
 
 func (m *freshnessModule) SetToolchainDesired(desired map[string]config.ToolConstraint) {
+	m.desired = desired
 	m.resolver.SetToolchainDesired(desired)
 }
 
@@ -47,6 +56,17 @@ func (m *freshnessModule) DefaultEnabled() bool { return true }
 // CacheTTL implements lint.CacheTTLModule. Freshness findings depend on
 // external registries and CVE feeds, so they expire after the configured TTL.
 func (m *freshnessModule) CacheTTL() time.Duration { return m.resolver.Config().CacheTTL() }
+
+// CacheState implements lint.CacheStateModule: toolchain findings on .stagefreight.yml
+// come from the lock and the resolved toolchains, not from that file's content alone.
+func (m *freshnessModule) CacheState() string {
+	m.cacheStateOnce.Do(func() {
+		lock, _ := os.ReadFile(toolchain.LockPath(""))
+		desired, _ := json.Marshal(m.desired)
+		m.cacheState = string(lock) + string(desired)
+	})
+	return m.cacheState
+}
 
 func (m *freshnessModule) AutoDetect() []string {
 	return []string{
