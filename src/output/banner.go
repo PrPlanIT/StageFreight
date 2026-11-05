@@ -17,7 +17,7 @@ type BannerInfo struct {
 
 // Banner prints the StageFreight logo banner with version info.
 // Two rendering paths:
-//   - Color + generated art: composited text (left) + ANSI art (right)
+//   - Color + generated art: composited ANSI art (left) + text (right)
 //   - No-color or no art: text-only identity output
 func Banner(w io.Writer, info BannerInfo, color bool) {
 	textItems := buildIdentityText(info, color)
@@ -28,7 +28,7 @@ func Banner(w io.Writer, info BannerInfo, color bool) {
 		// No-color or no generated art: text-only output.
 		fmt.Fprintln(w)
 		for _, item := range textItems {
-			fmt.Fprintln(w, item)
+			fmt.Fprintln(w, margin+item)
 		}
 		fmt.Fprintln(w)
 	}
@@ -94,17 +94,16 @@ func IdentityLine(w io.Writer, info BannerInfo, color bool) {
 		parts = append(parts, cyan(info.Branch))
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, strings.Join(parts, " · "))
+	fmt.Fprintln(w, margin+strings.Join(parts, " · "))
 	fmt.Fprintln(w)
 }
 
-// printBanner composites text items (left) with art lines (right), vertically centered.
+// printBanner composites art lines (left) with text items (right), vertically centered.
 func printBanner(w io.Writer, artLines, textItems []string) {
-	// Calculate max visible text width for column alignment.
-	maxTextWidth := 0
-	for _, item := range textItems {
-		if vw := visibleWidth(item); vw > maxTextWidth {
-			maxTextWidth = vw
+	artWidth := 0
+	for _, line := range artLines {
+		if vw := visibleWidth(line); vw > artWidth {
+			artWidth = vw
 		}
 	}
 
@@ -120,13 +119,11 @@ func printBanner(w io.Writer, artLines, textItems []string) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w)
 	for i, artLine := range artLines {
-		pad := maxTextWidth
-		if textLines[i] != "" {
-			pad -= visibleWidth(textLines[i])
-			fmt.Fprintf(w, "%s%s   %s\n", textLines[i], strings.Repeat(" ", pad), artLine)
-		} else {
-			fmt.Fprintf(w, "%s   %s\n", strings.Repeat(" ", pad), artLine)
+		if textLines[i] == "" {
+			fmt.Fprintln(w, margin+artLine)
+			continue
 		}
+		fmt.Fprintf(w, "%s%s%s   %s\n", margin, artLine, strings.Repeat(" ", artWidth-visibleWidth(artLine)), textLines[i])
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w)

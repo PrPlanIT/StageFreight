@@ -12,6 +12,9 @@ import (
 
 const sectionWidth = 61 // inner separator width (box frame)
 
+// margin is the left margin of a section frame; output beside the frames lines up with it.
+const margin = "    "
+
 // Section renders a box-drawing framed output section.
 type Section struct {
 	w     io.Writer

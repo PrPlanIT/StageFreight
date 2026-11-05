@@ -64,3 +64,38 @@ func TestIdentityLine_ColorWrapsANSI(t *testing.T) {
 		t.Errorf("color output should contain ANSI escapes; got %q", buf.String())
 	}
 }
+
+// The banner lines up with the section frames: logo at the margin, text to its right at
+// one column whatever the art line's width.
+func TestPrintBanner_ArtLeftTextRight(t *testing.T) {
+	var buf bytes.Buffer
+	printBanner(&buf, []string{"\033[31mab\033[0m", "\033[31mabcd\033[0m", "\033[31ma\033[0m"}, []string{"Name"})
+
+	var lines []string
+	for _, ln := range strings.Split(buf.String(), "\n") {
+		if ln != "" {
+			lines = append(lines, ln)
+		}
+	}
+	want := []string{
+		margin + "\033[31mab\033[0m",
+		margin + "\033[31mabcd\033[0m   Name",
+		margin + "\033[31ma\033[0m",
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got %q, want %q", lines, want)
+	}
+}
+
+func TestBanner_TextOnlyAndIdentityLineUseTheMargin(t *testing.T) {
+	var buf bytes.Buffer
+	Banner(&buf, BannerInfo{Version: "1.2.3"}, false)
+	if !strings.Contains(buf.String(), "\n"+margin+"StageFreight\n"+margin+"1.2.3\n") {
+		t.Errorf("text-only banner = %q", buf.String())
+	}
+	buf.Reset()
+	IdentityLine(&buf, BannerInfo{Version: "1.2.3"}, false)
+	if !strings.Contains(buf.String(), "\n"+margin+"StageFreight 1.2.3\n") {
+		t.Errorf("identity line = %q", buf.String())
+	}
+}
