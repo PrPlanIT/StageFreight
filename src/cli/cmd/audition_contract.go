@@ -71,7 +71,10 @@ func recordAuditionContract(rootDir string, contract cistate.SubsystemState) {
 type auditionInputs struct {
 	RunnerHealthy bool // executor substrate healthy
 	Fatal         bool // a Fatal lint finding (secret / conflict / broken tree) — voids the source
-	Remediable    bool // a Remediable blocking finding (freshness/osv CVE) on the source
+	// ManifestProofFailed is the GitOps manifest proof's error where perform reconciles: failing
+	// verdicts or a proof that could not run. "" when it passed or nothing reconciles.
+	ManifestProofFailed string
+	Remediable          bool // a Remediable blocking finding (freshness/osv CVE) on the source
 	// RemediationEnabled reports whether the deps update is allowed to patch (dependency.remediate,
 	// default true). A Remediable finding only BLOCKS when remediation is enabled: then the fix is
 	// expected to land in a Replacement (C′) and building this subject would ship unfixed source.
@@ -107,7 +110,7 @@ type auditionInputs struct {
 //   - Replacement is lineage only. It records the fix commit but NEVER makes a subject
 //     non-Blocking. Control (Perform) reads Blocking; it must never read Replacement.
 func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
-	blocking := !in.RunnerHealthy || in.Fatal || in.UpstreamRefused != "" || (in.Remediable && in.RemediationEnabled) || !in.TestsPassed || in.DepsErrored
+	blocking := !in.RunnerHealthy || in.Fatal || in.ManifestProofFailed != "" || in.UpstreamRefused != "" || (in.Remediable && in.RemediationEnabled) || !in.TestsPassed || in.DepsErrored
 
 	c := cistate.SubsystemState{
 		Name:        "audition",
@@ -138,6 +141,8 @@ func deriveAuditionContract(in auditionInputs) cistate.SubsystemState {
 		c.Reason = "runner substrate unhealthy"
 	case in.Fatal:
 		c.Reason = "fatal finding voids the source (secret, merge conflict, or broken tree); resolve manually and re-run"
+	case in.ManifestProofFailed != "":
+		c.Reason = in.ManifestProofFailed
 	case in.UpstreamRefused != "":
 		c.Reason = in.UpstreamRefused
 	case in.DepsErrored:

@@ -1,6 +1,42 @@
 package cmd
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/PrPlanIT/StageFreight/src/cistate"
+)
+
+// A job error no row shows must still print, so the silent exit needs a failed row.
+func TestRenderOutcomes_ReportsOnlyAShownFailure(t *testing.T) {
+	const reason = "gitops validation: kubeconform pinned version 0.8.0 failed to resolve"
+	ok := cistate.SubsystemState{Name: "lint", Outcome: "success", Required: true}
+	failed := cistate.SubsystemState{Name: "gitops", Outcome: "failed", Required: true, Reason: reason}
+
+	out, err := os.CreateTemp(t.TempDir(), "outcomes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	if renderOutcomes(out, nil, 0) {
+		t.Error("no rows reported a shown failure")
+	}
+	if renderOutcomes(out, []cistate.SubsystemState{ok}, 0) {
+		t.Error("only successful rows reported a shown failure")
+	}
+	if !renderOutcomes(out, []cistate.SubsystemState{ok, failed}, 0) {
+		t.Error("a failed row did not report a shown failure")
+	}
+	shown, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(shown), reason) {
+		t.Errorf("the failure's reason was not rendered:\n%s", shown)
+	}
+}
 
 // generatedCommitShouldSkip is the loop-prevention backstop: on an AUTOMATIC push a narrate
 // commit (Generated-By) self-skips, but an intentional trigger (web/api/schedule) runs even

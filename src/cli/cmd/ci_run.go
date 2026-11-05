@@ -69,12 +69,12 @@ func runCIRun(cmd *cobra.Command, args []string) error {
 	runErr := ci.RunSubsystem(registry, subsystem, ctx, cfg, ciCtx, opts)
 
 	// The one output allowed outside the subsystem boxes: a closing summary
-	// covering everything THIS job recorded. When it renders, a failure has
-	// already been shown in its row — exit silently instead of trailing the
-	// boxes with a naked error string.
-	summarized := renderJobSummary(os.Stdout, time.Since(start))
+	// covering everything THIS job recorded. When a row shows a failure, exit
+	// silently instead of trailing the boxes with a naked error string; an
+	// error no row shows still prints.
+	failureShown := renderJobSummary(os.Stdout, time.Since(start))
 	if runErr != nil {
-		if summarized {
+		if failureShown {
 			return &SilentExitError{Code: 1}
 		}
 		return runErr
@@ -88,7 +88,7 @@ func runCIRun(cmd *cobra.Command, args []string) error {
 // records via forwarded artifacts, which would re-report other phases' work).
 // Contract records are excluded: a contract is the job's verdict about the
 // candidate, not work performed inside it — the exit code already states it.
-// Returns whether anything rendered.
+// Returns whether a row shows a failure.
 func renderJobSummary(w *os.File, elapsed time.Duration) bool {
 	var rows []cistate.SubsystemState
 	for _, s := range cistate.SessionSubsystems() {
@@ -97,13 +97,20 @@ func renderJobSummary(w *os.File, elapsed time.Duration) bool {
 		}
 		rows = append(rows, s)
 	}
+	return renderOutcomes(w, rows, elapsed)
+}
+
+// renderOutcomes draws the Outcomes box and returns whether a row shows a failure.
+func renderOutcomes(w *os.File, rows []cistate.SubsystemState, elapsed time.Duration) bool {
 	if len(rows) == 0 {
 		return false
 	}
 	color := output.UseColor()
 	sec := output.NewSection(w, "Outcomes", elapsed, color)
+	failureShown := false
 	for _, s := range rows {
 		status := s.Outcome
+		failureShown = failureShown || s.Outcome == "failed"
 		suffix := ""
 		if s.Outcome == "failed" && !s.Required {
 			status = "warning"
@@ -115,7 +122,7 @@ func renderJobSummary(w *os.File, elapsed time.Duration) bool {
 		output.RowStatus(sec, s.Name, suffix, status, color)
 	}
 	sec.Close()
-	return true
+	return failureShown
 }
 
 // generatedCommitShouldSkip reports whether a phase run must self-skip because HEAD is a

@@ -65,6 +65,7 @@ func TestDeriveAuditionContract(t *testing.T) {
 		"remediable (remediate on)": {RunnerHealthy: true, Remediable: true, RemediationEnabled: true, TestsPassed: true},
 		"tests failed":              {RunnerHealthy: true, TestsPassed: false},
 		"deps errored":              {RunnerHealthy: true, TestsPassed: true, DepsErrored: true},
+		"manifest proof failed":     {RunnerHealthy: true, TestsPassed: true, ManifestProofFailed: "gitops validation: kubeconform pinned version 0.8.0 failed to resolve"},
 		"upstream refused":          {RunnerHealthy: true, TestsPassed: true, UpstreamRefused: "release v2.21.6 names version 2.21.6, which upstream has not released"},
 	}
 	for name, in := range blockers {
@@ -168,6 +169,14 @@ func TestDeriveAuditionContract(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestDeriveAuditionContract_ManifestProofReason(t *testing.T) {
+	reason := "gitops validation: kubeconform pinned version 0.8.0 failed to resolve"
+	c := deriveAuditionContract(auditionInputs{RunnerHealthy: true, TestsPassed: true, ManifestProofFailed: reason})
+	if c.Reason != reason {
+		t.Fatalf("Reason = %q, want the proof's own error", c.Reason)
+	}
 }
 
 func TestDeriveAuditionContract_NothingToBuild(t *testing.T) {

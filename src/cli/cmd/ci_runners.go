@@ -388,12 +388,20 @@ func auditionRun(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 	// toolchain fix. It surfaces as the job's error and, where perform reconciles, fails the
 	// contract.
 	fluxErr := runFluxValidation(ctx, appCfg, rootDir)
+	if fluxErr != nil {
+		reconciles := appCfg.Mode().PhaseReconcile
+		recordSubsystemOutcome(rootDir, cistate.SubsystemState{
+			Name: "gitops", Attempted: true, Completed: true,
+			Required: reconciles, AllowFailure: !reconciles,
+			Outcome: "failed", Reason: fluxErr.Error(),
+		})
+		if reconciles {
+			in.ManifestProofFailed = fluxErr.Error()
+		}
+	}
 	defer func() {
 		if fluxErr == nil {
 			return
-		}
-		if appCfg.Mode().PhaseReconcile {
-			in.Fatal = true
 		}
 		if err == nil {
 			err = fluxErr
