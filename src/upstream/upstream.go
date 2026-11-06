@@ -175,6 +175,9 @@ type Claim struct {
 	Mode   string         // config.UpstreamVersionTrack | config.UpstreamVersionContinue
 	Source Source         // the source the mode names
 	Since  scheme.Version // nil: every tag is judged
+	// TagCommits is every tag the source publishes (tag → commit), selected or not, so a
+	// mirrored upstream tag the selection excludes is still recognized as upstream's.
+	TagCommits map[string]string
 }
 
 // judged reports whether a tag's version falls under the claim (at or after the cutover).
@@ -207,6 +210,11 @@ func Evaluate(c Claim, upstream []Release, ours []string, ourCommits map[string]
 	for _, rel := range upstream {
 		if rel.Commit != "" && ourCommits[rel.Tag] == rel.Commit {
 			inherited[rel.Tag] = true
+		}
+	}
+	for tag, commit := range c.TagCommits {
+		if commit != "" && ourCommits[tag] == commit {
+			inherited[tag] = true
 		}
 	}
 	var newest scheme.Version

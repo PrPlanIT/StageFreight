@@ -234,6 +234,24 @@ func TestReleases_RewriteAndLoose(t *testing.T) {
 	}
 }
 
+func TestEvaluate_InheritedTagOutsideTheSelectionIsNotOurs(t *testing.T) {
+	// zitadel: upstream's v5.0.0-base is mirrored into the fork, and the selection excludes it.
+	up, _ := Releases([]string{"v2.21.4", "v2.21.5"}, defaultSel())
+	ours := []string{"v2.21.4", "v5.0.0-base"}
+	commits := map[string]string{"v2.21.4": "ours", "v5.0.0-base": "c500"}
+	c := ansible(config.UpstreamVersionTrack)
+	c.TagCommits = map[string]string{"v2.21.5": "c2215", "v5.0.0-base": "c500"}
+	rep := Evaluate(c, up, ours, commits)
+	if len(rep.Mismatched) != 0 || rep.OursNewest != "v2.21.4" || !rep.UpdatesAvailable {
+		t.Fatalf("upstream's tag must not count as our release or hide the update: %+v", rep)
+	}
+	// The same name on a commit of ours is ours, and is judged.
+	commits["v5.0.0-base"] = "ours-too"
+	if rep := Evaluate(c, up, ours, commits); strings.Join(rep.Mismatched, ",") != "v5.0.0-base" {
+		t.Fatalf("a tag of ours claiming an unreleased version is false: %+v", rep.Mismatched)
+	}
+}
+
 func TestEvaluate_InheritedUpstreamTagsAreNotOurs(t *testing.T) {
 	// LinkStack: our lineage continues upstream's numbering, and our repository carries
 	// upstream's own tags. v4.8.5 and v4.8.6 are upstream's tags at upstream's commits; v4.9.0

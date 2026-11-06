@@ -19,6 +19,7 @@ import (
 type upstreamListing struct {
 	releases []upstream.Release
 	unparsed []string
+	commits  map[string]string // every listed tag → commit, selected or not
 	err      error
 }
 
@@ -43,6 +44,10 @@ func listUpstream(ctx context.Context, src upstream.Source) upstreamListing {
 		l.err = err
 	} else {
 		l.releases, l.unparsed = upstream.ReleasesOf(cands, src.Select)
+		l.commits = make(map[string]string, len(cands))
+		for _, c := range cands {
+			l.commits[c.Name] = c.Commit
+		}
 	}
 	listings[key] = l
 	return l

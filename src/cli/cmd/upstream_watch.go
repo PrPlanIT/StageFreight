@@ -92,7 +92,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		if src.ID != claimed {
 			continue
 		}
-		claim := upstream.Claim{Mode: mode, Source: src}
+		claim := upstream.Claim{Mode: mode, Source: src, TagCommits: l.commits}
 		if u.Version.Since != "" {
 			claim.Since, _ = src.Select.Scheme.Parse(u.Version.Since)
 		}
