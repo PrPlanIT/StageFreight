@@ -3,7 +3,6 @@ package docker
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
@@ -42,6 +41,7 @@ var CosignSigner = ImageSigner{SignImage: cosign.SignImage, Attest: cosign.Attes
 type SignResult struct {
 	Ref     string
 	Signed  bool
+	Class   string // the trust class signed under
 	Skipped string // no signer resolves for this profile (with the reason)
 	Err     error  // the signature failed (non-fatal unless the profile enforces)
 }
@@ -60,15 +60,14 @@ func (p PublishedImage) outcomeTargets() []*artifact.OutcomeTarget {
 }
 
 // SignPublished signs each image digest under its profile and records an outcome per tag.
-// A failed signature is fatal only when the profile enforces; images with no signer are
-// named in one advisory. The legacy default signs images when COSIGN_KEY resolves.
+// A failed signature is fatal only when the profile enforces; the caller surfaces unsigned
+// images from the results. The legacy default signs images when COSIGN_KEY resolves.
 func (s ImageSigner) SignPublished(ctx context.Context, cfg *config.Config, rootDir string, rb *build.ResultsBuilder, images []PublishedImage) ([]SignResult, error) {
 	if !cfg.SigningSetup.SigningEnabled() {
 		return nil, nil // global kill switch — no signing this run
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []SignResult
-	var unsigned []string
 	for _, im := range images {
 		ref := im.Ref()
 		sc, serr := autosign.ResolveSigningContext(ctx, cfg.SigningSetup, cfg.Secrets.Providers, im.Profile, rootDir, rootDir, cfg.Toolchains.Want, now)
@@ -76,7 +75,6 @@ func (s ImageSigner) SignPublished(ctx context.Context, cfg *config.Config, root
 			return results, serr // FATAL (continuity / state-dir guard)
 		}
 		if !sc.DoSign {
-			unsigned = append(unsigned, ref)
 			results = append(results, SignResult{Ref: ref, Skipped: autosign.InactiveReason(cfg.SigningSetup)})
 			continue
 		}
@@ -84,7 +82,6 @@ func (s ImageSigner) SignPublished(ctx context.Context, cfg *config.Config, root
 		err := s.SignImage(ctx, rootDir, cfg.Toolchains.Want, ref, sc.Plan, sc.Env,
 			sign.SignOptions{MultiArch: im.MultiArch, RegistryAuthDir: im.AuthDir})
 		if err != nil {
-			diag.Warn("image signing %s: %v", ref, err)
 			for _, t := range im.outcomeTargets() {
 				rb.Record(im.ArtifactID, artifact.Outcome{
 					Type: artifact.OutcomeTypeAttestation, Target: t,
@@ -109,11 +106,7 @@ func (s ImageSigner) SignPublished(ctx context.Context, cfg *config.Config, root
 				},
 			})
 		}
-		results = append(results, SignResult{Ref: ref, Signed: true})
-	}
-	if len(unsigned) > 0 {
-		diag.Warn("signing is enabled but %d published image(s) were NOT signed (%s): %s",
-			len(unsigned), autosign.InactiveReason(cfg.SigningSetup), strings.Join(unsigned, ", "))
+		results = append(results, SignResult{Ref: ref, Signed: true, Class: string(sc.Plan.TrustClass)})
 	}
 	return results, nil
 }

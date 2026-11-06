@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/PrPlanIT/StageFreight/internal/testdocker"
 	"github.com/PrPlanIT/StageFreight/src/artifact"
+	builddocker "github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/google/go-containerregistry/pkg/crane"
@@ -160,13 +160,37 @@ func TestPromoteArtifacts_PartialFailureReportsAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := promoteArtifacts(context.Background(), &config.Config{}, root, io.Discard)
+	var buf strings.Builder
+	_, _, err := promoteArtifacts(context.Background(), &config.Config{}, root, &buf)
 	if err == nil {
 		t.Fatal("expected an aggregated error for unreachable targets")
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, "2 of 2 tag(s) failed to publish") {
 		t.Errorf("error must carry the aggregate verdict proving both tags were attempted: %v", msg)
+	}
+	if out := buf.String(); strings.Contains(out, "digest preserved") || strings.Contains(out, "rebuild not required") {
+		t.Errorf("nothing published, so no digest claim may render:\n%s", out)
+	}
+}
+
+// One shared reason under the rows, and the class on a signed row.
+func TestRenderSigning(t *testing.T) {
+	var buf strings.Builder
+	reason := "no usable signer: set signing.auto_provision + signing.state_dir, or supply a key/profile"
+	renderSigning(&buf, []builddocker.SignResult{
+		{Ref: "docker.io/a@sha256:1", Skipped: reason},
+		{Ref: "ghcr.io/a@sha256:1", Skipped: reason},
+		{Ref: "cr.optcp.com/a@sha256:1", Signed: true, Class: "key"},
+	}, nil, false)
+	out := buf.String()
+	if strings.Count(out, "no usable signer") != 1 {
+		t.Errorf("the reason must print once:\n%s", out)
+	}
+	for _, want := range []string{"⚠  NOT signed docker.io/a@sha256:1", "⚠  NOT signed ghcr.io/a@sha256:1", "✓  signed (key) cr.optcp.com/a@sha256:1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
 	}
 }
 

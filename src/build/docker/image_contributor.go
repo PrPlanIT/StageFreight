@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/output/layout"
 )
 
 func init() {
@@ -122,32 +124,88 @@ func (c *imageContributor) Plan(rc *domains.RunContext) (domains.Contribution, e
 	}
 	c.plan = plan
 
+	return domains.Contribution{
+		Rows:    imagePlanRows(plan.Steps, rc.Local, rc.Verbose, rc.Color),
+		Status:  "success",
+		Summary: fmt.Sprintf("%d image step(s)", len(plan.Steps)),
+	}, nil
+}
+
+// imagePlanRows renders the plan as a manifest: a summary row, then one row per
+// destination with its state. Held targets group by the condition they wait on;
+// verbose lists each with the matcher's own reason.
+func imagePlanRows(steps []build.BuildStep, local, verbose, color bool) []string {
+	type planRow struct{ build, state, target, detail string }
+	hold := output.StatusIcon("skipped", color) + " hold"
+
 	platforms := map[string]bool{}
 	tags := 0
-	for _, s := range plan.Steps {
+	var rows []planRow
+	for _, s := range steps {
 		for _, p := range s.Platforms {
 			platforms[p] = true
 		}
-		tags += len(s.Tags)
+		if local {
+			stepTags := s.Tags
+			if len(stepTags) == 0 {
+				stepTags = []string{"stagefreight:dev"}
+			}
+			tags += len(stepTags)
+			rows = append(rows, planRow{s.Name, "load", "docker", strings.Join(stepTags, ", ")})
+		} else {
+			tags += len(s.Tags)
+			for _, r := range s.Registries {
+				rows = append(rows, planRow{s.Name, "publish", r.URL, strings.Join(r.Tags, ", ")})
+			}
+		}
+		if verbose {
+			for _, sk := range s.SkippedTargets {
+				rows = append(rows, planRow{s.Name, hold, sk.TargetID, sk.Reason})
+			}
+			continue
+		}
+		var gates []string
+		held := map[string]int{}
+		for _, sk := range s.SkippedTargets {
+			if held[sk.Gate] == 0 {
+				gates = append(gates, sk.Gate)
+			}
+			held[sk.Gate]++
+		}
+		for _, g := range gates {
+			label := fmt.Sprintf("%d targets", held[g])
+			if held[g] == 1 {
+				label = "1 target"
+			}
+			rows = append(rows, planRow{s.Name, hold, label, g})
+		}
 	}
+
 	plist := make([]string, 0, len(platforms))
 	for p := range platforms {
 		plist = append(plist, p)
 	}
-	row := fmt.Sprintf("%-9s %d build(s) · %s · %d tag(s)", "image", len(plan.Steps), strings.Join(plist, ", "), tags)
-	rows := []string{row}
-	// Narrate eligibility skips so a "built but not distributed" outcome explains
-	// itself. The reason is the matcher's own — carried on the step, not guessed.
-	for _, s := range plan.Steps {
-		for _, sk := range s.SkippedTargets {
-			rows = append(rows, fmt.Sprintf("%-9s %-28s not distributed — %s", "image", sk.TargetID, sk.Reason))
-		}
+	sort.Strings(plist)
+
+	stateWidth, targetWidth, buildWidth := 0, 0, 0
+	for _, r := range rows {
+		stateWidth = max(stateWidth, layout.VisualWidth(r.state))
+		targetWidth = max(targetWidth, layout.VisualWidth(r.target))
+		buildWidth = max(buildWidth, layout.VisualWidth(r.build))
 	}
-	return domains.Contribution{
-		Rows:    rows,
-		Status:  "success",
-		Summary: fmt.Sprintf("%d image step(s)", len(plan.Steps)),
-	}, nil
+	pad := func(s string, width int) string {
+		return s + strings.Repeat(" ", width-layout.VisualWidth(s)) + "   "
+	}
+
+	out := []string{fmt.Sprintf("%-9s %d build(s) · %s · %d tag(s)", "image", len(steps), strings.Join(plist, ", "), tags)}
+	for _, r := range rows {
+		line := fmt.Sprintf("%-9s ", "image")
+		if len(steps) > 1 {
+			line += pad(r.build, buildWidth)
+		}
+		out = append(out, line+pad(r.state, stateWidth)+pad(r.target, targetWidth)+r.detail)
+	}
+	return out
 }
 
 // Build executes the image build(s) through the shared transport-correct path:

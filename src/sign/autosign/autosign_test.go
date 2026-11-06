@@ -112,10 +112,10 @@ func TestInactiveReason(t *testing.T) {
 	if r := InactiveReason(config.SigningConfig{Enabled: bp(false)}); !strings.Contains(r, "disabled") {
 		t.Errorf("disabled reason: %q", r)
 	}
-	if r := InactiveReason(config.SigningConfig{}); !strings.Contains(r, "auto-provision is not configured") {
+	if r := InactiveReason(config.SigningConfig{}); !strings.Contains(r, "signing.auto_provision + signing.state_dir") {
 		t.Errorf("no-config reason: %q", r)
 	}
-	if r := InactiveReason(config.SigningConfig{StateDir: config.StateDir{Type: "volume"}}); !strings.Contains(r, "auto_provision is false") {
+	if r := InactiveReason(config.SigningConfig{StateDir: config.StateDir{Type: "volume"}}); !strings.Contains(r, "set signing.auto_provision, or") {
 		t.Errorf("state-dir-but-no-autoprovision reason: %q", r)
 	}
 }

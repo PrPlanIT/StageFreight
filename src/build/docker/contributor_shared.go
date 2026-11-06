@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
@@ -14,6 +15,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/build/pipeline"
 	"github.com/PrPlanIT/StageFreight/src/cas"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
 	"github.com/PrPlanIT/StageFreight/src/version"
@@ -74,8 +76,28 @@ func signImages(rc *domains.RunContext, plan *build.BuildPlan, steps []build.Ste
 			})
 		}
 	}
-	_, err := CosignSigner.SignPublished(rc.Ctx, rc.Config, rc.RootDir, rc.RB, images)
+	results, err := CosignSigner.SignPublished(rc.Ctx, rc.Config, rc.RootDir, rc.RB, images)
+	warnUnsigned(results)
 	return err
+}
+
+// warnUnsigned is the in-build path's advisory; publish renders these in its Signing section.
+func warnUnsigned(results []SignResult) {
+	var unsigned []string
+	var reason string
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			diag.Warn("image signing %s: %v", r.Ref, r.Err)
+		case !r.Signed:
+			unsigned = append(unsigned, r.Ref)
+			reason = r.Skipped
+		}
+	}
+	if len(unsigned) > 0 {
+		diag.Warn("signing is enabled but %d published image(s) were NOT signed (%s): %s",
+			len(unsigned), reason, strings.Join(unsigned, ", "))
+	}
 }
 
 // signingEndpoint is a registry endpoint's resolved signing profile + multi-arch flag.

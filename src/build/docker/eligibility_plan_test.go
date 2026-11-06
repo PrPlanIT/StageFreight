@@ -90,3 +90,113 @@ func TestPlanDockerBuildEventGating(t *testing.T) {
 		}
 	})
 }
+
+func TestImagePlanRows(t *testing.T) {
+	dev := []build.RegistryTarget{
+		{URL: "docker.io", Tags: []string{"dev-128cd8f", "latest-dev"}},
+		{URL: "cr.optcp.com", Tags: []string{"dev-128cd8f", "latest-dev"}},
+	}
+	devTags := []string{"a", "b", "c", "d"}
+	skips := func(gate string, n int) []build.TargetSkip {
+		out := make([]build.TargetSkip, n)
+		for i := range out {
+			out[i] = build.TargetSkip{TargetID: "stable-" + string(rune('a'+i)), Reason: "matcher reason", Gate: gate}
+		}
+		return out
+	}
+	amd64 := []string{"linux/amd64"}
+
+	cases := []struct {
+		name           string
+		steps          []build.BuildStep
+		local, verbose bool
+		want           []string
+	}{
+		{
+			name:  "publishes and holds",
+			steps: []build.BuildStep{{Name: "img", Platforms: amd64, Tags: devTags, Registries: dev, SkippedTargets: skips("events: tag", 6)}},
+			want: []string{
+				"image     1 build(s) · linux/amd64 · 4 tag(s)",
+				"image     publish   docker.io      dev-128cd8f, latest-dev",
+				"image     publish   cr.optcp.com   dev-128cd8f, latest-dev",
+				"image     ⊘ hold    6 targets      events: tag",
+			},
+		},
+		{
+			name:  "everything held",
+			steps: []build.BuildStep{{Name: "img", Platforms: amd64, SkippedTargets: skips("events: tag", 6)}},
+			want: []string{
+				"image     1 build(s) · linux/amd64 · 0 tag(s)",
+				"image     ⊘ hold   6 targets   events: tag",
+			},
+		},
+		{
+			name: "hold reasons group separately",
+			steps: []build.BuildStep{{Name: "img", Platforms: amd64,
+				SkippedTargets: append(skips("git_tags: prerelease", 3), skips("branches: main", 1)...)}},
+			want: []string{
+				"image     1 build(s) · linux/amd64 · 0 tag(s)",
+				"image     ⊘ hold   3 targets   git_tags: prerelease",
+				"image     ⊘ hold   1 target    branches: main",
+			},
+		},
+		{
+			name: "two builds name each row",
+			steps: []build.BuildStep{
+				{Name: "zitadel", Platforms: amd64, Tags: devTags[:2], Registries: dev[:1]},
+				{Name: "login", Platforms: amd64, Tags: devTags[:2], Registries: dev[1:]},
+			},
+			want: []string{
+				"image     2 build(s) · linux/amd64 · 4 tag(s)",
+				"image     zitadel   publish   docker.io      dev-128cd8f, latest-dev",
+				"image     login     publish   cr.optcp.com   dev-128cd8f, latest-dev",
+			},
+		},
+		{
+			name:  "tags differ by registry",
+			steps: []build.BuildStep{{Name: "img", Platforms: amd64, Tags: devTags[:3], Registries: []build.RegistryTarget{{URL: "docker.io", Tags: []string{"v1", "latest"}}, {URL: "cr.optcp.com", Tags: []string{"v1"}}}}},
+			want: []string{
+				"image     1 build(s) · linux/amd64 · 3 tag(s)",
+				"image     publish   docker.io      v1, latest",
+				"image     publish   cr.optcp.com   v1",
+			},
+		},
+		{
+			name:  "local loads and publishes nothing",
+			steps: []build.BuildStep{{Name: "img", Platforms: amd64}},
+			local: true,
+			want: []string{
+				"image     1 build(s) · linux/amd64 · 1 tag(s)",
+				"image     load   docker   stagefreight:dev",
+			},
+		},
+		{
+			name:  "no targets",
+			steps: []build.BuildStep{{Name: "img", Platforms: amd64}},
+			want:  []string{"image     1 build(s) · linux/amd64 · 0 tag(s)"},
+		},
+		{
+			name:    "verbose lists each held target with the matcher's reason",
+			steps:   []build.BuildStep{{Name: "img", Platforms: amd64, SkippedTargets: skips("events: tag", 2)}},
+			verbose: true,
+			want: []string{
+				"image     1 build(s) · linux/amd64 · 0 tag(s)",
+				"image     ⊘ hold   stable-a   matcher reason",
+				"image     ⊘ hold   stable-b   matcher reason",
+			},
+		},
+		{
+			name:  "platforms render in a stable order",
+			steps: []build.BuildStep{{Name: "img", Platforms: []string{"linux/arm64", "linux/amd64"}}},
+			want:  []string{"image     1 build(s) · linux/amd64, linux/arm64 · 0 tag(s)"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := imagePlanRows(c.steps, c.local, c.verbose, false)
+			if strings.Join(got, "\n") != strings.Join(c.want, "\n") {
+				t.Errorf("rows:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(c.want, "\n"))
+			}
+		})
+	}
+}

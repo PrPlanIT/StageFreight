@@ -140,12 +140,12 @@ func InactiveReason(cfg config.SigningConfig) string {
 	case !cfg.SigningEnabled():
 		return "signing is disabled (signing.enabled: false)"
 	case !cfg.StateDir.Configured() && !cfg.AutoProvision:
-		return "no usable signer resolved — no COSIGN_KEY/profile, and Tier-0 auto-provision is not configured (set signing.auto_provision: true + signing.state_dir, or supply a key/profile)"
+		return "no usable signer: set signing.auto_provision + signing.state_dir, or supply a key/profile"
 	case !cfg.AutoProvision:
-		return "no usable signer resolved — no COSIGN_KEY/profile, and signing.auto_provision is false (Tier-0 identity creation requires explicit consent)"
+		return "no usable signer: set signing.auto_provision, or supply a key/profile"
 	case !cfg.StateDir.Configured():
-		return "no usable signer resolved — signing.auto_provision is true but signing.state_dir is not configured (nowhere to persist a Tier-0 identity)"
+		return "no usable signer: set signing.state_dir, or supply a key/profile"
 	default:
-		return "no usable signer resolved"
+		return "no usable signer"
 	}
 }

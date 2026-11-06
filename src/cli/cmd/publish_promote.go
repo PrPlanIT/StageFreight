@@ -319,9 +319,11 @@ func promoteArtifacts(ctx context.Context, appCfg *config.Config, rootDir string
 		sec.Separator()
 		sec.Row("summary")
 		sec.Row("  %d of %d tag(s) published", published, len(d.tags))
-		sec.Row("  %d tag(s) verified against recorded digest", published)
-		sec.Row("  digest preserved")
-		sec.Row("  rebuild not required")
+		if published > 0 {
+			sec.Row("  %d tag(s) verified against recorded digest", published)
+			sec.Row("  digest preserved")
+			sec.Row("  rebuild not required")
+		}
 		sec.Close()
 	}
 
@@ -428,15 +430,20 @@ func renderSigning(w io.Writer, results []builddocker.SignResult, attested []str
 		return
 	}
 	sec := output.NewSection(w, "Signing (publish)", 0, color)
+	var skipReasons []string
 	for _, r := range results {
 		switch {
 		case r.Signed:
-			sec.Row("%s  signed %s", output.StatusIcon("success", color), r.Ref)
+			sec.Row("%s  signed (%s) %s", output.StatusIcon("success", color), r.Class, r.Ref)
 		case r.Err != nil:
 			sec.Row("%s  NOT signed %s — %v", output.StatusIcon("failed", color), r.Ref, r.Err)
 		default:
-			sec.Row("%s  NOT signed %s — %s", output.StatusIcon("warning", color), r.Ref, r.Skipped)
+			sec.Row("%s  NOT signed %s", output.StatusIcon("warning", color), r.Ref)
+			skipReasons = appendDistinct(skipReasons, r.Skipped)
 		}
+	}
+	for _, reason := range skipReasons {
+		sec.RowIndented(3, false, color, "%s", reason)
 	}
 	for _, ref := range attested {
 		sec.Row("%s  provenance attested %s", output.StatusIcon("success", color), ref)

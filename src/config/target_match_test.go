@@ -65,3 +65,28 @@ func TestTargetForges(t *testing.T) {
 		})
 	}
 }
+
+func TestTargetEligibilityGate(t *testing.T) {
+	tagPolicies := map[string]string{"prerelease": `-rc`, "stable": `^v\d+\.\d+\.\d+$`}
+	cases := []struct {
+		name, event, branch, tag, want string
+		when                           WhenConditions
+	}{
+		{"events", "push", "main", "", "events: tag", WhenConditions{{Events: []string{"tag"}, GitTags: []string{"stable"}}}},
+		{"git_tags", "tag", "", "v1.2.3", "git_tags: prerelease", WhenConditions{{Events: []string{"tag"}, GitTags: []string{"prerelease"}}}},
+		{"branches", "push", "dev", "", "branches: main", WhenConditions{{Branches: []string{"main"}}}},
+		{"forges", "push", "main", "", "forges: github", WhenConditions{{Forges: []string{"github"}}}},
+		{"several condition-sets", "push", "dev", "", "events: tag | branches: main",
+			WhenConditions{{Events: []string{"tag"}}, {Branches: []string{"main"}, Events: []string{"push"}}}},
+		{"repeated gate once", "push", "dev", "", "events: tag",
+			WhenConditions{{Events: []string{"tag"}}, {Events: []string{"tag"}, GitTags: []string{"stable"}}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := TargetEligibility(TargetConfig{When: c.when}, c.event, c.branch, c.tag, "gitlab", tagPolicies, nil)
+			if r.Eligible || r.Gate != c.want {
+				t.Errorf("eligible=%v gate=%q, want gate %q", r.Eligible, r.Gate, c.want)
+			}
+		})
+	}
+}

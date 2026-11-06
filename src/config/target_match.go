@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -88,6 +89,7 @@ func CIProvider() string {
 type MatchResult struct {
 	Eligible bool
 	Reason   string // why NOT eligible; empty when Eligible
+	Gate     string // the unmet when: condition in config terms, e.g. "events: tag"
 }
 
 // TargetEligibility is the single authoritative interpretation of a target's
@@ -114,36 +116,48 @@ func TargetEligibility(t TargetConfig, event, branch, tag, forge string, tagPoli
 		return conditionEligibility(t.When[0], event, branch, tag, forge, tagPolicies, branchPolicies)
 	}
 	// OR over condition-sets: eligible if ANY matches.
+	var gates []string
 	for _, c := range t.When {
-		if r := conditionEligibility(c, event, branch, tag, forge, tagPolicies, branchPolicies); r.Eligible {
+		r := conditionEligibility(c, event, branch, tag, forge, tagPolicies, branchPolicies)
+		if r.Eligible {
 			return r
 		}
+		if !slices.Contains(gates, r.Gate) {
+			gates = append(gates, r.Gate)
+		}
 	}
-	return MatchResult{Reason: fmt.Sprintf("no when: condition matched (event=%q tag=%q branch=%q forge=%q)", event, tag, branch, forge)}
+	return MatchResult{
+		Reason: fmt.Sprintf("no when: condition matched (event=%q tag=%q branch=%q forge=%q)", event, tag, branch, forge),
+		Gate:   strings.Join(gates, " | "),
+	}
+}
+
+func gate(key string, values []string) string {
+	return key + ": " + strings.Join(values, ", ")
 }
 
 // conditionEligibility interprets ONE condition-set (events, then git_tags, then
 // branches, then forges, then schedules).
 func conditionEligibility(c TargetCondition, event, branch, tag, forge string, tagPolicies, branchPolicies map[string]string) MatchResult {
 	if !EventMatches(c.Events, event) {
-		return MatchResult{Reason: fmt.Sprintf("run source %q not in events:%v", event, c.Events)}
+		return MatchResult{Reason: fmt.Sprintf("run source %q not in events:%v", event, c.Events), Gate: gate("events", c.Events)}
 	}
 	if len(c.GitTags) > 0 && tag != "" {
 		if !MatchPatternsWithPolicy(c.GitTags, tag, tagPolicies) {
-			return MatchResult{Reason: fmt.Sprintf("tag %q not in git_tags:%v", tag, c.GitTags)}
+			return MatchResult{Reason: fmt.Sprintf("tag %q not in git_tags:%v", tag, c.GitTags), Gate: gate("git_tags", c.GitTags)}
 		}
 	}
 	if len(c.Branches) > 0 {
 		if !MatchPatternsWithPolicy(c.Branches, branch, branchPolicies) {
-			return MatchResult{Reason: fmt.Sprintf("branch %q not in branches:%v", branch, c.Branches)}
+			return MatchResult{Reason: fmt.Sprintf("branch %q not in branches:%v", branch, c.Branches), Gate: gate("branches", c.Branches)}
 		}
 	}
 	if len(c.Forges) > 0 && !forgeMatches(c.Forges, forge) {
-		return MatchResult{Reason: fmt.Sprintf("forge %q not in forges:%v", forge, c.Forges)}
+		return MatchResult{Reason: fmt.Sprintf("forge %q not in forges:%v", forge, c.Forges), Gate: gate("forges", c.Forges)}
 	}
 	if len(c.Schedules) > 0 {
 		if fired := ciSchedules(); !anyFold(c.Schedules, fired) {
-			return MatchResult{Reason: fmt.Sprintf("run fired by schedules %v, none in schedules:%v", fired, c.Schedules)}
+			return MatchResult{Reason: fmt.Sprintf("run fired by schedules %v, none in schedules:%v", fired, c.Schedules), Gate: gate("schedules", c.Schedules)}
 		}
 	}
 	return MatchResult{Eligible: true}

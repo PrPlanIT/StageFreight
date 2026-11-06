@@ -48,6 +48,7 @@ type BuildStep struct {
 type TargetSkip struct {
 	TargetID string
 	Reason   string
+	Gate     string // the unmet when: condition in config terms
 }
 
 // CacheRef is a structured build cache reference.
