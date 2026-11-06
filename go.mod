@@ -14,7 +14,7 @@ require (
 	github.com/sergi/go-diff v1.4.0
 	github.com/skeema/knownhosts v1.3.3
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/tdewolff/font v0.0.0-20261010204837-88a7f6b56918
 	github.com/ulikunitz/xz v0.5.17
 	github.com/zricethezav/gitleaks/v8 v8.30.1
