@@ -20,7 +20,7 @@ git:                                     # interpret the ref → named branch/ta
     prerelease: { pattern: "^v?\\d+\\.\\d+\\.\\d+-.+" }
   versioning:                            # derivation rules that consume the patterns above
     branch_builds:
-      default: { base_from: [stable], format: "{base}-dev+{sha}" }
+      default: { base_from: [stable], format: "{next}-dev.{commits}+{sha}" }
     no_lineage: { mode: error }
 
 builds:
