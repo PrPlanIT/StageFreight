@@ -184,3 +184,112 @@ func TestAutoReleaseTag_ImageBase(t *testing.T) {
 		t.Fatalf("a base pinned to a version upstream never released must not be tagged: tag=%q reason=%q", tag, reason)
 	}
 }
+
+// followFixture is an nginx-extras shape: an apk source whose release comes from the FROM.
+func followFixture(t *testing.T, from, pin string) (root string, cfg *config.Config, deps []supplychain.Dependency) {
+	t.Helper()
+	root = t.TempDir()
+	os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM alpine:"+from+"\nARG NGINX_VERSION="+pin+"\n"), 0o644)
+	cfg = &config.Config{Upstream: config.UpstreamConfig{
+		Version: config.UpstreamVersion{Track: "nginx"},
+		Sources: config.OrderedUpstreamSources{{ID: "nginx", Apk: "nginx", Repository: "main",
+			Pins: []config.UpstreamPin{{File: "Dockerfile", Arg: "NGINX_VERSION"}}}},
+	}}
+	deps = []supplychain.Dependency{{Name: "docker.io/library/alpine:" + from, Current: from, Latest: "3.25.1", Ecosystem: supplychain.EcosystemDockerImage, File: "Dockerfile", Line: 1}}
+	return root, cfg, deps
+}
+
+// seedAlpine seeds Alpine's releases and, per suite, the package versions it holds.
+func seedAlpine(t *testing.T, cfg *config.Config, root string, alpine []string, suites map[string][]string) {
+	t.Helper()
+	srcs, err := upstream.Sources(cfg.Upstream, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deb, _ := scheme.Get(scheme.Debian)
+	listingMu.Lock()
+	defer listingMu.Unlock()
+	listings[listingKey(alpineBaseSource("nginx"))] = upstreamListing{releases: releasesOf(t, alpine...)}
+	for suite, raws := range suites {
+		src := srcs[0]
+		src.Suite = suite
+		var rels []upstream.Release
+		for _, r := range raws {
+			rels = append(rels, upstream.Release{Tag: r, Raw: r, Version: mustV(t, deb, r)})
+		}
+		listings[listingKey(src)] = upstreamListing{releases: rels}
+	}
+}
+
+func TestFollowAlpine_NewLineMovesBaseAndPinTogether(t *testing.T) {
+	root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
+	cfg.Dependency.MaxUpdate = "patch"
+	seedAlpine(t, cfg, root, []string{"4.0.0", "3.25.1", "3.24.4"}, map[string][]string{"v3.25/main": {"1.32.1-r2"}})
+
+	moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+	if deps[0].ResolvedTarget != "3.25.1" || !deps[0].TrackGoverned {
+		t.Fatalf("base follows the newest release in its major, uncapped: %+v", deps[0])
+	}
+	if moved["nginx"] != "v3.25/main" {
+		t.Fatalf("moved = %v", moved)
+	}
+	pins, _, _ := upstreamPinDeps(t.Context(), cfg, root, time.Now(), nil, moved)
+	if len(pins) != 1 || pins[0].Latest != "1.32.1-r2" || !pins[0].TrackGoverned {
+		t.Fatalf("the pin moves with it, uncapped: %+v", pins)
+	}
+}
+
+func TestFollowAlpine_PatchKeepsTheLine(t *testing.T) {
+	root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
+	seedAlpine(t, cfg, root, []string{"3.24.5", "3.24.4"}, map[string][]string{"v3.24/main": {"1.30.6-r0"}})
+	moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+	if deps[0].ResolvedTarget != "3.24.5" || len(moved) != 0 {
+		t.Fatalf("target=%q moved=%v", deps[0].ResolvedTarget, moved)
+	}
+}
+
+func TestFollowAlpine_UnusableLineIsNotAdopted(t *testing.T) {
+	for name, packages := range map[string][]string{"no package": {}, "older package": {"1.28.0-r0"}} {
+		t.Run(name, func(t *testing.T) {
+			root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
+			seedAlpine(t, cfg, root, []string{"3.25.1", "3.24.5", "3.24.4"}, map[string][]string{"v3.25/main": packages})
+			moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+			if deps[0].ResolvedTarget != "3.24.5" || len(moved) != 0 {
+				t.Fatalf("falls back to the newest usable release: target=%q moved=%v", deps[0].ResolvedTarget, moved)
+			}
+		})
+	}
+}
+
+func TestFollowAlpine_NothingAdoptableStaysPut(t *testing.T) {
+	root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
+	seedAlpine(t, cfg, root, []string{"3.25.1", "3.24.4"}, map[string][]string{"v3.25/main": {}})
+	followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+	if got := deps[0].UpdateTarget(); got != "3.24.4" {
+		t.Fatalf("an unusable line must not reach the natural target: %q", got)
+	}
+}
+
+func TestFollowAlpine_SuiteComesFromTheFinalAlpineFrom(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM docker.io/library/alpine:3.20.1 AS build\nFROM golang:1.27.3\nFROM --platform=linux/amd64 alpine:3.24.4@sha256:abc\r\n"), 0o644)
+	cs := config.UpstreamSource{ID: "nginx", Apk: "nginx", Repository: "community", Pins: []config.UpstreamPin{{File: "Dockerfile", Arg: "V"}}}
+	srcs, err := upstream.Sources(config.UpstreamConfig{Sources: config.OrderedUpstreamSources{cs}}, root)
+	if err != nil || srcs[0].Suite != "v3.24/community" {
+		t.Fatalf("suite=%q err=%v", srcs[0].Suite, err)
+	}
+	os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM debian:trixie\n"), 0o644)
+	srcs, _ = upstream.Sources(config.UpstreamConfig{Sources: config.OrderedUpstreamSources{cs}}, root)
+	if _, err := upstream.List(t.Context(), srcs[0]); err == nil {
+		t.Fatal("no alpine FROM must fail the listing loudly")
+	}
+}
+
+func TestTrackedPins_StayInTheirMajorUncapped(t *testing.T) {
+	root, cfg, _ := followFixture(t, "3.24.4", "1.30.6-r0")
+	seedAlpine(t, cfg, root, nil, map[string][]string{"v3.24/main": {"2.0.0-r0", "1.32.0-r0", "1.30.6-r0"}})
+	pins, _, _ := upstreamPinDeps(t.Context(), cfg, root, time.Now(), nil, nil)
+	if len(pins) != 1 || pins[0].Latest != "1.32.0-r0" || !pins[0].TrackGoverned {
+		t.Fatalf("%+v", pins)
+	}
+}

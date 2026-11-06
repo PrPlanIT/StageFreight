@@ -19,13 +19,14 @@ import (
 
 // Source is one declared upstream, ready to list.
 type Source struct {
-	ID        string
-	Kind      string // config.UpstreamKind*
-	Location  string // repository URL, image repository, package or page, by kind
-	Suite     string // apk, apt
-	MirrorOf  string // the origin a mirror source follows
-	Lifecycle string
-	Select    Selection
+	ID         string
+	Kind       string // config.UpstreamKind*
+	Location   string // repository URL, image repository, package or page, by kind
+	Suite      string // apk, apt; empty when repository found no Alpine FROM
+	Repository string // apk: the suite's repository, its release read from the Dockerfile FROM
+	MirrorOf   string // the origin a mirror source follows
+	Lifecycle  string
+	Select     Selection
 }
 
 // Selection is a source's compiled select: block and scheme.
@@ -56,8 +57,9 @@ type Release struct {
 	Published time.Time // registries that publish a release time; zero when unknown
 }
 
-// Sources builds the listable sources from config, compiling each selection.
-func Sources(u config.UpstreamConfig) ([]Source, error) {
+// Sources builds the listable sources from config, compiling each selection. rootDir is the
+// repository root, where a repository source reads its Alpine release.
+func Sources(u config.UpstreamConfig, rootDir string) ([]Source, error) {
 	var out []Source
 	for _, cs := range u.Sources {
 		kind, loc := cs.Kind()
@@ -85,7 +87,7 @@ func Sources(u config.UpstreamConfig) ([]Source, error) {
 			}
 			sel.Exclude = append(sel.Exclude, re)
 		}
-		out = append(out, Source{ID: cs.ID, Kind: kind, Location: loc, Suite: cs.Suite, MirrorOf: cs.MirrorOf, Lifecycle: cs.EffectiveLifecycle(), Select: sel})
+		out = append(out, Source{ID: cs.ID, Kind: kind, Location: loc, Suite: sourceSuite(cs, rootDir), Repository: cs.Repository, MirrorOf: cs.MirrorOf, Lifecycle: cs.EffectiveLifecycle(), Select: sel})
 	}
 	return out, nil
 }

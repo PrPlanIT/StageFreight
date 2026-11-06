@@ -39,7 +39,7 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	if sy.From == "" || !ciCtx.IsCI() || !acceptedState(ciCtx) || ciCtx.Tag != "" || ciCtx.SHA == "" {
 		return false, ""
 	}
-	sources, err := upstream.Sources(appCfg.Upstream)
+	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
 	if err != nil {
 		return false, ""
 	}

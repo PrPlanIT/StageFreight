@@ -32,7 +32,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 	releaseTag := config.CITag()
 	guarding := mode != config.UpstreamVersionOwn && releaseTag != ""
 
-	sources, err := upstream.Sources(u)
+	sources, err := upstream.Sources(u, rootDir)
 	if err != nil {
 		return recordUpstreamFailure(rootDir, guarding, err)
 	}

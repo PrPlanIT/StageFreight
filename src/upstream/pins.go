@@ -34,6 +34,52 @@ func (p PinValue) Describe() string {
 	return fmt.Sprintf("%s:%d", p.File, p.Line)
 }
 
+var alpineRelease = regexp.MustCompile(`^v?(\d+)\.(\d+)(?:\.\d+)?$`)
+
+// IsAlpineImage reports whether an image repository is Docker Hub's alpine.
+func IsAlpineImage(repo string) bool {
+	return strings.TrimPrefix(strings.TrimPrefix(repo, "docker.io/"), "library/") == "alpine"
+}
+
+// AlpineSuite is the package suite of an Alpine version: 3.24.4 in main is v3.24/main. Empty
+// when the version names no release.
+func AlpineSuite(version, repository string) string {
+	m := alpineRelease.FindStringSubmatch(version)
+	if m == nil {
+		return ""
+	}
+	return "v" + m[1] + "." + m[2] + "/" + repository
+}
+
+// sourceSuite is a source's declared suite, or the one its Dockerfile's final Alpine FROM names.
+func sourceSuite(cs config.UpstreamSource, rootDir string) string {
+	if cs.Repository == "" || len(cs.Pins) == 0 {
+		return cs.Suite
+	}
+	data, err := os.ReadFile(filepath.Join(rootDir, cs.Pins[0].File))
+	if err != nil {
+		return ""
+	}
+	version := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || !strings.EqualFold(f[0], "FROM") {
+			continue
+		}
+		for _, tok := range f[1:] {
+			if strings.HasPrefix(tok, "--") {
+				continue
+			}
+			ref, _, _ := strings.Cut(tok, "@")
+			if i := strings.LastIndexByte(ref, ':'); i > strings.LastIndexByte(ref, '/') && IsAlpineImage(ref[:i]) {
+				version = ref[i+1:]
+			}
+			break
+		}
+	}
+	return AlpineSuite(version, cs.Repository)
+}
+
 // MarkerText is the comment text that marks a marker pin's line for a source.
 func MarkerText(sourceID string) string { return "stagefreight: upstream=" + sourceID }
 

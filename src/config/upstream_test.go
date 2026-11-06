@@ -261,3 +261,28 @@ func TestUpstream_RebaseRequiresForcedMirrors(t *testing.T) {
 		t.Fatalf("a merge never rewrites, so the mirror is fine: %v", errs)
 	}
 }
+
+func TestUpstreamRepositoryValidation(t *testing.T) {
+	arg := []UpstreamPin{{File: "Dockerfile", Arg: "V"}}
+	for name, tc := range map[string]struct {
+		src  UpstreamSource
+		want string
+	}{
+		"both":       {UpstreamSource{ID: "x", Apk: "p", Suite: "v3.24/main", Repository: "main", Pins: arg}, "suite or repository"},
+		"not apk":    {UpstreamSource{ID: "x", Apt: "p", Suite: "trixie/main", Repository: "main", Pins: arg}, "only used with apk"},
+		"no pins":    {UpstreamSource{ID: "x", Apk: "p", Repository: "main"}, "first pin"},
+		"not an arg": {UpstreamSource{ID: "x", Apk: "p", Repository: "main", Pins: []UpstreamPin{{File: "v.yml", Path: "a"}}}, "first pin"},
+		"neither":    {UpstreamSource{ID: "x", Apk: "p"}, ".suite"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			errs := validateUpstream(&Config{Upstream: UpstreamConfig{Sources: OrderedUpstreamSources{tc.src}}})
+			if !strings.Contains(strings.Join(errs, "\n"), tc.want) {
+				t.Fatalf("errs=%q want %q", errs, tc.want)
+			}
+		})
+	}
+	ok := validateUpstream(&Config{Upstream: UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "x", Apk: "p", Repository: "main", Pins: arg}}}})
+	if strings.Contains(strings.Join(ok, "\n"), "repository") {
+		t.Fatalf("valid source refused: %q", ok)
+	}
+}

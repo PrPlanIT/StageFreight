@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +35,7 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 	if mode != config.UpstreamVersionTrack {
 		return false
 	}
-	sources, err := upstream.Sources(appCfg.Upstream)
+	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
 	if err != nil {
 		return false
 	}
@@ -124,23 +126,158 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 		// without the v still re-pins to the real (v-tagged) manifest's digest, not to a
 		// reconstructed tag that may not exist on the registry at all.
 		newTag := upstream.RepinValue(dep.Current, target.Raw)
-		if dep.PinnedDigest != "" {
-			// Fail closed: without the digest do not bump — a tag-only bump would leave the old
-			// digest, writing a corrupt new-tag@old-digest pin. The next run retries.
-			digest, err := resolveImageDigest(ctx, src.Location, target.Tag)
-			if err != nil {
-				fmt.Printf("  upstream: %s base %s → %s held: could not resolve %s's digest: %v\n", src.ID, dep.Current, newTag, target.Tag, err)
-				return lockChanged
-			}
-			dep.ResolvedDigest = digest
+		if !retargetBase(ctx, src, dep, target, newTag) {
+			return lockChanged
 		}
-		dep.ResolvedTarget = newTag
 		fmt.Printf("  upstream: %s base %s → %s (upstream latest in %d.x)\n", src.ID, dep.Current, newTag, major)
 	case held != nil:
 		dep.CooldownHeld = upstream.RepinValue(dep.Current, held.Raw)
 		fmt.Printf("  upstream: %s base %s held %s by the follow cooldown\n", src.ID, held.Raw, age)
 	}
 	return lockChanged
+}
+
+// retargetBase points a base image at a release. Fail closed: without the digest of a digest-
+// pinned base it does not bump, because a tag-only bump would write a corrupt new-tag@old-digest
+// pin. The next run retries.
+func retargetBase(ctx context.Context, src upstream.Source, dep *supplychain.Dependency, target *upstream.Release, newTag string) bool {
+	if dep.PinnedDigest != "" {
+		digest, err := resolveImageDigest(ctx, src.Location, target.Tag)
+		if err != nil {
+			fmt.Printf("  upstream: %s base %s → %s held: could not resolve %s's digest: %v\n", src.ID, dep.Current, newTag, target.Tag, err)
+			return false
+		}
+		dep.ResolvedDigest = digest
+	}
+	dep.ResolvedTarget = newTag
+	return true
+}
+
+// alpineBaseSource lists Alpine's releases for a followed base.
+func alpineBaseSource(id string) upstream.Source {
+	sem, _ := scheme.Get(scheme.Semver)
+	return upstream.Source{ID: id + "-alpine", Kind: config.UpstreamKindImage, Location: "docker.io/library/alpine",
+		Select: upstream.Selection{Tags: alpineReleaseTag, Scheme: sem}}
+}
+
+var alpineReleaseTag = regexp.MustCompile(`^(?P<version>\d+\.\d+\.\d+)$`)
+
+// followAlpineBases moves the Alpine FROM of every repository source to Alpine's newest release
+// in its major, paced by the follow cooldown. It returns the suite of each source whose release
+// line changes, for its pins to move with it. A line that lacks the package, or holds an older
+// version than the pins, is not adopted.
+func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, now time.Time, lock *upstream.Lock) (moved map[string]string, lockChanged bool) {
+	moved = map[string]string{}
+	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
+	if err != nil {
+		return moved, false
+	}
+	for i, cs := range appCfg.Upstream.Sources {
+		if cs.Repository == "" {
+			continue
+		}
+		src := sources[i]
+		dep := finalAlpineBase(deps, cs.Pins[0].File)
+		if dep == nil {
+			fmt.Printf("  upstream: %s has no pinned alpine FROM in %s; release not followed\n", cs.ID, cs.Pins[0].File)
+			continue
+		}
+		base := alpineBaseSource(cs.ID)
+		major, ok := leadingMajor(dep.Current)
+		cur, err := base.Select.Scheme.Parse(dep.Current)
+		if !ok || err != nil {
+			fmt.Printf("  upstream: %s base %q is not an Alpine version; release not followed\n", cs.ID, dep.Current)
+			continue
+		}
+		l := listUpstream(ctx, base)
+		if l.err != nil {
+			fmt.Printf("  upstream: %s base not advanced: %v\n", cs.ID, l.err)
+			continue
+		}
+		var newer []upstream.Release
+		for _, r := range l.releases {
+			if m, ok := leadingMajor(r.Raw); ok && m == major && r.Version.Compare(cur) > 0 {
+				newer = append(newer, r)
+			}
+		}
+		age := trackReleaseAge(appCfg)
+		if age > 0 {
+			dateTrackCandidates(ctx, base.Location, newer)
+		}
+		// Governed from here: the ceiling does not cap it, so a base with no adoptable release
+		// stays where it is rather than taking the natural target.
+		dep.TrackGoverned = true
+		dep.ResolvedTarget = dep.Current
+		for len(newer) > 0 {
+			target, held := pickTarget(newer, lock, base.ID, age, now, &lockChanged)
+			if target == nil {
+				if held != nil {
+					dep.CooldownHeld = upstream.RepinValue(dep.Current, held.Raw)
+				}
+				break
+			}
+			suite := upstream.AlpineSuite(target.Raw, cs.Repository)
+			if suite != src.Suite {
+				if reason := suiteUnusable(ctx, rootDir, cs, src, suite); reason != "" {
+					fmt.Printf("  upstream: %s base stays off %s: %s\n", cs.ID, suite, reason)
+					newer = withoutSuite(newer, suite, cs.Repository)
+					continue
+				}
+			}
+			newTag := upstream.RepinValue(dep.Current, target.Raw)
+			if !retargetBase(ctx, base, dep, target, newTag) {
+				break
+			}
+			if suite != src.Suite {
+				moved[cs.ID] = suite
+			}
+			fmt.Printf("  upstream: %s base %s → %s (%s)\n", cs.ID, dep.Current, newTag, suite)
+			break
+		}
+	}
+	return moved, lockChanged
+}
+
+// finalAlpineBase is the discovered alpine FROM of the file's last stage that has one.
+func finalAlpineBase(deps []supplychain.Dependency, file string) *supplychain.Dependency {
+	var dep *supplychain.Dependency
+	for i := range deps {
+		d := &deps[i]
+		if d.Ecosystem == supplychain.EcosystemDockerImage && filepath.Clean(d.File) == filepath.Clean(file) &&
+			upstream.IsAlpineImage(imageRepo(d.Name)) && (dep == nil || d.Line > dep.Line) {
+			dep = d
+		}
+	}
+	return dep
+}
+
+// suiteUnusable says why a source's pins could not move to suite, or "" when they can.
+func suiteUnusable(ctx context.Context, rootDir string, cs config.UpstreamSource, src upstream.Source, suite string) string {
+	_, current, err := readPins(rootDir, cs, src.Select.Scheme)
+	if err != nil {
+		return err.Error()
+	}
+	src.Suite = suite
+	l := listUpstream(ctx, src)
+	switch {
+	case l.err != nil:
+		return l.err.Error()
+	case len(l.releases) == 0:
+		return "it has no " + src.Location + " package"
+	case l.releases[0].Version.Compare(current) < 0:
+		return fmt.Sprintf("its %s %s is older than the pinned %s", src.Location, l.releases[0].Raw, current)
+	}
+	return ""
+}
+
+func withoutSuite(rels []upstream.Release, suite, repository string) []upstream.Release {
+	var out []upstream.Release
+	for _, r := range rels {
+		if upstream.AlpineSuite(r.Raw, repository) != suite {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // trackReleaseAge is how old an upstream GA must be before the fork follows it onto the base

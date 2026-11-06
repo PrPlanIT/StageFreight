@@ -71,6 +71,9 @@ func List(ctx context.Context, src Source) ([]Candidate, error) {
 	case config.UpstreamKindGitHubRelease:
 		return listGitHubReleases(ctx, src.Location)
 	case config.UpstreamKindApk:
+		if src.Repository != "" && src.Suite == "" {
+			return nil, fmt.Errorf("apk %s: no pinned alpine FROM names the Alpine release", src.Location)
+		}
 		return listApk(ctx, src.Location, src.Suite)
 	case config.UpstreamKindApt:
 		return listApt(ctx, src.Location, src.Suite)

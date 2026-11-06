@@ -77,35 +77,37 @@ func readPins(rootDir string, cs config.UpstreamSource, sch scheme.Scheme) (pins
 // upstreamPinDeps turns every declared pin into a dependency of the upstream ecosystem, so
 // the dependency engine moves it with its usual max_update, commit and MR handling. With
 // dependency.min_release_age set, a release is adopted only once it has been seen for that
-// long: the first sighting is recorded in .stagefreight/upstream.lock (returned for the
-// caller to write) because git tags carry no release time.
+// long: the first sighting is recorded in .stagefreight/upstream.lock (the caller writes it)
+// because git tags carry no release time. The tracked source's pins are the fork's release, so
+// max_update does not cap them; they stay within the tracked major. moved names the sources
+// whose Alpine base moves to a new suite this run: their pins move to it with no cooldown of
+// their own, because the old version is not in the new suite.
 //
 // afterBump holds, per source with a target, the versions still newer than that target: once
 // the bump applies, the lock keeps only those, so it never records a version our pins already
 // hold.
-func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string, now time.Time) (deps []supplychain.Dependency, lock *upstream.Lock, lockChanged bool, afterBump map[string][]string) {
+func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string, now time.Time, lock *upstream.Lock, moved map[string]string) (deps []supplychain.Dependency, lockChanged bool, afterBump map[string][]string) {
 	afterBump = map[string][]string{}
 	var rows [][2]string // (label, text) rows for the Upstream section, rendered once at the end
 	u := appCfg.Upstream
-	sources, err := upstream.Sources(u)
+	sources, err := upstream.Sources(u, rootDir)
 	if err != nil {
-		return nil, nil, false, nil
+		return nil, false, nil
 	}
+	mode, trackedID := u.Version.Mode()
 	var age time.Duration
 	if appCfg.Dependency.MinReleaseAge != nil {
 		age = appCfg.Dependency.MinReleaseAge.Longest()
-	}
-	if age > 0 {
-		if lock, err = upstream.ReadLock(rootDir); err != nil {
-			rows = append(rows, [2]string{"lock", "unreadable, cooldown starts over: " + err.Error()})
-			lock = &upstream.Lock{}
-		}
 	}
 	for i, cs := range u.Sources {
 		if len(cs.Pins) == 0 {
 			continue
 		}
 		src := sources[i]
+		suite, suiteMoved := moved[cs.ID]
+		if suiteMoved {
+			src.Suite = suite
+		}
 		pins, current, err := readPins(rootDir, cs, src.Select.Scheme)
 		if err != nil {
 			rows = append(rows, [2]string{cs.ID, "pins not moved: " + err.Error()})
@@ -116,13 +118,27 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 			rows = append(rows, [2]string{cs.ID, "pins not moved: " + l.err.Error()})
 			continue
 		}
+		tracked := mode == config.UpstreamVersionTrack && cs.ID == trackedID
+		line, lineKnown := trackedMajor(appCfg, pins[0].Value)
 		var newer []upstream.Release
 		for _, r := range l.releases {
+			if tracked && lineKnown {
+				if m, ok := leadingMajor(r.Raw); !ok || m != line {
+					continue
+				}
+			}
 			if r.Version.Compare(current) > 0 {
 				newer = append(newer, r)
 			}
 		}
-		target, held := pickTarget(newer, lock, cs.ID, age, now, &lockChanged)
+		var target, held *upstream.Release
+		if suiteMoved {
+			if len(newer) > 0 {
+				target = &newer[0]
+			}
+		} else {
+			target, held = pickTarget(newer, lock, cs.ID, age, now, &lockChanged)
+		}
 		if target != nil {
 			for _, r := range newer {
 				if r.Version.Compare(target.Version) > 0 {
@@ -140,6 +156,7 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 				Current: pv.Value, Latest: pv.Value,
 				File: pv.File, Line: pv.Line, Column: pv.Column,
 				Binding: pv.Describe(), SourceURL: src.Location,
+				TrackGoverned: tracked,
 			}
 			if target != nil {
 				d.Latest = upstream.RepinValue(pv.Value, target.Raw)
@@ -168,7 +185,16 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 		}
 		sec.Close()
 	}
-	return deps, lock, lockChanged, afterBump
+	return deps, lockChanged, afterBump
+}
+
+// trackedMajor is the major a tracked source stays within: upstream.version.track's @major, else
+// the current value's.
+func trackedMajor(appCfg *config.Config, current string) (int, bool) {
+	if major, pinned := appCfg.Upstream.Version.TrackLine(); pinned {
+		return major, true
+	}
+	return leadingMajor(current)
 }
 
 // pickTarget returns the newest release old enough to adopt, and the newest one the cooldown
@@ -235,20 +261,20 @@ func lockRel() string { return strings.TrimPrefix(upstream.LockPath(""), "/") }
 // runs write nothing.
 func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, ecosystems []string) ([]supplychain.Dependency, []string, func(*dependency.UpdateResult, bool)) {
 	now := time.Now()
-	upDeps, lock, lockChanged, afterBump := upstreamPinDeps(ctx, appCfg, rootDir, now)
-	// A track-governed base is an implicit pin on the Dockerfile FROM: annotate it on the
-	// discovered deps (in place, before withoutShadowed copies them) so it rides the same
-	// cooldown lock and finish. Its follow cooldown can be set (upstream.version.min_release_age)
-	// when no pins have one, so the lock may not exist yet — it is the first-sighting fallback
-	// for an upstream tag whose image carries no date; read it so that fallback has somewhere
-	// to record.
-	if lock == nil && trackReleaseAge(appCfg) > 0 {
+	// The lock is the first-sighting clock for pins (dependency.min_release_age) and for a
+	// followed base image (upstream.version.min_release_age), whichever is set.
+	var lock *upstream.Lock
+	if appCfg.Dependency.MinReleaseAge != nil || trackReleaseAge(appCfg) > 0 {
 		var err error
 		if lock, err = upstream.ReadLock(rootDir); err != nil {
 			fmt.Printf("  upstream: cannot read %s, cooldown starts over: %v\n", upstream.LockPath(""), err)
 			lock = &upstream.Lock{}
 		}
 	}
+	// Bases are annotated in place, before withoutShadowed copies the discovered deps.
+	moved, lockChanged := followAlpineBases(ctx, appCfg, rootDir, deps, now, lock)
+	upDeps, pinsChanged, afterBump := upstreamPinDeps(ctx, appCfg, rootDir, now, lock, moved)
+	lockChanged = lockChanged || pinsChanged
 	if annotateTrackedBase(ctx, appCfg, rootDir, deps, now, lock) {
 		lockChanged = true
 	}

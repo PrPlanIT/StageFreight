@@ -176,7 +176,8 @@ type UpstreamSource struct {
 	// tags — are watched; drafts are skipped and GitHub's prerelease flag is honoured.
 	GitHubRelease string `yaml:"github-release,omitempty"`
 
-	// Apk is an Alpine package, read from the suite's APKINDEX. Needs suite. Scheme debian.
+	// Apk is an Alpine package, read from the suite's APKINDEX. Needs suite or repository.
+	// Scheme debian.
 	Apk string `yaml:"apk,omitempty"`
 
 	// Apt is a Debian package, read from the suite's Packages index. Needs suite. Scheme
@@ -190,6 +191,11 @@ type UpstreamSource struct {
 	// Suite (apk, apt) is <release>/<repository>: v3.22/main for Alpine, trixie/main for
 	// Debian.
 	Suite string `yaml:"suite,omitempty"`
+
+	// Repository (apk) is the Alpine repository, main or community, with the release read from
+	// the Dockerfile FROM that holds the source's first pin. The FROM follows Alpine's newest
+	// release in its major, and the pin moves with it in one commit. Replaces suite.
+	Repository string `yaml:"repository,omitempty"`
 
 	// MirrorOf (git, image) is the origin this source mirrors. StageFreight lists the mirror
 	// (ours, reachable) and also the origin when it answers; the mirror lagging behind its
@@ -630,8 +636,15 @@ func validateUpstream(cfg *Config) []string {
 		case s.URL != "" && s.Select.Tags == "":
 			errs = append(errs, path+".select.tags: required for url — it is what finds versions on the page")
 		}
-		switch kind {
-		case UpstreamKindApk, UpstreamKindApt:
+		switch {
+		case s.Repository != "" && kind != UpstreamKindApk:
+			errs = append(errs, path+".repository: only used with apk")
+		case s.Repository != "" && s.Suite != "":
+			errs = append(errs, path+": set suite or repository, not both")
+		case s.Repository != "" && (len(s.Pins) == 0 || s.Pins[0].Arg == ""):
+			errs = append(errs, path+".repository: the first pin must be a Dockerfile arg, whose FROM names the Alpine release")
+		case s.Repository != "":
+		case kind == UpstreamKindApk || kind == UpstreamKindApt:
 			if rel, repo, ok := strings.Cut(s.Suite, "/"); !ok || rel == "" || repo == "" {
 				errs = append(errs, fmt.Sprintf("%s.suite: %q — %s needs <release>/<repository>, e.g. v3.22/main or trixie/main", path, s.Suite, kind))
 			}

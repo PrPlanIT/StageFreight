@@ -32,7 +32,7 @@ func trackCfg(track string) *config.Config {
 // these releases (newest first) instead of reaching the network.
 func seedListing(t *testing.T, cfg *config.Config, raws ...string) {
 	t.Helper()
-	srcs, err := upstream.Sources(cfg.Upstream)
+	srcs, err := upstream.Sources(cfg.Upstream, "")
 	if err != nil || len(srcs) == 0 {
 		t.Fatalf("sources: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 // a pin is dead.
 func TestBaseTagWarning(t *testing.T) {
 	cfg := trackCfg("synapse")
-	srcs, err := upstream.Sources(cfg.Upstream)
+	srcs, err := upstream.Sources(cfg.Upstream, "")
 	if err != nil || len(srcs) == 0 {
 		t.Fatalf("sources: %v", err)
 	}

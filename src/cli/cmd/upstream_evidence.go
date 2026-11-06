@@ -34,7 +34,7 @@ func newEvidenceGate(appCfg *config.Config) *evidenceGate {
 	if tag == "" || mode == config.UpstreamVersionOwn || len(u.Evidence) == 0 {
 		return nil
 	}
-	sources, err := upstream.Sources(u)
+	sources, err := upstream.Sources(u, "")
 	if err != nil {
 		return nil
 	}

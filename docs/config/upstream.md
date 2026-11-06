@@ -31,7 +31,7 @@ upstream:
 | `pypi` | project name | pypi.org (yanked releases skipped; upload times) | pep440 |
 | `npm` | package name | registry.npmjs.org (deprecated versions skipped; publish times) | semver |
 | `github-release` | `owner/repo` | GitHub's published releases — not tags (drafts skipped, GitHub's prerelease flag honoured, publish times) | semver |
-| `apk` | package name, plus `suite: v3.22/main` | Alpine's APKINDEX (build times) | debian |
+| `apk` | package name, plus `suite: v3.22/main` or `repository: main` | Alpine's APKINDEX (build times) | debian |
 | `apt` | package name, plus `suite: trixie/main` | Debian's Packages index | debian |
 | `url` | a release page | every match of `select.tags` on the page (needs `select.tags`) | semver |
 
@@ -171,11 +171,33 @@ the first-sighting clock in `.stagefreight/upstream.lock`. It governs **only the
 so a fork can chase or hold upstream without touching its other dependencies' cooldown; unset, it
 inherits `dependency.min_release_age`; `0` follows the instant upstream publishes.
 
+## Following the Alpine release
+
+`repository:` replaces an `apk` source's `suite:`. The release is read from the Dockerfile
+holding the source's first pin (an `arg:`), from its last `alpine` `FROM`:
+
+```yaml
+upstream:
+  sources:
+    nginx:
+      apk: nginx
+      repository: main
+      pins:
+        - { file: Dockerfile, arg: NGINX_VERSION }
+```
+
+That `FROM` follows Alpine's newest release within its major, paced by the follow cooldown and
+not capped by `dependency.max_update`. When the release line changes, the pin moves to the new
+suite's version in the same commit. A line without the package, or with an older version than
+the pin, is not adopted and the run says why.
+
 ## Pins — moving with upstream
 
 A source's `pins` are the places its version is pinned. When upstream releases, the
 dependency update moves them — through the same engine, commit and merge-request handling as
-every other dependency, honouring `dependency.max_update` and `dependency.min_release_age`:
+every other dependency, honouring `dependency.max_update` and `dependency.min_release_age`.
+The pins of a `track`ed source are the fork's release, so `max_update` does not cap them; they
+stay within the current major, or the one `track: <source>@<major>` names:
 
 ```yaml
 upstream:

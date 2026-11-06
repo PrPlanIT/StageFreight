@@ -29,7 +29,7 @@ func autoReleaseUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 		return
 	}
 	_, claimedID := u.Version.Mode()
-	sources, err := upstream.Sources(u)
+	sources, err := upstream.Sources(u, rootDir)
 	if err != nil {
 		return
 	}
