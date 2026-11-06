@@ -259,6 +259,26 @@ func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIC
 
 // publishPhaseRunner is the sole phase authorized to distribute artifacts.
 // Not applicable for gitops/governance.
+// distributeReleases publishes releases, packages and pages. A scheduled run that builds
+// nothing publishes nothing.
+func distributeReleases(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
+	if reason := scheduledSkip(appCfg); reason != "" {
+		renderCISkip("Publish", time.Now(), reason)
+		return nil
+	}
+	if err := releaseRunner(ctx, appCfg, ciCtx, opts); err != nil {
+		return err
+	}
+	// Generic package registry distribution (kind: generic-package) runs
+	// alongside releases — no-op when no package target matches the event.
+	if err := packagePublishRunner(ctx, appCfg, ciCtx, opts); err != nil {
+		return err
+	}
+	// Static-site distribution (kind: pages) — deploy to Cloudflare/GitHub Pages,
+	// no-op when no pages target matches the event.
+	return pagesPublishRunner(ctx, appCfg, ciCtx, opts)
+}
+
 func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	renderPhaseIdentity()
 	rootDir := resolveWorkspace(ciCtx)
@@ -340,17 +360,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 			}
 		}
 
-		if err := releaseRunner(ctx, appCfg, ciCtx, opts); err != nil {
-			return err
-		}
-		// Generic package registry distribution (kind: generic-package) runs
-		// alongside releases — no-op when no package target matches the event.
-		if err := packagePublishRunner(ctx, appCfg, ciCtx, opts); err != nil {
-			return err
-		}
-		// Static-site distribution (kind: pages) — deploy to Cloudflare/GitHub Pages,
-		// no-op when no pages target matches the event.
-		if err := pagesPublishRunner(ctx, appCfg, ciCtx, opts); err != nil {
+		if err := distributeReleases(ctx, appCfg, ciCtx, opts); err != nil {
 			return err
 		}
 	}

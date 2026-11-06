@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/ci"
 	"github.com/PrPlanIT/StageFreight/src/cistate"
+	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
 func TestPerformGate(t *testing.T) {
@@ -200,5 +202,17 @@ func TestPhaseSkipped_AuthorizesPublish(t *testing.T) {
 	phaseSkipped(root, "Review", "security", "scheduled run")
 	if err := authorizePhase(&ci.CIContext{Provider: "gitlab"}, root, "publish"); err != nil {
 		t.Fatalf("a skipped build and review must not block publish's forge work: %v", err)
+	}
+}
+
+// A scheduled run that builds nothing reaches no release runner: the nil context would panic.
+func TestDistributeReleases_ScheduledRunBuildingNothing(t *testing.T) {
+	t.Setenv("SF_CI_TAG", "")
+	t.Setenv("CI_COMMIT_TAG", "")
+	t.Setenv("SF_CI_EVENT", "schedule")
+	t.Setenv("SF_CI_SCHEDULE", "upstream-refresh")
+	cfg := &config.Config{Schedules: config.OrderedSchedules{{ID: "upstream-refresh", Cron: "H H * * *"}}}
+	if err := distributeReleases(context.Background(), cfg, nil, ci.RunOptions{}); err != nil {
+		t.Fatal(err)
 	}
 }
