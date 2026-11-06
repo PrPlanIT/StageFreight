@@ -46,6 +46,9 @@ func (debianScheme) Parse(s string) (Version, error) {
 func (v debianVersion) String() string   { return v.text }
 func (v debianVersion) Prerelease() bool { return strings.Contains(v.upstream, "~") }
 
+// ReleaseName drops the epoch and packaging revision (1:2.8.1-3 and 2.8.1-r3 are both 2.8.1).
+func (v debianVersion) ReleaseName() string { return v.upstream }
+
 func (v debianVersion) Compare(o Version) int {
 	w := o.(debianVersion)
 	if c := cmpInt(v.epoch, w.epoch); c != 0 {

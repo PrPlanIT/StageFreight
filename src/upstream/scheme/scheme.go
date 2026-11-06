@@ -34,6 +34,15 @@ func Same(v, ours Version) bool {
 	return v.Compare(ours) == 0
 }
 
+// ReleaseName is the version our release tag names for an upstream release whose text is raw:
+// the upstream version, without any packaging revision.
+func ReleaseName(v Version, raw string) string {
+	if p, ok := v.(interface{ ReleaseName() string }); ok {
+		return p.ReleaseName()
+	}
+	return raw
+}
+
 // Scheme parses versions of one versioning scheme.
 type Scheme interface {
 	Name() string

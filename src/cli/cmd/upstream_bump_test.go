@@ -82,6 +82,44 @@ func TestAutoReleaseTag(t *testing.T) {
 	_ = plumbing.ZeroHash
 }
 
+// A package's revision is the distro's: it never reaches our tag, and a new revision of a
+// version we released is an in-place rebuild.
+func TestAutoReleaseTag_PackageRevision(t *testing.T) {
+	root := t.TempDir()
+	repo, _ := git.PlainInit(root, false)
+	pin := func(v string) {
+		os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("ARG NGINX_VERSION="+v+"\n"), 0o644)
+	}
+	pin("1.30.6-r0")
+	head := mkCommit(t, repo, "pin")
+
+	deb, _ := scheme.Get(scheme.Debian)
+	src := upstream.Source{ID: "nginx", Kind: config.UpstreamKindApk, Location: "nginx", Select: upstream.Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags), Scheme: deb}}
+	cs := config.UpstreamSource{ID: "nginx", Apk: "nginx", Pins: []config.UpstreamPin{{File: "Dockerfile", Arg: "NGINX_VERSION"}}}
+	cut := func(raw string) (string, string) {
+		listingMu.Lock()
+		listings[listingKey(src)] = upstreamListing{releases: []upstream.Release{{Tag: raw, Raw: raw, Version: mustV(t, deb, raw)}}}
+		listingMu.Unlock()
+		return autoReleaseTag(t.Context(), &config.Config{}, root, cs, src, head.String())
+	}
+
+	if tag, reason := cut("1.30.6-r0"); tag != "v1.30.6" {
+		t.Fatalf("the tag names the upstream version: tag=%q reason=%q", tag, reason)
+	}
+	repo.CreateTag("v1.30.6", head, nil)
+	if tag, reason := cut("1.30.6-r0"); tag != "" || reason != "" {
+		t.Fatalf("already released: tag=%q reason=%q", tag, reason)
+	}
+	pin("1.30.6-r1")
+	if tag, reason := cut("1.30.6-r1"); tag != "" || reason != "" {
+		t.Fatalf("a new revision is an in-place rebuild: tag=%q reason=%q", tag, reason)
+	}
+	pin("1.30.7-r0")
+	if tag, reason := cut("1.30.7-r0"); tag != "v1.30.7" {
+		t.Fatalf("a new upstream version is a release: tag=%q reason=%q", tag, reason)
+	}
+}
+
 func TestMirrorBehind(t *testing.T) {
 	sem, _ := scheme.Get(scheme.Semver)
 	mirror := upstream.Source{ID: "core", Kind: config.UpstreamKindGit, Location: "https://example.invalid/mirror", MirrorOf: "https://example.invalid/origin", Select: upstream.Selection{Tags: regexp.MustCompile(config.DefaultUpstreamTags), Scheme: sem}}

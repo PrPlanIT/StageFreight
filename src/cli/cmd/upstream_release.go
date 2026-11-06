@@ -130,7 +130,7 @@ func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, 
 		if !ok {
 			continue
 		}
-		if v.Compare(current) == 0 {
+		if scheme.Same(current, v) {
 			return "", "" // already released (a rebuild of it is the normal in-place rebuild)
 		}
 		if newest == "" {
@@ -140,7 +140,7 @@ func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, 
 	if newest != "" {
 		vPrefix = strings.HasPrefix(newest, "v")
 	}
-	tag = strings.TrimPrefix(rel.Raw, "v")
+	tag = strings.TrimPrefix(scheme.ReleaseName(rel.Version, rel.Raw), "v")
 	if vPrefix {
 		tag = "v" + tag
 	}
