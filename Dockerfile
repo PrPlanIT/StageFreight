@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -o /out/stagefreight ./src/cli
 
 # ---- Runtime image ----
-FROM docker.io/library/alpine:3.24.3
+FROM docker.io/library/alpine:3.24.4
 
 LABEL maintainer="PrPlanIT <precisionplanit@gmail.com>" \
       org.opencontainers.image.title="StageFreight" \
