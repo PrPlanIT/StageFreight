@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -131,9 +132,9 @@ func (c *imageContributor) Plan(rc *domains.RunContext) (domains.Contribution, e
 	}, nil
 }
 
-// imagePlanRows renders the plan as a manifest: a summary row, then one row per
-// destination with its state. Held targets group by the condition they wait on;
-// verbose lists each with the matcher's own reason.
+// imagePlanRows renders the plan as a summary row, then a table with one row per
+// destination. Held targets group by the condition they wait on; verbose lists each
+// with the matcher's own reason.
 func imagePlanRows(steps []build.BuildStep, local, verbose, color bool) []string {
 	type planRow struct{ build, state, target, detail string }
 	hold := output.StatusIcon("skipped", color) + " hold"
@@ -154,7 +155,9 @@ func imagePlanRows(steps []build.BuildStep, local, verbose, color bool) []string
 			rows = append(rows, planRow{s.Name, "load", "docker", strings.Join(stepTags, ", ")})
 		} else {
 			tags += len(s.Tags)
-			for _, r := range s.Registries {
+			registries := slices.Clone(s.Registries)
+			slices.SortStableFunc(registries, func(a, b build.RegistryTarget) int { return strings.Compare(a.URL, b.URL) })
+			for _, r := range registries {
 				rows = append(rows, planRow{s.Name, "publish", r.URL, strings.Join(r.Tags, ", ")})
 			}
 		}
@@ -186,24 +189,34 @@ func imagePlanRows(steps []build.BuildStep, local, verbose, color bool) []string
 		plist = append(plist, p)
 	}
 	sort.Strings(plist)
+	out := []string{fmt.Sprintf("%-9s %d build(s) · %s · %d tag(s)", "image", len(steps), strings.Join(plist, ", "), tags)}
+	if len(rows) == 0 {
+		return out
+	}
 
-	stateWidth, targetWidth, buildWidth := 0, 0, 0
+	header := planRow{"BUILD", "STATE", "TARGET", "TAGS / WAITING ON"}
+	buildWidth, stateWidth, targetWidth := layout.VisualWidth(header.build), layout.VisualWidth(header.state), layout.VisualWidth(header.target)
 	for _, r := range rows {
+		buildWidth = max(buildWidth, layout.VisualWidth(r.build))
 		stateWidth = max(stateWidth, layout.VisualWidth(r.state))
 		targetWidth = max(targetWidth, layout.VisualWidth(r.target))
-		buildWidth = max(buildWidth, layout.VisualWidth(r.build))
 	}
 	pad := func(s string, width int) string {
 		return s + strings.Repeat(" ", width-layout.VisualWidth(s)) + "   "
 	}
+	line := func(r planRow) string {
+		return pad(r.build, buildWidth) + pad(r.state, stateWidth) + pad(r.target, targetWidth) + r.detail
+	}
 
-	out := []string{fmt.Sprintf("%-9s %d build(s) · %s · %d tag(s)", "image", len(steps), strings.Join(plist, ", "), tags)}
+	out = append(out, domains.RowDivider, output.Dimmed(line(header), color))
+	previous := ""
 	for _, r := range rows {
-		line := fmt.Sprintf("%-9s ", "image")
-		if len(steps) > 1 {
-			line += pad(r.build, buildWidth)
+		named := r
+		if r.build == previous {
+			named.build = ""
 		}
-		out = append(out, line+pad(r.state, stateWidth)+pad(r.target, targetWidth)+r.detail)
+		previous = r.build
+		out = append(out, line(named))
 	}
 	return out
 }

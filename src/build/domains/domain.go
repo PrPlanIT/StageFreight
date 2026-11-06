@@ -121,6 +121,9 @@ const (
 	HeaderSlim
 )
 
+// RowDivider in Contribution.Rows draws the section's divider between rows.
+const RowDivider = "\x00divider"
+
 // Contribution is what a contributor returns for one domain call: pre-formatted
 // content rows to render under the domain box (the renderer owns the box
 // framing; the contributor owns its row content), plus a one-line summary and

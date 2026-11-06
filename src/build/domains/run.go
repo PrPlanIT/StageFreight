@@ -162,6 +162,10 @@ func runDomain(rc *RunContext, d Domain, active []Contributor) (pipeline.PhaseRe
 			sec.Separator()
 		}
 		for _, row := range p.c.Rows {
+			if row == RowDivider {
+				sec.Separator()
+				continue
+			}
 			sec.Row("%s", row)
 		}
 		if p.c.Status == "failed" {

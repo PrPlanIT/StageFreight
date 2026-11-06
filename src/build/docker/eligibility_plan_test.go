@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
+	"github.com/PrPlanIT/StageFreight/src/build/domains"
 	"github.com/PrPlanIT/StageFreight/src/config"
 )
 
@@ -106,6 +107,7 @@ func TestImagePlanRows(t *testing.T) {
 	}
 	amd64 := []string{"linux/amd64"}
 
+	const div = domains.RowDivider
 	cases := []struct {
 		name           string
 		steps          []build.BuildStep
@@ -113,81 +115,97 @@ func TestImagePlanRows(t *testing.T) {
 		want           []string
 	}{
 		{
-			name:  "publishes and holds",
-			steps: []build.BuildStep{{Name: "img", Platforms: amd64, Tags: devTags, Registries: dev, SkippedTargets: skips("events: tag", 6)}},
+			name:  "publishes and holds, registries sorted",
+			steps: []build.BuildStep{{Name: "image", Platforms: amd64, Tags: devTags, Registries: dev, SkippedTargets: skips("events: tag", 6)}},
 			want: []string{
 				"image     1 build(s) · linux/amd64 · 4 tag(s)",
-				"image     publish   docker.io      dev-128cd8f, latest-dev",
-				"image     publish   cr.optcp.com   dev-128cd8f, latest-dev",
-				"image     ⊘ hold    6 targets      events: tag",
+				div,
+				"BUILD   STATE     TARGET         TAGS / WAITING ON",
+				"image   publish   cr.optcp.com   dev-128cd8f, latest-dev",
+				"        publish   docker.io      dev-128cd8f, latest-dev",
+				"        ⊘ hold    6 targets      events: tag",
 			},
 		},
 		{
 			name:  "everything held",
-			steps: []build.BuildStep{{Name: "img", Platforms: amd64, SkippedTargets: skips("events: tag", 6)}},
+			steps: []build.BuildStep{{Name: "image", Platforms: amd64, SkippedTargets: skips("events: tag", 6)}},
 			want: []string{
 				"image     1 build(s) · linux/amd64 · 0 tag(s)",
-				"image     ⊘ hold   6 targets   events: tag",
+				div,
+				"BUILD   STATE    TARGET      TAGS / WAITING ON",
+				"image   ⊘ hold   6 targets   events: tag",
 			},
 		},
 		{
 			name: "hold reasons group separately",
-			steps: []build.BuildStep{{Name: "img", Platforms: amd64,
+			steps: []build.BuildStep{{Name: "image", Platforms: amd64,
 				SkippedTargets: append(skips("git_tags: prerelease", 3), skips("branches: main", 1)...)}},
 			want: []string{
 				"image     1 build(s) · linux/amd64 · 0 tag(s)",
-				"image     ⊘ hold   3 targets   git_tags: prerelease",
-				"image     ⊘ hold   1 target    branches: main",
+				div,
+				"BUILD   STATE    TARGET      TAGS / WAITING ON",
+				"image   ⊘ hold   3 targets   git_tags: prerelease",
+				"        ⊘ hold   1 target    branches: main",
 			},
 		},
 		{
-			name: "two builds name each row",
+			name: "two builds, the build named once per group",
 			steps: []build.BuildStep{
-				{Name: "zitadel", Platforms: amd64, Tags: devTags[:2], Registries: dev[:1]},
-				{Name: "login", Platforms: amd64, Tags: devTags[:2], Registries: dev[1:]},
+				{Name: "image", Platforms: amd64, Tags: devTags[:2], Registries: dev[:1], SkippedTargets: skips("events: tag", 6)},
+				{Name: "login", Platforms: amd64, Tags: devTags[:2], Registries: dev[1:], SkippedTargets: skips("events: tag", 6)},
 			},
 			want: []string{
 				"image     2 build(s) · linux/amd64 · 4 tag(s)",
-				"image     zitadel   publish   docker.io      dev-128cd8f, latest-dev",
-				"image     login     publish   cr.optcp.com   dev-128cd8f, latest-dev",
+				div,
+				"BUILD   STATE     TARGET         TAGS / WAITING ON",
+				"image   publish   docker.io      dev-128cd8f, latest-dev",
+				"        ⊘ hold    6 targets      events: tag",
+				"login   publish   cr.optcp.com   dev-128cd8f, latest-dev",
+				"        ⊘ hold    6 targets      events: tag",
 			},
 		},
 		{
 			name:  "tags differ by registry",
-			steps: []build.BuildStep{{Name: "img", Platforms: amd64, Tags: devTags[:3], Registries: []build.RegistryTarget{{URL: "docker.io", Tags: []string{"v1", "latest"}}, {URL: "cr.optcp.com", Tags: []string{"v1"}}}}},
+			steps: []build.BuildStep{{Name: "image", Platforms: amd64, Tags: devTags[:3], Registries: []build.RegistryTarget{{URL: "docker.io", Tags: []string{"v1", "latest"}}, {URL: "cr.optcp.com", Tags: []string{"v1"}}}}},
 			want: []string{
 				"image     1 build(s) · linux/amd64 · 3 tag(s)",
-				"image     publish   docker.io      v1, latest",
-				"image     publish   cr.optcp.com   v1",
+				div,
+				"BUILD   STATE     TARGET         TAGS / WAITING ON",
+				"image   publish   cr.optcp.com   v1",
+				"        publish   docker.io      v1, latest",
 			},
 		},
 		{
 			name:  "local loads and publishes nothing",
-			steps: []build.BuildStep{{Name: "img", Platforms: amd64}},
+			steps: []build.BuildStep{{Name: "image", Platforms: amd64}},
 			local: true,
 			want: []string{
 				"image     1 build(s) · linux/amd64 · 1 tag(s)",
-				"image     load   docker   stagefreight:dev",
+				div,
+				"BUILD   STATE   TARGET   TAGS / WAITING ON",
+				"image   load    docker   stagefreight:dev",
 			},
 		},
 		{
-			name:  "no targets",
-			steps: []build.BuildStep{{Name: "img", Platforms: amd64}},
+			name:  "no targets has no table",
+			steps: []build.BuildStep{{Name: "image", Platforms: amd64}},
 			want:  []string{"image     1 build(s) · linux/amd64 · 0 tag(s)"},
 		},
 		{
 			name:    "verbose lists each held target with the matcher's reason",
-			steps:   []build.BuildStep{{Name: "img", Platforms: amd64, SkippedTargets: skips("events: tag", 2)}},
+			steps:   []build.BuildStep{{Name: "image", Platforms: amd64, SkippedTargets: skips("events: tag", 2)}},
 			verbose: true,
 			want: []string{
 				"image     1 build(s) · linux/amd64 · 0 tag(s)",
-				"image     ⊘ hold   stable-a   matcher reason",
-				"image     ⊘ hold   stable-b   matcher reason",
+				div,
+				"BUILD   STATE    TARGET     TAGS / WAITING ON",
+				"image   ⊘ hold   stable-a   matcher reason",
+				"        ⊘ hold   stable-b   matcher reason",
 			},
 		},
 		{
 			name:  "platforms render in a stable order",
-			steps: []build.BuildStep{{Name: "img", Platforms: []string{"linux/arm64", "linux/amd64"}}},
+			steps: []build.BuildStep{{Name: "image", Platforms: []string{"linux/arm64", "linux/amd64"}}},
 			want:  []string{"image     1 build(s) · linux/amd64, linux/arm64 · 0 tag(s)"},
 		},
 	}
