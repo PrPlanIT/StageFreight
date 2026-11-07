@@ -18,6 +18,7 @@ type StepResult struct {
 	Publications []PushObservation // structured publish records — v2 wire to ResultsBuilder
 	Artifacts    []string          // extracted file paths
 	Layers       []LayerEvent      // parsed build layer events (from --progress=plain)
+	CacheNote    string            // a cache export BuildKit ignored
 	Duration     time.Duration
 	Error        error
 }

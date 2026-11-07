@@ -62,7 +62,7 @@ func buildStepWithRecovery(ctx context.Context, bx *Buildx, step build.BuildStep
 
 	if err == nil && len(step.CacheTo) > 0 {
 		if reason := cacheExportFailure(stdoutBuf.String() + "\n" + stderrBuf.String()); reason != "" {
-			diag.Warn("%s: build kept, cache not saved: %s", step.Name, reason)
+			stepResult.CacheNote = "cache not saved: " + reason
 		}
 	}
 
@@ -128,9 +128,23 @@ func executeBuildPass(ctx context.Context, w io.Writer, color, verbose bool, std
 			}
 		}
 	}
+	renderCacheNotes(sec, plan, result.Steps, color)
 	sec.Close()
 
 	return &result, nil
+}
+
+// renderCacheNotes reports, by build, a cache that could not be saved.
+func renderCacheNotes(sec *output.Section, plan *build.BuildPlan, results []build.StepResult, color bool) {
+	for i, step := range plan.Steps {
+		note := step.CacheNote
+		if i < len(results) && results[i].CacheNote != "" {
+			note = results[i].CacheNote
+		}
+		if note != "" {
+			sec.Row("%s  %s  %s", output.StatusIcon("warning", color), step.Name, note)
+		}
+	}
 }
 
 // clonePlan deep copies a build plan so mutations don't affect the original.

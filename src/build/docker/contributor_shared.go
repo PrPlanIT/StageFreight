@@ -261,7 +261,7 @@ func loginForCacheExport(ctx context.Context, steps []build.BuildStep) {
 		for _, ref := range steps[i].CacheTo {
 			if ref.Type == "registry" {
 				if err := bx.Login(ctx, registriesOf(ref, steps[i].Registries)); err != nil {
-					diag.Warn("%s: build cache export skipped: %v", steps[i].Name, err)
+					steps[i].CacheNote = fmt.Sprintf("cache not saved to registry: %v", err)
 					continue
 				}
 			}

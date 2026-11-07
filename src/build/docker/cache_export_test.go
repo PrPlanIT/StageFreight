@@ -1,13 +1,16 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
@@ -32,9 +35,14 @@ func TestCacheExportFailureReadsWhatBuildKitIgnored(t *testing.T) {
 	if got := cacheExportFailure(ok); got != "" {
 		t.Errorf("clean export reported %q", got)
 	}
-	failed := "#5 exporting cache to registry\n#5 ERROR: error writing layer blob: denied\n"
+	failed := "#5 exporting cache to registry\n#5 sending cache export 0.2s done\n#5 ERROR: error writing layer blob: denied\n"
 	if got, want := cacheExportFailure(failed), "error writing layer blob: denied"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+	// A first build has no cache to import yet; its export can still succeed.
+	missingImport := "#3 importing cache manifest from cr/x:y\n#3 ERROR: failed to configure registry cache importer: cr/x:y: not found\n" + ok
+	if got := cacheExportFailure(missingImport); got != "" {
+		t.Errorf("missing import reported as export failure: %q", got)
 	}
 }
 
@@ -108,5 +116,21 @@ func TestLocalBuildsKeepOnlyLocalExports(t *testing.T) {
 	}
 	if got := exportableCacheTo(refs, false); len(got) != 2 {
 		t.Errorf("CI build: %v", got)
+	}
+}
+
+func TestCacheNotesRenderInTheBuildsPanelByName(t *testing.T) {
+	var buf bytes.Buffer
+	sec := output.NewSection(&buf, "Image", 0, false)
+	plan := &build.BuildPlan{Steps: []build.BuildStep{
+		{Name: "image"},
+		{Name: "login", CacheNote: "cache not saved to registry: denied"},
+	}}
+	renderCacheNotes(sec, plan, []build.StepResult{{CacheNote: "cache not saved: no space"}, {}}, false)
+	got := buf.String()
+	for _, want := range []string{"image  cache not saved: no space", "login  cache not saved to registry: denied"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 }

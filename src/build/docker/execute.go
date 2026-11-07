@@ -105,11 +105,20 @@ func persistArtifactsRecords(plan *build.BuildPlan, outputs *artifact.OutputsMan
 	return records
 }
 
-// cacheExportFailure returns the error BuildKit reported and ignored for a cache export
-// in a build that succeeded, "" when there was none.
+// cacheExportFailure returns the error BuildKit ignored for a cache export in a build that
+// succeeded, "" when there was none. Progress lines carry their step as "#N "; only a
+// step that exports counts, since a cache import missing on a first build also logs ERROR.
 func cacheExportFailure(combinedOutput string) string {
+	exporting := map[string]bool{}
 	for _, line := range strings.Split(combinedOutput, "\n") {
-		if _, reason, ok := strings.Cut(line, "ERROR: "); ok {
+		step, rest, ok := strings.Cut(line, " ")
+		if !ok || !strings.HasPrefix(step, "#") {
+			continue
+		}
+		if strings.HasPrefix(rest, "exporting cache") {
+			exporting[step] = true
+		}
+		if reason, ok := strings.CutPrefix(rest, "ERROR: "); ok && exporting[step] {
 			return strings.TrimSpace(reason)
 		}
 	}

@@ -38,6 +38,7 @@ type BuildStep struct {
 	OCILayoutDir   string           // --output type=oci,dest=<dir> for content-store persistence; additive to Load/Push
 	CacheFrom      []CacheRef       // --cache-from references
 	CacheTo        []CacheRef       // --cache-to references
+	CacheNote      string           // why a declared cache export was dropped
 	SkippedTargets []TargetSkip     // registry targets excluded by when:, with the matcher's reason (narrated)
 }
 
