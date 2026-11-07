@@ -79,7 +79,7 @@ func (e *imageEngine) Plan(ctx context.Context, cfgRaw interface{}, det *build.D
 	// Every step gets the declared imports and exports; applyImageBuildStrategy drops the
 	// exports a step cannot write (exportableCacheTo).
 	if cfg.BuildCache.IsActive() {
-		repoID := resolveRepoID(det, versionInfo)
+		repoID := resolveRepoID(cfg, det)
 		branch := currentBranch
 		if branch == "" {
 			branch = "default"
@@ -287,18 +287,18 @@ func resolveBranch(det *build.Detection, v *build.VersionInfo) string {
 	return ""
 }
 
-// resolveRepoID returns a stable repo identity for cache scoping.
-// Uses CI project path, git remote origin, or directory name as fallback.
-func resolveRepoID(det *build.Detection, v *build.VersionInfo) string {
-	// CI project path (most reliable in CI).
+// resolveRepoID returns the repo identity that scopes its build cache, falling back to
+// git remote or directory name outside CI.
+func resolveRepoID(cfg *config.Config, det *build.Detection) string {
+	if id := repoIdentity(cfg); id != "" {
+		return id
+	}
 	if p := os.Getenv("CI_PROJECT_PATH"); p != "" {
 		return p
 	}
-	// Git remote URL.
 	if det.GitInfo != nil && det.GitInfo.Remote != "" {
 		return det.GitInfo.Remote
 	}
-	// Fallback to root dir basename.
 	if det.RootDir != "" {
 		return det.RootDir
 	}

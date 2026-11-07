@@ -106,8 +106,16 @@ func formatBytes(b int64) string {
 
 // resolveRepoIDFromContext extracts a repo identifier from pipeline context.
 func resolveRepoIDFromContext(pc *pipeline.PipelineContext) string {
-	if pc.Config != nil && config.PrimaryURL(pc.Config) != "" {
-		return config.PrimaryURL(pc.Config)
+	return repoIdentity(pc.Config)
+}
+
+// repoIdentity names the repo for cache scoping. Imports, exports, promotion and
+// retention must all resolve the same identity or a build never finds its own cache.
+func repoIdentity(cfg *config.Config) string {
+	if cfg != nil {
+		if url := config.PrimaryURL(cfg); url != "" {
+			return url
+		}
 	}
 	return os.Getenv("SF_CI_REPO_URL")
 }
