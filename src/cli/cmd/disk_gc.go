@@ -11,8 +11,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/prune"
 )
 
-// runDiskGC is the audition-phase disk-health pass, run BEFORE the executor
-// preflight: the executor is what marks the substrate unhealthy on a full disk, so
+// runDiskGC is the disk-health pass at the front of each phase that can fill a runner, run
+// BEFORE the executor preflight: the executor is what marks the substrate unhealthy on a full disk, so
 // reclaiming first means it assesses the TRUE post-GC state instead of failing the run
 // on a problem this lifecycle exists to prevent. Pressure-gated and SILENT when the
 // disk is healthy — the Executor panel right after already reports free space, so a

@@ -178,6 +178,7 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {
 		return err
 	}
+	runDiskGC(ctx, appCfg) // each phase can land on a different runner
 
 	switch {
 	case appCfg.Mode().PhaseReconcile:
@@ -246,6 +247,7 @@ func reviewPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIC
 	if err := assertAuditionRan(rootDir, "review"); err != nil {
 		return err
 	}
+	runDiskGC(ctx, appCfg) // each phase can land on a different runner
 	switch m := appCfg.Mode(); {
 	case m.PhaseReconcile:
 		return phaseNotApplicable(rootDir, "review", m.Name)
@@ -285,6 +287,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 	if err := assertAuditionRan(rootDir, "publish"); err != nil {
 		return err
 	}
+	runDiskGC(ctx, appCfg) // each phase can land on a different runner
 	// Image-mode artifact distribution — promotion, registry retention, releases,
 	// packages, pages. Not applicable to reconcile modes (no built image to ship).
 	// The forge-mutation actions AFTER this block (scribe render+commit, mirror
