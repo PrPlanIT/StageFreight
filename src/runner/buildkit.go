@@ -76,13 +76,16 @@ func TCPReachable(addr string) bool {
 	return true
 }
 
+// defaultBuildKitEndpoint is the runner stacks' network alias for buildkitd.
+var defaultBuildKitEndpoint = "tcp://buildkitd:1234"
+
 // BuildKitEndpoint is where a standalone buildkitd answers: BUILDKIT_HOST, else the
 // runner stacks' network alias.
 func BuildKitEndpoint() string {
 	if endpoint := strings.TrimSpace(os.Getenv("BUILDKIT_HOST")); endpoint != "" {
 		return endpoint
 	}
-	return "tcp://buildkitd:1234"
+	return defaultBuildKitEndpoint
 }
 
 // RemoteBuildKit returns the endpoint when a remote buildkitd is usable the way the

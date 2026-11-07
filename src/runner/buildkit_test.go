@@ -72,12 +72,15 @@ func TestRemoteBuildKit(t *testing.T) {
 		name, host, certs, want string
 	}{
 		{"reachable with full PKI", up, full, up},
-		{"unset BUILDKIT_HOST", "", full, ""},
+		{"unset BUILDKIT_HOST finds the default endpoint", "", full, up},
 		{"unix socket is not remote", "unix:///run/buildkit/buildkitd.sock", full, ""},
 		{"partial PKI", up, partial, ""},
 		{"no PKI", up, t.TempDir(), ""},
 		{"unreachable endpoint", down, full, ""},
 	}
+	orig := defaultBuildKitEndpoint
+	t.Cleanup(func() { defaultBuildKitEndpoint = orig })
+	defaultBuildKitEndpoint = up
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("BUILDKIT_HOST", c.host)
@@ -86,6 +89,13 @@ func TestRemoteBuildKit(t *testing.T) {
 				t.Errorf("RemoteBuildKit() = %q, want %q", got, c.want)
 			}
 		})
+	}
+
+	defaultBuildKitEndpoint = down
+	t.Setenv("BUILDKIT_HOST", "")
+	t.Setenv("BUILDKIT_CERT_PATH", full)
+	if got := RemoteBuildKit(); got != "" {
+		t.Errorf("unreachable default endpoint: RemoteBuildKit() = %q, want empty", got)
 	}
 }
 
