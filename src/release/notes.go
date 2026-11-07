@@ -405,16 +405,22 @@ func renderVerification(d *trustdisclosure.Disclosure) string {
 	// recipe is class-appropriate so oidc/kms/hardware-only releases still disclose
 	// how to verify.
 	switch {
-	case d.Anchor != nil && d.ChecksumSig() != "":
-		tlog := " \\\n  --insecure-ignore-tlog=true"
-		if p.Transparency {
-			tlog = ""
+	case d.Anchor != nil:
+		tlog := ""
+		if !p.Transparency {
+			tlog = " \\\n  --insecure-ignore-tlog=true"
 		}
-		b.WriteString("Verify the release checksums against the published public key:\n\n")
-		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --bundle %s%s \\\n  SHA256SUMS\n```\n\n",
-			d.Anchor.Asset, d.ChecksumSig(), tlog))
+		if sum := d.ChecksumSig(); sum != "" {
+			b.WriteString("Verify the release checksums against the published public key:\n\n")
+			b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --bundle %s%s \\\n  SHA256SUMS\n```\n\n",
+				d.Anchor.Asset, sum, tlog))
+		}
+		if image := d.ImageRef(); image != "" {
+			b.WriteString(fmt.Sprintf("Verify an image against `%s`, attached to this release:\n\n", d.Anchor.Asset))
+			b.WriteString(fmt.Sprintf("```\ncosign verify \\\n  --key %s%s \\\n  %s\n```\n\n", d.Anchor.Asset, tlog, image))
+		}
 		if d.Anchor.Fingerprint != "" {
-			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.\n\n", d.Anchor.Fingerprint))
+			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s`.\n\n", d.Anchor.Fingerprint))
 		}
 	case p.Class == "oidc":
 		domain := p.TrustDomain
@@ -447,7 +453,18 @@ func renderVerification(d *trustdisclosure.Disclosure) string {
 		for _, a := range d.Attestations {
 			b.WriteString(fmt.Sprintf("- %s\n", describeAttestationFact(a)))
 		}
-		b.WriteString("\nVerify with `cosign verify-attestation --type slsaprovenance --key <key> <image>@<digest>`.\n\n")
+		key, image := "<key>", "<image>@<digest>"
+		if d.Anchor != nil {
+			key = d.Anchor.Asset
+		}
+		if ref := d.ImageRef(); ref != "" {
+			image = ref
+		}
+		flag := ""
+		if d.Anchor != nil && !p.Transparency {
+			flag = "--insecure-ignore-tlog=true "
+		}
+		b.WriteString(fmt.Sprintf("\nVerify with `cosign verify-attestation --type slsaprovenance --key %s %s%s`.\n\n", key, flag, image))
 	}
 	return b.String()
 }

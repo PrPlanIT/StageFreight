@@ -62,7 +62,7 @@ cosign verify-blob \
   SHA256SUMS
 ```
 
-Pin the key by its fingerprint `SHA256:abcdef012345` — it is stable across releases; see `SECURITY.md` for the canonical trust anchor.
+Pin the key by its fingerprint `SHA256:abcdef012345`.
 
 ## Highlights
 - Ships the stencil engine

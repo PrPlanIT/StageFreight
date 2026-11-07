@@ -439,3 +439,24 @@ func TestSectionImages_RendersBuildNumber(t *testing.T) {
 		t.Errorf("an unstamped row must not render a build-number suffix:\n%s", out)
 	}
 }
+
+func TestRenderVerification_KMSAnchorGivesImageRecipe(t *testing.T) {
+	ref := "docker.io/a/b@sha256:1"
+	out := renderVerification(&trustdisclosure.Disclosure{
+		Primary:      &trustdisclosure.SignatureFact{Class: "kms", NonExportable: true, SignerRef: "tenant", Asset: ref},
+		Anchor:       &trustdisclosure.Anchor{Fingerprint: "sha256:k", Asset: "cosign.pub", KMS: true},
+		Attestations: []trustdisclosure.AttestationFact{{PredicateType: "slsaprovenance", Class: "kms"}},
+	})
+	for _, want := range []string{
+		"cosign verify \\\n  --key cosign.pub \\\n  --insecure-ignore-tlog=true \\\n  " + ref,
+		"--type slsaprovenance --key cosign.pub --insecure-ignore-tlog=true " + ref,
+		"`sha256:k`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recipe missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "verify-blob") || strings.Contains(out, "SECURITY.md") {
+		t.Errorf("an image-only release has no checksum recipe or SECURITY.md pointer:\n%s", out)
+	}
+}

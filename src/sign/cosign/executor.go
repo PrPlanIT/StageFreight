@@ -39,6 +39,15 @@ func SignImage(ctx context.Context, rootDir string, desired map[string]config.To
 	return run(ctx, rootDir, desired, plan, "sign", args, opts.RegistryAuthDir)
 }
 
+// ExportPublicKey writes the public half of a kms plan's key to outPath; the private half
+// stays in the KMS.
+func ExportPublicKey(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, env Env, outPath string) error {
+	if len(env.KMS) == 0 {
+		return fmt.Errorf("cosign public-key: no key bound to kms ref %q", plan.KMSRef)
+	}
+	return run(ctx, rootDir, desired, plan, "public-key", []string{"public-key", "--key", env.KMS[0].URI, "--outfile", outPath}, "")
+}
+
 // Attest binds a predicate to an image digest ref per the plan. The predicate
 // path AND type are caller-supplied (opts) — the executor serializes them, it
 // never defaults a predicate semantic of its own.

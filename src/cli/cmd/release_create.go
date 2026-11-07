@@ -26,6 +26,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/release/trustdisclosure"
 	"github.com/PrPlanIT/StageFreight/src/retention"
 	"github.com/PrPlanIT/StageFreight/src/scribe"
+	"github.com/PrPlanIT/StageFreight/src/sign/autosign"
+	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 	"github.com/PrPlanIT/StageFreight/src/supplychain/discovery"
 	stagefreightsync "github.com/PrPlanIT/StageFreight/src/sync"
@@ -503,7 +505,7 @@ func RunReleaseCreate(req ReleaseCreateRequest) error {
 		// and the Verification disclosure: attach cosign.pub as a release asset and
 		// state the assurance tier explicitly. Anchor + fingerprint come from the
 		// state dir; the verify recipe + tier disclosure render in the notes.
-		if v, anchorPath := buildVerification(req.Config.SigningSetup, results, rootDir); v != nil {
+		if v, anchorPath := buildVerification(ctx, req.Config, results, rootDir); v != nil {
 			verify = v
 			if anchorPath != "" {
 				manifestAssets = append(manifestAssets, anchorPath)
@@ -1486,18 +1488,21 @@ func projectAuthoredRelease(ctx context.Context, r config.ResolvedRepo, repoID, 
 	return append(results, actionResult{Name: fmt.Sprintf("%s: %s", repoID, rel.URL), OK: true})
 }
 
+// exportKMSPublicKey is cosign's public-key export, a seam for tests.
+var exportKMSPublicKey = cosign.ExportPublicKey
+
 // buildVerification is the EDGE wrapper around the pure trustdisclosure.Build: it does
-// the impure ACQUISITION (load the continuity identity from the state dir) and hands it
-// in, while interpretation — which signature is primary, which layers, the provenance
-// attestations — lives entirely in the pure package. Returns the structured disclosure
-// + the anchor pubkey path to attach as a release asset ("" when there is no anchor).
-// The anchor is uploaded only when Build actually attached it (this release carries a
-// Tier-0 signature); a stale anchor is never advertised for a release it did not sign.
-func buildVerification(cfg config.SigningConfig, results *artifact.ResultsManifest, repoRoot string) (*trustdisclosure.Disclosure, string) {
+// the impure ACQUISITION (load the Tier-0 identity from the state dir, or export a KMS
+// key's public half) and hands it in, while interpretation — which signature is primary,
+// which layers, the provenance attestations — lives entirely in the pure package. Returns
+// the structured disclosure + the anchor pubkey path to attach as a release asset ("" when
+// there is no anchor). The anchor is uploaded only when Build actually attached it; a stale
+// anchor is never advertised for a release it did not sign.
+func buildVerification(ctx context.Context, cfg *config.Config, results *artifact.ResultsManifest, repoRoot string) (*trustdisclosure.Disclosure, string) {
 	var anchor *trustdisclosure.Anchor
 	var pubPath string
-	if cfg.StateDir.Configured() {
-		if stateDir, err := cfg.StateDir.Resolve(); err == nil {
+	if cfg.SigningSetup.StateDir.Configured() {
+		if stateDir, err := cfg.SigningSetup.StateDir.Resolve(); err == nil {
 			if err := provision.GuardStateDir(stateDir, repoRoot); err == nil {
 				if id, err := provision.LoadIdentity(stateDir); err == nil && id != nil {
 					anchor = &trustdisclosure.Anchor{Fingerprint: id.Fingerprint, Asset: "cosign.pub"}
@@ -1506,14 +1511,49 @@ func buildVerification(cfg config.SigningConfig, results *artifact.ResultsManife
 			}
 		}
 	}
+	if ref := trustdisclosure.KMSSigner(results); ref != "" {
+		fp, path, err := exportKMSAnchor(ctx, cfg, ref, repoRoot)
+		if err != nil {
+			diag.Warn("release: public key not attached, this release cannot be verified from its assets: %v", err)
+		} else {
+			anchor = &trustdisclosure.Anchor{Fingerprint: fp, Asset: "cosign.pub", KMS: true}
+			pubPath = path
+		}
+	}
 	d := trustdisclosure.Build(results, anchor)
 	if d == nil {
 		return nil, ""
 	}
 	if d.Anchor == nil {
-		pubPath = "" // anchor not attached (no Tier-0 sig this release) → nothing to upload
+		pubPath = "" // anchor not attached (no persistent-key sig this release) → nothing to upload
 	}
 	return d, pubPath
+}
+
+// exportKMSAnchor exports the public half of the KMS key behind ref, through the profile
+// that signed with it, and returns its fingerprint and the exported file.
+func exportKMSAnchor(ctx context.Context, cfg *config.Config, ref, repoRoot string) (fingerprint, path string, err error) {
+	for _, p := range cfg.SigningSetup.Profiles {
+		profile, rerr := config.ResolveSigningProfileByID(cfg.SigningSetup.Profiles, p.ID)
+		if rerr != nil || profile.Class != "kms" || profile.KMSRef != ref {
+			continue
+		}
+		sc, serr := autosign.ResolveSigningContext(ctx, cfg.SigningSetup, cfg.Secrets.Providers, profile, repoRoot, repoRoot, cfg.Toolchains.Want, time.Now().UTC().Format(time.RFC3339))
+		if serr != nil {
+			return "", "", serr
+		}
+		dir := filepath.Join(repoRoot, ".stagefreight", "signing")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", "", err
+		}
+		path = filepath.Join(dir, "cosign.pub")
+		if err := exportKMSPublicKey(ctx, repoRoot, cfg.Toolchains.Want, sc.Plan, sc.Env, path); err != nil {
+			return "", "", err
+		}
+		fingerprint, err = provision.Fingerprint(path)
+		return fingerprint, path, err
+	}
+	return "", "", fmt.Errorf("no signing profile uses kms ref %q", ref)
 }
 
 // releaseAsset carries a download row, its on-disk asset path, the typed

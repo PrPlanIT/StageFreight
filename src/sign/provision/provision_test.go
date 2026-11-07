@@ -131,12 +131,12 @@ func TestFingerprint_EncodingInvariant(t *testing.T) {
 	mustWrite(t, b, "-----BEGIN PUBLIC KEY-----\r\naGVsbG8=\r\n-----END PUBLIC KEY-----\r\n\n")
 	mustWrite(t, c, "-----BEGIN PUBLIC KEY-----\nd29ybGQ=\n-----END PUBLIC KEY-----\n") // different material
 
-	fa, err := fingerprint(a)
+	fa, err := Fingerprint(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fb, _ := fingerprint(b)
-	fc, _ := fingerprint(c)
+	fb, _ := Fingerprint(b)
+	fc, _ := Fingerprint(c)
 	if fa != fb {
 		t.Errorf("PEM encoding differences must not change the fingerprint: %s vs %s", fa, fb)
 	}

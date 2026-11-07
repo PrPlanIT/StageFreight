@@ -1,10 +1,16 @@
 package cmd
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/sign"
+	"github.com/PrPlanIT/StageFreight/src/sign/cosign"
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
 
@@ -35,7 +41,7 @@ func TestBuildVerification_OIDCOnly(t *testing.T) {
 		TrustClass: "oidc", Transparency: true, TrustDomain: "internal",
 		SignerRef: "https://id.internal/oauth2/subj",
 	})
-	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
+	v, anchor := buildVerification(context.Background(), &config.Config{}, results, t.TempDir())
 	if v == nil || v.Primary == nil {
 		t.Fatal("oidc-only release must still produce a disclosure (evidence-driven, not Tier-0-gated)")
 	}
@@ -51,7 +57,7 @@ func TestBuildVerification_KMSOnly(t *testing.T) {
 	results := blobSigResults(artifact.TrustEvidence{
 		TrustClass: "kms", NonExportable: true, SignerRef: "release-signing-key",
 	})
-	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
+	v, anchor := buildVerification(context.Background(), &config.Config{}, results, t.TempDir())
 	if v == nil || v.Primary == nil {
 		t.Fatal("kms-only release must produce a disclosure")
 	}
@@ -67,7 +73,7 @@ func TestBuildVerification_HardwareOnly(t *testing.T) {
 	results := blobSigResults(artifact.TrustEvidence{
 		TrustClass: "hardware", PhysicalPresence: true, NonExportable: true,
 	})
-	v, _ := buildVerification(config.SigningConfig{}, results, t.TempDir())
+	v, _ := buildVerification(context.Background(), &config.Config{}, results, t.TempDir())
 	if v == nil || v.Primary == nil {
 		t.Fatal("hardware-only release must produce a disclosure")
 	}
@@ -89,7 +95,7 @@ func TestBuildVerification_ProvenanceOnly(t *testing.T) {
 			},
 		}},
 	}}}
-	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
+	v, anchor := buildVerification(context.Background(), &config.Config{}, results, t.TempDir())
 	if v == nil {
 		t.Fatal("a provenance-only release must still disclose the attestation")
 	}
@@ -108,7 +114,7 @@ func TestBuildVerification_ProvenanceOnly(t *testing.T) {
 // loadable state dir — proving the two predicates (disclosure vs anchor) are decoupled.
 func TestBuildVerification_Tier0DisclosesButAnchorGatedOnStateDir(t *testing.T) {
 	results := blobSigResults(artifact.TrustEvidence{TrustClass: "key", Tier: provision.TierSoftware})
-	v, anchor := buildVerification(config.SigningConfig{}, results, t.TempDir())
+	v, anchor := buildVerification(context.Background(), &config.Config{}, results, t.TempDir())
 	if v == nil || v.Primary == nil {
 		t.Fatal("tier-0 release must disclose")
 	}
@@ -121,7 +127,56 @@ func TestBuildVerification_Tier0DisclosesButAnchorGatedOnStateDir(t *testing.T) 
 }
 
 func TestBuildVerification_NoEvidence(t *testing.T) {
-	if v, _ := buildVerification(config.SigningConfig{}, &artifact.ResultsManifest{}, t.TempDir()); v != nil {
+	if v, _ := buildVerification(context.Background(), &config.Config{}, &artifact.ResultsManifest{}, t.TempDir()); v != nil {
 		t.Errorf("no evidence → no Verification, got %+v", v)
+	}
+}
+
+func kmsSignedResults() *artifact.ResultsManifest {
+	return &artifact.ResultsManifest{Results: []artifact.Result{{
+		Outcomes: []artifact.Outcome{{
+			Attestation: &artifact.AttestationOutcome{
+				Status: artifact.OutcomeSuccess, SignatureRef: "docker.io/a/b@sha256:1",
+				TrustEvidence: artifact.TrustEvidence{TrustClass: "kms", SignerRef: "tenant"},
+			},
+		}},
+	}}}
+}
+
+func kmsSigningConfig() *config.Config {
+	return &config.Config{SigningSetup: config.SigningConfig{Profiles: []config.SigningProfile{{
+		ID: "release", Requires: config.StringOrList{"kms"}, KMS: &config.KMSTrust{Ref: "tenant"},
+	}}}}
+}
+
+func stubKMSExport(t *testing.T, export func(string) error) {
+	t.Helper()
+	t.Setenv("SF_KMS_TENANT", "hashivault://tenant")
+	orig := exportKMSPublicKey
+	exportKMSPublicKey = func(_ context.Context, _ string, _ map[string]config.ToolConstraint, _ sign.SignPlan, _ cosign.Env, out string) error {
+		return export(out)
+	}
+	t.Cleanup(func() { exportKMSPublicKey = orig })
+}
+
+func TestBuildVerification_KMSReleaseAttachesExportedKey(t *testing.T) {
+	stubKMSExport(t, func(out string) error { return os.WriteFile(out, []byte("pub"), 0o644) })
+	v, path := buildVerification(context.Background(), kmsSigningConfig(), kmsSignedResults(), t.TempDir())
+	if v == nil || v.Anchor == nil || v.Anchor.Fingerprint == "" {
+		t.Fatalf("a KMS-signed release must carry its key: %+v", v)
+	}
+	if filepath.Base(path) != "cosign.pub" {
+		t.Errorf("anchor path = %q", path)
+	}
+}
+
+func TestBuildVerification_KMSExportFailureStillDiscloses(t *testing.T) {
+	stubKMSExport(t, func(string) error { return errors.New("denied") })
+	v, path := buildVerification(context.Background(), kmsSigningConfig(), kmsSignedResults(), t.TempDir())
+	if v == nil || v.Primary == nil {
+		t.Fatal("a failed export must not hide that the release is signed")
+	}
+	if v.Anchor != nil || path != "" {
+		t.Errorf("no key may be advertised after a failed export: %q %+v", path, v.Anchor)
 	}
 }

@@ -94,7 +94,7 @@ func EnsureIdentity(ctx context.Context, stateDir string, gen KeyGenerator, now 
 	if err := secureKey(filepath.Join(stateDir, keyFile)); err != nil {
 		return nil, err
 	}
-	fp, err := fingerprint(filepath.Join(stateDir, pubFile))
+	fp, err := Fingerprint(filepath.Join(stateDir, pubFile))
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func loadAndValidate(stateDir string) (*Identity, error) {
 		return nil, err
 	}
 
-	fp, err := fingerprint(filepath.Join(stateDir, id.PubFile))
+	fp, err := Fingerprint(filepath.Join(stateDir, id.PubFile))
 	if err != nil {
 		return nil, err
 	}
@@ -185,12 +185,12 @@ func writeIdentity(stateDir string, id *Identity) error {
 	return os.WriteFile(filepath.Join(stateDir, identityFile), data, 0o600)
 }
 
-// fingerprint hashes the SEMANTIC public-key material, not the raw file bytes —
+// Fingerprint hashes the SEMANTIC public-key material, not the raw file bytes —
 // it decodes the PEM and hashes the DER (SPKI) block, so a CRLF/LF conversion,
 // trailing-newline change, or re-wrapping of the PEM does NOT spuriously trip the
 // continuity drift check and brick signing. A non-PEM file falls back to hashing
 // raw bytes (still deterministic).
-func fingerprint(pubPath string) (string, error) {
+func Fingerprint(pubPath string) (string, error) {
 	b, err := os.ReadFile(pubPath)
 	if err != nil {
 		return "", fmt.Errorf("reading public key: %w", err)

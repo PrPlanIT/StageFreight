@@ -21,6 +21,8 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/sign/provision"
 )
 
+const classKMS = "kms"
+
 // Disclosure is the structured trust disclosure for one release.
 type Disclosure struct {
 	Primary      *SignatureFact    // headline signature (Tier-0 first, else first); nil if no signatures
@@ -58,11 +60,12 @@ type AttestationFact struct {
 type Anchor struct {
 	Fingerprint string
 	Asset       string // release-asset filename for the public key (e.g. "cosign.pub")
+	KMS         bool   // the key is a KMS key, not the Tier-0 identity
 }
 
 // Build interprets the results manifest into a structured disclosure. Pure: the caller
-// loads the identity (if any) and passes it as anchor; Build attaches it only when this
-// release actually carries a Tier-0 signature (never a stale anchor for a release it did
+// loads the anchor (if any) and passes it in; Build attaches it only when this release
+// carries a signature from that kind of key (never a stale anchor for a release it did
 // not sign). Returns nil when there is nothing to disclose.
 func Build(results *artifact.ResultsManifest, anchor *Anchor) *Disclosure {
 	if results == nil {
@@ -79,10 +82,42 @@ func Build(results *artifact.ResultsManifest, anchor *Anchor) *Disclosure {
 		d.Primary = &primary
 		d.Layers = layersBeyondPrimary(sigs)
 	}
-	if anchor != nil && hasTier0(sigs) {
+	if anchor != nil && signedBy(sigs, anchor) {
 		d.Anchor = anchor
 	}
 	return d
+}
+
+// KMSSigner returns the logical key ref the release anchors on: its first KMS signature,
+// unless it also carries a Tier-0 signature ("" otherwise).
+func KMSSigner(results *artifact.ResultsManifest) string {
+	if results == nil {
+		return ""
+	}
+	sigs := collectSignatures(results)
+	// Tier-0 sorts first and takes the anchor when a release carries both.
+	if len(sigs) == 0 || sigs[0].Tier == provision.TierSoftware {
+		return ""
+	}
+	for _, s := range sigs {
+		if s.Class == classKMS {
+			return s.SignerRef
+		}
+	}
+	return ""
+}
+
+// ImageRef returns the digest ref of the first image signature for a verify recipe.
+func (d *Disclosure) ImageRef() string {
+	if d.Primary != nil && !d.Primary.IsBlob {
+		return d.Primary.Asset
+	}
+	for _, l := range d.Layers {
+		if !l.IsBlob {
+			return l.Asset
+		}
+	}
+	return ""
 }
 
 // ChecksumSig returns the checksum signature bundle asset for a verify recipe — the first
@@ -149,13 +184,18 @@ func collectAttestations(results *artifact.ResultsManifest) []AttestationFact {
 	return out
 }
 
-// layersBeyondPrimary dedupes signatures (by value) and drops the primary (index 0).
+// layersBeyondPrimary dedupes signatures and drops the primary (index 0). Image signatures
+// from one signer are one layer however many registries or images they cover.
 func layersBeyondPrimary(sigs []SignatureFact) []SignatureFact {
 	seen := map[SignatureFact]bool{}
 	var uniq []SignatureFact
 	for _, s := range sigs {
-		if !seen[s] {
-			seen[s] = true
+		key := s
+		if !s.IsBlob {
+			key.Asset = ""
+		}
+		if !seen[key] {
+			seen[key] = true
 			uniq = append(uniq, s)
 		}
 	}
@@ -165,9 +205,12 @@ func layersBeyondPrimary(sigs []SignatureFact) []SignatureFact {
 	return uniq[1:]
 }
 
-func hasTier0(sigs []SignatureFact) bool {
+func signedBy(sigs []SignatureFact, anchor *Anchor) bool {
 	for _, s := range sigs {
-		if s.Tier == provision.TierSoftware {
+		if anchor.KMS && s.Class == classKMS {
+			return true
+		}
+		if !anchor.KMS && s.Tier == provision.TierSoftware {
 			return true
 		}
 	}

@@ -81,3 +81,36 @@ func TestBuild_NoEvidence(t *testing.T) {
 		t.Errorf("nil results → nil disclosure, got %+v", d)
 	}
 }
+
+func imageSig(ev artifact.TrustEvidence, ref string) artifact.Result {
+	return artifact.Result{Outcomes: []artifact.Outcome{{
+		Attestation: &artifact.AttestationOutcome{Status: artifact.OutcomeSuccess, SignatureRef: ref, TrustEvidence: ev},
+	}}}
+}
+
+func TestBuild_KMSAnchorAttachesOnlyToAKMSSignature(t *testing.T) {
+	kms := artifact.TrustEvidence{TrustClass: "kms", SignerRef: "tenant"}
+	results := &artifact.ResultsManifest{Results: []artifact.Result{imageSig(kms, "r/a@sha256:1")}}
+	anchor := &Anchor{Fingerprint: "sha256:k", Asset: "cosign.pub", KMS: true}
+	if d := Build(results, anchor); d.Anchor == nil {
+		t.Error("a KMS-signed release must attach its KMS anchor")
+	}
+	tier0 := &Anchor{Fingerprint: "sha256:t", Asset: "cosign.pub"}
+	if d := Build(results, tier0); d.Anchor != nil {
+		t.Error("a Tier-0 anchor must not attach to a release only KMS signed")
+	}
+}
+
+func TestBuild_OneSignerAcrossRegistriesIsOneLayer(t *testing.T) {
+	kms := artifact.TrustEvidence{TrustClass: "kms", SignerRef: "tenant"}
+	results := &artifact.ResultsManifest{Results: []artifact.Result{
+		imageSig(kms, "docker.io/a@sha256:1"), imageSig(kms, "ghcr.io/a@sha256:1"), imageSig(kms, "docker.io/b@sha256:2"),
+	}}
+	d := Build(results, nil)
+	if len(d.Layers) != 0 {
+		t.Errorf("one signer must not read as additional signatures: %+v", d.Layers)
+	}
+	if d.ImageRef() != "docker.io/a@sha256:1" {
+		t.Errorf("ImageRef = %q", d.ImageRef())
+	}
+}
