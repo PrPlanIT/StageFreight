@@ -365,128 +365,107 @@ func bulletize(text string) string {
 	return strings.Join(bullets, "\n")
 }
 
-// renderVerification renders the "## Verification" section from the STRUCTURED
-// disclosure — the assurance tier stated plainly plus a class-appropriate verify
-// recipe, so a consumer knows exactly what guarantees they receive (not just
-// "signed"). This is pure presentation: it formats typed facts, it never interprets
-// which signature is primary or which layers matter (that is trustdisclosure's job).
+// renderVerification renders the "## Verify this release" section: what signed the release
+// and the commands that check it. Pure presentation over the structured disclosure; which
+// signature is primary or which layers matter is trustdisclosure's job.
 func renderVerification(d *trustdisclosure.Disclosure) string {
-	yn := func(t bool) string {
-		if t {
-			return "yes"
-		}
-		return "no"
-	}
 	var p trustdisclosure.SignatureFact
 	if d.Primary != nil {
 		p = *d.Primary
 	}
 	var b strings.Builder
-	b.WriteString("## Verification\n\n")
-	b.WriteString("| Property | Value |\n|---|---|\n")
-	b.WriteString(fmt.Sprintf("| Signing tier | %s |\n", signerTierLabel(p)))
-	if p.TrustDomain != "" {
-		b.WriteString(fmt.Sprintf("| Trust domain | %s |\n", p.TrustDomain))
-	}
-	if d.Anchor != nil && d.Anchor.Fingerprint != "" {
-		b.WriteString(fmt.Sprintf("| Public key fingerprint | `%s` |\n", d.Anchor.Fingerprint))
-	}
-	b.WriteString(fmt.Sprintf("| Transparency log | %s |\n", yn(p.Transparency)))
-	// Continuity is meaningful only for a persistent anchor identity; for other
-	// signers it is simply not asserted (not "unknown trust").
-	if d.Anchor != nil {
-		b.WriteString("| Signer continuity | stable |\n")
-	}
-	b.WriteString(fmt.Sprintf("| Human authorization required | %s |\n", yn(p.PhysicalPresence)))
-	b.WriteString(fmt.Sprintf("| Non-exportable key | %s |\n\n", yn(p.NonExportable)))
-
-	// Verify recipe — evidence-driven, NOT gated on a Tier-0 anchor. A continuity
-	// anchor (a published cosign.pub) gives the pinnable --key recipe; otherwise the
-	// recipe is class-appropriate so oidc/kms/hardware-only releases still disclose
-	// how to verify.
+	b.WriteString("## Verify this release\n\n")
 	switch {
 	case d.Anchor != nil:
-		tlog := ""
-		if !p.Transparency {
-			tlog = " \\\n  --insecure-ignore-tlog=true"
-		}
-		if sum := d.ChecksumSig(); sum != "" {
-			b.WriteString("Verify the release checksums against the published public key:\n\n")
-			b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key %s \\\n  --bundle %s%s \\\n  SHA256SUMS\n```\n\n",
-				d.Anchor.Asset, sum, tlog))
-		}
-		if image := d.ImageRef(); image != "" {
-			b.WriteString(fmt.Sprintf("Verify an image against `%s`, attached to this release:\n\n", d.Anchor.Asset))
-			b.WriteString(fmt.Sprintf("```\ncosign verify \\\n  --key %s%s \\\n  %s\n```\n\n", d.Anchor.Asset, tlog, image))
-		}
-		if d.Anchor.Fingerprint != "" {
-			b.WriteString(fmt.Sprintf("Pin the key by its fingerprint `%s`.\n\n", d.Anchor.Fingerprint))
-		}
+		writeKeyRecipes(&b, d, p)
 	case p.Class == "oidc":
-		domain := p.TrustDomain
-		if domain == "" {
-			domain = "the Sigstore"
-		}
-		b.WriteString(fmt.Sprintf("This release is keyless-signed in **%s** trust domain — the signature is bound to an OIDC identity by Fulcio and (when transparency is on) logged in Rekor. Verify the checksums against the expected identity:\n\n", domain))
-		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --certificate-oidc-issuer <issuer> \\\n  --certificate-identity <signer> \\\n  --bundle %s \\\n  SHA256SUMS\n```\n\n", checksumBundle(d)))
-		if p.SignerRef != "" {
-			b.WriteString(fmt.Sprintf("Expected signer: `%s`. ", p.SignerRef))
-		}
-		b.WriteString("Obtain the issuer URL and (for a self-hosted domain) the Fulcio trusted-root from `SECURITY.md`.\n\n")
-	case p.SignerRef != "":
-		b.WriteString(fmt.Sprintf("This release is signed by `%s` (trust class **%s**). Verify the checksums against that signer's published public key:\n\n", p.SignerRef, p.Class))
-		b.WriteString(fmt.Sprintf("```\ncosign verify-blob \\\n  --key <signer-public-key> \\\n  --bundle %s \\\n  SHA256SUMS\n```\n\n", checksumBundle(d)))
-		b.WriteString("Obtain the public key from `SECURITY.md` / the maintainer.\n\n")
-	}
-	if len(d.Layers) > 0 {
-		b.WriteString("This release also carries additional signatures on the same artifacts:\n\n")
-		for _, l := range d.Layers {
-			b.WriteString(fmt.Sprintf("- %s\n", describeSignatureFact(l)))
-		}
-		b.WriteString("\nObtain those signers' public keys / identities from the maintainer / `SECURITY.md`.\n\n")
-	}
-	// Provenance attestations are disclosed SEPARATELY from signatures: a signature
-	// vouches for the artifact's bytes; a provenance attestation vouches for HOW it
-	// was built, authorized by a named tier. Conflating them would overstate trust.
-	if len(d.Attestations) > 0 {
-		b.WriteString("Build provenance is cryptographically attested on the published image(s) — authenticated by the trust tier shown, not merely generated:\n\n")
+		writeKeylessRecipes(&b, d, p)
+	case d.Primary != nil:
+		b.WriteString("This release is signed, but its public key could not be attached, so it can't be verified from this page.\n\n")
+	default:
+		b.WriteString("Build provenance is attested on the published images.\n\n")
 		for _, a := range d.Attestations {
 			b.WriteString(fmt.Sprintf("- %s\n", describeAttestationFact(a)))
 		}
-		key, image := "<key>", "<image>@<digest>"
-		if d.Anchor != nil {
-			key = d.Anchor.Asset
-		}
-		if ref := d.ImageRef(); ref != "" {
-			image = ref
-		}
-		flag := ""
-		if d.Anchor != nil && !p.Transparency {
-			flag = "--insecure-ignore-tlog=true "
-		}
-		b.WriteString(fmt.Sprintf("\nVerify with `cosign verify-attestation --type slsaprovenance --key %s %s%s`.\n\n", key, flag, image))
+		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-// signerTierLabel is the human headline for the primary signer: its assurance tier
-// when recorded (e.g. Tier-0), else a class-based label so non-tiered signers read
-// meaningfully. Prose lives here, in the formatter — never in trustdisclosure.
-func signerTierLabel(f trustdisclosure.SignatureFact) string {
-	if f.Tier != "" {
-		return tierLabel(f.Tier)
+// signerSentence states what kind of key signed the release, in the reader's terms.
+func signerSentence(p trustdisclosure.SignatureFact) string {
+	var key string
+	switch {
+	case p.Tier == provision.TierSoftware:
+		key = "Signed with a persistent software key"
+	case p.Class == "kms" && p.NonExportable:
+		key = "Signed with a key held in a key management service that cannot be exported"
+	case p.Class == "kms":
+		key = "Signed with a key held in a key management service"
+	case p.Class == "hardware" && p.PhysicalPresence:
+		key = "Signed with a hardware key that requires a person to approve each signature"
+	case p.Class == "hardware":
+		key = "Signed with a hardware key"
+	default:
+		key = "Signed with a published key"
 	}
-	switch f.Class {
-	case "oidc":
-		return "keyless (OIDC identity)"
-	case "kms":
-		return "KMS / managed key"
-	case "hardware":
-		return "hardware (operator-held key)"
-	case "key":
-		return "key (operator-supplied)"
+	if p.Transparency {
+		return key + ". Signatures are recorded in the public Rekor log."
 	}
-	return "signed"
+	return key + ". Signatures are not recorded in a transparency log."
+}
+
+// attestedImage is the verify target for provenance: the signed image, else a placeholder.
+func attestedImage(image string) string {
+	if image != "" {
+		return image
+	}
+	return "<image>@<digest>"
+}
+
+func writeRecipe(b *strings.Builder, label, command string) {
+	b.WriteString(fmt.Sprintf("%s:\n```\n%s\n```\n\n", label, command))
+}
+
+func writeKeyRecipes(b *strings.Builder, d *trustdisclosure.Disclosure, p trustdisclosure.SignatureFact) {
+	b.WriteString(signerSentence(p) + "\n\n")
+	b.WriteString(fmt.Sprintf("Public key: `%s`, attached to this release\n", d.Anchor.Asset))
+	if d.Anchor.Fingerprint != "" {
+		b.WriteString(fmt.Sprintf("Fingerprint: `%s`\n", d.Anchor.Fingerprint))
+	}
+	b.WriteString("\n")
+	flags := "--key " + d.Anchor.Asset
+	if !p.Transparency {
+		flags += " --insecure-ignore-tlog=true"
+	}
+	image := d.ImageRef()
+	if image != "" {
+		writeRecipe(b, "Image signature", fmt.Sprintf("cosign verify %s %s", flags, image))
+	}
+	if len(d.Attestations) > 0 {
+		writeRecipe(b, "Build provenance", fmt.Sprintf("cosign verify-attestation --type slsaprovenance %s %s", flags, attestedImage(image)))
+	}
+	if sum := d.ChecksumSig(); sum != "" {
+		writeRecipe(b, "Checksums", fmt.Sprintf("cosign verify-blob %s --bundle %s SHA256SUMS", flags, sum))
+	}
+}
+
+func writeKeylessRecipes(b *strings.Builder, d *trustdisclosure.Disclosure, p trustdisclosure.SignatureFact) {
+	b.WriteString("Signed keyless with an OIDC identity through Sigstore.\n\n")
+	if p.SignerRef != "" {
+		b.WriteString(fmt.Sprintf("Expected signer: `%s`\n\n", p.SignerRef))
+	}
+	id := "--certificate-oidc-issuer <issuer> --certificate-identity <signer>"
+	image := d.ImageRef()
+	if image != "" {
+		writeRecipe(b, "Image signature", fmt.Sprintf("cosign verify %s %s", id, image))
+	}
+	if len(d.Attestations) > 0 {
+		writeRecipe(b, "Build provenance", fmt.Sprintf("cosign verify-attestation --type slsaprovenance %s %s", id, attestedImage(image)))
+	}
+	if sum := d.ChecksumSig(); sum != "" {
+		writeRecipe(b, "Checksums", fmt.Sprintf("cosign verify-blob %s --bundle %s SHA256SUMS", id, sum))
+	}
 }
 
 func tierLabel(tier string) string {
@@ -494,31 +473,6 @@ func tierLabel(tier string) string {
 		return "Tier-0 (persistent software key)"
 	}
 	return tier
-}
-
-// describeSignatureFact renders one additional-layer signature line.
-func describeSignatureFact(f trustdisclosure.SignatureFact) string {
-	cls := f.Class
-	if cls == "" {
-		cls = "signature"
-	}
-	desc := cls
-	if f.Tier != "" {
-		desc += " (" + tierLabel(f.Tier) + ")"
-	}
-	if f.TrustDomain != "" {
-		desc += " (trust domain: " + f.TrustDomain + ")"
-	}
-	if f.PhysicalPresence {
-		desc += " (human-authorized)"
-	}
-	if f.NonExportable {
-		desc += ", non-exportable"
-	}
-	if f.Asset != "" {
-		desc += " · " + f.Asset
-	}
-	return desc
 }
 
 // describeAttestationFact renders one provenance-attestation line.
@@ -1108,14 +1062,4 @@ func sectionChangelog(allCommits []Commit, maxChars int) string {
 		b.WriteString(fmt.Sprintf("\n... and %d more commits\n", omitted))
 	}
 	return b.String()
-}
-
-// checksumBundle names the release's checksum signature bundle for a verify recipe.
-func checksumBundle(d *trustdisclosure.Disclosure) string {
-	if d != nil {
-		if name := d.ChecksumSig(); name != "" {
-			return name
-		}
-	}
-	return "SHA256SUMS.sigstore.json"
 }

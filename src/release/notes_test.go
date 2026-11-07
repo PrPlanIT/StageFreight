@@ -323,78 +323,62 @@ func TestCompileReleaseTagMatchers_EmptyFallback(t *testing.T) {
 	}
 }
 
-func TestRenderVerification_DisclosesTierAndRecipe(t *testing.T) {
+func TestRenderVerification_DisclosesKeyAndRecipe(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
 		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
 		Anchor:  &trustdisclosure.Anchor{Fingerprint: "sha256:abc123", Asset: "cosign.pub"},
 	})
 	for _, want := range []string{
-		"## Verification",
-		"Tier-0 (persistent software key)",
-		"sha256:abc123",
-		"Signer continuity | stable",
-		"Non-exportable key | no",
-		"cosign verify-blob",
-		"--key cosign.pub",
-		"--bundle SHA256SUMS.sigstore.json",
-		"--insecure-ignore-tlog=true", // no transparency → ignore tlog
+		"## Verify this release",
+		"Signed with a persistent software key. Signatures are not recorded in a transparency log.",
+		"Public key: `cosign.pub`, attached to this release",
+		"Fingerprint: `sha256:abc123`",
+		"cosign verify-blob --key cosign.pub --insecure-ignore-tlog=true --bundle SHA256SUMS.sigstore.json SHA256SUMS",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("verification section missing %q:\n%s", want, out)
+			t.Errorf("verify section missing %q:\n%s", want, out)
 		}
 	}
 }
 
-// Provenance attestations must be disclosed in their OWN section, never folded
-// into the signature layers — "signed" and "provenance attested by tier X" are
-// distinct trust statements, and the verify recipe differs (verify-attestation).
-func TestRenderVerification_DisclosesProvenanceAttestationsSeparately(t *testing.T) {
+// A release with no signed image still says how to check an attested one.
+func TestRenderVerification_ProvenanceRecipeWithoutSignedImage(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
-		Primary: &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
-		Anchor:  &trustdisclosure.Anchor{Fingerprint: "sha256:a", Asset: "cosign.pub"},
-		Attestations: []trustdisclosure.AttestationFact{
-			{PredicateType: "slsaprovenance", Class: "key", Tier: provision.TierSoftware, VerifiedDigest: "sha256:cafe"},
-		},
+		Primary:      &trustdisclosure.SignatureFact{Tier: provision.TierSoftware, Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
+		Anchor:       &trustdisclosure.Anchor{Fingerprint: "sha256:a", Asset: "cosign.pub"},
+		Attestations: []trustdisclosure.AttestationFact{{PredicateType: "slsaprovenance", Class: "key"}},
 	})
-	for _, want := range []string{
-		"Build provenance is cryptographically attested",
-		"slsaprovenance · key",
-		"cosign verify-attestation --type slsaprovenance",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("provenance attestation disclosure missing %q:\n%s", want, out)
-		}
+	want := "cosign verify-attestation --type slsaprovenance --key cosign.pub --insecure-ignore-tlog=true <image>@<digest>"
+	if !strings.Contains(out, want) {
+		t.Errorf("provenance recipe missing:\n%s", out)
 	}
 }
 
-// A non-anchor OIDC release must still render a verify section — a keyless recipe
-// (certificate-identity / oidc-issuer), the trust domain, and NOT the --key
-// cosign.pub anchor recipe (which only applies when a continuity anchor exists).
-func TestRenderVerification_OIDCNoAnchorEmitsKeylessRecipe(t *testing.T) {
+func TestRenderVerification_OIDCEmitsKeylessRecipe(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
-		Primary: &trustdisclosure.SignatureFact{Class: "oidc", TrustDomain: "internal", Transparency: true, SignerRef: "https://id.internal/subj"},
+		Primary: &trustdisclosure.SignatureFact{Class: "oidc", Transparency: true, SignerRef: "https://id.internal/subj", Asset: "r/a@sha256:1"},
 	})
-	for _, want := range []string{
-		"## Verification", "Trust domain | internal", "keyless-signed",
-		"cosign verify-blob", "--certificate-oidc-issuer",
-	} {
+	for _, want := range []string{"Signed keyless", "`https://id.internal/subj`", "cosign verify --certificate-oidc-issuer"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("keyless verification missing %q:\n%s", want, out)
+			t.Errorf("keyless recipe missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "--key cosign.pub") {
-		t.Errorf("no anchor present → must not emit the --key cosign.pub recipe:\n%s", out)
+	if strings.Contains(out, "--key ") {
+		t.Errorf("a keyless release has no key to verify against:\n%s", out)
 	}
 }
 
-// A non-anchor kms/hardware release renders a signer-pointer recipe.
-func TestRenderVerification_NoAnchorSignerPointerRecipe(t *testing.T) {
+// A signed release whose key could not be attached says so, and offers no command that can't work.
+func TestRenderVerification_MissingKeySaysItCannotBeVerified(t *testing.T) {
 	out := renderVerification(&trustdisclosure.Disclosure{
-		Primary: &trustdisclosure.SignatureFact{Class: "kms", NonExportable: true, SignerRef: "release-signing-key"},
+		Primary: &trustdisclosure.SignatureFact{Class: "kms", NonExportable: true, SignerRef: "tenant", Asset: "r/a@sha256:1"},
 	})
-	for _, want := range []string{"signed by `release-signing-key`", "trust class **kms**", "SECURITY.md"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("signer-pointer recipe missing %q:\n%s", want, out)
+	if !strings.Contains(out, "could not be attached") {
+		t.Errorf("missing-key statement absent:\n%s", out)
+	}
+	for _, leak := range []string{"tenant", "cosign ", "SECURITY.md"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("must not render %q without a key:\n%s", leak, out)
 		}
 	}
 }
@@ -407,8 +391,8 @@ func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
 	if strings.Contains(out, "--insecure-ignore-tlog") {
 		t.Errorf("transparency-backed verify must not skip the tlog:\n%s", out)
 	}
-	if !strings.Contains(out, "Transparency log | yes") {
-		t.Errorf("transparency should be disclosed yes:\n%s", out)
+	if !strings.Contains(out, "recorded in the public Rekor log") {
+		t.Errorf("transparency should be disclosed:\n%s", out)
 	}
 }
 
@@ -440,7 +424,7 @@ func TestSectionImages_RendersBuildNumber(t *testing.T) {
 	}
 }
 
-func TestRenderVerification_KMSAnchorGivesImageRecipe(t *testing.T) {
+func TestRenderVerification_KMSReleaseReadsPlainly(t *testing.T) {
 	ref := "docker.io/a/b@sha256:1"
 	out := renderVerification(&trustdisclosure.Disclosure{
 		Primary:      &trustdisclosure.SignatureFact{Class: "kms", NonExportable: true, SignerRef: "tenant", Asset: ref},
@@ -448,15 +432,18 @@ func TestRenderVerification_KMSAnchorGivesImageRecipe(t *testing.T) {
 		Attestations: []trustdisclosure.AttestationFact{{PredicateType: "slsaprovenance", Class: "kms"}},
 	})
 	for _, want := range []string{
-		"cosign verify \\\n  --key cosign.pub \\\n  --insecure-ignore-tlog=true \\\n  " + ref,
-		"--type slsaprovenance --key cosign.pub --insecure-ignore-tlog=true " + ref,
-		"`sha256:k`",
+		"held in a key management service that cannot be exported",
+		"cosign verify --key cosign.pub --insecure-ignore-tlog=true " + ref,
+		"cosign verify-attestation --type slsaprovenance --key cosign.pub --insecure-ignore-tlog=true " + ref,
+		"Fingerprint: `sha256:k`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("recipe missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "verify-blob") || strings.Contains(out, "SECURITY.md") {
-		t.Errorf("an image-only release has no checksum recipe or SECURITY.md pointer:\n%s", out)
+	for _, jargon := range []string{"tenant", "trust class", "tier", "| Property", "verify-blob", "SECURITY.md"} {
+		if strings.Contains(out, jargon) {
+			t.Errorf("must not render %q:\n%s", jargon, out)
+		}
 	}
 }

@@ -40,29 +40,17 @@ aaaabbbbccccddddeeeeffff00001111222233334444555566667777888899990  stagefreight-
 ```
 </details>
 
-## Verification
+## Verify this release
 
-| Property | Value |
-|---|---|
-| Signing tier | Tier-0 (persistent software key) |
-| Trust domain | prplanit |
-| Public key fingerprint | `SHA256:abcdef012345` |
-| Transparency log | no |
-| Signer continuity | stable |
-| Human authorization required | yes |
-| Non-exportable key | yes |
+Signed with a persistent software key. Signatures are not recorded in a transparency log.
 
-Verify the release checksums against the published public key:
+Public key: `cosign.pub`, attached to this release
+Fingerprint: `SHA256:abcdef012345`
 
+Checksums:
 ```
-cosign verify-blob \
-  --key cosign.pub \
-  --bundle SHA256SUMS.sigstore.json \
-  --insecure-ignore-tlog=true \
-  SHA256SUMS
+cosign verify-blob --key cosign.pub --insecure-ignore-tlog=true --bundle SHA256SUMS.sigstore.json SHA256SUMS
 ```
-
-Pin the key by its fingerprint `SHA256:abcdef012345`.
 
 ## Highlights
 - Ships the stencil engine
