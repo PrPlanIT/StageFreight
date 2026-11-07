@@ -84,6 +84,7 @@ type Action struct {
 	Builder   string                // buildkit: builder name
 	KeepStore string                // buildkit: --keep-storage
 	Until     string                // buildkit / host-residue: --filter until=
+	MinFree   int64                 // buildkit: over target, evict past retention until the daemon's disk has this free
 }
 
 // Options steers a planning pass.
@@ -119,6 +120,15 @@ func UsedFraction(path string) float64 {
 
 // usedFraction measures how full a filesystem is; a variable so tests set the disk's state.
 var usedFraction = UsedFraction
+
+// diskTotal is the size of the filesystem containing path; a variable so tests set it.
+var diskTotal = func(path string) int64 {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0
+	}
+	return int64(st.Blocks) * int64(st.Bsize)
+}
 
 // Plan computes the reclaim actions the ownership model + declared policy allow.
 // cfg may be nil (running on a bare runner host with no .stagefreight.yml): the
@@ -188,10 +198,7 @@ func Plan(cfg *config.Config, opts Options) []Action {
 		}
 		// Without a target the policy is enforced whatever the disk's state, and pressure is
 		// still relieved past the default watermark.
-		pressureAt := opts.Target
-		if pressureAt == 0 {
-			pressureAt = DefaultTarget
-		}
+		pressureAt := pressureGate(opts)
 		if usedFraction(opts.CacheRoot) >= pressureAt {
 			actions = append(actions, Action{Kind: KindPressure, Class: ClassNamespace, Label: "disk pressure",
 				Path: cacheDir, Low: pressureAt - pressureHysteresis,
@@ -243,6 +250,9 @@ func Plan(cfg *config.Config, opts Options) []Action {
 			if ret.MaxAge != "" {
 				a.Until = ret.MaxAge
 			}
+			if at := pressureGate(opts); opts.CacheRoot != "" && usedFraction(opts.CacheRoot) >= at {
+				a.MinFree = int64((1 - (at - pressureHysteresis)) * float64(diskTotal(opts.CacheRoot)))
+			}
 			actions = append(actions, a)
 		}
 	}
@@ -263,6 +273,14 @@ func Plan(cfg *config.Config, opts Options) []Action {
 	}
 
 	return actions
+}
+
+// pressureGate is the used fraction past which pressure is relieved.
+func pressureGate(opts Options) float64 {
+	if opts.Target == 0 {
+		return DefaultTarget
+	}
+	return opts.Target
 }
 
 // primarySlug derives the repo slug from the primary repo's project path; a templated

@@ -230,14 +230,14 @@ func TestEvictUnits_UnrecordedNeedsExclusiveRoot(t *testing.T) {
 // skipping units in use.
 func TestEvictUnderPressure_LRU(t *testing.T) {
 	cache := t.TempDir()
-	makeUnit(t, filepath.Join(cache, "oldest"), 1000, 10*time.Hour)
-	makeUnit(t, filepath.Join(cache, "older"), 1000, 5*time.Hour)
-	makeUnit(t, filepath.Join(cache, "busy"), 1000, 20*time.Hour)
-	makeUnit(t, filepath.Join(cache, "recent"), 1000, time.Hour)
+	makeUnit(t, filepath.Join(cache, "oldest"), 1<<20, 10*time.Hour)
+	makeUnit(t, filepath.Join(cache, "older"), 1<<20, 5*time.Hour)
+	makeUnit(t, filepath.Join(cache, "busy"), 1<<20, 20*time.Hour)
+	makeUnit(t, filepath.Join(cache, "recent"), 1<<20, time.Hour)
 	holdLease(t, filepath.Join(cache, "busy"))
 	old := bytesOver
 	t.Cleanup(func() { bytesOver = old })
-	bytesOver = func(string, float64) int64 { return 1500 }
+	bytesOver = func(string, float64) int64 { return 3 << 19 }
 
 	if _, _, err := evictUnderPressure(Action{Kind: KindPressure, Path: cache, Low: 0.75}, true); err != nil {
 		t.Fatal(err)
@@ -307,13 +307,13 @@ func TestEvictGoBuildCache_PerEntryLRU(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("5a/hot-a", 1000, time.Minute)
-	write("5a/cold-a", 1000, 48*time.Hour)
-	write("fd/warm-d", 1000, 2*time.Hour)
+	write("5a/hot-a", 1<<20, time.Minute)
+	write("5a/cold-a", 1<<20, 48*time.Hour)
+	write("fd/warm-d", 1<<20, 2*time.Hour)
 	write("README", 10, 72*time.Hour)
 	write("trim.txt", 10, 72*time.Hour)
 
-	if _, _, err := evictFilesLRU(dir, goBuildEntry, 0, 2000, 0, true); err != nil {
+	if _, _, err := evictFilesLRU(dir, goBuildEntry, 0, 5<<19, 0, true); err != nil {
 		t.Fatal(err)
 	}
 	for _, keep := range []string{"5a/hot-a", "fd/warm-d", "README", "trim.txt"} {
@@ -417,16 +417,16 @@ func TestExecute_LintCachePerEntryLRU(t *testing.T) {
 		mt := time.Now().Add(-age)
 		_ = os.Chtimes(p, mt, mt)
 	}
-	write("projA/aa/hot.json", 1000, time.Minute)
-	write("projA/aa/stale.json", 1000, 10*24*time.Hour)
-	write("projB/bb/old.json", 1000, 3*time.Hour)
-	write("projB/bb/new.json", 1000, 2*time.Minute)
+	write("projA/aa/hot.json", 1<<20, time.Minute)
+	write("projA/aa/stale.json", 1<<20, 10*24*time.Hour)
+	write("projB/bb/old.json", 1<<20, 3*time.Hour)
+	write("projB/bb/new.json", 1<<20, 2*time.Minute)
 	// The project dir is old, the entries in it are not: eviction must go by entry.
 	old := time.Now().Add(-30 * 24 * time.Hour)
 	_ = os.Chtimes(filepath.Join(dir, "projA"), old, old)
 
 	res := Execute(context.Background(), []Action{{Kind: KindLintCache, Class: ClassNamespace,
-		Label: "cache/lint", Path: dir, MaxAge: 7 * 24 * time.Hour, MaxSize: 2000}}, true)
+		Label: "cache/lint", Path: dir, MaxAge: 7 * 24 * time.Hour, MaxSize: 5 << 19}}, true)
 	if len(res) != 1 || res[0].Err != nil {
 		t.Fatalf("result: %+v", res)
 	}

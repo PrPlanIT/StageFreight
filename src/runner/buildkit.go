@@ -76,12 +76,21 @@ func TCPReachable(addr string) bool {
 	return true
 }
 
-// RemoteBuildKit returns BUILDKIT_HOST when a remote buildkitd is usable the way
-// the build path uses it (buildx remote driver): a tcp:// endpoint, the full
-// client PKI present, and the endpoint accepting connections. "" otherwise.
+// BuildKitEndpoint is where a standalone buildkitd answers: BUILDKIT_HOST, else the
+// runner stacks' network alias.
+func BuildKitEndpoint() string {
+	if endpoint := strings.TrimSpace(os.Getenv("BUILDKIT_HOST")); endpoint != "" {
+		return endpoint
+	}
+	return "tcp://buildkitd:1234"
+}
+
+// RemoteBuildKit returns the endpoint when a remote buildkitd is usable the way the
+// build path uses it (buildx remote driver): a tcp:// endpoint, the full client PKI
+// present, and the endpoint accepting connections. "" otherwise.
 // It needs no Docker daemon and no buildctl binary.
 func RemoteBuildKit() string {
-	endpoint := strings.TrimSpace(os.Getenv("BUILDKIT_HOST"))
+	endpoint := BuildKitEndpoint()
 	addr, ok := TCPEndpointAddr(endpoint)
 	if !ok || !BuildKitCertsPresent(BuildKitCertPath()) || !TCPReachable(addr) {
 		return ""

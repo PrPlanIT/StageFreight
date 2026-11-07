@@ -76,12 +76,9 @@ func probeBuildkit() *Backend {
 		return nil
 	}
 
-	endpoint := os.Getenv("BUILDKIT_HOST")
-	if endpoint == "" {
-		endpoint = "tcp://buildkitd:1234"
-	}
+	endpoint := runner.BuildKitEndpoint()
 
-	// Verify reachable at the endpoint BUILDKIT_HOST names (TCP probe, not full
+	// Verify reachable at that endpoint (TCP probe, not full
 	// TLS — EnsureBuilder does the real check).
 	addr, ok := runner.TCPEndpointAddr(endpoint)
 	if !ok || !runner.TCPReachable(addr) {

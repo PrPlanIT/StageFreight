@@ -130,6 +130,11 @@ func EnsureBuilderWithBackend(cfg config.BuilderConfig, backend *Backend) Builde
 	return ensureDockerContainerBuilder(name, driver, cfg.ContextName(), BuilderMemoryLimit(cfg), info)
 }
 
+// EnsureRemoteBuilder reaches a standalone buildkitd through a named buildx builder.
+func EnsureRemoteBuilder(name, endpoint string) BuilderInfo {
+	return ensureRemoteBuilder(name, endpoint, BuilderInfo{Name: name, Driver: "remote"})
+}
+
 // ensureRemoteBuilder connects to an external buildkitd via the remote driver.
 // The daemon is persistent — mount caches survive across builds.
 func ensureRemoteBuilder(name, endpoint string, info BuilderInfo) BuilderInfo {

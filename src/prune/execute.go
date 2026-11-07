@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	dockerbuild "github.com/PrPlanIT/StageFreight/src/build/docker"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/retention"
@@ -363,8 +364,9 @@ func evictFilesLRU(dir string, isEntry func(rel string) bool, maxAge time.Durati
 		if ierr != nil || !info.Mode().IsRegular() {
 			return nil
 		}
-		all = append(all, entry{p, info.Size(), info.ModTime()})
-		total += info.Size()
+		size := onDisk(info)
+		all = append(all, entry{p, size, info.ModTime()})
+		total += size
 		return nil
 	})
 	sort.Slice(all, func(i, j int) bool { return all[i].mtime.Before(all[j].mtime) }) // least recently used first
@@ -401,11 +403,19 @@ func dirSize(root string) int64 {
 			return nil
 		}
 		if info, ierr := d.Info(); ierr == nil {
-			total += info.Size()
+			total += onDisk(info)
 		}
 		return nil
 	})
 	return total
+}
+
+// onDisk is the space a file occupies, which for a small file far exceeds its length.
+func onDisk(info os.FileInfo) int64 {
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		return st.Blocks * 512
+	}
+	return info.Size()
 }
 
 // ── docker-side executors (CLI transport; absent daemon = clean skip) ──────────
@@ -557,16 +567,17 @@ func pruneDeclaredImages(ctx context.Context, a Action, confirm bool) (items []s
 
 // pruneBuilder reclaims the sf-builder's cache through its own API — never a volume rm.
 //
-// The buildx builder is created by the BUILD phase, but disk GC deliberately runs at
-// the front of the pipeline, so at this point that builder does not exist yet and
-// `buildx prune --builder` reports "no builder" on every host and in every mode. When
-// a standalone buildkitd is configured, address the daemon directly instead: the
-// builder is one way to reach the cache, not the cache itself.
+// The buildx builder is created by the BUILD phase, but disk GC runs at the front of
+// every phase, so a standalone buildkitd's builder is created here the way the build
+// creates it; a job's buildx state does not outlive the job.
 func pruneBuilder(ctx context.Context, a Action, confirm bool) (items []string, skipped string, err error) {
-	if addr := strings.TrimSpace(os.Getenv("BUILDKIT_HOST")); addr != "" {
-		return pruneBuildkitd(ctx, addr, a, confirm)
+	if endpoint := runner.RemoteBuildKit(); endpoint != "" && confirm {
+		if info := dockerbuild.EnsureRemoteBuilder(a.Builder, endpoint); !info.BootstrapOK {
+			return nil, "buildkitd at " + endpoint + " unusable: " + firstLine(info.RawOutput), nil
+		}
 	}
-	args := []string{"buildx", "prune", "--builder", a.Builder, "--force"}
+	base := []string{"buildx", "prune", "--builder", a.Builder, "--force"}
+	args := append([]string{}, base...)
 	if a.KeepStore != "" {
 		// buildx renamed --keep-storage to --reserved-space; the old name still works
 		// but warns, and will eventually go. Ask the installed buildx which it speaks
@@ -581,75 +592,29 @@ func pruneBuilder(ctx context.Context, a Action, confirm bool) (items []string, 
 			args = append(args, "--filter", "until="+until)
 		}
 	}
-	if !confirm {
-		return []string{"docker " + strings.Join(args, " ")}, "", nil
+	passes := [][]string{args}
+	if a.MinFree > 0 {
+		// Past retention: the daemon evicts least recently used until its own disk has
+		// this free, so a builder on a separate volume loses nothing.
+		passes = append(passes, append(append([]string{}, base...), "--min-free-space", strconv.FormatInt(a.MinFree, 10)))
 	}
-	if out, rerr := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); rerr != nil {
-		reason := firstLine(string(out))
-		if strings.Contains(reason, "no builder") {
-			// Absence, not failure: this host simply doesn't run that builder.
-			return nil, "no " + a.Builder + " on this host", nil
+	if !confirm {
+		for _, p := range passes {
+			items = append(items, "docker "+strings.Join(p, " "))
 		}
-		return nil, "buildx prune failed: " + reason, nil
+		return items, "", nil
+	}
+	for _, p := range passes {
+		if out, rerr := exec.CommandContext(ctx, "docker", p...).CombinedOutput(); rerr != nil {
+			reason := firstLine(string(out))
+			if strings.Contains(reason, "no builder") {
+				// Absence, not failure: this host simply doesn't run that builder.
+				return nil, "no " + a.Builder + " on this host", nil
+			}
+			return nil, "buildx prune failed: " + reason, nil
+		}
 	}
 	return []string{"pruned via builder API"}, "", nil
-}
-
-// pruneBuildkitd reclaims a standalone buildkitd's cache over its own API, using the
-// same endpoint and PKI the build path uses (BUILDKIT_HOST + BUILDKIT_CERT_PATH).
-func pruneBuildkitd(ctx context.Context, addr string, a Action, confirm bool) (items []string, skipped string, err error) {
-	certPath := os.Getenv("BUILDKIT_CERT_PATH")
-	if certPath == "" {
-		certPath = "/buildkit-certs"
-	}
-	ca := filepath.Join(certPath, "ca.pem")
-	cert := filepath.Join(certPath, "cert.pem")
-	key := filepath.Join(certPath, "key.pem")
-	// TLS is mandatory when BUILDKIT_HOST is set — mirrors the build path, which
-	// refuses to fall back to an insecure connection.
-	for _, f := range []string{ca, cert, key} {
-		if _, serr := os.Stat(f); serr != nil {
-			return nil, "buildkitd TLS certs missing at " + certPath, nil
-		}
-	}
-	args := []string{"--addr", addr, "--tlscacert", ca, "--tlscert", cert, "--tlskey", key, "prune"}
-	if a.KeepStore != "" {
-		flag := buildctlReservedFlag(ctx)
-		val := a.KeepStore
-		if flag == "--keep-storage" {
-			// Legacy buildctl takes MEGABYTES as a bare number. A size string parses as
-			// that many MB, so "8GB" silently becomes 8 petabytes and prunes nothing.
-			n, perr := config.ParseSize(a.KeepStore)
-			if perr != nil {
-				return nil, "unparseable build_cache.local.retention.max_size: " + a.KeepStore, nil
-			}
-			val = strconv.FormatInt(n/(1<<20), 10)
-		}
-		args = append(args, flag, val)
-	}
-	if a.Until != "" {
-		// buildctl takes a duration directly rather than buildx's `--filter until=`.
-		if until := dockerDuration(a.Until); until != "" {
-			args = append(args, "--keep-duration", until)
-		}
-	}
-	if !confirm {
-		return []string{"buildctl " + strings.Join(args, " ")}, "", nil
-	}
-	if out, rerr := exec.CommandContext(ctx, "buildctl", args...).CombinedOutput(); rerr != nil {
-		return nil, "buildctl prune failed: " + firstLine(string(out)), nil
-	}
-	return []string{"pruned via buildkitd API"}, "", nil
-}
-
-// buildctlReservedFlag asks the installed buildctl which spelling it speaks, the same
-// way reservedSpaceFlag does for buildx.
-func buildctlReservedFlag(ctx context.Context) string {
-	out, err := exec.CommandContext(ctx, "buildctl", "prune", "--help").CombinedOutput()
-	if err == nil && strings.Contains(string(out), "--reserved-space") {
-		return "--reserved-space"
-	}
-	return "--keep-storage"
 }
 
 // dockerDuration renders a StageFreight duration ("7d", "72h") into the Go-native
