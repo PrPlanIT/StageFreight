@@ -134,3 +134,21 @@ func TestCacheNotesRenderInTheBuildsPanelByName(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedLocalExportIsFoundByItsDestination(t *testing.T) {
+	refs := []build.CacheRef{
+		{Type: "local", Ref: "/c/unit/next-h-12", Direction: "export"},
+		{Type: "registry", Ref: "cr/x:y", Direction: "export"},
+	}
+	out := "ERROR: failed to build: write /c/unit/next-h-12/oci-layout: no space left on device"
+	ref, ok := failedLocalExport(refs, out)
+	if !ok || ref.Ref != "/c/unit/next-h-12" {
+		t.Fatalf("ref=%v ok=%v", ref, ok)
+	}
+	if left := withoutRef(refs, ref); len(left) != 1 || left[0].Type != "registry" {
+		t.Errorf("retry exports = %v, want the registry export alone", left)
+	}
+	if _, ok := failedLocalExport(refs, "ERROR: process \"go build\" did not complete"); ok {
+		t.Error("a build failure is not an export failure")
+	}
+}

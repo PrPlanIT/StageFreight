@@ -471,3 +471,25 @@ func TestMain(m *testing.M) {
 	usedFraction = func(string) float64 { return 0.5 }
 	os.Exit(m.Run())
 }
+
+// Under pressure the daemon-side caches give way before the cache units builds import.
+func TestPlan_DaemonCachesGiveWayBeforeCacheUnits(t *testing.T) {
+	root := fakeCacheRoot(t)
+	old := usedFraction
+	t.Cleanup(func() { usedFraction = old })
+	usedFraction = func(string) float64 { return 0.95 }
+	cfg := &config.Config{}
+	cfg.BuildCache.Mode = "hybrid"
+	firstNamespace, lastOther := -1, -1
+	for i, a := range Plan(cfg, Options{CacheRoot: root, Target: DefaultTarget}) {
+		if a.Class == ClassNamespace && firstNamespace < 0 {
+			firstNamespace = i
+		}
+		if a.Class != ClassNamespace {
+			lastOther = i
+		}
+	}
+	if firstNamespace < 0 || lastOther < 0 || lastOther > firstNamespace {
+		t.Errorf("namespace actions start at %d, a daemon-side action runs at %d", firstNamespace, lastOther)
+	}
+}

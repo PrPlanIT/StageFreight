@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/build"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/postbuild"
 )
 
@@ -60,13 +62,51 @@ func buildStepWithRecovery(ctx context.Context, bx *Buildx, step build.BuildStep
 		}
 	}
 
-	if err == nil && len(step.CacheTo) > 0 {
+	// A local cache export is written through the client session, past BuildKit's
+	// ignore-error: one that fails takes the build with it.
+	if err != nil {
+		if ref, ok := failedLocalExport(step.CacheTo, stdoutBuf.String()+"\n"+stderrBuf.String()); ok {
+			_ = paths.RemoveAllWritable(ref.Ref)
+			retry := step
+			retry.CacheTo = withoutRef(step.CacheTo, ref)
+			stdoutBuf.Reset()
+			stderrBuf.Reset()
+			stepResult, layers, err = bx.BuildWithLayers(ctx, retry)
+			if stepResult == nil {
+				stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
+			}
+			stepResult.Layers = layers
+			stepResult.CacheNote = "cache not saved locally: export failed, rebuilt without it"
+		}
+	}
+
+	if err == nil && len(step.CacheTo) > 0 && stepResult.CacheNote == "" {
 		if reason := cacheExportFailure(stdoutBuf.String() + "\n" + stderrBuf.String()); reason != "" {
 			stepResult.CacheNote = "cache not saved: " + reason
 		}
 	}
 
 	return stepResult, err
+}
+
+// failedLocalExport returns the local cache export a failed build's output names.
+func failedLocalExport(refs []build.CacheRef, combinedOutput string) (build.CacheRef, bool) {
+	for _, r := range refs {
+		if r.Type == "local" && r.Direction == "export" && strings.Contains(combinedOutput, r.Ref) {
+			return r, true
+		}
+	}
+	return build.CacheRef{}, false
+}
+
+func withoutRef(refs []build.CacheRef, drop build.CacheRef) []build.CacheRef {
+	var out []build.CacheRef
+	for _, r := range refs {
+		if r != drop {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // executeBuildPass runs a single build pass and renders structured output.

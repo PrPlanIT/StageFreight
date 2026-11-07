@@ -25,6 +25,7 @@ package prune
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -272,6 +273,11 @@ func Plan(cfg *config.Config, opts Options) []Action {
 		}
 	}
 
+	// Daemon-side caches rebuild from the cache builds import, so they give way first;
+	// pressure measures what is left when it runs.
+	sort.SliceStable(actions, func(i, j int) bool {
+		return actions[i].Class != ClassNamespace && actions[j].Class == ClassNamespace
+	})
 	return actions
 }
 
