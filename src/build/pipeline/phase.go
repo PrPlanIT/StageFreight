@@ -13,6 +13,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/lint"
 	"github.com/PrPlanIT/StageFreight/src/lint/modules"
 	"github.com/PrPlanIT/StageFreight/src/output"
+	"github.com/PrPlanIT/StageFreight/src/output/layout"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/runner"
@@ -93,20 +94,20 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 
 	// ── Identity rows ──────────────────────────────────────────────────────────
 	// Engine + Run (InvocationID) always first and always paired.
-	sec.Row("%-12s%-20s%-10s%s", "Engine", string(report.Engine), "Run", report.InvocationID)
+	executorRow(sec, "Engine", string(report.Engine), "Run", report.InvocationID)
 
 	id := report.Identity
 	switch report.Engine {
 	case runner.EngineGitLab:
 		if id.PipelineID != "" || id.JobID != "" {
-			sec.Row("%-12s%-20s%-10s%s", "Pipeline", id.PipelineID, "Job", id.JobID)
+			executorRow(sec, "Pipeline", id.PipelineID, "Job", id.JobID)
 		}
 		if id.Name != "" {
 			sec.Row("%-12s%s", "Runner", id.Name)
 		}
 	case runner.EngineGitHub:
 		if id.Workflow != "" || id.JobID != "" {
-			sec.Row("%-12s%-20s%-10s%s", "Workflow", id.Workflow, "Job", id.JobID)
+			executorRow(sec, "Workflow", id.Workflow, "Job", id.JobID)
 		}
 		if id.Name != "" {
 			sec.Row("%-12s%s", "Runner", id.Name)
@@ -140,7 +141,7 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 		wsIcon = output.StatusIcon("failed", color)
 	}
 	diskIcon := runnerFindingIcon(report.Findings, color, "disk_critical", "disk_low")
-	sec.Row("%-12s%-20s%-10s%s", "workspace", wsLabel+" "+wsIcon, "free", formatRunnerMB(f.DiskFreeMB)+" "+diskIcon)
+	executorRow(sec, "workspace", wsLabel+" "+wsIcon, "free", formatRunnerMB(f.DiskFreeMB)+" "+diskIcon)
 
 	// memory + cpu
 	memVal := "-"
@@ -155,10 +156,10 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 	if f.CPULoadAvg1 >= 0 {
 		cpuVal = fmt.Sprintf("%.2f avg", f.CPULoadAvg1)
 	}
-	sec.Row("%-12s%-20s%-10s%s", "memory", strings.TrimSpace(memVal), "cpu", cpuVal)
+	executorRow(sec, "memory", strings.TrimSpace(memVal), "cpu", cpuVal)
 
 	// docker + buildkit — always rendered; severity affects icon/wording, not presence
-	sec.Row("%-12s%-20s%-10s%s", "docker",
+	executorRow(sec, "docker",
 		formatRunnerDockerStatus(f.DockerAvailable, opts.DockerRequired, color),
 		"buildkit",
 		formatRunnerBuildkitStatus(f.BuildKitAvailable, opts.BuildRequired, color))
@@ -168,7 +169,7 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 	if f.DindDetected {
 		dindLabel = "detected"
 	}
-	sec.Row("%-12s%-20s%-10s%s", "dind", dindLabel, "buildx",
+	executorRow(sec, "dind", dindLabel, "buildx",
 		formatRunnerBuildxStatus(f.BuildxAvailable))
 
 	sec.Separator()
@@ -219,6 +220,17 @@ func runnerFindingIcon(findings []runner.Finding, color bool, ids ...string) str
 	default:
 		return output.StatusIcon("success", color)
 	}
+}
+
+// executorRow writes one two-column row of the Executor panel. Values carry colored
+// icons, so the column is padded by visible width.
+func executorRow(sec *output.Section, label, left, key, right string) {
+	const leftWidth = 24
+	pad := leftWidth - layout.VisualWidth(left)
+	if pad < 1 {
+		pad = 1
+	}
+	sec.Row("%-12s%s%s%-10s%s", label, left, strings.Repeat(" ", pad), key, right)
 }
 
 func formatRunnerMB(mb int64) string {
