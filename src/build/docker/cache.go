@@ -64,6 +64,7 @@ func localFlags(repoID string, localCfg config.LocalCacheConfig) (cacheFrom, cac
 		return nil, nil
 	}
 	dir := LocalCacheDir(repoID, localCfg)
+	removeAbandonedExports(dir)
 	if _, err := os.Stat(filepath.Join(dir, localCurrent, "index.json")); err == nil {
 		cacheFrom = []build.CacheRef{{Type: "local", Ref: filepath.Join(dir, localCurrent), Direction: "import"}}
 	}
@@ -107,6 +108,23 @@ func externalFlags(ext config.ExternalCacheConfig, repoID, branch string, regist
 	return cacheFrom, cacheTo
 }
 
+// removeAbandonedExports drops the exports of runs that died before promoting, unless
+// another run holds the unit.
+func removeAbandonedExports(dir string) {
+	_, _ = paths.WithUnitExclusive(dir, func() error {
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range ents {
+			if e.IsDir() && strings.HasPrefix(e.Name(), localNextPrefix) {
+				_ = paths.RemoveAllWritable(filepath.Join(dir, e.Name()))
+			}
+		}
+		return nil
+	})
+}
+
 // localCurrent is the cache generation builds import from, inside a repo's local cache unit.
 const localCurrent = "current"
 
@@ -114,7 +132,8 @@ const localCurrent = "current"
 const localNextPrefix = "next-"
 
 func localNext(dir string) string {
-	return filepath.Join(dir, localNextPrefix+strconv.Itoa(os.Getpid()))
+	host, _ := os.Hostname() // a container's PID repeats across jobs sharing this directory
+	return filepath.Join(dir, localNextPrefix+host+"-"+strconv.Itoa(os.Getpid()))
 }
 
 // LocalCacheDir is the repo's local BuildKit cache unit: <path>/<repo-hash> when

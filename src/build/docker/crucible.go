@@ -35,7 +35,7 @@ func resolveBuildMode(req Request) string {
 }
 
 // buildStepWithRecovery builds one step, retrying once on a recoverable push
-// failure (vendor recovery) and once more without cache export if export failed.
+// failure (vendor recovery) and reporting a cache export BuildKit ignored.
 // Buffers are reset before each attempt; the returned StepResult is never nil.
 func buildStepWithRecovery(ctx context.Context, bx *Buildx, step build.BuildStep, stdoutBuf, stderrBuf *bytes.Buffer) (*build.StepResult, error) {
 	stdoutBuf.Reset()
@@ -60,17 +60,10 @@ func buildStepWithRecovery(ctx context.Context, bx *Buildx, step build.BuildStep
 		}
 	}
 
-	if err != nil && len(step.CacheTo) > 0 && isCacheExportError(err, stdoutBuf.String()+"\n"+stderrBuf.String()) {
-		diag.Warn("cache export failed — retrying build without cache export")
-		retry := step
-		retry.CacheTo = nil
-		stdoutBuf.Reset()
-		stderrBuf.Reset()
-		stepResult, layers, err = bx.BuildWithLayers(ctx, retry)
-		if stepResult == nil {
-			stepResult = &build.StepResult{Name: step.Name, Status: "failed"}
+	if err == nil && len(step.CacheTo) > 0 {
+		if reason := cacheExportFailure(stdoutBuf.String() + "\n" + stderrBuf.String()); reason != "" {
+			diag.Warn("%s: build kept, cache not saved: %s", step.Name, reason)
 		}
-		stepResult.Layers = layers
 	}
 
 	return stepResult, err

@@ -35,6 +35,7 @@ func buildRetainRecord(rc *domains.RunContext, plan *build.BuildPlan, label stri
 	}
 	cleanup := setupTransportPlan(plan, store, rc.RootDir)
 	defer cleanup()
+	loginForCacheExport(rc.Ctx, plan.Steps)
 
 	result, err := executeBuildPass(rc.Ctx, rc.Writer, rc.Color, rc.Verbose, rc.Stderr, label, plan, "")
 	if err != nil {
@@ -160,14 +161,19 @@ func runPostBuildRetention(rc *domains.RunContext, plan *build.BuildPlan, backen
 			fmt.Fprintf(w, "    ⚠ cache prune failed — retention policy not enforced: %v\n", pruneResult.Error)
 		}
 	}
-	if bc := rc.Config.BuildCache; bc.IsActive() && (bc.Mode == "local" || bc.Mode == "hybrid") {
-		if dir := LocalCacheDir(repoID, bc.Local); dir != "" {
-			renderLocalRetention(w, color, promoteLocalCache(dir, bc.Local.Retention))
+	if plan != nil {
+		for _, step := range plan.Steps {
+			scope := cacheScope(repoID, step.Name)
+			if bc := rc.Config.BuildCache; bc.IsActive() && (bc.Mode == "local" || bc.Mode == "hybrid") {
+				if dir := LocalCacheDir(scope, bc.Local); dir != "" {
+					renderLocalRetention(w, color, promoteLocalCache(dir, bc.Local.Retention))
+				}
+			}
+			ext := rc.Config.BuildCache.External
+			if ext.Registry != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {
+				renderExternalRetention(w, color, enforceExternalRetention(ctx, ext, scope, rc.Config.Registries, rc.Config.Vars))
+			}
 		}
-	}
-	ext := rc.Config.BuildCache.External
-	if ext.Registry != "" && (ext.Retention.MaxRefs > 0 || ext.Retention.StaleAge != "") {
-		renderExternalRetention(w, color, enforceExternalRetention(ctx, ext, repoID, rc.Config.Registries, rc.Config.Vars))
 	}
 
 	// ── Image Retention ──
@@ -239,6 +245,41 @@ func contentStoreRows(records []RetainedArtifact) []string {
 		rows = append(rows, fmt.Sprintf("%-9s retained %s · %s · deferred to publish", "docker", r.Name, r.Digest))
 	}
 	return rows
+}
+
+// loginForCacheExport logs buildx into the registries that steps which push nothing still
+// export build cache to. A failed login drops that export; the build does not need it.
+func loginForCacheExport(ctx context.Context, steps []build.BuildStep) {
+	bx := NewBuildx(false)
+	bx.Stdout = io.Discard
+	bx.Stderr = io.Discard
+	for i := range steps {
+		if steps[i].Push {
+			continue
+		}
+		var kept []build.CacheRef
+		for _, ref := range steps[i].CacheTo {
+			if ref.Type == "registry" {
+				if err := bx.Login(ctx, registriesOf(ref, steps[i].Registries)); err != nil {
+					diag.Warn("%s: build cache export skipped: %v", steps[i].Name, err)
+					continue
+				}
+			}
+			kept = append(kept, ref)
+		}
+		steps[i].CacheTo = kept
+	}
+}
+
+// registriesOf returns the targets on the registry a cache ref names.
+func registriesOf(ref build.CacheRef, targets []build.RegistryTarget) []build.RegistryTarget {
+	var out []build.RegistryTarget
+	for _, t := range targets {
+		if strings.HasPrefix(ref.Ref, t.URL+"/") {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // loginForPushSteps logs buildx into the remote registries of the first pushing

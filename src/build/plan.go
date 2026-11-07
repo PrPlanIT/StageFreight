@@ -76,6 +76,10 @@ func (c CacheRef) Flag() string {
 	if c.Mode != "" {
 		f += ",mode=" + c.Mode
 	}
+	if c.Direction == "export" {
+		// A failed export costs the cache, never the build.
+		f += ",ignore-error=true"
+	}
 	return f
 }
 

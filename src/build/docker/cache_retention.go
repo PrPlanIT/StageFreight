@@ -31,6 +31,13 @@ func promoteLocalCache(dir string, retention config.LocalRetention) LocalRetenti
 		result.Reason = "no cache exported by this build"
 		return result
 	}
+	if _, err := os.Stat(filepath.Join(next, "index.json")); err != nil {
+		result.Reason = "cache export incomplete — discarded"
+		if rmErr := paths.RemoveAllWritable(next); rmErr != nil {
+			result.Reason = "cache export incomplete — not removed: " + rmErr.Error()
+		}
+		return result
+	}
 	ran, err := paths.WithUnitExclusive(dir, func() error {
 		size := dirSize(next)
 		if max, perr := config.ParseSize(retention.MaxSize); perr == nil && max > 0 && size > max {
@@ -107,6 +114,12 @@ func formatBytes(b int64) string {
 // resolveRepoIDFromContext extracts a repo identifier from pipeline context.
 func resolveRepoIDFromContext(pc *pipeline.PipelineContext) string {
 	return repoIdentity(pc.Config)
+}
+
+// cacheScope is the cache identity of one build in a repo. Builds export under the same
+// tag otherwise, each overwriting the last.
+func cacheScope(repoID, buildName string) string {
+	return repoID + "#" + buildName
 }
 
 // repoIdentity names the repo for cache scoping. Imports, exports, promotion and

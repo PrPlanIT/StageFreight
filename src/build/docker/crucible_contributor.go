@@ -52,7 +52,6 @@ type crucibleContributor struct {
 	det           *build.Detection
 	plan          *build.BuildPlan
 	builderInfo   BuilderInfo
-	cacheTo       []build.CacheRef
 
 	// workDir holds the pass layouts and extracted binaries; one layout per step per pass.
 	workDir          string
@@ -201,21 +200,7 @@ func (c *crucibleContributor) Build(rc *domains.RunContext) (domains.Contributio
 	// self-hosted CI. Resolved once so candidate, self-proof, and the shipped artifact
 	// all carry the same, correct revision.
 	sfVer, sfCommit := build.ResolveImageStamp(c.rootDir, rc.Config)
-	if rc.Config.BuildCache.IsActive() {
-		versionInfo, _ := build.DetectVersion(c.rootDir, rc.Config)
-		cacheRepoID := resolveRepoIDFromContext(pc)
-		cacheBranch := ""
-		if versionInfo != nil {
-			cacheBranch = versionInfo.Branch
-		}
-		if bch := os.Getenv("CI_COMMIT_BRANCH"); bch != "" && cacheBranch == "" {
-			cacheBranch = bch
-		}
-		if cacheBranch == "" {
-			cacheBranch = "default"
-		}
-		_, c.cacheTo = BuildCacheFlags(rc.Config.BuildCache, cacheRepoID, cacheBranch, rc.Config.Registries, rc.Config.Vars)
-	}
+	loginForCacheExport(ctx, c.plan.Steps)
 
 	c.workDir = filepath.Join(c.rootDir, ".stagefreight", "crucible-"+c.runID)
 
@@ -480,7 +465,7 @@ func (c *crucibleContributor) Publish(rc *domains.RunContext) (domains.Contribut
 			load, push := crucibleStepOutput(rc.Local, transport)
 			publishPlan.Steps[i].Load = load
 			publishPlan.Steps[i].Push = push
-			publishPlan.Steps[i].CacheTo = exportableCacheTo(c.cacheTo, push)
+			publishPlan.Steps[i].CacheTo = exportableCacheTo(publishPlan.Steps[i].CacheTo, rc.Local)
 		}
 		// Same source-of-truth stamp as the build passes: the shipped artifact's labels
 		// name the repo under build, not the orchestrator. Promotion (publish_promote.go)

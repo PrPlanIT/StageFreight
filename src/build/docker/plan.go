@@ -40,16 +40,16 @@ func applyImageBuildStrategy(plan *build.BuildPlan, transport, local, retainViaC
 		default:
 			step.Push = true
 		}
-		step.CacheTo = exportableCacheTo(step.CacheTo, step.Push)
+		step.CacheTo = exportableCacheTo(step.CacheTo, local)
 	}
 }
 
-// exportableCacheTo keeps local cache exports always, and registry exports only for a
-// pushing step: registry login happens for push steps alone.
-func exportableCacheTo(refs []build.CacheRef, push bool) []build.CacheRef {
+// exportableCacheTo keeps every cache export a CI build can write; a local build has no
+// registry credentials, so it keeps local exports alone.
+func exportableCacheTo(refs []build.CacheRef, local bool) []build.CacheRef {
 	var out []build.CacheRef
 	for _, r := range refs {
-		if r.Type == "registry" && !push {
+		if r.Type == "registry" && local {
 			continue
 		}
 		out = append(out, r)

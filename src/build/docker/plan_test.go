@@ -110,7 +110,7 @@ func TestDaemonLoadSteps(t *testing.T) {
 	}
 }
 
-// Local cache exports on every strategy; registry cache only from a pushing step.
+// Local cache exports on every strategy; registry cache on every CI strategy.
 func TestApplyImageBuildStrategy_CacheExports(t *testing.T) {
 	local := build.CacheRef{Type: "local", Ref: "/stagefreight/cache/buildkit/x", Direction: "export"}
 	reg := build.CacheRef{Type: "registry", Ref: "cr.example/cache:x", Direction: "export"}
@@ -119,7 +119,7 @@ func TestApplyImageBuildStrategy_CacheExports(t *testing.T) {
 		transport, local, retainViaCAS bool
 		wantTypes                      []string
 	}{
-		{"transport + CAS (k8s or docker runner): local only", true, false, true, []string{"local"}},
+		{"transport + CAS (k8s or docker runner): local and registry", true, false, true, []string{"local", "registry"}},
 		{"in-build push: local and registry", false, false, false, []string{"local", "registry"}},
 		{"--local load: local only", false, true, false, []string{"local"}},
 	}

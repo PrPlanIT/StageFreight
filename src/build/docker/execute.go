@@ -105,15 +105,15 @@ func persistArtifactsRecords(plan *build.BuildPlan, outputs *artifact.OutputsMan
 	return records
 }
 
-// isCacheExportError returns true if the build failure is caused by cache export
-// (auth, network, permission) rather than the actual build. Cache export failures
-// should never break builds — the build is retried without --cache-to.
-func isCacheExportError(err error, combinedOutput string) bool {
-	lower := strings.ToLower(combinedOutput)
-	return strings.Contains(lower, "exporting cache") ||
-		strings.Contains(lower, "failed to export cache") ||
-		strings.Contains(lower, "error writing layer blob") ||
-		strings.Contains(lower, "insufficient_scope")
+// cacheExportFailure returns the error BuildKit reported and ignored for a cache export
+// in a build that succeeded, "" when there was none.
+func cacheExportFailure(combinedOutput string) string {
+	for _, line := range strings.Split(combinedOutput, "\n") {
+		if _, reason, ok := strings.Cut(line, "ERROR: "); ok {
+			return strings.TrimSpace(reason)
+		}
+	}
+	return ""
 }
 
 // setupTransportPlan stages digest-capture metadata and, when the store requires
