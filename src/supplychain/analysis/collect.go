@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
+	"github.com/PrPlanIT/StageFreight/src/supplychain/version"
 )
 
 // ObserveDependencies turns the OSV-API vulnerabilities already correlated onto
@@ -97,7 +98,7 @@ func scanLockfile(ctx context.Context, binPath string, env []string, absPath, re
 					Version:   pkg.Package.Version,
 					Ecosystem: pkg.Package.Ecosystem,
 					Severity:  scoreToLabel(group.MaxSeverity),
-					FixedIn:   vulnFixedIn(primaryID, pkg.Vulnerabilities, pkg.Package.Name),
+					FixedIn:   vulnFixedIn(primaryID, pkg.Vulnerabilities, pkg.Package.Name, pkg.Package.Version, pkg.Package.Ecosystem),
 					Summary:   vulnSummary(group.IDs, pkg.Vulnerabilities),
 					File:      rel,
 					Surface:   SurfaceSource,
@@ -178,8 +179,10 @@ type osvVuln struct {
 	Aliases  []string `json:"aliases"`
 	Affected []struct {
 		Ranges []struct {
+			Type   string `json:"type"`
 			Events []struct {
-				Fixed string `json:"fixed,omitempty"`
+				Introduced string `json:"introduced,omitempty"`
+				Fixed      string `json:"fixed,omitempty"`
 			} `json:"events"`
 		} `json:"ranges"`
 		Package *osvPkgInfo `json:"package"`
@@ -236,7 +239,8 @@ func vulnSummary(ids []string, vulns []osvVuln) string {
 
 // vulnFixedIn extracts the earliest fixed version for the given vuln/package.
 // Relocated from the former osv lint module.
-func vulnFixedIn(id string, vulns []osvVuln, pkgName string) string {
+func vulnFixedIn(id string, vulns []osvVuln, pkgName, installed, ecosystem string) string {
+	var ranges [][]version.OSVEvent
 	for _, v := range vulns {
 		if v.ID != id {
 			continue
@@ -246,15 +250,18 @@ func vulnFixedIn(id string, vulns []osvVuln, pkgName string) string {
 				continue
 			}
 			for _, r := range a.Ranges {
-				for _, e := range r.Events {
-					if e.Fixed != "" {
-						return e.Fixed
-					}
+				if r.Type == "GIT" {
+					continue
 				}
+				var evs []version.OSVEvent
+				for _, e := range r.Events {
+					evs = append(evs, version.OSVEvent{Introduced: e.Introduced, Fixed: e.Fixed})
+				}
+				ranges = append(ranges, evs)
 			}
 		}
 	}
-	return ""
+	return version.FixFor(installed, ecosystem, ranges)
 }
 
 // scoreToLabel maps an osv-scanner CVSS numeric score string to the OSV severity

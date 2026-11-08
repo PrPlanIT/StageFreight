@@ -253,7 +253,7 @@ func (m *Resolver) applyVuln(dep *supplychain.Dependency, v osvVuln, osvEco, osv
 		Aliases:  v.Aliases,
 		Summary:  v.Summary,
 		Severity: extractHighestSeverity(v.Severity),
-		FixedIn:  extractFixedVersion(v.Affected, osvName, osvEco),
+		FixedIn:  extractFixedVersion(v.Affected, osvName, osvEco, depVersion),
 		Source:   "osv",
 	}
 	// Skip vulns already fixed in the installed version.
@@ -355,7 +355,8 @@ func parseCVSSBaseScore(vector string) float64 {
 }
 
 // extractFixedVersion finds the earliest fixed version from affected ranges.
-func extractFixedVersion(affected []osvAffected, name, ecosystem string) string {
+func extractFixedVersion(affected []osvAffected, name, ecosystem, installed string) string {
+	var ranges [][]version.OSVEvent
 	for _, a := range affected {
 		if a.Package == nil {
 			continue
@@ -364,12 +365,15 @@ func extractFixedVersion(affected []osvAffected, name, ecosystem string) string 
 			continue
 		}
 		for _, r := range a.Ranges {
-			for _, e := range r.Events {
-				if e.Fixed != "" {
-					return e.Fixed
-				}
+			if r.Type == "GIT" {
+				continue
 			}
+			var evs []version.OSVEvent
+			for _, e := range r.Events {
+				evs = append(evs, version.OSVEvent{Introduced: e.Introduced, Fixed: e.Fixed})
+			}
+			ranges = append(ranges, evs)
 		}
 	}
-	return ""
+	return version.FixFor(installed, ecosystem, ranges)
 }
