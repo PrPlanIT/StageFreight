@@ -93,57 +93,48 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 	sec := output.NewSection(w, "Executor", elapsed, color)
 
 	// ── Identity rows ──────────────────────────────────────────────────────────
-	// Engine + Run (InvocationID) always first and always paired.
-	executorRow(sec, "Engine", string(report.Engine), "Run", report.InvocationID)
-
+	// Who ran it on the left; which run it was on the right. A CI engine's run is its
+	// pipeline, so one id row carries it; only a local run has an id of its own.
 	id := report.Identity
+	who := []executorCell{{"Engine", string(report.Engine)}}
+	var which []executorCell
 	switch report.Engine {
-	case runner.EngineGitLab:
-		if id.PipelineID != "" || id.JobID != "" {
-			executorRow(sec, "Pipeline", id.PipelineID, "Job", id.JobID)
-		}
+	case runner.EngineGitLab, runner.EngineForgejo, runner.EngineGitea:
+		which = append(which, executorCell{"Pipeline", report.InvocationID})
+	default:
+		which = append(which, executorCell{"Run", report.InvocationID})
+	}
+	switch report.Engine {
+	case runner.EngineGitLab, runner.EngineGitHub, runner.EngineForgejo, runner.EngineGitea:
 		if id.Name != "" {
-			sec.Row("%-12s%s", "Runner", id.Name)
+			who = append(who, executorCell{"Runner", id.Name})
 		}
-	case runner.EngineGitHub:
-		if id.Workflow != "" || id.JobID != "" {
-			executorRow(sec, "Workflow", id.Workflow, "Job", id.JobID)
+		if id.Workflow != "" {
+			who = append(who, executorCell{"Workflow", id.Workflow})
 		}
-		if id.Name != "" {
-			sec.Row("%-12s%s", "Runner", id.Name)
-		}
-	case runner.EngineForgejo, runner.EngineGitea:
-		if id.PipelineID != "" {
-			sec.Row("%-12s%s", "Pipeline", id.PipelineID)
-		}
-		if id.Name != "" {
-			sec.Row("%-12s%s", "Runner", id.Name)
+		if id.JobID != "" {
+			which = append(which, executorCell{"Job", id.JobID})
 		}
 	case runner.EngineStageFreight:
 		if id.Controller != "" {
-			sec.Row("%-12s%s", "Controller", id.Controller)
+			who = append(who, executorCell{"Controller", id.Controller})
 		}
 		if id.Satellite != "" {
-			sec.Row("%-12s%s", "Satellite", id.Satellite)
+			who = append(who, executorCell{"Satellite", id.Satellite})
 		}
 	}
+	executorColumns(sec, who, which)
 
 	sec.Separator()
 
 	// ── Substrate rows ─────────────────────────────────────────────────────────
+	// The host on the left; the container toolchain on the right.
 	f := report.Facts
 
-	// workspace + free
-	wsLabel := "writable"
-	wsIcon := output.StatusIcon("success", color)
-	if !f.StagefreightWritable {
-		wsLabel = "not writable"
-		wsIcon = output.StatusIcon("failed", color)
+	cpuVal := "-"
+	if f.CPULoadAvg1 >= 0 {
+		cpuVal = fmt.Sprintf("%.2f avg", f.CPULoadAvg1)
 	}
-	diskIcon := runnerFindingIcon(report.Findings, color, "disk_critical", "disk_low")
-	executorRow(sec, "workspace", wsLabel+" "+wsIcon, "free", formatRunnerMB(f.DiskFreeMB)+" "+diskIcon)
-
-	// memory + cpu
 	memVal := "-"
 	if f.MemAvailableMB >= 0 {
 		memIcon := runnerFindingIcon(report.Findings, color, "memory_low")
@@ -152,25 +143,36 @@ func RenderExecutorSection(w io.Writer, report runner.ExecutionReport, opts runn
 			memVal = formatRunnerMB(f.MemAvailableMB) + " of " + formatRunnerMB(f.MemLimitMB) + " " + memIcon
 		}
 	}
-	cpuVal := "-"
-	if f.CPULoadAvg1 >= 0 {
-		cpuVal = fmt.Sprintf("%.2f avg", f.CPULoadAvg1)
+	diskVal := formatRunnerMB(f.DiskFreeMB)
+	if f.DiskFreeMB >= 0 {
+		diskVal += " free"
 	}
-	executorRow(sec, "memory", strings.TrimSpace(memVal), "cpu", cpuVal)
-
-	// docker + buildkit — always rendered; severity affects icon/wording, not presence
-	executorRow(sec, "docker",
-		formatRunnerDockerStatus(f.DockerAvailable, opts.DockerRequired, color),
-		"buildkit",
-		formatRunnerBuildkitStatus(f.BuildKitAvailable, opts.BuildRequired, color))
-
-	// dind + buildx — always rendered; both are informational (no icon — Rule 10)
+	diskVal += " " + runnerFindingIcon(report.Findings, color, "disk_critical", "disk_low")
+	wsLabel := "writable"
+	wsIcon := output.StatusIcon("success", color)
+	if !f.StagefreightWritable {
+		wsLabel = "not writable"
+		wsIcon = output.StatusIcon("failed", color)
+	}
+	// docker + buildkit — always rendered; severity affects icon/wording, not presence.
+	// dind + buildx — always rendered; both are informational (no icon — Rule 10).
 	dindLabel := "not detected"
 	if f.DindDetected {
 		dindLabel = "detected"
 	}
-	executorRow(sec, "dind", dindLabel, "buildx",
-		formatRunnerBuildxStatus(f.BuildxAvailable))
+	executorColumns(sec,
+		[]executorCell{
+			{"cpu", cpuVal},
+			{"memory", strings.TrimSpace(memVal)},
+			{"disk", diskVal},
+			{"workspace", wsLabel + " " + wsIcon},
+		},
+		[]executorCell{
+			{"buildkit", formatRunnerBuildkitStatus(f.BuildKitAvailable, opts.BuildRequired, color)},
+			{"buildx", formatRunnerBuildxStatus(f.BuildxAvailable)},
+			{"dind", dindLabel},
+			{"docker", formatRunnerDockerStatus(f.DockerAvailable, opts.DockerRequired, color)},
+		})
 
 	sec.Separator()
 
@@ -219,6 +221,28 @@ func runnerFindingIcon(findings []runner.Finding, color bool, ids ...string) str
 		return output.StatusIcon("warning", color)
 	default:
 		return output.StatusIcon("success", color)
+	}
+}
+
+// executorCell is one label and value in the Executor panel.
+type executorCell struct{ label, value string }
+
+// executorColumns writes two columns of cells side by side, row by row; the shorter
+// column leaves its side blank.
+func executorColumns(sec *output.Section, left, right []executorCell) {
+	for i := 0; i < len(left) || i < len(right); i++ {
+		var l, r executorCell
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		if r.label == "" {
+			sec.Row("%-12s%s", l.label, l.value)
+			continue
+		}
+		executorRow(sec, l.label, l.value, r.label, r.value)
 	}
 }
 
