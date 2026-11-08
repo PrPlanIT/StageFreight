@@ -101,7 +101,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		seedListing(t, cfg, "1.164.1", "1.163.0", "1.162.0")
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if !deps[0].TrackGoverned || deps[0].ResolvedTarget != "v1.164.1" {
 			t.Fatalf("got governed=%v target=%q (want true, v1.164.1)", deps[0].TrackGoverned, deps[0].ResolvedTarget)
 		}
@@ -112,7 +112,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		seedListing(t, cfg, "2.0.0", "1.164.1", "1.162.0")
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].ResolvedTarget != "v1.164.1" {
 			t.Fatalf("a new major must be held; target=%q (want v1.164.1)", deps[0].ResolvedTarget)
 		}
@@ -123,7 +123,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		seedListing(t, cfg, "2.1.0", "2.0.0", "1.164.1")
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.164.1")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].ResolvedTarget != "v2.1.0" {
 			t.Fatalf("track: synapse@2 must adopt 2.x; target=%q (want v2.1.0)", deps[0].ResolvedTarget)
 		}
@@ -134,7 +134,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		seedListing(t, cfg, "1.164.1", "1.162.0")
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.164.1")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].ResolvedTarget != "" || !deps[0].TrackGoverned {
 			t.Fatalf("got target=%q governed=%v (want \"\", true)", deps[0].ResolvedTarget, deps[0].TrackGoverned)
 		}
@@ -147,7 +147,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		dep := synapseBase("v1.162.0")
 		dep.PinnedDigest = "sha256:old162"
 		deps := []supplychain.Dependency{dep}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].ResolvedTarget != "v1.164.1" || deps[0].ResolvedDigest != "sha256:v1.164.1" {
 			t.Fatalf("got target=%q digest=%q (want v1.164.1, sha256:v1.164.1)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
 		}
@@ -163,7 +163,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		dep := synapseBase("1.162.0") // no v
 		dep.PinnedDigest = "sha256:old162"
 		deps := []supplychain.Dependency{dep}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].ResolvedTarget != "1.164.1" || deps[0].ResolvedDigest != "sha256:v1.164.1" {
 			t.Fatalf("got target=%q digest=%q (want 1.164.1 — no-v style preserved — and sha256:v1.164.1 — digest from the real v-tag)", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
 		}
@@ -178,7 +178,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		dep := synapseBase("v1.162.0")
 		dep.PinnedDigest = "sha256:old162"
 		deps := []supplychain.Dependency{dep}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].ResolvedTarget != "" || deps[0].ResolvedDigest != "" {
 			t.Fatalf("an unresolved digest must hold the bump; got target=%q digest=%q", deps[0].ResolvedTarget, deps[0].ResolvedDigest)
 		}
@@ -192,7 +192,7 @@ func TestAnnotateTrackedBase(t *testing.T) {
 		cfg.Upstream.Sources[0].Image = ""
 		cfg.Upstream.Sources[0].Git = "https://github.com/element-hq/synapse"
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, nil, nil)
 		if deps[0].TrackGoverned || deps[0].ResolvedTarget != "" {
 			t.Fatalf("a git-source track must not govern a base image; got governed=%v target=%q", deps[0].TrackGoverned, deps[0].ResolvedTarget)
 		}
@@ -216,7 +216,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		})()
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{}, nil)
 		if deps[0].ResolvedTarget != "v1.164.1" {
 			t.Fatalf("a month-old release must adopt despite a 7d follow window; target=%q (want v1.164.1)", deps[0].ResolvedTarget)
 		}
@@ -231,7 +231,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		})()
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{}, nil)
 		if deps[0].ResolvedTarget != "" || deps[0].CooldownHeld != "v1.164.1" {
 			t.Fatalf("a day-old release must be held by the 7d window; target=%q held=%q", deps[0].ResolvedTarget, deps[0].CooldownHeld)
 		}
@@ -247,7 +247,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		})()
 		defer stubDigestByTag(t)()
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{})
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, &upstream.Lock{}, nil)
 		if deps[0].ResolvedTarget != "v1.164.1" {
 			t.Fatalf("the dedicated follow knob (1h) must win over dependency.min_release_age (30d); target=%q", deps[0].ResolvedTarget)
 		}
@@ -266,7 +266,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 		old := now.Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
 		lock := &upstream.Lock{Sources: []upstream.LockSource{{ID: "synapse", FirstSeen: map[string]string{"1.164.1": old}}}}
 		deps := []supplychain.Dependency{synapseBase("v1.162.0")}
-		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, lock)
+		annotateTrackedBase(context.Background(), cfg, t.TempDir(), deps, now, lock, nil)
 		if deps[0].ResolvedTarget != "v1.164.1" {
 			t.Fatalf("an undated image must fall back to the lock's first-sighting; target=%q (want v1.164.1)", deps[0].ResolvedTarget)
 		}

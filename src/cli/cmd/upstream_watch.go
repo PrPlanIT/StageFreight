@@ -10,6 +10,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/cistate"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
+	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/upstream"
 )
 
@@ -34,7 +35,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 
 	sources, err := upstream.Sources(u, rootDir)
 	if err != nil {
-		return recordUpstreamFailure(rootDir, guarding, err)
+		return recordUpstreamFailure(rootDir, guarding, nil, err)
 	}
 	var ours []string
 	ourCommits := map[string]string{}
@@ -48,6 +49,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 	}
 
 	var (
+		rows     upstreamRows
 		signals  []string
 		failures []string
 		unparsed int
@@ -61,33 +63,33 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		l := listUpstream(ctx, src)
 		if err := l.err; err != nil {
 			if guarding && src.ID == claimed {
-				return recordUpstreamFailure(rootDir, true, err)
+				return recordUpstreamFailure(rootDir, true, rows, err)
 			}
 			if src.Lifecycle != config.LifecycleActive {
-				fmt.Printf("  upstream: %s (%s) not listed: %v\n", src, src.Lifecycle, err)
+				rows.add(src.ID, "%s, not listed: %v", src.Lifecycle, err)
 				continue
 			}
-			fmt.Printf("  upstream: %s not listed: %v\n", src, err)
+			rows.add(src.ID, "not listed: %v", err)
 			failures = append(failures, src.ID)
 			signals = appendOnce(signals, config.SignalUpstreamUnreachable)
 			continue
 		}
 		if behind := mirrorBehind(ctx, src, l.releases); behind != "" {
-			fmt.Printf("  upstream: %s lags its origin %s, which has released %s\n", src, src.MirrorOf, behind)
+			rows.add(src.ID, "lags its origin %s, which has released %s", src.MirrorOf, behind)
 			facts[src.ID+".mirror_behind"] = behind
 			signals = appendOnce(signals, config.SignalMirrorBehind)
 		}
 		releases, bad := l.releases, l.unparsed
 		unparsed += len(bad)
 		if len(bad) > 0 {
-			fmt.Printf("  upstream: %s: %d tag(s) selected but not a version, ignored: %s\n", src, len(bad), sample(bad, 5))
+			rows.add(src.ID, "%d tag(s) selected but not a version, ignored: %s", len(bad), sample(bad, 5))
 		}
 		latest := "none"
 		if len(releases) > 0 {
 			latest = releases[0].Tag
 		}
 		facts[src.ID+".latest"] = latest
-		fmt.Printf("  upstream: %s — newest %s\n", src, latest)
+		rows.add(src.ID, "newest %s · %s %s", latest, src.Kind, src.Location)
 
 		if src.ID != claimed {
 			continue
@@ -99,11 +101,11 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		rep := upstream.Evaluate(claim, releases, ours, ourCommits)
 		facts["source"], facts["latest"], facts["ours"] = src.ID, latest, orNone(rep.OursNewest)
 		if rep.UpdatesAvailable {
-			fmt.Printf("  upstream: %s released %s, newer than ours (%s)\n", src, latest, orNone(rep.OursNewest))
+			rows.add(src.ID, "released %s, newer than ours (%s)", latest, orNone(rep.OursNewest))
 			signals = appendOnce(signals, config.SignalUpdatesAvailable)
 		}
 		if len(rep.Mismatched) > 0 {
-			fmt.Printf("  upstream: our tags make a false %s claim about %s: %s\n", mode, src, strings.Join(rep.Mismatched, ", "))
+			rows.add(src.ID, "our tags make a false %s claim: %s", mode, strings.Join(rep.Mismatched, ", "))
 			signals = appendOnce(signals, config.SignalVersionMismatch)
 			facts["mismatched"] = strings.Join(rep.Mismatched, ",")
 		}
@@ -117,7 +119,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 			switch {
 			case reason == "":
 			case config.EffectiveOnMismatch(u.Version.OnMismatch) == config.UpstreamReport:
-				fmt.Printf("  upstream: release claim is false, shipping anyway (on_mismatch: report — %s): %s\n", u.Version.Reason, reason)
+				rows.add("release", "claim is false, shipping anyway (on_mismatch: report — %s): %s", u.Version.Reason, reason)
 				signals = appendOnce(signals, config.SignalVersionMismatch)
 				facts["mismatched"] = strings.Trim(facts["mismatched"]+","+releaseTag, ",")
 			default:
@@ -138,9 +140,9 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 		sub.Outcome, sub.Reason = "warning", "upstream not listed: "+strings.Join(failures, ", ")
 	}
 	if refuse != "" {
-		fmt.Printf("  upstream: refusing release — %s\n", refuse)
-		sub.Outcome, sub.Reason, sub.AllowFailure = "failed", refuse, false
+		sub.Outcome, sub.Reason, sub.AllowFailure = "failed", "refusing release — "+refuse, false
 	}
+	renderWatch(rows, sub)
 	recordSubsystemOutcome(rootDir, sub)
 	return refuse
 }
@@ -148,7 +150,7 @@ func watchUpstream(ctx context.Context, appCfg *config.Config, rootDir string) (
 // recordUpstreamFailure records a run in which upstream could not be watched. A claimed release
 // cannot be verified without the listing, so it is refused; any other run only degrades to a
 // warning.
-func recordUpstreamFailure(rootDir string, guarding bool, err error) string {
+func recordUpstreamFailure(rootDir string, guarding bool, rows upstreamRows, err error) string {
 	sub := cistate.SubsystemState{
 		Name: "upstream", Attempted: true, Completed: true, AllowFailure: true,
 		Outcome: "warning", Reason: fmt.Sprintf("upstream not watched: %v", err),
@@ -159,9 +161,15 @@ func recordUpstreamFailure(rootDir string, guarding bool, err error) string {
 		refuse = fmt.Sprintf("cannot verify the release version against upstream: %v", err)
 		sub.Outcome, sub.Reason, sub.AllowFailure = "failed", refuse, false
 	}
-	fmt.Printf("  upstream: %s\n", sub.Reason)
+	renderWatch(rows, sub)
 	recordSubsystemOutcome(rootDir, sub)
 	return refuse
+}
+
+// renderWatch draws the watch's Upstream section: what each source holds, then the verdict.
+func renderWatch(rows upstreamRows, sub cistate.SubsystemState) {
+	rows.add("result", "%s %s", output.StatusIcon(sub.Outcome, output.UseColor()), sub.Reason)
+	rows.render()
 }
 
 func appendOnce(list []string, v string) []string {

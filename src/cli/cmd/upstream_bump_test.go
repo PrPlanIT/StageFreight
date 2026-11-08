@@ -30,13 +30,13 @@ func TestPickTarget_Cooldown(t *testing.T) {
 	newer := releasesOf(t, "2.22.0", "2.21.6")
 	now := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
 
-	if target, held := pickTarget(newer, nil, "core", 0, now, new(bool)); target.Raw != "2.22.0" || held != nil {
+	if target, held := pickTarget(newer, nil, "core", 0, now, new(bool), nil); target.Raw != "2.22.0" || held != nil {
 		t.Fatalf("no cooldown: the newest release")
 	}
 	lock := &upstream.Lock{}
 	lock.Observe("core", []string{"2.21.6"}, now.Add(-96*time.Hour))
 	changed := false
-	target, held := pickTarget(newer, lock, "core", 72*time.Hour, now, &changed)
+	target, held := pickTarget(newer, lock, "core", 72*time.Hour, now, &changed, nil)
 	if target == nil || target.Raw != "2.21.6" || held == nil || held.Raw != "2.22.0" || !changed {
 		t.Fatalf("2.21.6 is old enough, 2.22.0 was just seen and is held: target=%v held=%v changed=%v", target, held, changed)
 	}
@@ -226,14 +226,14 @@ func TestFollowAlpine_NewLineMovesBaseAndPinTogether(t *testing.T) {
 	cfg.Dependency.MaxUpdate = "patch"
 	seedAlpine(t, cfg, root, []string{"4.0.0", "3.25.1", "3.24.4"}, map[string][]string{"v3.25/main": {"1.32.1-r2"}})
 
-	moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+	moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil, nil)
 	if deps[0].ResolvedTarget != "3.25.1" || !deps[0].TrackGoverned {
 		t.Fatalf("base follows the newest release in its major, uncapped: %+v", deps[0])
 	}
 	if moved["nginx"] != "v3.25/main" {
 		t.Fatalf("moved = %v", moved)
 	}
-	pins, _, _ := upstreamPinDeps(t.Context(), cfg, root, time.Now(), nil, moved)
+	pins, _, _ := upstreamPinDeps(t.Context(), cfg, root, time.Now(), nil, moved, nil)
 	if len(pins) != 1 || pins[0].Latest != "1.32.1-r2" || !pins[0].TrackGoverned {
 		t.Fatalf("the pin moves with it, uncapped: %+v", pins)
 	}
@@ -242,7 +242,7 @@ func TestFollowAlpine_NewLineMovesBaseAndPinTogether(t *testing.T) {
 func TestFollowAlpine_PatchKeepsTheLine(t *testing.T) {
 	root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
 	seedAlpine(t, cfg, root, []string{"3.24.5", "3.24.4"}, map[string][]string{"v3.24/main": {"1.30.6-r0"}})
-	moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+	moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil, nil)
 	if deps[0].ResolvedTarget != "3.24.5" || len(moved) != 0 {
 		t.Fatalf("target=%q moved=%v", deps[0].ResolvedTarget, moved)
 	}
@@ -253,7 +253,7 @@ func TestFollowAlpine_UnusableLineIsNotAdopted(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
 			seedAlpine(t, cfg, root, []string{"3.25.1", "3.24.5", "3.24.4"}, map[string][]string{"v3.25/main": packages})
-			moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+			moved, _ := followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil, nil)
 			if deps[0].ResolvedTarget != "3.24.5" || len(moved) != 0 {
 				t.Fatalf("falls back to the newest usable release: target=%q moved=%v", deps[0].ResolvedTarget, moved)
 			}
@@ -264,7 +264,7 @@ func TestFollowAlpine_UnusableLineIsNotAdopted(t *testing.T) {
 func TestFollowAlpine_NothingAdoptableStaysPut(t *testing.T) {
 	root, cfg, deps := followFixture(t, "3.24.4", "1.30.6-r0")
 	seedAlpine(t, cfg, root, []string{"3.25.1", "3.24.4"}, map[string][]string{"v3.25/main": {}})
-	followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil)
+	followAlpineBases(t.Context(), cfg, root, deps, time.Now(), nil, nil)
 	if got := deps[0].UpdateTarget(); got != "3.24.4" {
 		t.Fatalf("an unusable line must not reach the natural target: %q", got)
 	}
@@ -288,7 +288,7 @@ func TestFollowAlpine_SuiteComesFromTheFinalAlpineFrom(t *testing.T) {
 func TestTrackedPins_StayInTheirMajorUncapped(t *testing.T) {
 	root, cfg, _ := followFixture(t, "3.24.4", "1.30.6-r0")
 	seedAlpine(t, cfg, root, nil, map[string][]string{"v3.24/main": {"2.0.0-r0", "1.32.0-r0", "1.30.6-r0"}})
-	pins, _, _ := upstreamPinDeps(t.Context(), cfg, root, time.Now(), nil, nil)
+	pins, _, _ := upstreamPinDeps(t.Context(), cfg, root, time.Now(), nil, nil, nil)
 	if len(pins) != 1 || pins[0].Latest != "1.32.0-r0" || !pins[0].TrackGoverned {
 		t.Fatalf("%+v", pins)
 	}

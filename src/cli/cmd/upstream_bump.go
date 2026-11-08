@@ -91,9 +91,8 @@ func readPins(rootDir string, cs config.UpstreamSource, sch scheme.Scheme) (pins
 // afterBump holds, per source with a target, the versions still newer than that target: once
 // the bump applies, the lock keeps only those, so it never records a version our pins already
 // hold.
-func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string, now time.Time, lock *upstream.Lock, moved map[string]string) (deps []supplychain.Dependency, lockChanged bool, afterBump map[string][]string) {
+func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string, now time.Time, lock *upstream.Lock, moved map[string]string, rows *upstreamRows) (deps []supplychain.Dependency, lockChanged bool, afterBump map[string][]string) {
 	afterBump = map[string][]string{}
-	var rows [][2]string // (label, text) rows for the Upstream section, rendered once at the end
 	u := appCfg.Upstream
 	sources, err := upstream.Sources(u, rootDir)
 	if err != nil {
@@ -115,12 +114,12 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 		}
 		pins, current, err := readPins(rootDir, cs, src.Select.Scheme)
 		if err != nil {
-			rows = append(rows, [2]string{cs.ID, "pins not moved: " + err.Error()})
+			rows.add(cs.ID, "pins not moved: %v", err)
 			continue
 		}
 		l := listUpstream(ctx, src)
 		if l.err != nil {
-			rows = append(rows, [2]string{cs.ID, "pins not moved: " + l.err.Error()})
+			rows.add(cs.ID, "pins not moved: %v", l.err)
 			continue
 		}
 		tracked := mode == config.UpstreamVersionTrack && cs.ID == trackedID
@@ -142,7 +141,7 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 				target = &newer[0]
 			}
 		} else {
-			target, held = pickTarget(newer, lock, cs.ID, age, now, &lockChanged)
+			target, held = pickTarget(newer, lock, cs.ID, age, now, &lockChanged, rows)
 		}
 		if target != nil {
 			for _, r := range newer {
@@ -176,19 +175,12 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 		}
 		switch {
 		case target != nil:
-			rows = append(rows, [2]string{cs.ID, fmt.Sprintf("%s → %s  (bump)", current, target.Raw)})
+			rows.add(cs.ID, "%s → %s  (bump)", current, target.Raw)
 		case held != nil:
-			rows = append(rows, [2]string{cs.ID, fmt.Sprintf("hold %s — within min_release_age (%s)", held.Raw, appCfg.Dependency.MinReleaseAge)})
+			rows.add(cs.ID, "hold %s — within min_release_age (%s)", held.Raw, appCfg.Dependency.MinReleaseAge)
 		default:
-			rows = append(rows, [2]string{cs.ID, fmt.Sprintf("current %s — no newer release", current)})
+			rows.add(cs.ID, "current %s — no newer release", current)
 		}
-	}
-	if len(rows) > 0 {
-		sec := upstreamSection()
-		for _, r := range rows {
-			sec.Row("%-14s%s", r[0], r[1])
-		}
-		sec.Close()
 	}
 	return deps, lockChanged, afterBump
 }
@@ -204,7 +196,7 @@ func trackedMajor(appCfg *config.Config, current string) (int, bool) {
 
 // pickTarget returns the newest release old enough to adopt, and the newest one the cooldown
 // is still holding. newer is newest first.
-func pickTarget(newer []upstream.Release, lock *upstream.Lock, id string, age time.Duration, now time.Time, changed *bool) (target, held *upstream.Release) {
+func pickTarget(newer []upstream.Release, lock *upstream.Lock, id string, age time.Duration, now time.Time, changed *bool, rows *upstreamRows) (target, held *upstream.Release) {
 	if age <= 0 || lock == nil {
 		if len(newer) > 0 {
 			return &newer[0], nil
@@ -221,7 +213,7 @@ func pickTarget(newer []upstream.Release, lock *upstream.Lock, id string, age ti
 	seen, healed, ch := lock.Observe(id, raws, now)
 	*changed = *changed || ch
 	if len(healed) > 0 {
-		fmt.Printf("  upstream: %s reset corrupt cooldown timestamp(s) in the lock: %v\n", id, healed)
+		rows.add(id, "reset corrupt cooldown timestamp(s) in the lock: %v", healed)
 	}
 	for i := range newer {
 		at := newer[i].Published
@@ -268,21 +260,23 @@ func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string
 	now := time.Now()
 	// The lock is the first-sighting clock for pins (dependency.min_release_age) and for a
 	// followed base image (upstream.version.min_release_age), whichever is set.
+	var rows upstreamRows // every check below reports into one Upstream section
 	var lock *upstream.Lock
 	if appCfg.Dependency.MinReleaseAge != nil || trackReleaseAge(appCfg) > 0 {
 		var err error
 		if lock, err = upstream.ReadLock(rootDir); err != nil {
-			fmt.Printf("  upstream: cannot read %s, cooldown starts over: %v\n", upstream.LockPath(""), err)
+			rows.add("lock", "cannot read %s, cooldown starts over: %v", upstream.LockPath(""), err)
 			lock = &upstream.Lock{}
 		}
 	}
 	// Bases are annotated in place, before withoutShadowed copies the discovered deps.
-	moved, lockChanged := followAlpineBases(ctx, appCfg, rootDir, deps, now, lock)
-	upDeps, pinsChanged, afterBump := upstreamPinDeps(ctx, appCfg, rootDir, now, lock, moved)
+	moved, lockChanged := followAlpineBases(ctx, appCfg, rootDir, deps, now, lock, &rows)
+	upDeps, pinsChanged, afterBump := upstreamPinDeps(ctx, appCfg, rootDir, now, lock, moved, &rows)
 	lockChanged = lockChanged || pinsChanged
-	if annotateTrackedBase(ctx, appCfg, rootDir, deps, now, lock) {
+	if annotateTrackedBase(ctx, appCfg, rootDir, deps, now, lock, &rows) {
 		lockChanged = true
 	}
+	rows.render()
 	if len(upDeps) > 0 {
 		deps = append(withoutShadowed(deps, upDeps), upDeps...)
 		if len(ecosystems) > 0 {
@@ -293,11 +287,13 @@ func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string
 		if lock == nil || dryRun || result == nil {
 			return
 		}
+		var rows upstreamRows
+		defer rows.render()
 		for _, a := range result.Applied {
 			if a.Dep.Ecosystem == supplychain.EcosystemUpstream {
 				if _, healed, ch := lock.Observe(a.Dep.Group, afterBump[a.Dep.Group], now); ch {
 					if len(healed) > 0 {
-						fmt.Printf("  upstream: %s reset corrupt cooldown timestamp(s) in the lock: %v\n", a.Dep.Group, healed)
+						rows.add(a.Dep.Group, "reset corrupt cooldown timestamp(s) in the lock: %v", healed)
 					}
 					lockChanged = true
 				}
@@ -307,7 +303,7 @@ func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string
 			return
 		}
 		if err := lock.Write(rootDir); err != nil {
-			fmt.Printf("  upstream: could not write %s: %v\n", lockRel(), err)
+			rows.add("lock", "could not write %s: %v", lockRel(), err)
 			return
 		}
 		result.FilesChanged = append(result.FilesChanged, lockRel())

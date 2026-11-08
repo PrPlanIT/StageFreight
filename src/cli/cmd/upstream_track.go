@@ -30,7 +30,7 @@ import (
 // dependency is mutated in place; lockChanged reports that the lock needs writing (the
 // caller's finish does so, riding the same commit). A non-image track, an unparseable base,
 // or no matching FROM leaves everything untouched.
-func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, now time.Time, lock *upstream.Lock) (lockChanged bool) {
+func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, now time.Time, lock *upstream.Lock, rows *upstreamRows) (lockChanged bool) {
 	mode, id := appCfg.Upstream.Version.Mode()
 	if mode != config.UpstreamVersionTrack {
 		return false
@@ -65,21 +65,21 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 
 	cur, err := src.Select.Scheme.Parse(strings.TrimPrefix(dep.Current, "v"))
 	if err != nil {
-		fmt.Printf("  upstream: %s base %q is not a %s version; not track-governed\n", src.ID, dep.Current, src.Select.Scheme.Name())
+		rows.add(src.ID, "base %q is not a %s version; not track-governed", dep.Current, src.Select.Scheme.Name())
 		return false
 	}
 	major, pinned := appCfg.Upstream.Version.TrackLine()
 	if !pinned {
 		m, ok := leadingMajor(dep.Current)
 		if !ok {
-			fmt.Printf("  upstream: %s base %q has no readable major line; not track-governed\n", src.ID, dep.Current)
+			rows.add(src.ID, "base %q has no readable major line; not track-governed", dep.Current)
 			return false
 		}
 		major = m
 	}
 	l := listUpstream(ctx, src)
 	if l.err != nil {
-		fmt.Printf("  upstream: %s base not advanced: %v\n", src, l.err)
+		rows.add(src.ID, "base not advanced: %v", l.err)
 		return false
 	}
 
@@ -91,7 +91,7 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 	// strings exist, so the check asks it directly, and when the pin is absent it names the form
 	// the registry does serve for the same version — evidence, not a prescribed convention.
 	if w := baseTagWarning(ctx, src, dep.Current, cur, l.releases); w != "" {
-		fmt.Println(w)
+		rows.add(src.ID, "%s", w)
 	}
 
 	// Releases strictly newer than the base, within the tracked major (newest first).
@@ -116,7 +116,7 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 	if age > 0 {
 		dateTrackCandidates(ctx, src.Location, newer)
 	}
-	target, held := pickTarget(newer, lock, src.ID, age, now, &lockChanged)
+	target, held := pickTarget(newer, lock, src.ID, age, now, &lockChanged, rows)
 	switch {
 	case target != nil:
 		// Write the tag in the maintainer's own style: RepinValue keeps a leading v, or its
@@ -126,13 +126,13 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 		// without the v still re-pins to the real (v-tagged) manifest's digest, not to a
 		// reconstructed tag that may not exist on the registry at all.
 		newTag := upstream.RepinValue(dep.Current, target.Raw)
-		if !retargetBase(ctx, src, dep, target, newTag) {
+		if !retargetBase(ctx, src, dep, target, newTag, rows) {
 			return lockChanged
 		}
-		fmt.Printf("  upstream: %s base %s → %s (upstream latest in %d.x)\n", src.ID, dep.Current, newTag, major)
+		rows.add(src.ID, "base %s → %s (upstream latest in %d.x)", dep.Current, newTag, major)
 	case held != nil:
 		dep.CooldownHeld = upstream.RepinValue(dep.Current, held.Raw)
-		fmt.Printf("  upstream: %s base %s held %s by the follow cooldown\n", src.ID, held.Raw, age)
+		rows.add(src.ID, "base %s held %s by the follow cooldown", held.Raw, age)
 	}
 	return lockChanged
 }
@@ -140,11 +140,11 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 // retargetBase points a base image at a release. Fail closed: without the digest of a digest-
 // pinned base it does not bump, because a tag-only bump would write a corrupt new-tag@old-digest
 // pin. The next run retries.
-func retargetBase(ctx context.Context, src upstream.Source, dep *supplychain.Dependency, target *upstream.Release, newTag string) bool {
+func retargetBase(ctx context.Context, src upstream.Source, dep *supplychain.Dependency, target *upstream.Release, newTag string, rows *upstreamRows) bool {
 	if dep.PinnedDigest != "" {
 		digest, err := resolveImageDigest(ctx, src.Location, target.Tag)
 		if err != nil {
-			fmt.Printf("  upstream: %s base %s → %s held: could not resolve %s's digest: %v\n", src.ID, dep.Current, newTag, target.Tag, err)
+			rows.add(src.ID, "base %s → %s held: could not resolve %s's digest: %v", dep.Current, newTag, target.Tag, err)
 			return false
 		}
 		dep.ResolvedDigest = digest
@@ -166,7 +166,7 @@ var alpineReleaseTag = regexp.MustCompile(`^(?P<version>\d+\.\d+\.\d+)$`)
 // in its major, paced by the follow cooldown. It returns the suite of each source whose release
 // line changes, for its pins to move with it. A line that lacks the package, or holds an older
 // version than the pins, is not adopted.
-func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, now time.Time, lock *upstream.Lock) (moved map[string]string, lockChanged bool) {
+func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, now time.Time, lock *upstream.Lock, rows *upstreamRows) (moved map[string]string, lockChanged bool) {
 	moved = map[string]string{}
 	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
 	if err != nil {
@@ -179,19 +179,19 @@ func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir strin
 		src := sources[i]
 		dep := finalAlpineBase(deps, cs.Pins[0].File)
 		if dep == nil {
-			fmt.Printf("  upstream: %s has no pinned alpine FROM in %s; release not followed\n", cs.ID, cs.Pins[0].File)
+			rows.add(cs.ID, "no pinned alpine FROM in %s; release not followed", cs.Pins[0].File)
 			continue
 		}
 		base := alpineBaseSource(cs.ID)
 		major, ok := leadingMajor(dep.Current)
 		cur, err := base.Select.Scheme.Parse(dep.Current)
 		if !ok || err != nil {
-			fmt.Printf("  upstream: %s base %q is not an Alpine version; release not followed\n", cs.ID, dep.Current)
+			rows.add(cs.ID, "base %q is not an Alpine version; release not followed", dep.Current)
 			continue
 		}
 		l := listUpstream(ctx, base)
 		if l.err != nil {
-			fmt.Printf("  upstream: %s base not advanced: %v\n", cs.ID, l.err)
+			rows.add(cs.ID, "base not advanced: %v", l.err)
 			continue
 		}
 		var newer []upstream.Release
@@ -209,7 +209,7 @@ func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir strin
 		dep.TrackGoverned = true
 		dep.ResolvedTarget = dep.Current
 		for len(newer) > 0 {
-			target, held := pickTarget(newer, lock, base.ID, age, now, &lockChanged)
+			target, held := pickTarget(newer, lock, base.ID, age, now, &lockChanged, rows)
 			if target == nil {
 				if held != nil {
 					dep.CooldownHeld = upstream.RepinValue(dep.Current, held.Raw)
@@ -219,19 +219,19 @@ func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir strin
 			suite := upstream.AlpineSuite(target.Raw, cs.Repository)
 			if suite != src.Suite {
 				if reason := suiteUnusable(ctx, rootDir, cs, src, suite); reason != "" {
-					fmt.Printf("  upstream: %s base stays off %s: %s\n", cs.ID, suite, reason)
+					rows.add(cs.ID, "base stays off %s: %s", suite, reason)
 					newer = withoutSuite(newer, suite, cs.Repository)
 					continue
 				}
 			}
 			newTag := upstream.RepinValue(dep.Current, target.Raw)
-			if !retargetBase(ctx, base, dep, target, newTag) {
+			if !retargetBase(ctx, base, dep, target, newTag, rows) {
 				break
 			}
 			if suite != src.Suite {
 				moved[cs.ID] = suite
 			}
-			fmt.Printf("  upstream: %s base %s → %s (%s)\n", cs.ID, dep.Current, newTag, suite)
+			rows.add(cs.ID, "base %s → %s (%s)", dep.Current, newTag, suite)
 			break
 		}
 	}
@@ -318,16 +318,16 @@ func dateTrackCandidates(ctx context.Context, image string, rels []upstream.Rele
 // listing step already reports an unreachable registry). When the pin is dead it names the form
 // the registry does serve for the same version, read from the listing already in hand: data,
 // never a v-or-no-v rule. Returning the message rather than printing it keeps the check unit-
-// testable; the caller prints it so the audition log carries it loudly.
+// testable; the caller adds it to the Upstream section so the audition log carries it loudly.
 func baseTagWarning(ctx context.Context, src upstream.Source, pinned string, v scheme.Version, releases []upstream.Release) string {
 	_, err := resolveImageDigest(ctx, src.Location, pinned)
 	if err == nil || !discovery.IsManifestNotFound(err) {
 		return ""
 	}
 	if served := servedTagFor(releases, v); served != "" {
-		return fmt.Sprintf("  upstream: %s base tag %q is a dead reference — %s does not serve it; it serves this version as %q (the pin builds by digest, but its tag resolves to nothing)", src.ID, pinned, src.Location, served)
+		return fmt.Sprintf("base tag %q is a dead reference — %s does not serve it; it serves this version as %q (the pin builds by digest, but its tag resolves to nothing)", pinned, src.Location, served)
 	}
-	return fmt.Sprintf("  upstream: %s base tag %q is a dead reference — %s does not serve it (the pin builds by digest, but its tag resolves to nothing)", src.ID, pinned, src.Location)
+	return fmt.Sprintf("base tag %q is a dead reference — %s does not serve it (the pin builds by digest, but its tag resolves to nothing)", pinned, src.Location)
 }
 
 // servedTagFor returns the literal tag the registry serves for exactly this version, read from
