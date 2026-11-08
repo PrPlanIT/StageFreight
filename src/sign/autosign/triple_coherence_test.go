@@ -1,6 +1,7 @@
 package autosign
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestTriple_OIDC_SelfHosted(t *testing.T) {
 	}
 	ev := SigningContext{Plan: plan, Env: env, DoSign: true}.Evidence("2026-01-01T00:00:00Z")
 
-	data, err := cosign.SigningConfigJSON(plan, env.Sigstore)
+	data, err := cosign.SigningConfigJSON(context.Background(), plan, env.Sigstore)
 	if err != nil || !strings.Contains(string(data), "https://fulcio.internal.example") || !strings.Contains(string(data), "https://rekor.internal.example") || !slices.Contains(argv, "--signing-config") {
 		t.Errorf("cosign must reach the self-hosted Fulcio and Rekor through the signing config: %v %s %v", err, data, argv)
 	}

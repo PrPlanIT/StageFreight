@@ -434,9 +434,10 @@ func renderSigning(w io.Writer, results []builddocker.SignResult, attested []str
 	for _, r := range results {
 		switch {
 		case r.Signed:
-			sec.Row("%s  signed (%s) %s", output.StatusIcon("success", color), r.Class, r.Ref)
+			sec.Row("%s  signed and verified (%s) %s", output.StatusIcon("success", color), r.Class, r.Ref)
 		case r.Err != nil:
-			sec.Row("%s  NOT signed %s — %v", output.StatusIcon("failed", color), r.Ref, r.Err)
+			sec.Row("%s  NOT signed %s", output.StatusIcon("failed", color), r.Ref)
+			sec.RowIndented(3, false, color, "%v", r.Err)
 		default:
 			sec.Row("%s  NOT signed %s", output.StatusIcon("warning", color), r.Ref)
 			skipReasons = appendDistinct(skipReasons, r.Skipped)
@@ -446,7 +447,7 @@ func renderSigning(w io.Writer, results []builddocker.SignResult, attested []str
 		sec.RowIndented(3, false, color, "%s", reason)
 	}
 	for _, ref := range attested {
-		sec.Row("%s  provenance attested %s", output.StatusIcon("success", color), ref)
+		sec.Row("%s  provenance attested and verified %s", output.StatusIcon("success", color), ref)
 	}
 	sec.Close()
 }

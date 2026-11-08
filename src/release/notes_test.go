@@ -394,6 +394,13 @@ func TestRenderVerification_TransparencyOmitsIgnoreTlog(t *testing.T) {
 	if !strings.Contains(out, "recorded in the public Rekor log") {
 		t.Errorf("transparency should be disclosed:\n%s", out)
 	}
+	declared := renderVerification(&trustdisclosure.Disclosure{
+		Primary: &trustdisclosure.SignatureFact{Class: "kms", Transparency: true, TrustDomain: "internal", Asset: "SHA256SUMS.sigstore.json", IsBlob: true},
+		Anchor:  &trustdisclosure.Anchor{Asset: "cosign.pub"},
+	})
+	if !strings.Contains(declared, "recorded in the internal transparency log") || strings.Contains(declared, "public Rekor") {
+		t.Errorf("a declared deployment's log must be named, never public Rekor:\n%s", declared)
+	}
 }
 
 // TestSectionImages_RendersBuildNumber proves the content-delta rebuild counter rides on the

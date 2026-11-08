@@ -409,8 +409,11 @@ func signerSentence(p trustdisclosure.SignatureFact) string {
 	default:
 		key = "Signed with a published key"
 	}
-	if p.Transparency {
+	switch {
+	case p.Transparency && (p.TrustDomain == "" || p.TrustDomain == "public-sigstore"):
 		return key + ". Signatures are recorded in the public Rekor log."
+	case p.Transparency:
+		return key + ". Signatures are recorded in the " + p.TrustDomain + " transparency log."
 	}
 	return key + ". Signatures are not recorded in a transparency log."
 }

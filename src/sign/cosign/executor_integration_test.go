@@ -22,7 +22,7 @@ import (
 func TestSignBlobEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 
-	ver, _ := toolchain.ResolveVersion("cosign", "", nil)
+	ver, _ := toolchain.ResolveVersion("", "cosign", "", nil)
 	res, err := toolchain.Resolve(dir, "cosign", ver)
 	if err != nil {
 		t.Fatalf("resolve cosign: %v", err)
@@ -52,16 +52,16 @@ func TestSignBlobEndToEnd(t *testing.T) {
 		t.Fatal("key plan should be enabled with COSIGN_KEY pointing at the generated key")
 	}
 
-	sigPath := blob + ".sig"
-	if err := SignBlob(context.Background(), dir, nil, blob, sigPath, keyPlan, EnvForPlan(keyPlan)); err != nil {
+	bundlePath := blob + ".sigstore.json"
+	if err := SignBlob(context.Background(), dir, nil, blob, bundlePath, keyPlan, EnvForPlan(keyPlan)); err != nil {
 		t.Fatalf("SignBlob: %v", err)
 	}
-	if _, err := os.Stat(sigPath); err != nil {
-		t.Fatalf("no detached signature produced: %v", err)
+	if _, err := os.Stat(bundlePath); err != nil {
+		t.Fatalf("no signature bundle produced: %v", err)
 	}
 
 	verify := exec.Command(cosignBin, "verify-blob",
-		"--key", pubPath, "--signature", sigPath, "--insecure-ignore-tlog=true", blob)
+		"--key", pubPath, "--bundle", bundlePath, "--insecure-ignore-tlog=true", blob)
 	verify.Env = append(os.Environ(), "COSIGN_PASSWORD=")
 	if out, err := verify.CombinedOutput(); err != nil {
 		t.Fatalf("cosign verify-blob failed — the stamp does not verify: %v\n%s", err, out)

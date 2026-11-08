@@ -28,7 +28,7 @@ func TestSignBlob_VaultTransit(t *testing.T) {
 	}
 	dir := t.TempDir()
 
-	ver, _ := toolchain.ResolveVersion("cosign", "", nil)
+	ver, _ := toolchain.ResolveVersion("", "cosign", "", nil)
 	res, err := toolchain.Resolve(dir, "cosign", ver)
 	if err != nil {
 		t.Fatalf("resolve cosign: %v", err)

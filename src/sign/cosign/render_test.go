@@ -1,7 +1,10 @@
 package cosign
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -35,19 +38,15 @@ func TestRender_KeyClass_UnresolvedRefErrors(t *testing.T) {
 func TestRender_OIDCKeyless(t *testing.T) {
 	// oidc is keyless: no --key, transparency default on (carried in the plan).
 	p := sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true}
-	args, err := Render(p, sign.OpSignImage, Env{})
+	args, err := Render(p, sign.OpSignImage, withConfig(Env{}))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if slices.Contains(args, "--key") {
 		t.Errorf("keyless render must not emit --key: %v", args)
 	}
-	if slices.Contains(args, "--use-signing-config=true") {
-		t.Errorf("the default TUF signing config applies without the deprecated flag: %v", args)
-	}
-	// cosign v3 requires the new bundle format alongside the TUF signing-config.
-	if !slices.Contains(args, "--new-bundle-format=true") {
-		t.Errorf("public signing-config path must set --new-bundle-format=true: %v", args)
+	if !flagHasValue(args, "--signing-config", "/tmp/offline.json") || slices.Contains(args, "--use-signing-config=true") || slices.Contains(args, "--new-bundle-format=true") {
+		t.Errorf("services come only from SF's signing config, with no deprecated flag: %v", args)
 	}
 	if slices.Contains(args, "--tlog-upload=false") {
 		t.Errorf("transparency-required render must not disable the tlog: %v", args)
@@ -100,7 +99,7 @@ func TestRender_OIDC_SelfHostedNoTransparency(t *testing.T) {
 	if slices.Contains(args, "--rekor-url") || slices.Contains(args, "--tlog-upload=false") || !slices.Contains(args, "--signing-config") {
 		t.Errorf("want only the signing config: %v", args)
 	}
-	data, err := SigningConfigJSON(p, EnvForPlan(p).Sigstore)
+	data, err := SigningConfigJSON(context.Background(), p, EnvForPlan(p).Sigstore)
 	if err != nil || strings.Contains(string(data), "rekor.internal.example") {
 		t.Errorf("no-transparency config must name no Rekor: %v %s", err, data)
 	}
@@ -111,7 +110,7 @@ func TestRender_OIDC_SelfHostedNoTransparency(t *testing.T) {
 func TestRender_OIDC_IssuerFallsBackToProfileIdentity(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true,
 		Identity: sign.IdentityConstraints{Issuer: "https://gitlab.example/oauth"}}
-	args, err := Render(p, sign.OpSignImage, EnvForPlan(p))
+	args, err := Render(p, sign.OpSignImage, withConfig(EnvForPlan(p)))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -306,6 +305,12 @@ func TestEnvForPlan_PKCS11(t *testing.T) {
 
 func TestSigstoreDomain(t *testing.T) {
 	// non-oidc → no trust domain.
+	if got := SigstoreDomain(sign.SignPlan{TrustClass: sign.ClassKMS, TransparencyRequired: true}, Env{}); got != "public-sigstore" {
+		t.Errorf("a logged KMS signature → public-sigstore, got %q", got)
+	}
+	if got := SigstoreDomain(sign.SignPlan{TrustClass: sign.ClassKMS, TransparencyRequired: true}, Env{Sigstore: SigstoreDeployment{RekorURL: "https://rekor.internal.example/"}}); got != "rekor.internal.example" {
+		t.Errorf("a KMS signature logged in a declared deployment → its Rekor host, got %q", got)
+	}
 	if got := SigstoreDomain(sign.SignPlan{TrustClass: sign.ClassKey}, Env{}); got != "" {
 		t.Errorf("key class has no trust domain, got %q", got)
 	}
@@ -348,11 +353,11 @@ func TestRender_OfflineSigningConfig(t *testing.T) {
 	}
 
 	p.TransparencyRequired = true
-	if NeedsSigningConfig(p, env.Sigstore) {
-		t.Error("with transparency required, cosign's own signing config applies")
+	if _, err := Render(p, sign.OpSignImage, Env{KMS: env.KMS}); err == nil {
+		t.Error("a logged signature must be refused without a signing config")
 	}
-	args, err := Render(p, sign.OpSignImage, Env{KMS: env.KMS})
-	if err != nil || !slices.Contains(args, "--new-bundle-format=true") || slices.Contains(args, "--signing-config") {
+	args, err := Render(p, sign.OpSignImage, env)
+	if err != nil || !flagHasValue(args, "--signing-config", "/tmp/offline.json") || slices.Contains(args, "--new-bundle-format=true") {
 		t.Errorf("transparency path: %v %v", args, err)
 	}
 }
@@ -360,7 +365,7 @@ func TestRender_OfflineSigningConfig(t *testing.T) {
 // The executor writes the plan's signing config and removes it afterwards.
 func TestWithSigningConfig(t *testing.T) {
 	p := sign.SignPlan{TrustClass: sign.ClassKey}
-	env, cleanup, err := withSigningConfig(p, Env{})
+	env, cleanup, err := withSigningConfig(context.Background(), p, Env{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,8 +386,69 @@ func TestWithSigningConfig(t *testing.T) {
 	if _, err := os.Stat(env.SigningConfig); !os.IsNotExist(err) {
 		t.Error("cleanup must remove the config")
 	}
-	if env, _, _ := withSigningConfig(sign.SignPlan{TrustClass: sign.ClassKey, TransparencyRequired: true}, Env{}); env.SigningConfig != "" {
-		t.Error("a transparency-logged signature uses cosign's own config")
+	published := stubPublicSigningConfig(t, []byte(`{"published":true}`), nil)
+	env, cleanup, err = withSigningConfig(context.Background(), sign.SignPlan{TrustClass: sign.ClassKMS, TransparencyRequired: true}, Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if data, _ := os.ReadFile(env.SigningConfig); string(data) != string(published) {
+		t.Errorf("a signature logged in public Sigstore uses its published config, got %s", data)
+	}
+	stubPublicSigningConfig(t, nil, errors.New("TUF unreachable"))
+	if _, _, err := withSigningConfig(context.Background(), sign.SignPlan{TrustClass: sign.ClassKMS, TransparencyRequired: true}, Env{}); err == nil {
+		t.Error("without a verified published config the signature must not be made")
+	}
+}
+
+// stubPublicSigningConfig replaces the TUF fetch of public Sigstore's config for one test.
+func stubPublicSigningConfig(t *testing.T, data []byte, err error) []byte {
+	t.Helper()
+	orig := publicSigningConfig
+	publicSigningConfig = func(context.Context) ([]byte, error) { return data, err }
+	t.Cleanup(func() { publicSigningConfig = orig })
+	return data
+}
+
+// Public Sigstore's published configs, as its TUF repository serves them: the default
+// names only Rekor v1, the Rekor v2 config names log2025-1 first.
+func TestSelectPublicSigningConfig(t *testing.T) {
+	v1, err := os.ReadFile("testdata/signing_config.v0.2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := os.ReadFile("testdata/signing_config_rekor_v2.v0.2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serve := func(targets map[string][]byte) func(string) ([]byte, error) {
+		return func(name string) ([]byte, error) {
+			if d, ok := targets[name]; ok {
+				return d, nil
+			}
+			return nil, fmt.Errorf("target %s not found", name)
+		}
+	}
+
+	got, err := selectPublicSigningConfig(serve(map[string][]byte{publicConfigTarget: v1, publicRekorV2Target: v2}))
+	if err != nil || string(got) != string(v2) {
+		t.Errorf("while the default names only Rekor v1, the Rekor v2 config applies: %v", err)
+	}
+	got, err = selectPublicSigningConfig(serve(map[string][]byte{publicConfigTarget: v2}))
+	if err != nil || string(got) != string(v2) {
+		t.Errorf("a default that names Rekor v2 applies as published: %v", err)
+	}
+	if _, err := selectPublicSigningConfig(serve(map[string][]byte{publicConfigTarget: v1})); err == nil {
+		t.Error("no Rekor v2 config published: refuse, never fall back to v1 silently")
+	}
+	if _, err := selectPublicSigningConfig(serve(map[string][]byte{publicConfigTarget: v1, publicRekorV2Target: v1})); err == nil {
+		t.Error("a Rekor v2 config naming no v2 log must be refused")
+	}
+	if _, err := selectPublicSigningConfig(serve(map[string][]byte{publicConfigTarget: []byte(`{"mediaType":"x"}`)})); err == nil {
+		t.Error("a document that is not a signing config must be refused")
+	}
+	if _, err := selectPublicSigningConfig(serve(nil)); err == nil {
+		t.Error("an unreachable TUF repository must be refused")
 	}
 }
 
@@ -396,7 +462,7 @@ func TestSigningConfigJSON(t *testing.T) {
 	}
 	parse := func(p sign.SignPlan, d SigstoreDeployment) (cfg, error) {
 		var c cfg
-		data, err := SigningConfigJSON(p, d)
+		data, err := SigningConfigJSON(context.Background(), p, d)
 		if err != nil {
 			return c, err
 		}
@@ -414,10 +480,47 @@ func TestSigningConfigJSON(t *testing.T) {
 	if err != nil || len(c.CA) != 1 || c.CA[0].URL != publicFulcio || len(c.Rekor) != 0 {
 		t.Errorf("public keyless without transparency: %+v %v", c, err)
 	}
+	// A key or KMS signature that must log goes to the declared deployment's Rekor, never public Sigstore's.
+	c, err = parse(sign.SignPlan{TrustClass: sign.ClassKMS, TransparencyRequired: true}, declared)
+	if err != nil || len(c.CA) != 0 || len(c.Rekor) != 1 || c.Rekor[0].URL != "https://rekor.x" {
+		t.Errorf("declared KMS with transparency: %+v %v", c, err)
+	}
+	stubPublicSigningConfig(t, []byte(`{"published":true}`), nil)
+	if data, err := SigningConfigJSON(context.Background(), sign.SignPlan{TrustClass: sign.ClassKMS, TransparencyRequired: true}, SigstoreDeployment{}); err != nil || string(data) != `{"published":true}` {
+		t.Errorf("public KMS with transparency uses the published config: %s %v", data, err)
+	}
 }
 
 // withConfig gives an env the signing config the executor writes.
 func withConfig(env Env) Env {
 	env.SigningConfig = "/tmp/offline.json"
 	return env
+}
+
+// A keyless signature is verified against its declared identity and the deployment's trusted
+// root; the log is skipped only when the plan does not require it.
+func TestVerifyArgs_Keyless(t *testing.T) {
+	d := SigstoreDeployment{FulcioURL: "https://fulcio.x", RekorURL: "https://rekor.x", TrustedRoot: "/root.json"}
+	p := sign.SignPlan{TrustClass: sign.ClassOIDC, TransparencyRequired: true,
+		Identity: sign.IdentityConstraints{Issuer: "https://id.x", Subject: "ci@x"}}
+	args, cleanup, err := verifyArgs(context.Background(), "", nil, p, Env{Sigstore: d}, "verify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if !flagHasValue(args, "--certificate-identity", "ci@x") || !flagHasValue(args, "--certificate-oidc-issuer", "https://id.x") ||
+		!flagHasValue(args, "--trusted-root", "/root.json") || slices.Contains(args, "--insecure-ignore-tlog=true") {
+		t.Errorf("logged keyless verify: %v", args)
+	}
+
+	p = sign.SignPlan{TrustClass: sign.ClassOIDC}
+	args, cleanup, err = verifyArgs(context.Background(), "", nil, p, Env{}, "verify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if !flagHasValue(args, "--certificate-identity-regexp", ".*") || !flagHasValue(args, "--certificate-oidc-issuer-regexp", ".*") ||
+		!slices.Contains(args, "--insecure-ignore-tlog=true") {
+		t.Errorf("an open identity is matched as any, and an unlogged signature skips the log: %v", args)
+	}
 }

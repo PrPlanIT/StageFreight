@@ -134,11 +134,11 @@ type TrustEvidence struct {
 	Transparency     bool   `json:"transparency,omitempty"`      // recorded in a transparency log
 	SignerRef        string `json:"signer_ref,omitempty"`        // signer identity material (key/kms ref, oidc identity)
 	SignedAt         string `json:"signed_at,omitempty"`         // RFC3339 timestamp the signature was produced
-	// TrustDomain names the signing-authority ecosystem for an oidc/keyless signature
-	// (the Sigstore deployment — "internal", "public-sigstore", a Fulcio host). Durable
-	// so later adjudication can reason over WHICH ecosystem vouched for the evidence
-	// (public vs internal, trust-root migration, multi-domain policy). Empty for
-	// key/kms/hardware, which have no Sigstore trust domain.
+	// TrustDomain names the Sigstore deployment a keyless or transparency-logged signature
+	// used ("internal", "public-sigstore", a Fulcio or Rekor host). Durable so later
+	// adjudication can reason over WHICH ecosystem vouched for the evidence (public vs
+	// internal, trust-root migration, multi-domain policy). Empty for a key, KMS or
+	// hardware signature that is not logged.
 	TrustDomain string `json:"trust_domain,omitempty"`
 }
 

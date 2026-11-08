@@ -36,7 +36,7 @@ type Disclosure struct {
 type SignatureFact struct {
 	Class            string // key | oidc | kms | hardware
 	Tier             string // raw tier ("tier0-software", …); the renderer maps to a human label
-	TrustDomain      string // oidc/keyless ecosystem ("public-sigstore", a label, a Fulcio host)
+	TrustDomain      string // Sigstore deployment of a keyless or logged signature ("public-sigstore", a label, a host)
 	SignerRef        string
 	Transparency     bool
 	NonExportable    bool

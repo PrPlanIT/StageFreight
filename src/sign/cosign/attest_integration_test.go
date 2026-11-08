@@ -34,7 +34,7 @@ import (
 func TestAttest_ProvenanceEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 
-	ver, _ := toolchain.ResolveVersion("cosign", "", nil)
+	ver, _ := toolchain.ResolveVersion("", "cosign", "", nil)
 	res, err := toolchain.Resolve(dir, "cosign", ver)
 	if err != nil {
 		t.Fatalf("resolve cosign: %v", err)
@@ -101,5 +101,49 @@ func TestAttest_ProvenanceEndToEnd(t *testing.T) {
 	verify.Env = os.Environ()
 	if out, err := verify.CombinedOutput(); err != nil {
 		t.Fatalf("verify-attestation failed — provenance was not authentically bound: %v\n%s", err, out)
+	}
+}
+
+// TestSignImage_VerifiesWhatItSigned proves SignImage signs a pushed digest and, before it
+// returns, verifies that signature against the signer's own public key: offline, and
+// recorded in public Sigstore's Rekor v2 log (which writes one entry to the public log).
+//
+//	go test -tags integration -run TestSignImage_VerifiesWhatItSigned ./src/sign/cosign/
+func TestSignImage_VerifiesWhatItSigned(t *testing.T) {
+	dir := t.TempDir()
+	ver, _ := toolchain.ResolveVersion("", "cosign", "", nil)
+	res, err := toolchain.Resolve(dir, "cosign", ver)
+	if err != nil {
+		t.Fatalf("resolve cosign: %v", err)
+	}
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+	ref := "localhost:" + srv.URL[strings.LastIndex(srv.URL, ":")+1:] + "/app"
+	img, err := random.Image(1024, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag, err := name.ParseReference(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Write(tag, img); err != nil {
+		t.Fatalf("push image: %v", err)
+	}
+	dig, err := img.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := exec.Command(res.Path, "generate-key-pair")
+	gen.Dir = dir
+	gen.Env = append(os.Environ(), "COSIGN_PASSWORD=")
+	if out, err := gen.CombinedOutput(); err != nil {
+		t.Fatalf("generate-key-pair: %v\n%s", err, out)
+	}
+	for _, logged := range []bool{false, true} {
+		plan := sign.SignPlan{TrustClass: sign.ClassKey, KeyRef: filepath.Join(dir, "cosign.key"), TransparencyRequired: logged}
+		if err := SignImage(context.Background(), dir, nil, ref+"@"+dig.String(), plan, EnvForPlan(plan), sign.SignOptions{}); err != nil {
+			t.Fatalf("SignImage (sign and verify, logged=%v): %v", logged, err)
+		}
 	}
 }

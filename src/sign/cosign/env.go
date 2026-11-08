@@ -96,24 +96,29 @@ type Env struct {
 	Sigstore SigstoreDeployment // oidc/keyless trust domain (single deployment, not a principal set)
 
 	// SigningConfig is the path to the signing config naming the signature's services; the
-	// executor writes it when NeedsSigningConfig.
+	// executor writes it.
 	SigningConfig string
 }
 
-// SigstoreDomain returns the trust-domain label to RECORD for an oidc/keyless
-// signature — the named ecosystem that vouched for it. Empty for non-oidc classes
-// (no Sigstore domain). For oidc: the explicit Domain label if set, else the Fulcio
-// host for a declared self-hosted deployment, else "public-sigstore". Mirrors the
-// Render decision so the recorded evidence matches where the signature actually went.
+// SigstoreDomain returns the trust-domain label to RECORD for a signature that uses a
+// Sigstore deployment — a keyless one, or one recorded in a transparency log. Empty for any
+// other (no Sigstore domain). The explicit Domain label if set, else for a declared
+// self-hosted deployment the host of the service it used (Fulcio for keyless, else Rekor),
+// else "public-sigstore". Mirrors the signing config so the recorded evidence matches where
+// the signature actually went.
 func SigstoreDomain(plan sign.SignPlan, env Env) string {
-	if plan.TrustClass != sign.ClassOIDC {
+	if plan.TrustClass != sign.ClassOIDC && !plan.TransparencyRequired {
 		return ""
 	}
 	if env.Sigstore.Domain != "" {
 		return env.Sigstore.Domain
 	}
 	if env.Sigstore.Declared() {
-		if h := hostOf(env.Sigstore.FulcioURL); h != "" {
+		service := env.Sigstore.RekorURL
+		if plan.TrustClass == sign.ClassOIDC {
+			service = env.Sigstore.FulcioURL
+		}
+		if h := hostOf(service); h != "" {
 			return h
 		}
 		return "self-hosted-sigstore"

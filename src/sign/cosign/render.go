@@ -35,12 +35,10 @@ func Render(p sign.SignPlan, op sign.Op, env Env) (args []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if NeedsSigningConfig(p, m.sigstore) {
-		if env.SigningConfig == "" {
-			return nil, fmt.Errorf("this signature needs a signing config naming its services, and none was provided")
-		}
-		m.signingConfig = env.SigningConfig
+	if env.SigningConfig == "" {
+		return nil, fmt.Errorf("a signature needs a signing config naming its services, and none was provided")
 	}
+	m.signingConfig = env.SigningConfig
 	return emit(p, op, m), nil
 }
 
@@ -48,7 +46,7 @@ func Render(p sign.SignPlan, op sign.Op, env Env) (args []string, err error) {
 type mechanism struct {
 	class         sign.Class
 	keyArg        string             // value for --key (key path / KMS URI / PKCS#11 URI); empty for oidc + FIDO2
-	signingConfig string             // the signing config's path when NeedsSigningConfig (Env.SigningConfig)
+	signingConfig string             // the signing config's path (Env.SigningConfig)
 	useSK         bool               // FIDO2 hardware token (cosign --sk)
 	sigstore      SigstoreDeployment // oidc only: the trust domain to point cosign at (empty = public)
 }
@@ -169,16 +167,11 @@ func emit(p sign.SignPlan, op sign.Op, m mechanism) []string {
 	case sign.ClassOIDC:
 		// keyless — no --key flag; service/identity flags emitted below.
 	}
-	// Services: a signing config when the plan needs one, else cosign's TUF-provided config
-	// (which needs the new bundle format, set explicitly so the dependency is never implicit).
+	// Services: always the signing config SF resolved, never cosign's own default.
 	if m.class == sign.ClassOIDC {
 		args = append(args, oidcIdentityArgs(m.sigstore)...)
 	}
-	if m.signingConfig != "" {
-		args = append(args, "--signing-config", m.signingConfig)
-	} else {
-		args = append(args, "--new-bundle-format=true")
-	}
+	args = append(args, "--signing-config", m.signingConfig)
 	// Image ops attach the signature/attestation to the registry; sign-blob is
 	// detached and takes no --upload.
 	if op == sign.OpSignImage || op == sign.OpAttest {

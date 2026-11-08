@@ -1,8 +1,12 @@
 package cosign
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 
 	"github.com/PrPlanIT/StageFreight/src/sign"
 )
@@ -13,21 +17,14 @@ const (
 	publicOIDC   = "https://oauth2.sigstore.dev/auth"
 )
 
-// NeedsSigningConfig reports whether cosign must be handed a signing config naming its
-// services, in place of the TUF-provided one: a key, KMS or hardware signature without a
-// transparency log, and a keyless signature in a declared (self-hosted) deployment or
-// without a transparency log.
-func NeedsSigningConfig(p sign.SignPlan, d SigstoreDeployment) bool {
-	if p.TrustClass == sign.ClassOIDC {
-		return d.Declared() || !p.TransparencyRequired
+// SigningConfigJSON is the Sigstore signing config (v0.2) naming a signature's services. A
+// signature logged in public Sigstore uses the config Sigstore publishes; every other one
+// names the declared deployment's services: a keyless signature its Fulcio and OIDC issuer
+// (public Sigstore's when undeclared), and a logged one its Rekor.
+func SigningConfigJSON(ctx context.Context, p sign.SignPlan, d SigstoreDeployment) ([]byte, error) {
+	if p.TransparencyRequired && !d.Declared() {
+		return publicSigningConfig(ctx)
 	}
-	return !p.TransparencyRequired
-}
-
-// SigningConfigJSON is the Sigstore signing config (v0.2) for a plan: no services for a
-// key, KMS or hardware signature; for a keyless one, the deployment's Fulcio and OIDC
-// issuer (public Sigstore's when undeclared), and its Rekor when transparency is required.
-func SigningConfigJSON(p sign.SignPlan, d SigstoreDeployment) ([]byte, error) {
 	type service struct {
 		URL             string `json:"url"`
 		MajorAPIVersion int    `json:"majorApiVersion"`
@@ -78,12 +75,75 @@ func SigningConfigJSON(p sign.SignPlan, d SigstoreDeployment) ([]byte, error) {
 		if issuer != "" {
 			cfg.OIDCURLs = svc(issuer)
 		}
-		if p.TransparencyRequired {
-			if d.RekorURL == "" {
-				return nil, fmt.Errorf("the plan requires a transparency log, and the declared Sigstore deployment names no Rekor (SF_SIGSTORE_REKOR)")
-			}
-			cfg.RekorTlogURLs = svc(d.RekorURL)
+	}
+	if p.TransparencyRequired {
+		if d.RekorURL == "" {
+			return nil, fmt.Errorf("the plan requires a transparency log, and the declared Sigstore deployment names no Rekor (SF_SIGSTORE_REKOR)")
 		}
+		cfg.RekorTlogURLs = svc(d.RekorURL)
 	}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// Signing configs public Sigstore publishes in its TUF repository: the default, and the one
+// that writes to its Rekor v2 log while the default still names only v1.
+const (
+	publicConfigTarget     = "signing_config.v0.2.json"
+	publicRekorV2Target    = "signing_config_rekor_v2.v0.2.json"
+	rekorV2MajorAPIVersion = 2
+)
+
+// publicSigningConfig returns the signing config public Sigstore publishes, verified through
+// its TUF repository, that writes to its Rekor v2 log: the default once it names one, else the
+// Rekor v2 config. Fails closed: without a verified config the signature is not made.
+var publicSigningConfig = func(ctx context.Context) ([]byte, error) {
+	client, err := tuf.New(tuf.DefaultOptions().WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("public Sigstore's TUF repository: %w", err)
+	}
+	return selectPublicSigningConfig(client.GetTarget)
+}
+
+// selectPublicSigningConfig picks the published config that writes to Rekor v2.
+func selectPublicSigningConfig(get func(target string) ([]byte, error)) ([]byte, error) {
+	data, err := get(publicConfigTarget)
+	if err != nil {
+		return nil, fmt.Errorf("public Sigstore's signing config: %w", err)
+	}
+	if v2, err := namesRekorV2(data); err != nil {
+		return nil, fmt.Errorf("public Sigstore's signing config: %w", err)
+	} else if v2 {
+		return data, nil
+	}
+	data, err = get(publicRekorV2Target)
+	if err != nil {
+		return nil, fmt.Errorf("public Sigstore's Rekor v2 signing config: %w", err)
+	}
+	if v2, err := namesRekorV2(data); err != nil {
+		return nil, fmt.Errorf("public Sigstore's Rekor v2 signing config: %w", err)
+	} else if !v2 {
+		return nil, fmt.Errorf("public Sigstore's Rekor v2 signing config names no Rekor v2 log")
+	}
+	return data, nil
+}
+
+// namesRekorV2 reports whether a signing config names a Rekor v2 log.
+func namesRekorV2(data []byte) (bool, error) {
+	if _, err := root.NewSigningConfigFromJSON(data); err != nil {
+		return false, err
+	}
+	var cfg struct {
+		Rekor []struct {
+			MajorAPIVersion int `json:"majorApiVersion"`
+		} `json:"rekorTlogUrls"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return false, err
+	}
+	for _, r := range cfg.Rekor {
+		if r.MajorAPIVersion == rekorV2MajorAPIVersion {
+			return true, nil
+		}
+	}
+	return false, nil
 }

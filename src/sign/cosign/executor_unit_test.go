@@ -79,3 +79,23 @@ func TestSignEnv_HardwarePassesFullEnv(t *testing.T) {
 		t.Errorf("hardware must pass full env + COSIGN_YES (host-env=%v yes=%v)", leak, yes)
 	}
 }
+
+// A failed cosign run reports cosign's own error, not its banners, warnings or a bare exit status.
+func TestCosignError(t *testing.T) {
+	out := []byte(`Flag --new-bundle-format has been deprecated, this will be the only supported format in future versions
+    The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use.
+Signing artifact...
+Error: signing [docker.io/hlhd/zitadel@sha256:9e45]: signing digest: Post "https://rekor.sigstore.dev/api/v1/log/entries": remote error: tls: access denied
+error during command execution: signing [docker.io/hlhd/zitadel@sha256:9e45]: signing digest: Post "https://rekor.sigstore.dev/api/v1/log/entries": remote error: tls: access denied
+`)
+	want := `signing [docker.io/hlhd/zitadel@sha256:9e45]: signing digest: Post "https://rekor.sigstore.dev/api/v1/log/entries": remote error: tls: access denied`
+	if got := cosignError(out); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := cosignError([]byte("no such registry\n\n")); got != "no such registry" {
+		t.Errorf("without an Error: line, the last line: got %q", got)
+	}
+	if got := cosignError(nil); got != "" {
+		t.Errorf("no output: got %q", got)
+	}
+}

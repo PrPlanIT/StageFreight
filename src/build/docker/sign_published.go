@@ -34,7 +34,8 @@ type ImageSigner struct {
 	Attest    func(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env cosign.Env, opts sign.SignOptions) error
 }
 
-// CosignSigner signs and attests with cosign, resolved through the toolchain.
+// CosignSigner signs and attests with cosign, resolved through the toolchain; each signature
+// and attestation is verified as it is made.
 var CosignSigner = ImageSigner{SignImage: cosign.SignImage, Attest: cosign.Attest}
 
 // SignResult is what signing did to one PublishedImage, for the caller to render.

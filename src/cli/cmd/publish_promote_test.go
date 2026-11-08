@@ -187,7 +187,7 @@ func TestRenderSigning(t *testing.T) {
 	if strings.Count(out, "no usable signer") != 1 {
 		t.Errorf("the reason must print once:\n%s", out)
 	}
-	for _, want := range []string{"⚠  NOT signed docker.io/a@sha256:1", "⚠  NOT signed ghcr.io/a@sha256:1", "✓  signed (key) cr.optcp.com/a@sha256:1"} {
+	for _, want := range []string{"⚠  NOT signed docker.io/a@sha256:1", "⚠  NOT signed ghcr.io/a@sha256:1", "✓  signed and verified (key) cr.optcp.com/a@sha256:1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}

@@ -21,9 +21,10 @@ import (
 // to sign, ordering vs distribution, recording outcomes) belongs in Publish.
 
 // SignImage signs an image digest ref (repo@sha256:…; tags are never used) per the
-// plan's trust contract. opts.MultiArch adds --recursive (sign the whole index).
+// plan's trust contract, then verifies the signature. opts.MultiArch adds --recursive
+// (sign the whole index).
 func SignImage(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
-	env, cleanup, err := withSigningConfig(plan, env)
+	env, cleanup, err := withSigningConfig(ctx, plan, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign: %w", err)
 	}
@@ -36,7 +37,10 @@ func SignImage(ctx context.Context, rootDir string, desired map[string]config.To
 		args = append(args, "--recursive")
 	}
 	args = append(args, digestRef)
-	return run(ctx, rootDir, desired, plan, "sign", args, opts.RegistryAuthDir)
+	if err := run(ctx, rootDir, desired, plan, "sign", args, opts.RegistryAuthDir); err != nil {
+		return err
+	}
+	return verifyMade(ctx, rootDir, desired, plan, env, "verify", "signature", []string{digestRef}, opts.RegistryAuthDir)
 }
 
 // ExportPublicKey writes the public half of a kms plan's key to outPath; the private half
@@ -48,14 +52,14 @@ func ExportPublicKey(ctx context.Context, rootDir string, desired map[string]con
 	return run(ctx, rootDir, desired, plan, "public-key", []string{"public-key", "--key", env.KMS[0].URI, "--outfile", outPath}, "")
 }
 
-// Attest binds a predicate to an image digest ref per the plan. The predicate
-// path AND type are caller-supplied (opts) — the executor serializes them, it
-// never defaults a predicate semantic of its own.
+// Attest binds a predicate to an image digest ref per the plan, then verifies the
+// attestation. The predicate path AND type are caller-supplied (opts) — the executor
+// serializes them, it never defaults a predicate semantic of its own.
 func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, digestRef string, plan sign.SignPlan, env Env, opts sign.SignOptions) error {
 	if opts.PredicatePath == "" || opts.PredicateType == "" {
 		return fmt.Errorf("cosign attest: predicate path and type are required (the executor never defaults them)")
 	}
-	env, cleanup, err := withSigningConfig(plan, env)
+	env, cleanup, err := withSigningConfig(ctx, plan, env)
 	if err != nil {
 		return fmt.Errorf("cosign attest: %w", err)
 	}
@@ -68,14 +72,19 @@ func Attest(ctx context.Context, rootDir string, desired map[string]config.ToolC
 		args = append(args, "--recursive")
 	}
 	args = append(args, "--predicate", opts.PredicatePath, "--type", opts.PredicateType, digestRef)
-	return run(ctx, rootDir, desired, plan, "attest", args, opts.RegistryAuthDir)
+	if err := run(ctx, rootDir, desired, plan, "attest", args, opts.RegistryAuthDir); err != nil {
+		return err
+	}
+	return verifyMade(ctx, rootDir, desired, plan, env, "verify-attestation", opts.PredicateType+" attestation",
+		[]string{"--type", opts.PredicateType, digestRef}, opts.RegistryAuthDir)
 }
 
 // SignBlob signs a blob (e.g. SHA256SUMS) per the plan, writing a Sigstore bundle (the
-// signature with its verification material) to bundlePath. The caller chooses bundlePath
-// so additive, multi-tier signing writes distinct files, never clobbering a lower tier's.
+// signature with its verification material) to bundlePath, then verifies the bundle. The
+// caller chooses bundlePath so additive, multi-tier signing writes distinct files, never
+// clobbering a lower tier's.
 func SignBlob(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, blobPath, bundlePath string, plan sign.SignPlan, env Env) error {
-	env, cleanup, err := withSigningConfig(plan, env)
+	env, cleanup, err := withSigningConfig(ctx, plan, env)
 	if err != nil {
 		return fmt.Errorf("cosign sign-blob: %w", err)
 	}
@@ -85,16 +94,19 @@ func SignBlob(ctx context.Context, rootDir string, desired map[string]config.Too
 		return fmt.Errorf("cosign sign-blob: %w", err)
 	}
 	args = append(args, "--bundle", bundlePath, blobPath)
-	return run(ctx, rootDir, desired, plan, "sign-blob", args, "")
+	if err := run(ctx, rootDir, desired, plan, "sign-blob", args, ""); err != nil {
+		return err
+	}
+	return verifyMade(ctx, rootDir, desired, plan, env, "verify-blob", "blob signature", []string{"--bundle", bundlePath, blobPath}, "")
 }
 
-// withSigningConfig writes the plan's signing config when it needs one, returning the env
-// pointing at it and a cleanup that removes it.
-func withSigningConfig(plan sign.SignPlan, env Env) (Env, func(), error) {
-	if !NeedsSigningConfig(plan, env.Sigstore) || env.SigningConfig != "" {
+// withSigningConfig writes the plan's signing config unless one was provided, returning the
+// env pointing at it and a cleanup that removes it.
+func withSigningConfig(ctx context.Context, plan sign.SignPlan, env Env) (Env, func(), error) {
+	if env.SigningConfig != "" {
 		return env, func() {}, nil
 	}
-	data, err := SigningConfigJSON(plan, env.Sigstore)
+	data, err := SigningConfigJSON(ctx, plan, env.Sigstore)
 	if err != nil {
 		return env, func() {}, err
 	}
@@ -125,7 +137,8 @@ func Available(rootDir string, desired map[string]config.ToolConstraint) bool {
 }
 
 // run resolves cosign and execs it with the rendered args and a class-appropriate
-// environment. The sole exec point; warnings carry cosign's stderr for diagnosis.
+// environment. The sole exec point; a failure carries cosign's own error, and its full
+// output is traced under SF_DEBUG.
 // registryAuthDir, when set, is the op's DOCKER_CONFIG (withRegistryAuth).
 func run(ctx context.Context, rootDir string, desired map[string]config.ToolConstraint, plan sign.SignPlan, op string, args []string, registryAuthDir string) error {
 	sel, selErr := toolchain.Select(rootDir, "cosign", desired)
@@ -140,10 +153,29 @@ func run(ctx context.Context, rootDir string, desired map[string]config.ToolCons
 	cmd.Env = withRegistryAuth(signEnv(plan), registryAuthDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		diag.Warn("cosign %s failed: %s", op, strings.TrimSpace(string(out)))
+		diag.Debug(diag.Verbose(), "cosign %s output:\n%s", op, strings.TrimSpace(string(out)))
+		if reason := cosignError(out); reason != "" {
+			return fmt.Errorf("cosign %s: %s", op, reason)
+		}
 		return fmt.Errorf("cosign %s: %w", op, err)
 	}
 	return nil
+}
+
+// cosignError is the error cosign reports in its output: its first "Error:" line, else its
+// last line.
+func cosignError(out []byte) string {
+	last := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if reason, ok := strings.CutPrefix(line, "Error: "); ok {
+			return reason
+		}
+		if line != "" {
+			last = line
+		}
+	}
+	return last
 }
 
 // withRegistryAuth appends DOCKER_CONFIG=dir, overriding signEnv's (os/exec keeps the
