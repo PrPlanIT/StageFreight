@@ -3,10 +3,13 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -102,6 +105,14 @@ func (bx *Buildx) Build(ctx context.Context, step build.BuildStep) (*build.StepR
 		Name: step.Name,
 	}
 
+	staged, cleanup, err := stageDockerfile(step)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err
+		return result, err
+	}
+	defer cleanup()
+	step.Dockerfile = staged
 	args := bx.buildArgs(step)
 
 	if bx.Verbose {
@@ -146,6 +157,14 @@ func (bx *Buildx) BuildWithLayers(ctx context.Context, step build.BuildStep) (*b
 		Name: step.Name,
 	}
 
+	staged, cleanup, err := stageDockerfile(step)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err
+		return result, nil, err
+	}
+	defer cleanup()
+	step.Dockerfile = staged
 	args := bx.buildArgs(step)
 	// Inject --progress=plain for parseable output
 	args = injectProgressPlain(args)
@@ -298,6 +317,50 @@ func injectProgressPlain(args []string) []string {
 		}
 	}
 	return args
+}
+
+// stageDockerfile copies the step's Dockerfile into a directory of its own, beside an
+// ignore file of the repo's rules plus .stagefreight: StageFreight's working directory
+// changes every run, and inside the build context it would invalidate every layer after
+// a COPY of the repo. BuildKit reads <Dockerfile>.dockerignore beside the Dockerfile,
+// so the repo checkout is left untouched.
+func stageDockerfile(step build.BuildStep) (string, func(), error) {
+	noop := func() {}
+	context := step.Context
+	if context == "" {
+		context = "."
+	}
+	src := step.Dockerfile
+	if src == "" {
+		src = filepath.Join(context, "Dockerfile")
+	}
+	body, err := os.ReadFile(src)
+	if err != nil {
+		return "", noop, fmt.Errorf("reading Dockerfile: %w", err)
+	}
+	rules, err := os.ReadFile(src + ".dockerignore")
+	if errors.Is(err, fs.ErrNotExist) {
+		rules, err = os.ReadFile(filepath.Join(context, ".dockerignore"))
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", noop, fmt.Errorf("reading build ignore rules: %w", err)
+	}
+	dir, err := os.MkdirTemp("", "sf-dockerfile-")
+	if err != nil {
+		return "", noop, fmt.Errorf("staging Dockerfile: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	staged := filepath.Join(dir, filepath.Base(src))
+	ignore := append(append([]byte{}, rules...), []byte("\n.stagefreight\n")...)
+	if err := os.WriteFile(staged, body, 0o644); err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("staging Dockerfile: %w", err)
+	}
+	if err := os.WriteFile(staged+".dockerignore", ignore, 0o644); err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("staging Dockerfile: %w", err)
+	}
+	return staged, cleanup, nil
 }
 
 // buildArgs constructs the docker buildx build argument list.
