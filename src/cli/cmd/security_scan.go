@@ -294,6 +294,7 @@ func resolveTarget(rootDir string, explicitImage string, positionalArgs []string
 		ExpectedTags:     selected.ExpectedTags,
 		ExpectedCommit:   selected.ExpectedCommit,
 		SigningAttempted: selected.SigningAttempted,
+		Signature:        selected.Attestation,
 	}, nil
 }
 
@@ -441,7 +442,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 		// cross-check was already emitted at record time in the docker
 		// push helper. Verify's consistency-check path now no-ops, which
 		// matches the v2 single-observation model.
-		verifyResult = security.Verify(ctx, security.VerifyOpts{
+		verifyResult = security.Verify(security.VerifyOpts{
 			ExpectedDigest:   target.Digest,
 			ActualRef:        target.Ref,
 			ActualTag:        target.DiscoveredTag,
@@ -450,6 +451,7 @@ func RunSecurityScan(req SecurityScanRequest) error {
 			ExpectedCommit:   target.ExpectedCommit,
 			CurrentCommit:    os.Getenv("SF_CI_SHA"),
 			SigningAttempted: target.SigningAttempted,
+			Attestation:      target.Signature,
 		})
 	}
 
@@ -761,9 +763,6 @@ func RunSecurityScan(req SecurityScanRequest) error {
 			result.Target.Digest, result.Target.ObservedDigest)
 	}
 	if verifyResult != nil {
-		if req.Strict && result.Target.SigningAttempted && verifyResult.SignatureValid == nil {
-			return fmt.Errorf("strict mode: signing was configured but failed — artifact is unsigned despite key availability")
-		}
 		if req.Strict && verifyResult.Confidence == security.ConfidenceNone {
 			return fmt.Errorf("strict mode: artifact verification failed — confidence: none (%s)",
 				strings.Join(verifyResult.Failures, "; "))

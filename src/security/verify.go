@@ -4,17 +4,10 @@
 package security
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/artifact"
-	"github.com/PrPlanIT/StageFreight/src/config"
-	"github.com/PrPlanIT/StageFreight/src/diag"
-	"github.com/PrPlanIT/StageFreight/src/provision"
-	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
 // VerifyConfidence represents the computed trust level of artifact verification.
@@ -73,16 +66,12 @@ type VerifyOpts struct {
 	ExpectedCommit    string // commit the artifact was built for (from outputs.json)
 	CurrentCommit     string // commit under review (pipeline SF_CI_SHA); enables Layer 0
 	SigningAttempted  bool
-	Attestation       *artifact.AttestationOutcome
-	CosignKeyPath     string
-	CredResolver      func(string) (string, string)
-	CredRef           string
-	ToolchainDesired  map[string]config.ToolConstraint
+	Attestation       *artifact.AttestationOutcome // the signature recorded when the image was signed
 }
 
 // Verify performs 6-layer artifact verification against a digest reference.
 // All verification operations use digest references (repo@sha256:...), never tags.
-func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
+func Verify(opts VerifyOpts) *VerificationResult {
 	r := &VerificationResult{
 		ExpectedDigest:   opts.ExpectedDigest,
 		SigningAttempted: opts.SigningAttempted,
@@ -116,8 +105,8 @@ func Verify(ctx context.Context, opts VerifyOpts) *VerificationResult {
 		r.ResolvedDigest = opts.ExpectedDigest
 	}
 
-	// Layer 2 — Signature validity (cosign verify)
-	verifyCosignSignature(ctx, r, opts)
+	// Layer 2 — Signature validity (the signature recorded when it was made and verified)
+	verifySignature(r, opts)
 
 	// Layer 3 — Identity validity (deferred — requires cosign cert chain)
 	// Future: verify issuer + subject from cosign certificate
@@ -154,48 +143,29 @@ func verifyCommitProvenance(r *VerificationResult, opts VerifyOpts) {
 	}
 }
 
-// verifyCosignSignature runs cosign verify against a digest reference.
-func verifyCosignSignature(ctx context.Context, r *VerificationResult, opts VerifyOpts) {
-	rootDir, _ := os.Getwd()
-	cosignSel, selErr := toolchain.Select(rootDir, "cosign", opts.ToolchainDesired)
-	cosignResult, resolveErr := provision.ResolveSelection(ctx, rootDir, "cosign", cosignSel, selErr, "signature verification")
-	if resolveErr != nil {
-		diag.Debug(false, "cosign: toolchain resolve failed, skipping signature verification: %v", resolveErr)
+// verifySignature (Layer 2) reads the signature recorded when the image was signed. The
+// signer verifies each signature as it makes it (cosign verify against the signer's own
+// public key, with the transparency log its profile requires), so a recorded success is a
+// signature that verified, and a recorded failure one that was not made or did not verify.
+func verifySignature(r *VerificationResult, opts VerifyOpts) {
+	a := opts.Attestation
+	if a == nil {
 		if opts.SigningAttempted {
-			r.Failures = append(r.Failures, "signing was configured but cosign not available for verification")
+			r.Failures = append(r.Failures, "signing was configured but no signature was recorded")
 		}
 		return
 	}
-
-	if opts.CosignKeyPath == "" {
-		diag.Debug(false, "cosign: no key configured, skipping signature verification")
-		return
-	}
-
-	digestRef := extractRepo(opts.ActualRef) + "@" + opts.ExpectedDigest
-	cmd := exec.CommandContext(ctx, cosignResult.Path, "verify",
-		"--key", opts.CosignKeyPath,
-		"--insecure-ignore-tlog=true",
-		digestRef)
-	cmd.Env = toolchain.CleanEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		valid := false
-		r.SignatureValid = &valid
-		r.Failures = append(r.Failures, fmt.Sprintf("cosign verify failed: %s", strings.TrimSpace(string(out))))
-		return
-	}
-
-	valid := true
+	valid := a.Status == artifact.OutcomeSuccess
 	r.SignatureValid = &valid
+	if !valid {
+		r.Failures = append(r.Failures, "signature not verified: "+a.Error)
+	}
 }
 
-// verifyProvenance checks attestation record validity.
+// verifyProvenance checks the verified signature covers the expected digest. A missing or
+// unverified signature is Layer 2's to report.
 func verifyProvenance(r *VerificationResult, opts VerifyOpts) {
-	if opts.Attestation == nil {
-		if opts.SigningAttempted {
-			r.Failures = append(r.Failures, "signing was configured but no attestation record found")
-		}
+	if opts.Attestation == nil || opts.Attestation.Status != artifact.OutcomeSuccess {
 		return
 	}
 
@@ -293,21 +263,6 @@ func ConfidenceLabel(c VerifyConfidence) string {
 	default:
 		return string(c)
 	}
-}
-
-// extractRepo extracts the repository portion from an image reference (strips tag/digest).
-func extractRepo(ref string) string {
-	if idx := strings.LastIndex(ref, "@"); idx >= 0 {
-		return ref[:idx]
-	}
-	if idx := strings.LastIndex(ref, ":"); idx >= 0 {
-		// Make sure it's a tag separator, not a port
-		slash := strings.LastIndex(ref, "/")
-		if idx > slash {
-			return ref[:idx]
-		}
-	}
-	return ref
 }
 
 // extractRegistry extracts the registry hostname from an image reference.

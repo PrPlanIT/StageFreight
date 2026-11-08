@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/PrPlanIT/StageFreight/src/artifact"
 	"github.com/PrPlanIT/StageFreight/src/config"
 	"github.com/PrPlanIT/StageFreight/src/diag"
 	"github.com/PrPlanIT/StageFreight/src/output"
@@ -106,6 +107,8 @@ type ScanTarget struct {
 	ExpectedTags      []string        `json:"expected_tags,omitempty"`
 	ExpectedCommit    string          `json:"expected_commit,omitempty"`
 	SigningAttempted  bool            `json:"signing_attempted,omitempty"`
+	// Signature is the signature recorded when the image was signed (and verified).
+	Signature *artifact.AttestationOutcome `json:"signature,omitempty"`
 }
 
 // ScannerInfo describes a scanner that was run or attempted.
