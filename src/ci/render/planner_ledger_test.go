@@ -48,3 +48,24 @@ func TestPlan_AllowFailureProducersUploadOnFailure(t *testing.T) {
 		}
 	}
 }
+
+// narrate states the run's verdict: it always runs, and its failure is the pipeline's, never
+// tolerated, so a failed release can not end in a green pipeline.
+func TestPlan_NarrateCarriesTheVerdict(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.CI.Image = "example/stagefreight:latest"
+	p, err := Plan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range p.Jobs {
+		if j.Name != "narrate" {
+			continue
+		}
+		if j.Policy.AllowFailure || !j.Policy.WhenAlways {
+			t.Fatalf("narrate policy = %+v, want it to always run and never be allowed to fail", j.Policy)
+		}
+		return
+	}
+	t.Fatal("no narrate job planned")
+}

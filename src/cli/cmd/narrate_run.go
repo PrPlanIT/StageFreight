@@ -26,8 +26,9 @@ import (
 // plus the {changelog.*} range), renders each announced stencil as a structured-
 // output card (user stencils shadow the shipped two-arc defaults), persists the
 // default arc's DETERMINISTIC render as the run's "last summary", and dispatches
-// notifications. Presentation never hard-fails the pipeline: every hiccup degrades
-// gracefully rather than failing the phase.
+// notifications. Presentation never fails the phase: every hiccup degrades gracefully.
+// The run's own verdict does: narrate is the pipeline's last word, so a failing run
+// ends it red, with the failures that made it so.
 func runNarrate(appCfg *config.Config, ciCtx *ci.CIContext, rootDir string) error {
 	if _, err := cistate.ReadState(rootDir); err != nil {
 		fmt.Printf("  narrate: no run state to narrate (%v)\n", err)
@@ -46,7 +47,34 @@ func runNarrate(appCfg *config.Config, ciCtx *ci.CIContext, rootDir string) erro
 	record := announceCards(appCfg, rootDir, st)
 	persistLastSummary(rootDir, record)
 	dispatchNotifications(appCfg, rootDir, st)
-	return nil
+	return runVerdict(os.Stdout, st)
+}
+
+// runVerdict ends a failing run red: it draws the failures that made the run fail and
+// exits non-zero, so the pipeline's colour states what the run did. Any other run passes.
+func runVerdict(w *os.File, st *cistate.State) error {
+	if st.PipelineStatus() != "failing" {
+		return nil
+	}
+	var failed []cistate.SubsystemState
+	for _, s := range st.Subsystems {
+		if s.Attempted && !s.AllowFailure && (s.Outcome == "failed" || s.Outcome == "cancelled") {
+			s.Required = true // a failure that fails the run is never advisory
+			failed = append(failed, s)
+		}
+	}
+	renderRunOutcomes(w, failed)
+	return &SilentExitError{Code: 1}
+}
+
+// renderRunOutcomes draws the run's failures under their own heading.
+func renderRunOutcomes(w *os.File, rows []cistate.SubsystemState) {
+	color := output.UseColor()
+	sec := output.NewSection(w, "Run failed", 0, color)
+	for _, s := range rows {
+		output.RowStatus(sec, s.Name, "  "+s.Reason, s.Outcome, color)
+	}
+	sec.Close()
 }
 
 // assertRequiredEvidence fails CLOSED on a required upstream that recorded no outcome,

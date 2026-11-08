@@ -143,7 +143,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Commands: []string{"stagefreight ci run narrate"},
 				// FullClone: the changelog facts walk tag history.
 				Source: model.SourceSpec{FullClone: true, Submodules: cfg.Git.Submodules},
-				Policy: model.PolicySpec{AllowFailure: true, WhenAlways: true},
+				// narrate always runs, after every other phase, and states the run's verdict:
+				// it fails when the run failed, so the pipeline's colour is the run's outcome.
+				Policy: model.PolicySpec{WhenAlways: true},
 			},
 		},
 	}
