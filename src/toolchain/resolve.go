@@ -36,14 +36,15 @@ const (
 // Result is the outcome of a toolchain resolution. Every field is populated.
 // Callers use Path for execution and can report provenance from the rest.
 type Result struct {
-	Tool      string // "go", "trivy", etc.
-	Version   string // "1.26.1", "0.69.3", etc.
-	Path      string // absolute path to binary
-	CacheHit  bool   // true if served from cache, false if downloaded
-	SourceURL string // where it was (or would be) fetched from
-	SHA256    string // verified archive/binary checksum (provenance)
-	BinSHA256 string // extracted binary checksum (cache validation)
-	Trust     string // how it was trusted: TrustPinned | TrustChecksum | TrustTOFU
+	Tool      string   // "go", "trivy", etc.
+	Version   string   // "1.26.1", "0.69.3", etc.
+	Path      string   // absolute path to binary
+	CacheHit  bool     // true if served from cache, false if downloaded
+	SourceURL string   // where it was (or would be) fetched from
+	SHA256    string   // verified archive/binary checksum (provenance)
+	BinSHA256 string   // extracted binary checksum (cache validation)
+	Trust     string   // how it was trusted: TrustPinned | TrustChecksum | TrustTOFU
+	Env       []string // environment the tool needs to run (e.g. its provisioned library path); callers append it
 }
 
 // Resolve ensures a tool at the requested version is available and verified.

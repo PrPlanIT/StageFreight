@@ -26,6 +26,12 @@ type Metadata struct {
 	// or TrustTOFU (established on first use — no upstream claim to verify against).
 	Trust string `json:"trust,omitempty"`
 
+	// RuntimeLibs records the shared libraries provisioned beside the tool because the
+	// host lacks them (name → SHA-256), re-verified on every cache hit, and
+	// RuntimeLibSources the verified packages they came from.
+	RuntimeLibs       map[string]string `json:"runtime_libs,omitempty"`
+	RuntimeLibSources []string          `json:"runtime_lib_sources,omitempty"`
+
 	InstalledAt string `json:"installed_at"`
 	InstalledBy string `json:"installed_by"`
 }

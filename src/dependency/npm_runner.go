@@ -16,7 +16,8 @@ import (
 // worms on every invocation: lifecycle scripts disabled, secrets scrubbed. StageFreight
 // only re-resolves a lockfile — it never installs project code or exposes a credential.
 type nodeToolRunner struct {
-	binDir string // <node-tree>/bin — holds node, npm, corepack
+	binDir string   // <node-tree>/bin — holds node, npm, corepack
+	env    []string // the node toolchain's own runtime environment (its library path)
 }
 
 // resolveNodeTools provisions node (which bundles npm + corepack) and returns a runner.
@@ -25,15 +26,15 @@ func resolveNodeTools(repoRoot string) (*nodeToolRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("node toolchain: %w", err)
 	}
-	return &nodeToolRunner{binDir: filepath.Dir(res.Path)}, nil
+	return &nodeToolRunner{binDir: filepath.Dir(res.Path), env: res.Env}, nil
 }
 
-// run executes `tool args...` in dir with the secret-scrubbed env (node on PATH) plus
-// any extraEnv (e.g. YARN_ENABLE_SCRIPTS=false).
+// run executes `tool args...` in dir with the secret-scrubbed env (node on PATH), the
+// node toolchain's runtime env, plus any extraEnv (e.g. YARN_ENABLE_SCRIPTS=false).
 func (n *nodeToolRunner) run(ctx context.Context, dir, tool string, extraEnv []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, filepath.Join(n.binDir, tool), args...)
 	cmd.Dir = dir
-	cmd.Env = append(hardenedNpmEnv(n.binDir), extraEnv...)
+	cmd.Env = append(append(hardenedNpmEnv(n.binDir), n.env...), extraEnv...)
 	return cmd.CombinedOutput()
 }
 

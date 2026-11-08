@@ -3,6 +3,7 @@ package toolchain
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -71,33 +72,48 @@ func nodeArtifact(version, arch string, musl bool) (downloadName, sourceURL, che
 // mirroring resolveGo/resolveRust. node ships a .tar.gz with a per-version SHASUMS256.txt;
 // the archive is verified before extraction. The whole tree is kept (npm needs its
 // siblings); Result.Path is <cache>/node/<ver>/bin/node, and bin/npm sits beside it.
-// On musl hosts the musl build is used (see nodeArtifact) so node actually executes.
+// On musl hosts the musl build is used (see nodeArtifact) so node actually executes, and
+// the shared libraries it links against but the host lacks (libstdc++, libgcc) are
+// provisioned into the tree from signed Alpine packages; Result.Env points the loader
+// at them.
 func resolveNode(rootDir, version string) (Result, error) {
 	if version == "" {
 		version = defaultNodeVersion
 	}
 	arch := nodeArch(runtime.GOARCH)
-	downloadName, sourceURL, checksumURL, cacheVer, platform := nodeArtifact(version, arch, isMuslLibc())
+	musl := isMuslLibc()
+	downloadName, sourceURL, checksumURL, cacheVer, platform := nodeArtifact(version, arch, musl)
 
-	// Cache hit across read roots — the node binary present + metadata-verified. Keyed
-	// by cacheVer (libc-variant-aware) so a glibc tree can't be served on a musl host.
-	for _, root := range ReadRoots(rootDir) {
+	// Runtime libraries are a musl concern: the musl loader searches only its default
+	// directories and LD_LIBRARY_PATH, whereas a glibc host resolves the official build's
+	// libraries through its own loader cache.
+	hit := func(root string) (Result, bool) {
 		binPath := CacheBinPathIn(root, "node", cacheVer, "node")
-		if _, err := os.Stat(binPath); err != nil {
-			continue
-		}
 		meta, metaErr := readMetadataFrom(root, "node", cacheVer)
 		if metaErr != nil || meta.BinSHA256 == "" {
-			continue
+			return Result{}, false
 		}
 		if actual, hashErr := fileSHA256(binPath); hashErr != nil || actual != meta.BinSHA256 {
-			continue
+			return Result{}, false
 		}
-		return Result{Tool: "node", Version: version, Path: binPath, CacheHit: true, SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256, Trust: TrustChecksum}, nil
+		libDir := filepath.Join(CacheDirIn(root, "node", cacheVer), runtimeLibDir)
+		if musl && !runtimeLibsIntact(binPath, libDir, meta.RuntimeLibs) {
+			return Result{}, false
+		}
+		return nodeResult(version, binPath, true, meta, libDir), true
+	}
+
+	// Cache hit across read roots — node and its runtime libraries present and verified.
+	// Keyed by cacheVer (libc-variant-aware) so a glibc tree can't be served on a musl host.
+	for _, root := range ReadRoots(rootDir) {
+		if r, ok := hit(root); ok {
+			return r, nil
+		}
 	}
 
 	installRoot := InstallRoot(rootDir)
 	installDir := CacheDirIn(installRoot, "node", cacheVer)
+	libDir := filepath.Join(installDir, runtimeLibDir)
 	lock, err := paths.AcquireInstallLock(installDir, 5*time.Minute)
 	if err != nil {
 		return Result{}, fmt.Errorf("toolchain node %s: %w", version, err)
@@ -106,10 +122,21 @@ func resolveNode(rootDir, version string) (Result, error) {
 
 	binPath := CacheBinPathIn(installRoot, "node", cacheVer, "node")
 	// Re-check after acquiring the lock (another process may have installed it).
-	if _, err := os.Stat(binPath); err == nil {
+	if r, ok := hit(installRoot); ok {
+		return r, nil
+	}
+	// node verified but its runtime libraries absent or altered (a tree installed before
+	// they were provisioned): provision them into the existing tree.
+	if musl {
 		if meta, metaErr := readMetadataFrom(installRoot, "node", cacheVer); metaErr == nil && meta.BinSHA256 != "" {
 			if actual, hashErr := fileSHA256(binPath); hashErr == nil && actual == meta.BinSHA256 {
-				return Result{Tool: "node", Version: version, Path: binPath, CacheHit: true, SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256, Trust: TrustChecksum}, nil
+				if err := provisionNodeRuntime(binPath, libDir, &meta); err != nil {
+					return Result{}, fmt.Errorf("toolchain node %s: %w", version, err)
+				}
+				if err := writeMetadataTo(installRoot, "node", cacheVer, meta); err != nil {
+					return Result{}, fmt.Errorf("toolchain node %s: metadata write failed: %w", version, err)
+				}
+				return nodeResult(version, binPath, true, meta, libDir), nil
 			}
 		}
 	}
@@ -145,9 +172,38 @@ func resolveNode(rootDir, version string) (Result, error) {
 		return Result{}, fmt.Errorf("toolchain node %s: binary checksum failed: %w", version, err)
 	}
 	meta := Metadata{Tool: "node", Version: version, Platform: platform, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}
+	if musl {
+		if err := provisionNodeRuntime(binPath, libDir, &meta); err != nil {
+			paths.ClearUnit(installDir)
+			return Result{}, fmt.Errorf("toolchain node %s: %w", version, err)
+		}
+	}
 	if err := writeMetadataTo(installRoot, "node", cacheVer, meta); err != nil {
 		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain node %s: metadata write failed (install aborted): %w", version, err)
 	}
-	return Result{Tool: "node", Version: version, Path: binPath, CacheHit: false, SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA, Trust: TrustChecksum}, nil
+	return nodeResult(version, binPath, false, meta, libDir), nil
+}
+
+// provisionNodeRuntime (re)builds the tree's runtime library directory from verified
+// packages and records it in meta. A host that already has every library leaves it empty.
+func provisionNodeRuntime(binPath, libDir string, meta *Metadata) error {
+	if err := os.RemoveAll(libDir); err != nil {
+		return fmt.Errorf("clearing %s: %w", libDir, err)
+	}
+	libs, sources, err := provisionRuntimeLibs(binPath, libDir)
+	if err != nil {
+		os.RemoveAll(libDir)
+		return fmt.Errorf("runtime library %w", err)
+	}
+	meta.RuntimeLibs, meta.RuntimeLibSources = libs, sources
+	return nil
+}
+
+func nodeResult(version, binPath string, cacheHit bool, meta Metadata, libDir string) Result {
+	r := Result{Tool: "node", Version: version, Path: binPath, CacheHit: cacheHit, SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256, Trust: TrustChecksum}
+	if len(meta.RuntimeLibs) > 0 {
+		r.Env = runtimeLibEnv(libDir)
+	}
+	return r
 }
