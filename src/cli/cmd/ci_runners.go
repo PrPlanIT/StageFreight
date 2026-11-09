@@ -829,7 +829,9 @@ func runDependencyUpdateLogic(ctx context.Context, appCfg *config.Config, rootDi
 		Ignore:     mapIgnores(appCfg.Dependency.Ignore),
 		Writer:     w, // render the Dependencies card alongside the other phase cards
 
-		ToolchainHold: appCfg.Toolchains.HoldReason,
+		ToolchainHold:      appCfg.Toolchains.HoldReason,
+		OSVScanner:         osvScannerResolver(rootDir, appCfg.Toolchains.Want),
+		TransitiveOverride: appCfg.Dependency.EffectiveTransitiveOverride(),
 	}
 
 	result, err := dependency.Update(ctx, updateCfg, deps)

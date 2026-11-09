@@ -1,6 +1,7 @@
 package dependency
 
 import (
+	"context"
 	"io"
 
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
@@ -22,6 +23,12 @@ type UpdateConfig struct {
 	// ToolchainHold returns why a toolchain must not be moved, or "" when it may —
 	// independent of DryRun; nil moves every toolchain.
 	ToolchainHold func(tool string) string
+	// OSVScanner resolves the osv-scanner binary that reads JavaScript lockfiles for
+	// vulnerable transitive packages; nil leaves them unremediated and says so.
+	OSVScanner func(ctx context.Context) (string, error)
+	// TransitiveOverride is dependency.transitive.override: "compatible" (default),
+	// "any" or "off".
+	TransitiveOverride string
 }
 
 // VulnIgnore is a single accepted-risk advisory suppression. Mirrors config's

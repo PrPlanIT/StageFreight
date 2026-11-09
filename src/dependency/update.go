@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -405,6 +406,23 @@ func Update(ctx context.Context, cfg UpdateConfig, deps []supplychain.Dependency
 		result.FilesChanged = append(result.FilesChanged, touchedFiles...)
 	}
 
+	// Vulnerable transitive JavaScript packages: after the direct npm pass, so a parent's
+	// own update has already had its chance to pull the fix.
+	if applyEcosystems && ecosystemInScope(cfg.Ecosystems, supplychain.EcosystemNpm) {
+		if projects := discoverJSProjects(repoRoot, trackedFiles, npmManifests(deps)); len(projects) > 0 {
+			t0 = time.Now()
+			applied, jsSkipped, touchedFiles, err := remediateJSTransitive(ctx, cfg, repoRoot, projects)
+			result.Applied = append(result.Applied, applied...)
+			result.Skipped = append(result.Skipped, jsSkipped...)
+			result.FilesChanged = append(result.FilesChanged, touchedFiles...)
+			if err != nil {
+				steps = append(steps, depStep{label: "npm transitive", status: "fail", detail: err.Error(), dur: time.Since(t0)})
+				return result, fmt.Errorf("remediating transitive npm vulnerabilities: %w", err)
+			}
+			steps = append(steps, ecosystemStep("npm transitive", applied, jsSkipped, nil, time.Since(t0)))
+		}
+	}
+
 	// 5a. Normalize, deduplicate, and sort FilesChanged
 	result.FilesChanged = deduplicateAndSort(result.FilesChanged)
 
@@ -602,4 +620,28 @@ func gitTrackedFiles(_ context.Context, repoRoot string) (map[string]bool, error
 		return nil, fmt.Errorf("iterating tree: %w", err)
 	}
 	return tracked, nil
+}
+
+// ecosystemInScope reports whether the ecosystem filter (empty = all) admits eco.
+func ecosystemInScope(filter []string, eco string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	for _, e := range filter {
+		if e == eco {
+			return true
+		}
+	}
+	return false
+}
+
+// npmManifests is the set of package.json files the dependency scan resolved.
+func npmManifests(deps []supplychain.Dependency) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range deps {
+		if d.Ecosystem == supplychain.EcosystemNpm && path.Base(d.File) == "package.json" {
+			out[d.File] = true
+		}
+	}
+	return out
 }

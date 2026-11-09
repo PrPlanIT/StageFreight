@@ -31,14 +31,16 @@ const (
 	SkipCooldownHeld      SkipCategory = "cooldown_held"        // the newer release is inside min_release_age
 
 	// --- apply-layer decisions (apply_*.go) ---
-	SkipSourceUnresolvable SkipCategory = "source_unresolvable" // manifest line pattern not recognized
-	SkipSourceMismatch     SkipCategory = "source_mismatch"     // current value not found where expected
-	SkipCorruptPin         SkipCategory = "corrupt_pin"         // pinned value is not a version; needs a human edit
-	SkipNoChange           SkipCategory = "no_change"           // replacement produced no diff
-	SkipNoGoSource         SkipCategory = "no_go_source"        // content/tooling module, no Go source
-	SkipReplaceDirective   SkipCategory = "replace_directive"   // go.mod replace present
-	SkipNoFixedVersion     SkipCategory = "no_fixed_version"    // advisory with no known fixed version
-	SkipConflict           SkipCategory = "conflict"            // conflicting desired versions within a module
+	SkipSourceUnresolvable  SkipCategory = "source_unresolvable"  // manifest line pattern not recognized
+	SkipSourceMismatch      SkipCategory = "source_mismatch"      // current value not found where expected
+	SkipCorruptPin          SkipCategory = "corrupt_pin"          // pinned value is not a version; needs a human edit
+	SkipNoChange            SkipCategory = "no_change"            // replacement produced no diff
+	SkipNoGoSource          SkipCategory = "no_go_source"         // content/tooling module, no Go source
+	SkipReplaceDirective    SkipCategory = "replace_directive"    // go.mod replace present
+	SkipNoFixedVersion      SkipCategory = "no_fixed_version"     // advisory with no known fixed version
+	SkipConflict            SkipCategory = "conflict"             // conflicting desired versions within a module
+	SkipOverrideHeld        SkipCategory = "override_held"        // a transitive fix needs an override floor the policy or graph does not allow
+	SkipLockfileUnsupported SkipCategory = "lockfile_unsupported" // the package manager cannot re-resolve its lockfile without installing
 
 	// SkipOther is the fallback for a decision not yet given its own category.
 	SkipOther SkipCategory = "other"

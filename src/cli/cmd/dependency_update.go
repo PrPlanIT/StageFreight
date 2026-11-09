@@ -199,7 +199,9 @@ func runDependencyUpdate(cmd *cobra.Command, args []string) error {
 		MaxUpdate:  depMaxUpdate,
 		Ignore:     mapIgnores(cfg.Dependency.Ignore),
 
-		ToolchainHold: cfg.Toolchains.HoldReason,
+		ToolchainHold:      cfg.Toolchains.HoldReason,
+		OSVScanner:         osvScannerResolver(rootDir, cfg.Toolchains.Want),
+		TransitiveOverride: cfg.Dependency.EffectiveTransitiveOverride(),
 	}
 
 	if depDryRun {

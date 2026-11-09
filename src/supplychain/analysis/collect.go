@@ -61,30 +61,49 @@ func IsScannableLockfile(base, absPath string) bool {
 // attributing each to relPath. Callers gate the file with IsScannableLockfile
 // first. Per-file counterpart used by the vulnerabilities lint module.
 func ObserveScanner(ctx context.Context, binPath string, env []string, absPath, relPath string) ([]AdvisoryObservation, error) {
-	return scanLockfile(ctx, binPath, env, absPath, relPath)
+	obs, _, err := scanLockfile(ctx, binPath, env, absPath, relPath, false)
+	return obs, err
+}
+
+// LockedPackage is one package version a lockfile resolves.
+type LockedPackage struct {
+	Name    string
+	Version string
+}
+
+// InventoryLockfile is ObserveScanner plus every package the lockfile resolves,
+// vulnerable or not — what a remediator needs to see each locked copy of a package.
+func InventoryLockfile(ctx context.Context, binPath string, env []string, absPath, relPath string) ([]AdvisoryObservation, []LockedPackage, error) {
+	return scanLockfile(ctx, binPath, env, absPath, relPath, true)
 }
 
 // scanLockfile runs osv-scanner against a single lockfile and converts its
 // grouped JSON output into observations, attributing each to rel (the
 // repo-relative lockfile path).
-func scanLockfile(ctx context.Context, binPath string, env []string, absPath, rel string) ([]AdvisoryObservation, error) {
-	cmd := exec.CommandContext(ctx, binPath, "scan", "--format", "json", "-L", absPath)
+func scanLockfile(ctx context.Context, binPath string, env []string, absPath, rel string, allPackages bool) ([]AdvisoryObservation, []LockedPackage, error) {
+	args := []string{"scan", "--format", "json"}
+	if allPackages {
+		args = append(args, "--all-packages")
+	}
+	cmd := exec.CommandContext(ctx, binPath, append(args, "-L", absPath)...)
 	cmd.Env = env
 	out, err := cmd.Output()
 
 	// osv-scanner exits 1 when vulnerabilities are found — still valid JSON.
 	if err != nil && len(out) == 0 {
-		return nil, fmt.Errorf("osv-scanner: %w", err)
+		return nil, nil, fmt.Errorf("osv-scanner: %w", err)
 	}
 
 	var report osvReport
 	if err := json.Unmarshal(out, &report); err != nil {
-		return nil, fmt.Errorf("osv-scanner: parsing output: %w", err)
+		return nil, nil, fmt.Errorf("osv-scanner: parsing output: %w", err)
 	}
 
 	var obs []AdvisoryObservation
+	var locked []LockedPackage
 	for _, res := range report.Results {
 		for _, pkg := range res.Packages {
+			locked = append(locked, LockedPackage{Name: pkg.Package.Name, Version: pkg.Package.Version})
 			for _, group := range pkg.Groups {
 				if len(group.IDs) == 0 {
 					continue
@@ -106,7 +125,7 @@ func scanLockfile(ctx context.Context, binPath string, env []string, absPath, re
 			}
 		}
 	}
-	return obs, nil
+	return obs, locked, nil
 }
 
 // isDominatedLockfile reports whether a same-named lockfile exists in an ancestor

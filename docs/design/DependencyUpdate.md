@@ -169,6 +169,17 @@ An update must not mutate beyond its declared intent. Lock sync is scoped to the
 
 The cargo step reports churn as `updated N · lock I→M`, and flags `(R× ⚠)` when lockfile mutations reach 5× the intended packages, so unintended blast radius surfaces for review instead of hiding in the lock diff.
 
+## Transitive JavaScript Vulnerabilities
+
+A vulnerable package only the lockfile names has no manifest line to bump. After the direct npm pass, each tracked lockfile beside a `package.json` the scan resolved (so `lint.exclude` bounds both passes; a workspace member is covered by its root's lockfile) goes through these lanes, each verified by an osv-scanner re-scan:
+
+1. **Refresh within ranges** — re-resolve only the vulnerable names inside every declared range: `npm update <names> --package-lock-only`, `yarn up -R <names> --mode=update-lockfile`, `pnpm update <names> --depth Infinity --lockfile-only`, all with scripts disabled.
+2. **Parent bump** — a parent's own update in the direct pass, which runs first.
+3. **Override floor** — an unscoped `"<name>": "^<fix>"` in `overrides` (npm), `resolutions` (yarn) or `pnpm.overrides`, governed by `dependency.transitive.override`: `compatible` (default) requires every locked copy on the fix's semver line; `any` also crosses an older line; `off` disables the lane. A floor is never written over a copy on a newer line, over an override a person wrote, or into `pnpm-workspace.yaml`.
+4. **Held** — anything left is reported with its reason and who requires it (`query-string@9.3.1 wants ^0.4.1`).
+
+The fixed version is the one closing the advisory's affected interval that contains the installed version, not the first fix listed. Security remediation is not bounded by `max_update`. Floors StageFreight wrote are recorded in `.stagefreight/overrides.lock` (committed) and removed once the graph resolves past them without the floor; a floor whose manifest value a person changed is dropped from the lock, not the manifest. yarn classic (v1) lockfiles are reported as unsupported.
+
 ## Lockfile Regeneration Hardening
 
 Lockfile regeneration never runs package code and never sees secrets. Node locks are regenerated through a runner with a scrubbed environment and pinned `PATH`:

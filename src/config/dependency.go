@@ -82,6 +82,42 @@ type DependencyConfig struct {
 	// cooldown is upstream.version.min_release_age, which inherits this value when unset.
 	// Unset is no cooldown.
 	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
+
+	// Transitive governs how a vulnerable package that only the lockfile names (a
+	// dependency of a dependency) is remediated.
+	Transitive DependencyTransitiveConfig `yaml:"transitive,omitempty"`
+}
+
+// DependencyTransitiveConfig governs remediation of vulnerable transitive packages.
+// The lockfile is first refreshed within every declared range; a parent's own update
+// then rides the ordinary update pass. Override is the last lane, a floor written to the
+// manifest's overrides (npm, pnpm) or resolutions (yarn):
+//   - "compatible" (default): only when the fix is semver-compatible with every locked
+//     copy, the bar every other automatic update meets.
+//   - "any": also across an incompatible line (a major, or a 0.x minor).
+//   - "off": never; the vulnerability is reported for a person to resolve.
+//
+// StageFreight removes a floor it wrote once the dependency graph no longer needs it.
+type DependencyTransitiveConfig struct {
+	// Override is how far an override floor may move a locked copy: "compatible"
+	// (default), "any", or "off". Floors StageFreight wrote are recorded in
+	// .stagefreight/overrides.lock.
+	Override string `yaml:"override,omitempty"`
+}
+
+// Transitive override modes.
+const (
+	TransitiveOverrideCompatible = "compatible"
+	TransitiveOverrideAny        = "any"
+	TransitiveOverrideOff        = "off"
+)
+
+// EffectiveTransitiveOverride resolves the override lane, defaulting to "compatible".
+func (c DependencyConfig) EffectiveTransitiveOverride() string {
+	if v := strings.ToLower(strings.TrimSpace(c.Transitive.Override)); v != "" {
+		return v
+	}
+	return TransitiveOverrideCompatible
 }
 
 // EffectivePolicy resolves the freshness scope, defaulting to "all". Lowercased

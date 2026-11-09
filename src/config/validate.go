@@ -619,6 +619,11 @@ func Validate(cfg *Config) (warnings []string, err error) {
 			errs = append(errs, "dependency.commit: message is required when commit enabled")
 		}
 	}
+	switch cfg.Dependency.EffectiveTransitiveOverride() {
+	case TransitiveOverrideCompatible, TransitiveOverrideAny, TransitiveOverrideOff:
+	default:
+		errs = append(errs, fmt.Sprintf("dependency.transitive.override: %q must be one of compatible, any, off", cfg.Dependency.Transitive.Override))
+	}
 	if p := cfg.Dependency.Commit.Promotion; p != "" && p != PromotionDirect && p != PromotionMR {
 		errs = append(errs, fmt.Sprintf("dependency.commit.promotion: %q is invalid (expected %q or %q)", p, PromotionDirect, PromotionMR))
 	}
