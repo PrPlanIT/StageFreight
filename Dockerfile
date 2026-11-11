@@ -5,7 +5,7 @@ FROM docker.io/library/docker:29.9.3-cli AS docker-cli
 FROM docker.io/docker/buildx-bin:0.38.2 AS buildx
 
 # ---- Go build stage ----
-FROM docker.io/library/golang:1.27.3-alpine3.24 AS builder
+FROM docker.io/library/golang:1.27.4-alpine3.24 AS builder
 
 RUN apk add --no-cache git chafa
 
