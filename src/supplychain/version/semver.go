@@ -440,7 +440,7 @@ func compareDependencyVersions(current, latest, ecosystem string) VersionDelta {
 		return compareAPKVersions(current, latest)
 	case supplychain.EcosystemDebianAPT:
 		return compareAPTVersions(current, latest)
-	case supplychain.EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage, supplychain.EcosystemSourceImage:
 		// A distro base image is tagged by codename, which no semver parse can order.
 		// Any release jump is reported as MAJOR: crossing an OS release changes the
 		// package set underneath the image, which is precisely the magnitude operators

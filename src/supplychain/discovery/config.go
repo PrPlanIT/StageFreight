@@ -34,6 +34,10 @@ type FreshnessConfig struct {
 	// version and thus needs the list — so the default path pays no extra network. A
 	// resolver that already has the list for free (cargo) populates it regardless.
 	FetchVersionLists bool `json:"fetch_version_lists"`
+
+	// SourceImages is dependency.scope.source_images, propagated here by config
+	// normalization: every file is scanned for renovate: datasource=docker annotations.
+	SourceImages bool `json:"source_images"`
 }
 
 // minReleaseAge is the longest configured cooldown window — the conservative age a release
@@ -238,7 +242,7 @@ func (c *FreshnessConfig) SourceEnabled(ecosystem string) bool {
 		return *flag
 	}
 	switch ecosystem {
-	case supplychain.EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage, supplychain.EcosystemSourceImage:
 		return check(c.Sources.DockerImages)
 	case supplychain.EcosystemGitHubRelease:
 		return check(c.Sources.GitHubReleases)

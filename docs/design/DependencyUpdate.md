@@ -2,7 +2,7 @@
 
 `stagefreight dependency update` resolves outdated dependencies, applies updates, runs verification, and generates artifacts for review or CI consumption.
 
-**Current ecosystem support (auto-update):** Go modules, Dockerfile `FROM` tags, GitHub releases, `toolchains.want`, Cargo, npm/yarn/pnpm, pip `requirements.txt` exact (`==`) pins, and Alpine/Debian package pins interpolated from `ARG`/`ENV`. Pipfile dependencies are discovered but not applied; Poetry (`pyproject.toml`) is not yet discovered.
+**Current ecosystem support (auto-update):** Go modules, Dockerfile `FROM` tags, GitHub releases, `toolchains.want`, Cargo, npm/yarn/pnpm, pip `requirements.txt` exact (`==`) pins, Alpine/Debian package pins interpolated from `ARG`/`ENV`, and container image references in any file annotated with a `renovate: datasource=docker depName=<image>` comment (`dependency.scope.source_images`). Pipfile dependencies are discovered but not applied; Poetry (`pyproject.toml`) is not yet discovered.
 
 ## CLI Usage
 

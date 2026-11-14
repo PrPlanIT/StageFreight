@@ -505,7 +505,7 @@ func groupByEcosystem(deps []supplychain.Dependency) (gomod, docker, tc, cargo, 
 		switch dep.Ecosystem {
 		case supplychain.EcosystemGoMod:
 			gomod = append(gomod, dep)
-		case supplychain.EcosystemDockerImage, supplychain.EcosystemGitHubRelease:
+		case supplychain.EcosystemDockerImage, supplychain.EcosystemGitHubRelease, supplychain.EcosystemSourceImage:
 			docker = append(docker, dep)
 		case supplychain.EcosystemToolchain:
 			tc = append(tc, dep)

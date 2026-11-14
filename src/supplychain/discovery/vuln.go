@@ -20,6 +20,7 @@ var osvEcosystemMap = map[string]string{
 	supplychain.EcosystemAlpineAPK:     "Alpine",
 	supplychain.EcosystemDebianAPT:     "Debian",
 	supplychain.EcosystemDockerImage:   "", // no OSV ecosystem for container images
+	supplychain.EcosystemSourceImage:   "",
 	supplychain.EcosystemGitHubRelease: "", // a Dockerfile-pinned release names no package
 	// toolchain: per tool, by its source package — see osvIdentity
 }

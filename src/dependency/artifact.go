@@ -436,7 +436,7 @@ func sourceShortName(dep supplychain.Dependency) string {
 	switch dep.Ecosystem {
 	case supplychain.EcosystemGoMod:
 		return "proxy.golang.org"
-	case supplychain.EcosystemDockerImage:
+	case supplychain.EcosystemDockerImage, supplychain.EcosystemSourceImage:
 		return "dockerhub"
 	case supplychain.EcosystemGitHubRelease:
 		return "github"

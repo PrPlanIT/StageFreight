@@ -178,6 +178,8 @@ func buildReplacement(dep supplychain.Dependency, origLine string) (string, stri
 			return buildEnvReplacement(dep, origLine)
 		}
 		return buildFromReplacement(dep, origLine)
+	case supplychain.EcosystemSourceImage:
+		return buildSourceImageReplacement(dep, origLine)
 	case supplychain.EcosystemGitHubRelease:
 		return buildEnvReplacement(dep, origLine)
 	case supplychain.EcosystemDebianAPT, supplychain.EcosystemAlpineAPK:
@@ -239,6 +241,40 @@ func buildFromReplacement(dep supplychain.Dependency, origLine string) (string, 
 	}
 
 	return m[1] + newToken + m[3], ""
+}
+
+// buildSourceImageReplacement rewrites an annotated image reference's tag at its recorded
+// column, and its digest when pinned, leaving the rest of the line as written. The line
+// must still hold the discovered <image>:<tag> there.
+func buildSourceImageReplacement(dep supplychain.Dependency, origLine string) (string, string) {
+	ref, _, _ := strings.Cut(dep.Name, "@")
+	image := strings.TrimSuffix(ref, ":"+dep.Current)
+	end := dep.Column + len(dep.Current)
+	if dep.Column < 1 || end > len(origLine) || origLine[dep.Column:end] != dep.Current ||
+		!strings.HasSuffix(origLine[:dep.Column], image+":") ||
+		(end < len(origLine) && isImageTagByte(origLine[end])) {
+		return origLine, "source value mismatch"
+	}
+	target := dep.UpdateTarget()
+	if versionHasPathSeparator(target) {
+		return origLine, fmt.Sprintf("%sresolved target %q is not a version — refusing to write it",
+			corruptPinPrefix, target)
+	}
+	rest := origLine[end:]
+	if dep.PinnedDigest != "" {
+		if !strings.HasPrefix(rest, "@"+dep.PinnedDigest) {
+			return origLine, "source value mismatch"
+		}
+		if dep.ResolvedDigest != "" {
+			rest = "@" + dep.ResolvedDigest + rest[1+len(dep.PinnedDigest):]
+		}
+	}
+	return origLine[:dep.Column] + target + rest, ""
+}
+
+// isImageTagByte reports whether c may appear in an image tag.
+func isImageTagByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '.' || c == '-'
 }
 
 // buildEnvReplacement handles ENV VERSION line replacement.

@@ -293,3 +293,86 @@ func TestBuildEnvReplacementStillAppliesCleanBump(t *testing.T) {
 		t.Errorf("got %q, want the v-prefix preserved bump", got)
 	}
 }
+
+// An annotated source image bumps only its tag, in place, through the hash-guarded
+// writer; the rest of the line and file are untouched.
+func TestApplyDockerfileUpdates_SourceImageTagOnly(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "helper.go")
+	const body = "package helper\n\n// renovate: datasource=docker depName=docker.io/library/busybox\nconst DefaultHelperImage = \"docker.io/library/busybox:1.38.0\" // helper\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	line := "const DefaultHelperImage = \"docker.io/library/busybox:1.38.0\" // helper"
+	dep := supplychain.Dependency{
+		Name:           "docker.io/library/busybox:1.38.0",
+		Ecosystem:      supplychain.EcosystemSourceImage,
+		Current:        "1.38.0",
+		Latest:         "1.39.0",
+		LatestEligible: "1.38.1",
+		File:           "helper.go",
+		Line:           4,
+		Column:         strings.Index(line, "1.38.0"),
+	}
+
+	applied, skipped, touched, err := applyDockerfileUpdates([]supplychain.Dependency{dep}, dir)
+	if err != nil {
+		t.Fatalf("applyDockerfileUpdates: %v", err)
+	}
+	if len(skipped) != 0 || len(applied) != 1 || len(touched) != 1 || touched[0] != "helper.go" {
+		t.Fatalf("applied=%d skipped=%+v touched=%v", len(applied), skipped, touched)
+	}
+	out, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(body, "busybox:1.38.0", "busybox:1.38.1", 1)
+	if string(out) != want {
+		t.Errorf("rewritten source = %q, want %q", string(out), want)
+	}
+}
+
+// A digest-pinned source image swaps tag and digest together.
+func TestBuildSourceImageReplacement_DigestPinned(t *testing.T) {
+	line := `image: alpine:3.22.1@sha256:old # pinned`
+	dep := supplychain.Dependency{
+		Name:           "alpine:3.22.1@sha256:old",
+		Ecosystem:      supplychain.EcosystemSourceImage,
+		Current:        "3.22.1",
+		LatestEligible: "3.22.2",
+		Column:         strings.Index(line, "3.22.1"),
+		PinnedDigest:   "sha256:old",
+		ResolvedDigest: "sha256:new",
+	}
+	got, skip := buildSourceImageReplacement(dep, line)
+	if skip != "" {
+		t.Fatalf("unexpected skip: %q", skip)
+	}
+	if want := `image: alpine:3.22.2@sha256:new # pinned`; got != want {
+		t.Errorf("replacement = %q, want %q", got, want)
+	}
+}
+
+// A line that no longer holds the discovered <image>:<tag> at the recorded column is
+// refused and left as written.
+func TestBuildSourceImageReplacement_RefusesChangedLine(t *testing.T) {
+	dep := supplychain.Dependency{
+		Name:           "busybox:1.38.0",
+		Ecosystem:      supplychain.EcosystemSourceImage,
+		Current:        "1.38.0",
+		LatestEligible: "1.38.1",
+		Column:         len(`image = "busybox:`),
+	}
+	for _, line := range []string{
+		`image = "busybox:1.38.0.1"`, // tag grew
+		`image = "busybox:1.37.0"`,   // tag changed
+		`image = "alpine1:1.38.0"`,   // image changed
+		`image = "busybox"`,          // reference gone
+		`  image = "busybox:1.38.0"`, // value moved
+	} {
+		got, skip := buildSourceImageReplacement(dep, line)
+		if skip != "source value mismatch" || got != line {
+			t.Errorf("%q: got (%q, %q), want the line refused untouched", line, got, skip)
+		}
+	}
+}

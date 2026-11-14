@@ -194,7 +194,8 @@ type DependencyIgnore struct {
 // DependencyScopeConfig controls which dependency ecosystems are managed.
 type DependencyScopeConfig struct {
 	GoModules     bool `yaml:"go_modules"`
-	DockerfileEnv bool `yaml:"dockerfile_env"` // umbrella for docker-image + github-release
+	DockerfileEnv bool `yaml:"dockerfile_env"`          // umbrella for docker-image + github-release
+	SourceImages  bool `yaml:"source_images,omitempty"` // image refs in source annotated with a renovate: datasource=docker comment
 }
 
 // DependencyCommitPromotion controls how dependency commits reach the target branch.
@@ -251,7 +252,8 @@ func DefaultDependencyConfig() DependencyConfig {
 
 // ScopeToEcosystems converts scope booleans to ecosystem filter strings
 // compatible with dependency.UpdateConfig.Ecosystems.
-// Returns nil (all ecosystems) if all scopes are enabled.
+// Returns nil (all ecosystems) if go_modules and dockerfile_env are both enabled;
+// source_images gates discovery itself, so nil never enables it.
 func (s DependencyScopeConfig) ScopeToEcosystems() []string {
 	if s.GoModules && s.DockerfileEnv {
 		return nil // all
@@ -262,6 +264,9 @@ func (s DependencyScopeConfig) ScopeToEcosystems() []string {
 	}
 	if s.DockerfileEnv {
 		ecosystems = append(ecosystems, "docker-image", "github-release")
+	}
+	if s.SourceImages {
+		ecosystems = append(ecosystems, "source-image")
 	}
 	return ecosystems
 }

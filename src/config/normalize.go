@@ -27,6 +27,9 @@ func Normalize(cfg *Config) error {
 	if err := propagateCooldown(cfg); err != nil {
 		return err
 	}
+	if err := propagateSourceImages(cfg); err != nil {
+		return err
+	}
 
 	// Derive badge output paths from scribe.store + id (so a badge needs no output:
 	// line). Independent of {var:} templating — runs before the vars short-circuit.
@@ -166,6 +169,28 @@ func propagateCooldown(cfg *Config) error {
 		fm.Options = map[string]any{}
 	}
 	fm.Options["min_release_age"] = *cfg.Dependency.MinReleaseAge
+	cfg.Lint.Modules["freshness"] = fm
+	return nil
+}
+
+// propagateSourceImages carries dependency.scope.source_images into the freshness
+// resolver's options, its read path. The options key is not a config surface: setting it
+// there is rejected.
+func propagateSourceImages(cfg *Config) error {
+	if _, set := cfg.Lint.Modules["freshness"].Options["source_images"]; set {
+		return fmt.Errorf("lint.modules.freshness.options.source_images: set dependency.scope.source_images")
+	}
+	if !cfg.Dependency.Scope.SourceImages {
+		return nil
+	}
+	if cfg.Lint.Modules == nil {
+		cfg.Lint.Modules = map[string]ModuleConfig{}
+	}
+	fm := cfg.Lint.Modules["freshness"]
+	if fm.Options == nil {
+		fm.Options = map[string]any{}
+	}
+	fm.Options["source_images"] = true
 	cfg.Lint.Modules["freshness"] = fm
 	return nil
 }

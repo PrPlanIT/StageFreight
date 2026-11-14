@@ -20,6 +20,7 @@ type SkippedDep struct {
 // autoUpdatableEcosystems defines which ecosystems can be automatically updated.
 var autoUpdatableEcosystems = map[string]bool{
 	supplychain.EcosystemDockerImage:   true,
+	supplychain.EcosystemSourceImage:   true, // annotated image tags edited in place (apply_dockerfile.go)
 	supplychain.EcosystemGitHubRelease: true,
 	supplychain.EcosystemGoMod:         true,
 	supplychain.EcosystemToolchain:     true,
@@ -209,7 +210,7 @@ func skipReason(dep supplychain.Dependency, cfg UpdateConfig, ecosystemFilter ma
 	}
 
 	// Docker-image specific skips
-	if dep.Ecosystem == supplychain.EcosystemDockerImage {
+	if dep.Ecosystem == supplychain.EcosystemDockerImage || dep.Ecosystem == supplychain.EcosystemSourceImage {
 		if cat, reason := dockerImageSkipReason(dep); cat != SkipNone {
 			return cat, reason
 		}

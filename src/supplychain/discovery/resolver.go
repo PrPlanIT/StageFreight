@@ -75,9 +75,23 @@ func (m *Resolver) ResolveFile(ctx context.Context, file lint.FileInfo) ([]suppl
 	return deps, nil
 }
 
-// resolveFile dispatches to the appropriate checker based on filename
-// and returns raw Dependency structs (no lint-finding conversion).
+// resolveFile returns the raw Dependency structs (no lint-finding conversion) for file:
+// its manifest dependencies, then, under dependency.scope.source_images, the image
+// references its renovate annotations opt in.
 func (m *Resolver) resolveFile(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
+	deps, err := m.resolveManifest(ctx, file)
+	if err != nil || !m.cfg.SourceImages {
+		return deps, err
+	}
+	annotated, err := m.checkSourceImages(ctx, file, deps)
+	if err != nil {
+		return nil, err
+	}
+	return append(deps, annotated...), nil
+}
+
+// resolveManifest dispatches to the appropriate checker based on filename.
+func (m *Resolver) resolveManifest(ctx context.Context, file lint.FileInfo) ([]supplychain.Dependency, error) {
 	base := filepath.Base(file.Path)
 	switch {
 	case isDockerfile(base):

@@ -612,7 +612,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 		}
 	}
 	if cfg.Dependency.Enabled {
-		if !cfg.Dependency.Scope.GoModules && !cfg.Dependency.Scope.DockerfileEnv {
+		if !cfg.Dependency.Scope.GoModules && !cfg.Dependency.Scope.DockerfileEnv && !cfg.Dependency.Scope.SourceImages {
 			errs = append(errs, "dependency: at least one scope must be true when enabled")
 		}
 		if cfg.Dependency.Commit.Enabled && cfg.Dependency.Commit.Message == "" {
