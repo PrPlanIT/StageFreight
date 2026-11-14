@@ -10,9 +10,9 @@
     },
     {
       "name": "cargo-nextest",
-      "resolved": "0.9.151",
+      "resolved": "0.9.152",
       "sha256": {
-        "linux/amd64": "1d4ce302b820c41f4b89c5fb9bce45f0f0c94882c1cf08fc360caf08be6e7df4"
+        "linux/amd64-musl": "521c5f790ed07ee69d0a88403d9d86a8c8ab27977f12fc73f22aa4e7e14a0f71"
       }
     },
     {
