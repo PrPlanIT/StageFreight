@@ -702,6 +702,7 @@ dependency:
   scope:   # required
     go_modules: false   # required
     dockerfile_env: false   # umbrella for docker-image + github-release · required
+    source_images: false   # image refs in source annotated with a renovate: datasource=docker comment
   commit:   # required
     enabled: false   # required
     type: <string>   # required
