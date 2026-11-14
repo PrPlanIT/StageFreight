@@ -49,6 +49,7 @@ Generated sections below are assembled from `docs/modules/config-reference.md` v
 - [`governance`](#config-governance)
 - [`gitops`](#config-gitops)
 - [`ansible`](#config-ansible)
+- [`opentofu`](#config-opentofu)
 - [`docker`](#config-docker)
 - [`build_cache`](#config-build_cache)
 - [`glossary`](#config-glossary)
@@ -1120,6 +1121,29 @@ ansible:
 ---
 
 <!-- --8<-- [end:ansible] -->
+<!-- --8<-- [start:opentofu] -->
+<a id="config-opentofu" name="config-opentofu"></a>
+### opentofu
+
+OpenTofu defines the OpenTofu/Terraform infrastructure-convergence subsystem. Presence-gated (any converge root activates it) and independent of lifecycle.mode.
+
+```yaml
+opentofu:
+  preset: <string>
+  backend: <string>   # Backend selects the binary that runs the roots: "opentofu" or "terraform". Default: "opentofu". Its… · required
+  credentials: <string>   # Credentials is the env-prefix name the roots' credentials are read from: every <PREFIX>_<NAME>… · required
+  roots:   # Roots is the root-module library: an order-preserving id → entry map. Entries with converge: true… · required
+    <id>:   # entry key = the unique id
+      path: <string>   # Path is the repo-relative root-module directory. · required
+      converge: false   # Converge marks the root as desired state: planned and applied on every perform reconcile. False… · required
+      required: false   # Required: failure is hard pipeline fail (default: true — an apply mutates infrastructure, so a…
+      workspace: <string>   # Workspace is the workspace the root runs in (selected, created when absent). Default: the binary's…
+      var_files: [<string>]   # VarFiles are -var-file arguments, relative to Path, in declared order.
+```
+
+---
+
+<!-- --8<-- [end:opentofu] -->
 <!-- --8<-- [start:docker] -->
 <a id="config-docker" name="config-docker"></a>
 ### docker
