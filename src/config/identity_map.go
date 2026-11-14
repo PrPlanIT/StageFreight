@@ -157,3 +157,4 @@ func (OrderedStencils) isIDMap()         {}
 func (OrderedLLMs) isIDMap()             {}
 func (OrderedNotifications) isIDMap()    {}
 func (OrderedAnsiblePlaybooks) isIDMap() {}
+func (OrderedOpenTofuRoots) isIDMap()    {}

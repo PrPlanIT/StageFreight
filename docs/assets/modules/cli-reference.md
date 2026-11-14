@@ -37,6 +37,8 @@
         - [`inspect`](#cli-stagefreight-manifest-inspect) — Pretty-print manifest or specific sections
     - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
     - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+    - [`opentofu`](#cli-stagefreight-opentofu) — Infrastructure convergence via the declared OpenTofu/Terraform roots
+        - [`run`](#cli-stagefreight-opentofu-run) — Plan and apply one declared root by id
     - [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
     - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
     - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
@@ -108,6 +110,7 @@ StageFreight — a declarative lifecycle runtime that governs Git as the source 
 - [`manifest`](#cli-stagefreight-manifest) — Generate and inspect build manifests
 - [`metadata`](#cli-stagefreight-metadata) — Push project identity to registries and forge repos
 - [`migrate`](#cli-stagefreight-migrate) — Migrate config to the latest schema version
+- [`opentofu`](#cli-stagefreight-opentofu) — Infrastructure convergence via the declared OpenTofu/Terraform roots
 - [`prune`](#cli-stagefreight-prune) — Reclaim disk from StageFreight-owned artifacts (dry-run by default)
 - [`pull`](#cli-stagefreight-pull) — Plan and bring the remote's commits into the current branch
 - [`push`](#cli-stagefreight-push) — Plan and push the current branch to its remote (or an explicit destination)
@@ -929,6 +932,49 @@ by this migration tool — it was an unversioned alpha that must be rewritten.
 |------|------|---------|-------------|
 | `-i, --in-place` | bool | — | overwrite the config file in place |
 | `-o, --output` | string | — | write migrated config to this path |
+
+_Plus the [global flags](#cli-global-flags)._
+
+---
+
+<a id="cli-stagefreight-opentofu" name="cli-stagefreight-opentofu"></a>
+### stagefreight opentofu
+
+*↩ [`stagefreight`](#cli-stagefreight)*
+
+**Usage:** `stagefreight opentofu`
+
+Infrastructure convergence via the declared OpenTofu/Terraform roots
+
+**Subcommands:**
+
+- [`run`](#cli-stagefreight-opentofu-run) — Plan and apply one declared root by id
+
+---
+
+<a id="cli-stagefreight-opentofu-run" name="cli-stagefreight-opentofu-run"></a>
+### stagefreight opentofu run
+
+*↩ [`stagefreight opentofu`](#cli-stagefreight-opentofu)*
+
+**Usage:** `stagefreight opentofu run <root-id>`
+
+Plan and apply a single root from the opentofu: library — the ONLY way a
+converge: false runbook applies. CI never reaches runbooks; this verb is the
+human lane, with the same binary (toolchains.want.<backend>), credentials and
+saved-plan apply as the converge set.
+
+Examples:
+```
+stagefreight opentofu run oracle-site --plan
+stagefreight opentofu run oracle-site
+```
+
+**Flags:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--plan` | bool | — | plan only, no changes |
 
 _Plus the [global flags](#cli-global-flags)._
 

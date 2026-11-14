@@ -341,6 +341,9 @@ func runPreBuildLintImpl(ctx context.Context, rootDir string, appCfg *config.Con
 		return "", nil, err
 	}
 	lintEngine.Snapshot = snapshot
+	lintEngine.ToolchainDesired = appCfg.Toolchains.Want
+	lintEngine.Ansible = &appCfg.Ansible
+	lintEngine.OpenTofu = &appCfg.OpenTofu
 	// The gate must see the operator's declared exceptions: this is the run that blocks
 	// the build, so an advisory accepted in config has to stop blocking here.
 	lintEngine.VulnIgnores = lint.VulnIgnoresFrom(appCfg.Dependency.Ignore)

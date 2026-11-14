@@ -33,6 +33,11 @@ type Engine struct {
 	// declared play library). nil means "not configured" — the module no-ops.
 	Ansible *config.AnsibleConfig
 
+	// OpenTofu carries the repo's opentofu subsystem config to OpenTofuAwareModule
+	// implementations (the opentofu module needs the backend and the declared roots).
+	// nil means "not configured" — the module no-ops.
+	OpenTofu *config.OpenTofuConfig
+
 	// VulnIgnores carries the operator's declared advisory exceptions (from the
 	// dependency subsystem) to VulnIgnoreAwareModule implementations. Empty means no
 	// exception is declared and every advisory reports.
@@ -217,6 +222,15 @@ func (e *Engine) RunWithStats(ctx context.Context, files []FileInfo) ([]Finding,
 		for _, m := range e.Modules {
 			if aa, ok := m.(AnsibleAwareModule); ok {
 				aa.SetAnsibleConfig(*e.Ansible)
+			}
+		}
+	}
+
+	// Propagate opentofu subsystem config to modules that need it.
+	if e.OpenTofu != nil {
+		for _, m := range e.Modules {
+			if oa, ok := m.(OpenTofuAwareModule); ok {
+				oa.SetOpenTofuConfig(*e.OpenTofu)
 			}
 		}
 	}

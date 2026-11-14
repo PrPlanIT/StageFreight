@@ -43,6 +43,14 @@ type AnsibleAwareModule interface {
 	SetAnsibleConfig(cfg config.AnsibleConfig)
 }
 
+// OpenTofuAwareModule is implemented by modules that need the repo's opentofu
+// subsystem config (backend, declared roots). The engine calls SetOpenTofuConfig
+// after construction. Mirrors AnsibleAwareModule.
+type OpenTofuAwareModule interface {
+	Module
+	SetOpenTofuConfig(cfg config.OpenTofuConfig)
+}
+
 // VulnIgnoreAwareModule is implemented by modules that report advisories and must
 // honour the operator's declared exceptions. The engine calls SetVulnIgnores after
 // construction. Mirrors AnsibleAwareModule.

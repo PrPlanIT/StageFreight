@@ -7,8 +7,8 @@ Each mode has its own config section. Audition is the same in every mode: the ga
 dependency update when `dependency:` is enabled.
 
 Convergence subsystems COEXIST rather than compete: the perform phase runs every configured
-reconciler — a gitops repo keeps `mode: gitops` and adds `ansible:` beside it, and both
-converge in the same reconcile pass. Future host/infra backends join this page the same way.
+reconciler — a gitops repo keeps `mode: gitops` and adds `opentofu:` and `ansible:` beside it,
+and all of them converge in the same reconcile pass: infrastructure, then hosts, then clusters.
 
 !!! example "Real examples"
     `dungeon` runs `mode: gitops`; `MaintenancePolicy` runs `mode: governance` — see
@@ -23,6 +23,8 @@ converge in the same reconcile pass. Future host/infra backends join this page t
 --8<-- "docs/assets/modules/config-reference.md:docker"
 
 --8<-- "docs/assets/modules/config-reference.md:ansible"
+
+--8<-- "docs/assets/modules/config-reference.md:opentofu"
 
 ## Ansible host convergence
 
@@ -78,3 +80,34 @@ the standard failure facts with no extra wiring.
 **Testing.** Molecule needs no dedicated machinery — run it as a `tool: script` test suite
 from the execution image. See [`examples/ansible.yml`](examples/ansible.yml) for the complete
 annotated example.
+
+## OpenTofu infrastructure convergence
+
+The `opentofu:` subsystem converges **infrastructure**: a declared library of root modules,
+run by OpenTofu or Terraform (`backend: opentofu | terraform`), on every perform reconcile.
+The binary resolves from `toolchains.want.opentofu` or `toolchains.want.terraform` and is
+verified against the vendor's published SHA256SUMS.
+
+- **Converge roots** (`converge: true`) run in CI, in declared order, before ansible and
+  gitops: `init`, `workspace select -or-create` when `workspace:` is set, `plan` to a saved
+  file with each `var_files` entry, then `apply` of exactly that saved plan. A plan with no
+  changes skips the apply. Any failed step fails the root; `required: false` makes it advisory.
+- **Runbooks** (`converge: false`) only run from `stagefreight opentofu run <id>`
+  (`--plan` for a plan without apply).
+- `stagefreight reconcile --dry-run` and `opentofu run --plan` plan without applying.
+
+**Credentials.** Every `<PREFIX>_<NAME>` variable reaches the binary as `<NAME>`
+(`credentials: oci` turns `OCI_TF_VAR_tenancy_ocid` into `TF_VAR_tenancy_ocid`). Store them
+masked and **protected**: unprotected-ref pipelines render "skipped — credentials not
+available".
+
+**Checkout stays clean.** Each root's `.terraform/` lives in a per-run directory, and `init`
+runs with `-lockfile=readonly`: commit each root's `.terraform.lock.hcl`.
+
+**Audition lint.** `lint.modules.opentofu` runs `fmt -check` over every `.tf`, `.tfvars` and
+`.tftest.hcl` file and `validate` over each declared root (initialized without its state
+backend). Validate errors are warnings, the rest informational, as with ansible.
+
+**Facts.** Results record as the `opentofu` subsystem: `{opentofu.total}`,
+`{opentofu.applied}`, `{opentofu.add}`, `{opentofu.change}`, `{opentofu.destroy}`,
+`{opentofu.failed}`. See [`examples/opentofu.yml`](examples/opentofu.yml).

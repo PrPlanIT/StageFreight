@@ -51,21 +51,25 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	// Ansible converge set FIRST — substrate before cluster state (same order
-	// as the perform runner); coexists with the primary mode.
+	// OpenTofu roots, then the ansible converge set, FIRST — infrastructure, then
+	// hosts, before cluster state (same order as the perform runner); both coexist
+	// with the primary mode.
 	// Continue-then-fail: a failed converge is held, not returned — the
 	// primary reconcile still runs (if a converge died mid-drain, manifest
 	// sync is exactly what should still happen), then the held failure
 	// surfaces in the combined error.
-	var ansibleErr error
+	var openTofuErr, ansibleErr error
+	if cfg.OpenTofu.HasConvergeRoots() {
+		openTofuErr = runOpenTofuConverge(cmd.Context(), cfg, rootDir, reconcileGlobalDry)
+	}
 	if cfg.Ansible.HasConvergePlaybooks() {
 		ansibleErr = runAnsibleConverge(cmd.Context(), cfg, rootDir, reconcileGlobalDry)
 	}
-	return errors.Join(ansibleErr, runPrimaryReconcile(cmd.Context(), rootDir, reconcileGlobalDry))
+	return errors.Join(openTofuErr, ansibleErr, runPrimaryReconcile(cmd.Context(), rootDir, reconcileGlobalDry))
 }
 
 // runPrimaryReconcile executes the lifecycle.mode backend (flux/compose) —
-// everything reconcile does minus the ansible subsystem, which its callers
+// everything reconcile does minus the opentofu and ansible subsystems, which its callers
 // dispatch themselves (bare CLI above, the CI perform runner directly).
 func runPrimaryReconcile(ctx context.Context, rootDir string, dryRun bool) error {
 	start := time.Now()

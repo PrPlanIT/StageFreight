@@ -425,6 +425,8 @@ toolchains:
     flux: "x"
     kustomize: "x"
     kubeconform: "x"
+    opentofu: "x"
+    terraform: "x"
     cargo-llvm-cov: "x"
     cargo-nextest: "x"
   retention:

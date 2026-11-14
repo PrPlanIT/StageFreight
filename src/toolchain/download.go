@@ -94,13 +94,27 @@ func installStandaloneBinary(srcPath, dstPath string) error {
 // binary, and copies ONLY that binary to the final path atomically.
 // If 0 or >1 binaries match, returns an error (ambiguity = hard failure).
 func installFromArchive(archivePath, dstBinPath, binaryName string) error {
+	return installExtracted(archivePath, dstBinPath, binaryName, func(dir string) error {
+		return extractTarGzTree(archivePath, dir, 0)
+	})
+}
+
+// installFromZip is installFromArchive for a .zip archive.
+func installFromZip(archivePath, dstBinPath, binaryName string) error {
+	return installExtracted(archivePath, dstBinPath, binaryName, func(dir string) error {
+		return unpack.Zip(archivePath, dir)
+	})
+}
+
+// installExtracted extracts an archive with extract, then installs the one binary named binaryName.
+func installExtracted(archivePath, dstBinPath, binaryName string, extract func(dir string) error) error {
 	tmpDir, err := os.MkdirTemp("", "sf-extract-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := extractTarGzTree(archivePath, tmpDir, 0); err != nil {
+	if err := extract(tmpDir); err != nil {
 		return fmt.Errorf("extracting archive: %w", err)
 	}
 

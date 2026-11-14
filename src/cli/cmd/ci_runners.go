@@ -2284,8 +2284,9 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	hasGitOps := len(appCfg.GitOps) > 0
 	hasGovernanceClusters := len(appCfg.Governance.Profiles) > 0
 	hasAnsible := appCfg.Ansible.HasConvergePlaybooks()
+	hasOpenTofu := appCfg.OpenTofu.HasConvergeRoots()
 
-	if !hasGitOps && !hasGovernanceClusters && !hasAnsible {
+	if !hasGitOps && !hasGovernanceClusters && !hasAnsible && !hasOpenTofu {
 		renderCISkip("Reconcile", start, "no reconcile target configured")
 		return nil
 	}
@@ -2296,26 +2297,30 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 		return fmt.Errorf("reconcile subsystem: substrate unhealthy: %s", r.HardFailures())
 	}
 
-	// Ansible host convergence FIRST — hosts are the substrate; converge the
-	// machines before converging what is scheduled onto them. Coexists with
-	// gitops/governance (same non-exclusivity doctrine); runbooks (converge:
-	// false) are structurally unreachable from here.
+	// OpenTofu infrastructure convergence FIRST, then ansible host convergence —
+	// infrastructure, then the hosts on it, then what is scheduled onto them. Both
+	// coexist with gitops/governance (same non-exclusivity doctrine); runbooks
+	// (converge: false) are structurally unreachable from here.
 	// Continue-then-fail: a failed converge is held, not returned — gitops
 	// and governance still reconcile (if a converge died mid-drain, manifest
 	// sync is exactly what should still happen), then the held failure fails
 	// the job at the end.
-	var ansibleErr error
+	var openTofuErr, ansibleErr error
+	if hasOpenTofu {
+		openTofuErr = runOpenTofuConverge(ctx, appCfg, rootDir, false)
+	}
 	if hasAnsible {
 		ansibleErr = runAnsibleConverge(ctx, appCfg, rootDir, false)
 	}
+	convergeErr := errors.Join(openTofuErr, ansibleErr)
 
 	// GitOps reconcile — auth resolved at runtime (CA cert, OIDC, or kubeconfig).
 	// No pre-flight gate — let the runtime detect available auth and fail
 	// with a clear error if nothing works. The primary path is called directly
-	// (ansible is dispatched above, once).
+	// (opentofu and ansible are dispatched above, once).
 	if hasGitOps {
 		if err := runPrimaryReconcile(ctx, rootDir, false); err != nil {
-			return errors.Join(ansibleErr, err)
+			return errors.Join(convergeErr, err)
 		}
 	}
 
@@ -2325,11 +2330,11 @@ func reconcileRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CICon
 	// mutation tail. Not mutually exclusive with gitops — both can run.
 	if hasGovernanceClusters {
 		if err := governanceReconcile(ctx, appCfg, ciCtx, opts, false); err != nil {
-			return errors.Join(ansibleErr, err)
+			return errors.Join(convergeErr, err)
 		}
 	}
 
-	return ansibleErr
+	return convergeErr
 }
 
 // governanceReconcile previews (apply=false) or applies (apply=true) the governance

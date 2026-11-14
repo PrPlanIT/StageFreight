@@ -141,6 +141,10 @@ type Config struct {
 	// (any converge playbook activates it) and independent of lifecycle.mode.
 	Ansible AnsibleConfig `yaml:"ansible"`
 
+	// OpenTofu defines the OpenTofu/Terraform infrastructure-convergence subsystem.
+	// Presence-gated (any converge root activates it) and independent of lifecycle.mode.
+	OpenTofu OpenTofuConfig `yaml:"opentofu"`
+
 	// Docker defines configuration for the docker lifecycle mode.
 	Docker DockerLifecycleConfig `yaml:"docker"`
 
@@ -396,6 +400,7 @@ func defaults() *Config {
 		Manifest:   DefaultManifestConfig(),
 		Release:    DefaultReleaseConfig(),
 		Ansible:    DefaultAnsibleConfig(),
+		OpenTofu:   DefaultOpenTofuConfig(),
 		BuildCache: DefaultBuildCacheConfig(),
 		Docker:     DefaultDockerLifecycleConfig(),
 		Glossary:   DefaultGlossaryConfig(),

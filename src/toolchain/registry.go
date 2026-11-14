@@ -12,7 +12,7 @@ type ToolDef struct {
 	BinaryName   string                                // name of the binary file
 	DownloadURL  func(version string, t Target) string // archive or binary URL; "" when no build exists for t
 	ChecksumURL  func(version string, t Target) string // checksum file URL
-	Format       string                                // "tar.gz" or "binary"
+	Format       string                                // "tar.gz", "zip" or "binary"
 	ArchiveStrip string                                // prefix to strip from tar entries (e.g. "go/")
 	GitHubOwner  string                                // GitHub owner for release checking (e.g. "aquasecurity")
 	GitHubRepo   string                                // GitHub repo for release checking (e.g. "trivy")
@@ -250,6 +250,42 @@ var registry = map[string]ToolDef{
 			return fmt.Sprintf("https://github.com/fluxcd/flux2/releases/download/v%s/flux_%s_checksums.txt", ver, ver)
 		},
 		Format: "tar.gz",
+	},
+	"opentofu": {
+		Name:         "opentofu",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/opentofu/opentofu",
+		BinaryName:   "tofu",
+		GitHubOwner:  "opentofu",
+		GitHubRepo:   "opentofu",
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://github.com/opentofu/opentofu/releases/download/v%s/tofu_%s_linux_%s.tar.gz", ver, ver, a)
+			}
+			return ""
+		},
+		ChecksumURL: func(ver string, t Target) string {
+			return fmt.Sprintf("https://github.com/opentofu/opentofu/releases/download/v%s/tofu_%s_SHA256SUMS", ver, ver)
+		},
+		Format: "tar.gz",
+	},
+	"terraform": {
+		Name:         "terraform",
+		OSVEcosystem: "Go",
+		OSVName:      "github.com/hashicorp/terraform",
+		BinaryName:   "terraform",
+		GitHubOwner:  "hashicorp",
+		GitHubRepo:   "terraform",
+		DownloadURL: func(ver string, t Target) string {
+			if a := linuxArch(t, "amd64", "arm64"); a != "" {
+				return fmt.Sprintf("https://releases.hashicorp.com/terraform/%s/terraform_%s_linux_%s.zip", ver, ver, a)
+			}
+			return ""
+		},
+		ChecksumURL: func(ver string, t Target) string {
+			return fmt.Sprintf("https://releases.hashicorp.com/terraform/%s/terraform_%s_SHA256SUMS", ver, ver)
+		},
+		Format: "zip",
 	},
 	"kubectl": {
 		Name:          "kubectl",
