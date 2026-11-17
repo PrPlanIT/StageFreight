@@ -1,0 +1,27 @@
+# OpenTofu/Terraform infrastructure convergence — a root-module LIBRARY planned and
+# applied by the toolchain-resolved binary, alongside the repo's gitops/ansible lifecycle.
+#
+#   converge: true  → planned and applied every perform reconcile, in declared order
+#   converge: false → a RUNBOOK: linted, but only applied by a human via
+#                     `stagefreight opentofu run <id>`
+
+toolchains:
+  want:
+    opentofu: "1.13.x"            # terraform: "1.17.x" with backend: terraform
+
+opentofu:
+  backend: opentofu
+  # Env prefix → every OCI_<NAME> variable reaches the binary as <NAME>
+  # (OCI_TF_VAR_tenancy_ocid → TF_VAR_tenancy_ocid). Set them masked + PROTECTED.
+  credentials: OCI
+
+  roots:
+    oracle-site:
+      path: opentofu/oracle-site
+      converge: true
+      workspace: production       # optional; default "default"
+      var_files: [production.tfvars]  # optional; relative to path
+
+lint:
+  modules:
+    opentofu: {}

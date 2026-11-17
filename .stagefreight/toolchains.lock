@@ -62,6 +62,13 @@
       }
     },
     {
+      "name": "opentofu",
+      "resolved": "1.13.9",
+      "sha256": {
+        "linux/amd64": "b34b327cc1ef07178207b6f2cd1f5276537d3e5b7be316500f6dac50d4c0a857"
+      }
+    },
+    {
       "name": "osv-scanner",
       "resolved": "2.7.1",
       "sha256": {
@@ -73,6 +80,13 @@
       "resolved": "1.57.1",
       "sha256": {
         "linux/amd64": "bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c"
+      }
+    },
+    {
+      "name": "terraform",
+      "resolved": "1.17.2",
+      "sha256": {
+        "linux/amd64": "e6f16b2f0b137ee5729caa8c4e79a3bae4ee261acd198a1fcfa8584a6296605b"
       }
     },
     {

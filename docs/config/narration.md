@@ -41,6 +41,7 @@ elides when its domain recorded nothing):
 | `changelog.` | `count` · `range` |
 | `reconcile.` (gitops) | `total` · `succeeded` · `failed` · `declined` · `backend` · `units` · `cluster` · `failures` |
 | `ansible.` (hosts) | `total` · `converged` · `changed` · `unreachable` · `failed` |
+| `opentofu.` (roots) | `total` · `applied` · `add` · `change` · `destroy` · `failed` |
 | `upstream.` | `source` · `latest` · `ours` · `mismatched` · `unparsed` · `signals` (the claimed source; plus `{upstream.<id>.latest}` and `{upstream.<id>.mirror_behind}` per source) |
 | `schedules.` | `managed` · `changes` · `signals` (GitLab schedule reconcile) |
 | `evidence.` | `checked` · `mismatched` · `signals` (release version probes, publish) |

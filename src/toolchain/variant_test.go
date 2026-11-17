@@ -26,6 +26,8 @@ func TestRegistry_PlatformURLs(t *testing.T) {
 		"kubectl":     {"/bin/linux/amd64/kubectl", "/bin/linux/arm64/kubectl"},
 		"kustomize":   {"_linux_amd64.tar.gz", "_linux_arm64.tar.gz"},
 		"kubeconform": {"kubeconform-linux-amd64.tar.gz", "kubeconform-linux-arm64.tar.gz"},
+		"opentofu":    {"tofu_1.2.3_linux_amd64.tar.gz", "tofu_1.2.3_linux_arm64.tar.gz"},
+		"terraform":   {"terraform_1.2.3_linux_amd64.zip", "terraform_1.2.3_linux_arm64.zip"},
 	}
 	for tool, toks := range want {
 		def, ok := LookupTool(tool)

@@ -102,6 +102,10 @@ func (releaseBinarySource) Materialize(req SourceRequest) (SourceResult, error) 
 		if err := installFromArchive(archivePath, req.BinPath, def.BinaryName); err != nil {
 			return SourceResult{}, fmt.Errorf("install failed: %w", err)
 		}
+	case "zip":
+		if err := installFromZip(archivePath, req.BinPath, def.BinaryName); err != nil {
+			return SourceResult{}, fmt.Errorf("install failed: %w", err)
+		}
 	default:
 		return SourceResult{}, fmt.Errorf("unsupported format %q", def.Format)
 	}

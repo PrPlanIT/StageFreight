@@ -857,6 +857,7 @@ func Validate(cfg *Config) (warnings []string, err error) {
 
 	errs = append(errs, validateLifecycle(cfg)...)
 	errs = append(errs, validateAnsible(cfg)...)
+	errs = append(errs, validateOpenTofu(cfg)...)
 	errs = append(errs, validateUpstream(cfg)...)
 	errs = append(errs, validateSchedules(cfg)...)
 	errs = append(errs, validateInventoryCategories(cfg)...)
@@ -1019,6 +1020,41 @@ func validateAnsible(cfg *Config) []string {
 		if strings.TrimSpace(a.SSH.KnownHosts) == "" {
 			errs = append(errs, "ansible.ssh.known_hosts: required when a converge playbook is declared (host-key verification is always strict)")
 		}
+	}
+	return errs
+}
+
+// validateOpenTofu checks the opentofu root library. Not gated on lifecycle.mode —
+// opentofu coexists with ansible and gitops/governance.
+func validateOpenTofu(cfg *Config) []string {
+	var errs []string
+	o := cfg.OpenTofu
+	if len(o.Roots) == 0 {
+		return nil // subsystem absent — nothing to check
+	}
+	switch o.Backend {
+	case OpenTofuBackendOpenTofu, OpenTofuBackendTerraform:
+	default:
+		errs = append(errs, fmt.Sprintf("opentofu.backend: %q is not one of %s, %s", o.Backend, OpenTofuBackendOpenTofu, OpenTofuBackendTerraform))
+	}
+	seen := map[string]bool{}
+	for _, r := range o.Roots {
+		path := fmt.Sprintf("opentofu.roots.%s", r.ID)
+		if seen[r.ID] {
+			errs = append(errs, fmt.Sprintf("%s: duplicate root id", path))
+		}
+		seen[r.ID] = true
+		if strings.TrimSpace(r.Path) == "" {
+			errs = append(errs, fmt.Sprintf("%s.path: required", path))
+		}
+		for i, vf := range r.VarFiles {
+			if strings.TrimSpace(vf) == "" {
+				errs = append(errs, fmt.Sprintf("%s.var_files[%d]: empty", path, i))
+			}
+		}
+	}
+	if o.HasConvergeRoots() && strings.TrimSpace(o.Credentials) == "" {
+		errs = append(errs, "opentofu.credentials: required when a converge root is declared")
 	}
 	return errs
 }
