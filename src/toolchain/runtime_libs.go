@@ -29,11 +29,21 @@ func runtimeLibEnv(libDir string) []string {
 // It returns the regular files placed (name → SHA-256) and the packages they came
 // from. Any library that cannot be sourced and verified is an error naming it.
 func provisionRuntimeLibs(binPath, libDir string) (map[string]string, []string, error) {
-	queue, err := elfNeeded(binPath)
-	if err != nil {
-		return nil, nil, err
+	return provisionRuntimeLibsFor([]string{binPath}, libDir, nil)
+}
+
+// provisionRuntimeLibsFor is provisionRuntimeLibs for every ELF file in elfs, where the
+// tool's own library directories (shipped) already provide some of what they need.
+func provisionRuntimeLibsFor(elfs []string, libDir string, shipped []string) (map[string]string, []string, error) {
+	var queue []string
+	for _, f := range elfs {
+		needs, err := elfNeeded(f)
+		if err != nil {
+			return nil, nil, err
+		}
+		queue = append(queue, needs...)
 	}
-	missing := missingLibraries(queue, libDir)
+	missing := missingLibraries(queue, libDir, shipped...)
 	if len(missing) == 0 {
 		return nil, nil, nil
 	}
@@ -54,7 +64,7 @@ func provisionRuntimeLibs(binPath, libDir string) (map[string]string, []string, 
 	for len(queue) > 0 {
 		so := queue[0]
 		queue = queue[1:]
-		if len(missingLibraries([]string{so}, libDir)) == 0 {
+		if len(missingLibraries([]string{so}, libDir, shipped...)) == 0 {
 			continue
 		}
 		pkg, err := index.provider(so)
@@ -112,13 +122,17 @@ func runtimeLibsIntact(binPath, libDir string, recorded map[string]string) bool 
 	return len(missingLibraries(needs, libDir)) == 0
 }
 
-// missingLibraries returns the names in needs that neither libDir nor the host's
-// default library directories provide.
-func missingLibraries(needs []string, libDir string) []string {
+// missingLibraries returns the names in needs that neither libDir, the tool's own
+// directories (shipped) nor the host's default library directories provide.
+func missingLibraries(needs []string, libDir string, shipped ...string) []string {
 	var missing []string
+	dirs := append(append([]string{libDir}, shipped...), hostLibraryDirs...)
 	for _, so := range needs {
+		if muslProvides(so) {
+			continue
+		}
 		found := false
-		for _, dir := range append([]string{libDir}, hostLibraryDirs...) {
+		for _, dir := range dirs {
 			if _, err := os.Stat(filepath.Join(dir, so)); err == nil {
 				found = true
 				break
@@ -129,6 +143,24 @@ func missingLibraries(needs []string, libDir string) []string {
 		}
 	}
 	return missing
+}
+
+// muslProvides reports whether so is one of the names musl's loader answers itself: libc
+// and the libraries folded into it (libm, libpthread, ...) are the loader, so a binary
+// that names libc.so needs nothing installed for it.
+func muslProvides(so string) bool {
+	if strings.HasPrefix(so, "ld-musl-") {
+		return true
+	}
+	base, _, ok := strings.Cut(so, ".so")
+	if !ok {
+		return false
+	}
+	switch base { // musl's ldso: reserved[] = "c\0pthread\0rt\0m\0dl\0util\0xnet\0"
+	case "libc", "libpthread", "librt", "libm", "libdl", "libutil", "libxnet":
+		return true
+	}
+	return strings.HasPrefix(base, "libc.musl-")
 }
 
 // elfNeeded returns the DT_NEEDED entries of an ELF file.

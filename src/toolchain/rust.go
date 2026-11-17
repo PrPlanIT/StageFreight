@@ -3,6 +3,7 @@ package toolchain
 import (
 	"bufio"
 	"context"
+	"debug/elf"
 	"fmt"
 	"os"
 	"os/exec"
@@ -209,6 +210,9 @@ func resolveRust(rootDir, version string) (Result, error) {
 		if metaErr != nil || meta.BinSHA256 == "" {
 			continue
 		}
+		if libc == "musl" && !rustRuntimeIntact(CacheDirIn(root, "rust", cacheKey), meta.RuntimeLibs) {
+			continue
+		}
 		if actual, hashErr := fileSHA256(binPath); hashErr == nil && actual == meta.BinSHA256 {
 			return Result{Tool: "rust", Version: version, Path: binPath, CacheHit: true,
 				SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256}, nil
@@ -227,6 +231,16 @@ func resolveRust(rootDir, version string) (Result, error) {
 	if _, err := os.Stat(binPath); err == nil {
 		if meta, metaErr := readMetadataFrom(installRoot, "rust", cacheKey); metaErr == nil && meta.BinSHA256 != "" {
 			if actual, hashErr := fileSHA256(binPath); hashErr == nil && actual == meta.BinSHA256 {
+				// A tree installed before its runtime libraries were provisioned gets them in
+				// place rather than a fresh download.
+				if libc == "musl" && !rustRuntimeIntact(installDir, meta.RuntimeLibs) {
+					if err := provisionRustRuntime(installDir, &meta); err != nil {
+						return Result{}, fmt.Errorf("toolchain rust %s: %w", version, err)
+					}
+					if err := writeMetadataTo(installRoot, "rust", cacheKey, meta); err != nil {
+						return Result{}, fmt.Errorf("toolchain rust %s: metadata write failed: %w", version, err)
+					}
+				}
 				return Result{Tool: "rust", Version: version, Path: binPath, CacheHit: true,
 					SourceURL: meta.SourceURL, SHA256: meta.SHA256, BinSHA256: meta.BinSHA256}, nil
 			}
@@ -265,12 +279,99 @@ func resolveRust(rootDir, version string) (Result, error) {
 	}
 	meta := Metadata{Tool: "rust", Version: version, Platform: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA}
+	if libc == "musl" {
+		if err := provisionRustRuntime(installDir, &meta); err != nil {
+			paths.ClearUnit(installDir)
+			return Result{}, fmt.Errorf("toolchain rust %s: %w", version, err)
+		}
+	}
 	if err := writeMetadataTo(installRoot, "rust", cacheKey, meta); err != nil {
 		paths.ClearUnit(installDir)
 		return Result{}, fmt.Errorf("toolchain rust %s: metadata write failed (install aborted): %w", version, err)
 	}
 	return Result{Tool: "rust", Version: version, Path: binPath, CacheHit: false,
 		SourceURL: sourceURL, SHA256: archiveSHA, BinSHA256: binSHA}, nil
+}
+
+// provisionRustRuntime gives a musl toolchain the shared libraries its own binaries need
+// and the host lacks — cargo links libgcc_s.so.1, which a bare Alpine image does not
+// carry, so it could not start at all. They are provisioned into runtime-lib from signed
+// Alpine packages (provisionRuntimeLibsFor) and linked into lib/, which the binaries'
+// RPATH ($ORIGIN/../lib) already searches: every caller runs cargo and rustc unchanged.
+func provisionRustRuntime(installDir string, meta *Metadata) error {
+	libDir := filepath.Join(installDir, runtimeLibDir)
+	shipped := filepath.Join(installDir, "lib")
+	unlinkRustRuntime(installDir)
+	if err := os.RemoveAll(libDir); err != nil {
+		return fmt.Errorf("clearing %s: %w", libDir, err)
+	}
+	libs, sources, err := provisionRuntimeLibsFor(rustRuntimeELFs(installDir), libDir, []string{shipped})
+	if err != nil {
+		os.RemoveAll(libDir)
+		return fmt.Errorf("runtime library %w", err)
+	}
+	entries, _ := os.ReadDir(libDir)
+	for _, e := range entries {
+		if err := os.Symlink(filepath.Join("..", runtimeLibDir, e.Name()), filepath.Join(shipped, e.Name())); err != nil {
+			return fmt.Errorf("linking runtime library %s: %w", e.Name(), err)
+		}
+	}
+	meta.RuntimeLibs, meta.RuntimeLibSources = libs, sources
+	return nil
+}
+
+// unlinkRustRuntime removes lib/'s links into runtime-lib; the toolchain's own files are
+// never touched.
+func unlinkRustRuntime(installDir string) {
+	shipped := filepath.Join(installDir, "lib")
+	entries, _ := os.ReadDir(shipped)
+	for _, e := range entries {
+		p := filepath.Join(shipped, e.Name())
+		if target, err := os.Readlink(p); err == nil && strings.HasPrefix(target, filepath.Join("..", runtimeLibDir)+string(os.PathSeparator)) {
+			os.Remove(p)
+		}
+	}
+}
+
+// rustRuntimeIntact reports whether the recorded runtime libraries are unchanged and
+// every library the toolchain's binaries need resolves where they look for it: lib/
+// (their RPATH) or the host's default directories.
+func rustRuntimeIntact(installDir string, recorded map[string]string) bool {
+	libDir := filepath.Join(installDir, runtimeLibDir)
+	for name, want := range recorded {
+		if got, err := fileSHA256(filepath.Join(libDir, name)); err != nil || got != want {
+			return false
+		}
+	}
+	var needs []string
+	for _, f := range rustRuntimeELFs(installDir) {
+		more, err := elfNeeded(f)
+		if err != nil {
+			return false
+		}
+		needs = append(needs, more...)
+	}
+	return len(missingLibraries(needs, filepath.Join(installDir, "lib"))) == 0
+}
+
+// rustRuntimeELFs lists the toolchain's executables (bin/) and top-level shared
+// libraries (lib/*.so), the files whose needs the host must meet.
+func rustRuntimeELFs(installDir string) []string {
+	var out []string
+	for _, dir := range []string{"bin", "lib"} {
+		entries, _ := os.ReadDir(filepath.Join(installDir, dir))
+		for _, e := range entries {
+			p := filepath.Join(installDir, dir, e.Name())
+			if !e.Type().IsRegular() || (dir == "lib" && !strings.HasSuffix(e.Name(), ".so")) {
+				continue
+			}
+			if f, err := elf.Open(p); err == nil {
+				f.Close()
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 // installRustDist extracts the combined Rust tarball and runs its bundled install.sh
