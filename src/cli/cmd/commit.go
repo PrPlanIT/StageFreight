@@ -333,6 +333,9 @@ func renderCommitSection(w io.Writer, plan *commit.Plan, result *commit.Result, 
 		if result.SHA != "" {
 			sec.Row("%-16s%s", "sha", result.SHA)
 		}
+		if result.NamespaceIgnoreSHA != "" {
+			sec.Row("%-16s%s", "namespace", result.NamespaceIgnoreSHA)
+		}
 	}
 
 	// Push status

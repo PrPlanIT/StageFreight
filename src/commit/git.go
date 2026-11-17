@@ -61,17 +61,15 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 	// 0. In a repo StageFreight manages (.stagefreight.yml at its root), ensure the
 	// namespace ignore file is present and current before staging. This is what makes
 	// the "ephemeral ignored, durable committed" guarantee universal across managed
-	// repos: no project needs a hand-edited root .gitignore. Stage it only when it
-	// changed, so ordinary commits are untouched and the file rides along exactly when it
-	// is first created or its durable allowlist changes. A repo StageFreight does not
-	// manage gets exactly the paths committed and nothing of StageFreight's.
+	// repos: no project needs a hand-edited root .gitignore. When it differs from HEAD it
+	// lands in a commit of its own after the requested one (step 9a), so the requested
+	// commit holds exactly what it named. A repo StageFreight does not manage gets
+	// exactly the paths committed and nothing of StageFreight's.
+	managed := false
 	if _, serr := os.Stat(filepath.Join(g.RootDir, ".stagefreight.yml")); serr == nil {
-		if changed, werr := workspace.EnsureGitignore(g.RootDir); werr != nil {
+		managed = true
+		if _, werr := workspace.EnsureGitignore(g.RootDir); werr != nil {
 			return nil, fmt.Errorf("ensuring namespace gitignore: %w", werr)
-		} else if changed {
-			if _, aerr := wt.Add(filepath.Join(workspace.NamespaceDir, ".gitignore")); aerr != nil {
-				return nil, fmt.Errorf("staging namespace gitignore: %w", aerr)
-			}
 		}
 	}
 
@@ -135,22 +133,14 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 
 	// 3. No-op check
 	nothingToCommit := len(files) == 0
-	if nothingToCommit && !plan.Push.Enabled {
+	nsPending := managed && namespaceIgnorePending(status)
+	if nothingToCommit && !nsPending && !plan.Push.Enabled {
 		return &Result{NoOp: true}, nil
 	}
 
-	result = &Result{Backend: "go-git", NoOp: nothingToCommit}
+	result = &Result{Backend: "go-git", NoOp: nothingToCommit && !nsPending}
 
-	if !nothingToCommit {
-		// 4. Resolve author identity: local config → global config → built-in defaults
-		sig := ResolveAuthorSignature(repo)
-
-		// 5. Build full commit message including SF trailer
-		msg := plan.Message(conventional)
-		if plan.SignOff {
-			msg += "\n\nSigned-off-by: " + sig.Name + " <" + sig.Email + ">"
-		}
-
+	if !nothingToCommit || nsPending {
 		// Transactional worktree preservation. Snapshot the operator's unstaged
 		// tracked changes that are NOT part of this commit BEFORE any hook can
 		// stash/wipe them, and restore on every exit path: the defer below covers
@@ -166,6 +156,17 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 				err = cerr
 			}
 		}()
+	}
+
+	if !nothingToCommit {
+		// 4. Resolve author identity: local config → global config → built-in defaults
+		sig := ResolveAuthorSignature(repo)
+
+		// 5. Build full commit message including SF trailer
+		msg := plan.Message(conventional)
+		if plan.SignOff {
+			msg += "\n\nSigned-off-by: " + sig.Name + " <" + sig.Email + ">"
+		}
 
 		// 6. pre-commit hook — abort on non-zero exit
 		if err := RunPreCommitHook(g.RootDir, wt, g.OnCommitLine); err != nil {
@@ -193,6 +194,16 @@ func (g *GitBackend) executeViaEngine(plan *Plan, conventional bool) (result *Re
 		result.SHA = hash.String()
 		result.Message = msg
 		result.Files = files
+	}
+
+	// 9a. The namespace ignore, in a commit of its own. The requested commit consumed the
+	// whole index, so staging the one file here commits exactly that file.
+	if nsPending {
+		sha, nerr := g.commitNamespaceIgnore(repo, wt)
+		if nerr != nil {
+			return nil, nerr
+		}
+		result.NamespaceIgnoreSHA = sha
 	}
 
 	// 10. Push via the unified push entry point — runs even when nothing was committed
@@ -432,15 +443,8 @@ func assertNoUndeclaredStaged(declared []string, staged []string) error {
 		return false
 	}
 
-	// StageFreight plants and stages its own namespace ignore file on every commit, so it
-	// is never something the caller failed to name.
-	planted := filepath.ToSlash(filepath.Join(workspace.NamespaceDir, ".gitignore"))
-
 	var undeclared []string
 	for _, s := range staged {
-		if filepath.ToSlash(s) == planted {
-			continue
-		}
 		if !covered(s) {
 			undeclared = append(undeclared, filepath.ToSlash(s))
 		}
@@ -454,4 +458,43 @@ func assertNoUndeclaredStaged(declared []string, staged []string) error {
 			"`-- <paths>` bounds the commit to what it lists. To include them say so with --add, "+
 			"or unstage them (git restore --staged <path>)",
 		len(undeclared), strings.Join(undeclared, ", "))
+}
+
+// namespaceIgnoreMessage is the subject of the commit that carries the namespace ignore.
+const namespaceIgnoreMessage = "chore(stagefreight): Update the namespace .gitignore"
+
+// namespaceIgnorePending reports whether .stagefreight/.gitignore differs from HEAD and
+// is not already staged for the requested commit (a StageAll or StageStaged commit
+// that swept it in carries it itself).
+func namespaceIgnorePending(status git.Status) bool {
+	s, ok := status[filepath.ToSlash(filepath.Join(workspace.NamespaceDir, ".gitignore"))]
+	if !ok {
+		return false
+	}
+	if s.Staging == git.Added || s.Staging == git.Modified {
+		return false
+	}
+	return s.Worktree != git.Unmodified
+}
+
+// commitNamespaceIgnore stages and commits .stagefreight/.gitignore alone, through the
+// same hooks as any other commit, and returns the commit's hash.
+func (g *GitBackend) commitNamespaceIgnore(repo *git.Repository, wt *git.Worktree) (string, error) {
+	if _, err := wt.Add(filepath.Join(workspace.NamespaceDir, ".gitignore")); err != nil {
+		return "", fmt.Errorf("staging namespace gitignore: %w", err)
+	}
+	if err := RunPreCommitHook(g.RootDir, wt, g.OnCommitLine); err != nil {
+		return "", fmt.Errorf("pre-commit hook (namespace gitignore): %w", err)
+	}
+	msg, err := RunCommitMsgHook(g.RootDir, namespaceIgnoreMessage, g.OnCommitLine)
+	if err != nil {
+		return "", fmt.Errorf("commit-msg hook (namespace gitignore): %w", err)
+	}
+	sig := ResolveAuthorSignature(repo)
+	hash, err := wt.Commit(msg, &git.CommitOptions{Author: &sig, Committer: &sig})
+	if err != nil {
+		return "", fmt.Errorf("committing namespace gitignore: %w", err)
+	}
+	RunPostCommitHook(g.RootDir, g.OnCommitLine)
+	return hash.String(), nil
 }

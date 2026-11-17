@@ -184,7 +184,8 @@ writes. Every path belongs to one bucket:
   then `!` lines carve out the durable set. A new output is ignored by default; a new
   durable entry must be added to the allowlist and the classifier together (a completeness
   test ties them). The commit backend plants it via `workspace.EnsureGitignore` before
-  staging, so every managed repo gets it without editing its root `.gitignore`.
+  staging, so every managed repo gets it without editing its root `.gitignore`. When it
+  differs from HEAD it is committed on its own, right after the requested commit.
 - Cache root priority: `--cache` → `SF_CACHE_ROOT` → `/stagefreight` if writable (the
   container bind-mount convention) → `${XDG_CACHE_HOME:-~/.cache}/stagefreight` (native)
   → none (each consumer falls back to its own ephemeral location). The Actions render

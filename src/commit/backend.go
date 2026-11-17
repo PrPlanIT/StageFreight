@@ -18,6 +18,10 @@ type Result struct {
 	Backend string      // stable descriptor: "git", "forge (gitlab)", "forge (github)", "dry-run"
 	Sync    *SyncResult // populated when push was executed via the convergence engine
 
+	// NamespaceIgnoreSHA is the commit StageFreight made for its own namespace ignore
+	// after the requested one; empty when that file needed no commit.
+	NamespaceIgnoreSHA string
+
 	// MaintainerOverride is true when --maintainer-override was active for this commit.
 	// OverriddenBlocks records which governance checks were bypassed.
 	// Both are empty for normal commits with no governance failures.
