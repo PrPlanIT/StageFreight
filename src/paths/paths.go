@@ -172,6 +172,12 @@ func warnUnwritableRoot(root, fallback string) {
 		root, os.Getuid(), os.Getgid(), outcome, CacheRootEnv)
 }
 
+// UserCacheRoot is the native user cache root ResolveCacheRoot falls back to:
+// $XDG_CACHE_HOME/stagefreight, else ~/.cache/stagefreight. Empty when neither resolves.
+// Unlike ResolveCacheRoot it never creates the directory, so a reader can ask where the
+// native cache lives without establishing one.
+func UserCacheRoot() string { return xdgCacheDir() }
+
 // xdgCacheDir is the native user cache root: $XDG_CACHE_HOME/stagefreight, else
 // ~/.cache/stagefreight. Empty when neither resolves (no HOME).
 func xdgCacheDir() string {

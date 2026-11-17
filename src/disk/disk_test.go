@@ -1,6 +1,7 @@
 package disk
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -168,5 +169,71 @@ func TestBuildCacheSplitHonoursLeases(t *testing.T) {
 	}
 	if held != parseDockerSize("2GB") {
 		t.Errorf("held: got %d", held)
+	}
+}
+
+func TestScanUserCacheAccountsForWholeRoot(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"cache/go/build/x", "toolchains/go/1.26.10/bin/go", "1c631cac56b1/lint/y", "other/z"} {
+		p := filepath.Join(root, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, make([]byte, 8192), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dom := ScanUserCache(root)
+	if dom == nil || dom.Label != "USER CACHE" {
+		t.Fatalf("ScanUserCache = %+v, want a USER CACHE domain", dom)
+	}
+	if dom.Bytes < 4*8192 { // all four files, not just cache/ and toolchains/
+		t.Errorf("domain bytes %d, want >= %d: must account for the whole root", dom.Bytes, 4*8192)
+	}
+	labels := map[string]*Node{}
+	for _, k := range dom.Kids {
+		labels[k.Label] = k
+	}
+	for _, l := range []string{"cache/", "toolchains/", "1c631cac56b1/", "other/"} {
+		if labels[l] == nil {
+			t.Errorf("missing child %q in %v", l, labels)
+		}
+	}
+	if n := labels["1c631cac56b1/"]; n != nil && (n.Note != "per-project cache" || !n.Flags.Has(FlagReclaimable)) {
+		t.Errorf("hashed dir note=%q flags=%v, want per-project cache, reclaimable", n.Note, n.Flags)
+	}
+	if ScanUserCache(t.TempDir()) != nil {
+		t.Error("an empty user cache must produce no domain")
+	}
+}
+
+func TestScanUserCacheThatIsTheCacheRootOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", home)
+	t.Setenv("SUDO_USER", "")
+	root := filepath.Join(home, "stagefreight")
+	if err := os.MkdirAll(filepath.Join(root, "cache", "go", "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "go", "build", "x"), make([]byte, 8192), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := UserCacheRoots(); len(got) != 1 || got[0] != root {
+		t.Fatalf("UserCacheRoots = %v, want [%s]", got, root)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // docker scan gives up at once
+	rep := Scan(ctx, root, nil, 0)
+	var mounts, users int
+	for _, d := range rep.Domains {
+		switch d.Label {
+		case "CACHE MOUNT":
+			mounts++
+		case "USER CACHE":
+			users++
+		}
+	}
+	if mounts != 0 || users != 1 {
+		t.Errorf("mount=%d user=%d domains, want the root scanned once, as the user cache", mounts, users)
 	}
 }

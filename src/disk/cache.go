@@ -2,11 +2,14 @@ package disk
 
 import (
 	"fmt"
+	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
 )
 
@@ -45,21 +48,77 @@ func DiscoverCacheRoot() string {
 	return ""
 }
 
+// UserCacheRoots lists the native user caches StageFreight writes to when no mount is
+// writable (paths.ResolveCacheRoot's XDG tier): the invoking user's, and under sudo also
+// the sudo caller's, since sudo moves HOME and the cache that fills is the caller's.
+// Deduplicated, existing directories only.
+func UserCacheRoots() []string {
+	var out []string
+	seen := map[string]bool{}
+	addRoot := func(p string) {
+		if p == "" || !isDir(p) {
+			return
+		}
+		key := p
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			key = r
+		}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, p)
+		}
+	}
+	addRoot(paths.UserCacheRoot())
+	if name := os.Getenv("SUDO_USER"); name != "" {
+		if u, err := user.Lookup(name); err == nil && u.HomeDir != "" {
+			addRoot(filepath.Join(u.HomeDir, ".cache", "stagefreight"))
+		}
+	}
+	return out
+}
+
 // ScanCacheMount builds the CACHE MOUNT domain from <root>/cache (rebuildable
 // build/scan caches) and <root>/toolchains (versioned tool installs). Returns nil
 // if neither exists.
 func ScanCacheMount(root string) *Node {
-	cacheDir := filepath.Join(root, "cache")
-	tcDir := filepath.Join(root, "toolchains")
-	if !isDir(cacheDir) && !isDir(tcDir) {
+	if !isDir(filepath.Join(root, "cache")) && !isDir(filepath.Join(root, "toolchains")) {
 		return nil
 	}
-	dom := &Node{Label: "CACHE MOUNT", Path: root, Attr: Attribution{Runtime: "cache-mount"}}
-	if isDir(cacheDir) {
-		dom.add(scanCacheCaches(cacheDir))
+	return scanCacheRoot(root, "CACHE MOUNT", "cache-mount")
+}
+
+// ScanUserCache builds the USER CACHE domain for a native user cache root. Same layout
+// as the mount, plus whatever else StageFreight keeps there (lint's per-project caches,
+// keyed by project hash). Returns nil if the root holds nothing.
+func ScanUserCache(root string) *Node {
+	dom := scanCacheRoot(root, "USER CACHE", "user-cache")
+	if dom.Bytes == 0 {
+		return nil
 	}
-	if isDir(tcDir) {
-		dom.add(scanToolchains(tcDir))
+	return dom
+}
+
+// scanCacheRoot sizes a cache root: cache/ and toolchains/ broken down, and every other
+// directory sized whole, so the domain accounts for the root rather than two of its
+// children. Everything in the Cache bucket is rebuildable (paths: never a correctness
+// dependency), so the rest is reclaimable too.
+func scanCacheRoot(root, label, runtime string) *Node {
+	dom := &Node{Label: label, Path: root, Attr: Attribution{Runtime: runtime}}
+	for _, name := range subdirs(root) {
+		dir := filepath.Join(root, name)
+		switch name {
+		case "cache":
+			dom.add(scanCacheCaches(dir))
+		case "toolchains":
+			dom.add(scanToolchains(dir))
+		default:
+			n := &Node{Label: name + "/", Path: dir, Bytes: dirSize(dir), Flags: FlagReclaimable,
+				Attr: Attribution{Runtime: runtime}}
+			if isHex(name) {
+				n.Note = "per-project cache"
+			}
+			dom.add(n)
+		}
 	}
 	for _, c := range dom.Kids {
 		dom.Bytes += c.Bytes
@@ -229,6 +288,20 @@ func versionKey(v string) []int {
 		}
 	}
 	return nums
+}
+
+// isHex reports a non-empty lowercase hex name: the project-hash keys lint and friends
+// write under the user cache.
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func isAllDigits(s string) bool {
