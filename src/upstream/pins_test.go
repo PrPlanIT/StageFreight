@@ -20,7 +20,9 @@ func writeFile(t *testing.T, root, name, body string) {
 
 func TestLocatePin(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "Dockerfile", "FROM alpine\nARG ANSIBLE_CORE_VERSION=2.21.5\nENV NUT_VERSION \"v2.8.1\"\n")
+	writeFile(t, root, "Dockerfile", "FROM alpine\nARG ANSIBLE_CORE_VERSION=2.21.5\nENV NUT_VERSION \"v2.8.1\"\n"+
+		"ENV DEBIAN_FRONTEND=noninteractive \\\n    APT_CACHER_NG_VERSION=3.7.5-1 \\\n    # a comment line\n    CACHE_DIR=/var/cache NOT_A_PIN=1\n"+
+		"RUN echo LATER_RUN=9 \\\n    STILL_RUN=8\n")
 	writeFile(t, root, "versions.yml", "ansible:\n  core: \"2.21.5\"  # pinned\napps:\n  - name: erpnext\n    tag: v16.33.0\n")
 	writeFile(t, root, "apps.json", "{\n  \"frappe\": {\"branch\": \"version-16\", \"tag\": \"v16.50.0\"}\n}\n")
 	writeFile(t, root, "Cargo.toml", "[dependencies]\n# stagefreight: upstream=jetpack\njetpack = { git = \"https://x\", tag = \"v0.5.2\" }\n")
@@ -32,6 +34,8 @@ func TestLocatePin(t *testing.T) {
 	}{
 		{config.UpstreamPin{File: "Dockerfile", Arg: "ANSIBLE_CORE_VERSION"}, 2, 25, "2.21.5", "Dockerfile ANSIBLE_CORE_VERSION"},
 		{config.UpstreamPin{File: "Dockerfile", Arg: "NUT_VERSION"}, 3, 17, "v2.8.1", "Dockerfile NUT_VERSION"},
+		{config.UpstreamPin{File: "Dockerfile", Arg: "APT_CACHER_NG_VERSION"}, 5, 26, "3.7.5-1", "Dockerfile APT_CACHER_NG_VERSION"},
+		{config.UpstreamPin{File: "Dockerfile", Arg: "NOT_A_PIN"}, 7, 35, "1", "Dockerfile NOT_A_PIN"},
 		{config.UpstreamPin{File: "versions.yml", Path: "ansible.core"}, 2, 9, "2.21.5", "versions.yml ansible.core"},
 		{config.UpstreamPin{File: "versions.yml", Path: "apps.0.tag"}, 5, 9, "v16.33.0", "versions.yml apps.0.tag"},
 		{config.UpstreamPin{File: "apps.json", Path: "frappe.tag"}, 2, 45, "v16.50.0", "apps.json frappe.tag"},
@@ -49,6 +53,8 @@ func TestLocatePin(t *testing.T) {
 	}
 	for _, pin := range []config.UpstreamPin{
 		{File: "Dockerfile", Arg: "MISSING"},
+		{File: "Dockerfile", Arg: "STILL_RUN"},
+		{File: "Dockerfile", Arg: "LATER_RUN"},
 		{File: "versions.yml", Path: "ansible.nope"},
 		{File: "versions.yml", Path: "ansible"},
 		{File: "Cargo.toml", Marker: true, Match: `nothing(\d)`},

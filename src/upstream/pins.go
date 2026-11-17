@@ -93,11 +93,34 @@ func LocatePin(root, sourceID string, pin config.UpstreamPin) (PinValue, error) 
 	out := PinValue{File: pin.File, Pin: pin}
 	switch {
 	case pin.Arg != "":
-		re := regexp.MustCompile(`^\s*(?i:ARG|ENV)\s+` + regexp.QuoteMeta(pin.Arg) + `(?:=|\s+)["']?([^"'\s]+)`)
+		// The key is the instruction's first (ARG K=v, ENV K v) or any later key=value of an
+		// ARG or ENV, including on its continuation lines (ENV A=1 \ K=v).
+		key := regexp.QuoteMeta(pin.Arg)
+		first := regexp.MustCompile(`^\s*(?i:ARG|ENV)\s+` + key + `(?:=|\s+)["']?([^"'\s\\]+)`)
+		later := regexp.MustCompile(`\s` + key + `=["']?([^"'\s\\]+)`)
+		instr := regexp.MustCompile(`^\s*(?i:ARG|ENV)\s`)
+		inside := false
 		for i, l := range lines {
-			if m := re.FindStringSubmatchIndex(l); m != nil {
-				out.Line, out.Column, out.Value = i+1, m[2], l[m[2]:m[3]]
-				return out, nil
+			starts := instr.MatchString(l)
+			if starts {
+				if m := first.FindStringSubmatchIndex(l); m != nil {
+					out.Line, out.Column, out.Value = i+1, m[2], l[m[2]:m[3]]
+					return out, nil
+				}
+			}
+			comment := strings.HasPrefix(strings.TrimSpace(l), "#")
+			if (starts || inside) && !comment {
+				if m := later.FindStringSubmatchIndex(" " + l); m != nil {
+					out.Line, out.Column, out.Value = i+1, m[2]-1, l[m[2]-1:m[3]-1]
+					return out, nil
+				}
+			}
+			switch {
+			case starts:
+				inside = strings.HasSuffix(strings.TrimRight(l, " \t"), "\\")
+			case inside && comment:
+			case inside:
+				inside = strings.HasSuffix(strings.TrimRight(l, " \t"), "\\")
 			}
 		}
 		return out, fmt.Errorf("pin %s: no ARG or ENV %s", pin.File, pin.Arg)
