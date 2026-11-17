@@ -322,9 +322,41 @@ ours names it yet (or, for a synced fork, when the built commit contains an upst
 we have not tagged), StageFreight tags the commit it just built with that version (keeping our
 `v` convention) and pushes the tag. The release pipeline then checks every guard and evidence
 probe like any hand-cut release. `release: manual` leaves tagging to a person
-(`stagefreight tag`). A rebuild of an already-released version stays an in-place rebuild — no
-new tag. The tag spawns a release pipeline only if it matches a declared `git.tags` release
-pattern.
+(`stagefreight tag`). The tag spawns a release pipeline only if it matches a declared `git.tags`
+release pattern.
+
+### Recut — shipping a change at the released version
+
+Under `release: auto`, `recut: on_change` (the default) moves an already-released version to a
+newer default-branch build when that build is made from different inputs: the version tag moves
+to the built commit and the release pipeline republishes the version in place. A change of
+ours, or a dependency bump, ships at upstream's version without waiting for upstream's next
+release and without a tag upstream doesn't have.
+
+```yaml
+upstream:
+  version: { track: core }
+  release: auto
+  recut: on_change    # on_change (default) | never
+```
+
+- **Inputs, not commits.** A docker build's inputs are its Dockerfile and the context files
+  `.dockerignore` admits; a binary or command build's are the whole tree. `.stagefreight/` never
+  counts. A commit that changes none of them (docs a build ignores, generated badges) moves
+  nothing.
+- **Forward only.** The tag moves only to a build that descends from the commit it names, so a
+  late pipeline for an older commit never drags it back.
+- **An API move.** The primary forge replaces the tag through its API (GitLab, GitHub, Gitea,
+  Forgejo); tag protection that refuses the pipeline's credentials blocks the recut. Mirrors
+  take the moved tag by force, like `latest`. If the
+  annotated tag cannot be pushed, the forge's lightweight tag takes its place, or failing that the
+  old one is restored: the version is never left without a tag.
+- **Republished in place.** Images re-push the version tag; a generic package's version is
+  replaced. A registry that refuses to overwrite a tag fails that publish.
+- `recut: never` keeps every version tag where it was cut: a change then ships with upstream's
+  next release.
+
+A recut that cannot move the tag raises `recut-blocked`.
 
 ## Image identity — audit by digest, not tag
 
@@ -364,6 +396,7 @@ What the watcher finds is raised as signals, which notifications select with
 | `upstream-unreachable` | a source could not be listed |
 | `sync-conflict` | a sync could not land: upstream's changes overlap ours, a mirror diverged, or the push was refused |
 | `mirror-behind` | a `mirror_of` source lacks a release its origin has made |
+| `recut-blocked` | a build changed what a released version ships, but its tag could not be moved |
 
 ```yaml
 notifications:

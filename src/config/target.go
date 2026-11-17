@@ -343,6 +343,9 @@ const (
 	// The common cause is a push authenticated with a forge CI job token, which does not start
 	// a pipeline. Raised loudly instead of assuming the handoff fired.
 	SignalRepublishBlocked = "republish-blocked"
+	// SignalRecutBlocked: a default-branch build changed what an already-released version
+	// ships, but its version tag could not be moved to it, so the release was not republished.
+	SignalRecutBlocked = "recut-blocked"
 )
 
 var validSignals = map[string]bool{
@@ -353,11 +356,12 @@ var validSignals = map[string]bool{
 	SignalSyncConflict:        true,
 	SignalMirrorBehind:        true,
 	SignalRepublishBlocked:    true,
+	SignalRecutBlocked:        true,
 }
 
 // SignalNames lists the signal vocabulary, for messages and docs.
 func SignalNames() []string {
-	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict, SignalMirrorBehind, SignalRepublishBlocked}
+	return []string{SignalUpdatesAvailable, SignalVersionMismatch, SignalUpstreamUnreachable, SignalScheduleInactive, SignalSyncConflict, SignalMirrorBehind, SignalRepublishBlocked, SignalRecutBlocked}
 }
 
 // validTargetKinds enumerates all recognized target kinds.

@@ -49,7 +49,7 @@ func twoAssets() []artifact.ResolvedArchiveAsset {
 // the alias (delete-then-publish).
 func TestPublishPackageTarget_ImmutableNewPlusAlias(t *testing.T) {
 	fc := &fakePackageForge{} // no existing versions
-	res, err := publishPackageTarget(context.Background(), fc, "pkg", "app", "dev-abc12345", []string{"latest-dev"}, twoAssets())
+	res, err := publishPackageTarget(context.Background(), fc, "pkg", "app", "dev-abc12345", []string{"latest-dev"}, twoAssets(), false)
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPublishPackageTarget_ImmutableNewPlusAlias(t *testing.T) {
 // refresh the rolling alias.
 func TestPublishPackageTarget_ImmutableExistsSkipsButRefreshesAlias(t *testing.T) {
 	fc := &fakePackageForge{versions: []forge.PackageVersion{{ID: "5", Version: "dev-abc12345"}}}
-	res, err := publishPackageTarget(context.Background(), fc, "pkg", "app", "dev-abc12345", []string{"latest-dev"}, twoAssets())
+	res, err := publishPackageTarget(context.Background(), fc, "pkg", "app", "dev-abc12345", []string{"latest-dev"}, twoAssets(), false)
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}

@@ -1509,6 +1509,9 @@ func syncMirrorsWithMode(ctx context.Context, appCfg *config.Config, readOnly bo
 	// literal (placeholder-free) rolling names, which is exactly the set that matters.
 	aliasVI, _ := build.DetectVersion(worktree, appCfg)
 	rollingAliases := stagefreightsync.RollingAliasTagSet(appCfg, aliasVI)
+	for t := range recutTags(appCfg, worktree) {
+		rollingAliases[t] = true
+	}
 
 	// Check if any mirror wants release sync — resolve primary releases once.
 	// primaryClient is hoisted: it's both the release lister AND the re-host

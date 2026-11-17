@@ -111,7 +111,7 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 			continue
 		}
 
-		res, perr := publishPackageTarget(ctx, fc, t.ID, packageName, immutable[0], aliases, targetAssets)
+		res, perr := publishPackageTarget(ctx, fc, t.ID, packageName, immutable[0], aliases, targetAssets, appCfg.Upstream.AutoRecut())
 		if perr != nil {
 			return fmt.Errorf("package subsystem: target %s: %w", t.ID, perr)
 		}
@@ -182,9 +182,10 @@ func packagePublishRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.
 
 // publishPackageTarget publishes the resolved archives to one generic package.
 // Immutable version: published once — skipped entirely if it already exists
-// (never overwritten). Alias versions: delete-then-publish (rolling overwrite).
+// (never overwritten), unless recut: the version of a recut line republishes in place.
+// Alias versions: delete-then-publish (rolling overwrite).
 // Takes a forge.Forge so it is unit-testable with a fake forge.
-func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, packageName, immutableVersion string, aliasVersions []string, assets []artifact.ResolvedArchiveAsset) (*packagePublishResult, error) {
+func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, packageName, immutableVersion string, aliasVersions []string, assets []artifact.ResolvedArchiveAsset, recut bool) (*packagePublishResult, error) {
 	res := &packagePublishResult{
 		Target:           targetID,
 		PackageName:      packageName,
@@ -198,10 +199,17 @@ func publishPackageTarget(ctx context.Context, fc forge.Forge, targetID, package
 		return nil, fmt.Errorf("listing package versions: %w", err)
 	}
 	for _, v := range existing {
-		if v.Version == immutableVersion {
+		if v.Version != immutableVersion {
+			continue
+		}
+		if !recut {
 			res.ImmutableSkipped = true
 			break
 		}
+		if derr := fc.DeletePackageVersion(ctx, packageName, immutableVersion); derr != nil {
+			return nil, fmt.Errorf("recutting %s: deleting old: %w", immutableVersion, derr)
+		}
+		break
 	}
 	if !res.ImmutableSkipped {
 		for i, a := range assets {

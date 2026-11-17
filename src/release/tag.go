@@ -239,6 +239,33 @@ func CreateAnnotatedTag(repoDir, tag, targetSHA, message string) error {
 	return nil
 }
 
+// RecutAnnotatedTag points an existing version tag at targetSHA in the local repository:
+// the one sanctioned move of a version tag, made by an upstream recut. The remote tag is the
+// caller's to replace.
+func RecutAnnotatedTag(repoDir, tag, targetSHA, message string) error {
+	repo, err := gitstate.OpenRepo(repoDir)
+	if err != nil {
+		return fmt.Errorf("opening repo: %w", err)
+	}
+	if err := repo.DeleteTag(tag); err != nil && err != git.ErrTagNotFound {
+		return fmt.Errorf("removing local tag %s: %w", tag, err)
+	}
+	return CreateAnnotatedTag(repoDir, tag, targetSHA, message)
+}
+
+// PeelTag returns the commit a local tag names.
+func PeelTag(repoDir, tag string) (string, error) {
+	repo, err := gitstate.OpenRepo(repoDir)
+	if err != nil {
+		return "", fmt.Errorf("opening repo: %w", err)
+	}
+	ref, err := repo.Reference(plumbing.NewTagReferenceName(tag), false)
+	if err != nil {
+		return "", fmt.Errorf("resolving tag %s: %w", tag, err)
+	}
+	return peelTagToCommit(repo, ref.Hash()).String(), nil
+}
+
 // peelTagToCommit resolves a tag ref hash to the commit it ultimately names: an annotated
 // tag object is followed to its target commit; a lightweight tag or a direct commit hash
 // resolves to itself. This lets the equality check above compare commits regardless of tag

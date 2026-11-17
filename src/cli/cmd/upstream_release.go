@@ -47,11 +47,14 @@ func autoReleaseUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 		src := sources[i]
 		sec := upstreamSection()
 		sec.Row("%-14s%s", "tracking", src.String())
-		tag, reason := autoReleaseTag(ctx, appCfg, rootDir, cs, src, ciCtx.SHA)
+		tag, released, reason := autoReleaseDecision(ctx, appCfg, rootDir, cs, src, ciCtx.SHA)
 		if tag == "" {
-			if reason != "" {
+			switch {
+			case reason != "":
 				sec.Row("%-14s%s", "release", "none cut — "+reason)
-			} else {
+			case released != "" && u.AutoRecut():
+				recutRelease(ctx, appCfg, rootDir, sec, released, ciCtx.SHA)
+			default:
 				sec.Row("%-14s%s", "release", "none — already released")
 			}
 			sec.Close()
@@ -80,13 +83,20 @@ func autoReleaseUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.C
 // that pins the tracked image; or — for a history fork synced onto upstream's releases — the
 // newest upstream release whose commit the built commit contains.
 func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, cs config.UpstreamSource, src upstream.Source, built string) (tag, reason string) {
+	tag, _, reason = autoReleaseDecision(ctx, appCfg, rootDir, cs, src, built)
+	return tag, reason
+}
+
+// autoReleaseDecision is autoReleaseTag that also names our tag when the version is already
+// released, which is the tag a recut moves.
+func autoReleaseDecision(ctx context.Context, appCfg *config.Config, rootDir string, cs config.UpstreamSource, src upstream.Source, built string) (tag, released, reason string) {
 	l := listUpstream(ctx, src)
 	if l.err != nil {
-		return "", fmt.Sprintf("%s not listed: %v", src, l.err)
+		return "", "", fmt.Sprintf("%s not listed: %v", src, l.err)
 	}
 	repo, err := gitstate.OpenRepo(rootDir)
 	if err != nil {
-		return "", err.Error()
+		return "", "", err.Error()
 	}
 	var rel upstream.Release
 	var current scheme.Version
@@ -94,11 +104,11 @@ func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, 
 	case len(cs.Pins) > 0:
 		pins, v, err := readPins(rootDir, cs, src.Select.Scheme)
 		if err != nil {
-			return "", err.Error()
+			return "", "", err.Error()
 		}
 		r, ok := upstream.Find(l.releases, v)
 		if !ok {
-			return "", fmt.Sprintf("pins name %s, which %s has not released", pins[0].Value, src)
+			return "", "", fmt.Sprintf("pins name %s, which %s has not released", pins[0].Value, src)
 		}
 		rel, current = r, v
 	case src.Kind == config.UpstreamKindImage:
@@ -108,17 +118,17 @@ func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, 
 		// tag without a redundant pins entry.
 		v, raw, err := trackedImageVersion(rootDir, appCfg, src)
 		if err != nil {
-			return "", err.Error()
+			return "", "", err.Error()
 		}
 		r, ok := upstream.Find(l.releases, v)
 		if !ok {
-			return "", fmt.Sprintf("the %s base is pinned to %s, which %s has not released", src.Location, raw, src)
+			return "", "", fmt.Sprintf("the %s base is pinned to %s, which %s has not released", src.Location, raw, src)
 		}
 		rel, current = r, v
 	default:
 		r, ok := newestContained(repo, l.releases, built)
 		if !ok {
-			return "", fmt.Sprintf("the built commit contains no release of %s", src)
+			return "", "", fmt.Sprintf("the built commit contains no release of %s", src)
 		}
 		rel, current = r, r.Version
 	}
@@ -131,7 +141,7 @@ func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, 
 			continue
 		}
 		if scheme.Same(current, v) {
-			return "", "" // already released (a rebuild of it is the normal in-place rebuild)
+			return "", t, "" // already released: a newer build of it is a recut, not a new tag
 		}
 		if newest == "" {
 			newest = t
@@ -144,7 +154,7 @@ func autoReleaseTag(ctx context.Context, appCfg *config.Config, rootDir string, 
 	if vPrefix {
 		tag = "v" + tag
 	}
-	return tag, ""
+	return tag, "", ""
 }
 
 // newestContained is the newest release whose commit is an ancestor of (or is) built.

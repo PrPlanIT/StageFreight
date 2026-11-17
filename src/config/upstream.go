@@ -30,6 +30,12 @@ type UpstreamConfig struct {
 	// manual leaves it to a human (stagefreight tag).
 	Release string `yaml:"release,omitempty"`
 
+	// Recut decides whether an already-released version moves to a newer default-branch build:
+	// on_change (default with release: auto) moves the version tag when that build's inputs
+	// differ from the tagged commit's, so the release republishes in place; never keeps every
+	// version tag where it was cut.
+	Recut string `yaml:"recut,omitempty"`
+
 	// Sync keeps this repository's history on top of a git upstream: rebased or merged onto
 	// its newest release (or a branch), or mirrored. Runs on the default branch.
 	Sync UpstreamSync `yaml:"sync,omitempty"`
@@ -102,6 +108,18 @@ const (
 	UpstreamReleaseAuto   = "auto"
 	UpstreamReleaseManual = "manual"
 )
+
+// Recut modes.
+const (
+	UpstreamRecutOnChange = "on_change"
+	UpstreamRecutNever    = "never"
+)
+
+// AutoRecut reports whether StageFreight moves an already-released version tag to a newer
+// build whose inputs changed.
+func (u UpstreamConfig) AutoRecut() bool {
+	return u.AutoRelease() && u.Recut != UpstreamRecutNever
+}
 
 // AutoRelease reports whether StageFreight cuts track releases itself.
 func (u UpstreamConfig) AutoRelease() bool {
@@ -817,6 +835,14 @@ func validateUpstream(cfg *Config) []string {
 		}
 	default:
 		errs = append(errs, fmt.Sprintf("upstream.release: unknown %q (auto | manual)", u.Release))
+	}
+	switch u.Recut {
+	case "", UpstreamRecutOnChange, UpstreamRecutNever:
+		if u.Recut != "" && !u.AutoRelease() {
+			errs = append(errs, "upstream.recut: only meaningful with version.track and release: auto")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("upstream.recut: unknown %q (on_change | never)", u.Recut))
 	}
 	if v.Ancestry {
 		if kind, _ := claimed.Kind(); mode != UpstreamVersionTrack || kind != UpstreamKindGit {

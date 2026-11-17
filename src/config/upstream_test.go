@@ -171,6 +171,8 @@ func TestUpstream_PinAndReleaseValidation(t *testing.T) {
 		"match off marker":  {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "f", Arg: "X", Match: "v"}}}}}, "only used with marker"},
 		"release under own": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Release: "auto"}, "only meaningful with version.track"},
 		"unknown release":   {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Release: "nightly"}, "auto | manual"},
+		"recut when manual": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Release: "manual", Recut: "on_change"}, "only meaningful with version.track and release: auto"},
+		"unknown recut":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Recut: "always"}, "on_change | never"},
 	}
 	for name, c := range cases {
 		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")
@@ -182,9 +184,20 @@ func TestUpstream_PinAndReleaseValidation(t *testing.T) {
 	if !u.AutoRelease() {
 		t.Error("track releases are cut automatically by default")
 	}
+	if !u.AutoRecut() {
+		t.Error("an auto-released line recuts on change by default")
+	}
+	u.Recut = UpstreamRecutNever
+	if u.AutoRecut() {
+		t.Error("recut: never keeps version tags where they were cut")
+	}
+	u.Recut = ""
 	u.Release = UpstreamReleaseManual
 	if u.AutoRelease() {
 		t.Error("release: manual leaves it to a human")
+	}
+	if u.AutoRecut() {
+		t.Error("release: manual never recuts")
 	}
 }
 
