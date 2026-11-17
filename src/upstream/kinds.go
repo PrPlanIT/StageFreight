@@ -51,6 +51,9 @@ const maxIndex = 256 << 20
 // public project (github-release uses GITHUB_TOKEN when the environment has one, for the API's
 // rate limit).
 func List(ctx context.Context, src Source) ([]Candidate, error) {
+	if err := src.usable(); err != nil {
+		return nil, err
+	}
 	switch src.Kind {
 	case config.UpstreamKindGit:
 		return listGit(ctx, src.Location)

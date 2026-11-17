@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -34,7 +35,7 @@ func newEvidenceGate(appCfg *config.Config) *evidenceGate {
 	if tag == "" || mode == config.UpstreamVersionOwn || len(u.Evidence) == 0 {
 		return nil
 	}
-	sources, err := upstream.Sources(u, "")
+	sources, err := upstreamSources(context.Background(), appCfg, "")
 	if err != nil {
 		return nil
 	}

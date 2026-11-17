@@ -39,7 +39,7 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	if sy.From == "" || !ciCtx.IsCI() || !acceptedState(ciCtx) || ciCtx.Tag != "" || ciCtx.SHA == "" {
 		return false, ""
 	}
-	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
+	sources, err := upstreamSources(ctx, appCfg, rootDir)
 	if err != nil {
 		return false, ""
 	}
@@ -70,13 +70,20 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	// What to sync onto: upstream's newest release, or a branch head.
 	var ref plumbing.ReferenceName
 	var label, want string
-	if sy.Onto.Branch != "" {
-		head, err := upstream.BranchHead(ctx, src, sy.Onto.Branch)
+	if sy.Onto.FollowsBranch() {
+		onto := sy.Onto.Branch
+		if sy.Onto.Head {
+			if onto, err = upstream.DefaultBranch(ctx, src); err != nil {
+				record("warning", err.Error())
+				return false, ""
+			}
+		}
+		head, err := upstream.BranchHead(ctx, src, onto)
 		if err != nil {
 			record("warning", err.Error())
 			return false, ""
 		}
-		ref, label, want = plumbing.NewBranchReferenceName(sy.Onto.Branch), sy.Onto.Branch, head
+		ref, label, want = plumbing.NewBranchReferenceName(onto), onto, head
 	} else {
 		l := listUpstream(ctx, src)
 		if l.err != nil || len(l.releases) == 0 {

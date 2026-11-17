@@ -27,6 +27,18 @@ type Source struct {
 	MirrorOf   string // the origin a mirror source follows
 	Lifecycle  string
 	Select     Selection
+
+	// Unresolved is why a fork_parent source has no location: it is reported unreachable
+	// wherever it is used.
+	Unresolved string
+}
+
+// usable fails a source that has no location to read.
+func (s Source) usable() error {
+	if s.Unresolved != "" {
+		return fmt.Errorf("%s: %s", s.ID, s.Unresolved)
+	}
+	return nil
 }
 
 // Selection is a source's compiled select: block and scheme.
@@ -45,7 +57,12 @@ type Rewrite struct {
 }
 
 // String names the source for messages.
-func (s Source) String() string { return s.ID + " (" + s.Kind + " " + s.Location + ")" }
+func (s Source) String() string {
+	if s.Unresolved != "" {
+		return s.ID + " (fork parent, unresolved)"
+	}
+	return s.ID + " (" + s.Kind + " " + s.Location + ")"
+}
 
 // Release is one upstream release: the tag as published, the version it names, and (git
 // sources) the commit it points at.
@@ -87,7 +104,14 @@ func Sources(u config.UpstreamConfig, rootDir string) ([]Source, error) {
 			}
 			sel.Exclude = append(sel.Exclude, re)
 		}
-		out = append(out, Source{ID: cs.ID, Kind: kind, Location: loc, Suite: sourceSuite(cs, rootDir), Repository: cs.Repository, MirrorOf: cs.MirrorOf, Lifecycle: cs.EffectiveLifecycle(), Select: sel})
+		src := Source{ID: cs.ID, Kind: kind, Location: loc, Suite: sourceSuite(cs, rootDir), Repository: cs.Repository, MirrorOf: cs.MirrorOf, Lifecycle: cs.EffectiveLifecycle(), Select: sel}
+		if cs.ForkParent != "" && loc == "" {
+			src.Unresolved = "the fork parent of " + cs.ForkParent + " is not known"
+			if cs.ForkParentErr != "" {
+				src.Unresolved = cs.ForkParentErr
+			}
+		}
+		out = append(out, src)
 	}
 	return out, nil
 }

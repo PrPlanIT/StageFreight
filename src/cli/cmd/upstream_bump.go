@@ -55,7 +55,7 @@ func listUpstream(ctx context.Context, src upstream.Source) upstreamListing {
 
 // listingKey identifies one listing: the same upstream read with the same selection.
 func listingKey(src upstream.Source) string {
-	return src.Kind + " " + src.Location + " " + src.Suite + " " + src.Select.Tags.String()
+	return src.Kind + " " + src.Location + " " + src.Suite + " " + src.Unresolved + " " + src.Select.Tags.String()
 }
 
 // readPins locates every pin of a source and checks they agree. current is the version they
@@ -94,7 +94,7 @@ func readPins(rootDir string, cs config.UpstreamSource, sch scheme.Scheme) (pins
 func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string, now time.Time, lock *upstream.Lock, moved map[string]string, rows *upstreamRows) (deps []supplychain.Dependency, lockChanged bool, afterBump map[string][]string) {
 	afterBump = map[string][]string{}
 	u := appCfg.Upstream
-	sources, err := upstream.Sources(u, rootDir)
+	sources, err := upstreamSources(ctx, appCfg, rootDir)
 	if err != nil {
 		return nil, false, nil
 	}

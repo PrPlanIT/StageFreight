@@ -180,6 +180,20 @@ type UpstreamSource struct {
 	// tags are listed anonymously (ls-remote).
 	Git string `yaml:"git,omitempty"`
 
+	// ForkParent is a git source found rather than written: the repos: entry it names is a
+	// fork on its forge, and the project it was forked from is the upstream. The forge's
+	// record is read when the source is used; a repository that is not a fork, or a forge
+	// that will not say, fails closed.
+	ForkParent string `yaml:"fork_parent,omitempty"`
+
+	// ForkParentGit is the clone URL fork_parent resolved to (set at run time, never in
+	// config).
+	ForkParentGit string `yaml:"-"`
+
+	// ForkParentErr is why fork_parent did not resolve (set at run time); the source then
+	// reports unreachable instead of being listed.
+	ForkParentErr string `yaml:"-"`
+
 	// Image is an upstream container image repository without a tag, e.g.
 	// ghcr.io/zitadel/zitadel. Its tags are listed anonymously (OCI registry API).
 	Image string `yaml:"image,omitempty"`
@@ -304,18 +318,24 @@ const (
 	TakeReview   = "review"
 )
 
-// UpstreamOnto is upstream.sync.onto: the scalar release, or {branch: <name>}.
+// UpstreamOnto is upstream.sync.onto: the scalar release, the scalar head (upstream's
+// default branch, as the remote's HEAD names it), or {branch: <name>}.
 type UpstreamOnto struct {
 	Branch string `yaml:"branch,omitempty"`
+	Head   bool   `yaml:"-"`
 }
 
-// UnmarshalYAML accepts the scalar release or a {branch:} map.
+// UnmarshalYAML accepts the scalars release and head, or a {branch:} map.
 func (o *UpstreamOnto) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
-		if n.Value != "release" {
-			return fmt.Errorf("upstream.sync.onto: %q — use release or {branch: <name>}", n.Value)
+		switch n.Value {
+		case "release":
+			*o = UpstreamOnto{}
+		case "head":
+			*o = UpstreamOnto{Head: true}
+		default:
+			return fmt.Errorf("upstream.sync.onto: %q — use release, head or {branch: <name>}", n.Value)
 		}
-		*o = UpstreamOnto{}
 		return nil
 	}
 	type plain UpstreamOnto
@@ -326,6 +346,21 @@ func (o *UpstreamOnto) UnmarshalYAML(n *yaml.Node) error {
 	*o = UpstreamOnto(p)
 	return nil
 }
+
+// MarshalYAML writes onto back the way it is declared.
+func (o UpstreamOnto) MarshalYAML() (any, error) {
+	switch {
+	case o.Head:
+		return "head", nil
+	case o.Branch != "":
+		return map[string]string{"branch": o.Branch}, nil
+	}
+	return "release", nil
+}
+
+// FollowsBranch reports whether onto names a branch (head or {branch:}) rather than a
+// release.
+func (o UpstreamOnto) FollowsBranch() bool { return o.Head || o.Branch != "" }
 
 // Sync strategies and conflict outcomes.
 const (
@@ -340,7 +375,7 @@ const (
 
 // declared reports whether any sync field is set.
 func (s UpstreamSync) declared() bool {
-	return s.From != "" || s.Onto.Branch != "" || s.Strategy != "" || s.Shadow != "" || s.OnConflict != "" || len(s.Files) > 0
+	return s.From != "" || s.Onto.FollowsBranch() || s.Strategy != "" || s.Shadow != "" || s.OnConflict != "" || len(s.Files) > 0
 }
 
 // EffectiveStrategy returns the sync strategy (rebase when unset).
@@ -530,6 +565,9 @@ func UpstreamKinds() []string {
 
 // Kind returns the source's kind and location ("" when no kind key is set).
 func (s UpstreamSource) Kind() (kind, location string) {
+	if s.ForkParent != "" && s.Git == "" {
+		return UpstreamKindGit, s.ForkParentGit
+	}
 	for _, k := range s.kinds() {
 		if k[1] != "" {
 			return k[0], k[1]
@@ -641,10 +679,15 @@ func validateUpstream(cfg *Config) []string {
 				set = append(set, k[0])
 			}
 		}
+		if s.ForkParent != "" {
+			set = append(set, "fork_parent")
+		}
 		kind, _ := s.Kind()
 		switch {
 		case len(set) != 1:
-			errs = append(errs, fmt.Sprintf("%s: set exactly one kind (%s), found %d", path, strings.Join(UpstreamKinds(), " | "), len(set)))
+			errs = append(errs, fmt.Sprintf("%s: set exactly one kind (%s | fork_parent), found %d", path, strings.Join(UpstreamKinds(), " | "), len(set)))
+		case s.ForkParent != "" && FindRepoByID(cfg.Repos, s.ForkParent) == nil:
+			errs = append(errs, fmt.Sprintf("%s.fork_parent: %q is not a repos: entry", path, s.ForkParent))
 		case s.Image != "" && (strings.Contains(s.Image, "@") || strings.Contains(s.Image[strings.LastIndex(s.Image, "/")+1:], ":")):
 			errs = append(errs, fmt.Sprintf("%s.image: %q names a tag or digest; give the repository only (its tags are what is watched)", path, s.Image))
 		case s.GitHubRelease != "" && strings.Count(s.GitHubRelease, "/") != 1:
@@ -791,8 +834,8 @@ func validateUpstream(cfg *Config) []string {
 		switch sy.Strategy {
 		case "", SyncRebase, SyncMerge:
 		case SyncMirror:
-			if sy.Onto.Branch == "" {
-				errs = append(errs, "upstream.sync.onto: mirror follows a branch — set onto: {branch: <name>}")
+			if !sy.Onto.FollowsBranch() {
+				errs = append(errs, "upstream.sync.onto: mirror follows a branch — set onto: head or {branch: <name>}")
 			}
 		default:
 			errs = append(errs, fmt.Sprintf("upstream.sync.strategy: unknown %q (rebase | merge | mirror)", sy.Strategy))

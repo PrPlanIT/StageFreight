@@ -123,7 +123,7 @@ func recutTags(appCfg *config.Config, rootDir string) map[string]bool {
 		return set
 	}
 	_, claimedID := u.Version.Mode()
-	sources, err := upstream.Sources(u, rootDir)
+	sources, err := upstreamSources(context.Background(), appCfg, rootDir)
 	if err != nil {
 		return set
 	}

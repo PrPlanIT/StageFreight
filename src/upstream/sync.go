@@ -345,6 +345,9 @@ func firstLine(s string) string {
 
 // BranchHead returns the commit an upstream branch points at (anonymous ls-remote).
 func BranchHead(ctx context.Context, src Source, branch string) (string, error) {
+	if err := src.usable(); err != nil {
+		return "", err
+	}
 	rem := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "upstream", URLs: []string{src.Location}})
 	refs, err := rem.ListContext(ctx, &git.ListOptions{})
 	if err != nil {
@@ -359,6 +362,25 @@ func BranchHead(ctx context.Context, src Source, branch string) (string, error) 
 	return "", fmt.Errorf("%s has no branch %s", src, branch)
 }
 
+// DefaultBranch is the branch upstream's HEAD names (sync onto: head), read from the remote's
+// advertised refs.
+func DefaultBranch(ctx context.Context, src Source) (string, error) {
+	if err := src.usable(); err != nil {
+		return "", err
+	}
+	rem := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "upstream", URLs: []string{src.Location}})
+	refs, err := rem.ListContext(ctx, &git.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("ls-remote %s: %w", src.Location, err)
+	}
+	for _, r := range refs {
+		if r.Name() == plumbing.HEAD && r.Type() == plumbing.SymbolicReference {
+			return r.Target().Short(), nil
+		}
+	}
+	return "", fmt.Errorf("%s does not name a default branch", src)
+}
+
 // FetchRef is where a sync keeps upstream's fetched commit in our repository.
 func FetchRef(sourceID string) plumbing.ReferenceName {
 	return plumbing.ReferenceName("refs/stagefreight/upstream/" + sourceID)
@@ -367,6 +389,9 @@ func FetchRef(sourceID string) plumbing.ReferenceName {
 // Fetch brings upstream's ref (a tag or branch, full name) into our repository at
 // FetchRef(src.ID). History shared with ours is not transferred again.
 func Fetch(ctx context.Context, repo *git.Repository, src Source, ref plumbing.ReferenceName) error {
+	if err := src.usable(); err != nil {
+		return err
+	}
 	spec := gitconfig.RefSpec("+" + ref.String() + ":" + FetchRef(src.ID).String())
 	err := repo.FetchContext(ctx, &git.FetchOptions{
 		RemoteURL: src.Location,

@@ -299,3 +299,70 @@ func TestUpstreamRepositoryValidation(t *testing.T) {
 		t.Fatalf("valid source refused: %q", ok)
 	}
 }
+
+func TestUpstream_ForkParent(t *testing.T) {
+	repos := OrderedRepos{{ID: "github-mirror", Roles: []string{"mirror"}}}
+	cases := map[string]struct {
+		s    UpstreamSource
+		want string // "" = valid
+	}{
+		"fork parent":          {UpstreamSource{ID: "u", ForkParent: "github-mirror"}, ""},
+		"not a repos entry":    {UpstreamSource{ID: "u", ForkParent: "gitlab"}, `"gitlab" is not a repos: entry`},
+		"and a git url":        {UpstreamSource{ID: "u", ForkParent: "github-mirror", Git: "https://x"}, "set exactly one kind"},
+		"mirror_of is for git": {UpstreamSource{ID: "u", ForkParent: "github-mirror", MirrorOf: "https://y"}, ""},
+	}
+	for name, c := range cases {
+		cfg := &Config{Repos: repos, Upstream: UpstreamConfig{Sources: OrderedUpstreamSources{c.s}}}
+		errs := strings.Join(validateUpstream(cfg), "\n")
+		if (c.want == "") != (errs == "") || !strings.Contains(errs, c.want) {
+			t.Errorf("%s: errors %q, want %q", name, errs, c.want)
+		}
+	}
+
+	s := UpstreamSource{ID: "u", ForkParent: "github-mirror"}
+	if k, loc := s.Kind(); k != UpstreamKindGit || loc != "" {
+		t.Errorf("an unresolved fork parent is a git source with no location yet: %s %q", k, loc)
+	}
+	s.ForkParentGit = "https://github.com/up/r.git"
+	if _, loc := s.Kind(); loc != s.ForkParentGit {
+		t.Errorf("resolved, it reads the parent: %q", loc)
+	}
+
+	// A fork parent is a git source, so it can be synced from and tracked by ancestry.
+	cfg := &Config{Repos: OrderedRepos{{ID: "github-mirror", Roles: []string{"mirror"}, Sync: SyncConfig{Branches: &FacetSpec{Scope: "all", Force: true}}}},
+		Upstream: UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "u", ForkParent: "github-mirror"}},
+			Version: UpstreamVersion{Track: "u", Ancestry: true}, Sync: UpstreamSync{From: "u", Strategy: "merge"}}}
+	if errs := validateUpstream(cfg); len(errs) != 0 {
+		t.Errorf("track + sync from a fork parent: %v", errs)
+	}
+}
+
+func TestUpstream_OntoHead(t *testing.T) {
+	for src, want := range map[string]UpstreamOnto{
+		"onto: head":           {Head: true},
+		"onto: release":        {},
+		"onto: {branch: beta}": {Branch: "beta"},
+	} {
+		var h struct {
+			Onto UpstreamOnto `yaml:"onto"`
+		}
+		if err := yaml.Unmarshal([]byte(src), &h); err != nil || h.Onto != want {
+			t.Errorf("%s: %+v, %v", src, h.Onto, err)
+		}
+		out, err := yaml.Marshal(h)
+		if err != nil || strings.TrimSpace(string(out)) != strings.ReplaceAll(strings.ReplaceAll(src, "{branch: beta}", "\n    branch: beta"), "onto: \n", "onto:\n") {
+			t.Errorf("%s round-trips as %q", src, out)
+		}
+	}
+	var h struct {
+		Onto UpstreamOnto `yaml:"onto"`
+	}
+	if err := yaml.Unmarshal([]byte("onto: tip"), &h); err == nil || !strings.Contains(err.Error(), "release, head or {branch: <name>}") {
+		t.Errorf("an unknown scalar is refused: %v", err)
+	}
+	src := OrderedUpstreamSources{{ID: "nut", Git: "https://github.com/networkupstools/nut"}}
+	mirror := UpstreamSync{From: "nut", Strategy: "mirror", Onto: UpstreamOnto{Head: true}}
+	if errs := validateUpstream(&Config{Upstream: UpstreamConfig{Sources: src, Sync: mirror}}); len(errs) != 0 {
+		t.Errorf("a mirror can follow upstream's default branch: %v", errs)
+	}
+}

@@ -35,7 +35,7 @@ func annotateTrackedBase(ctx context.Context, appCfg *config.Config, rootDir str
 	if mode != config.UpstreamVersionTrack {
 		return false
 	}
-	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
+	sources, err := upstreamSources(ctx, appCfg, rootDir)
 	if err != nil {
 		return false
 	}
@@ -168,7 +168,7 @@ var alpineReleaseTag = regexp.MustCompile(`^(?P<version>\d+\.\d+\.\d+)$`)
 // version than the pins, is not adopted.
 func followAlpineBases(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, now time.Time, lock *upstream.Lock, rows *upstreamRows) (moved map[string]string, lockChanged bool) {
 	moved = map[string]string{}
-	sources, err := upstream.Sources(appCfg.Upstream, rootDir)
+	sources, err := upstreamSources(ctx, appCfg, rootDir)
 	if err != nil {
 		return moved, false
 	}

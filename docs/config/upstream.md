@@ -27,6 +27,7 @@ upstream:
 | Kind | Value | Listed from | Default scheme |
 |---|---|---|---|
 | `git` | repository URL | `git ls-remote` (tags, with their commits) | semver |
+| `fork_parent` | a `repos:` id | the project that repository was forked from, as its forge records it; then as `git` | semver |
 | `image` | image repository, no tag or digest | the OCI registry API | semver |
 | `pypi` | project name | pypi.org (yanked releases skipped; upload times) | pep440 |
 | `npm` | package name | registry.npmjs.org (deprecated versions skipped; publish times) | semver |
@@ -39,6 +40,20 @@ Listing is anonymous: an upstream is someone else's public project. (`github-rel
 `GITHUB_TOKEN` when the environment has one: GitHub's API allows 60 anonymous requests an
 hour.) Where the kind publishes release times, the cooldown counts from them instead of from
 first sight.
+
+**`fork_parent`** finds a git upstream instead of writing it down. The repository it names
+is a fork on its forge (GitHub, GitLab, Gitea/Forgejo, Azure DevOps all record the parent),
+and that parent is the upstream. The forge is asked once per run, with the repository's own
+credentials. A repository that is not a fork, a forge that will not answer, or one that cannot
+report a parent fails closed: the source reports unreachable and nothing is listed, synced or
+released from it.
+
+```yaml
+upstream:
+  sources:
+    upstream: { fork_parent: github-mirror }
+  sync: { from: upstream, onto: head }
+```
 
 **`mirror_of`** (git, image) names the origin a source mirrors — for upstreams we cannot reach
 directly and keep a mirror of. StageFreight lists the mirror, and the origin when it answers;
@@ -242,7 +257,7 @@ upstream:
   version: { track: zitadel, ancestry: true }
   sync:
     from: zitadel
-    onto: release            # default; or { branch: main }
+    onto: release            # default; head (upstream's default branch); or { branch: main }
     strategy: rebase         # default; merge | mirror
     shadow: upstream         # optional: a branch kept at upstream's synced commit
     on_conflict: mr          # default; fail | notify
