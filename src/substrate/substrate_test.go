@@ -240,14 +240,14 @@ func TestRealize_SystemCapabilityNeedsRoot(t *testing.T) {
 	calls := fakeApk(t)
 	emptyPath(t)
 	r := &realizer{cacheDir: t.TempDir(), apk: true}
-	need := []Need{{Capability: "cmake", Reason: "native-crate", Source: "aws-lc-sys"}}
+	need := []Need{{Capability: "pkg-config", Reason: "native-crate", Source: "openssl-sys"}}
 
 	asUID(t, 4242)
 	_, err := r.Realize(context.Background(), need)
 	if err == nil || len(*calls) != 0 {
 		t.Fatalf("non-root: err=%v calls=%v, want a refusal and no apk", err, *calls)
 	}
-	for _, want := range []string{"aws-lc-sys", "cmake", "uid 4242"} {
+	for _, want := range []string{"openssl-sys", "pkg-config", "uid 4242"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q should mention %q", err, want)
 		}

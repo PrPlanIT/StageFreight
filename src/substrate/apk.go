@@ -43,8 +43,9 @@ var capabilityProbe = map[string]string{
 
 // relocatable marks the capabilities whose packages run from the substrate root (a
 // usermode apk root under the cache) through its launchers; the others
-// carry absolute /usr paths and install into the system, which needs root.
-var relocatable = map[string]bool{"git": true, "bash": true}
+// carry absolute /usr paths and install into the system, which needs root. cmake finds
+// its modules beside its own binary; perl is pointed at its relocated library tree.
+var relocatable = map[string]bool{"git": true, "bash": true, "cmake": true, "perl": true}
 
 // geteuid is the process's effective uid; a variable so tests can stand in for a
 // non-root runner.
@@ -184,11 +185,21 @@ func relocatedRealized(root string, n Need, present bool) Realized {
 		Need: n, Backend: "apk-alpine (usermode)", Present: present,
 		PathDirs: []string{filepath.Join(root, wrapDir)},
 	}
-	if n.Capability == "git" {
+	switch n.Capability {
+	case "git":
 		r.Env = map[string]string{
 			"GIT_EXEC_PATH":    filepath.Join(root, "usr", "libexec", "git-core"),
 			"GIT_TEMPLATE_DIR": filepath.Join(root, "usr", "share", "git-core", "templates"),
 		}
+	case "perl":
+		// perl's @INC is compiled in as /usr/...; the relocated tree is found through
+		// PERL5LIB, in the order Alpine's perl searches it.
+		var lib []string
+		for _, d := range []string{"usr/local/lib/perl5/site_perl", "usr/local/share/perl5/site_perl",
+			"usr/lib/perl5/vendor_perl", "usr/share/perl5/vendor_perl", "usr/lib/perl5/core_perl", "usr/share/perl5/core_perl"} {
+			lib = append(lib, filepath.Join(root, d))
+		}
+		r.Env = map[string]string{"PERL5LIB": strings.Join(lib, ":")}
 	}
 	return r
 }
