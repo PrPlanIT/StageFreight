@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/atomicfile"
@@ -176,11 +177,40 @@ func writeZigWrappers(dir string) error {
 	}
 	for name, sub := range zigWrappers {
 		body := []byte("#!/bin/sh\nexec \"${0%/*}/../zig\" " + sub + " \"$@\"\n")
+		if sub == "cc" || sub == "c++" {
+			body = []byte(zigCompilerWrapper(sub))
+		}
 		if err := atomicfile.WriteFileIfChanged(filepath.Join(dir, name), body, 0o755); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// zigCompilerWrapper is the cc/c++ driver script. Build tools that take zig for clang
+// (Rust's cc crate) pass the Rust target triple, arch-vendor-os[-env]; zig reads targets
+// as arch-os[-abi] and rejects the vendor, so --target=/-target values are rewritten:
+// the vendor dropped and darwin named macos.
+func zigCompilerWrapper(sub string) string {
+	return `#!/bin/sh
+zt() {
+	case $1 in
+	*-*-*-*) a=${1%%-*}; r=${1#*-}; set -- "$a-${r#*-}" ;;
+	*-apple-*|*-unknown-*|*-pc-*) a=${1%%-*}; r=${1#*-}; set -- "$a-${r#*-}" ;;
+	esac
+	case $1 in *-darwin*) set -- "${1%%-darwin*}-macos${1#*-darwin}" ;; esac
+	printf '%s' "$1"
+}
+n=$#; next=
+while [ "$n" -gt 0 ]; do
+	a=$1; shift; n=$((n - 1))
+	if [ -n "$next" ]; then a=$(zt "$a"); next=
+	else case $a in --target=*) a=--target=$(zt "${a#--target=}") ;; -target|--target) next=1 ;; esac
+	fi
+	set -- "$@" "$a"
+done
+exec "${0%/*}/../zig" ` + sub + ` "$@"
+`
 }
 
 // realizeCToolchain realizes the c-toolchain capability with the provisioned Zig,
@@ -207,5 +237,30 @@ func realizeCToolchain(_ context.Context, rootDir string, n substrate.Need) (sub
 	if d := cacheDir("zig"); d != "" {
 		r.Env["ZIG_GLOBAL_CACHE_DIR"] = d
 	}
+	if k, v := rustLinksZigLibc(hostLibc(), os.Getenv); k != "" {
+		r.Env[k] = v
+	}
 	return r, nil
+}
+
+// rustLinksZigLibc is the cargo setting that has Rust's musl target link against the
+// libc zig's cc brings. Zig supplies musl's start files and libc itself, so rustc's
+// self-contained copies (rcrt1.o, crti.o, its libc.a) would define _start twice; with
+// link-self-contained=no rustc leaves them to the linker. It applies to the host's musl
+// triple only, and keeps any rustflags already set for it. "" on a non-musl host.
+func rustLinksZigLibc(libc string, getenv func(string) string) (key, value string) {
+	if libc != "musl" {
+		return "", ""
+	}
+	triple := rustHostTriple(runtime.GOOS, runtime.GOARCH, libc)
+	key = "CARGO_TARGET_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(triple)) + "_RUSTFLAGS"
+	const flag = "-C link-self-contained=no"
+	switch prior := strings.TrimSpace(getenv(key)); {
+	case prior == "":
+		return key, flag
+	case strings.Contains(prior, "link-self-contained"):
+		return key, prior
+	default:
+		return key, prior + " " + flag
+	}
 }

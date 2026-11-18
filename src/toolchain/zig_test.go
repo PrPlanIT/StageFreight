@@ -179,3 +179,56 @@ func TestRealizeCToolchain(t *testing.T) {
 		t.Fatalf("cc wrapper: %q %v, want it to run the provisioned zig", out, err)
 	}
 }
+
+// On a musl host zig's cc brings musl's start files and libc, so Rust's musl target is
+// told not to link its own copies; rustflags already set for that target are kept.
+func TestRustLinksZigLibc(t *testing.T) {
+	if k, _ := rustLinksZigLibc("gnu", func(string) string { return "" }); k != "" {
+		t.Errorf("a glibc host sets %q", k)
+	}
+	env := map[string]string{}
+	get := func(k string) string { return env[k] }
+	k, v := rustLinksZigLibc("musl", get)
+	if !strings.HasPrefix(k, "CARGO_TARGET_") || !strings.HasSuffix(k, "_UNKNOWN_LINUX_MUSL_RUSTFLAGS") || v != "-C link-self-contained=no" {
+		t.Fatalf("musl: %s=%q", k, v)
+	}
+	env[k] = "-C target-cpu=native"
+	if _, v := rustLinksZigLibc("musl", get); v != "-C target-cpu=native -C link-self-contained=no" {
+		t.Errorf("existing flags: %q", v)
+	}
+	env[k] = "-C link-self-contained=yes"
+	if _, v := rustLinksZigLibc("musl", get); v != "-C link-self-contained=yes" {
+		t.Errorf("an explicit choice is kept: %q", v)
+	}
+}
+
+// The cc wrapper hands zig its own target syntax for a Rust triple, and passes every
+// other argument through untouched.
+func TestZigCompilerWrapperTargets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "w"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A stand-in zig that prints its arguments one per line.
+	if err := os.WriteFile(filepath.Join(dir, "zig"), []byte("#!/bin/sh\nfor a do echo \"$a\"; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cc := filepath.Join(dir, "w", "cc")
+	if err := os.WriteFile(cc, []byte(zigCompilerWrapper("cc")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ in, want []string }{
+		{[]string{"-O2", "--target=x86_64-unknown-linux-musl", "-c", "a b.c"}, []string{"cc", "-O2", "--target=x86_64-linux-musl", "-c", "a b.c"}},
+		{[]string{"-target", "aarch64-unknown-linux-gnu"}, []string{"cc", "-target", "aarch64-linux-gnu"}},
+		{[]string{"--target=aarch64-apple-darwin"}, []string{"cc", "--target=aarch64-macos"}},
+		{[]string{"--target=x86_64-pc-windows-msvc"}, []string{"cc", "--target=x86_64-windows-msvc"}},
+		{[]string{"--target=x86_64-linux-musl", "-"}, []string{"cc", "--target=x86_64-linux-musl", "-"}},
+		{nil, []string{"cc"}},
+	} {
+		out, err := exec.Command(cc, tc.in...).Output()
+		got := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+		if err != nil || strings.Join(got, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("%q: got %q %v, want %q", tc.in, got, err, tc.want)
+		}
+	}
+}
