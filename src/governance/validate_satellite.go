@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,7 +30,10 @@ import (
 // its preset cache in place, and returns an error naming the repo when it fails. The
 // loaded config is returned so the caller can derive from the SAME config the satellite
 // will see — notably the CI skeleton — instead of materializing it a second time.
-func loadSatelliteConfig(repo string, sealed []byte, presetFiles map[string][]byte) (*config.Config, error) {
+//
+// The satellite's own files (the Dockerfiles its renovate annotations live in) are read from
+// its forge through reader; with no reader, none are.
+func loadSatelliteConfig(repo string, sealed []byte, presetFiles map[string][]byte, reader ForgeReader) (*config.Config, error) {
 	dir, err := os.MkdirTemp("", "sf-govval-")
 	if err != nil {
 		// Cannot verify — say so rather than reporting a pass we did not perform.
@@ -54,7 +58,17 @@ func loadSatelliteConfig(repo string, sealed []byte, presetFiles map[string][]by
 		return nil, fmt.Errorf("cannot verify rendered config for %s: %w", repo, err)
 	}
 
-	cfg, err := config.LoadOffline(cfgPath)
+	read := func(rel string) ([]byte, error) { return nil, os.ErrNotExist }
+	if reader != nil {
+		read = func(rel string) ([]byte, error) {
+			b, err := reader.GetFileContent(repo, rel, "HEAD")
+			if errors.Is(err, ErrFileNotFound) {
+				return nil, os.ErrNotExist
+			}
+			return b, err
+		}
+	}
+	cfg, err := config.LoadOfflineFrom(cfgPath, read)
 	if err != nil {
 		return nil, fmt.Errorf("rendered config for %s would not load: %w\n"+
 			"  the satellite would fail at audition before running anything — fix the profile or the catalog entry and reconcile again", repo, err)

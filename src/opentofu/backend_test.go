@@ -96,7 +96,7 @@ func TestParsePlanChanges(t *testing.T) {
 // with the credentials stripped of their prefix and the automation switches set.
 func TestConverge_AppliesTheSavedPlan(t *testing.T) {
 	fb := &fakeBinary{planExit: 2, showJSON: replacePlan}
-	root := config.OpenTofuRoot{ID: "site", Path: "opentofu/site", Converge: true, Workspace: "production", VarFiles: []string{"production.tfvars"}}
+	root := config.OpenTofuRoot{ID: "site", Path: "opentofu/site", Converge: true, Workspace: "production", VarFiles: []string{"production.tfvars"}, OnDestroy: "apply"}
 	b, cfg, rctx := newTestBackend(t, fb, root)
 
 	if err := runtime.RunLifecycleWith(context.Background(), cfg, rctx, Mode, b); err != nil {
@@ -172,7 +172,7 @@ func TestDryRun_PlansWithoutApplying(t *testing.T) {
 func TestConverge_FailsLoud(t *testing.T) {
 	for _, step := range []string{"init", "plan", "apply"} {
 		fb := &fakeBinary{planExit: 2, showJSON: replacePlan, failStep: step}
-		b, cfg, rctx := newTestBackend(t, fb, config.OpenTofuRoot{ID: "site", Path: "site", Converge: true})
+		b, cfg, rctx := newTestBackend(t, fb, config.OpenTofuRoot{ID: "site", Path: "site", Converge: true, OnDestroy: "apply"})
 		if err := runtime.RunLifecycleWith(context.Background(), cfg, rctx, Mode, b); err != nil {
 			t.Fatal(err)
 		}
@@ -183,6 +183,47 @@ func TestConverge_FailsLoud(t *testing.T) {
 		if res := rctx.Result(); res == nil || res.Actions[0].Success {
 			t.Errorf("%s failure must fail the action", step)
 		}
+	}
+}
+
+// TestConverge_RefusesUnreviewedDestroy: CI never applies a plan that destroys unless the
+// root says on_destroy: apply; a person running the root applies it.
+func TestConverge_RefusesUnreviewedDestroy(t *testing.T) {
+	fb := &fakeBinary{planExit: 2, showJSON: replacePlan}
+	b, cfg, rctx := newTestBackend(t, fb, config.OpenTofuRoot{ID: "site", Path: "site", Converge: true})
+	if err := runtime.RunLifecycleWith(context.Background(), cfg, rctx, Mode, b); err != nil {
+		t.Fatal(err)
+	}
+	if r := b.RootResults()[0]; r.Applied || r.Err == nil || !strings.Contains(r.Err.Error(), "on_destroy is refuse") || slices.Contains(fb.verbs(), "apply") {
+		t.Errorf("unattended destroy: %+v steps %v", r, fb.verbs())
+	}
+
+	fb = &fakeBinary{planExit: 2, showJSON: replacePlan}
+	b, cfg, rctx = newTestBackend(t, fb, config.OpenTofuRoot{ID: "site", Path: "site", Converge: true, OnDestroy: "apply"})
+	if err := runtime.RunLifecycleWith(context.Background(), cfg, rctx, Mode, b); err != nil || !b.RootResults()[0].Applied {
+		t.Errorf("on_destroy: apply: %v %+v", err, b.RootResults())
+	}
+
+	fb = &fakeBinary{planExit: 2, showJSON: replacePlan}
+	root := config.OpenTofuRoot{ID: "site", Path: "site", Converge: true}
+	b, cfg, rctx = newTestBackend(t, fb, root)
+	b.SelectRoot(root)
+	if err := runtime.RunLifecycleWith(context.Background(), cfg, rctx, Mode, b); err != nil || !b.RootResults()[0].Applied {
+		t.Errorf("opentofu run applies a destroying plan: %v %+v", err, b.RootResults())
+	}
+}
+
+// TestPrepare_NoCredentialsDeclared: with no credentials prefix the environment passes as it is.
+func TestPrepare_NoCredentialsDeclared(t *testing.T) {
+	fb := &fakeBinary{planExit: 0}
+	b, cfg, rctx := newTestBackend(t, fb, config.OpenTofuRoot{ID: "site", Path: "site", Converge: true})
+	cfg.OpenTofu.Credentials = ""
+	b.environ = func() []string { return []string{"TF_VAR_region=us-sanjose-1"} }
+	if err := runtime.RunLifecycleWith(context.Background(), cfg, rctx, Mode, b); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(fb.verbs(), []string{"init", "plan"}) {
+		t.Errorf("steps = %v", fb.verbs())
 	}
 }
 

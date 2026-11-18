@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/PrPlanIT/StageFreight/src/lint"
@@ -72,6 +73,10 @@ func (m *Resolver) checkSourceImages(ctx context.Context, file lint.FileInfo, ex
 	return deps, nil
 }
 
+// versionPin is an ARG or ENV whose value is a bare version, the form an annotated upstream
+// pin takes.
+var versionPin = regexp.MustCompile(`^\s*(?i:ARG|ENV)\s+[A-Za-z_][A-Za-z0-9_]*[=\s]\s*"?[vV]?\d[^\s:/"]*"?\s*$`)
+
 // parseSourceImageRefs finds every renovate: datasource=docker annotation in content.
 // Annotations for other datasources are not returned.
 func parseSourceImageRefs(content []byte) []sourceImageRef {
@@ -109,6 +114,9 @@ func parseSourceImageRefs(content []byte) []sourceImageRef {
 			next = lines[i+1]
 		}
 		ref.Ref, ref.Column = findImageTag(next, image)
+		if ref.Ref == "" && versionPin.MatchString(next) {
+			continue // an ARG/ENV version pin: an upstream source (upstream.sources), not an image reference
+		}
 		if ref.Ref == "" {
 			ref.Skip = fmt.Sprintf("line after the renovate annotation does not contain %s:<tag>", image)
 		} else {

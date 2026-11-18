@@ -70,9 +70,9 @@ func syncUpstream(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContex
 	// What to sync onto: upstream's newest release, or a branch head.
 	var ref plumbing.ReferenceName
 	var label, want string
-	if sy.Onto.FollowsBranch() {
-		onto := sy.Onto.Branch
-		if sy.Onto.Head {
+	if sy.Onto().FollowsBranch() {
+		onto := sy.Onto().Branch
+		if sy.Onto().Head {
 			if onto, err = upstream.DefaultBranch(ctx, src); err != nil {
 				record("warning", err.Error())
 				return false, ""

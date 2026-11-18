@@ -42,7 +42,7 @@ toolchains:
 		files[k] = v
 	}
 	dir := writeFiles(t, files)
-	cfg, _, entries, err := loadResolvedMode(filepath.Join(dir, ".stagefreight.yml"), true)
+	cfg, _, entries, err := loadResolvedMode(filepath.Join(dir, ".stagefreight.yml"), true, nil)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestToolchainWantPresets_Duplicate(t *testing.T) {
 		files[k] = v
 	}
 	dir := writeFiles(t, files)
-	_, _, _, err := loadResolvedMode(filepath.Join(dir, ".stagefreight.yml"), true)
+	_, _, _, err := loadResolvedMode(filepath.Join(dir, ".stagefreight.yml"), true, nil)
 	if err == nil || !strings.Contains(err.Error(), `duplicate key "trivy"`) ||
 		!strings.Contains(err.Error(), "toolchains-scanners.yml") || !strings.Contains(err.Error(), "dup.yml") {
 		t.Errorf("want a duplicate error naming both presets, got %v", err)

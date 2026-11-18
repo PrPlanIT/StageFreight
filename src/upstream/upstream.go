@@ -94,13 +94,13 @@ func Sources(u config.UpstreamConfig, rootDir string) ([]Source, error) {
 		}
 		re, err := regexp.Compile(cs.Select.EffectiveTags())
 		if err != nil {
-			return nil, fmt.Errorf("upstream.sources.%s.select.tags: %w", cs.ID, err)
+			return nil, fmt.Errorf("upstream.sources.%s.tags: %w", cs.ID, err)
 		}
 		sel.Tags = re
 		for i, ex := range cs.Select.Exclude {
 			re, err := regexp.Compile(ex)
 			if err != nil {
-				return nil, fmt.Errorf("upstream.sources.%s.select.exclude[%d]: %w", cs.ID, i, err)
+				return nil, fmt.Errorf("upstream.sources.%s.exclude[%d]: %w", cs.ID, i, err)
 			}
 			sel.Exclude = append(sel.Exclude, re)
 		}
@@ -117,7 +117,7 @@ func Sources(u config.UpstreamConfig, rootDir string) ([]Source, error) {
 }
 
 // Releases applies the selection to a source's tags and returns its releases, newest first.
-// The version is the named group "version" of select.tags, else its first group, else the whole
+// The version is the named group "version" of tags, else its first group, else the whole
 // tag. Candidates whose version does not parse are returned as unparsed, so the caller can
 // report them instead of silently losing them.
 func Releases(tags []string, sel Selection) (releases []Release, unparsed []string) {

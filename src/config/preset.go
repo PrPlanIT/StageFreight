@@ -575,7 +575,7 @@ func withoutKey(m *yaml.Node, key string) *yaml.Node {
 
 // DeepMerge deep-merges override into base (both mapping nodes), override wins.
 // Objects deep-merge (base order preserved, new keys appended); scalars/sequences
-// replace. Non-mapping inputs: override replaces.
+// replace; null removes the key. Non-mapping inputs: override replaces.
 func DeepMerge(base, override *yaml.Node) *yaml.Node {
 	if !isMapping(base) || !isMapping(override) {
 		return override
@@ -584,6 +584,10 @@ func DeepMerge(base, override *yaml.Node) *yaml.Node {
 	for _, k := range mapKeys(override) {
 		ov, _ := mapGet(override, k)
 		bv, exists := mapGet(result, k)
+		if ov.Kind == yaml.ScalarNode && ov.Tag == "!!null" {
+			result = withoutKey(result, k)
+			continue
+		}
 		if exists && isMapping(bv) && isMapping(ov) {
 			mapSet(result, k, DeepMerge(bv, ov))
 		} else {

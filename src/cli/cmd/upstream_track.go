@@ -281,10 +281,21 @@ func withoutSuite(rels []upstream.Release, suite, repository string) []upstream.
 }
 
 // trackReleaseAge is how old an upstream GA must be before the fork follows it onto the base
-// image: the dedicated upstream.version.min_release_age when set, else the general
-// dependency.min_release_age. Zero means follow the instant upstream publishes.
+// image: the tracked source's min_release_age, else dependency.min_release_age.
 func trackReleaseAge(appCfg *config.Config) time.Duration {
-	if a := appCfg.Upstream.Version.MinReleaseAge; a != nil {
+	_, id := appCfg.Upstream.Version.Mode()
+	for _, s := range appCfg.Upstream.Sources {
+		if s.ID == id {
+			return sourceReleaseAge(appCfg, s)
+		}
+	}
+	return sourceReleaseAge(appCfg, config.UpstreamSource{})
+}
+
+// sourceReleaseAge is how old a release must be before a source's pins move to it: its own
+// min_release_age, else dependency.min_release_age. Zero follows the instant it publishes.
+func sourceReleaseAge(appCfg *config.Config, s config.UpstreamSource) time.Duration {
+	if a := s.MinReleaseAge; a != nil {
 		return a.Longest()
 	}
 	if a := appCfg.Dependency.MinReleaseAge; a != nil {

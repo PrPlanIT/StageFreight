@@ -18,7 +18,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
-// autoReleaseUpstream is upstream.release: auto. After a successful default-branch run in
+// autoReleaseUpstream is upstream.version.cut: auto. After a successful default-branch run in
 // track mode, when the claimed source's pins name a version upstream has released and no tag
 // of ours names it yet, StageFreight tags the commit it just built with that version and
 // pushes the tag. The release pipeline then runs every version guard and evidence probe like

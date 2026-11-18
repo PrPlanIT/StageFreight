@@ -1052,9 +1052,11 @@ func validateOpenTofu(cfg *Config) []string {
 				errs = append(errs, fmt.Sprintf("%s.var_files[%d]: empty", path, i))
 			}
 		}
-	}
-	if o.HasConvergeRoots() && strings.TrimSpace(o.Credentials) == "" {
-		errs = append(errs, "opentofu.credentials: required when a converge root is declared")
+		switch r.OnDestroy {
+		case "", OpenTofuOnDestroyRefuse, OpenTofuOnDestroyApply:
+		default:
+			errs = append(errs, fmt.Sprintf("%s.on_destroy: unknown %q (refuse | apply)", path, r.OnDestroy))
+		}
 	}
 	return errs
 }

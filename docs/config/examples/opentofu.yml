@@ -11,9 +11,9 @@ toolchains:
 
 opentofu:
   backend: opentofu
-  # Env prefix → every OCI_<NAME> variable reaches the binary as <NAME>
-  # (OCI_TF_VAR_tenancy_ocid → TF_VAR_tenancy_ocid). Set them masked + PROTECTED.
-  credentials: OCI
+  # Optional env prefix → every ORACLE_SITE_<NAME> variable reaches the binary as <NAME>
+  # (ORACLE_SITE_TF_VAR_region → TF_VAR_region). Set them masked + PROTECTED.
+  credentials: oracle-site
 
   roots:
     oracle-site:
@@ -21,6 +21,7 @@ opentofu:
       converge: true
       workspace: production       # optional; default "default"
       var_files: [production.tfvars]  # optional; relative to path
+      on_destroy: refuse          # default; apply lets CI apply a plan that destroys
 
 lint:
   modules:

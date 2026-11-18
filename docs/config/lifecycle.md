@@ -20,6 +20,10 @@ and all of them converge in the same reconcile pass: infrastructure, then hosts,
 
 --8<-- "docs/assets/modules/config-reference.md:governance"
 
+A catalog entry's `config:` merges over its profile's config the way local keys merge over a
+preset: maps by key, scalars and lists replaced, and `null` removes an inherited key
+(`publish: { preset: null, … }` declares a section from scratch).
+
 --8<-- "docs/assets/modules/config-reference.md:docker"
 
 --8<-- "docs/assets/modules/config-reference.md:ansible"
@@ -92,14 +96,17 @@ verified against the vendor's published SHA256SUMS.
   gitops: `init`, `workspace select -or-create` when `workspace:` is set, `plan` to a saved
   file with each `var_files` entry, then `apply` of exactly that saved plan. A plan with no
   changes skips the apply. Any failed step fails the root; `required: false` makes it advisory.
+- **Destroys wait for a person.** A converge plan that destroys or replaces anything fails the
+  root without applying; `opentofu run <id>` applies it. `on_destroy: apply` lets CI apply it.
 - **Runbooks** (`converge: false`) only run from `stagefreight opentofu run <id>`
   (`--plan` for a plan without apply).
 - `stagefreight reconcile --dry-run` and `opentofu run --plan` plan without applying.
 
-**Credentials.** Every `<PREFIX>_<NAME>` variable reaches the binary as `<NAME>`
-(`credentials: oci` turns `OCI_TF_VAR_tenancy_ocid` into `TF_VAR_tenancy_ocid`). Store them
-masked and **protected**: unprotected-ref pipelines render "skipped — credentials not
-available".
+**Credentials.** The binary reads the job's environment (`TF_VAR_*`, `OCI_*`, `AWS_*`, …) as it
+is. With `credentials: <prefix>`, every `<PREFIX>_<NAME>` variable reaches it as `<NAME>`
+(`credentials: oracle-site` turns `ORACLE_SITE_TF_VAR_region` into `TF_VAR_region`), and a
+pipeline where none is set renders "skipped — credentials not available": store them masked
+and **protected**.
 
 **Checkout stays clean.** Each root's `.terraform/` lives in a per-run directory, and `init`
 runs with `-lockfile=readonly`: commit each root's `.terraform.lock.hcl`.

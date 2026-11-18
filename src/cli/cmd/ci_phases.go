@@ -414,7 +414,7 @@ func publishPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		reconcileSchedules(ctx, appCfg, ciCtx, rootDir)
 	}
 
-	// upstream.release: auto — tag the commit just built when its pins name an upstream
+	// upstream.version.cut: auto — tag the commit just built when its pins name an upstream
 	// release we have not cut. Before syncMirrors, so mirrors receive the tag in this run.
 	autoReleaseUpstream(ctx, appCfg, ciCtx, rootDir)
 

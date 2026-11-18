@@ -70,13 +70,14 @@ opentofu:
     a:
       converge: true
       var_files: [""]
+      on_destroy: sometimes
 `)
 	errs := strings.Join(validateOpenTofu(&cfg), "\n")
 	for _, want := range []string{
 		`opentofu.backend: "pulumi"`,
 		"opentofu.roots.a.path: required",
 		"opentofu.roots.a.var_files[0]: empty",
-		"opentofu.credentials: required",
+		`opentofu.roots.a.on_destroy: unknown "sometimes"`,
 	} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("missing %q in:\n%s", want, errs)

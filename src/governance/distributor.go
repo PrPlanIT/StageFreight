@@ -159,7 +159,7 @@ func PlanDistribution(
 			// leave the control repo: distribution is fleet-wide and simultaneous, so an
 			// invalid render fails every governed repo at once, at audition, before
 			// anything runs. Better one failed reconcile than nine broken satellites.
-			satelliteCfg, err := loadSatelliteConfig(repo, sealedContent, repoPresetFiles)
+			satelliteCfg, err := loadSatelliteConfig(repo, sealedContent, repoPresetFiles, reader)
 			if err != nil {
 				return nil, fmt.Errorf("cluster %q: %w", cluster.ID, err)
 			}
@@ -372,11 +372,21 @@ func orgAliases(clusterConfig map[string]any, orgID string) map[string]string {
 	return out
 }
 
-// mergeConfigOverride shallow-merges a catalog entry's per-repo config over the
-// profile's base config: each top-level section the entry declares replaces the base's
-// (the entry deviates for that section — e.g. a different forge via its own repos preset).
+// mergeConfigOverride merges a catalog entry's per-repo config over the profile's, the
+// way a preset merges under local keys: maps merge key by key, scalars and lists replace,
+// and null removes the inherited key.
 func mergeConfigOverride(base, override map[string]any) {
 	for k, v := range override {
+		if v == nil {
+			delete(base, k)
+			continue
+		}
+		if ov, ok := v.(map[string]any); ok {
+			if bv, ok := base[k].(map[string]any); ok {
+				mergeConfigOverride(bv, ov)
+				continue
+			}
+		}
 		base[k] = v
 	}
 }

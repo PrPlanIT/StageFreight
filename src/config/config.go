@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/PrPlanIT/StageFreight/src/license"
 	"github.com/PrPlanIT/StageFreight/src/presetref"
 	"io/fs"
 	"os"
@@ -189,7 +190,14 @@ func Load(path string) (*Config, error) {
 // we are about to hand over self-sufficient), and would fetch every reference once per
 // governed repo.
 func LoadOffline(path string) (*Config, error) {
-	cfg, _, _, err := loadResolvedMode(path, true)
+	cfg, _, _, err := loadResolvedMode(path, true, nil)
+	return cfg, err
+}
+
+// LoadOfflineFrom is LoadOffline with the repo's files read through read, for a config whose
+// repository is not on disk (governance verifying a satellite).
+func LoadOfflineFrom(path string, read RepoFileReader) (*Config, error) {
+	cfg, _, _, err := loadResolvedMode(path, true, read)
 	return cfg, err
 }
 
@@ -256,12 +264,12 @@ func LoadWithWarnings(path string) (*Config, []string, error) {
 // cache-authoritative for a pin. The cache is the fallback/pin store, not the mandatory
 // read path.
 func loadResolved(path string) (*Config, []string, []MergeEntry, error) {
-	return loadResolvedMode(path, false)
+	return loadResolvedMode(path, false, nil)
 }
 
 // loadResolvedMode is loadResolved with control over whether sourced references may be
 // fetched. Offline resolves them from the retained cache only.
-func loadResolvedMode(path string, offline bool) (*Config, []string, []MergeEntry, error) {
+func loadResolvedMode(path string, offline bool, read RepoFileReader) (*Config, []string, []MergeEntry, error) {
 	if path == "" {
 		path = defaultConfigFile
 	}
@@ -333,6 +341,18 @@ func loadResolvedMode(path string, offline bool) (*Config, []string, []MergeEntr
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
 		return nil, nil, entries, fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	if read == nil {
+		repoDir := filepath.Dir(absPath)
+		read = func(rel string) ([]byte, error) { return os.ReadFile(filepath.Join(repoDir, filepath.FromSlash(rel))) }
+	}
+	if err := applyUpstreamAnnotations(cfg, read); err != nil {
+		return nil, nil, entries, fmt.Errorf("reading upstream annotations for %s: %w", path, err)
+	}
+	applyUpstreamDefaults(cfg)
+	if cfg.Metadata.License == "" {
+		cfg.Metadata.License = license.Detect(read)
 	}
 
 	warnings, verr := Validate(cfg)

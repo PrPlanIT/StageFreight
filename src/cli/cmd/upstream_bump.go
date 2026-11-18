@@ -99,14 +99,11 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 		return nil, false, nil
 	}
 	mode, trackedID := u.Version.Mode()
-	var age time.Duration
-	if appCfg.Dependency.MinReleaseAge != nil {
-		age = appCfg.Dependency.MinReleaseAge.Longest()
-	}
 	for i, cs := range u.Sources {
 		if len(cs.Pins) == 0 {
 			continue
 		}
+		age := sourceReleaseAge(appCfg, cs)
 		src := sources[i]
 		suite, suiteMoved := moved[cs.ID]
 		if suiteMoved {
@@ -173,11 +170,21 @@ func upstreamPinDeps(ctx context.Context, appCfg *config.Config, rootDir string,
 			}
 			deps = append(deps, d)
 		}
+		if rr := cs.RegistryRelease(); rr != nil && suiteMoved && target != nil {
+			release, _, _ := strings.Cut(suite, "/")
+			deps = append(deps, supplychain.Dependency{
+				Name: cs.ID + " · " + rr.File + " registryUrl", Group: cs.ID, Ecosystem: supplychain.EcosystemUpstream,
+				Current: rr.Value, Latest: release,
+				File: rr.File, Line: rr.Line, Column: rr.Column,
+				Binding: rr.File + " registryUrl", SourceURL: src.Location,
+				TrackGoverned: tracked,
+			})
+		}
 		switch {
 		case target != nil:
 			rows.add(cs.ID, "%s → %s  (bump)", current, target.Raw)
 		case held != nil:
-			rows.add(cs.ID, "hold %s — within min_release_age (%s)", held.Raw, appCfg.Dependency.MinReleaseAge)
+			rows.add(cs.ID, "hold %s — within min_release_age (%s)", held.Raw, age)
 		default:
 			rows.add(cs.ID, "current %s — no newer release", current)
 		}
@@ -258,11 +265,10 @@ func lockRel() string { return strings.TrimPrefix(upstream.LockPath(""), "/") }
 // runs write nothing.
 func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string, deps []supplychain.Dependency, ecosystems []string) ([]supplychain.Dependency, []string, func(*dependency.UpdateResult, bool)) {
 	now := time.Now()
-	// The lock is the first-sighting clock for pins (dependency.min_release_age) and for a
-	// followed base image (upstream.version.min_release_age), whichever is set.
+	// The lock is the first-sighting clock for every cooldown on a pin or a followed base.
 	var rows upstreamRows // every check below reports into one Upstream section
 	var lock *upstream.Lock
-	if appCfg.Dependency.MinReleaseAge != nil || trackReleaseAge(appCfg) > 0 {
+	if upstreamCooldowns(appCfg) {
 		var err error
 		if lock, err = upstream.ReadLock(rootDir); err != nil {
 			rows.add("lock", "cannot read %s, cooldown starts over: %v", upstream.LockPath(""), err)
@@ -309,4 +315,17 @@ func joinUpstreamPins(ctx context.Context, appCfg *config.Config, rootDir string
 		result.FilesChanged = append(result.FilesChanged, lockRel())
 	}
 	return deps, ecosystems, finish
+}
+
+// upstreamCooldowns reports whether any pin or followed base waits out a min_release_age.
+func upstreamCooldowns(appCfg *config.Config) bool {
+	if appCfg.Dependency.MinReleaseAge != nil {
+		return true
+	}
+	for _, s := range appCfg.Upstream.Sources {
+		if s.MinReleaseAge != nil {
+			return true
+		}
+	}
+	return false
 }

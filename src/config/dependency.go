@@ -79,7 +79,7 @@ type DependencyConfig struct {
 	// and kubectl; ordinary container images are not, since a registry dates a tag's last
 	// push, not its release. The exception is a base image a fork follows under
 	// upstream.version.track, dated by that tag's own image creation time; its follow
-	// cooldown is upstream.version.min_release_age, which inherits this value when unset.
+	// cooldown is upstream.sources.<id>.min_release_age, which inherits this value when unset.
 	// Unset is no cooldown.
 	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
 

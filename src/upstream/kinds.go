@@ -333,7 +333,7 @@ func stanzas(r io.Reader, nameKey, versionKey, timeKey, pkg string) ([]Candidate
 	return out, sc.Err()
 }
 
-// listURL reads a release page (the uscan model): every distinct match of select.tags on the
+// listURL reads a release page (the uscan model): every distinct match of tags on the
 // page is a candidate.
 func listURL(ctx context.Context, src Source) ([]Candidate, error) {
 	resp, err := get(ctx, src.Location, nil)

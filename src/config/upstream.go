@@ -13,79 +13,56 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/upstream/scheme"
 )
 
-// UpstreamConfig declares the upstreams a repo repackages or forks ("upstream mode").
-// StageFreight watches every declared source for new releases; version: says what our release
-// tags claim about one of them, and a release whose claim is false is refused before anything
-// is built.
+// UpstreamConfig declares the upstreams a repo repackages or forks.
 type UpstreamConfig struct {
-	// Sources are the watched upstreams, keyed by id. The id is how the rest of the config
-	// refers to a source (version.track, version.continue).
+	// Sources are the watched upstreams, keyed by id. Renovate annotations in the docker
+	// builds' Dockerfiles declare sources too.
 	Sources OrderedUpstreamSources `yaml:"sources,omitempty"`
 
-	// Version says what this repo's release tags claim about an upstream.
+	// Version is what this repo's release tags claim about an upstream.
 	Version UpstreamVersion `yaml:"version,omitempty"`
 
-	// Release decides who cuts a track release when the pins name a new upstream version:
-	// auto (default for track) tags the built commit after a successful default-branch run;
-	// manual leaves it to a human (stagefreight tag).
-	Release string `yaml:"release,omitempty"`
-
-	// Recut decides whether an already-released version moves to a newer default-branch build:
-	// on_change (default with release: auto) moves the version tag when that build's inputs
-	// differ from the tagged commit's, so the release republishes in place; never keeps every
-	// version tag where it was cut.
-	Recut string `yaml:"recut,omitempty"`
-
-	// Sync keeps this repository's history on top of a git upstream: rebased or merged onto
-	// its newest release (or a branch), or mirrored. Runs on the default branch.
+	// Sync keeps this repo's history on top of a git upstream.
 	Sync UpstreamSync `yaml:"sync,omitempty"`
 
-	// Evidence proves, per build, that the built artifact contains the version a release
-	// claims. Keyed by build id (a docker build). Checked in publish, on the exact bytes
-	// about to be distributed.
+	// Evidence proves, per docker build id, that the image contains the claimed version.
 	Evidence OrderedUpstreamEvidence `yaml:"evidence,omitempty"`
 }
 
-// UpstreamEvidence is one build's proof of version.
+// UpstreamEvidence is one docker build's proof of version.
 type UpstreamEvidence struct {
 	ID string `yaml:"-"`
 
-	// Probe reads the version the built image contains.
-	Probe UpstreamProbe `yaml:"probe"`
+	Probe UpstreamProbe `yaml:",inline"`
 
-	// OnMismatch is what happens when the probe disagrees with the claimed version:
-	// refuse (default) does not distribute the image; report distributes it and raises
-	// version-mismatch. report needs a reason.
+	// OnMismatch: refuse (default) withholds the image; report ships it and raises
+	// version-mismatch.
 	OnMismatch string `yaml:"on_mismatch,omitempty"`
 
-	// Reason says why a mismatch is tolerated (required with on_mismatch: report), e.g. an
-	// upstream whose metadata trails its own tag.
+	// Reason says why a mismatch is tolerated. Required with on_mismatch: report.
 	Reason string `yaml:"reason,omitempty"`
+
+	// Derived marks evidence StageFreight took from the tracked package source.
+	Derived bool `yaml:"-"`
 }
 
-// UpstreamProbe reads a version out of a built image without running it. Set exactly one of
-// label, file, package.
+// UpstreamProbe reads a version out of a built image without running it. Set exactly one
+// of label, file, package.
 type UpstreamProbe struct {
-	// Label is an OCI image label whose value is the version — one the image's own build sets
-	// from what it installs (e.g. a Dockerfile LABEL fed by the pinned ARG). Labels
-	// StageFreight stamps itself (org.opencontainers.image.version, …revision, …) describe the
-	// build, not its contents, and are refused: a probe on them would always agree.
+	// Label is an OCI label the image's own build sets; labels StageFreight stamps are refused.
 	Label string `yaml:"label,omitempty"`
 
-	// File is an absolute path in the image filesystem holding the version.
+	// File is an absolute path in the image holding the version.
 	File string `yaml:"file,omitempty"`
 
-	// Package is an installed package whose version is read from the package database
-	// named by manager.
+	// Package is an installed package, read from the database manager names.
 	Package string `yaml:"package,omitempty"`
 
-	// Manager is the package database package reads: pip (site-packages dist-info),
-	// dpkg (/var/lib/dpkg/status), apk (/lib/apk/db/installed).
+	// Manager is pip, dpkg or apk.
 	Manager string `yaml:"manager,omitempty"`
 
-	// Match is a regex applied to the label value or file content; the version is its named
-	// group "version", else its first group, else the whole match. Default: the first
-	// dotted version.
+	// Match is a regex on the label or file whose version group is the version. Default: the
+	// first dotted version.
 	Match string `yaml:"match,omitempty"`
 }
 
@@ -95,6 +72,9 @@ type OrderedUpstreamEvidence []UpstreamEvidence
 func (OrderedUpstreamEvidence) isIDMap() {}
 
 func (o *OrderedUpstreamEvidence) UnmarshalYAML(n *yaml.Node) error {
+	if err := movedKeys(n, "upstream.evidence.<build>", map[string]string{"probe": "its keys (label, file, package, manager, match) sit on the evidence entry itself"}, true); err != nil {
+		return err
+	}
 	v, err := decodeIDMap(n, func(e *UpstreamEvidence, id string) { e.ID = id })
 	if err != nil {
 		return fmt.Errorf("upstream.evidence: %w", err)
@@ -103,10 +83,10 @@ func (o *OrderedUpstreamEvidence) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-// Release modes.
+// Cut modes.
 const (
-	UpstreamReleaseAuto   = "auto"
-	UpstreamReleaseManual = "manual"
+	UpstreamCutAuto   = "auto"
+	UpstreamCutManual = "manual"
 )
 
 // Recut modes.
@@ -118,13 +98,13 @@ const (
 // AutoRecut reports whether StageFreight moves an already-released version tag to a newer
 // build whose inputs changed.
 func (u UpstreamConfig) AutoRecut() bool {
-	return u.AutoRelease() && u.Recut != UpstreamRecutNever
+	return u.AutoRelease() && u.Version.Recut != UpstreamRecutNever
 }
 
 // AutoRelease reports whether StageFreight cuts track releases itself.
 func (u UpstreamConfig) AutoRelease() bool {
 	mode, _ := u.Version.Mode()
-	return mode == UpstreamVersionTrack && u.Release != UpstreamReleaseManual
+	return mode == UpstreamVersionTrack && u.Version.Cut != UpstreamCutManual
 }
 
 // Guard outcomes: what a failed version guard or probe does.
@@ -172,141 +152,110 @@ var StampedLabels = []string{
 // Probe package managers.
 var validProbeManagers = map[string]bool{"pip": true, "dpkg": true, "apk": true}
 
-// UpstreamSource is one watched upstream. Exactly one kind key (git, image) names it.
+// UpstreamSource is one watched upstream. Exactly one kind key names it.
 type UpstreamSource struct {
 	ID string `yaml:"-"`
 
-	// Git is an upstream git repository URL, e.g. https://github.com/ansible/ansible. Its
-	// tags are listed anonymously (ls-remote).
+	// Git is a git repository URL; its tags are listed anonymously.
 	Git string `yaml:"git,omitempty"`
 
-	// ForkParent is a git source found rather than written: the repos: entry it names is a
-	// fork on its forge, and the project it was forked from is the upstream. The forge's
-	// record is read when the source is used; a repository that is not a fork, or a forge
-	// that will not say, fails closed.
+	// ForkParent names a repos: entry; the project its forge says it was forked from is the
+	// git upstream. Fails closed when the forge will not say.
 	ForkParent string `yaml:"fork_parent,omitempty"`
 
-	// ForkParentGit is the clone URL fork_parent resolved to (set at run time, never in
-	// config).
+	// ForkParentGit is the clone URL fork_parent resolved to (run time only).
 	ForkParentGit string `yaml:"-"`
 
-	// ForkParentErr is why fork_parent did not resolve (set at run time); the source then
-	// reports unreachable instead of being listed.
+	// ForkParentErr is why fork_parent did not resolve (run time only).
 	ForkParentErr string `yaml:"-"`
 
-	// Image is an upstream container image repository without a tag, e.g.
-	// ghcr.io/zitadel/zitadel. Its tags are listed anonymously (OCI registry API).
+	// Image is a container image repository without a tag.
 	Image string `yaml:"image,omitempty"`
 
-	// PyPI is a Python project on pypi.org (yanked releases are not releases). Scheme pep440.
+	// PyPI is a project on pypi.org. Scheme pep440.
 	PyPI string `yaml:"pypi,omitempty"`
 
-	// Npm is a package on registry.npmjs.org (deprecated versions are not releases).
+	// Npm is a package on registry.npmjs.org.
 	Npm string `yaml:"npm,omitempty"`
 
-	// GitHubRelease is a GitHub repository (owner/repo) whose published releases — not its
-	// tags — are watched; drafts are skipped and GitHub's prerelease flag is honoured.
-	GitHubRelease string `yaml:"github-release,omitempty"`
+	// GitHubRelease is an owner/repo whose published GitHub releases are watched.
+	GitHubRelease string `yaml:"github_release,omitempty"`
 
-	// Apk is an Alpine package, read from the suite's APKINDEX. Needs suite or repository.
-	// Scheme debian.
+	// Apk is an Alpine package. Needs suite or repository. Scheme debian.
 	Apk string `yaml:"apk,omitempty"`
 
-	// Apt is a Debian package, read from the suite's Packages index. Needs suite. Scheme
-	// debian.
+	// Apt is a Debian package. Needs suite. Scheme debian.
 	Apt string `yaml:"apt,omitempty"`
 
-	// URL is a release page; every match of select.tags on it is a candidate (needs
-	// select.tags), for upstreams that publish only a download page.
+	// URL is a release page; every match of tags on it is a candidate. Needs tags.
 	URL string `yaml:"url,omitempty"`
 
-	// Suite (apk, apt) is <release>/<repository>: v3.22/main for Alpine, trixie/main for
-	// Debian.
+	// Suite (apk, apt) is <release>/<repository>, e.g. v3.22/main or trixie/main.
 	Suite string `yaml:"suite,omitempty"`
 
-	// Repository (apk) is the Alpine repository, main or community, with the release read from
-	// the Dockerfile FROM that holds the source's first pin. The FROM follows Alpine's newest
-	// release in its major, and the pin moves with it in one commit. Replaces suite.
+	// Repository (apk) is main or community, with the release read from the Dockerfile FROM
+	// that holds the first pin; the pin moves with that FROM. Replaces suite.
 	Repository string `yaml:"repository,omitempty"`
 
-	// MirrorOf (git, image) is the origin this source mirrors. StageFreight lists the mirror
-	// (ours, reachable) and also the origin when it answers; the mirror lagging behind its
-	// origin raises mirror-behind. An unreachable origin is why mirrors exist, so it is not
-	// a failure.
+	// MirrorOf (git, image) is the origin this source mirrors; lagging it raises mirror-behind.
 	MirrorOf string `yaml:"mirror_of,omitempty"`
 
-	// Lifecycle is the upstream's state: active (default), dormant, abandoned, gone. Anything
-	// but active needs a reason. A dormant or abandoned upstream that cannot be listed is not
-	// reported unreachable; a gone one is not listed at all and cannot be claimed, pinned or
-	// synced.
+	// Lifecycle is active (default), dormant, abandoned or gone. Anything else needs a reason.
 	Lifecycle string `yaml:"lifecycle,omitempty"`
 
 	// Reason says why an upstream is not active.
 	Reason string `yaml:"reason,omitempty"`
 
 	// Select picks the upstream's releases out of everything it tags.
-	Select UpstreamSelect `yaml:"select,omitempty"`
+	Select UpstreamSelect `yaml:",inline"`
 
-	// Scheme is how this upstream's versions are read and ordered. Default semver.
-	//   semver: 1.2.3, 1.2.3-rc.1 (a missing minor/patch is zero: 11.4 = 11.4.0)
-	//   pep440: Python versions — 2.22.0b1, 1.0rc1, 1.0.post1, 1!2.0
-	//   loose:  1–6 dotted numbers (0.6.7.1, 2026.7.0), a trailing letter as a later release
-	//           (1.6.60a > 1.6.60), a hyphen suffix as a prerelease (2.0-rc1)
-	// Our release tags are read with the same scheme when a claim names this source.
+	// Scheme reads and orders versions: semver (default), pep440 or loose.
 	Scheme string `yaml:"scheme,omitempty"`
 
-	// Pins are the places this upstream's version is pinned. When upstream releases, the
-	// dependency update moves every pin together (or none, if they disagree), through the
-	// dependency engine's commit, max_update and min_release_age.
+	// MinReleaseAge is how old a release must be before this source's pins, and a tracked
+	// base image, move to it. Unset inherits dependency.min_release_age; 0 follows at once.
+	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
+
+	// Pins are where this upstream's version is pinned; they move together or not at all.
 	Pins []UpstreamPin `yaml:"pins,omitempty"`
+
+	// Annotation is the file:line of the renovate annotation that declared this source.
+	Annotation string `yaml:"-"`
+
+	registry *UpstreamAnnotation
 }
 
 // UpstreamSync is upstream.sync.
 type UpstreamSync struct {
-	// From names the git source to sync from.
+	// From names the git source to sync from. Default: the only git source.
 	From string `yaml:"from,omitempty"`
 
-	// Onto is what to sync onto: release (default — the newest release the source's
-	// select: keeps) or {branch: <name>} (the head of an upstream branch).
-	Onto UpstreamOnto `yaml:"onto,omitempty"`
+	// Branch is the upstream branch to sync onto: unset follows upstream's newest release,
+	// HEAD its default branch.
+	Branch string `yaml:"branch,omitempty"`
 
-	// Strategy is how upstream's history joins ours:
-	//   rebase (default): our commits are replayed on top of upstream's, our branch is
-	//                     rewritten (the forge must let StageFreight force-push it).
-	//   merge:            a merge commit joins upstream into our branch; nothing is rewritten.
-	//   mirror:           our branch follows upstream's exactly (fast-forward only; a diverged
-	//                     branch is kept and reported, never overwritten).
+	// Strategy is rebase (default; our branch is rewritten), merge, or mirror (fast-forward
+	// only; a diverged branch is kept and reported).
 	Strategy string `yaml:"strategy,omitempty"`
 
-	// Shadow, when set, is a branch of ours kept at upstream's synced commit — a plain copy of
-	// upstream to diff against.
+	// Shadow, when set, is a branch kept at upstream's synced commit.
 	Shadow string `yaml:"shadow,omitempty"`
 
-	// OnConflict is what happens when upstream's changes overlap ours:
-	//   mr (default): nothing is rewritten; a merge request from upstream's commit into our
-	//                 branch is opened for a human, and sync-conflict is signalled.
-	//   fail:         the run fails.
-	//   notify:       sync-conflict is signalled; nothing else.
+	// OnConflict is mr (default; a merge request for a human), fail, or notify.
 	OnConflict string `yaml:"on_conflict,omitempty"`
 
-	// Files decides, per path, what happens when upstream changes a file. Rules are read top
-	// to bottom and the last one that matches wins, so broad rules go first and exceptions
-	// after. A path no rule matches is merged. StageFreight's own files (.stagefreight.yml,
-	// .stagefreight/, the rendered CI files) always keep the fork's version.
+	// Files decide per path what wins when upstream changes a file; the last matching rule
+	// wins. StageFreight's own files always keep the fork's version.
 	Files []UpstreamFileRule `yaml:"files,omitempty"`
 }
 
 // UpstreamFileRule is one upstream.sync.files rule.
 type UpstreamFileRule struct {
-	// Match is a path glob (** spans directories), e.g. README.adoc, docs/**, **/*.md.
+	// Match is a path glob; ** spans directories.
 	Match string `yaml:"match"`
 
-	// Take is what wins when upstream changes a matching file:
-	//   merge (default): combine line by line; edits that overlap are a conflict.
-	//   fork:            keep the fork's version (including a deletion); upstream's change is
-	//                    held back, and the sync reports it.
-	//   upstream:        take upstream's version; the fork's edits to it are dropped.
-	//   review:          always route the change through a merge request, even when clean.
+	// Take is merge (default), fork (keep ours), upstream (take theirs), or review (always a
+	// merge request).
 	Take string `yaml:"take"`
 }
 
@@ -318,44 +267,36 @@ const (
 	TakeReview   = "review"
 )
 
-// UpstreamOnto is upstream.sync.onto: the scalar release, the scalar head (upstream's
-// default branch, as the remote's HEAD names it), or {branch: <name>}.
+// UpstreamOnto is what a sync lands on: upstream's newest release (zero value), its
+// default branch (Head), or a named branch.
 type UpstreamOnto struct {
-	Branch string `yaml:"branch,omitempty"`
-	Head   bool   `yaml:"-"`
+	Branch string
+	Head   bool
 }
 
-// UnmarshalYAML accepts the scalars release and head, or a {branch:} map.
-func (o *UpstreamOnto) UnmarshalYAML(n *yaml.Node) error {
-	if n.Kind == yaml.ScalarNode {
-		switch n.Value {
-		case "release":
-			*o = UpstreamOnto{}
-		case "head":
-			*o = UpstreamOnto{Head: true}
-		default:
-			return fmt.Errorf("upstream.sync.onto: %q — use release, head or {branch: <name>}", n.Value)
-		}
-		return nil
+// UnmarshalYAML reads branch into Onto and names the moved onto key.
+func (s *UpstreamSync) UnmarshalYAML(n *yaml.Node) error {
+	if err := movedKeys(n, "upstream.sync", map[string]string{"onto": "upstream.sync.branch (unset follows the newest release, HEAD the default branch)"}, false); err != nil {
+		return err
 	}
-	type plain UpstreamOnto
+	type plain UpstreamSync
 	var p plain
 	if err := strictNodeDecode(n, &p); err != nil {
-		return fmt.Errorf("upstream.sync.onto: %w", err)
+		return fmt.Errorf("upstream.sync: %w", err)
 	}
-	*o = UpstreamOnto(p)
+	*s = UpstreamSync(p)
 	return nil
 }
 
-// MarshalYAML writes onto back the way it is declared.
-func (o UpstreamOnto) MarshalYAML() (any, error) {
-	switch {
-	case o.Head:
-		return "head", nil
-	case o.Branch != "":
-		return map[string]string{"branch": o.Branch}, nil
+// Onto reads branch: upstream's newest release when unset, its default branch for HEAD.
+func (s UpstreamSync) Onto() UpstreamOnto {
+	switch s.Branch {
+	case "":
+		return UpstreamOnto{}
+	case "HEAD":
+		return UpstreamOnto{Head: true}
 	}
-	return "release", nil
+	return UpstreamOnto{Branch: s.Branch}
 }
 
 // FollowsBranch reports whether onto names a branch (head or {branch:}) rather than a
@@ -375,7 +316,7 @@ const (
 
 // declared reports whether any sync field is set.
 func (s UpstreamSync) declared() bool {
-	return s.From != "" || s.Onto.FollowsBranch() || s.Strategy != "" || s.Shadow != "" || s.OnConflict != "" || len(s.Files) > 0
+	return s.From != "" || s.Branch != "" || s.Strategy != "" || s.Shadow != "" || s.OnConflict != "" || len(s.Files) > 0
 }
 
 // EffectiveStrategy returns the sync strategy (rebase when unset).
@@ -403,38 +344,31 @@ type UpstreamPin struct {
 	// Arg is a Dockerfile ARG or ENV name whose value is the version.
 	Arg string `yaml:"arg,omitempty"`
 
-	// Path is a dotted path to a scalar in a YAML or JSON file (ansible.core, apps.0.tag).
+	// Path is a dotted path to a scalar in a YAML or JSON file, e.g. apps.0.tag.
 	Path string `yaml:"path,omitempty"`
 
-	// Marker pins the line after a comment containing "stagefreight: upstream=<source id>",
-	// for any other format. Match picks the version on that line.
+	// Marker pins the line after a "stagefreight: upstream=<source id>" comment.
 	Marker bool `yaml:"marker,omitempty"`
 
-	// Match (marker only) is a regex whose version group (else first group) is the pinned
-	// version. Default: the first dotted version on the line.
+	// Match (marker only) is a regex whose version group is the pinned version. Default: the
+	// first dotted version on the line.
 	Match string `yaml:"match,omitempty"`
 }
 
-// UpstreamSelect picks releases from an upstream's tags: candidates (tags), minus exclusions,
-// minus prereleases unless enabled. A candidate whose version does not parse is reported,
-// never guessed at.
+// UpstreamSelect picks releases from an upstream's tags: candidates, minus exclusions, minus
+// prereleases unless admitted. A candidate whose version does not parse is reported.
 type UpstreamSelect struct {
-	// Tags is a regex choosing candidate tags. The version is the named group "version", else
-	// the first group, else the whole tag. Default: tags that start with a dotted version
-	// (1.2, v11.4, 2.21.5), optionally v-prefixed.
+	// Tags is a regex choosing candidate tags; its version group is the version. Default:
+	// tags starting with a dotted version, optionally v-prefixed.
 	Tags string `yaml:"tags,omitempty"`
 
-	// Exclude lists regexes; a tag matching any of them is never a release. Exclusion wins
-	// over tags.
+	// Exclude lists regexes for tags that are never releases.
 	Exclude []string `yaml:"exclude,omitempty"`
 
-	// Prereleases admits upstream prereleases (as the scheme defines them) as releases.
-	// Default false.
+	// Prereleases admits upstream prereleases.
 	Prereleases bool `yaml:"prereleases,omitempty"`
 
-	// Rewrite edits the extracted version before it is parsed, in order: each from is a regex
-	// replaced by to (with $1-style group references), e.g. {from: '_', to: '.'} reads
-	// release_1_2_3 as 1.2.3.
+	// Rewrite edits the extracted version before parsing, in order, e.g. {from: '_', to: '.'}.
 	Rewrite []UpstreamRewrite `yaml:"rewrite,omitempty"`
 }
 
@@ -445,55 +379,55 @@ type UpstreamRewrite struct {
 }
 
 // UpstreamVersion is what our release tags claim. Set at most one of track, continue, own;
-// none set means own.
+// none means own.
 type UpstreamVersion struct {
-	// Track names the source whose version our release IS. A release naming a version that
-	// source never released is refused. For an image source this also makes that upstream's
-	// version the authority for the fork's base image: the base advances to upstream's
-	// latest GA within the tracked major, and a newer major is held for review. The form
-	// track: <source>@<major> pins a major line — the escape hatch to adopt a new major
-	// (synapse@2 from a 1.x base) or to stay on one.
+	// Track names the source whose version our release is; a version it never released is
+	// refused. For an image source it also drives the base image within its major; <source>@N
+	// pins a major line.
 	Track string `yaml:"track,omitempty"`
 
-	// Continue names the source whose numbering our own lineage continues (a dormant or
-	// diverged upstream). A release naming a version that source has released is refused.
+	// Continue names the source whose numbering our own lineage continues; a version it has
+	// released is refused.
 	Continue string `yaml:"continue,omitempty"`
 
-	// Own declares our own version lineage: upstreams are watched, never enforced. The
-	// default when neither track nor continue is set.
+	// Own declares our own lineage: upstreams are watched, never enforced.
 	Own *struct{} `yaml:"own,omitempty"`
 
-	// MinReleaseAge is the FOLLOW cooldown for a tracked base image: how old an upstream GA
-	// must be before this fork follows it onto the Dockerfile FROM. track makes the
-	// upstream's version the fork's; this says the fork waits until that release has had
-	// time to settle, aged from the release's real publish time — the tag's image creation
-	// time read from its own registry — so a tag already weeks old is adopted at once, not
-	// delayed from when StageFreight first saw it. A reproducible-build image that zeroes
-	// that field falls back to the first-sighting clock in .stagefreight/upstream.lock. A
-	// duration ("3d", "72h") or the per-size map; 0 follows the instant upstream publishes.
-	// Unset inherits dependency.min_release_age. It governs ONLY the tracked base, so a fork
-	// can chase or hold upstream without touching its other dependencies' cooldown.
-	// Meaningful only with track.
-	MinReleaseAge *supplychain.Cooldown `yaml:"min_release_age,omitempty"`
-
-	// Since is the cutover tag: only release tags at or after this version are judged, so a
-	// mode change never reinterprets older tags.
+	// Since is the cutover tag: only release tags at or after it are judged.
 	Since string `yaml:"since,omitempty"`
 
 	// Ancestry (track, git source) requires upstream's commit for the claimed version to be an
-	// ancestor of our release commit: a history fork may reuse upstream's tag names only for
-	// code that contains upstream's release. It is evidence in its own right, standing in for
-	// a probe where the build stamps its version itself.
+	// ancestor of our release commit. It is evidence in place of a probe.
 	Ancestry bool `yaml:"ancestry,omitempty"`
 
-	// OnMismatch is what happens when a release's claim is false (track: upstream never
-	// released it or ancestry fails; continue: upstream already released it): refuse
-	// (default) blocks the release; report lets it ship and raises version-mismatch. report
-	// needs a reason.
+	// Cut (track) is auto (default; StageFreight tags a built commit that names a new upstream
+	// version) or manual.
+	Cut string `yaml:"cut,omitempty"`
+
+	// Recut (cut: auto) is on_change (default; a released version moves to a newer build whose
+	// inputs differ) or never.
+	Recut string `yaml:"recut,omitempty"`
+
+	// OnMismatch: refuse (default) blocks a release whose claim is false; report ships it and
+	// raises version-mismatch.
 	OnMismatch string `yaml:"on_mismatch,omitempty"`
 
-	// Reason says why a false claim is tolerated (required with on_mismatch: report).
+	// Reason says why a false claim is tolerated. Required with on_mismatch: report.
 	Reason string `yaml:"reason,omitempty"`
+}
+
+// UnmarshalYAML names the moved min_release_age key, then decodes strictly.
+func (v *UpstreamVersion) UnmarshalYAML(n *yaml.Node) error {
+	if err := movedKeys(n, "upstream.version", map[string]string{"min_release_age": "upstream.sources.<id>.min_release_age"}, false); err != nil {
+		return err
+	}
+	type plain UpstreamVersion
+	var p plain
+	if err := strictNodeDecode(n, &p); err != nil {
+		return fmt.Errorf("upstream.version: %w", err)
+	}
+	*v = UpstreamVersion(p)
+	return nil
 }
 
 // OrderedUpstreamSources is upstream.sources — an id→source map (key becomes UpstreamSource.ID).
@@ -502,6 +436,12 @@ type OrderedUpstreamSources []UpstreamSource
 func (OrderedUpstreamSources) isIDMap() {}
 
 func (o *OrderedUpstreamSources) UnmarshalYAML(n *yaml.Node) error {
+	if err := movedKeys(n, "upstream.sources.<id>", map[string]string{
+		"select":         "its keys (tags, exclude, prereleases, rewrite) sit on the source itself",
+		"github-release": "github_release",
+	}, true); err != nil {
+		return err
+	}
 	v, err := decodeIDMap(n, func(s *UpstreamSource, id string) { s.ID = id })
 	if err != nil {
 		return fmt.Errorf("upstream.sources: %w", err)
@@ -510,7 +450,35 @@ func (o *OrderedUpstreamSources) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-// UnmarshalYAML rejects the retired slice-1 shape with the new one as the error, then decodes
+// movedKeys names a retired key's new home. With entries set, n is an id map and each entry
+// is checked.
+func movedKeys(n *yaml.Node, path string, moves map[string]string, entries bool) error {
+	check := func(m *yaml.Node) error {
+		if m.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 0; i+1 < len(m.Content); i += 2 {
+			if to, ok := moves[m.Content[i].Value]; ok {
+				return fmt.Errorf("%s.%s: moved — %s", path, m.Content[i].Value, to)
+			}
+		}
+		return nil
+	}
+	if !entries {
+		return check(n)
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if err := check(n.Content[i+1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UnmarshalYAML rejects retired shapes with their replacement as the error, then decodes
 // strictly.
 func (u *UpstreamConfig) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.MappingNode {
@@ -519,6 +487,10 @@ func (u *UpstreamConfig) UnmarshalYAML(n *yaml.Node) error {
 			switch {
 			case key == "git" || key == "images":
 				return fmt.Errorf("upstream.%s: sources are now an id-keyed map: upstream.sources.<id>: {git: <url>} or {image: <repository>}, with match: moved to select.tags", key)
+			case key == "release":
+				return fmt.Errorf("upstream.release: moved to upstream.version.cut")
+			case key == "recut":
+				return fmt.Errorf("upstream.recut: moved to upstream.version.recut")
 			case key == "version" && val.Kind == yaml.ScalarNode:
 				return fmt.Errorf("upstream.version: now names the source: version: {track: <source id>} | {continue: <source id>} | {own: {}}")
 			}
@@ -539,7 +511,7 @@ const (
 	UpstreamKindImage         = "image"
 	UpstreamKindPyPI          = "pypi"
 	UpstreamKindNpm           = "npm"
-	UpstreamKindGitHubRelease = "github-release"
+	UpstreamKindGitHubRelease = "github_release"
 	UpstreamKindApk           = "apk"
 	UpstreamKindApt           = "apt"
 	UpstreamKindURL           = "url"
@@ -691,11 +663,11 @@ func validateUpstream(cfg *Config) []string {
 		case s.Image != "" && (strings.Contains(s.Image, "@") || strings.Contains(s.Image[strings.LastIndex(s.Image, "/")+1:], ":")):
 			errs = append(errs, fmt.Sprintf("%s.image: %q names a tag or digest; give the repository only (its tags are what is watched)", path, s.Image))
 		case s.GitHubRelease != "" && strings.Count(s.GitHubRelease, "/") != 1:
-			errs = append(errs, fmt.Sprintf("%s.github-release: %q — want owner/repo", path, s.GitHubRelease))
+			errs = append(errs, fmt.Sprintf("%s.github_release: %q — want owner/repo", path, s.GitHubRelease))
 		case s.URL != "" && !strings.HasPrefix(s.URL, "https://") && !strings.HasPrefix(s.URL, "http://"):
 			errs = append(errs, fmt.Sprintf("%s.url: %q is not an http(s) URL", path, s.URL))
 		case s.URL != "" && s.Select.Tags == "":
-			errs = append(errs, path+".select.tags: required for url — it is what finds versions on the page")
+			errs = append(errs, path+".tags: required for url — it is what finds versions on the page")
 		}
 		switch {
 		case s.Repository != "" && kind != UpstreamKindApk:
@@ -734,19 +706,19 @@ func validateUpstream(cfg *Config) []string {
 		}
 		if s.Select.Tags != "" {
 			if _, err := regexp.Compile(s.Select.Tags); err != nil {
-				errs = append(errs, fmt.Sprintf("%s.select.tags: %v", path, err))
+				errs = append(errs, fmt.Sprintf("%s.tags: %v", path, err))
 			}
 		}
 		for i, ex := range s.Select.Exclude {
 			if _, err := regexp.Compile(ex); err != nil {
-				errs = append(errs, fmt.Sprintf("%s.select.exclude[%d]: %v", path, i, err))
+				errs = append(errs, fmt.Sprintf("%s.exclude[%d]: %v", path, i, err))
 			}
 		}
 		for i, rw := range s.Select.Rewrite {
 			if rw.From == "" {
-				errs = append(errs, fmt.Sprintf("%s.select.rewrite[%d].from: required", path, i))
+				errs = append(errs, fmt.Sprintf("%s.rewrite[%d].from: required", path, i))
 			} else if _, err := regexp.Compile(rw.From); err != nil {
-				errs = append(errs, fmt.Sprintf("%s.select.rewrite[%d].from: %v", path, i, err))
+				errs = append(errs, fmt.Sprintf("%s.rewrite[%d].from: %v", path, i, err))
 			}
 		}
 		for i, p := range s.Pins {
@@ -800,9 +772,6 @@ func validateUpstream(cfg *Config) []string {
 			}
 		}
 	}
-	if v.MinReleaseAge != nil && mode != UpstreamVersionTrack {
-		errs = append(errs, "upstream.version.min_release_age: only meaningful with version.track — it is how old an upstream release must be before the fork follows it onto the base image")
-	}
 	if declared && claimed.EffectiveLifecycle() == LifecycleGone {
 		errs = append(errs, fmt.Sprintf("upstream.version.%s: %q is gone, so no release of ours can be checked against it — use own", mode, src))
 	}
@@ -834,8 +803,8 @@ func validateUpstream(cfg *Config) []string {
 		switch sy.Strategy {
 		case "", SyncRebase, SyncMerge:
 		case SyncMirror:
-			if !sy.Onto.FollowsBranch() {
-				errs = append(errs, "upstream.sync.onto: mirror follows a branch — set onto: head or {branch: <name>}")
+			if !sy.Onto().FollowsBranch() {
+				errs = append(errs, "upstream.sync.branch: mirror follows a branch — set branch: HEAD or a branch name")
 			}
 		default:
 			errs = append(errs, fmt.Sprintf("upstream.sync.strategy: unknown %q (rebase | merge | mirror)", sy.Strategy))
@@ -871,21 +840,21 @@ func validateUpstream(cfg *Config) []string {
 			errs = append(errs, fmt.Sprintf("upstream.sync.on_conflict: unknown %q (mr | fail | notify)", sy.OnConflict))
 		}
 	}
-	switch u.Release {
-	case "", UpstreamReleaseAuto, UpstreamReleaseManual:
-		if u.Release != "" && mode != UpstreamVersionTrack {
-			errs = append(errs, "upstream.release: only meaningful with version.track")
+	switch v.Cut {
+	case "", UpstreamCutAuto, UpstreamCutManual:
+		if v.Cut != "" && mode != UpstreamVersionTrack {
+			errs = append(errs, "upstream.version.cut: only meaningful with track")
 		}
 	default:
-		errs = append(errs, fmt.Sprintf("upstream.release: unknown %q (auto | manual)", u.Release))
+		errs = append(errs, fmt.Sprintf("upstream.version.cut: unknown %q (auto | manual)", v.Cut))
 	}
-	switch u.Recut {
+	switch v.Recut {
 	case "", UpstreamRecutOnChange, UpstreamRecutNever:
-		if u.Recut != "" && !u.AutoRelease() {
-			errs = append(errs, "upstream.recut: only meaningful with version.track and release: auto")
+		if v.Recut != "" && !u.AutoRelease() {
+			errs = append(errs, "upstream.version.recut: only meaningful with track and cut: auto")
 		}
 	default:
-		errs = append(errs, fmt.Sprintf("upstream.recut: unknown %q (on_change | never)", u.Recut))
+		errs = append(errs, fmt.Sprintf("upstream.version.recut: unknown %q (on_change | never)", v.Recut))
 	}
 	if v.Ancestry {
 		if kind, _ := claimed.Kind(); mode != UpstreamVersionTrack || kind != UpstreamKindGit {
@@ -917,27 +886,27 @@ func validateUpstream(cfg *Config) []string {
 			}
 		}
 		if set != 1 {
-			errs = append(errs, path+".probe: set exactly one of label | file | package")
+			errs = append(errs, path+": set exactly one of label | file | package")
 		}
 		switch {
 		case p.Package != "" && !validProbeManagers[p.Manager]:
-			errs = append(errs, fmt.Sprintf("%s.probe.manager: %q — package needs manager: pip | dpkg | apk", path, p.Manager))
+			errs = append(errs, fmt.Sprintf("%s.manager: %q — package needs manager: pip | dpkg | apk", path, p.Manager))
 		case p.Package == "" && p.Manager != "":
-			errs = append(errs, path+".probe.manager: only meaningful with package")
+			errs = append(errs, path+".manager: only meaningful with package")
 		}
 		for _, stamped := range StampedLabels {
 			if p.Label == stamped {
-				errs = append(errs, fmt.Sprintf("%s.probe.label: %s is stamped by StageFreight from the release being built, so it always matches the tag and proves nothing — probe what the image installed (package, file) or a label its own build sets", path, stamped))
+				errs = append(errs, fmt.Sprintf("%s.label: %s is stamped by StageFreight from the release being built, so it always matches the tag and proves nothing — probe what the image installed (package, file) or a label its own build sets", path, stamped))
 			}
 		}
 		if p.File != "" && !strings.HasPrefix(p.File, "/") {
-			errs = append(errs, fmt.Sprintf("%s.probe.file: %q must be an absolute path in the image", path, p.File))
+			errs = append(errs, fmt.Sprintf("%s.file: %q must be an absolute path in the image", path, p.File))
 		}
 		if p.Match != "" {
 			if p.Package != "" {
-				errs = append(errs, path+".probe.match: not used with package (the database names the version)")
+				errs = append(errs, path+".match: not used with package (the database names the version)")
 			} else if _, err := regexp.Compile(p.Match); err != nil {
-				errs = append(errs, fmt.Sprintf("%s.probe.match: %v", path, err))
+				errs = append(errs, fmt.Sprintf("%s.match: %v", path, err))
 			}
 		}
 		checkOnMismatch(path, e.OnMismatch, e.Reason)
@@ -947,7 +916,7 @@ func validateUpstream(cfg *Config) []string {
 	if mode == UpstreamVersionTrack && declared && !v.Ancestry {
 		for _, b := range cfg.Builds {
 			if b.Kind == "docker" && !evidenced[b.ID] {
-				errs = append(errs, fmt.Sprintf("upstream.evidence.%s: version.track needs proof the image contains the version — add a probe (label | file | package) for this build, or set version.ancestry: true for a history fork", b.ID))
+				errs = append(errs, fmt.Sprintf("upstream.evidence.%s: version.track needs proof the image contains the version — add evidence (label | file | package) for this build, or set version.ancestry: true for a history fork", b.ID))
 			}
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/PrPlanIT/StageFreight/src/license"
+
 	"github.com/PrPlanIT/StageFreight/src/gitstate"
 )
 
@@ -82,59 +84,7 @@ func remoteToHTTPS(remote string) string {
 
 // detectLicense reads the LICENSE file and returns an SPDX identifier.
 func detectLicense(rootDir string) string {
-	names := []string{
-		"LICENSE", "LICENSE.md", "LICENSE.txt",
-		"LICENCE", "LICENCE.md", "LICENCE.txt",
-		"COPYING", "COPYING.md",
-	}
-	for _, name := range names {
-		data, err := os.ReadFile(filepath.Join(rootDir, name))
-		if err != nil {
-			continue
-		}
-		if id := matchLicense(string(data)); id != "" {
-			return id
-		}
-	}
-	return ""
-}
-
-// matchLicense identifies an SPDX identifier from license text content.
-func matchLicense(text string) string {
-	lower := strings.ToLower(text)
-
-	switch {
-	case strings.Contains(lower, "gnu affero general public license") && strings.Contains(lower, "version 3"):
-		return "AGPL-3.0"
-	case strings.Contains(lower, "gnu general public license") && strings.Contains(lower, "version 3"):
-		return "GPL-3.0"
-	case strings.Contains(lower, "gnu general public license") && strings.Contains(lower, "version 2"):
-		return "GPL-2.0"
-	case strings.Contains(lower, "gnu lesser general public license") && strings.Contains(lower, "version 3"):
-		return "LGPL-3.0"
-	case strings.Contains(lower, "gnu lesser general public license") && strings.Contains(lower, "version 2"):
-		return "LGPL-2.1"
-	case strings.Contains(lower, "apache license") && strings.Contains(lower, "version 2.0"):
-		return "Apache-2.0"
-	case strings.Contains(lower, "mit license"),
-		strings.Contains(lower, "permission is hereby granted") && strings.Contains(lower, "the software"):
-		return "MIT"
-	case strings.Contains(lower, "bsd 3-clause"),
-		strings.Contains(lower, "redistribution and use") && strings.Contains(lower, "neither the name"):
-		return "BSD-3-Clause"
-	case strings.Contains(lower, "bsd 2-clause"),
-		strings.Contains(lower, "redistribution and use") && !strings.Contains(lower, "neither the name") && !strings.Contains(lower, "gnu"):
-		return "BSD-2-Clause"
-	case strings.Contains(lower, "mozilla public license") && strings.Contains(lower, "2.0"):
-		return "MPL-2.0"
-	case strings.Contains(lower, "isc license"):
-		return "ISC"
-	case strings.Contains(lower, "the unlicense"):
-		return "Unlicense"
-	case strings.Contains(lower, "creative commons") && strings.Contains(lower, "attribution 4.0"):
-		return "CC-BY-4.0"
-	}
-	return ""
+	return license.Detect(func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(rootDir, name)) })
 }
 
 // detectLanguage identifies the primary programming language from lockfiles/manifests.

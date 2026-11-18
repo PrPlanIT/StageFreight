@@ -20,9 +20,10 @@ type OpenTofuConfig struct {
 	// Default: "opentofu". Its version resolves from toolchains.want.<backend>.
 	Backend string `yaml:"backend"`
 
-	// Credentials is the env-prefix name the roots' credentials are read from: every
-	// <PREFIX>_<NAME> variable reaches the binary as <NAME>.
-	Credentials string `yaml:"credentials"`
+	// Credentials, when set, is an env prefix: every <PREFIX>_<NAME> variable reaches the
+	// binary as <NAME>, and CI skips the converge when none is set. Unset, the binary reads
+	// the environment as it is.
+	Credentials string `yaml:"credentials,omitempty"`
 
 	// Roots is the root-module library: an order-preserving id → entry map. Entries
 	// with converge: true are planned and applied every perform reconcile, in declared
@@ -54,7 +55,21 @@ type OpenTofuRoot struct {
 
 	// VarFiles are -var-file arguments, relative to Path, in declared order.
 	VarFiles []string `yaml:"var_files,omitempty"`
+
+	// OnDestroy is what a converge does with a plan that destroys or replaces anything:
+	// refuse (default) fails the root without applying; apply applies it. opentofu run
+	// applies it either way.
+	OnDestroy string `yaml:"on_destroy,omitempty"`
 }
+
+// On-destroy outcomes.
+const (
+	OpenTofuOnDestroyRefuse = "refuse"
+	OpenTofuOnDestroyApply  = "apply"
+)
+
+// AppliesDestroys reports whether an unattended converge applies a destroying plan.
+func (r OpenTofuRoot) AppliesDestroys() bool { return r.OnDestroy == OpenTofuOnDestroyApply }
 
 // IsRequired reports whether this root's failure hard-fails the phase. Unset defaults to true.
 func (r OpenTofuRoot) IsRequired() bool {
@@ -144,9 +159,9 @@ func (o OpenTofuConfig) CredentialEnv(environ []string) []string {
 	return out
 }
 
-// CredentialsPresent reports whether any <PREFIX>_<NAME> credential is set in this
-// process's environment. Credentials ship as forge-protected variables, so
-// MR/unprotected-ref pipelines legitimately lack them.
+// CredentialsPresent reports whether the declared credentials are available: always with
+// none declared, else when any <PREFIX>_<NAME> is set. Credentials ship as forge-protected
+// variables, so MR/unprotected-ref pipelines legitimately lack them.
 func (o OpenTofuConfig) CredentialsPresent() bool {
-	return len(o.CredentialEnv(os.Environ())) > 0
+	return strings.TrimSpace(o.Credentials) == "" || len(o.CredentialEnv(os.Environ())) > 0
 }

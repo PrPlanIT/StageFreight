@@ -23,7 +23,7 @@ type tagForge interface {
 	CreateTag(ctx context.Context, tagName, ref string) error
 }
 
-// recutRelease is upstream.recut: on_change. The version is already released at tag; when the
+// recutRelease is upstream.version.recut: on_change. The version is already released at tag; when the
 // commit just built descends from the tagged commit and its build inputs differ, the tag moves
 // to it and the release pipeline republishes the version in place.
 func recutRelease(ctx context.Context, appCfg *config.Config, rootDir string, sec *output.Section, tag, built string) {
@@ -115,7 +115,7 @@ func recutBlocked(rootDir string, sec *output.Section, tag, why string) {
 }
 
 // recutTags are our version tags of a recut line: the primary moves them, so a mirror takes
-// them by force like a rolling alias. Empty unless upstream.recut is in force.
+// them by force like a rolling alias. Empty unless upstream.version.recut is in force.
 func recutTags(appCfg *config.Config, rootDir string) map[string]bool {
 	set := map[string]bool{}
 	u := appCfg.Upstream

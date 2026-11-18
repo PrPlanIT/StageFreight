@@ -27,9 +27,10 @@ type MetadataConfig struct {
 	// a default path or per-surface paths. Defaults to the auto-detected README.
 	Readme Scoped[string] `yaml:"readme,omitempty"`
 
-	Topics   []string `yaml:"topics,omitempty"`
-	License  string   `yaml:"license,omitempty"`
-	Category string   `yaml:"category,omitempty"`
+	Topics []string `yaml:"topics,omitempty"`
+	// License is an SPDX identifier; default: the one the repo's LICENSE file names.
+	License  string `yaml:"license,omitempty"`
+	Category string `yaml:"category,omitempty"`
 
 	// Website / DocsURL are optional and only for a genuinely SEPARATE site (product
 	// page / hosted docs) — never the repo URL, which is a coordinate ({path.<forge>}).

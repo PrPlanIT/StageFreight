@@ -3,11 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/PrPlanIT/StageFreight/src/supplychain"
 )
 
 func decodeUpstream(t *testing.T, src string) (UpstreamConfig, error) {
@@ -25,7 +22,7 @@ upstream:
   sources:
     core:
       git: https://github.com/ansible/ansible
-      select: { exclude: ['^v2-preview'] }
+      exclude: ['^v2-preview']
     base:
       image: docker.io/library/python
   version: { track: core, since: v2.21.5 }
@@ -73,18 +70,17 @@ func TestUpstream_Validation(t *testing.T) {
 		u    UpstreamConfig
 		want string
 	}{
-		"no kind":                  {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a"}}}, "set exactly one kind"},
-		"two kinds":                {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Image: "i"}}}, "found 2"},
-		"image tag":                {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Image: "ghcr.io/x/y:1.0"}}}, "names a tag or digest"},
-		"bad regex":                {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Exclude: []string{"("}}}}}, "select.exclude[0]"},
-		"unknown source":           {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "b"}}, `"b" is not a declared source`},
-		"two modes":                {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Continue: "a"}}, "at most one"},
-		"since on own":             {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Since: "v1.0.0"}}, "only meaningful"},
-		"bad since":                {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Since: "soon"}}, "is not a semver version"},
-		"bad scheme":               {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Scheme: "calver"}}}, "unknown version scheme"},
-		"bad rewrite":              {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Rewrite: []UpstreamRewrite{{From: "("}}}}}}, "select.rewrite[0].from"},
-		"bad track line":           {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a@x"}}, "a pinned line is track:"},
-		"follow age without track": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Image: "ghcr.io/x/y"}}, Version: UpstreamVersion{MinReleaseAge: &supplychain.Cooldown{Patch: 72 * time.Hour}}}, "min_release_age: only meaningful with version.track"},
+		"no kind":        {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a"}}}, "set exactly one kind"},
+		"two kinds":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Image: "i"}}}, "found 2"},
+		"image tag":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Image: "ghcr.io/x/y:1.0"}}}, "names a tag or digest"},
+		"bad regex":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Exclude: []string{"("}}}}}, ".exclude[0]"},
+		"unknown source": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "b"}}, `"b" is not a declared source`},
+		"two modes":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Continue: "a"}}, "at most one"},
+		"since on own":   {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Since: "v1.0.0"}}, "only meaningful"},
+		"bad since":      {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Since: "soon"}}, "is not a semver version"},
+		"bad scheme":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Scheme: "calver"}}}, "unknown version scheme"},
+		"bad rewrite":    {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Select: UpstreamSelect{Rewrite: []UpstreamRewrite{{From: "("}}}}}}, ".rewrite[0].from"},
+		"bad track line": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a@x"}}, "a pinned line is track:"},
 	}
 	for name, c := range cases {
 		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")
@@ -169,10 +165,10 @@ func TestUpstream_PinAndReleaseValidation(t *testing.T) {
 		"two pin kinds":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "Dockerfile", Arg: "X", Path: "y"}}}}}, "exactly one of arg | path | marker"},
 		"absolute file":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "/etc/x", Arg: "X"}}}}}, "repo-relative"},
 		"match off marker":  {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g", Pins: []UpstreamPin{{File: "f", Arg: "X", Match: "v"}}}}}, "only used with marker"},
-		"release under own": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Release: "auto"}, "only meaningful with version.track"},
-		"unknown release":   {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Release: "nightly"}, "auto | manual"},
-		"recut when manual": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Release: "manual", Recut: "on_change"}, "only meaningful with version.track and release: auto"},
-		"unknown recut":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true}, Recut: "always"}, "on_change | never"},
+		"cut under own":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Cut: "auto"}}, "cut: only meaningful with track"},
+		"unknown cut":       {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true, Cut: "nightly"}}, "auto | manual"},
+		"recut when manual": {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true, Cut: "manual", Recut: "on_change"}}, "only meaningful with track and cut: auto"},
+		"unknown recut":     {UpstreamConfig{Sources: OrderedUpstreamSources{{ID: "a", Git: "g"}}, Version: UpstreamVersion{Track: "a", Ancestry: true, Recut: "always"}}, "on_change | never"},
 	}
 	for name, c := range cases {
 		errs := strings.Join(validateUpstream(&Config{Upstream: c.u}), "\n")
@@ -187,17 +183,17 @@ func TestUpstream_PinAndReleaseValidation(t *testing.T) {
 	if !u.AutoRecut() {
 		t.Error("an auto-released line recuts on change by default")
 	}
-	u.Recut = UpstreamRecutNever
+	u.Version.Recut = UpstreamRecutNever
 	if u.AutoRecut() {
 		t.Error("recut: never keeps version tags where they were cut")
 	}
-	u.Recut = ""
-	u.Release = UpstreamReleaseManual
+	u.Version.Recut = ""
+	u.Version.Cut = UpstreamCutManual
 	if u.AutoRelease() {
-		t.Error("release: manual leaves it to a human")
+		t.Error("cut: manual leaves it to a human")
 	}
 	if u.AutoRecut() {
-		t.Error("release: manual never recuts")
+		t.Error("cut: manual never recuts")
 	}
 }
 
@@ -245,7 +241,7 @@ func TestUpstream_SyncFileRules(t *testing.T) {
 		"unknown take":  {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Match: "x", Take: "ours"}}}, "merge | fork | upstream | review"},
 		"empty match":   {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Take: "fork"}}}, "match: required"},
 		"bad glob":      {UpstreamSync{From: "nut", Files: []UpstreamFileRule{{Match: "[", Take: "fork"}}}, "files[0].match"},
-		"mirror + rule": {UpstreamSync{From: "nut", Strategy: "mirror", Onto: UpstreamOnto{Branch: "master"}, Files: []UpstreamFileRule{{Match: "x", Take: "fork"}}}, "exact copy"},
+		"mirror + rule": {UpstreamSync{From: "nut", Strategy: "mirror", Branch: "master", Files: []UpstreamFileRule{{Match: "x", Take: "fork"}}}, "exact copy"},
 	}
 	for name, c := range cases {
 		errs := strings.Join(validateUpstream(&Config{Upstream: UpstreamConfig{Sources: src, Sync: c.sync}}), "\n")
@@ -337,32 +333,48 @@ func TestUpstream_ForkParent(t *testing.T) {
 	}
 }
 
-func TestUpstream_OntoHead(t *testing.T) {
+func TestUpstream_SyncBranch(t *testing.T) {
 	for src, want := range map[string]UpstreamOnto{
-		"onto: head":           {Head: true},
-		"onto: release":        {},
-		"onto: {branch: beta}": {Branch: "beta"},
+		"branch: HEAD": {Head: true},
+		"from: x":      {},
+		"branch: beta": {Branch: "beta"},
 	} {
-		var h struct {
-			Onto UpstreamOnto `yaml:"onto"`
-		}
-		if err := yaml.Unmarshal([]byte(src), &h); err != nil || h.Onto != want {
-			t.Errorf("%s: %+v, %v", src, h.Onto, err)
-		}
-		out, err := yaml.Marshal(h)
-		if err != nil || strings.TrimSpace(string(out)) != strings.ReplaceAll(strings.ReplaceAll(src, "{branch: beta}", "\n    branch: beta"), "onto: \n", "onto:\n") {
-			t.Errorf("%s round-trips as %q", src, out)
+		var sy UpstreamSync
+		if err := yaml.Unmarshal([]byte(src), &sy); err != nil || sy.Onto() != want {
+			t.Errorf("%s: %+v, %v", src, sy.Onto(), err)
 		}
 	}
-	var h struct {
-		Onto UpstreamOnto `yaml:"onto"`
-	}
-	if err := yaml.Unmarshal([]byte("onto: tip"), &h); err == nil || !strings.Contains(err.Error(), "release, head or {branch: <name>}") {
-		t.Errorf("an unknown scalar is refused: %v", err)
+	var sy UpstreamSync
+	if err := yaml.Unmarshal([]byte("onto: head"), &sy); err == nil || !strings.Contains(err.Error(), "upstream.sync.onto: moved — upstream.sync.branch") {
+		t.Errorf("onto names its new home: %v", err)
 	}
 	src := OrderedUpstreamSources{{ID: "nut", Git: "https://github.com/networkupstools/nut"}}
-	mirror := UpstreamSync{From: "nut", Strategy: "mirror", Onto: UpstreamOnto{Head: true}}
+	mirror := UpstreamSync{From: "nut", Strategy: "mirror", Branch: "HEAD"}
 	if errs := validateUpstream(&Config{Upstream: UpstreamConfig{Sources: src, Sync: mirror}}); len(errs) != 0 {
 		t.Errorf("a mirror can follow upstream's default branch: %v", errs)
+	}
+}
+
+// TestUpstream_MovedKeys: every retired key fails naming where it went.
+func TestUpstream_MovedKeys(t *testing.T) {
+	for src, want := range map[string]string{
+		"upstream: {release: manual}":                                    "upstream.release: moved to upstream.version.cut",
+		"upstream: {recut: never}":                                       "upstream.recut: moved to upstream.version.recut",
+		"upstream: {version: {min_release_age: 3d}}":                     "upstream.version.min_release_age: moved — upstream.sources.<id>.min_release_age",
+		"upstream: {sources: {a: {git: g, select: {tags: x}}}}":          "upstream.sources.<id>.select: moved",
+		"upstream: {sources: {a: {github-release: o/r}}}":                "moved — github_release",
+		"upstream: {evidence: {image: {probe: {file: /v}}}}":             "upstream.evidence.<build>.probe: moved",
+		"upstream: {sources: {a: {git: g, tags: '^v(?P<version>.*)$'}}}": "",
+	} {
+		_, err := decodeUpstream(t, src)
+		if want == "" {
+			if err != nil {
+				t.Errorf("%s: %v", src, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", src, err, want)
+		}
 	}
 }

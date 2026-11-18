@@ -208,7 +208,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 
 	t.Run("a release older than the follow window adopts on its real date", func(t *testing.T) {
 		cfg := trackCfg("synapse")
-		cfg.Upstream.Version.MinReleaseAge = cooldown(7 * 24 * time.Hour)
+		cfg.Upstream.Sources[0].MinReleaseAge = cooldown(7 * 24 * time.Hour)
 		seedListing(t, cfg, "1.164.1", "1.162.0")
 		// Every tag's image was built a month ago — genuinely past the 7d window.
 		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
@@ -224,7 +224,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 
 	t.Run("a release younger than the follow window is held", func(t *testing.T) {
 		cfg := trackCfg("synapse")
-		cfg.Upstream.Version.MinReleaseAge = cooldown(7 * 24 * time.Hour)
+		cfg.Upstream.Sources[0].MinReleaseAge = cooldown(7 * 24 * time.Hour)
 		seedListing(t, cfg, "1.164.1", "1.162.0")
 		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
 			return now.Add(-24 * time.Hour), nil // a day old, inside the 7d window
@@ -240,7 +240,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 	t.Run("the follow knob overrides the general dependency cooldown", func(t *testing.T) {
 		cfg := trackCfg("synapse")
 		cfg.Dependency.MinReleaseAge = cooldown(30 * 24 * time.Hour) // general policy would hold it
-		cfg.Upstream.Version.MinReleaseAge = cooldown(time.Hour)     // but the fork chases upstream
+		cfg.Upstream.Sources[0].MinReleaseAge = cooldown(time.Hour)  // but the fork chases upstream
 		seedListing(t, cfg, "1.164.1", "1.162.0")
 		defer stubCreated(t, func(_ context.Context, _, tag string) (time.Time, error) {
 			return now.Add(-2 * time.Hour), nil
@@ -255,7 +255,7 @@ func TestAnnotateTrackedBase_FollowCooldown(t *testing.T) {
 
 	t.Run("an undated image falls back to the lock's first-sighting", func(t *testing.T) {
 		cfg := trackCfg("synapse")
-		cfg.Upstream.Version.MinReleaseAge = cooldown(7 * 24 * time.Hour)
+		cfg.Upstream.Sources[0].MinReleaseAge = cooldown(7 * 24 * time.Hour)
 		seedListing(t, cfg, "1.164.1", "1.162.0")
 		// A reproducible-build image zeroes its creation time → no real date.
 		defer stubCreated(t, func(context.Context, string, string) (time.Time, error) {

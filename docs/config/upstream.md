@@ -4,21 +4,39 @@
 declared source on each run, reports what it found, and refuses to release a version whose
 claim about upstream is false — before anything is built.
 
+```dockerfile
+# renovate: datasource=pypi depName=ansible-core
+ARG ANSIBLE_CORE_VERSION=2.21.5
+```
+
 ```yaml
 upstream:
-  sources:
-    core:
-      git: https://github.com/ansible/ansible
-      scheme: pep440
-      select:
-        exclude: ['^v1\.']
-  version:
-    track: core
-    since: v2.21.5
-  evidence:
-    image:                      # build id
-      probe: { package: ansible-core, manager: pip }
+  version: { track: ansible-core, since: v2.21.5 }
 ```
+
+The annotation declares the source and its pin; `track` claims it; the image is probed for the
+installed `ansible-core` package. Everything can also be declared in `sources` directly.
+
+## Annotations
+
+A [Renovate](https://docs.renovatebot.com/) comment above an `ARG` or `ENV` in a docker build's
+Dockerfile declares a source and its pin, so the fact lives once, where it is used, and Renovate
+reads the same line:
+
+| `datasource=` | Source | Notes |
+|---|---|---|
+| `pypi`, `npm` | `pypi`, `npm` | |
+| `docker` | `image` | on an `ARG`/`ENV` holding a version; an `image:tag` reference stays with `dependency.scope.source_images` |
+| `github-releases` | `github_release` | |
+| `github-tags`, `gitlab-tags`, `git-tags` | `git` | `gitlab-tags` reads `registryUrl` (default gitlab.com); `git-tags` takes the URL as `depName` |
+| `apk` | `apk` | `registryUrl=https://dl-cdn.alpinelinux.org/alpine/v3.22/community` names the repository (default `main`); the release follows the Dockerfile's Alpine `FROM`, and the URL's release moves with it |
+| `deb` | `apt` | `registryUrl=https://deb.debian.org/debian?suite=trixie&components=main` names the suite |
+
+`depName` (or `packageName`) is the package; the source id is its last path segment, lowercased
+(`ghcr.io/element-hq/synapse` → `synapse`). `extractVersion=` is the source's `tags`, and
+`versioning=` its `scheme` (`semver`, `pep440`, `loose`, `deb`). A source declared in `sources`
+under the same id keeps every field it sets and gains the annotation's pin. `datasource=repology`
+is refused: use `apk` or `deb`.
 
 ## Sources
 
@@ -31,12 +49,12 @@ upstream:
 | `image` | image repository, no tag or digest | the OCI registry API | semver |
 | `pypi` | project name | pypi.org (yanked releases skipped; upload times) | pep440 |
 | `npm` | package name | registry.npmjs.org (deprecated versions skipped; publish times) | semver |
-| `github-release` | `owner/repo` | GitHub's published releases — not tags (drafts skipped, GitHub's prerelease flag honoured, publish times) | semver |
+| `github_release` | `owner/repo` | GitHub's published releases — not tags (drafts skipped, GitHub's prerelease flag honoured, publish times) | semver |
 | `apk` | package name, plus `suite: v3.22/main` or `repository: main` | Alpine's APKINDEX (build times) | debian |
 | `apt` | package name, plus `suite: trixie/main` | Debian's Packages index | debian |
-| `url` | a release page | every match of `select.tags` on the page (needs `select.tags`) | semver |
+| `url` | a release page | every match of `tags` on the page (needs `tags`) | semver |
 
-Listing is anonymous: an upstream is someone else's public project. (`github-release` uses
+Listing is anonymous: an upstream is someone else's public project. (`github_release` uses
 `GITHUB_TOKEN` when the environment has one: GitHub's API allows 60 anonymous requests an
 hour.) Where the kind publishes release times, the cooldown counts from them instead of from
 first sight.
@@ -52,7 +70,7 @@ released from it.
 upstream:
   sources:
     upstream: { fork_parent: github-mirror }
-  sync: { from: upstream, onto: head }
+  sync: { branch: HEAD }
 ```
 
 **`mirror_of`** (git, image) names the origin a source mirrors — for upstreams we cannot reach
@@ -65,7 +83,7 @@ why the mirror exists, so it is not an error.
 upstream that cannot be listed is not reported unreachable. A gone one is not listed at all,
 and cannot be tracked, pinned or synced — its history is ours now (`version: { own: {} }`).
 
-`select` picks releases out of everything the source tags, in this order:
+These keys on a source pick releases out of everything it tags, in this order:
 
 1. `tags` — a regex choosing candidates. The version is its named group `version`, else its
    first group, else the whole tag. Default: tags that start with a dotted version (`1.2`,
@@ -120,7 +138,10 @@ image-only fix tagged as the next upstream version). So `track` needs **evidence
 docker build, checked in publish on the exact bytes about to be distributed, before anything
 reaches a registry. There are two kinds:
 
-**A probe** reads the version out of the built image without running it:
+**A probe** reads the version out of the built image without running it. Its keys sit on the
+build's entry, `evidence: { image: { package: matrix-synapse, manager: pip } }`. A tracked
+`pypi`, `apk` or `apt` source needs none: each docker build without an entry is probed for that
+package.
 
 | Probe | Reads |
 |---|---|
@@ -172,19 +193,21 @@ absence. (A momentary registry failure is not read as a dead pin.)
 ```yaml
 upstream:
   sources:
-    synapse: { image: ghcr.io/element-hq/synapse }
+    synapse:
+      image: ghcr.io/element-hq/synapse
+      min_release_age: 3d    # follow an upstream GA once it is this old; optional
   version:
     track: synapse
-    min_release_age: 3d    # follow an upstream GA once it is this old; optional
 ```
 
-**Follow cooldown.** `version.min_release_age` is how old an upstream GA must be before the fork
+**Follow cooldown.** A source's `min_release_age` is how old an upstream GA must be before the fork
 follows it onto the base, aged from the release's **real** publish time — the tag's image
 creation time read from its own registry — so a tag already weeks old is adopted at once rather
 than waiting from when StageFreight first saw it. An image that zeroes that field falls back to
-the first-sighting clock in `.stagefreight/upstream.lock`. It governs **only the tracked base**,
-so a fork can chase or hold upstream without touching its other dependencies' cooldown; unset, it
-inherits `dependency.min_release_age`; `0` follows the instant upstream publishes.
+the first-sighting clock in `.stagefreight/upstream.lock`. It governs that source's pins and
+tracked base only, so a fork can chase or hold upstream without touching its other dependencies'
+cooldown; unset, it inherits `dependency.min_release_age`; `0` follows the instant upstream
+publishes.
 
 ## Following the Alpine release
 
@@ -204,7 +227,8 @@ upstream:
 That `FROM` follows Alpine's newest release within its major, paced by the follow cooldown and
 not capped by `dependency.max_update`. When the release line changes, the pin moves to the new
 suite's version in the same commit. A line without the package, or with an older version than
-the pin, is not adopted and the run says why.
+the pin, is not adopted and the run says why. An annotated pin's `registryUrl` release moves in
+the same commit.
 
 ## Pins — moving with upstream
 
@@ -238,7 +262,7 @@ upstream:
   replaces that value — quotes, comments and a `v` prefix stay as written.
 - **A declared pin wins.** A dependency StageFreight would otherwise discover on the same line
   is left to the pin, so one value never has two writers.
-- **Cooldown.** With `dependency.min_release_age`, a release is adopted only once it has been
+- **Cooldown.** With `min_release_age` (the source's, else `dependency.min_release_age`), a release is adopted only once it has been
   known for that long. Git tags carry no release time, so StageFreight records when it first
   saw each newer version in `.stagefreight/upstream.lock` (committed, deterministic) and counts
   from there; the bump that adopts a version also clears it from the lock. Without a cooldown
@@ -256,8 +280,8 @@ upstream:
     zitadel: { git: https://github.com/zitadel/zitadel }
   version: { track: zitadel, ancestry: true }
   sync:
-    from: zitadel
-    onto: release            # default; head (upstream's default branch); or { branch: main }
+    from: zitadel            # default: the only git source
+    branch: main             # unset: upstream's newest release; HEAD: its default branch
     strategy: rebase         # default; merge | mirror
     shadow: upstream         # optional: a branch kept at upstream's synced commit
     on_conflict: mr          # default; fail | notify
@@ -325,24 +349,24 @@ upstream:
 - Rules are plain config, so a fleet-wide rule set can come from governance, with each repo
   adding its exceptions after it. A mirror is an exact copy; rules apply to rebase and merge.
 
-With `version.track` on the same source and `release: auto`, the synced commit is released as
+With `version.track` on the same source and `cut: auto`, the synced commit is released as
 the newest upstream release it contains — no pins needed. `version.ancestry: true` then proves
 that release on the tag pipeline.
 
 ## Release — cutting the tag
 
-Under `track`, `release: auto` (the default) cuts the release itself: after a successful run on
+Under `track`, `version.cut: auto` (the default) cuts the release itself: after a successful run on
 the default branch, when the source's pins name a version upstream has released and no tag of
 ours names it yet (or, for a synced fork, when the built commit contains an upstream release
 we have not tagged), StageFreight tags the commit it just built with that version (keeping our
 `v` convention) and pushes the tag. The release pipeline then checks every guard and evidence
-probe like any hand-cut release. `release: manual` leaves tagging to a person
+probe like any hand-cut release. `cut: manual` leaves tagging to a person
 (`stagefreight tag`). The tag spawns a release pipeline only if it matches a declared `git.tags`
 release pattern.
 
 ### Recut — shipping a change at the released version
 
-Under `release: auto`, `recut: on_change` (the default) moves an already-released version to a
+Under `cut: auto`, `version.recut: on_change` (the default) moves an already-released version to a
 newer default-branch build when that build is made from different inputs: the version tag moves
 to the built commit and the release pipeline republishes the version in place. A change of
 ours, or a dependency bump, ships at upstream's version without waiting for upstream's next
@@ -350,9 +374,10 @@ release and without a tag upstream doesn't have.
 
 ```yaml
 upstream:
-  version: { track: core }
-  release: auto
-  recut: on_change    # on_change (default) | never
+  version:
+    track: core
+    cut: auto           # auto (default) | manual
+    recut: on_change    # on_change (default) | never
 ```
 
 - **Inputs, not commits.** A docker build's inputs are its Dockerfile and the context files

@@ -41,6 +41,7 @@ func init() {
 // converge:false runbook ever executes.
 type Backend struct {
 	tool     string // toolchain name: opentofu | terraform
+	attended bool   // a person runs it (opentofu run): on_destroy does not hold the apply
 	bin      string // resolved binary path
 	version  string // resolved binary version
 	roots    []config.OpenTofuRoot
@@ -56,8 +57,12 @@ type Backend struct {
 // SetStream supplies a per-root live-output sink factory. Nil disables streaming.
 func (b *Backend) SetStream(f func(rootID string) io.WriteCloser) { b.stream = f }
 
-// SelectRoot narrows execution to a single declared root (the run verb).
-func (b *Backend) SelectRoot(r config.OpenTofuRoot) { b.roots = []config.OpenTofuRoot{r} }
+// SelectRoot narrows execution to a single declared root (the run verb). A person runs it,
+// so a destroying plan applies regardless of on_destroy.
+func (b *Backend) SelectRoot(r config.OpenTofuRoot) {
+	b.roots = []config.OpenTofuRoot{r}
+	b.attended = true
+}
 
 // RootResults returns the per-root outcomes after Execute (or the plans after a dry-run Plan).
 func (b *Backend) RootResults() []RootResult { return b.results }
@@ -132,7 +137,7 @@ func (b *Backend) Prepare(ctx context.Context, cfg *config.Config, rctx *runtime
 		environ = os.Environ
 	}
 	b.credEnv = cfg.OpenTofu.CredentialEnv(environ())
-	if len(b.credEnv) == 0 {
+	if cfg.OpenTofu.Credentials != "" && len(b.credEnv) == 0 {
 		return fmt.Errorf("no %s_* credentials set — opentofu credentials unavailable in this context", cfg.OpenTofu.EnvPrefix())
 	}
 	dir, err := os.MkdirTemp("", "sf-opentofu-*")
@@ -287,6 +292,10 @@ func (b *Backend) runRoot(ctx context.Context, rctx *runtime.RuntimeContext, r c
 	res.Changes = changes
 
 	if !apply || changes.None() {
+		return res
+	}
+	if changes.Destroy > 0 && !b.attended && !r.AppliesDestroys() {
+		res.Err = fmt.Errorf("plan destroys or replaces %d resource(s) and on_destroy is refuse — review it with `stagefreight opentofu run %s --plan` and apply it with `stagefreight opentofu run %s`, or set on_destroy: apply", changes.Destroy, r.ID, r.ID)
 		return res
 	}
 	if code, err := run("apply", "apply", "-input=false", planFile); err != nil || code != 0 {
