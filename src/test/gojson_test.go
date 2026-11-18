@@ -112,6 +112,38 @@ func TestCompileErrLines(t *testing.T) {
 	}
 }
 
+// A cargo build failure shows its error, not the manifest warnings and download
+// progress cargo prints before it.
+func TestCompileErrLinesCargo(t *testing.T) {
+	out := strings.Join([]string{
+		"warning: Cargo.toml: version requirement `0.9.34+deprecated` for dependency `serde_yaml` includes semver metadata",
+		"warning: `jetpack` (manifest) generated 1 warning",
+		"    Updating crates.io index",
+		" Downloading crates ...",
+		"  Downloaded adler2 v2.0.1",
+		"   Compiling libc v0.2.186",
+		"warning: ring@0.17.14: error: unable to parse target query 'x86_64-unknown-linux-musl': UnknownOperatingSystem",
+		"error: failed to run custom build command for `ring v0.17.14`",
+		"Caused by:",
+		"  cargo:rerun-if-env-changed=CC",
+		"  CC_x86_64-unknown-linux-musl = None",
+		"  CC = Some(cc)",
+	}, "\n")
+	got := compileErrLines(out, 3)
+	want := []string{
+		"warning: ring@0.17.14: error: unable to parse target query 'x86_64-unknown-linux-musl': UnknownOperatingSystem",
+		"error: failed to run custom build command for `ring v0.17.14`",
+		"Caused by:",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	link := "   Compiling cfg-if v1.0.4\nerror: linking with `cc` failed: exit status: 1\n  = note: ld.lld: error: duplicate symbol: _start"
+	if got := compileErrLines(link, 10); len(got) != 2 || !strings.HasPrefix(got[0], "error: linking") {
+		t.Fatalf("link error: %q", got)
+	}
+}
+
 // The failure line shown is the test's own t.Error / t.Fatal line, even when the test
 // printed output before it, and long lines are cut on a character boundary.
 func TestFirstErrLine(t *testing.T) {

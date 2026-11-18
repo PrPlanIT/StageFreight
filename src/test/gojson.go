@@ -315,12 +315,22 @@ const buildRunFailure = "(build/run)"
 const maxCompileErrLines = 10
 
 // compileErrLines returns up to max compiler error lines from a package's build
-// output, dropping go's "# pkg" headers and FAIL lines.
+// output, starting at its first error line where it has one (cargo prints manifest
+// warnings and download progress first), and dropping go's "# pkg" headers, FAIL lines,
+// cargo's progress lines and a build script's cargo: directives and env echoes.
 func compileErrLines(output string, max int) []string {
+	all := strings.Split(output, "\n")
+	for i, raw := range all {
+		if errorLine.MatchString(strings.TrimSpace(raw)) {
+			all = all[i:]
+			break
+		}
+	}
 	var lines []string
-	for _, raw := range strings.Split(output, "\n") {
+	for _, raw := range all {
 		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "FAIL") {
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "FAIL") ||
+			cargoProgress.MatchString(line) || buildScriptEcho.MatchString(line) {
 			continue
 		}
 		if len(line) > 160 {
@@ -333,6 +343,18 @@ func compileErrLines(output string, max int) []string {
 	}
 	return lines
 }
+
+// errorLine is a compiler or build tool's error: rustc's and cargo's "error:" and
+// "error[E0425]:", and the same after a prefix (a build script's
+// "warning: ring@0.17.14: error: ..."; "ld.lld: error: ...").
+var errorLine = regexp.MustCompile(`(^|: )error(\[\w+\])?: `)
+
+// cargoProgress is cargo's status output, which says nothing about a failure.
+var cargoProgress = regexp.MustCompile(`^(Compiling|Checking|Downloading|Downloaded|Updating|Locking|Adding|Fresh|Blocking|Running|Finished|Documenting) `)
+
+// buildScriptEcho is a build script's cargo: directive or the cc crate's env echo
+// ("CC_x86_64-unknown-linux-musl = None"), which cargo prints back on its failure.
+var buildScriptEcho = regexp.MustCompile(`^(cargo:|[A-Za-z_][\w-]* = (None|Some\())`)
 
 // firstErrLine returns the line of a failing test's output that states the failure: its
 // first t.Error / t.Fatal line, else its first line that isn't go's === / --- framing.
