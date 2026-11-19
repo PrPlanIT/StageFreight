@@ -207,95 +207,58 @@ func TagMessage(repo *git.Repository, ref string) string {
 // CountCommitsBetween counts commits reachable from `to` but not from `from`.
 // Equivalent to `git rev-list --count <from>..<to>`.
 func CountCommitsBetween(repo *git.Repository, fromRef, toRef string) (int, error) {
-	fromHash, err := resolveRefToHash(repo, fromRef)
-	if err != nil {
-		return 0, fmt.Errorf("resolving from ref %q: %w", fromRef, err)
+	if fromRef == "" {
+		return 0, fmt.Errorf("resolving from ref: empty")
 	}
-	toHash, err := resolveRefToHash(repo, toRef)
-	if err != nil {
-		return 0, fmt.Errorf("resolving to ref %q: %w", toRef, err)
-	}
-
-	// Find merge base (acts as the boundary)
-	fromCommit, err := repo.CommitObject(fromHash)
-	if err != nil {
-		return 0, err
-	}
-	toCommit, err := repo.CommitObject(toHash)
-	if err != nil {
-		return 0, err
-	}
-
-	bases, err := fromCommit.MergeBase(toCommit)
-	if err != nil || len(bases) == 0 {
-		return 0, err
-	}
-	boundary := bases[0].Hash
-
-	count := 0
-	logIter, err := repo.Log(&git.LogOptions{From: toHash})
-	if err != nil {
-		return 0, err
-	}
-	err = logIter.ForEach(func(c *object.Commit) error {
-		if c.Hash == boundary {
-			return storer.ErrStop
-		}
-		count++
-		return nil
-	})
-	if err != nil && err != storer.ErrStop {
-		return 0, err
-	}
-	return count, nil
+	commits, err := ParseCommitLog(repo, fromRef, toRef)
+	return len(commits), err
 }
 
-// ParseCommitLog returns commits in the range fromRef..toRef as (hash, subject, body, author) tuples.
+// ParseCommitLog returns the commits reachable from toRef but not from fromRef (every
+// commit when fromRef is empty), newest first: `git log <from>..<to>`.
 func ParseCommitLog(repo *git.Repository, fromRef, toRef string) ([]*object.Commit, error) {
 	toHash, err := resolveRefToHash(repo, toRef)
 	if err != nil {
 		return nil, fmt.Errorf("resolving to ref: %w", err)
 	}
-
-	var boundary plumbing.Hash
+	excluded := map[plumbing.Hash]bool{}
 	if fromRef != "" {
 		fromHash, err := resolveRefToHash(repo, fromRef)
 		if err != nil {
 			return nil, fmt.Errorf("resolving from ref: %w", err)
 		}
-		fromCommit, err := repo.CommitObject(fromHash)
-		if err != nil {
+		if err := walkAncestors(repo, fromHash, nil, func(c *object.Commit) { excluded[c.Hash] = true }); err != nil {
 			return nil, err
-		}
-		toCommit, err := repo.CommitObject(toHash)
-		if err != nil {
-			return nil, err
-		}
-		bases, err := fromCommit.MergeBase(toCommit)
-		if err == nil && len(bases) > 0 {
-			boundary = bases[0].Hash
-		} else {
-			// Fallback: use fromHash as boundary
-			boundary = fromHash
 		}
 	}
-
 	var commits []*object.Commit
-	logIter, err := repo.Log(&git.LogOptions{From: toHash})
-	if err != nil {
+	if err := walkAncestors(repo, toHash, excluded, func(c *object.Commit) { commits = append(commits, c) }); err != nil {
 		return nil, err
 	}
-	err = logIter.ForEach(func(c *object.Commit) error {
-		if fromRef != "" && (c.Hash == boundary) {
-			return storer.ErrStop
-		}
-		commits = append(commits, c)
-		return nil
-	})
-	if err != nil && err != storer.ErrStop {
-		return nil, err
-	}
+	sort.SliceStable(commits, func(i, j int) bool { return commits[i].Committer.When.After(commits[j].Committer.When) })
 	return commits, nil
+}
+
+// walkAncestors visits from and every ancestor of it once, not descending into a commit
+// in stop.
+func walkAncestors(repo *git.Repository, from plumbing.Hash, stop map[plumbing.Hash]bool, visit func(*object.Commit)) error {
+	seen := map[plumbing.Hash]bool{}
+	queue := []plumbing.Hash{from}
+	for len(queue) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		if seen[h] || stop[h] {
+			continue
+		}
+		seen[h] = true
+		c, err := repo.CommitObject(h)
+		if err != nil {
+			return err
+		}
+		visit(c)
+		queue = append(queue, c.ParentHashes...)
+	}
+	return nil
 }
 
 // IsEmptyCommit reports whether c introduced no tree changes over its sole parent — a

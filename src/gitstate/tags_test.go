@@ -136,3 +136,69 @@ func TestIsEmptyCommit(t *testing.T) {
 		t.Errorf("no-op commit NOT reported empty")
 	}
 }
+
+// TestParseCommitLogIncludesMergedBranch pins `git log from..to`: a branch forked before
+// the previous tag and merged after it contributes its commits.
+func TestParseCommitLogIncludesMergedBranch(t *testing.T) {
+	repo, err := git.PlainInit(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := &object.Tree{}
+	to := repo.Storer.NewEncodedObject()
+	if err := tree.Encode(to); err != nil {
+		t.Fatal(err)
+	}
+	treeHash, err := repo.Storer.SetEncodedObject(to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	n := 0
+	mk := func(msg string, parents ...plumbing.Hash) plumbing.Hash {
+		n++
+		sig := object.Signature{Name: "t", Email: "t@t", When: base.Add(time.Duration(n) * time.Hour)}
+		c := &object.Commit{Author: sig, Committer: sig, Message: msg, TreeHash: treeHash, ParentHashes: parents}
+		o := repo.Storer.NewEncodedObject()
+		if err := c.Encode(o); err != nil {
+			t.Fatal(err)
+		}
+		h, err := repo.Storer.SetEncodedObject(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	root := mk("root")
+	branch := mk("feat: branch work", root)
+	tagged := mk("fix: tagged", root)
+	if _, err := repo.CreateTag("v1.0.0", tagged, nil); err != nil {
+		t.Fatal(err)
+	}
+	after := mk("fix: after tag", tagged)
+	merge := mk("Merge branch", after, branch)
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("main"), merge)); err != nil {
+		t.Fatal(err)
+	}
+
+	commits, err := ParseCommitLog(repo, "v1.0.0", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range commits {
+		got = append(got, c.Message)
+	}
+	want := []string{"Merge branch", "fix: after tag", "feat: branch work"}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+	if c, err := CountCommitsBetween(repo, "v1.0.0", "main"); err != nil || c != 3 {
+		t.Fatalf("CountCommitsBetween = %d, %v; want 3", c, err)
+	}
+}
