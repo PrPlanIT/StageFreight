@@ -1,0 +1,64 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Patched Fork
+#
+# Who: Anyone maintaining local patches on top of an upstream project.
+#      Homelab users, companies running customized open-source tools,
+#      contributors who need features upstream hasn't merged yet.
+# What: Builds a dual-platform image with -patched tags to Docker Hub on
+#       semver tags, pushes branch builds to a private registry, generates
+#       SBOM and security scans.
+# Build: Upstream's Dockerfile, your patches on top.
+# Why: Separate tagging convention ({version}-patched) makes it clear which
+#      images carry local modifications vs clean upstream.
+
+version: 1
+
+policies:
+  git_tags:
+    stable: "^\\d+\\.\\d+\\.\\d+$"
+  branches:
+    all: ".*"
+
+builds:
+  app:
+    kind: docker
+    platforms: [linux/amd64, linux/arm64]
+
+targets:
+  dockerhub:
+    kind: registry
+    build: app
+    url: docker.io
+    path: prplanit/beszel
+    tags: ["{version}-patched", latest]
+    when: { git_tags: [stable], events: [tag] }
+
+  private-registry:
+    kind: registry
+    build: app
+    url: registry.prplanit.com
+    path: tools/beszel
+    tags: ["{version}", "{branch}-{sha:.7}"]
+    when: { branches: [all], events: [push] }
+
+  primary-release:
+    kind: release
+    when: { git_tags: [stable], events: [tag] }
+
+security:
+  enabled: true
+  sbom: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# fork:
+#   upstream: github.com/henrygd/beszel
+#   strategy: rebase
+#   auto_sync: true
+#
+# rebuild:
+#   schedule: daily
+#   on_base_update: true
+#
+# security:
+#   audit_deps: true
+#   codebase_audit: true

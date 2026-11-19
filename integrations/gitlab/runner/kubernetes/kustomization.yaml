@@ -1,0 +1,14 @@
+# GitLab runner — Kubernetes executor: everything beside the runner chart (values.yaml).
+# Daemonless: image builds go to a rootless buildkitd. Requires cert-manager. Setup: README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: gitlab-runner
+resources:
+  - serviceaccount.yaml
+  - cache.yaml
+  - buildkitd-certificates.yaml
+  - buildkitd.yaml
+configMapGenerator:
+  - name: buildkitd-config
+    files:
+      - buildkitd.toml

@@ -1,0 +1,56 @@
+# Ansible host convergence — a playbook LIBRARY executed inside a pinned
+# execution image, alongside the repo's gitops/governance lifecycle.
+#
+# Two lanes, one backend:
+#   converge: true  → runs every perform reconcile in CI, in declared order
+#   converge: false → a RUNBOOK: linted + plannable, but only ever executed by
+#                     a human via `stagefreight ansible run <id>` — CI cannot
+#                     reach it, by construction.
+#
+# The SSH key ships as a forge-protected CI variable; pipelines on unprotected
+# refs simply lack it and render a clear skip. Host-key verification is always
+# strict, against a known_hosts file committed to the repo.
+
+ansible:
+  # Execution image: the ansible runtime, collections, and connection deps
+  # (pywinrm for Windows nodes) are the image's contract. Pin a version tag;
+  # updates ride the deps engine's docker-image tag-line semantics.
+  image: docker.io/hlhd/ansible:v2.20.4
+
+  inventory: ansible/inventory
+
+  ssh:
+    user: automation
+    # Env prefix → AUTOMATION_NODES_SSH_KEY, or _SSH_KEY_B64 for the maskable
+    # single-line form (+ optional _SSH_KEY_PASSPHRASE).
+    # Set it masked + PROTECTED on the forge so only protected-ref pipelines
+    # can reach the fleet.
+    credentials: AUTOMATION_NODES
+    # Committed host keys (ssh-keyscan the fleet once) — host trust is
+    # auditable in git; verification is never disabled.
+    known_hosts: ansible/known_hosts
+
+  playbooks:
+    provision-hosts: # desired state: converges on every perform
+      path: ansible/provision-hosts.yml
+      groups: [k8s_worker, k8s_master]
+      converge: true
+
+    postgres-major-upgrade: # runbook: human-run only
+      path: ansible/postgres-major-upgrade.yml
+      groups: [k8s_master]
+      converge: false
+
+# ansible-lint runs in audition from the SAME execution image, over exactly the
+# declared plays (undeclared files stay quiet until declared):
+lint:
+  modules:
+    ansible: {}
+
+# Ansible testing (molecule) needs no dedicated machinery — a script test suite
+# runs it once the execution image is pulled:
+# test:
+#   suites:
+#     molecule:
+#       tool: script
+#       command: docker run --rm -v $PWD:/work -w /work docker.io/hlhd/ansible:v2.20.4 molecule test

@@ -1,0 +1,28 @@
+# OpenTofu/Terraform infrastructure convergence — a root-module LIBRARY planned and
+# applied by the toolchain-resolved binary, alongside the repo's gitops/ansible lifecycle.
+#
+#   converge: true  → planned and applied every perform reconcile, in declared order
+#   converge: false → a RUNBOOK: linted, but only applied by a human via
+#                     `stagefreight opentofu run <id>`
+
+toolchains:
+  want:
+    opentofu: "1.13.x"            # terraform: "1.17.x" with backend: terraform
+
+opentofu:
+  backend: opentofu
+  # Optional env prefix → every ORACLE_SITE_<NAME> variable reaches the binary as <NAME>
+  # (ORACLE_SITE_TF_VAR_region → TF_VAR_region). Set them masked + PROTECTED.
+  credentials: oracle-site
+
+  roots:
+    oracle-site:
+      path: opentofu/oracle-site
+      converge: true
+      workspace: production       # optional; default "default"
+      var_files: [production.tfvars]  # optional; relative to path
+      on_destroy: refuse          # default; apply lets CI apply a plan that destroys
+
+lint:
+  modules:
+    opentofu: {}

@@ -1,0 +1,39 @@
+# ⚠ ASPIRATIONAL — illustrative archetype only; may use outdated schema or unbuilt features. Not maintained against the current schema. See README.md; for copyable configs use ../examples/ + ../../reference/Config.md.
+# .stagefreight.yml — Static Site / Documentation
+#
+# Who: Documentation repos, marketing sites, blogs, wikis. Built with Hugo,
+#      Jekyll, MkDocs, Docusaurus, or plain HTML.
+# What: Release notes on any git tag and security scanning of the repo
+#       (catches vulnerable npm/Python/Ruby dependencies in the build chain).
+#       No container image.
+# Build: None (container-wise).
+# Why: Even docs repos benefit from automated release notes and dependency
+#      security scanning.
+
+version: 1
+
+targets:
+  primary-release:
+    kind: release
+    when: { git_tags: ["re:.*"], events: [tag] }
+
+security:
+  enabled: true
+
+# ── Roadmap (not yet implemented) ──────────────────────────────
+# security:
+#   audit_deps: true
+#
+# docs:
+#   readme_inputs: true
+#   readme_sync: [github]
+#
+# flair:
+#   badges: auto
+#
+# dev:
+#   test:
+#     sanity:
+#       - { name: install, run: "npm ci" }
+#       - { name: build, run: "npm run build" }
+#       - { name: link-check, run: "npx linkinator ./dist --recurse" }
