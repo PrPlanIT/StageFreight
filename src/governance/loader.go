@@ -27,7 +27,7 @@ func LoadGovernance(source GovernanceSource) (*GovernanceConfig, PresetLoader, e
 		checkoutDir = source.LocalPath
 	} else {
 		var err error
-		checkoutDir, err = fetchRepo(source.RepoURL, source.Ref)
+		checkoutDir, err = checkout(source.RepoURL, source.Ref)
 		if err != nil {
 			return nil, nil, fmt.Errorf("fetching policy repo: %w", err)
 		}
@@ -46,10 +46,8 @@ func LoadGovernance(source GovernanceSource) (*GovernanceConfig, PresetLoader, e
 	return gov, loader, nil
 }
 
-var ()
-
-// fetchRepo clones the policy repo at the given ref into a temp directory.
-// Returns the checkout path. Caller should NOT clean up — immutable for the run.
+// fetchRepo clones the policy repo at the given ref into a temp directory and returns
+// its path; checkout owns it, and ReleaseCheckouts removes it.
 // Tries the ref as a tag reference, then as a branch reference. If both fail
 // (e.g. ref is a commit SHA), falls back to fetchBySHA.
 func fetchRepo(repoURL, ref string) (string, error) {
@@ -170,10 +168,6 @@ func parseProfiles(path string) (*GovernanceConfig, error) {
 // FetchFile fetches a single file from a git repo at a specific ref.
 // Used as the AssetFetcher for governance distribution.
 func FetchFile(repoURL, ref, path string) ([]byte, error) {
-	if ref == "" {
-		ref = "HEAD"
-	}
-
 	checkoutDir, err := checkout(repoURL, ref)
 	if err != nil {
 		return nil, err
@@ -223,6 +217,9 @@ var checkouts struct {
 }
 
 func checkout(repoURL, ref string) (string, error) {
+	if ref == "" {
+		ref = "HEAD"
+	}
 	key := repoURL + "@" + ref
 
 	checkouts.Lock()
@@ -249,8 +246,7 @@ func checkout(repoURL, ref string) (string, error) {
 // without a network.
 var fetchRepoFn = fetchRepo
 
-// ReleaseCheckouts removes every memoized checkout. A long-lived process should call it
-// when it is done resolving; a CLI run may simply exit.
+// ReleaseCheckouts removes every memoized checkout.
 func ReleaseCheckouts() {
 	checkouts.Lock()
 	defer checkouts.Unlock()

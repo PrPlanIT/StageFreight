@@ -4,12 +4,14 @@ import (
 	"context"
 	"path/filepath"
 	"sync"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
-// Scan assembles the full report: the cache mount, the native user cache(s), the Docker
-// daemon(s), and discovered repositories. The domains are independent, so they run
-// concurrently — wall-clock is the slowest single domain, not their sum. Any
-// domain that finds nothing is omitted. (Docker carries ctx's deadline and starts
+// Scan assembles the full report: the cache mount, the native user cache(s), every user's
+// temp root, the Docker daemon(s), and discovered repositories. The domains are
+// independent, so they run concurrently — wall-clock is the slowest single domain, not
+// their sum. Any domain that finds nothing is omitted. (Docker carries ctx's deadline and starts
 // at t=0 alongside the walks, so the slow cache walk can't starve it.)
 func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth int) *Report {
 	if cacheRoot == "" {
@@ -29,7 +31,13 @@ func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth in
 	userDoms := make([]*Node, len(userRoots))
 
 	var dockerDom, cacheDom, repoDom *Node
+	tempRoots, _ := filepath.Glob(filepath.Join(filepath.Dir(paths.TempRoot()), "stagefreight-[0-9]*"))
+	tempDoms := make([]*Node, len(tempRoots))
 	var wg sync.WaitGroup
+	for i, t := range tempRoots {
+		wg.Add(1)
+		go func() { defer wg.Done(); tempDoms[i] = ScanTemp(t) }()
+	}
 	for i, u := range userRoots {
 		wg.Add(1)
 		go func() { defer wg.Done(); userDoms[i] = ScanUserCache(u) }()
@@ -51,6 +59,11 @@ func Scan(ctx context.Context, cacheRoot string, repoRoots []string, maxDepth in
 		r.Domains = append(r.Domains, cacheDom)
 	}
 	for _, d := range userDoms {
+		if d != nil {
+			r.Domains = append(r.Domains, d)
+		}
+	}
+	for _, d := range tempDoms {
 		if d != nil {
 			r.Domains = append(r.Domains, d)
 		}

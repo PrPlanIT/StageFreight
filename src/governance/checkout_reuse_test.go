@@ -1,6 +1,10 @@
 package governance
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // A repo is the unit of transfer; a preset is not. Seventeen presets from one policy
 // repo must not mean seventeen clones — the cost would scale with how finely the policy
@@ -32,5 +36,29 @@ func TestCheckoutIsReusedPerRepoAndRef(t *testing.T) {
 	}
 	if clones != 2 {
 		t.Errorf("a second ref must be its own checkout; clones = %d", clones)
+	}
+}
+
+func TestLoadGovernanceCheckoutIsReleased(t *testing.T) {
+	ReleaseCheckouts()
+	dir := t.TempDir() + "/policy"
+	prev := fetchRepoFn
+	fetchRepoFn = func(url, ref string) (string, error) {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+		return dir, os.WriteFile(filepath.Join(dir, "governance.yml"), []byte("governance:\n  profiles: []\n"), 0o644)
+	}
+	defer func() { fetchRepoFn = prev }()
+
+	if _, _, err := LoadGovernance(GovernanceSource{RepoURL: "https://example.org/Org/Policy", Path: "governance.yml"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checkout("https://example.org/Org/Policy", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	ReleaseCheckouts()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("policy checkout survives ReleaseCheckouts: %v", err)
 	}
 }

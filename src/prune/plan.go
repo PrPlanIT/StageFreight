@@ -10,9 +10,10 @@
 // Ownership is established at the ARTIFACT level, never inferred from the daemon or
 // host containing it. Three classes:
 //
-//	namespace  — inside the SF cache root (cache/ + toolchains/): inherently SF-owned.
-//	            Every object there participates in a default lifecycle even when its
-//	            subsystem has no specialized policy (the backstop).
+//	namespace  — inside the SF cache root (cache/ + toolchains/) or temp root
+//	            (paths.TempRoot): inherently SF-owned. Every object there participates
+//	            in a default lifecycle even when its subsystem has no specialized policy
+//	            (the backstop).
 //	provenance — SF-created artifacts identified positively (the repo's own published
 //	            image streams, the sf-builder's cache via its own API).
 //	declared   — third-party artifacts the OPERATOR adopted by declaration
@@ -31,13 +32,17 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
+
+// tempMaxAge is how long a temp entry may live; a run still holding one is younger.
+const tempMaxAge = 24 * time.Hour
 
 // Class is the ownership class that made an action eligible.
 type Class string
 
 const (
-	ClassNamespace  Class = "namespace"  // SF cache root — inherently owned
+	ClassNamespace  Class = "namespace"  // SF cache root or temp root — inherently owned
 	ClassProvenance Class = "provenance" // positively SF-created
 	ClassDeclared   Class = "declared"   // operator-adopted via cleanup declaration
 )
@@ -56,6 +61,7 @@ const (
 	KindDeclaredImages Kind = "declared-images" // operator-declared third-party eviction
 	KindHostResidue    Kind = "host-residue"    // dangling layers + exited containers (authorized)
 	KindDaemonImages   Kind = "daemon-images"   // runner-declared image GC on the job's Docker daemon
+	KindTemp           Kind = "temp"            // entries of paths.TempRoot older than tempMaxAge
 )
 
 // Action is one planned reclaim. The planner only plans — Execute mutates.
@@ -140,6 +146,10 @@ func Plan(cfg *config.Config, opts Options) []Action {
 	// The daemon's image budget has its own trigger: it runs whatever the cache root's
 	// pressure.
 	actions := daemonImageAction()
+	if _, err := os.Stat(paths.TempRoot()); err == nil {
+		actions = append(actions, Action{Kind: KindTemp, Class: ClassNamespace, Label: "temp",
+			Path: paths.TempRoot(), MaxAge: tempMaxAge, Reason: "temp files of finished runs"})
+	}
 	if opts.Target > 0 && opts.CacheRoot != "" && usedFraction(opts.CacheRoot) < opts.Target {
 		return actions // healthy — the pressure gate keeps the rest a cheap no-op
 	}

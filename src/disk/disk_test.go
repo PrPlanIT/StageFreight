@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDirSizeRecursesAndCountsBlocks(t *testing.T) {
@@ -235,5 +236,54 @@ func TestScanUserCacheThatIsTheCacheRootOnce(t *testing.T) {
 	}
 	if mounts != 0 || users != 1 {
 		t.Errorf("mount=%d user=%d domains, want the root scanned once, as the user cache", mounts, users)
+	}
+}
+
+func TestLargestExpandsContainers(t *testing.T) {
+	r := &Report{Domains: []*Node{
+		{Label: "CACHE MOUNT", Kids: []*Node{{Label: "toolchains/", Bytes: 40}, {Label: "lint/", Bytes: 5}, {Label: "empty/"}}},
+		{Label: "DOCKER", Kids: []*Node{{Label: "docker host daemon", Bytes: 90, Kids: []*Node{
+			{Label: "images", Bytes: 70}, {Label: "build cache", Bytes: 20},
+		}}}},
+	}}
+	got := r.Largest(3)
+	want := []string{"DOCKER › docker host daemon › images", "CACHE MOUNT › toolchains/", "DOCKER › docker host daemon › build cache"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d holdings, want %d", len(got), len(want))
+	}
+	for i, h := range got {
+		if w := h.Where + " › " + h.Node.Label; w != want[i] {
+			t.Errorf("holding %d = %q, want %q", i, w, want[i])
+		}
+	}
+}
+
+func TestScanTempGroupsAndFlagsStale(t *testing.T) {
+	root := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	for _, n := range []string{"sf-governance-123456", "sf-governance-654321"} {
+		if err := os.MkdirAll(filepath.Join(root, n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, n, "f"), make([]byte, 4096), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(filepath.Join(root, n), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "sf-cover-999999.out"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dom := ScanTemp(root)
+	if dom == nil || len(dom.Kids) != 2 {
+		t.Fatalf("groups: %+v", dom)
+	}
+	gov, cover := dom.Kids[0], dom.Kids[1]
+	if gov.Label != "sf-governance-*" || !gov.Flags.Has(FlagReclaimable) {
+		t.Errorf("stale group: %+v", gov)
+	}
+	if cover.Label != "sf-cover-*.out" || cover.Flags.Has(FlagReclaimable) {
+		t.Errorf("fresh group: %+v", cover)
 	}
 }

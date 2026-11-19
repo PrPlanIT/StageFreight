@@ -3,6 +3,7 @@ package prune
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -122,6 +123,9 @@ func Execute(ctx context.Context, actions []Action, confirm bool) []ActionResult
 			r.Items, r.Skipped, r.Err = pruneHostResidue(ctx, a, confirm)
 		case KindDaemonImages:
 			r.Items, r.Note, r.Skipped, r.Err = pruneDaemonImages(ctx, a, confirm)
+		case KindTemp:
+			r.Note = ""
+			r.Items, r.Freed, r.Err = evictStale(a.Path, a.MaxAge, confirm)
 		}
 		out = append(out, r)
 		// The cache root is released as soon as its last action is done, never held through
@@ -396,6 +400,39 @@ func evictFilesLRU(dir string, isEntry func(rel string) bool, maxAge time.Durati
 	return items, freed, err
 }
 
+// evictStale removes the entries directly under dir last modified before maxAge.
+func evictStale(dir string, maxAge time.Duration, confirm bool) (items []string, freed int64, err error) {
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		return nil, 0, nil
+	}
+	cutoff := time.Now().Add(-maxAge)
+	var count int
+	for _, e := range entries {
+		info, ierr := e.Info()
+		if ierr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		size := onDisk(info)
+		if info.IsDir() {
+			size = dirSize(p)
+		}
+		if confirm {
+			if rmErr := os.RemoveAll(p); rmErr != nil {
+				err = rmErr
+				continue
+			}
+		}
+		freed += size
+		count++
+	}
+	if count > 0 {
+		items = []string{fmt.Sprintf("%d entries older than %s (%s)", count, maxAge, humanBytes(freed))}
+	}
+	return items, freed, err
+}
+
 func dirSize(root string) int64 {
 	var total int64
 	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
@@ -606,7 +643,13 @@ func pruneBuilder(ctx context.Context, a Action, confirm bool) (items []string, 
 	}
 	for _, p := range passes {
 		if out, rerr := exec.CommandContext(ctx, "docker", p...).CombinedOutput(); rerr != nil {
+			if errors.Is(rerr, exec.ErrNotFound) {
+				return nil, "no docker on this host", nil
+			}
 			reason := firstLine(string(out))
+			if reason == "" {
+				reason = rerr.Error()
+			}
 			if strings.Contains(reason, "no builder") {
 				// Absence, not failure: this host simply doesn't run that builder.
 				return nil, "no " + a.Builder + " on this host", nil

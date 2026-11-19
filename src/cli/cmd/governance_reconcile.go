@@ -108,10 +108,6 @@ func executeGovernanceReconcile(ctx context.Context, opts GovernanceReconcileOpt
 		governance.PresetMaterializeCache = filepath.Join(wd, ".stagefreight", "preset-cache")
 	}
 
-	// One checkout per repo+ref is reused across every preset read; drop them when the
-	// reconcile is done rather than leaving them for process exit.
-	defer governance.ReleaseCheckouts()
-
 	gov, presetLoader, err := governance.LoadGovernance(source)
 	if err != nil {
 		return fmt.Errorf("loading governance: %w", err)

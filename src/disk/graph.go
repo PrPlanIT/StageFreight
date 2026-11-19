@@ -243,3 +243,38 @@ func firstExisting(paths ...string) string {
 	}
 	return "/"
 }
+
+// Holding is one entry of Largest: a node and the labels of the domain path above it.
+type Holding struct {
+	Where string // "CACHE MOUNT › toolchains/"
+	Node  *Node
+}
+
+// Largest is the n biggest non-empty holdings, biggest-first: each domain's children, a
+// child with children of its own replaced by them.
+func (r *Report) Largest(n int) []Holding {
+	var out []Holding
+	for _, d := range r.Domains {
+		for _, c := range d.Kids {
+			if len(c.Kids) == 0 {
+				out = append(out, Holding{Where: d.Label, Node: c})
+				continue
+			}
+			for _, g := range c.Kids {
+				out = append(out, Holding{Where: d.Label + " › " + c.Label, Node: g})
+			}
+		}
+	}
+	kept := out[:0]
+	for _, h := range out {
+		if h.Node.Bytes > 0 {
+			kept = append(kept, h)
+		}
+	}
+	out = kept
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Node.Bytes > out[j].Node.Bytes })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}

@@ -24,8 +24,9 @@ var pruneCmd = &cobra.Command{
 	Short: "Reclaim disk from StageFreight-owned artifacts (dry-run by default)",
 	Long: `Apply the SF disk lifecycle: rotate what StageFreight itself created — the cache
 root's subsystems (named policies + a backstop for the rest), toolchain versions
-beyond toolchains.retention, the repo's own published image generations, and the
-sf-builder's cache — under the declared retention grammar.
+beyond toolchains.retention, the repo's own published image generations, the
+sf-builder's cache, and temp files a day old in the temp root ($TMPDIR/stagefreight-<uid>)
+— under the declared retention grammar.
 
 Ownership is the invariant: StageFreight never guesses whether something belongs to
 someone else. Third-party artifacts are reclaimed ONLY via the operator's declared
@@ -48,9 +49,18 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 		color := output.UseColor()
 		start := time.Now()
 		used := prune.UsedFraction(root)
+		target := pruneTarget
+		if target <= 0 {
+			target = prune.DefaultTarget
+		}
 		if len(actions) == 0 {
 			sec := output.NewSection(os.Stdout, "Disk GC", time.Since(start), color)
-			sec.Row("disk         %.0f%% used — healthy, nothing to do", used*100)
+			if used < target {
+				sec.Row("disk         %.0f%% used — healthy, nothing to do", used*100)
+			} else {
+				sec.Row("disk         %.0f%% used — nothing StageFreight owns to reclaim", used*100)
+				reportUnreclaimed(cmd.Context(), sec, root, target, color)
+			}
 			sec.Close()
 			return nil
 		}
@@ -100,6 +110,7 @@ Dry-run by default: shows the plan with each item's ownership class. --confirm e
 				reclaimed = 0
 			}
 			sec.Row("freed %s · disk %.0f%% → %.0f%% used", humanGCBytes(reclaimed), used*100, prune.UsedFraction(root)*100)
+			reportUnreclaimed(cmd.Context(), sec, root, target, color)
 		} else {
 			// A preview can only size what it can enumerate; daemon prunes are unsized
 			// until they run, so this floor is explicitly a floor.

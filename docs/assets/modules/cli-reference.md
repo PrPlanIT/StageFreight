@@ -605,7 +605,7 @@ _Plus the [global flags](#cli-global-flags)._
 
 **Usage:** `stagefreight du`
 
-Report what StageFreight and its CI occupy on disk, grouped so an operator can act: the persistent cache mount (toolchains by version, build/scan caches by subsystem, per-project rust targets), the Docker daemon(s) (host vs dind, images by family with tags, dangling, volumes, build cache), and discovered repositories. Bars are share of total disk; a reclaim ledger names the biggest wins. Read-only.
+Report what StageFreight and its CI occupy on disk, grouped so an operator can act: the persistent cache mount (toolchains by version, build/scan caches by subsystem, per-project rust targets), each user's temp root ($TMPDIR/stagefreight-<uid>), the Docker daemon(s) (host vs dind, images by family with tags, dangling, volumes, build cache), and discovered repositories. Bars are share of total disk; a reclaim ledger names the biggest wins. Read-only.
 
 **Flags:**
 
@@ -989,8 +989,9 @@ _Plus the [global flags](#cli-global-flags)._
 
 Apply the SF disk lifecycle: rotate what StageFreight itself created — the cache
 root's subsystems (named policies + a backstop for the rest), toolchain versions
-beyond toolchains.retention, the repo's own published image generations, and the
-sf-builder's cache — under the declared retention grammar.
+beyond toolchains.retention, the repo's own published image generations, the
+sf-builder's cache, and temp files a day old in the temp root ($TMPDIR/stagefreight-<uid>)
+— under the declared retention grammar.
 
 Ownership is the invariant: StageFreight never guesses whether something belongs to
 someone else. Third-party artifacts are reclaimed ONLY via the operator's declared

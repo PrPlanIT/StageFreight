@@ -25,7 +25,8 @@ var duCmd = &cobra.Command{
 	Short: "Storage-attribution diagnostic — what is eating disk today",
 	Long: "Report what StageFreight and its CI occupy on disk, grouped so an operator can act: " +
 		"the persistent cache mount (toolchains by version, build/scan caches by subsystem, " +
-		"per-project rust targets), the Docker daemon(s) (host vs dind, images by family with " +
+		"per-project rust targets), each user's temp root ($TMPDIR/stagefreight-<uid>), the " +
+		"Docker daemon(s) (host vs dind, images by family with " +
 		"tags, dangling, volumes, build cache), and discovered repositories. Bars are share of " +
 		"total disk; a reclaim ledger names the biggest wins. Read-only.",
 	RunE: func(cmd *cobra.Command, args []string) error {

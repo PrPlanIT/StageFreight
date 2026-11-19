@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/disk"
 	"github.com/PrPlanIT/StageFreight/src/output"
 	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/PrPlanIT/StageFreight/src/prune"
@@ -16,7 +17,8 @@ import (
 // reclaiming first means it assesses the TRUE post-GC state instead of failing the run
 // on a problem this lifecycle exists to prevent. Pressure-gated and SILENT when the
 // disk is healthy — the Executor panel right after already reports free space, so a
-// box that says "nothing to do" is noise. Best-effort: never fails or gates a phase.
+// box that says "nothing to do" is noise. A disk still over target is always reported.
+// Best-effort: never fails or gates a phase.
 func runDiskGC(ctx context.Context, appCfg *config.Config) {
 	root := paths.ResolveCacheRoot("")
 	if root == "" {
@@ -30,21 +32,21 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 	actions := prune.Plan(appCfg, prune.Options{
 		CacheRoot: root, Target: prune.DefaultTarget, HostCleanup: hostCleanup,
 	})
-	if len(actions) == 0 {
+	pressured := used >= prune.DefaultTarget
+	if len(actions) == 0 && !pressured {
 		return // healthy — say nothing; the Executor panel carries the disk facts
 	}
 
 	freeBefore := prune.FreeBytes(root)
 	results := prune.Execute(ctx, actions, true)
-	pressured := used >= prune.DefaultTarget
 	if !pressured && quiet(results) {
-		return // only the daemon budget ran, and it was already within budget
+		return // only the routine actions ran, and they found nothing
 	}
 	sec := output.NewSection(os.Stdout, "Disk GC", time.Since(start), color)
 	if pressured {
 		sec.Row("disk         %.0f%% used ≥ target %.0f%% — enforcing SF-owned lifecycle", used*100, prune.DefaultTarget*100)
 	} else {
-		sec.Row("disk         %.0f%% used — enforcing the runner's daemon image budget", used*100)
+		sec.Row("disk         %.0f%% used < target %.0f%% — routine lifecycle only", used*100, prune.DefaultTarget*100)
 	}
 	sec.Separator()
 	var freed int64
@@ -75,7 +77,30 @@ func runDiskGC(ctx context.Context, appCfg *config.Config) {
 		reclaimed = 0 // concurrent writes outpaced the reclaim; do not report a negative
 	}
 	sec.Row("freed %s · disk %.0f%% → %.0f%% used", humanGCBytes(reclaimed), used*100, prune.UsedFraction(root)*100)
+	reportUnreclaimed(ctx, sec, root, prune.DefaultTarget, color)
 	sec.Close()
+}
+
+// reportUnreclaimed warns when the disk is still at or over target after GC and names the
+// biggest holdings.
+func reportUnreclaimed(ctx context.Context, sec *output.Section, root string, target float64, color bool) {
+	after := prune.UsedFraction(root)
+	if target <= 0 || after < target {
+		return
+	}
+	sec.Separator()
+	sec.Row("%s disk still %.0f%% used ≥ target %.0f%% — StageFreight has nothing left it may reclaim", output.StatusIcon("warning", color), after*100, target*100)
+	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	rep := disk.Scan(sctx, root, nil, 0)
+	for _, h := range rep.Largest(5) {
+		hint := ""
+		if h.Node.Hint != nil {
+			hint = " — " + h.Node.Hint.Command
+		}
+		sec.Row("  %-44s %10s%s", h.Where+" › "+h.Node.Label, humanGCBytes(h.Node.Bytes), hint)
+	}
+	sec.Row("  the full attribution: stagefreight du (on the runner host, --cache <its cache mount>)")
 }
 
 // quiet reports whether no action removed, skipped or failed anything.

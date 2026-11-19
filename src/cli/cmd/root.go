@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/PrPlanIT/StageFreight/src/config"
+	"github.com/PrPlanIT/StageFreight/src/governance"
+	"github.com/PrPlanIT/StageFreight/src/paths"
 	"github.com/spf13/cobra"
 )
 
@@ -74,9 +76,13 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 }
 
-// Execute runs the root command. All exit paths call os.Exit explicitly.
+// Execute runs the root command with its temp files under paths.TempRoot, and removes the
+// run's policy checkouts. All exit paths call os.Exit explicitly.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	paths.UseTempRoot()
+	err := rootCmd.Execute()
+	governance.ReleaseCheckouts()
+	if err != nil {
 		var silentErr *SilentExitError
 		if errors.As(err, &silentErr) {
 			os.Exit(silentErr.Code)
