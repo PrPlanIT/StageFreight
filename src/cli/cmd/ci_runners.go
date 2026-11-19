@@ -143,9 +143,8 @@ func buildRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext
 		Store:   store,
 		Outputs: &runOutputs,
 		RB:      runRB,
-		// Perform prints a slim one-line provenance stamp; the full logo banner
-		// belongs to audition. (Standalone build commands leave HeaderFull.)
-		Header: domains.HeaderSlim,
+		// The perform phase prints its identity before disk GC.
+		Header: domains.HeaderNone,
 	}
 	// Build-fed scribe items (a build bakes composed pages) compose in perform, at
 	// their DAG slot before the consuming build — this closure is that seam.

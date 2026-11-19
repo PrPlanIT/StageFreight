@@ -174,6 +174,7 @@ func checkCIFreshness(forge, rootDir string, appCfg *config.Config) error {
 func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CIContext, opts ci.RunOptions) error {
 	ctx = provision.WithLedger(ctx)
 
+	renderPhaseIdentity()
 	rootDir := resolveWorkspace(ciCtx)
 	if err := assertAuditionRan(rootDir, "perform"); err != nil {
 		return err
@@ -190,9 +191,6 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 			renderCISkip("Perform", time.Now(), "reconcile binds to accepted state — not_applicable off the default branch (merge request / feature branch / tag)")
 			return nil
 		}
-		// Reconcile has no build engine to stamp identity — render it here.
-		// (The build path's stamp comes from the engine via HeaderSlim.)
-		renderPhaseIdentity()
 		return reconcileRunner(ctx, appCfg, ciCtx, opts)
 	default:
 		// Gate on the audition CONTRACT — in-code and forge-agnostic (the same check runs in
@@ -207,10 +205,7 @@ func performPhaseRunner(ctx context.Context, appCfg *config.Config, ciCtx *ci.CI
 		build, gateErr := performGate(c)
 		if !build {
 			if gateErr != nil {
-				// Check in like every other phase (identity + SF version), then render a
-				// neat FAIL block stating WHY the stage isn't running — instead of exiting
-				// mute. The non-zero exit still follows via silentExit (no double-print).
-				renderPhaseIdentity()
+				// silentExit carries the non-zero exit; the FAIL block is already printed.
 				renderPhaseBlocked("Perform", time.Now(), gateErr.Error())
 				return silentExit(fmt.Errorf("perform: %w", gateErr))
 			}

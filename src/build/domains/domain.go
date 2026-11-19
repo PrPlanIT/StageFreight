@@ -76,8 +76,7 @@ type RunContext struct {
 	// Header selects how the run-level identity is rendered. Default (HeaderFull)
 	// prints the full logo banner + code block — correct for standalone commands
 	// (`build binary`, crucible `docker build`). The perform lifecycle phase sets
-	// HeaderSlim so the engine prints a one-line provenance stamp instead; the
-	// full logo lives in audition. See output.Banner / output.IdentityLine.
+	// HeaderNone: it prints its own identity first, ahead of disk GC.
 	Header HeaderMode
 	DryRun bool // stop after Plan: render Detect+Plan, skip Build/Verify/Publish + manifests
 	Store  cas.Store
@@ -109,16 +108,16 @@ type RunContext struct {
 }
 
 // HeaderMode controls how Run renders the run-level identity. The lifecycle
-// owns identity placement (full logo banner in audition; slim one-line stamp in
-// perform/review/publish/narrate), so perform suppresses the heavy banner via
-// HeaderSlim. Standalone commands leave the zero value (HeaderFull).
+// owns identity placement (full logo banner in audition; slim one-line stamp at
+// the top of every other phase), so perform passes HeaderNone. Standalone
+// commands leave the zero value (HeaderFull).
 type HeaderMode int
 
 const (
 	// HeaderFull renders the full logo banner plus the code identity block.
 	HeaderFull HeaderMode = iota
-	// HeaderSlim renders a single compact version · commit · branch line.
-	HeaderSlim
+	// HeaderNone renders nothing: the caller already printed the identity.
+	HeaderNone
 )
 
 // RowDivider in Contribution.Rows draws the section's divider between rows.
