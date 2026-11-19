@@ -47,7 +47,7 @@ func TestLoadGovernanceCheckoutIsReleased(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", err
 		}
-		return dir, os.WriteFile(filepath.Join(dir, "governance.yml"), []byte("governance:\n  profiles: []\n"), 0o644)
+		return dir, os.WriteFile(filepath.Join(dir, "governance.yml"), []byte("governance:\n  profiles: {}\n"), 0o644)
 	}
 	defer func() { fetchRepoFn = prev }()
 
