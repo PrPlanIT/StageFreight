@@ -44,3 +44,28 @@ func TestCargoDeclaresWorkspace(t *testing.T) {
 		t.Error("`workspace = true` dep is not a [workspace] table")
 	}
 }
+
+// A crate locked at two versions is named with the version being updated; one locked
+// once, or absent from the lock, by its name.
+func TestCargoUpdateSpec(t *testing.T) {
+	dir := t.TempDir()
+	lock := "version = 4\n\n[[package]]\nname = \"sha2\"\nversion = \"0.10.9\"\n\n[[package]]\nname = \"sha2\"\nversion = \"0.11.0\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.228\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "Cargo.lock"), []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locked := cargoLockVersions(filepath.Join(dir, "Cargo.lock"))
+	for _, tc := range []struct{ name, current, want string }{
+		{"sha2", "0.11.0", "sha2@0.11.0"},
+		{"sha2", "0.10.9", "sha2@0.10.9"},
+		{"sha2", "0.12", "sha2"},
+		{"serde", "1.0.228", "serde"},
+		{"rand", "0.9.0", "rand"},
+	} {
+		if got := cargoUpdateSpec(tc.name, tc.current, locked); got != tc.want {
+			t.Errorf("%s@%s: %q, want %q", tc.name, tc.current, got, tc.want)
+		}
+	}
+	if cargoLockVersions(filepath.Join(dir, "missing.lock")) != nil {
+		t.Error("an absent lock reads as nil")
+	}
+}

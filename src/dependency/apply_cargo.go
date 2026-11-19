@@ -14,6 +14,7 @@ import (
 	"github.com/PrPlanIT/StageFreight/src/provision"
 	"github.com/PrPlanIT/StageFreight/src/supplychain"
 	"github.com/PrPlanIT/StageFreight/src/toolchain"
+	toml "github.com/pelletier/go-toml/v2"
 )
 
 // cargoRunner executes a cargo subcommand in a crate directory.
@@ -140,8 +141,9 @@ func applyCargoUpdates(ctx context.Context, deps []supplychain.Dependency, repoR
 	editedByDir := map[string][]string{}
 	for file, fe := range byFile {
 		dir := findCargoUpdateDir(repoRoot, file)
+		locked := cargoLockVersions(filepath.Join(dir, "Cargo.lock"))
 		for _, e := range fe.edits {
-			editedByDir[dir] = appendUniqueStr(editedByDir[dir], e.dep.Name)
+			editedByDir[dir] = appendUniqueStr(editedByDir[dir], cargoUpdateSpec(e.dep.Name, e.dep.Current, locked))
 		}
 	}
 	var churn CargoChurn
@@ -167,6 +169,48 @@ func applyCargoUpdates(ctx context.Context, deps []supplychain.Dependency, repoR
 		}
 	}
 	return applied, skipped, deduplicateAndSort(touchedFiles), churn, nil
+}
+
+// cargoUpdateSpec is the `cargo update -p` spec for an edited dependency. A crate locked at
+// several versions (sha2 0.10.9 for a transitive, 0.11.0 direct) is ambiguous by name, so it
+// is named with the locked version the edited requirement resolves to (discovery's Current);
+// a crate locked once, or not at all, by its name alone.
+func cargoUpdateSpec(name, current string, locked map[string][]string) string {
+	vers := locked[name]
+	if len(vers) < 2 {
+		return name
+	}
+	for _, v := range vers {
+		if v == current {
+			return name + "@" + v
+		}
+	}
+	return name
+}
+
+// cargoLockVersions reads a Cargo.lock into crate name → its locked versions; nil when the
+// lock is absent or unreadable.
+func cargoLockVersions(path string) map[string][]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var lock struct {
+		Package []struct {
+			Name    string `toml:"name"`
+			Version string `toml:"version"`
+		} `toml:"package"`
+	}
+	if toml.Unmarshal(data, &lock) != nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, p := range lock.Package {
+		if p.Name != "" && p.Version != "" {
+			out[p.Name] = append(out[p.Name], p.Version)
+		}
+	}
+	return out
 }
 
 // CargoChurn measures lock-sync intent fidelity: how many distinct packages we asked cargo
