@@ -29,7 +29,7 @@ require (
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2
-	lukechampine.com/blake3 v1.4.1
+	lukechampine.com/blake3 v1.5.0
 	sigs.k8s.io/gateway-api v1.7.0
 )
 
