@@ -32,6 +32,11 @@ var renovateVersioning = map[string]string{
 
 var annotatedPin = regexp.MustCompile(`^\s*(?i:ARG|ENV)\s+([A-Za-z_][A-Za-z0-9_]*)[=\s]`)
 
+// continuedPin is a key=value continuation line of an ARG or ENV.
+var continuedPin = regexp.MustCompile(`^\s+([A-Za-z_][A-Za-z0-9_]*)=`)
+
+var argOrEnv = regexp.MustCompile(`^\s*(?i:ARG|ENV)\s`)
+
 var alpineRegistry = regexp.MustCompile(`^https?://[^/]+/alpine/(v\d+\.\d+)/(main|community)/?$`)
 
 // annotationFiles are the Dockerfiles of the docker builds, each once.
@@ -56,8 +61,9 @@ func annotationFiles(cfg *Config) []string {
 }
 
 // applyUpstreamAnnotations declares a source, with its pin, for every renovate annotation
-// above an ARG or ENV in a docker build's Dockerfile. A source the config declares under the
-// same id keeps every field it sets; the annotation adds its pin.
+// above an ARG or ENV, or above a key=value continuation line of one, in a docker build's
+// Dockerfile. A source the config declares under the same id keeps every field it sets;
+// the annotation adds its pin.
 func applyUpstreamAnnotations(cfg *Config, read RepoFileReader) error {
 	if read == nil {
 		return nil
@@ -72,9 +78,18 @@ func applyUpstreamAnnotations(cfg *Config, read RepoFileReader) error {
 			return fmt.Errorf("reading %s for renovate annotations: %w", file, err)
 		}
 		lines := strings.Split(string(data), "\n")
+		inside := false // on a continuation line of an ARG or ENV
 		for i, l := range lines {
+			comment := strings.HasPrefix(strings.TrimSpace(l), "#")
+			wasInside := inside
+			switch {
+			case argOrEnv.MatchString(l):
+				inside = strings.HasSuffix(strings.TrimRight(l, " \t"), "\\")
+			case inside && !comment:
+				inside = strings.HasSuffix(strings.TrimRight(l, " \t"), "\\")
+			}
 			at := strings.Index(l, renovateMarker)
-			if at < 0 || !strings.HasPrefix(strings.TrimSpace(l), "#") {
+			if at < 0 || !comment {
 				continue
 			}
 			where := fmt.Sprintf("%s:%d", file, i+1)
@@ -83,6 +98,9 @@ func applyUpstreamAnnotations(cfg *Config, read RepoFileReader) error {
 				next = lines[i+1]
 			}
 			m := annotatedPin.FindStringSubmatch(next)
+			if m == nil && wasInside {
+				m = continuedPin.FindStringSubmatch(next)
+			}
 			if m == nil {
 				continue // an image reference (dependency.scope.source_images), not a version pin
 			}

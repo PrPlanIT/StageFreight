@@ -127,3 +127,20 @@ func TestUpstreamDefaults(t *testing.T) {
 		t.Errorf("sync.from defaults to the only git source: %q", fork.Upstream.Sync.From)
 	}
 }
+
+func TestUpstreamAnnotations_ContinuationLine(t *testing.T) {
+	cfg := &Config{Builds: []BuildConfig{{ID: "image", Kind: "docker"}}}
+	df := "FROM debian:13\nENV DEBIAN_FRONTEND=noninteractive \\\n" +
+		"    # renovate: datasource=deb depName=apt-cacher-ng registryUrl=https://deb.debian.org/debian?suite=trixie&components=main\n" +
+		"    APT_CACHER_NG_VERSION=3.7.5-1 \\\n    CACHE_DIR=/var/cache\n" +
+		"RUN echo a \\\n    # renovate: datasource=pypi depName=not-a-pin\n    NOT_A_PIN=1\n"
+	if err := applyUpstreamAnnotations(cfg, files(map[string]string{"Dockerfile": df})); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Upstream.Sources) != 1 {
+		t.Fatalf("sources = %+v; a RUN continuation declares no pin", cfg.Upstream.Sources)
+	}
+	if s := cfg.Upstream.Sources[0]; s.ID != "apt-cacher-ng" || s.Suite != "trixie/main" || s.Pins[0] != (UpstreamPin{File: "Dockerfile", Arg: "APT_CACHER_NG_VERSION"}) {
+		t.Errorf("continuation annotation: %+v", s)
+	}
+}

@@ -19,9 +19,9 @@ installed `ansible-core` package. Everything can also be declared in `sources` d
 
 ## Annotations
 
-A [Renovate](https://docs.renovatebot.com/) comment above an `ARG` or `ENV` in a docker build's
-Dockerfile declares a source and its pin, so the fact lives once, where it is used, and Renovate
-reads the same line:
+A [Renovate](https://docs.renovatebot.com/) comment above an `ARG` or `ENV`, or above a
+`KEY=value` continuation line of one, in a docker build's Dockerfile declares a source and its
+pin, so the fact lives once, where it is used, and Renovate reads the same line:
 
 | `datasource=` | Source | Notes |
 |---|---|---|
