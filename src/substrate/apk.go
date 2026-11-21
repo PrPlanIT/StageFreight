@@ -27,6 +27,7 @@ var capabilityPackages = map[string][]string{
 	"openssl":     {"openssl-dev", "openssl-libs-static"}, // dev = headers + .so; -static-pie musl links libssl.a/libcrypto.a
 	"git":         {"git"},                                // build.rs version-stamping and tests that exec git
 	"bash":        {"bash"},                               // rust's toolchain install.sh invokes bash (busybox sh is not enough)
+	"openssh":     {"openssh-client-default"},             // ssh + ssh-keygen (openssh-client is virtual); tests that exec them
 }
 
 // capabilityProbe is a binary whose presence means the capability is already
@@ -39,13 +40,14 @@ var capabilityProbe = map[string]string{
 	"pkg-config":  "pkg-config",
 	"git":         "git",
 	"bash":        "bash",
+	"openssh":     "ssh",
 }
 
 // relocatable marks the capabilities whose packages run from the substrate root (a
 // usermode apk root under the cache) through its launchers; the others
 // carry absolute /usr paths and install into the system, which needs root. cmake finds
 // its modules beside its own binary; perl is pointed at its relocated library tree.
-var relocatable = map[string]bool{"git": true, "bash": true, "cmake": true, "perl": true}
+var relocatable = map[string]bool{"git": true, "bash": true, "cmake": true, "perl": true, "openssh": true}
 
 // geteuid is the process's effective uid; a variable so tests can stand in for a
 // non-root runner.

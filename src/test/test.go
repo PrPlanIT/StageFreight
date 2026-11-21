@@ -324,8 +324,9 @@ func runGoSuite(ctx context.Context, sr SuiteResult, goBin string, s ResolvedSui
 }
 
 // substrateNeeds derives the native capabilities the suites require — git for Go
-// tests that exec git (repo fixtures) and a C toolchain for
-// `go test -race` / Rust linking — as abstract capabilities, deduped by cap+source.
+// tests that exec git (repo fixtures), a C toolchain for `go test -race` / Rust
+// linking, and the programs a Rust crate executes — as abstract capabilities, deduped
+// by cap+source.
 func substrateNeeds(suites []ResolvedSuite) []substrate.Need {
 	var needs []substrate.Need
 	seen := map[string]bool{}
@@ -344,7 +345,7 @@ func substrateNeeds(suites []ResolvedSuite) []substrate.Need {
 				add(substrate.Need{Capability: "c-toolchain", Reason: "go-test-race-cgo", Source: "go test -race"})
 			}
 		case config.TestToolRust:
-			for _, n := range substrate.InferRustNeeds(s.Dir) {
+			for _, n := range substrate.InferRustTestNeeds(s.Dir) {
 				add(n)
 			}
 		}

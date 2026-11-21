@@ -67,6 +67,53 @@ func TestInferRustNeeds_GitForBuildRs(t *testing.T) {
 	}
 }
 
+// A Rust suite gets the capabilities for the programs its crate executes by name, and
+// nothing for a program no capability provides; a build does not.
+func TestInferRustTestNeeds_ExecutedPrograms(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("src/krl.rs", `let o = std::process::Command::new("ssh-keygen").arg("-k").output();`)
+	write("tests/cfg.rs", "Command::new( \"ssh\" ).arg(\"-G\");\nCommand::new(\"id\");\nCommand::new(\"/bin/bash\");")
+	write("target/debug/build/x/out.rs", `Command::new("bash")`)
+	write(".git/hooks.rs", `Command::new("git")`)
+
+	caps := capSet(InferRustTestNeeds(dir))
+	if !caps["openssh"] || !caps["c-toolchain"] {
+		t.Errorf("ssh and ssh-keygen → openssh on top of the build's needs; got %v", caps)
+	}
+	if caps["bash"] || caps["git"] {
+		t.Errorf("target/, hidden dirs and absolute paths are not scanned; got %v", caps)
+	}
+	n := 0
+	for _, x := range InferRustTestNeeds(dir) {
+		if x.Capability == "openssh" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("openssh needed once, got %d", n)
+	}
+	if capSet(InferRustNeeds(dir))["openssh"] {
+		t.Error("a build does not need what only the tests run")
+	}
+	for prog, c := range programCapability {
+		if _, ok := capabilityPackages[c]; !ok {
+			t.Errorf("program %s maps to capability %q with no apk mapping", prog, c)
+		}
+		if !relocatable[c] {
+			t.Errorf("program %s's capability %q must install without root", prog, c)
+		}
+	}
+}
+
 // fakeApk stands in for apk: it records each call and, for an add, creates the
 // probed binaries under --root — each printing its LD_LIBRARY_PATH — so a later
 // realize sees them installed.
