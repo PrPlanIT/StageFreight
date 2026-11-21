@@ -465,10 +465,14 @@ func TestExecute_ToolchainRetentionSkipsLeasedVersion(t *testing.T) {
 	}
 }
 
-// TestMain runs every test against a half-full disk unless it sets its own, so no test
-// depends on the state of the machine it runs on.
+// TestMain runs every test against a half-full disk and a runner that declares no daemon
+// image GC unless it sets its own, so no test depends on the state of the machine it
+// runs on (a CI runner declares SF_DAEMON_GC_*).
 func TestMain(m *testing.M) {
 	usedFraction = func(string) float64 { return 0.5 }
+	for _, k := range []string{DaemonGCMaxSizeEnv, DaemonGCMaxAgeEnv, DaemonGCMinAgeEnv} {
+		os.Unsetenv(k)
+	}
 	os.Exit(m.Run())
 }
 
