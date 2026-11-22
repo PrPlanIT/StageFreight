@@ -3,9 +3,9 @@
   "toolchains": [
     {
       "name": "cargo-llvm-cov",
-      "resolved": "0.9.1",
+      "resolved": "0.9.2",
       "sha256": {
-        "linux/amd64": "b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a"
+        "linux/amd64-musl": "8d863ab2df1fb53d4f41052b3fa4627ac003d00c46a6388ce037d17472c504ef"
       }
     },
     {
@@ -24,9 +24,9 @@
     },
     {
       "name": "flux",
-      "resolved": "2.10.0",
+      "resolved": "2.10.1",
       "sha256": {
-        "linux/amd64": "208dd7012c04fedeed5b2d0b6e63df3b15b1c34a381527811685c098bc9f8659"
+        "linux/amd64": "967365ff84aabc97871827ff33713ef0c09f62dd83c18759e3a5e39adcea9285"
       }
     },
     {
