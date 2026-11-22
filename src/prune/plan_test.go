@@ -465,15 +465,23 @@ func TestExecute_ToolchainRetentionSkipsLeasedVersion(t *testing.T) {
 	}
 }
 
-// TestMain runs every test against a half-full disk and a runner that declares no daemon
-// image GC unless it sets its own, so no test depends on the state of the machine it
-// runs on (a CI runner declares SF_DAEMON_GC_*).
+// TestMain runs every test against a half-full disk, a runner that declares no daemon
+// image GC, and an empty temp dir unless it sets its own, so no test depends on the state
+// of the machine it runs on. Under StageFreight, TMPDIR already is StageFreight's temp
+// root, which would put a temp action in every plan.
 func TestMain(m *testing.M) {
 	usedFraction = func(string) float64 { return 0.5 }
 	for _, k := range []string{DaemonGCMaxSizeEnv, DaemonGCMaxAgeEnv, DaemonGCMinAgeEnv} {
 		os.Unsetenv(k)
 	}
-	os.Exit(m.Run())
+	tmp, err := os.MkdirTemp("", "prune-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("TMPDIR", tmp)
+	code := m.Run()
+	os.RemoveAll(tmp)
+	os.Exit(code)
 }
 
 // Under pressure the daemon-side caches give way before the cache units builds import.
