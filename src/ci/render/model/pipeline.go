@@ -203,4 +203,13 @@ type PolicySpec struct {
 	// two pipelines racing cordon/drain on one fleet must queue, not race).
 	// GitLab lowers it to resource_group; forges without a primitive omit it.
 	Serialize string
+
+	// Uninterruptible exempts this job from PipelineDefaults.Interruptible: a newer
+	// pipeline must not cancel it once it has started. Set on jobs that mutate live
+	// systems mid-step (perform's ansible converge cordons and drains nodes one at a
+	// time; cancelling it mid-drain leaves a node cordoned and its pods evicted).
+	// Serialize alone does not cover this: it queues a second pipeline behind the
+	// first, but the forge's superseded-pipeline cancel still kills the first.
+	// GitLab lowers it to interruptible: false; forges without a primitive omit it.
+	Uninterruptible bool
 }

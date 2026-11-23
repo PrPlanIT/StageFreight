@@ -12,6 +12,7 @@
 //   - PolicySpec.WhenAlways → when: always
 //   - PolicySpec.AllowFailure → allow_failure: true
 //   - PolicySpec.Serialize → resource_group
+//   - PolicySpec.Uninterruptible → interruptible: false
 package gitlab
 
 import (
@@ -207,6 +208,12 @@ func emitJob(buf *bytes.Buffer, j model.Job, defaults model.PipelineDefaults) {
 	// resource_group — GitLab's mutual-exclusion primitive for Serialize.
 	if j.Policy.Serialize != "" {
 		fmt.Fprintf(buf, "  resource_group: %s\n", j.Policy.Serialize)
+	}
+
+	// interruptible: false overrides default.interruptible for this job; once it has
+	// started, GitLab's on_new_commit auto-cancel leaves the pipeline running.
+	if j.Policy.Uninterruptible && defaults.Interruptible {
+		buf.WriteString("  interruptible: false\n")
 	}
 }
 

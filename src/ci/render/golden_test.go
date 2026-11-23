@@ -54,7 +54,7 @@ func canonicalPipeline() model.Pipeline {
 				Artifacts:    model.ArtifactSpec{Paths: []string{".stagefreight/"}, ExpireIn: "1 day", WhenAlways: true},
 				Routing:      model.RoutingSpec{Labels: []string{"self-hosted", "docker"}},
 				Capabilities: model.CapabilitySpec{OIDC: true},
-				Policy:       model.PolicySpec{Serialize: "perform"},
+				Policy:       model.PolicySpec{Serialize: "perform", Uninterruptible: true},
 			},
 			{
 				Name: "review", Stage: "review", Needs: []string{"perform"},

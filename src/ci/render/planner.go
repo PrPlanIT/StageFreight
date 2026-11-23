@@ -71,8 +71,9 @@ func Plan(cfg *config.Config) (model.Pipeline, error) {
 				Capabilities: model.CapabilitySpec{OIDC: true},
 				// Reconcile/converge mutates live systems (flux, ansible
 				// cordon/drain): concurrent pipelines must queue behind one
-				// perform, never race it.
-				Policy: model.PolicySpec{Serialize: "perform"},
+				// perform, never race it, and a newer commit must not cancel
+				// it mid-drain.
+				Policy: model.PolicySpec{Serialize: "perform", Uninterruptible: true},
 			},
 			{
 				Name:     "review",
