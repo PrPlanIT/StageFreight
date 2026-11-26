@@ -3,10 +3,13 @@ package toolchain
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/PrPlanIT/StageFreight/src/paths"
 )
 
 // CleanEnv returns a minimal execution environment for toolchain-resolved binaries.
-// No implicit PATH. No host leakage. All tools are invoked by absolute path.
+// No implicit PATH. No host leakage. All tools are invoked by absolute path. The CI
+// checkout is trusted by any git those tools start (paths.GitTrustEnv).
 //
 // Tools that need specific env vars (e.g. GRYPE_DB_CACHE_DIR, COSIGN_YES)
 // append them to the returned slice at the call site.
@@ -15,6 +18,7 @@ func CleanEnv() []string {
 		"HOME=/tmp",
 		"PATH=", // empty — all tools invoked by absolute path
 	}
+	env = append(env, paths.GitTrustEnv()...)
 
 	// Forward proxy settings if present
 	for _, key := range []string{
