@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -282,19 +283,23 @@ func TestWriteRootWrappers_PathIndependent(t *testing.T) {
 }
 
 // A capability that only runs from /usr installs into the system as root; any other
-// uid with no registered realizer gets an error naming what is missing.
+// uid with no registered realizer gets an error naming what is missing, and nothing is
+// reported as realized.
 func TestRealize_SystemCapabilityNeedsRoot(t *testing.T) {
 	calls := fakeApk(t)
 	emptyPath(t)
 	r := &realizer{cacheDir: t.TempDir(), apk: true}
-	need := []Need{{Capability: "pkg-config", Reason: "native-crate", Source: "openssl-sys"}}
+	need := []Need{{Capability: "c-toolchain", Reason: "native-crate", Source: "cc"}}
 
 	asUID(t, 4242)
-	_, err := r.Realize(context.Background(), need)
+	got, err := r.Realize(context.Background(), need)
 	if err == nil || len(*calls) != 0 {
 		t.Fatalf("non-root: err=%v calls=%v, want a refusal and no apk", err, *calls)
 	}
-	for _, want := range []string{"openssl-sys", "pkg-config", "uid 4242"} {
+	if len(got) != 0 {
+		t.Errorf("refused install reported as realized: %+v", got)
+	}
+	for _, want := range []string{"cc", "c-toolchain", "uid 4242"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q should mention %q", err, want)
 		}
@@ -398,5 +403,61 @@ func TestRealize_RelocatableAsRoot(t *testing.T) {
 	add := strings.Join((*calls)[0], " ")
 	if strings.Contains(add, "--usermode") || !strings.Contains(add, "--no-scripts") || !strings.Contains(add, "--root "+filepath.Join(cache, "root", "3.24.0")) {
 		t.Fatalf("root install: %q, want --root and --no-scripts without --usermode", add)
+	}
+}
+
+// openssl-sys's native build stages rootless: pkg-config resolves the root's .pc files
+// into the root, and openssl-sys is pointed at the root's headers and libraries.
+func TestRealize_OpensslIsRootless(t *testing.T) {
+	calls := fakeApk(t)
+	emptyPath(t)
+	asUID(t, 4242)
+	onAlpine(t, "3.24.0")
+	cache := t.TempDir()
+	root := filepath.Join(cache, "root", "3.24.0")
+	got, err := (&realizer{cacheDir: cache, apk: true}).Realize(context.Background(), []Need{
+		{Capability: "pkg-config", Reason: "crate-native-build", Source: "openssl-sys"},
+		{Capability: "openssl", Reason: "crate-native-build", Source: "openssl-sys"},
+	})
+	adds := 0
+	for _, c := range *calls {
+		if c[0] == "add" {
+			adds++
+		}
+	}
+	if err != nil || len(got) != 2 || adds != 1 {
+		t.Fatalf("realize: %+v %v calls=%v, want one install", got, err, *calls)
+	}
+	if add := strings.Join((*calls)[0], " "); !strings.Contains(add, "--usermode") {
+		t.Errorf("apk call %q, want a usermode install", add)
+	}
+	env := ApplyEnv([]string{"PATH=/bin"}, got)
+	want := map[string]string{
+		"OPENSSL_DIR":               filepath.Join(root, "usr"),
+		"PKG_CONFIG_PATH":           filepath.Join(root, "usr", "lib", "pkgconfig") + ":" + filepath.Join(root, "usr", "share", "pkgconfig"),
+		"PKG_CONFIG_RELOCATE_PATHS": "1",
+	}
+	for k, v := range want {
+		if cur, _ := lookupVar(env, k); cur != v {
+			t.Errorf("%s = %q, want %q", k, cur, v)
+		}
+	}
+}
+
+// A failed install reports only what was already there: the staged-tools ledger must not
+// list packages this run never installed.
+func TestRealize_FailedInstallReportsNothingStaged(t *testing.T) {
+	emptyPath(t)
+	asUID(t, 4242)
+	onAlpine(t, "3.24.0")
+	old := apkCommand
+	t.Cleanup(func() { apkCommand = old })
+	apkCommand = func(context.Context, ...string) ([]byte, error) { return []byte("no network"), errors.New("exit 1") }
+	got, err := (&realizer{cacheDir: t.TempDir(), apk: true}).Realize(context.Background(), []Need{{Capability: "openssl", Source: "openssl-sys"}})
+	if err == nil {
+		t.Fatal("want the install error")
+	}
+	if len(got) != 0 {
+		t.Fatalf("failed install reported as realized: %+v", got)
 	}
 }

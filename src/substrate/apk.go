@@ -46,8 +46,11 @@ var capabilityProbe = map[string]string{
 // relocatable marks the capabilities whose packages run from the substrate root (a
 // usermode apk root under the cache) through its launchers; the others
 // carry absolute /usr paths and install into the system, which needs root. cmake finds
-// its modules beside its own binary; perl is pointed at its relocated library tree.
-var relocatable = map[string]bool{"git": true, "bash": true, "cmake": true, "perl": true, "openssh": true}
+// its modules beside its own binary; perl is pointed at its relocated library tree;
+// pkg-config reads the root's .pc files with their prefix relocated to the root, and
+// openssl-sys is pointed at the root's headers and libraries.
+var relocatable = map[string]bool{"git": true, "bash": true, "cmake": true, "perl": true, "openssh": true,
+	"pkg-config": true, "openssl": true}
 
 // geteuid is the process's effective uid; a variable so tests can stand in for a
 // non-root runner.
@@ -107,7 +110,9 @@ func realizeUserRoot(ctx context.Context, cacheDir string, needs []Need) ([]Real
 		}
 		args = append(args, toInstall...)
 		if out, err := apkCommand(ctx, args...); err != nil {
-			return realized, fmt.Errorf("substrate: apk add --root %s %v: %w\n%s", root, toInstall, err, strings.TrimSpace(string(out)))
+			// Only what was already there is realized; reporting the rest would claim
+			// tools this run never staged.
+			return presentOnly(realized), fmt.Errorf("substrate: apk add --root %s %v: %w\n%s", root, toInstall, err, strings.TrimSpace(string(out)))
 		}
 		versions := apkVersions(ctx, root, toInstall)
 		for i := range realized {
@@ -202,12 +207,26 @@ func relocatedRealized(root string, n Need, present bool) Realized {
 			lib = append(lib, filepath.Join(root, d))
 		}
 		r.Env = map[string]string{"PERL5LIB": strings.Join(lib, ":")}
+	case "pkg-config":
+		// The root's .pc files say prefix=/usr; relocation derives each prefix from where
+		// its .pc file sits, so the root's packages resolve into the root while the
+		// host's own .pc files (found through pkgconf's built-in path) stay as they are.
+		r.Env = map[string]string{
+			"PKG_CONFIG_PATH": filepath.Join(root, "usr", "lib", "pkgconfig") + ":" +
+				filepath.Join(root, "usr", "share", "pkgconfig"),
+			"PKG_CONFIG_RELOCATE_PATHS": "1",
+		}
+	case "openssl":
+		// openssl-sys reads OPENSSL_DIR's include/ and lib/ before asking pkg-config: the
+		// same headers and libraries a system install would give it.
+		r.Env = map[string]string{"OPENSSL_DIR": filepath.Join(root, "usr")}
 	}
 	return r
 }
 
 // realizeSystem installs the needs' packages into the system with apk, which takes
-// root; a non-root runner gets an error naming what is missing and why.
+// root; a non-root runner gets an error naming what is missing and why. Nothing is
+// returned as realized unless apk installed it.
 func realizeSystem(ctx context.Context, cacheDir string, needs []Need) ([]Realized, error) {
 	var toInstall []string
 	var realized []Realized
@@ -223,7 +242,7 @@ func realizeSystem(ctx context.Context, cacheDir string, needs []Need) ([]Realiz
 	}
 	sort.Strings(toInstall)
 	if uid := geteuid(); uid != 0 {
-		return realized, fmt.Errorf("substrate: %s needs %s, which cannot be installed without root (this runner runs as uid %d): "+
+		return nil, fmt.Errorf("substrate: %s needs %s, which cannot be installed without root (this runner runs as uid %d): "+
 			"run it on a runner that runs as root, or in a job image that ships %s",
 			needSources(needs), missingCapabilities(realized), uid, strings.Join(toInstall, " "))
 	}
@@ -233,7 +252,7 @@ func realizeSystem(ctx context.Context, cacheDir string, needs []Need) ([]Realiz
 	}
 	args = append(args, toInstall...)
 	if out, err := apkCommand(ctx, args...); err != nil {
-		return realized, fmt.Errorf("substrate: apk add %v: %w\n%s", toInstall, err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("substrate: apk add %v: %w\n%s", toInstall, err, strings.TrimSpace(string(out)))
 	}
 	versions := apkVersions(ctx, "", toInstall)
 	for i := range realized {
@@ -242,6 +261,17 @@ func realizeSystem(ctx context.Context, cacheDir string, needs []Need) ([]Realiz
 		}
 	}
 	return realized, nil
+}
+
+// presentOnly keeps the capabilities that were already realized before an install.
+func presentOnly(realized []Realized) []Realized {
+	var out []Realized
+	for _, r := range realized {
+		if r.Present {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // apkCacheDir is the package download cache under cacheDir, created; "" when there is
